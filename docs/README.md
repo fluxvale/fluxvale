@@ -12,6 +12,7 @@ what's still open. v1: <https://github.com/fluxvale/fluxvale_old>
 | [product.md](product.md) | What FluxVale is, positioning, pricing model |
 | [architecture.md](architecture.md) | Settled stack, topology, environments, growth model, repo shape |
 | [deployment.md](deployment.md) | Deploy pipeline, smoke tests, migration rules, rollback protocol |
+| [runbooks/block-storage.md](runbooks/block-storage.md) | **Internal** operator runbook: storage beyond the self-service threshold — the capacity pool ledger, when to order a block, attach steps, approve/verify (#250) |
 | [observability.md](observability.md) | Monitoring stack, instrumentation plan, alert set |
 | [pricing-calibration.md](pricing-calibration.md) | The ADR-0028 launch-gate check: price table, market anchor, density math |
 | [pricing-recalibration-2026-10.md](pricing-recalibration-2026-10.md) | Recalibration for NetCup renewal costs (#200) — density model + options; **decided B′ ×1.2** (2026-10-22, shipped #206), B′-SG ×1.25 on standby |

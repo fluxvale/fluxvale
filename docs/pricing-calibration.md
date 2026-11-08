@@ -96,6 +96,34 @@ The doc's own verification point: the anchor's 0.25 core / 0.25 GB /
 0 GB calculator default prices $1.80 at v4 → **$2.16** at v5 (pinned
 in `price_allocation_test.exs`).
 
+## Storage beyond the self-service threshold (#250)
+
+The ladder tops out at **100 GB** self-service. Above it the platform
+orders block capacity and an operator approves the request
+([ADR-0046](adr/0046-storage-beyond-threshold.md)), so those GB price on
+their own rule: the first `threshold_gb` on the v5 curve exactly as
+below it (100 GB = 228¢), each further GB at a configured marginal rate
+— **PROVISIONAL 3¢/GB/mo** (`config :flux_vale,
+:storage_beyond_threshold`), pending the owner's one-line ratification
+(S6, the closer of #250). The marginal rate is an effective-rate COGS
+pass-through plus margin, not a market-curve term, so the regional
+surcharge never multiplies it. A test pins `threshold_gb` to the ladder's
+top storage rung, making a ladder move a reviewed two-line change.
+
+The COGS floor is ≈ **1.4¢/GB/mo** (€13/TB ≈ $14.04 at €1 ≈ $1.08), so
+3¢ carries a healthy margin: 200 GB = 228 + 100 × 3 = **528¢**; 1 TB =
+**2928¢** (≈ $29.28) vs ≈ $14.04; 7.6 TB (the attachable ceiling) ≈
+**$227.28** vs ≈ $106.70.
+
+Rejected — extend the per-GB curve instead: the v5 curve is underwater
+at 1 TB (**$12.80** vs $14.04) and the gap widens — 2 TB **$21.53** vs
+$28.08; 7.6 TB **$58.61** vs $106.70. Pass-through + margin never sells
+below the procurement it triggers, and it is one config line.
+
+The member surface shows only the computed monthly figure — never the
+per-GB rate, the COGS, or the rule (the runbook's copy rule:
+[block-storage](runbooks/block-storage.md)).
+
 ## Density vs the box (the sanity check)
 
 The recalibration doc owns the current model

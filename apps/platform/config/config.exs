@@ -293,6 +293,21 @@ config :flux_vale,
     server: "sandbox"
   ]
 
+# Storage beyond the self-service threshold (#250, ADR-0046): the ladder
+# tops out at 100 GB self-service; above it a member requests a target
+# total and an operator procures the capacity before approving. The first
+# `threshold_gb` prices on the v5 curve as today; each GB above bills at
+# `cents_per_gb` — a COGS pass-through plus margin, deliberately NOT a
+# market-curve term (the regional surcharge never multiplies it). The
+# threshold is parity-pinned to AllocationSliders' top storage rung by
+# test; `max_gb` is the attachable ceiling, not a ladder value.
+config :flux_vale, :storage_beyond_threshold, %{
+  threshold_gb: 100,
+  # PROVISIONAL — S6 (Terence's one-line ratification) sets the final rate.
+  cents_per_gb: 3,
+  max_gb: 7_600
+}
+
 # SEO canonical identity (#164, ADR-00025): canonical links, og:url, the
 # sitemap and the noindex host check all read these — the prod origin is
 # the truth regardless of the serving host (staging serves prod URLs by

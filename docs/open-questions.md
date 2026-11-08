@@ -103,6 +103,12 @@ the decision.
     Am. 2 (2026-10-26, #261): no premium tier at all — the
     "(premium)" label is retired; enabling confirms the full-rate
     cost with the instance's own settlement figures first.
+19. **Storage-request cancellation** (#250) — v1 has no member cancel: a
+    rejected request plus a re-request is the path (the four-state
+    machine is the promise). Revisit if abandonments show up in the
+    operator queue; a `cancelled` state or a withdraw action is the
+    later one-line addition. Plan:
+    [250-storage-approval.md](plans/250-storage-approval.md).
 
 ## Platform
 

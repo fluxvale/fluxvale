@@ -45,6 +45,15 @@ defmodule FluxVale.Pricing.Operations.PriceAllocation do
   construction. Seeded-size instances keep snapshotting their Size row
   (#121's model — admin price edits stay effective for them); at the
   seeded allocations the two paths agree exactly.
+
+  Storage beyond the self-service threshold (#250, ADR-0046): the first
+  `threshold_gb` price on the v5 curve exactly as below it; each GB
+  above bills at the configured marginal rate. That rate is the seeded
+  region's effective COGS pass-through plus margin — not a market-curve
+  term — so the regional surcharge does not multiply it (a second region
+  gets its own configured rate when it exists). Configured, never
+  hardcoded: the rate is the owner's number, and the calibration tests
+  pin the boundary (docs/pricing-calibration.md).
   """
 
   # The curve, as extracted for the calibration check (v4). cpu_base
@@ -143,8 +152,22 @@ defmodule FluxVale.Pricing.Operations.PriceAllocation do
   end
 
   defp storage_usd_cents(storage_gb, surcharge) do
-    usd = @storage_multiplier * :math.pow(storage_gb / 1, @storage_exponent)
-    half_up_cents(surcharge * usd)
+    %{threshold_gb: threshold, cents_per_gb: marginal} =
+      Application.fetch_env!(:flux_vale, :storage_beyond_threshold)
+
+    # Above the threshold: the curve's price AT the threshold plus the
+    # configured marginal rate per extra GB (ADR-0046). Rounding at the
+    # threshold keeps below/at it byte-identical to the calibration table.
+    if storage_gb > threshold do
+      threshold_cents = half_up_cents(surcharge * storage_usd(threshold))
+      threshold_cents + (storage_gb - threshold) * marginal
+    else
+      half_up_cents(surcharge * storage_usd(storage_gb))
+    end
+  end
+
+  defp storage_usd(storage_gb) do
+    @storage_multiplier * :math.pow(storage_gb / 1, @storage_exponent)
   end
 
   # Whole cents, exact halves up — the seed table's documented rounding
