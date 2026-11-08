@@ -1932,7 +1932,6 @@
                       "type": "string"
                     },
                     "version": {
-                      "pattern": "^\\d+$",
                       "type": "string"
                     }
                   },
@@ -9637,7 +9636,6 @@
                                     "type": "string"
                                   },
                                   "version": {
-                                    "pattern": "^\\d+$",
                                     "type": "string"
                                   }
                                 },
@@ -10217,7 +10215,6 @@
                                       "type": "string"
                                     },
                                     "version": {
-                                      "pattern": "^\\d+$",
                                       "type": "string"
                                     }
                                   },

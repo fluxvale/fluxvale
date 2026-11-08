@@ -194,7 +194,7 @@ defmodule FluxVale.Catalog.Types.BackingServiceTest do
                "type" => "object",
                "properties" => %{
                  "kind" => %{"type" => "string", "enum" => ["postgres", "redis"]},
-                 "version" => %{"type" => "string", "pattern" => "^\\d+$"},
+                 "version" => %{"type" => "string"},
                  "url_env" => %{"type" => "string"}
                },
                "required" => ["kind", "version", "url_env"],

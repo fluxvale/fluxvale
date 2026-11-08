@@ -113,8 +113,11 @@ defmodule FluxVale.Catalog.Types.BackingService do
 
   # The OpenAPI artifact's item schema (#616 review): without this the
   # rendered array attribute carries `items: {}` — any JSON. The wire
-  # shape is dump/1's: three fields, kind from the closed set, version
-  # digits-only, exactly the fields the type enforces.
+  # shape is dump/1's: three fields, kind from the closed set, exactly
+  # the fields the type enforces. No `pattern` on version on purpose:
+  # the CLI type generator emits regress-validated code for patterns
+  # (a dep fluxvale-api doesn't carry) — the major shape is enforced
+  # server-side by the type itself.
   @impl AshJsonApi.Type
   def json_schema(_constraints) do
     %{
@@ -124,7 +127,7 @@ defmodule FluxVale.Catalog.Types.BackingService do
           "type" => "string",
           "enum" => Enum.map(@known_kinds, &Atom.to_string/1)
         },
-        "version" => %{"type" => "string", "pattern" => "^\\d+$"},
+        "version" => %{"type" => "string"},
         "url_env" => %{"type" => "string"}
       },
       "required" => ["kind", "version", "url_env"],
