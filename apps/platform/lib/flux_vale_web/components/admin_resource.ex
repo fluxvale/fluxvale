@@ -2,8 +2,11 @@ defmodule FluxValeWeb.AdminResource do
   @moduledoc """
   The generic resource console's type-driven render pieces (#595, the
   plan at docs/plans/595-resource-console.md): one value renderer per
-  attribute shape (the plan's rendering table) plus the count-aware
-  offset pagination controls. The LiveView engine
+  attribute shape (the plan's rendering table), the count-aware offset
+  pagination controls, the write affordances (the visible?-gated New
+  link and actions bar — nothing renders when nothing is permitted),
+  and the form-input mapping (attribute shape to `<.input>` type, the
+  plan's input contracts table). The LiveView engine
   (`FluxValeWeb.AdminLive.Resources`) introspects the resource and
   hands each attribute's shape and value here — nothing in this module
   reads a resource, so the registry stays the only surface that knows
