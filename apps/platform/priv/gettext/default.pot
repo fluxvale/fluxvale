@@ -13,7 +13,6 @@ msgstr ""
 
 #: lib/flux_vale_web/components/core_components.ex:718
 #: lib/flux_vale_web/live/admin_live/billing.ex:286
-#: lib/flux_vale_web/live/admin_live/gateways.ex:357
 #: lib/flux_vale_web/live/admin_live/moderation.ex:1046
 #: lib/flux_vale_web/live/admin_live/moderation.ex:1438
 #: lib/flux_vale_web/live/admin_live/orgs.ex:313
@@ -674,42 +673,39 @@ msgstr ""
 msgid "Guides"
 msgstr ""
 
-#: lib/flux_vale_web/components/admin_shell.ex:134
-#: lib/flux_vale_web/live/admin_live/gateways.ex:224
+#: lib/flux_vale_web/components/admin_shell.ex:140
 #, elixir-autogen, elixir-format
 msgid "Access gateways and domains"
 msgstr ""
 
-#: lib/flux_vale_web/components/admin_shell.ex:48
+#: lib/flux_vale_web/components/admin_shell.ex:47
 #, elixir-autogen, elixir-format
 msgid "Admin"
 msgstr ""
 
-#: lib/flux_vale_web/components/admin_shell.ex:162
+#: lib/flux_vale_web/components/admin_shell.ex:166
 #, elixir-autogen, elixir-format
 msgid "AshAdmin"
 msgstr ""
 
-#: lib/flux_vale_web/components/admin_shell.ex:151
+#: lib/flux_vale_web/components/admin_shell.ex:155
 #, elixir-autogen, elixir-format
 msgid "Deep debugging"
 msgstr ""
 
-#: lib/flux_vale_web/components/admin_shell.ex:119
+#: lib/flux_vale_web/components/admin_shell.ex:133
 #: lib/flux_vale_web/live/admin_live/moderation.ex:902
 #, elixir-autogen, elixir-format
 msgid "Feedback moderation"
 msgstr ""
 
-#: lib/flux_vale_web/components/admin_shell.ex:163
+#: lib/flux_vale_web/components/admin_shell.ex:167
 #, elixir-autogen, elixir-format
 msgid "LiveDashboard"
 msgstr ""
 
 #: lib/flux_vale_web/live/admin_live/billing.ex:195
 #: lib/flux_vale_web/live/admin_live/catalog.ex:52
-#: lib/flux_vale_web/live/admin_live/gateway_detail.ex:183
-#: lib/flux_vale_web/live/admin_live/gateways.ex:223
 #: lib/flux_vale_web/live/admin_live/moderation.ex:901
 #: lib/flux_vale_web/live/admin_live/org_detail.ex:249
 #: lib/flux_vale_web/live/admin_live/orgs.ex:194
@@ -723,24 +719,24 @@ msgstr ""
 msgid "Operator console"
 msgstr ""
 
-#: lib/flux_vale_web/components/admin_shell.ex:125
+#: lib/flux_vale_web/components/admin_shell.ex:139
 #: lib/flux_vale_web/live/admin_live/orgs.ex:195
 #, elixir-autogen, elixir-format
 msgid "Orgs and instances"
 msgstr ""
 
-#: lib/flux_vale_web/components/admin_shell.ex:110
+#: lib/flux_vale_web/components/admin_shell.ex:124
 #: lib/flux_vale_web/live/admin_live/people.ex:406
 #, elixir-autogen, elixir-format
 msgid "People and invites"
 msgstr ""
 
-#: lib/flux_vale_web/components/admin_shell.ex:158
+#: lib/flux_vale_web/components/admin_shell.ex:162
 #, elixir-autogen, elixir-format
 msgid "The generated tools. They run as trusted superuser without the resource policies. For emergencies and data surgery."
 msgstr ""
 
-#: lib/flux_vale_web/components/admin_shell.ex:115
+#: lib/flux_vale_web/components/admin_shell.ex:129
 #: lib/flux_vale_web/live/admin_live/billing.ex:196
 #, elixir-autogen, elixir-format
 msgid "Wallets and billing"
@@ -759,7 +755,7 @@ msgstr ""
 msgid "%{cpu} CPU · %{memory} MB · %{storage} GB"
 msgstr ""
 
-#: lib/flux_vale_web/components/catalog_page_components.ex:168
+#: lib/flux_vale_web/components/catalog_page_components.ex:174
 #: lib/flux_vale_web/live/admin_live/catalog.ex:116
 #: lib/flux_vale_web/live/admin_live/sizes.ex:112
 #, elixir-autogen, elixir-format
@@ -832,7 +828,7 @@ msgstr ""
 msgid "CPU cores"
 msgstr ""
 
-#: lib/flux_vale_web/components/admin_shell.ex:111
+#: lib/flux_vale_web/components/admin_shell.ex:125
 #: lib/flux_vale_web/live/admin_live/catalog.ex:53
 #, elixir-autogen, elixir-format
 msgid "Catalog and pricing"
@@ -981,7 +977,6 @@ msgid "None"
 msgstr ""
 
 #: lib/flux_vale_web/live/admin_live/billing.ex:379
-#: lib/flux_vale_web/live/admin_live/gateways.ex:411
 #, elixir-autogen, elixir-format
 msgid "Open"
 msgstr ""
@@ -1016,7 +1011,7 @@ msgstr ""
 msgid "Re-point ahead"
 msgstr ""
 
-#: lib/flux_vale_web/components/catalog_page_components.ex:174
+#: lib/flux_vale_web/components/catalog_page_components.ex:180
 #: lib/flux_vale_web/live/admin_live/version_edit.ex:455
 #, elixir-autogen, elixir-format
 msgid "Recommended size"
@@ -1078,7 +1073,7 @@ msgstr ""
 msgid "This version will point at %{slug}. Future deploys provision and bill %{slug} at %{rate}."
 msgstr ""
 
-#: lib/flux_vale_web/components/catalog_page_components.ex:261
+#: lib/flux_vale_web/components/catalog_page_components.ex:267
 #: lib/flux_vale_web/live/admin_live/catalog.ex:98
 #, elixir-autogen, elixir-format
 msgid "Version"
@@ -1140,7 +1135,7 @@ msgstr ""
 msgid "Its compute defaults must keep matching this size. Re-point those versions to another size, or retire them in the debug admin. Then this compute can move."
 msgstr ""
 
-#: lib/flux_vale_web/components/allocation_sliders.ex:245
+#: lib/flux_vale_web/components/allocation_sliders.ex:236
 #, elixir-autogen, elixir-format
 msgid "Priced per GB of storage, including while the instance is stopped."
 msgstr ""
@@ -1254,7 +1249,6 @@ msgstr ""
 msgid "One email goes out with a one-time accept link. The account stays inert until the link is used."
 msgstr ""
 
-#: lib/flux_vale_web/components/admin_components.ex:242
 #: lib/flux_vale_web/live/admin_live/people.ex:366
 #, elixir-autogen, elixir-format
 msgid "Pending"
@@ -1270,8 +1264,6 @@ msgstr ""
 msgid "Send invite"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/gateway_detail.ex:396
-#: lib/flux_vale_web/live/admin_live/gateways.ex:354
 #: lib/flux_vale_web/live/admin_live/people.ex:535
 #, elixir-autogen, elixir-format
 msgid "State"
@@ -1495,7 +1487,6 @@ msgid "Org name or slug"
 msgstr ""
 
 #: lib/flux_vale_web/live/admin_live/billing.ex:282
-#: lib/flux_vale_web/live/admin_live/gateways.ex:352
 #: lib/flux_vale_web/live/admin_live/orgs.ex:309
 #, elixir-autogen, elixir-format
 msgid "Organization"
@@ -1800,7 +1791,12 @@ msgstr ""
 msgid "The org's instances are stopped. The destroy clock starts at the next automatic check. A top-up that puts the balance back above zero clears it there."
 msgstr ""
 
-#: lib/flux_vale_web/components/admin_shell.ex:107
+#: lib/flux_vale_web/components/admin_shell.ex:97
+#, elixir-autogen, elixir-format
+msgid "Coming"
+msgstr ""
+
+#: lib/flux_vale_web/components/admin_shell.ex:121
 #, elixir-autogen, elixir-format
 msgid "Sections"
 msgstr ""
@@ -2224,13 +2220,13 @@ msgstr ""
 msgid "Previous"
 msgstr ""
 
-#: lib/flux_vale_web/components/admin_shell.ex:146
+#: lib/flux_vale_web/components/admin_shell.ex:150
 #: lib/flux_vale_web/live/admin_live/resources.ex:606
 #, elixir-autogen, elixir-format
 msgid "Resource console"
 msgstr ""
 
-#: lib/flux_vale_web/components/admin_shell.ex:143
+#: lib/flux_vale_web/components/admin_shell.ex:147
 #, elixir-autogen, elixir-format
 msgid "Resources"
 msgstr ""
@@ -2305,8 +2301,6 @@ msgstr ""
 msgid "Balance state"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/gateway_detail.ex:289
-#: lib/flux_vale_web/live/admin_live/gateways.ex:356
 #: lib/flux_vale_web/live/admin_live/org_detail.ex:460
 #, elixir-autogen, elixir-format
 msgid "Created"
@@ -2443,432 +2437,460 @@ msgstr ""
 msgid "Sign in with the shipped default admin, then change the password"
 msgstr ""
 
-#: lib/flux_vale_web/components/catalog_page_components.ex:358
+#: lib/flux_vale_web/components/catalog_page_components.ex:636
 #, elixir-autogen, elixir-format
 msgid "%{count}d ago"
 msgstr ""
 
-#: lib/flux_vale_web/components/catalog_page_components.ex:179
+#: lib/flux_vale_web/components/catalog_page_components.ex:185
 #, elixir-autogen, elixir-format
 msgid "%{cpu} CPU"
 msgstr ""
 
-#: lib/flux_vale_web/components/catalog_page_components.ex:182
+#: lib/flux_vale_web/components/catalog_page_components.ex:188
 #, elixir-autogen, elixir-format
 msgid "%{memory} MB RAM"
 msgstr ""
 
-#: lib/flux_vale_web/components/catalog_page_components.ex:62
+#: lib/flux_vale_web/components/catalog_page_components.ex:65
 #, elixir-autogen, elixir-format
 msgid "%{name} hosting"
 msgstr ""
 
-#: lib/flux_vale_web/components/catalog_page_components.ex:185
+#: lib/flux_vale_web/components/catalog_page_components.ex:191
 #, elixir-autogen, elixir-format
 msgid "%{storage} GB storage"
 msgstr ""
 
-#: lib/flux_vale_web/components/catalog_page_components.ex:339
+#: lib/flux_vale_web/components/catalog_page_components.ex:617
 #, elixir-autogen, elixir-format
 msgid "An alternative to %{lead} and %{last}."
 msgstr ""
 
-#: lib/flux_vale_web/components/catalog_page_components.ex:330
+#: lib/flux_vale_web/components/catalog_page_components.ex:608
 #, elixir-autogen, elixir-format
 msgid "An alternative to %{name}."
 msgstr ""
 
-#: lib/flux_vale_web/components/catalog_page_components.ex:333
+#: lib/flux_vale_web/components/catalog_page_components.ex:611
 #, elixir-autogen, elixir-format
 msgid "An alternative to %{one} and %{two}."
 msgstr ""
 
-#: lib/flux_vale_web/components/catalog_page_components.ex:298
+#: lib/flux_vale_web/components/catalog_page_components.ex:304
 #, elixir-autogen, elixir-format
 msgid "Backups"
 msgstr ""
 
-#: lib/flux_vale_web/components/catalog_page_components.ex:41
+#: lib/flux_vale_web/components/catalog_page_components.ex:44
 #, elixir-autogen, elixir-format
 msgid "Catalog"
 msgstr ""
 
-#: lib/flux_vale_web/components/catalog_page_components.ex:121
+#: lib/flux_vale_web/components/catalog_page_components.ex:124
 #, elixir-autogen, elixir-format
 msgid "Community"
 msgstr ""
 
-#: lib/flux_vale_web/components/catalog_page_components.ex:223
+#: lib/flux_vale_web/components/catalog_page_components.ex:229
+#: lib/flux_vale_web/components/catalog_page_content.ex:157
 #, elixir-autogen, elixir-format
 msgid "Deploy %{name}"
 msgstr ""
 
-#: lib/flux_vale_web/components/catalog_page_components.ex:114
+#: lib/flux_vale_web/components/catalog_page_components.ex:117
 #, elixir-autogen, elixir-format
 msgid "Docs"
 msgstr ""
 
-#: lib/flux_vale_web/components/catalog_page_components.ex:310
+#: lib/flux_vale_web/components/catalog_page_components.ex:316
 #, elixir-autogen, elixir-format
 msgid "File access"
 msgstr ""
 
-#: lib/flux_vale_web/components/catalog_page_components.ex:197
+#: lib/flux_vale_web/components/catalog_page_components.ex:203
 #, elixir-autogen, elixir-format
 msgid "Free HTTPS on a fluxvale.app address"
 msgstr ""
 
-#: lib/flux_vale_web/components/catalog_page_components.ex:66
+#: lib/flux_vale_web/components/catalog_page_components.ex:69
 #, elixir-autogen, elixir-format
 msgid "Managed %{name}, ready in minutes."
 msgstr ""
 
-#: lib/flux_vale_web/components/catalog_page_components.ex:227
+#: lib/flux_vale_web/components/catalog_page_components.ex:233
 #, elixir-autogen, elixir-format
 msgid "Monthly equivalent, billed hourly. Storage bills while stopped. VAT is added to top-ups for EU customers."
 msgstr ""
 
-#: lib/flux_vale_web/components/catalog_page_components.ex:213
+#: lib/flux_vale_web/components/catalog_page_components.ex:219
 #, elixir-autogen, elixir-format
 msgid "Move files in over WebDAV"
 msgstr ""
 
-#: lib/flux_vale_web/components/catalog_page_components.ex:205
+#: lib/flux_vale_web/components/catalog_page_components.ex:211
 #, elixir-autogen, elixir-format
 msgid "Nightly backups to your own S3 bucket"
 msgstr ""
 
-#: lib/flux_vale_web/components/catalog_page_components.ex:293
+#: lib/flux_vale_web/components/catalog_page_components.ex:299
 #, elixir-autogen, elixir-format
 msgid "Nuremberg, EU"
 msgstr ""
 
-#: lib/flux_vale_web/components/catalog_page_components.ex:305
+#: lib/flux_vale_web/components/catalog_page_components.ex:311
 #, elixir-autogen, elixir-format
 msgid "Pocket ID"
 msgstr ""
 
-#: lib/flux_vale_web/components/catalog_page_components.ex:292
+#: lib/flux_vale_web/components/catalog_page_components.ex:298
 #, elixir-autogen, elixir-format
 msgid "Region"
 msgstr ""
 
-#: lib/flux_vale_web/components/catalog_page_components.ex:304
+#: lib/flux_vale_web/components/catalog_page_components.ex:310
 #, elixir-autogen, elixir-format
 msgid "SSO"
 msgstr ""
 
-#: lib/flux_vale_web/components/catalog_page_components.ex:209
+#: lib/flux_vale_web/components/catalog_page_components.ex:215
 #, elixir-autogen, elixir-format
 msgid "Sign in with your Pocket ID"
 msgstr ""
 
-#: lib/flux_vale_web/components/catalog_page_components.ex:201
+#: lib/flux_vale_web/components/catalog_page_components.ex:207
 #, elixir-autogen, elixir-format
 msgid "Sleeps when idle, wakes on the next visit"
 msgstr ""
 
-#: lib/flux_vale_web/components/catalog_page_components.ex:111
+#: lib/flux_vale_web/components/catalog_page_components.ex:114
 #, elixir-autogen, elixir-format
 msgid "Source"
 msgstr ""
 
-#: lib/flux_vale_web/components/catalog_page_components.ex:193
+#: lib/flux_vale_web/components/catalog_page_components.ex:199
 #, elixir-autogen, elixir-format
 msgid "Start with %{amount} in welcome credit"
 msgstr ""
 
-#: lib/flux_vale_web/components/catalog_page_components.ex:166
+#: lib/flux_vale_web/components/catalog_page_components.ex:172
 #, elixir-autogen, elixir-format
 msgid "Starts at"
 msgstr ""
 
-#: lib/flux_vale_web/components/catalog_page_components.ex:273
+#: lib/flux_vale_web/components/catalog_page_components.ex:279
 #, elixir-autogen, elixir-format
 msgid "Updated"
 msgstr ""
 
-#: lib/flux_vale_web/components/catalog_page_components.ex:284
+#: lib/flux_vale_web/components/catalog_page_components.ex:290
 #, elixir-autogen, elixir-format
 msgid "Wakes in"
 msgstr ""
 
-#: lib/flux_vale_web/components/catalog_page_components.ex:311
+#: lib/flux_vale_web/components/catalog_page_components.ex:317
 #, elixir-autogen, elixir-format
 msgid "WebDAV"
 msgstr ""
 
-#: lib/flux_vale_web/components/catalog_page_components.ex:93
+#: lib/flux_vale_web/components/catalog_page_components.ex:96
 #, elixir-autogen, elixir-format
 msgid "Worth knowing"
 msgstr ""
 
-#: lib/flux_vale_web/components/catalog_page_components.ex:299
+#: lib/flux_vale_web/components/catalog_page_components.ex:305
 #, elixir-autogen, elixir-format
 msgid "Your S3 bucket"
 msgstr ""
 
-#: lib/flux_vale_web/components/catalog_page_components.ex:170
+#: lib/flux_vale_web/components/catalog_page_components.ex:176
 #, elixir-autogen, elixir-format
 msgid "billed hourly from your wallet"
 msgstr ""
 
-#: lib/flux_vale_web/components/catalog_page_components.ex:356
+#: lib/flux_vale_web/components/catalog_page_components.ex:634
 #, elixir-autogen, elixir-format
 msgid "today"
 msgstr ""
 
-#: lib/flux_vale_web/components/catalog_page_components.ex:357
+#: lib/flux_vale_web/components/catalog_page_components.ex:635
 #, elixir-autogen, elixir-format
 msgid "yesterday"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/gateway_detail.ex:304
+#: lib/flux_vale_web/components/catalog_page_components.ex:415
 #, elixir-autogen, elixir-format
-msgid "A gateway's keys live in the platform's secret store, outside this app. The names below point at the store entries that hold them."
+msgid "About %{name} and FluxVale"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/gateway_detail.ex:329
+#: lib/flux_vale_web/components/catalog_page_content.ex:47
 #, elixir-autogen, elixir-format
-msgid "API token entry"
+msgid "An idle app sleeps after an hour and wakes on the next visit, usually in seconds."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/gateway_detail.ex:320
+#: lib/flux_vale_web/components/catalog_page_content.ex:219
 #, elixir-autogen, elixir-format
-msgid "Auth key entry"
+msgid "An idle app sleeps after an hour and wakes on the next visit, usually in seconds. You pay only storage while it sleeps. Turn on always-on for an app that must never sleep."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/gateway_detail.ex:200
+#: lib/flux_vale_web/components/catalog_page_content.ex:228
 #, elixir-autogen, elixir-format
-msgid "Back to gateways"
+msgid "Backups go to your own S3-compatible bucket, encrypted before they leave the cluster. Snapshots run daily, and you can restore the latest one from the instance page."
 msgstr ""
 
-#: lib/flux_vale_web/components/admin_components.ex:222
+#: lib/flux_vale_web/components/catalog_page_content.ex:56
 #, elixir-autogen, elixir-format
-msgid "Connected"
+msgid "Backups to your own bucket"
 msgstr ""
 
-#: lib/flux_vale_web/components/admin_components.ex:221
+#: lib/flux_vale_web/components/catalog_page_components.ex:353
 #, elixir-autogen, elixir-format
-msgid "Connecting"
+msgid "Benefits of hosting %{name} on FluxVale"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/gateway_detail.ex:302
+#: lib/flux_vale_web/components/catalog_page_components.ex:585
+#: lib/flux_vale_web/components/catalog_page_content.ex:158
 #, elixir-autogen, elixir-format
-msgid "Credential references"
+msgid "Browse the catalog"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/gateway_detail.ex:159
+#: lib/flux_vale_web/components/catalog_page_content.ex:279
 #, elixir-autogen, elixir-format
-msgid "Custom"
+msgid "Can I export my data and leave?"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/gateway_detail.ex:394
+#: lib/flux_vale_web/components/catalog_page_content.ex:236
 #, elixir-autogen, elixir-format
-msgid "Domain"
+msgid "Can I sign in with my Pocket ID?"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/gateway_detail.ex:361
+#: lib/flux_vale_web/components/catalog_page_content.ex:80
 #, elixir-autogen, elixir-format
-msgid "Domains"
+msgid "Connect apps that speak OpenID Connect to your own Pocket ID."
 msgstr ""
 
-#: lib/flux_vale_web/components/admin_components.ex:245
+#: lib/flux_vale_web/components/catalog_page_content.ex:169
 #, elixir-autogen, elixir-format
-msgid "Failed"
+msgid "Deploy it and open the URL. %{name} is ready to use out of the box."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/gateways.ex:252
+#: lib/flux_vale_web/components/catalog_page_content.ex:191
 #, elixir-autogen, elixir-format
-msgid "Find a gateway"
+msgid "Do I need my own server or Docker?"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/gateway_detail.ex:222
-#: lib/flux_vale_web/live/admin_live/gateways.ex:353
+#: lib/flux_vale_web/components/catalog_page_content.ex:218
 #, elixir-autogen, elixir-format
-msgid "Gateway"
+msgid "Does it stop when nobody uses it?"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/gateway_detail.ex:186
+#: lib/flux_vale_web/components/catalog_page_content.ex:65
 #, elixir-autogen, elixir-format
-msgid "Gateway of %{org}"
+msgid "Every instance gets a fluxvale.app address and a certificate. Custom domains ride the private-access lane."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/gateways.ex:234
+#: lib/flux_vale_web/components/catalog_page_content.ex:75
 #, elixir-autogen, elixir-format
-msgid "Gateway reads are member-scoped, so this list is the gateways of orgs you belong to."
+msgid "Everything runs in Nuremberg, EU. More regions are planned."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/gateways.ex:323
+#: lib/flux_vale_web/components/catalog_page_components.ex:127
+#: lib/flux_vale_web/components/catalog_page_components.ex:403
 #, elixir-autogen, elixir-format
-msgid "Gateways are readable by org members only, so none are listed here."
+msgid "FAQ"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/gateway_detail.ex:241
+#: lib/flux_vale_web/components/catalog_page_content.ex:83
 #, elixir-autogen, elixir-format
-msgid "Hostname"
+msgid "Files over WebDAV"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/gateways.ex:268
+#: lib/flux_vale_web/components/catalog_page_content.ex:63
 #, elixir-autogen, elixir-format
-msgid "Hostname or org"
+msgid "Free HTTPS, your own domain"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/gateway_detail.ex:395
+#: lib/flux_vale_web/components/catalog_page_components.ex:404
 #, elixir-autogen, elixir-format
-msgid "Kind"
+msgid "Frequently asked questions"
 msgstr ""
 
-#: lib/flux_vale_web/components/admin_components.ex:223
-#: lib/flux_vale_web/components/admin_components.ex:244
+#: lib/flux_vale_web/components/catalog_page_components.ex:563
 #, elixir-autogen, elixir-format
-msgid "Needs attention"
+msgid "From %{rate}/mo plus storage"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/gateway_detail.ex:385
+#: lib/flux_vale_web/components/catalog_page_components.ex:370
 #, elixir-autogen, elixir-format
-msgid "No domains registered for this org yet."
+msgid "How FluxVale works"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/gateways.ex:333
+#: lib/flux_vale_web/components/catalog_page_content.ex:227
 #, elixir-autogen, elixir-format
-msgid "No gateway matches that search."
+msgid "How do I back it up?"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/gateways.ex:301
+#: lib/flux_vale_web/components/catalog_page_content.ex:248
 #, elixir-autogen, elixir-format
-msgid "No gateways in the orgs you belong to."
+msgid "How do I move files in?"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/gateway_detail.ex:325
-#: lib/flux_vale_web/live/admin_live/gateway_detail.ex:347
+#: lib/flux_vale_web/components/catalog_page_content.ex:177
 #, elixir-autogen, elixir-format
-msgid "Not recorded."
+msgid "How do I set up %{name}?"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/gateway_detail.ex:158
+#: lib/flux_vale_web/components/catalog_page_content.ex:208
 #, elixir-autogen, elixir-format
-msgid "Platform"
+msgid "It depends on the resources you pick. Compute bills hourly from your wallet at one flat rate. Storage bills per GB and keeps billing while the app sleeps. The deploy step shows the exact figure before you confirm."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/gateways.ex:304
+#: lib/flux_vale_web/components/catalog_page_content.ex:84
 #, elixir-autogen, elixir-format
-msgid "Private access is opt-in per org. An org's gateway appears here once its owner enables it."
+msgid "Move a library in over WebDAV, no SSH needed."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/gateways.ex:226
+#: lib/flux_vale_web/components/catalog_page_content.ex:153
 #, elixir-autogen, elixir-format
-msgid "Private-access gateways and the domains that serve them. This page is read-only: registration and keys live on each org's Access panel."
+msgid "New accounts start with %{amount} in welcome credit. Deploy in minutes."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/gateway_detail.ex:259
+#: lib/flux_vale_web/components/catalog_page_content.ex:58
 #, elixir-autogen, elixir-format
-msgid "Provider"
+msgid "Nightly encrypted snapshots to your S3-compatible storage, restorable in place."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/gateway_detail.ex:281
+#: lib/flux_vale_web/components/catalog_page_content.ex:53
 #, elixir-autogen, elixir-format
-msgid "Provisioned"
+msgid "No ads, no profiling, no platform-side copies of your app data."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/gateway_detail.ex:265
-#: lib/flux_vale_web/live/admin_live/gateways.ex:355
+#: lib/flux_vale_web/components/catalog_page_content.ex:192
 #, elixir-autogen, elixir-format
-msgid "Rate"
+msgid "No. FluxVale runs it on managed Kubernetes. You pick a name and resources, and the platform handles the rest."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/gateway_detail.ex:397
+#: lib/flux_vale_web/components/catalog_page_content.ex:289
 #, elixir-autogen, elixir-format
-msgid "Registered"
+msgid "Nuremberg, in the European Union. There is one region today, and the architecture is built so more can follow."
 msgstr ""
 
-#: lib/flux_vale_web/components/admin_components.ex:225
+#: lib/flux_vale_web/components/catalog_page_content.ex:42
 #, elixir-autogen, elixir-format
-msgid "Removing"
+msgid "One rate for the resources you pick, billed hourly. No subscriptions."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/gateways.ex:269
+#: lib/flux_vale_web/components/catalog_page_content.ex:74
 #, elixir-autogen, elixir-format
-msgid "Search by hostname or org name or slug"
+msgid "One region, honestly"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/gateways.ex:254
+#: lib/flux_vale_web/components/catalog_page_content.ex:249
 #, elixir-autogen, elixir-format
-msgid "Search narrows this list by hostname or org name or slug. It never reaches past it."
+msgid "Over WebDAV. The instance page shows the app's /dav address and its username and password. Point any WebDAV client there and copy your files in."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/gateway_detail.ex:374
+#: lib/flux_vale_web/components/catalog_page_content.ex:70
 #, elixir-autogen, elixir-format
-msgid "Showing the latest 100 domains."
+msgid "Pinned, tested upstream versions"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/gateways.ex:285
+#: lib/flux_vale_web/components/catalog_page_content.ex:41
 #, elixir-autogen, elixir-format
-msgid "Showing the latest 100 gateways. Attention pins to the top."
+msgid "Predictable pricing"
 msgstr ""
 
-#: lib/flux_vale_web/components/admin_components.ex:224
-#: lib/flux_vale_web/components/admin_components.ex:246
+#: lib/flux_vale_web/components/catalog_page_content.ex:242
 #, elixir-autogen, elixir-format
-msgid "Suspended"
+msgid "Read the SSO guide"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/gateway_detail.ex:250
+#: lib/flux_vale_web/components/catalog_page_content.ex:151
 #, elixir-autogen, elixir-format
-msgid "Tailnet domain"
+msgid "Ready to run %{name}?"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/gateway_detail.ex:161
+#: lib/flux_vale_web/components/catalog_page_content.ex:79
 #, elixir-autogen, elixir-format
-msgid "Tailscale"
+msgid "SSO with Pocket ID"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/gateway_detail.ex:78
+#: lib/flux_vale_web/components/catalog_page_components.ex:408
 #, elixir-autogen, elixir-format
-msgid "That gateway does not exist."
+msgid "Setting up %{name}"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/gateway_detail.ex:90
+#: lib/flux_vale_web/components/catalog_page_components.ex:442
 #, elixir-autogen, elixir-format
-msgid "That gateway is not listed. Gateway reads are member-scoped."
+msgid "Similar apps"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/gateway_detail.ex:190
+#: lib/flux_vale_web/components/catalog_page_components.ex:443
 #, elixir-autogen, elixir-format
-msgid "The gateway's facts, its credential references, and this org's domains. Everything here is read-only: the org's Access panel owns the writes."
+msgid "Similar apps on FluxVale"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/gateway_detail.ex:101
+#: lib/flux_vale_web/components/catalog_page_content.ex:45
 #, elixir-autogen, elixir-format
-msgid "The gateway's org did not load. Try again."
+msgid "Sleep by default"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/gateway_detail.ex:312
+#: lib/flux_vale_web/components/catalog_page_content.ex:202
 #, elixir-autogen, elixir-format
-msgid "The keys themselves are never stored in the app database and never pass through this console. This page can show a name, never a key."
+msgid "Starts at %{rate}/mo at the recommended size, billed hourly from your wallet. Storage bills per GB and keeps billing while the app sleeps."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/gateway_detail.ex:363
+#: lib/flux_vale_web/components/catalog_page_components.ex:589
 #, elixir-autogen, elixir-format
-msgid "The names this org serves its private instances under. Registration lives on the org's own surfaces."
+msgid "The whole catalog on one page."
 msgstr ""
 
-#: lib/flux_vale_web/components/admin_components.ex:243
+#: lib/flux_vale_web/components/catalog_page_content.ex:71
 #, elixir-autogen, elixir-format
-msgid "Verified"
+msgid "We publish one tested version per app and track upstream releases."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/gateways.ex:320
+#: lib/flux_vale_web/components/catalog_page_content.ex:213
 #, elixir-autogen, elixir-format
-msgid "You are not a member of any org."
+msgid "What does %{name} cost?"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/gateways.ex:391
+#: lib/flux_vale_web/components/catalog_page_content.ex:273
 #, elixir-autogen, elixir-format
-msgid "per month"
+msgid "What does %{name} replace?"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/gateway_detail.ex:271
+#: lib/flux_vale_web/components/catalog_page_content.ex:288
 #, elixir-autogen, elixir-format
-msgid "per month, billed while connected. Suspended or removed, nothing accrues."
+msgid "Which region does it run in?"
+msgstr ""
+
+#: lib/flux_vale_web/components/catalog_page_content.ex:259
+#, elixir-autogen, elixir-format
+msgid "Who owns the data I keep on FluxVale?"
+msgstr ""
+
+#: lib/flux_vale_web/components/catalog_page_components.ex:351
+#, elixir-autogen, elixir-format
+msgid "Why FluxVale"
+msgstr ""
+
+#: lib/flux_vale_web/components/catalog_page_content.ex:280
+#, elixir-autogen, elixir-format
+msgid "Yes. The apps are open-source and their formats are yours. Backups land in your own bucket in standard restic format, so the data leaves with you. Apps with file access also serve their files over WebDAV."
+msgstr ""
+
+#: lib/flux_vale_web/components/catalog_page_content.ex:238
+#, elixir-autogen, elixir-format
+msgid "Yes. This app speaks OpenID Connect, so it can hand its sign-in to your own Pocket ID instance. Some apps wire up at deploy time and others in their own settings. The guide covers each app."
+msgstr ""
+
+#: lib/flux_vale_web/components/catalog_page_content.ex:261
+#, elixir-autogen, elixir-format
+msgid "You do. Your app data lives on your instance's volume. Enable file access or your own backup bucket and it is there to download, migrate, edit, or delete. The platform takes no copies."
+msgstr ""
+
+#: lib/flux_vale_web/components/catalog_page_content.ex:52
+#, elixir-autogen, elixir-format
+msgid "Your data stays yours"
 msgstr ""
