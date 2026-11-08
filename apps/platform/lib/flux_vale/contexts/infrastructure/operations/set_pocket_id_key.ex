@@ -56,8 +56,7 @@ defmodule FluxVale.Infrastructure.Operations.SetPocketIdKey do
   """
   @spec call(Instance.t(), String.t(), keyword()) ::
           {:ok, PocketIdCustody.t()} | {:error, term()}
-  def call(%Instance{} = instance, api_key, opts \\ [])
-      when is_binary(api_key) do
+  def call(%Instance{} = instance, api_key, opts \\ []) when is_binary(api_key) do
     actor = opts[:actor]
     authorize? = Keyword.get(opts, :authorize?, true)
 

@@ -119,4 +119,29 @@ defmodule FluxVale.Infrastructure.Operations.RevokePocketIdKeyTest do
     assert {:error, _forbidden} =
              Infrastructure.revoke_pocket_id_key(instance, actor: stranger)
   end
+
+  test "a nil actor is refused as not-an-owner even authorize?-free", %{
+    instance: instance
+  } do
+    assert {:error, :not_org_owner} =
+             Infrastructure.revoke_pocket_id_key(instance, authorize?: false)
+  end
+
+  # The recovery property's tail: a row-destroy failure AFTER the
+  # Secret is gone surfaces — the retry's 404-tolerant delete converges.
+  test "a row-destroy failure surfaces after the Secret is deleted", %{
+    owner: owner,
+    instance: instance
+  } do
+    stub(PocketIdCustody, :revoke, fn _custody, _opts -> {:error, :forced_db} end)
+
+    assert {:error, :forced_db} =
+             Infrastructure.revoke_pocket_id_key(instance, actor: owner)
+
+    # The row survives for the retry; no :revoked event for what did
+    # not finish.
+    assert {:ok, _row} = PocketIdCustody.get_by_instance(instance.id, authorize?: false)
+
+    assert {:ok, []} = PocketIdCustodyEvent.for_instance(instance.id, authorize?: false)
+  end
 end

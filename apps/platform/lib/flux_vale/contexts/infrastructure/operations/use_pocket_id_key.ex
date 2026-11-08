@@ -49,6 +49,10 @@ defmodule FluxVale.Infrastructure.Operations.UsePocketIdKey do
   defp load_instance(%PocketIdCustody{instance_id: instance_id}) do
     case Ash.get(FluxVale.Infrastructure.Instance, instance_id, authorize?: false) do
       {:ok, instance} -> {:ok, instance}
+      # Defensive: the custody row's FK restricts instance deletion —
+      # an instance that vanishes mid-call cannot be staged in the
+      # sandbox (its destroy would cascade the custody first).
+      # coveralls-ignore-next-line
       {:error, _vanishing_instance} = error -> error
     end
   end

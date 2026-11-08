@@ -69,8 +69,11 @@ if Mix.env() == :test do
   Mimic.copy(FluxVale.Infrastructure.AccessProvider)
   # #597 S2: the PocketID custody seam. Operation tests stub the API
   # client (the Tailscale ApiClient stance); the client's own suite
-  # stubs Req.
+  # stubs Req. The custody resource is copied for the revoke
+  # convergence test's forced row-destroy failure (the AccessRoute
+  # stance).
   Mimic.copy(FluxVale.Infrastructure.PocketId.ApiClient)
+  Mimic.copy(FluxVale.Infrastructure.PocketIdCustody)
   # The verify pass's failure tally (review round 1): a test must be able
   # to force a transition-write failure at the AccessDomain seam.
   Mimic.copy(FluxVale.Infrastructure.AccessDomain)

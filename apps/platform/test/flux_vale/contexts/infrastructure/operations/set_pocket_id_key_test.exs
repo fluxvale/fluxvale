@@ -247,6 +247,20 @@ defmodule FluxVale.Infrastructure.Operations.SetPocketIdKeyTest do
       assert custody.expires_at == nil
     end
 
+    test "a correlated key with no expiresAt stores nil — Pocket ID's own no-expiry keys", %{
+      owner: owner,
+      instance: instance
+    } do
+      now = DateTime.utc_now()
+
+      stub(ApiClient, :list_api_keys, fn _url, _key ->
+        {:ok, [%{"id" => "used", "lastUsedAt" => iso(now, -2)}]}
+      end)
+
+      assert {:ok, custody} = Infrastructure.set_pocket_id_key(instance, @key, actor: owner)
+      assert custody.expires_at == nil
+    end
+
     test "a listing failure degrades to nil — the store still succeeds", %{
       owner: owner,
       instance: instance
