@@ -203,15 +203,27 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
               native select — one control, no dropdown chrome to manage;
               the wizard's own band is the only surface that needs it.
               Hidden when the actor resolves no orgs at all (the seeded
-              shape — the create keeps its personal-org default). --%>
-              <div :if={@org_options != []} class="mt-4 flex items-center gap-3">
+              shape — the create keeps its personal-org default).
+
+              The wrapping form is load-bearing, not layout: phx-change
+              is a FORM binding — on the bare select no change event
+              ever reached the server (the picker looked picked in the
+              DOM while the create kept the personal-org default;
+              found from the browser while capturing #597 S3 — the
+              channel-level tests bypass the DOM binding, so only a
+              real browser trips it). --%>
+              <form
+                :if={@org_options != []}
+                id="deploy-org-form"
+                phx-change="pick-org"
+                class="mt-4 flex items-center gap-3"
+              >
                 <label for="deploy-org" class="text-sm text-ink-muted">
                   Deploy to
                 </label>
                 <select
                   id="deploy-org"
                   name="org_id"
-                  phx-change="pick-org"
                   data-testid="deploy-org-picker"
                   class="rounded-lg border border-line bg-panel px-2.5 py-1.5 text-sm text-ink outline-offset-2 outline-focus transition-colors hover:bg-panel-raised focus-visible:outline-2"
                 >
@@ -219,7 +231,7 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
                     {org.name}
                   </option>
                 </select>
-              </div>
+              </form>
             </div>
           </div>
         </section>
@@ -408,7 +420,7 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
                     >
                       <p class="font-medium">Pocket ID not reachable right now</p>
                       <p class="mt-0.5 text-ink-muted">
-                        We couldn't check whether it's ready for automatic sign-in. Configure manually below, or retry in a moment.
+                        We couldn't check whether it's ready for automatic sign-in. Configure manually below, or start the wizard again in a moment.
                       </p>
                     </div>
                 <% end %>
