@@ -139,8 +139,10 @@ Evidence: two screenshots (waking page, app), timestamps, seconds-to-app.
 3. If the instance existed only for this proof, stop or delete it from
    its page so it stops billing.
 
-Evidence: the `1/17` quota output and an access-namespace listing showing
-only `access-dns`.
+Evidence: the `1/17` quota output and an access-namespace listing with no
+`gateway-*` / `serve-config-*` / `credential-*` / `state-*` objects;
+`access-dns` and any `fluxvale-pocketid-custody-*` secrets are the
+platform's own.
 
 ## Rollback
 
@@ -177,7 +179,9 @@ only `access-dns`.
 - sleep timestamp, waking-page screenshot, app screenshot, and
   seconds-to-app;
 - cleanup quota output showing 1/17 and the access-namespace listing with
-  only `access-dns`;
+  no `gateway-*`/`serve-config-*`/`credential-*`/`state-*` objects
+  (`access-dns` and any `fluxvale-pocketid-custody-*` secrets are the
+  platform's own);
 - any failure log, with the exact command that produced it.
 
 **Do not paste the key**, a screenshot of it, or the BWS token into the
