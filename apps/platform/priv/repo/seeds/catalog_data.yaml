@@ -769,7 +769,9 @@
           # GHCR), pinned by exact tag. Unlike Pocket ID, Umami's image
           # tags carry NO v prefix — v3.4.1 does not exist in the
           # registry (verified against the GHCR v2 API; 3.4.1 resolves
-          # to the multi-arch index, digest sha256:f2c645cc…).
+          # to the multi-arch index, digest sha256:e69d1a79…, whose
+          # amd64 manifest is sha256:f2c645cc… — pin the INDEX if this
+          # ever moves to a digest pin, never the per-arch manifest).
           image: ghcr.io/umami-software/umami:3.4.1
           port: 3000
           # The image's own HEALTHCHECK probes the same path
