@@ -113,9 +113,7 @@ defmodule FluxValeWeb.AdminShell do
   defp aria_current(_entry_key, _current, _exact), do: nil
 
   # The console's groups, in the order the lane ships them. Everything
-  # with a path exists; everything without is badged Coming. The #571
-  # slot is next to flip: when wallets and billing merges, give its
-  # entry a `path` and the shell links it — no other change.
+  # with a path exists; everything without is badged Coming.
   defp groups do
     [
       %{
@@ -125,9 +123,10 @@ defmodule FluxValeWeb.AdminShell do
         entries: [
           %{key: "people", label: gettext("People and invites"), path: ~p"/admin/people"},
           %{key: "catalog", label: gettext("Catalog and pricing"), path: ~p"/admin/catalog"},
-          # #571 rebases onto this shell: add path: ~p"/admin/…" below
-          # and the entry flips live.
-          %{key: "wallets", label: gettext("Wallets and billing")},
+          # #571's wallets and billing section: live. The surface owns
+          # the wallet table and the per-wallet detail (a sub-route,
+          # which marks this entry aria-current="location").
+          %{key: "wallets", label: gettext("Wallets and billing"), path: ~p"/admin/billing"},
           %{key: "feedback", label: gettext("Feedback moderation")},
           %{key: "orgs", label: gettext("Orgs and instances")},
           %{key: "gateways", label: gettext("Access gateways and domains")}

@@ -59,6 +59,17 @@ defmodule FluxVale.Accounts.Organization do
       authorize_if(relates_to_actor_via(:members))
     end
 
+    # The admin_lookup gate (#501): platform-admin-only, scoped by
+    # action NAME so it never composes with the member read policy
+    # above (Ash composes applicable policies with AND — a read action
+    # would match both). Non-admins match no applicable policy and fall
+    # to Ash's forbid-by-default.
+    policy [FluxVale.Checks.ActorIsPlatformAdmin, action(:admin_lookup)] do
+      description("Platform admins look up orgs for the admin surfaces (#501)")
+
+      authorize_if(always())
+    end
+
     # System-only by policy (the JIT provisioning writer runs
     # authorize?: false). Narrowed to action(:create), NOT
     # action_type(:create): the type-wide form also matches
@@ -321,6 +332,55 @@ defmodule FluxVale.Accounts.Organization do
     read :list_for_actor do
       description("The actor's own organizations (the org switcher's read)")
       filter(expr(exists(memberships, user_id == ^actor(:id))))
+    end
+
+    # The admin surfaces' org lookup (#501, the wallets lane) — the
+    # FLAGGED seam. The read policy above is members-only, so a
+    # platform-admin actor cannot render an org's name off a wallet
+    # (the load lands nil, the get reads NotFound), yet the admin
+    # wallet table's contract is org-first (#140's operator table).
+    # Every other admin-facing resource carries an ActorIsPlatformAdmin
+    # arm; Organization predates the admin lane and never needed one.
+    # This generic action adds that one path WITHOUT touching the
+    # member read policy: scoped by action name (Ash composes
+    # applicable policies with AND, so :read never widens), admin-only
+    # by policy, and it returns only the switcher's public fields
+    # (#362 T6a posture: id, slug, name — nothing org-internal). The
+    # inner read is system machinery, hard-coded `authorize?: false`
+    # behind this action's own scoped policy — NOT Wallet :runway's
+    # posture (runway forwards the caller's authorize? into its inner
+    # read, whose membership policy does the refusing; here the gate
+    # is this action's policy alone). Same safety — the policy is the
+    # only door — different posture, stated precisely. Revisit
+    # trigger: the first admin surface that needs more than these
+    # three fields, at which point this grows the explicit field list
+    # rather than leaking structs.
+    action :admin_lookup, {:array, :map} do
+      description("Platform-admin org lookup for the admin surfaces (#501)")
+
+      argument(:ids, {:array, :uuid},
+        allow_nil?: false,
+        # The wallet page asks for at most a cap-plus-one of ids; 200
+        # refuses absurd asks without hurting any caller. Deliberately
+        # PUBLIC: Ash.ActionInput.for_action only feeds public
+        # arguments, and the in-repo callers ride that code interface.
+        # The wire cannot reach this action (the resource's only
+        # JSON:API route is :list_for_actor), so there is nothing to
+        # lock out today — if a route is ever authored for this
+        # action, re-check this argument's exposure first.
+        constraints: [min_length: 1, max_length: 200]
+      )
+
+      run(fn input, _context ->
+        # __MODULE__ — inside the resource's own run fn the bare alias
+        # is not yet resolvable as a resource for Ash.Query.
+        orgs =
+          __MODULE__
+          |> Ash.Query.filter(expr(id in ^input.arguments.ids))
+          |> Ash.read!(authorize?: false)
+
+        {:ok, Enum.map(orgs, &%{id: &1.id, name: &1.name, slug: &1.slug})}
+      end)
     end
   end
 

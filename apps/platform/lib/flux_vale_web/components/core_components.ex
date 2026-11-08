@@ -1093,6 +1093,7 @@ defmodule FluxValeWeb.CoreComponents do
           variant="destructive"
           phx-click={@event}
           phx-target={@myself}
+          phx-disable-with={gettext("Working...")}
           data-testid={@action_testid}
         >
           {@action}

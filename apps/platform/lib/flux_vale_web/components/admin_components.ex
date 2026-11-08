@@ -12,6 +12,18 @@ defmodule FluxValeWeb.AdminComponents do
   use FluxValeWeb, :html
 
   @doc """
+  The destroy clock's deadline string: the anchor plus 30 days, the
+  sweep's own constant (SweepZeroBalance's @destroy_after_days). One
+  formatter so the wallet table and the wallet detail can never
+  disagree about when a countdown lands.
+  """
+  @spec destroy_deadline_text(DateTime.t()) :: String.t()
+  def destroy_deadline_text(negative_since) do
+    deadline = DateTime.add(negative_since, 30, :day)
+    Calendar.strftime(deadline, "%b %d, %Y")
+  end
+
+  @doc """
   The allocation a version's blueprint defaults read as: "0.5 CPU ·
   256 MB · 0 GB". The middle-dot shape matches the product's own
   allocation strings (the catalog and instance surfaces); the formatter
