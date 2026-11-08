@@ -154,7 +154,7 @@ defmodule FluxValeWeb.AdminComponents do
     end
   end
 
-# -- the access-gateway section's state badges (#501, #608 review) ----
+  # -- the access-gateway section's state badges (#501, #608 review) ----
 
   # The gateway and domain state vocabularies ride ONE grammar: tone
   # plus shape cue plus word, at the house badge size, with the rule
