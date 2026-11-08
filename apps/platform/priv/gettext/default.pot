@@ -12,20 +12,12 @@ msgid ""
 msgstr ""
 
 #: lib/flux_vale_web/components/core_components.ex:718
-<<<<<<< HEAD
 #: lib/flux_vale_web/live/admin_live/billing.ex:278
 #: lib/flux_vale_web/live/admin_live/moderation.ex:1046
 #: lib/flux_vale_web/live/admin_live/moderation.ex:1434
 #: lib/flux_vale_web/live/admin_live/people.ex:535
-#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:1051
-=======
-#: lib/flux_vale_web/live/admin_live/billing.ex:274
-#: lib/flux_vale_web/live/admin_live/moderation.ex:1042
-#: lib/flux_vale_web/live/admin_live/moderation.ex:1422
-#: lib/flux_vale_web/live/admin_live/people.ex:531
 #: lib/flux_vale_web/live/admin_live/resources.ex:231
-#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:1048
->>>>>>> 1a110f5f (fix(platform): hostile-review fixes for the resource console read path)
+#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:1051
 #, elixir-autogen, elixir-format
 msgid "Actions"
 msgstr ""
@@ -691,12 +683,12 @@ msgstr ""
 msgid "Admin"
 msgstr ""
 
-#: lib/flux_vale_web/components/admin_shell.ex:151
+#: lib/flux_vale_web/components/admin_shell.ex:161
 #, elixir-autogen, elixir-format
 msgid "AshAdmin"
 msgstr ""
 
-#: lib/flux_vale_web/components/admin_shell.ex:140
+#: lib/flux_vale_web/components/admin_shell.ex:150
 #, elixir-autogen, elixir-format
 msgid "Deep debugging"
 msgstr ""
@@ -707,21 +699,16 @@ msgstr ""
 msgid "Feedback moderation"
 msgstr ""
 
-#: lib/flux_vale_web/components/admin_shell.ex:152
+#: lib/flux_vale_web/components/admin_shell.ex:162
 #, elixir-autogen, elixir-format
 msgid "LiveDashboard"
 msgstr ""
 
 #: lib/flux_vale_web/live/admin_live/billing.ex:195
 #: lib/flux_vale_web/live/admin_live/catalog.ex:52
-<<<<<<< HEAD
 #: lib/flux_vale_web/live/admin_live/moderation.ex:901
 #: lib/flux_vale_web/live/admin_live/people.ex:400
-=======
-#: lib/flux_vale_web/live/admin_live/moderation.ex:900
-#: lib/flux_vale_web/live/admin_live/people.ex:399
 #: lib/flux_vale_web/live/admin_live/resources.ex:114
->>>>>>> 1a110f5f (fix(platform): hostile-review fixes for the resource console read path)
 #: lib/flux_vale_web/live/admin_live/size_edit.ex:262
 #: lib/flux_vale_web/live/admin_live/sizes.ex:67
 #: lib/flux_vale_web/live/admin_live/version_edit.ex:395
@@ -741,7 +728,7 @@ msgstr ""
 msgid "People and invites"
 msgstr ""
 
-#: lib/flux_vale_web/components/admin_shell.ex:147
+#: lib/flux_vale_web/components/admin_shell.ex:157
 #, elixir-autogen, elixir-format
 msgid "The generated tools. They run as trusted superuser without the resource policies. For emergencies and data surgery."
 msgstr ""
@@ -2141,8 +2128,6 @@ msgstr ""
 #, elixir-autogen, elixir-format
 msgid "posted %{ago}"
 msgstr ""
-<<<<<<< HEAD
-=======
 
 #: lib/flux_vale_web/live/admin_live/resources.ex:156
 #, elixir-autogen, elixir-format
@@ -2199,6 +2184,11 @@ msgstr ""
 msgid "No rows yet."
 msgstr ""
 
+#: lib/flux_vale_web/live/admin_live/resources.ex:161
+#, elixir-autogen, elixir-format
+msgid "Not every domain is on this console yet. The ones here are fully supported."
+msgstr ""
+
 #: lib/flux_vale_web/components/admin_resource.ex:184
 #, elixir-autogen, elixir-format
 msgid "Not set"
@@ -2240,6 +2230,11 @@ msgstr ""
 msgid "The resources this domain exposes. Reads run through the resource policies with your account as the actor."
 msgstr ""
 
+#: lib/flux_vale_web/live/admin_live/resources.ex:199
+#, elixir-autogen, elixir-format
+msgid "This table is empty. Rows appear here as they are created."
+msgstr ""
+
 #: lib/flux_vale_web/live/admin_live/resources.ex:260
 #, elixir-autogen, elixir-format
 msgid "View"
@@ -2249,14 +2244,3 @@ msgstr ""
 #, elixir-autogen, elixir-format
 msgid "Yes"
 msgstr ""
-
-#: lib/flux_vale_web/live/admin_live/resources.ex:161
-#, elixir-autogen, elixir-format
-msgid "Not every domain is on this console yet. The ones here are fully supported."
-msgstr ""
-
-#: lib/flux_vale_web/live/admin_live/resources.ex:199
-#, elixir-autogen, elixir-format
-msgid "This table is empty. Rows appear here as they are created."
-msgstr ""
->>>>>>> 1a110f5f (fix(platform): hostile-review fixes for the resource console read path)
