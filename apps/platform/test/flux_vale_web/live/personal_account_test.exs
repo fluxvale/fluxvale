@@ -219,10 +219,11 @@ defmodule FluxValeWeb.PersonalAccountTest do
 
   # F6: without a personal org both gated entries are dead ends (their
   # targets read as not-found or flash-and-leave), so the sidebar drops
-  # them — OrgNav's degradation stance mirrored. The member-only shape
-  # is unreachable through actions (nothing makes :member rows yet);
-  # destroying the owner membership is the sanctioned posture
-  # (OrgSwitcherTest's).
+  # them — OrgNav's degradation stance mirrored. Developer (#635) stays:
+  # its page is actor-scoped, so the entry is live for every actor. The
+  # member-only shape is unreachable through actions (nothing makes
+  # :member rows yet); destroying the owner membership is the sanctioned
+  # posture (OrgSwitcherTest's).
   test "/settings gates the sidebar's org-gated entries for an actor with no personal org", %{
     conn: conn,
     owner: owner
@@ -238,6 +239,7 @@ defmodule FluxValeWeb.PersonalAccountTest do
     {:ok, view, _html} = live(conn, ~p"/settings")
 
     assert has_element?(view, "[data-testid='account-settings-nav-profile']")
+    assert has_element?(view, "[data-testid='account-settings-nav-developer']")
     refute has_element?(view, "[data-testid='account-settings-nav-access']")
     refute has_element?(view, "[data-testid='account-settings-nav-wallet']")
     refute has_element?(view, "[data-testid='account-settings-section-billing']")

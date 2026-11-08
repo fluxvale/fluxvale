@@ -431,6 +431,13 @@ defmodule FluxValeWeb.Router do
       # query params into mount params, and an unnamed head would let a
       # crafted query string mount the org frame on this route.
       live("/settings/access", OrganizationLive.Access, :personal)
+      # #635: the developer settings page — the Device sign-ins (#362)
+      # and API tokens (#483) sections moved here from /settings/access
+      # (the gateway panel keeps its namesake page). Actor-scoped like
+      # the rest of the settings cluster: no org at mount, so no slug
+      # contract and no named action — the device flow's
+      # /settings/access/device landing redirects here at its anchor.
+      live("/settings/developer", DeveloperSettingsLive)
     end
   end
 

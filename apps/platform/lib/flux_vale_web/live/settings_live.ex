@@ -13,9 +13,11 @@ defmodule FluxValeWeb.SettingsLive do
   refusal, rendered as copy.
 
   The sidebar (#551) is the cluster's way between sections — Profile,
-  Access, Wallet — fed by the same personal-org gate the surfaces
-  themselves degrade on. `/settings/access` is the personal org's
-  gateway panel, served by `OrganizationLive.Access` without a slug.
+  Access, Developer, Wallet — fed by the same personal-org gate the
+  surfaces themselves degrade on. `/settings/access` is the personal
+  org's gateway panel, served by `OrganizationLive.Access` without a
+  slug; `/settings/developer` (#635) is the account's developer
+  tooling, served by `DeveloperSettingsLive`.
   """
 
   use FluxValeWeb, :live_view
