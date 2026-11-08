@@ -4,11 +4,17 @@ defmodule FluxVale.Infrastructure.Instance.StorageGrowthGuard do
   ordering is self-contained (do not rely on Ash's between-changes error
   semantics) — `ResizeGuard`'s steps 2–5 minus the stopped-first fence:
 
-  1. **Live instance**: only `:deleting` and `:lost` refuse — growth is an
-     online storage-layer operation, so `:running`, `:stopped` and
-     `:sleeping` are all legal (ADR-0036's status semantics: a sleeping
-     row still owns its PVC and bills storage-only). The pre-transaction
-     check alone is not the fence: start/delete bump no `version`, so the
+  1. **Legal statuses**: exactly `:running`, `:stopped`, `:sleeping` and
+     `:error`. The first three are the online path — the volume exists and
+     the instance is not mid-transition (ADR-0036: a sleeping row still
+     owns its PVC and bills storage-only). `:error` is deliberate: a
+     deployed instance in a failed state is an operator repair path, and
+     the K8s apply answers honestly. Everything else refuses with copy
+     naming the reason: `:pending` has no volume yet; `:deploying` /
+     `:starting` are in motion and would race the operand; `:restoring`
+     is excluded by ADR-0037 §5's exclusive restore ownership; `:deleting`
+     / `:lost` have no live workload to grow. The pre-transaction check
+     alone is not the fence: start/delete bump no `version`, so the
      settle's FOR UPDATE re-read re-checks at write time (step 5).
   2. **Effective allocation**: the request's storage over the row's
      CPU/RAM (a crafted nil reads as absent, the derive's chosen/2
@@ -40,7 +46,7 @@ defmodule FluxVale.Infrastructure.Instance.StorageGrowthGuard do
   alias FluxVale.Infrastructure.Instance.SettleUsage
   alias FluxVale.Infrastructure.Operations.StorageExpansion
 
-  @refused_statuses [:deleting, :lost]
+  @legal_statuses [:running, :stopped, :sleeping, :error]
 
   @impl Ash.Resource.Change
   def change(changeset, _opts, _context) do
@@ -52,16 +58,33 @@ defmodule FluxVale.Infrastructure.Instance.StorageGrowthGuard do
     # outcome decides the write.
     changeset = normalize_allocation(changeset)
 
-    if data.status in @refused_statuses do
-      Ash.Changeset.add_error(
-        changeset,
-        "cannot grow storage for an instance in #{data.status} state"
-      )
-    else
+    if data.status in @legal_statuses do
       changeset
       |> check_effective_allocation()
       |> settle_open_interval()
+    else
+      refuse(changeset, data.status)
     end
+  end
+
+  # Distinct copy per refused status — the operator sees what to do next,
+  # not one catch-all.
+  defp refusal_message(:pending), do: "the instance isn't deployed yet"
+
+  defp refusal_message(status) when status in [:deploying, :starting],
+    do: "the instance is changing state — try again when it settles"
+
+  defp refusal_message(:restoring),
+    do: "the instance is restoring — try again when it finishes"
+
+  defp refusal_message(status) when status in [:deleting, :lost],
+    do: "cannot grow storage for an instance in #{status} state"
+
+  # coveralls-ignore-next-line - defensive: the status type is closed today
+  defp refusal_message(status), do: "cannot grow storage for an instance in #{status} state"
+
+  defp refuse(changeset, status) do
+    Ash.Changeset.add_error(changeset, refusal_message(status))
   end
 
   # Normalizes crafted nils to absent — pricing reads the normalized
@@ -152,13 +175,10 @@ defmodule FluxVale.Infrastructure.Instance.StorageGrowthGuard do
   end
 
   defp fence_settled(changeset, {:ok, settled}) do
-    if settled.status in @refused_statuses do
-      Ash.Changeset.add_error(
-        changeset,
-        "cannot grow storage for an instance in #{settled.status} state"
-      )
-    else
+    if settled.status in @legal_statuses do
       changeset
+    else
+      refuse(changeset, settled.status)
     end
   end
 

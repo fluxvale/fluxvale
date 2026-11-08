@@ -71,6 +71,38 @@ defmodule FluxVale.Infrastructure.Instance.GrowStorageTest do
       assert grown.storage_gb == 10
     end
 
+    test "an error instance grows — the operator repair path is deliberate" do
+      instance = InstanceFixtures.pin!(stopped!(), status: :error)
+      expect(StorageClass, :default_allows_expansion?, fn _kc -> {:ok, true} end)
+
+      assert {:ok, grown} =
+               Instance.grow_storage(instance, %{storage_gb: 10}, authorize?: false)
+
+      assert grown.storage_gb == 10
+    end
+
+    test "a pending instance is refused — no volume yet" do
+      assert_refused(created!(), "the instance isn't deployed yet")
+    end
+
+    test "a deploying instance is refused — in motion" do
+      instance = InstanceFixtures.walk_to!(created!(), :deploying)
+
+      assert_refused(instance, "the instance is changing state — try again when it settles")
+    end
+
+    test "a starting instance is refused — in motion" do
+      instance = InstanceFixtures.walk_to!(created!(), :starting)
+
+      assert_refused(instance, "the instance is changing state — try again when it settles")
+    end
+
+    test "a restoring instance is refused — the restore owns it (ADR-0037 §5)" do
+      instance = InstanceFixtures.walk_to!(created!(), :restoring)
+
+      assert_refused(instance, "the instance is restoring — try again when it finishes")
+    end
+
     test "a deleting instance is refused" do
       instance = InstanceFixtures.pin!(stopped!(), status: :deleting)
 
@@ -345,6 +377,14 @@ defmodule FluxVale.Infrastructure.Instance.GrowStorageTest do
 
   # --- helpers --------------------------------------------------------
 
+  # A refused growth's exact copy — the operator's next step.
+  defp assert_refused(instance, message) do
+    assert {:error, %Ash.Error.Invalid{errors: errors}} =
+             Instance.grow_storage(instance, %{storage_gb: 10}, authorize?: false)
+
+    assert Enum.any?(errors, &(&1.message == message))
+  end
+
   # The wallet's usage ledger rows — the settle-happened detector.
   defp usage_entries(wallet) do
     entries =
@@ -405,7 +445,7 @@ defmodule FluxVale.Infrastructure.Instance.GrowStorageTest do
     InstanceFixtures.walk_to!(created, :sleeping)
   end
 
-  defp created!(attrs) do
+  defp created!(attrs \\ []) do
     version = InstanceFixtures.app_version!()
     InstanceFixtures.local_cluster!()
 
