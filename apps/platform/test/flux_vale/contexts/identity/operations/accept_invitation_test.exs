@@ -147,6 +147,32 @@ defmodule FluxVale.Identity.Operations.AcceptInvitationTest do
   end
 
   describe "call/1 — the reserved address (#287)" do
+    test "a rowless invited account refuses :unavailable — the flip is the arbiter" do
+      # Drift-only shape (unproducible through actions: :invite writes
+      # the reservation and :supersede_pending refuses to remove it):
+      # an invited account whose row vanished cannot accept — the flip
+      # answers :invitation_row_missing, consume maps it to the
+      # :unavailable sentence, and nothing is consumed.
+      address = "rowless-#{System.unique_integer()}@partner.example"
+
+      invited =
+        Ash.Seed.seed!(User, %{
+          username: "rowless-#{System.unique_integer([:positive])}",
+          invited_at: DateTime.utc_now(),
+          invite_expires_at: DateTime.add(DateTime.utc_now(), 7, :day),
+          invite_token_hash: User.token_hash("rowless-raw")
+        })
+
+      refute invited.id == nil
+
+      assert {:error, :unavailable} = Identity.accept_invitation("rowless-raw")
+
+      unconsumed =
+        Ash.load!(invited, :invite_state, authorize?: false)
+
+      assert unconsumed.invite_state == :pending
+    end
+
     test "a stranger cannot claim the invited address — the reservation wins", %{address: address} do
       # #287's first-verified-wins ruling: the invitation RESERVES its
       # address from :invite (a pending row; unique_address is global

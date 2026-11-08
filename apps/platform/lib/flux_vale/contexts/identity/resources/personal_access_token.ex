@@ -138,7 +138,7 @@ defmodule FluxVale.Identity.PersonalAccessToken do
       accept([:name, :scopes, :expires_at, :user_id])
 
       # The digest rides a private argument and is force-set by the
-      # builtin change (MirrorSignupEmail's posture): `accept` stays
+      # builtin change (SignupEmailRow's posture): `accept` stays
       # the caller input surface — token_hash is never an attribute
       # input, only the system's digest of the generated value.
       argument(:token_hash, :string, allow_nil?: false, sensitive?: true, public?: false)

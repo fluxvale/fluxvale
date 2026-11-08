@@ -55,7 +55,10 @@ defmodule FluxValeWeb.Components.UserMenuTest do
       assert glyph(html) == "T"
     end
 
-    test "a nil username renders the address's local part — glyph and name line" do
+    # #287: the local-part fallback arms are gone (username NOT NULL) —
+    # menu_name is the handle, full stop. The degenerate arms below pin
+    # that the component itself never crashes on drifted input.
+    test "a nil username (drift-only post-#287) renders the email line, no fallback name" do
       html =
         render_component(&CoreComponents.user_menu/1,
           username: nil,
@@ -63,29 +66,29 @@ defmodule FluxValeWeb.Components.UserMenuTest do
         )
 
       text = menu_panel(html)
-      assert text =~ "rollout.window"
-      assert glyph(html) == "R"
+      assert text =~ "rollout.window@fluxvale.test"
+      # no invented name — the handle is the name line, nil renders empty
+      refute text =~ "rollout.window<"
     end
 
-    test "an empty-string username renders the local part too" do
+    test "an empty-string username renders empty — no fallback invention" do
       html =
         render_component(&CoreComponents.user_menu/1,
           username: "",
           email: "degene@fluxvale.test"
         )
 
-      assert menu_panel(html) =~ "degene"
-      assert glyph(html) == "D"
+      assert menu_panel(html) =~ "degene@fluxvale.test"
     end
 
-    test "emails arrive as CiStrings at the Ash boundary — the glyph still renders" do
+    test "emails arrive as CiStrings at the Ash boundary — the email line still renders" do
       html =
         render_component(&CoreComponents.user_menu/1,
-          username: nil,
+          username: "cistring-handle",
           email: Ash.CiString.new("cistring@fluxvale.test")
         )
 
-      assert menu_panel(html) =~ "cistring"
+      assert menu_panel(html) =~ "cistring@fluxvale.test"
       assert glyph(html) == "C"
     end
   end

@@ -8,10 +8,11 @@ defmodule FluxVale.Identity.User do
   `FluxVale.Identity.Types.PlatformRole` for why org roles never land here.
 
   Addresses live ONLY in `user_emails` (#285 T3, #287): the signup
-  address is a private `:email` argument on `:create`/`:invite`, never
-  a column — the legacy `users.email` mirror is dropped, and with it
-  every heal path that read it (the pre-launch wipe doctrine absorbed
-  its stragglers; ADR-0013 Am. 1).
+  address is an `:email` argument on `:create`/`:invite` (public by
+  necessity — see the action comments), never a column — the legacy
+  `users.email` mirror is dropped, and with it every heal path that
+  read it (the pre-launch wipe doctrine absorbed its stragglers;
+  ADR-0013 Am. 1).
 
   Invited accounts (#502, re-homed #287) are pre-provisioned through
   :invite and INERT until acceptance: no org, and their address sits as

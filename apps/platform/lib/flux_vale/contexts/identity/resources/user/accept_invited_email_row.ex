@@ -5,20 +5,21 @@ defmodule FluxVale.Identity.User.AcceptInvitedEmailRow do
   acceptance is the inbox proof (the one-time link IS the credential),
   the same end state the JIT path's SignupEmailRow writes at birth.
 
-  Two sanctioned writes, both inside the accept transaction: :mark_verified
-  (the only verified_at stamp past the JIT mirror), then :set_primary
-  (the sanctioned promotion — an invited account owns no other rows, so
-  no sibling demotion ever runs). Rolling the flip's failure back with
-  the accept matters: an accepted account without a verified primary
-  row could neither sign in (verified-only resolution) nor display
-  (every surface reads the primary).
+  Two sanctioned writes, both inside the accept transaction (an
+  {:error, _} from either rolls the whole accept back, stamp included —
+  the with in flip/2 propagates): :mark_verified, then :set_primary
+  (the sanctioned promotion — an invited account owns no other rows,
+  so no sibling demotion ever runs). The rollback matters: an accepted
+  account without a verified primary row could neither sign in
+  (verified-only resolution) nor display (every surface reads the
+  primary).
 
   The pending row is located, never re-derived from an address
   argument: the reservation IS the invitation's address record —
   whatever row exists is the one the link was minted for. A missing
-  row is drift (structurally impossible past the re-home: :invite
-  writes it, nothing removes it while the invitation is unaccepted —
-  RemoveGuard's invitation-address arm) and refuses the accept loudly.
+  row is drift (unproducible past the re-home: :invite writes the
+  reservation and the :supersede_pending action itself refuses to
+  delete an unaccepted invitation's row) and refuses the accept loudly.
   """
 
   use Ash.Resource.Change
@@ -33,8 +34,7 @@ defmodule FluxVale.Identity.User.AcceptInvitedEmailRow do
     Ash.Changeset.after_action(changeset, fn _changeset, user ->
       case pending_row(user) do
         %UserEmail{} = row ->
-          flip(row)
-          {:ok, user}
+          flip(row, user)
 
         nil ->
           {:error, :invitation_row_missing}
@@ -48,17 +48,22 @@ defmodule FluxVale.Identity.User.AcceptInvitedEmailRow do
     |> Ash.read_one!(authorize?: false)
   end
 
-  defp flip(row) do
-    # authorize?: false throughout — system seam inside the accept's
-    # transaction; the token was the credential (the AcceptInvitation
-    # posture).
-    {:ok, verified} =
-      row
-      |> Ash.Changeset.for_update(:mark_verified, %{})
-      |> Ash.update(authorize?: false)
-
-    verified
-    |> Ash.Changeset.for_update(:set_primary, %{})
-    |> Ash.update(authorize?: false)
+  # Both halves of the flip must hold, or the whole accept rolls back
+  # (an {:error, _} from after_action aborts the update's transaction —
+  # including the invite_accepted_at stamp). Propagating the error
+  # tuple instead of pattern-matching the {:ok, _} keeps AcceptInvitation's
+  # {:error, atom()} contract intact when either write refuses (a DB
+  # failure, or a promotion race the index arbitrates).
+  defp flip(row, user) do
+    with {:ok, verified} <-
+           row
+           |> Ash.Changeset.for_update(:mark_verified, %{})
+           |> Ash.update(authorize?: false),
+         {:ok, _primary} <-
+           verified
+           |> Ash.Changeset.for_update(:set_primary, %{})
+           |> Ash.update(authorize?: false) do
+      {:ok, user}
+    end
   end
 end

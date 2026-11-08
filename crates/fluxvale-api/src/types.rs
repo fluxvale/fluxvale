@@ -11546,8 +11546,7 @@ pub struct UserAttributes {
     ///Field included by default.
     pub platform_role: UserAttributesPlatformRole,
     ///Field included by default.
-    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
-    pub username: ::std::option::Option<::std::string::String>,
+    pub username: ::std::string::String,
 }
 ///Field included by default.
 #[derive(

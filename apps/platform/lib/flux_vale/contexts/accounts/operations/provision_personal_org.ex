@@ -11,6 +11,10 @@ defmodule FluxVale.Accounts.Operations.ProvisionPersonalOrg do
   it creates the org and returns `{:ok, org, true}` — the `created?` flag
   is the caller-visible signal that provisioning (grant included) just ran.
 
+  Invited accounts are the one org-less shape (#287 re-home: :invite
+  deliberately skips this change — acceptance provisions); every other
+  account owns its personal org from birth.
+
   The org is named after the user's handle (owner-approved, #285): `name`
   is `user.username` and its `slug` is that same username, `-2`, `-3`…
   probed against org slugs on collision. The namespaces usually coincide —

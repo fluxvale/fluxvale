@@ -213,19 +213,20 @@ defmodule FluxVale.Identity.UserEmail do
     # to PENDING rows. Bypassing RemoveGuard is sound for a pending row:
     # it can never violate the guard's invariants — never primary
     # (SetPrimary refuses unverified rows), never the last verified
-    # address (it is unverified), and the invitation reservation is
-    # excluded by the seam functions' own filter (#287), never by the
-    # action.
+    # address (it is unverified).
     #
-    # The pending-only invariant lives ON the action (the changeset
-    # filter below), not in the caller alone: `action_type(:destroy)`
-    # grants this action to the row's owner and to platform admins, and
-    # those callers must not be able to delete a VERIFIED row through
-    # it — that would bypass every guard on the resource (review round
-    # 2, P2: the "no policy grants this action" comment was false). A
-    # verified row cannot match the filter, so the delete touches
-    # nothing and Ash refuses with a stale-record error; rows stay
-    # intact for any caller.
+    # BOTH invariants live ON the action (the changeset filter below),
+    # never in the caller alone: `action_type(:destroy)` grants this
+    # action to the row's owner and to platform admins, and those
+    # callers must not be able to delete a VERIFIED row through it, nor
+    # an unaccepted invitation's reservation (#287 — an orphaned invite
+    # can never be accepted, and re-invite would fork a second account
+    # for the same address). The invitation clause (#287's window
+    # ruling): a pending row on an account with invited_at set and
+    # invite_accepted_at nil is the reservation, and no caller may
+    # supersede it — retirement does not free the address. A filtered
+    # row cannot match, so the delete touches nothing and Ash refuses
+    # with a stale-record error; rows stay intact for any caller.
     #
     # Atomic (no other changes): the bulk destroy evaluates caller
     # filter + this filter in SQL at delete time, not from a stale
@@ -236,7 +237,14 @@ defmodule FluxVale.Identity.UserEmail do
     destroy :supersede_pending do
       description("Delete a pending claim (system supersede — a burned code is the inbox proof)")
 
-      change(filter(expr(is_nil(verified_at))))
+      change(
+        filter(
+          expr(
+            is_nil(verified_at) and
+              not (not is_nil(user.invited_at) and is_nil(user.invite_accepted_at))
+          )
+        )
+      )
     end
   end
 
@@ -284,9 +292,9 @@ defmodule FluxVale.Identity.UserEmail do
   carries an unaccepted invitation is the invitation's address record,
   not a claim — no proof-carrying path may orphan an invite (a sign-in
   code at the invited address answers :invite_pending, never a
-  supersede). The exemption rides this seam's filter, not the action:
-  :supersede_pending keeps its bare pending-only shape for the
-  guard-bypass argument above.
+  supersede). The exemption is enforced by the :supersede_pending
+  action's own filter, so it holds for every caller; this seam simply
+  states its scope at the call site.
 
   The pending-only invariant is enforced by the action itself (a
   changeset filter — `is_nil(verified_at)`), so it holds regardless of
@@ -361,6 +369,10 @@ defmodule FluxVale.Identity.UserEmail do
   # join by ash_postgres, evaluated at destroy time like the rest of
   # the query.
   defp reject_invited_reservations(query) do
+    # Redundant with the :supersede_pending action's own filter BY
+    # DESIGN: the seam states its scope at the call site (the doc
+    # above names the exemption), and the action remains the enforcer
+    # for every caller. Same predicate, one truth in the action.
     Ash.Query.filter(
       query,
       not (not is_nil(user.invited_at) and is_nil(user.invite_accepted_at))

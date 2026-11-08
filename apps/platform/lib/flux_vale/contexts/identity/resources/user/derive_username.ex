@@ -7,8 +7,9 @@ defmodule FluxVale.Identity.User.DeriveUsername do
 
   Runs on :create (JIT signup) and :invite (the handle exists from
   birth — `username` is NOT NULL, #287); both carry the address as the
-  private :email argument, which is this change's only source (the
-  legacy column is gone). A username already on the changeset is kept,
+  :email argument (public — private arguments cannot ride for_create
+  params or the code interface), which is this change's only source
+  (the legacy column is gone). A username already on the changeset is kept,
   but derivation is the only writer past :set_username (no input
   surface, no format validation; both arrive with the rename UI).
   Signup must never fail on derivation (the #279 lesson): every

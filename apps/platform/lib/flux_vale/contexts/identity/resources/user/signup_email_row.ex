@@ -34,22 +34,25 @@ defmodule FluxVale.Identity.User.SignupEmailRow do
 
         # Rolls the whole create back — a user without its signup row
         # must not exist (every account is table-backed from birth).
+        # Race-only past the supersede + occupant pre-checks (the row
+        # insert can only lose a window race on unique_address) — the
+        # collision machinery in VerifyAuthCode handles the loss.
+        # coveralls-ignore-start
         {:error, reason} ->
           {:error, reason}
+
+          # coveralls-ignore-stop
       end
     end)
   end
 
-  @doc """
-  Writes the verified-primary signup row for `address` — the create
-  path's own post-insert step. Primary is unconditional (see the
-  moduledoc: brand-new account). authorize?: false — the caller is a
-  system seam (the interaction-bypassed JIT create, or the bootstrap
-  seed).
-  """
-  @spec write_row(FluxVale.Identity.User.t(), String.t() | Ash.CiString.t()) ::
-          {:ok, UserEmail.t()} | {:error, term()}
-  def write_row(user, address) do
+  # Writes the verified-primary signup row for `address` — the create
+  # path's own post-insert step. Primary is unconditional (see the
+  # moduledoc: brand-new account). authorize?: false — the caller is a
+  # system seam (the interaction-bypassed JIT create, or the bootstrap
+  # seed). Single caller (the module's own after_action) — private, no
+  # external seam past #287's re-home (the heal callers are gone).
+  defp write_row(user, address) do
     UserEmail
     |> Ash.Changeset.for_create(:add, %{address: address, user: %{id: user.id}})
     # force_change_attribute: for_create has already validated, and the

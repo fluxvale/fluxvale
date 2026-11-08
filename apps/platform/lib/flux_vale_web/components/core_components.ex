@@ -1452,20 +1452,10 @@ defmodule FluxValeWeb.CoreComponents do
     |> String.upcase()
   end
 
-  # The menu's name line + glyph source (#285 T4): the username when
-  # present, else the (primary) address's local part — rollout-window
-  # rows carry a NULL username (T2 derivation shipped with #285), and
-  # an empty name line or a bare "?" glyph is worse than the handle the
-  # address implies. Same degradation the org switcher's personal row
-  # uses (OrgNav.display_handle/1).
-  defp menu_name(username, _email) when username not in [nil, ""], do: username
-  defp menu_name(_username, email), do: local_part(email)
-
-  defp local_part(email) do
-    address = to_string(email)
-    [local_part | _domain] = String.split(address, "@", parts: 2)
-    local_part
-  end
+  # The menu's name line + glyph source (#285 T4): the username —
+  # NOT NULL since #287, so every account carries one and the
+  # mirror-era local-part fallback arm is gone.
+  defp menu_name(username, _email), do: username
 
   @doc """
   Renders the org switcher (#276): the app chrome's context dropdown —
@@ -1653,9 +1643,9 @@ defmodule FluxValeWeb.CoreComponents do
   end
 
   # The personal row's label: "Personal · username"; bare "Personal"
-  # when the handle is nil or "" — the email fallback's local_part of a
-  # degenerate address is "" (#308 review), the same dangling
-  # "Personal · " hazard as nil (#285 T6 review).
+  # when the handle is nil or "" — the same dangling "Personal · "
+  # hazard (#285 T6 review; nil handles are drift-only since #287's
+  # NOT NULL, the arm stays defensive).
   defp personal_label(username) when username in [nil, ""], do: "Personal"
   defp personal_label(username), do: "Personal · #{username}"
 

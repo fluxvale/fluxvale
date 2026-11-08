@@ -7,7 +7,7 @@ defmodule FluxValeWeb.SettingsLive do
 
   The domain owns every invariant — the email cap, pending-only claims,
   the claim-expiry window, set-primary's verified-only guard, and the
-  remove guards (frozen mirror, primary, last verified). The UI mirrors
+  remove guards (invitation reservation, primary, last verified). The UI mirrors
   those guards only to DISABLE buttons — every action still runs through
   the operations, so a crafted or stale event meets the domain's own
   refusal, rendered as copy.
@@ -518,8 +518,8 @@ defmodule FluxValeWeb.SettingsLive do
                       >
                         Set primary
                       </.button>
-                      <%!-- Disabled mirrors RemoveGuard (frozen mirror / primary /
-                    last verified); the domain still enforces them — a crafted
+                      <%!-- Disabled mirrors RemoveGuard (primary / last
+                    verified); the domain still enforces them — a crafted
                     click meets the refusal, not the UI's word for it. --%>
                       <.button
                         type="button"

@@ -53,7 +53,11 @@ defmodule FluxVale.Identity.Operations.VerifyAuthCode do
   team domain nor already invited (pre-provisioned) is refused at
   provisioning with `{:error, :invitation_required}` and no account is
   created (#502); an invited-unaccepted account refuses with
-  `{:error, :invite_pending}`.
+  `{:error, :invite_pending}`. `{:error, :address_unresolved}` is the
+  residual-window atom (a claim committed between the supersede and the
+  occupant lookup — race-only, retryable: the retry supersedes and
+  wins; the sign-in UI renders it as the plain bad-code copy, the
+  honest answer for a window the user cannot act on).
   """
   @spec call(String.t() | Ash.CiString.t(), String.t()) ::
           {:ok, map(), String.t()} | {:error, atom()}
@@ -269,8 +273,13 @@ defmodule FluxVale.Identity.Operations.VerifyAuthCode do
       state when state in [:withdrawn, :expired] ->
         {:error, :invitation_required}
 
+      # coveralls-ignore-start - race-only: needs a claim to commit
+      # between the supersede and the occupant lookup — true
+      # concurrency, not sequential (see the @doc for the atom)
       state when state in [:none, :accepted] ->
         {:error, :address_unresolved}
+
+        # coveralls-ignore-stop
     end
   end
 

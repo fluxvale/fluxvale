@@ -19,7 +19,6 @@ defmodule FluxValeWeb.Api.MeRouteTest do
   alias FluxVale.Identity
   alias FluxVale.Identity.PersonalAccessToken
   alias FluxVale.Identity.User
-  alias FluxVale.TestSupport.AccountsFixtures
 
   # The full S1 grant set — /me needs none of them, but the helper
   # future-proofs the suites that share its shape (slice 2's routes

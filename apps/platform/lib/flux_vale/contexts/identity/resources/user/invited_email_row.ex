@@ -12,8 +12,9 @@ defmodule FluxVale.Identity.User.InvitedEmailRow do
   the address reserved (the frozen-mirror posture; a freed address
   would also break re-invite, which has no other address source). The
   claim-expiry sweep and the proof-carried supersede both exclude rows
-  of unaccepted-invitation accounts (UserEmail's seam functions), so
-  no code path can orphan an invite. First-verified-wins stays for
+  of unaccepted-invitation accounts — the :supersede_pending action's
+  own filter refuses them for every caller, so no code path can orphan
+  an invite. First-verified-wins stays for
   every unreserved address; a stranger's claim on a reserved address
   is refused at `unique_address` — honestly, at add time, instead of
   wedging acceptance after a steal.
@@ -40,22 +41,25 @@ defmodule FluxVale.Identity.User.InvitedEmailRow do
         # Rolls the whole invite back — an invitation without its
         # reservation must not exist (occupant resolution rides the
         # row; a rowless invite could never be re-invited nor found).
+        # Race-only past resolve_occupant's pre-check (the reservation
+        # insert can only lose a window race on unique_address) — the
+        # identity index is the arbiter, a retry probes a free address.
+        # coveralls-ignore-start
         {:error, reason} ->
           {:error, reason}
+
+          # coveralls-ignore-stop
       end
     end)
   end
 
-  @doc """
-  Writes the pending reservation row for `address` — the :invite
-  path's own post-insert step. Pending and non-primary by construction
-  (a reservation proves nothing; SetPrimary refuses unverified rows
-  anyway). authorize?: false — the caller is the invite write's system
-  seam.
-  """
-  @spec write_row(FluxVale.Identity.User.t(), String.t() | Ash.CiString.t()) ::
-          {:ok, UserEmail.t()} | {:error, term()}
-  def write_row(user, address) do
+  # Writes the pending reservation row for `address` — the :invite
+  # path's own post-insert step. Pending and non-primary by construction
+  # (a reservation proves nothing; SetPrimary refuses unverified rows
+  # anyway). authorize?: false — the caller is the invite write's system
+  # seam. Single caller (the module's own after_action) — private, no
+  # external seam past #287's re-home (the heal callers are gone).
+  defp write_row(user, address) do
     UserEmail
     |> Ash.Changeset.for_create(:add, %{address: address, user: %{id: user.id}})
     # force_change_attribute: for_create has already validated, and the

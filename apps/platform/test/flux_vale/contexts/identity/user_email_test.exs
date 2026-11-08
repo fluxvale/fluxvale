@@ -3,9 +3,12 @@ defmodule FluxVale.Identity.UserEmailTest do
 
   use FluxVale.DataCase, async: true
 
+  import FluxVale.TestSupport.UserInviteHelpers
+
   alias FluxVale.Identity.User
   alias FluxVale.Identity.UserEmail
   alias FluxVale.Repo
+  alias FluxVale.TestSupport.AccountsFixtures
 
   require Ash.Query
 
@@ -400,6 +403,30 @@ defmodule FluxVale.Identity.UserEmailTest do
 
       assert message =~ "only verified"
       assert count_verified(user) == 1
+    end
+
+    test "refuses an unaccepted invitation's reservation — no surface may orphan an invite (#287)" do
+      # The invitation owns its address row until acceptance; RemoveGuard
+      # refuses every remover, admins included (an orphaned invite can
+      # never be accepted, and re-invite would fork a second account
+      # for the address).
+      address = "guarded-#{System.unique_integer()}@partner.example"
+      {invited, _raw} = invite_user!(address)
+      admin = AccountsFixtures.platform_admin!()
+
+      [reservation | _rest] =
+        UserEmail
+        |> Ash.Query.filter(user_id == ^invited.id)
+        |> Ash.read!(authorize?: false)
+
+      assert {:error, %Ash.Error.Invalid{errors: [%{message: message}]}} =
+               UserEmail.remove(reservation, actor: admin, authorize?: true)
+
+      assert message =~ "outstanding invitation"
+
+      # the reservation stands, still pending
+      fresh = Ash.get!(UserEmail, reservation.id, authorize?: false)
+      assert is_nil(fresh.verified_at)
     end
 
     test "removes the demoted signup address — ordinary address rules post-#287" do
