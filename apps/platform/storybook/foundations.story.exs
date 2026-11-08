@@ -58,7 +58,7 @@ defmodule FluxValeWeb.Storybook.Foundations do
   @state [
     {"success", "bg-success-muted text-success border border-line-success"},
     {"warning", "bg-warning-muted text-warning border border-line-warning"},
-    {"danger", "bg-danger-muted text-danger border border-line-danger"}
+    {"danger", "bg-danger-muted text-danger-deep border border-line-danger"}
   ]
 
   @info_tokens [

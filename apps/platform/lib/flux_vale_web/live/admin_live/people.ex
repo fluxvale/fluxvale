@@ -665,6 +665,7 @@ defmodule FluxValeWeb.AdminLive.People do
                             event="confirm-withdraw"
                             action_testid="admin-people-withdraw-confirm"
                             cancel_testid="admin-people-withdraw-cancel"
+                            return_focus={"[data-testid='admin-people-withdraw-#{@withdrawing_id}']"}
                             myself={nil}
                           />
                         </div>

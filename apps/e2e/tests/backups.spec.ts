@@ -323,6 +323,13 @@ test("backups: configure → back up now → objects in MinIO → restore → da
 
     const confirm = page.getByTestId("destructive-confirm");
     await expect(confirm).toBeVisible();
+    // #532: the block announces itself and takes focus; Cancel returns
+    // focus to the trigger.
+    await expect(confirm).toBeFocused();
+    await page.getByTestId("restore-cancel").click();
+    await expect(page.getByTestId("restore-latest")).toBeFocused();
+    await clickWhenFree(page, "restore-latest", "[data-testid=destructive-confirm]");
+    await expect(confirm).toBeVisible();
     // The consequence copy is load-bearing: it names the snapshot (age and
     // size), rather than "the last backup" on trust.
     await expect(confirm).toContainText(

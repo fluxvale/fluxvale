@@ -151,7 +151,7 @@ defmodule FluxValeWeb.CoreComponents do
       "secondary" =>
         "border border-line-strong bg-panel text-ink shadow-sm hover:bg-panel-raised",
       "ghost" => "text-ink-muted hover:bg-panel-raised hover:text-ink",
-      "destructive" => "border border-line-danger bg-panel text-danger hover:bg-danger-muted"
+      "destructive" => "border border-line-danger bg-panel text-danger-deep hover:bg-danger-muted"
     }
 
     sizes = %{
@@ -628,7 +628,7 @@ defmodule FluxValeWeb.CoreComponents do
       "primary" => "border-primary/25 bg-primary-muted text-link",
       "success" => "border-line-success bg-success-muted text-success",
       "warning" => "border-line-warning bg-warning-muted text-warning",
-      "danger" => "border-line-danger bg-danger-muted text-danger"
+      "danger" => "border-line-danger bg-danger-muted text-danger-deep"
     }
 
     assigns = assign(assigns, :class, [Map.fetch!(tones, assigns.tone), assigns[:class]])
@@ -1040,7 +1040,10 @@ defmodule FluxValeWeb.CoreComponents do
   action with consequences (a restore, stopping backups). One
   destructive treatment for every confirm: the danger border and heading
   say "consequence", where the status `.callout`s stay muted — a stop
-  must never read like a notice.
+  must never read like a notice. The heading uses `danger-deep` (the AA
+  text ink on the danger-muted fill); the block is a `role="alert"` live
+  region, takes focus on mount when `return_focus` names a trigger, and
+  returns focus there when the block is destroyed (#532).
 
   Contract: one confirm per panel by design, so the container's shared
   `destructive-confirm` testid is safe — parameterize it if a surface
@@ -1069,6 +1072,12 @@ defmodule FluxValeWeb.CoreComponents do
   attr(:cancel_testid, :string, required: true)
   attr(:cancel_event, :string, default: "cancel-confirm")
 
+  attr(:return_focus, :string,
+    default: nil,
+    doc:
+      "CSS selector of the trigger that opened the confirm; focus returns there when the block is destroyed (cancel), so the keyboard user never loses their place"
+  )
+
   attr(:myself, :any,
     required: true,
     doc:
@@ -1078,10 +1087,15 @@ defmodule FluxValeWeb.CoreComponents do
   def confirm_block(assigns) do
     ~H"""
     <div
-      class="space-y-3 rounded-panel border-2 border-line-danger bg-danger-muted px-4 py-3"
+      id={"#{@action_testid}-block"}
+      role="alert"
+      tabindex="-1"
+      phx-hook=".ConfirmFocus"
+      data-return-focus={@return_focus}
+      class="space-y-3 rounded-panel border-2 border-line-danger bg-danger-muted px-4 py-3 focus:outline-none"
       data-testid="destructive-confirm"
     >
-      <p class="text-sm font-semibold text-danger">{@title}</p>
+      <p class="text-sm font-semibold text-danger-deep">{@title}</p>
       <p class="text-sm text-ink">{@body}</p>
       <p :if={@note} class="text-xs text-ink-muted">{@note}</p>
       <%!-- The action strip sits on its own separated surface: the
@@ -1109,6 +1123,28 @@ defmodule FluxValeWeb.CoreComponents do
         </.button>
       </div>
     </div>
+    <script :type={Phoenix.LiveView.ColocatedHook} name=".ConfirmFocus">
+      // #532: focus follows the confirm. Insertion announces the block
+      // (role=alert); moving focus into it keeps the keyboard user on
+      // the consequence. The focus handoff is a live-transition
+      // concern: a caller with no return target (a static preview) is
+      // left alone. On destroy the trigger may mount in the same patch
+      // (backups) or have stayed mounted (admin) — focus returns on the
+      // next frame.
+      export default {
+        mounted() {
+          this.returnSelector = this.el.dataset.returnFocus
+          if (this.returnSelector) requestAnimationFrame(() => this.el.focus())
+        },
+        destroyed() {
+          if (!this.returnSelector) return
+          requestAnimationFrame(() => {
+            const target = document.querySelector(this.returnSelector)
+            if (target && !target.disabled) target.focus()
+          })
+        },
+      }
+    </script>
     """
   end
 
@@ -1137,11 +1173,11 @@ defmodule FluxValeWeb.CoreComponents do
         # next visitor reverses (distinct from stopped's neutral gray).
         :sleeping -> {"border-line bg-primary-muted text-link", "none"}
         :stopped -> {"border-line bg-panel-raised text-ink-muted", "none"}
-        :error -> {"border-line-danger bg-danger-muted text-danger", "static"}
-        :deleting -> {"border-line-danger bg-danger-muted text-danger", "pulse"}
+        :error -> {"border-line-danger bg-danger-muted text-danger-deep", "static"}
+        :deleting -> {"border-line-danger bg-danger-muted text-danger-deep", "pulse"}
         # #196: externally-deleted — an anomaly, not motion; danger
         # styling without the pulse.
-        :lost -> {"border-line-danger bg-danger-muted text-danger", "static"}
+        :lost -> {"border-line-danger bg-danger-muted text-danger-deep", "static"}
         # ADR-0039's gateway states (the Access tab's badge):
         # connecting and removing are motion (pulse); needs_attention is
         # the owner's to fix (warning, no pulse); suspended is the
@@ -1150,7 +1186,7 @@ defmodule FluxValeWeb.CoreComponents do
         :active -> {"border-line-success bg-success-muted text-success", "static"}
         :needs_attention -> {"border-line-warning bg-warning-muted text-warning", "static"}
         :suspended -> {"border-line bg-panel-raised text-ink-muted", "none"}
-        :destroying -> {"border-line-danger bg-danger-muted text-danger", "pulse"}
+        :destroying -> {"border-line-danger bg-danger-muted text-danger-deep", "pulse"}
         _other -> {"border-line bg-panel-raised text-ink-muted", "none"}
       end
 

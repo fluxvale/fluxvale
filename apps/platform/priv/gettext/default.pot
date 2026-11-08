@@ -14,10 +14,10 @@ msgstr ""
 #: lib/flux_vale_web/components/core_components.ex:718
 #: lib/flux_vale_web/live/admin_live/billing.ex:278
 #: lib/flux_vale_web/live/admin_live/moderation.ex:1046
-#: lib/flux_vale_web/live/admin_live/moderation.ex:1434
+#: lib/flux_vale_web/live/admin_live/moderation.ex:1438
 #: lib/flux_vale_web/live/admin_live/people.ex:540
 #: lib/flux_vale_web/live/admin_live/resources.ex:231
-#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:1051
+#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:1056
 #, elixir-autogen, elixir-format
 msgid "Actions"
 msgstr ""
@@ -458,7 +458,7 @@ msgstr ""
 msgid "Description"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/moderation.ex:1319
+#: lib/flux_vale_web/live/admin_live/moderation.ex:1320
 #: lib/flux_vale_web/live/feedback_live/comments_island.ex:140
 #, elixir-autogen, elixir-format
 msgid "No comments yet."
@@ -642,7 +642,7 @@ msgstr ""
 msgid "Pick an app, set its resources, then add instances to the estimate."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/moderation.ex:1296
+#: lib/flux_vale_web/live/admin_live/moderation.ex:1297
 #: lib/flux_vale_web/live/pricing_calculator_live.ex:408
 #, elixir-autogen, elixir-format
 msgid "Remove"
@@ -712,7 +712,7 @@ msgstr ""
 #: lib/flux_vale_web/live/admin_live/size_edit.ex:262
 #: lib/flux_vale_web/live/admin_live/sizes.ex:67
 #: lib/flux_vale_web/live/admin_live/version_edit.ex:398
-#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:838
+#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:841
 #, elixir-autogen, elixir-format
 msgid "Operator console"
 msgstr ""
@@ -739,9 +739,9 @@ msgstr ""
 msgid "Wallets and billing"
 msgstr ""
 
-#: lib/flux_vale_web/components/core_components.ex:1108
-#: lib/flux_vale_web/live/admin_live/moderation.ex:1304
-#: lib/flux_vale_web/live/admin_live/moderation.ex:1533
+#: lib/flux_vale_web/components/core_components.ex:1122
+#: lib/flux_vale_web/live/admin_live/moderation.ex:1305
+#: lib/flux_vale_web/live/admin_live/moderation.ex:1537
 #, elixir-autogen, elixir-format
 msgid "Cancel"
 msgstr ""
@@ -1329,12 +1329,12 @@ msgstr ""
 
 #: lib/flux_vale_web/live/admin_live/moderation.ex:1119
 #: lib/flux_vale_web/live/admin_live/moderation.ex:1215
-#: lib/flux_vale_web/live/admin_live/moderation.ex:1267
-#: lib/flux_vale_web/live/admin_live/moderation.ex:1339
-#: lib/flux_vale_web/live/admin_live/moderation.ex:1482
+#: lib/flux_vale_web/live/admin_live/moderation.ex:1268
+#: lib/flux_vale_web/live/admin_live/moderation.ex:1340
+#: lib/flux_vale_web/live/admin_live/moderation.ex:1486
 #: lib/flux_vale_web/live/admin_live/people.ex:636
-#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:937
-#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:1118
+#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:940
+#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:1123
 #, elixir-autogen, elixir-format
 msgid "Opening..."
 msgstr ""
@@ -1380,22 +1380,22 @@ msgstr ""
 msgid "The reinvite was refused. Sign out and sign back in, then try again."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:1134
+#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:1139
 #, elixir-autogen, elixir-format
 msgid "A compensating debit is posted for the same amount. The original entry stays in the ledger. Net effect on the balance: zero."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:812
+#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:815
 #, elixir-autogen, elixir-format
 msgid "Adjustment"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:984
+#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:988
 #, elixir-autogen, elixir-format
 msgid "Amount (US cents)"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:849
+#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:852
 #, elixir-autogen, elixir-format
 msgid "Back to wallets"
 msgstr ""
@@ -1430,17 +1430,17 @@ msgstr ""
 msgid "Find a wallet"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:961
+#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:965
 #, elixir-autogen, elixir-format
 msgid "Goodwill credit"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:1025
+#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:1030
 #, elixir-autogen, elixir-format
 msgid "Ledger"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:1160
+#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:1166
 #, elixir-autogen, elixir-format
 msgid "Load more"
 msgstr ""
@@ -1450,7 +1450,7 @@ msgstr ""
 msgid "Negative since"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:1030
+#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:1035
 #, elixir-autogen, elixir-format
 msgid "No activity yet."
 msgstr ""
@@ -1481,12 +1481,12 @@ msgstr ""
 msgid "Organization"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:920
+#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:923
 #, elixir-autogen, elixir-format
 msgid "Paywall waiver"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:1000
+#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:1004
 #, elixir-autogen, elixir-format
 msgid "Post credit"
 msgstr ""
@@ -1501,12 +1501,12 @@ msgstr ""
 msgid "Posted the compensating reversal. The original entry stays in the ledger."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:809
+#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:812
 #, elixir-autogen, elixir-format
 msgid "Purchase"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:811
+#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:814
 #, elixir-autogen, elixir-format
 msgid "Refund"
 msgstr ""
@@ -1521,12 +1521,12 @@ msgstr ""
 msgid "Remove the waiver"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:1088
+#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:1093
 #, elixir-autogen, elixir-format
 msgid "Reversal"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:1121
+#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:1126
 #, elixir-autogen, elixir-format
 msgid "Reverse"
 msgstr ""
@@ -1536,7 +1536,7 @@ msgstr ""
 msgid "Reverse the %{amount} credit?"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:1092
+#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:1097
 #, elixir-autogen, elixir-format
 msgid "Reversed"
 msgstr ""
@@ -1567,7 +1567,7 @@ msgstr ""
 msgid "That wallet does not exist."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:872
+#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:875
 #, elixir-autogen, elixir-format
 msgid "The balance is below zero."
 msgstr ""
@@ -1592,7 +1592,7 @@ msgstr ""
 msgid "The reversal was refused. The ledger is refreshed."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:922
+#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:925
 #, elixir-autogen, elixir-format
 msgid "The waiver satisfies only the has-paid gate. It unlocks private access and backups for this org. It moves no money, posts no ledger row, and waives nothing spendable."
 msgstr ""
@@ -1602,7 +1602,7 @@ msgstr ""
 msgid "The waiver was refused. Try again."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:841
+#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:844
 #, elixir-autogen, elixir-format
 msgid "The wallet behind %{org}. Balance, runway, and the ledger."
 msgstr ""
@@ -1617,7 +1617,7 @@ msgstr ""
 msgid "The wallet's state did not load. Try again."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:810
+#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:813
 #, elixir-autogen, elixir-format
 msgid "Usage"
 msgstr ""
@@ -1638,7 +1638,7 @@ msgstr ""
 msgid "Waived"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:808
+#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:811
 #, elixir-autogen, elixir-format
 msgid "Welcome credit"
 msgstr ""
@@ -1648,7 +1648,7 @@ msgstr ""
 msgid "Yes, remove the waiver"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:1138
+#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:1143
 #, elixir-autogen, elixir-format
 msgid "Yes, reverse this entry"
 msgstr ""
@@ -1658,17 +1658,17 @@ msgstr ""
 msgid "Yes, waive the gate"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:1049
+#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:1054
 #, elixir-autogen, elixir-format
 msgid "Amount"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:1048
+#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:1053
 #, elixir-autogen, elixir-format
 msgid "Entry"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:1007
+#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:1011
 #, elixir-autogen, elixir-format
 msgid "Post a %{amount} goodwill credit?"
 msgstr ""
@@ -1678,12 +1678,12 @@ msgstr ""
 msgid "Posts %{amount} now as an adjustment credit. It cannot be un-posted, only reversed with a compensating entry."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:1050
+#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:1055
 #, elixir-autogen, elixir-format
 msgid "Reference"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:997
+#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:1001
 #, elixir-autogen, elixir-format
 msgid "Reviewing..."
 msgstr ""
@@ -1713,7 +1713,7 @@ msgstr ""
 msgid "The waiver is removed. The has-paid gate closes again. Private access and backups lock until the org tops up."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:1047
+#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:1052
 #, elixir-autogen, elixir-format
 msgid "When"
 msgstr ""
@@ -1723,7 +1723,7 @@ msgstr ""
 msgid "Whole cents only. Enter %{cents} for %{amount}. Nothing was posted."
 msgstr ""
 
-#: lib/flux_vale_web/components/core_components.ex:1096
+#: lib/flux_vale_web/components/core_components.ex:1110
 #, elixir-autogen, elixir-format
 msgid "Working..."
 msgstr ""
@@ -1743,7 +1743,7 @@ msgstr ""
 msgid "Goodwill credits cap at %{cap}. Nothing was posted."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:966
+#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:970
 #, elixir-autogen, elixir-format
 msgid "Posts as an adjustment credit, up to $1,000.00. A post cannot be undone, only reversed with a compensating entry."
 msgstr ""
@@ -1758,22 +1758,22 @@ msgstr ""
 msgid "That entry belongs to a different wallet. The ledger is refreshed."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:895
+#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:898
 #, elixir-autogen, elixir-format
 msgid "The balance recovered."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:898
+#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:901
 #, elixir-autogen, elixir-format
 msgid "The destroy clock from the negative episode has not been swept yet. It clears at the next automatic check. Nothing is on a countdown right now."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:876
+#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:879
 #, elixir-autogen, elixir-format
 msgid "The org's instances are stopped and its data is on a destroy clock. The clock started %{start}. Deletion lands %{deadline}. The clock clears at the next automatic check once the balance is back above zero."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:882
+#: lib/flux_vale_web/live/admin_live/wallet_detail.ex:885
 #, elixir-autogen, elixir-format
 msgid "The org's instances are stopped. The destroy clock starts at the next automatic check. A top-up that puts the balance back above zero clears it there."
 msgstr ""
@@ -1830,18 +1830,18 @@ msgstr ""
 msgid "Comments"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/moderation.ex:1423
+#: lib/flux_vale_web/live/admin_live/moderation.ex:1427
 #, elixir-autogen, elixir-format
 msgid "Create tag"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/moderation.ex:1420
+#: lib/flux_vale_web/live/admin_live/moderation.ex:1424
 #, elixir-autogen, elixir-format
 msgid "Creating..."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/moderation.ex:1342
-#: lib/flux_vale_web/live/admin_live/moderation.ex:1496
+#: lib/flux_vale_web/live/admin_live/moderation.ex:1343
+#: lib/flux_vale_web/live/admin_live/moderation.ex:1500
 #, elixir-autogen, elixir-format
 msgid "Delete"
 msgstr ""
@@ -1851,12 +1851,12 @@ msgstr ""
 msgid "Delete post"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/moderation.ex:1544
+#: lib/flux_vale_web/live/admin_live/moderation.ex:1548
 #, elixir-autogen, elixir-format
 msgid "Delete the tag %{name}?"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/moderation.ex:1361
+#: lib/flux_vale_web/live/admin_live/moderation.ex:1362
 #, elixir-autogen, elixir-format
 msgid "Delete this comment?"
 msgstr ""
@@ -1866,7 +1866,7 @@ msgstr ""
 msgid "Delete this post?"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/moderation.ex:1492
+#: lib/flux_vale_web/live/admin_live/moderation.ex:1496
 #, elixir-autogen, elixir-format
 msgid "Deleting..."
 msgstr ""
@@ -1886,13 +1886,13 @@ msgstr ""
 msgid "Find posts"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/moderation.ex:1406
-#: lib/flux_vale_web/live/admin_live/moderation.ex:1515
+#: lib/flux_vale_web/live/admin_live/moderation.ex:1410
+#: lib/flux_vale_web/live/admin_live/moderation.ex:1519
 #, elixir-autogen, elixir-format
 msgid "Name"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/moderation.ex:1407
+#: lib/flux_vale_web/live/admin_live/moderation.ex:1411
 #, elixir-autogen, elixir-format
 msgid "New tag name"
 msgstr ""
@@ -1907,12 +1907,12 @@ msgstr ""
 msgid "No posts on the board yet."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/moderation.ex:1442
+#: lib/flux_vale_web/live/admin_live/moderation.ex:1446
 #, elixir-autogen, elixir-format
 msgid "No tags yet. Create the first one above."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/moderation.ex:1248
+#: lib/flux_vale_web/live/admin_live/moderation.ex:1249
 #, elixir-autogen, elixir-format
 msgid "No votes yet."
 msgstr ""
@@ -1922,7 +1922,7 @@ msgstr ""
 msgid "Open the public board"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/moderation.ex:1414
+#: lib/flux_vale_web/live/admin_live/moderation.ex:1418
 #, elixir-autogen, elixir-format
 msgid "Optional, derived from the name"
 msgstr ""
@@ -1942,7 +1942,7 @@ msgstr ""
 msgid "Posted"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/moderation.ex:1433
+#: lib/flux_vale_web/live/admin_live/moderation.ex:1437
 #, elixir-autogen, elixir-format
 msgid "Posts"
 msgstr ""
@@ -1952,27 +1952,27 @@ msgstr ""
 msgid "Posts land here as the community files them."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/moderation.ex:1287
+#: lib/flux_vale_web/live/admin_live/moderation.ex:1288
 #, elixir-autogen, elixir-format
 msgid "Remove this vote? The post's vote count drops by one."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/moderation.ex:1486
+#: lib/flux_vale_web/live/admin_live/moderation.ex:1490
 #, elixir-autogen, elixir-format
 msgid "Rename"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/moderation.ex:1270
+#: lib/flux_vale_web/live/admin_live/moderation.ex:1271
 #, elixir-autogen, elixir-format
 msgid "Retract"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/moderation.ex:1524
+#: lib/flux_vale_web/live/admin_live/moderation.ex:1528
 #, elixir-autogen, elixir-format
 msgid "Save"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/moderation.ex:1521
+#: lib/flux_vale_web/live/admin_live/moderation.ex:1525
 #, elixir-autogen, elixir-format
 msgid "Saving..."
 msgstr ""
@@ -1997,7 +1997,7 @@ msgstr ""
 msgid "Showing the latest 100 posts."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/moderation.ex:1413
+#: lib/flux_vale_web/live/admin_live/moderation.ex:1417
 #, elixir-autogen, elixir-format
 msgid "Slug"
 msgstr ""
@@ -2007,7 +2007,7 @@ msgstr ""
 msgid "Status"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/moderation.ex:1432
+#: lib/flux_vale_web/live/admin_live/moderation.ex:1436
 #, elixir-autogen, elixir-format
 msgid "Tag"
 msgstr ""
@@ -2027,7 +2027,7 @@ msgstr ""
 msgid "Tag renamed."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/moderation.ex:1387
+#: lib/flux_vale_web/live/admin_live/moderation.ex:1391
 #, elixir-autogen, elixir-format
 msgid "Tag vocabulary"
 msgstr ""
@@ -2052,7 +2052,7 @@ msgstr ""
 msgid "That panel is no longer open. The list is refreshed."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/moderation.ex:1389
+#: lib/flux_vale_web/live/admin_live/moderation.ex:1393
 #, elixir-autogen, elixir-format
 msgid "The board's curated topic tags. Deleting a tag takes it off every post that carries it."
 msgstr ""
@@ -2062,7 +2062,7 @@ msgstr ""
 msgid "The board's posts with their votes, comments, and tags. Every delete names what it takes with it before anything happens."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/moderation.ex:1363
+#: lib/flux_vale_web/live/admin_live/moderation.ex:1364
 #, elixir-autogen, elixir-format
 msgid "The comment is removed from the post. The post's comment count drops by one. This cannot be undone."
 msgstr ""
@@ -2082,7 +2082,7 @@ msgstr ""
 msgid "The post leaves the board. Its votes and comments are removed with it. This cannot be undone."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/moderation.ex:1546
+#: lib/flux_vale_web/live/admin_live/moderation.ex:1550
 #, elixir-autogen, elixir-format
 msgid "The tag comes off every post that carries it. 1 post carries it today. This cannot be undone."
 msgid_plural "The tag comes off every post that carries it. %{count} posts carry it today. This cannot be undone."
@@ -2109,7 +2109,7 @@ msgstr ""
 msgid "Votes"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/moderation.ex:1367
+#: lib/flux_vale_web/live/admin_live/moderation.ex:1368
 #, elixir-autogen, elixir-format
 msgid "Yes, delete this comment"
 msgstr ""
@@ -2119,7 +2119,7 @@ msgstr ""
 msgid "Yes, delete this post"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/moderation.ex:1552
+#: lib/flux_vale_web/live/admin_live/moderation.ex:1556
 #, elixir-autogen, elixir-format
 msgid "Yes, delete this tag"
 msgstr ""

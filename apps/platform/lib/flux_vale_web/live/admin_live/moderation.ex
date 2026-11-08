@@ -1231,6 +1231,7 @@ defmodule FluxValeWeb.AdminLive.Moderation do
                               event="confirm-destroy-post"
                               action_testid="admin-moderation-destroy-confirm"
                               cancel_testid="admin-moderation-destroy-cancel"
+                              return_focus="[data-testid='admin-moderation-destroy-post']"
                               myself={nil}
                             />
                           </div>
@@ -1368,6 +1369,9 @@ defmodule FluxValeWeb.AdminLive.Moderation do
                               event="confirm-delete-comment"
                               action_testid="admin-moderation-comment-delete-confirm"
                               cancel_testid="admin-moderation-comment-delete-cancel"
+                              return_focus={
+                                "[data-testid='admin-moderation-comment-delete-#{@confirm.id}']"
+                              }
                               myself={nil}
                             />
                           </div>
@@ -1553,6 +1557,7 @@ defmodule FluxValeWeb.AdminLive.Moderation do
                           event="confirm-delete-tag"
                           action_testid="admin-moderation-tag-delete-confirm"
                           cancel_testid="admin-moderation-tag-delete-cancel"
+                          return_focus={"[data-testid='admin-moderation-tag-delete-#{@confirm.id}']"}
                           myself={nil}
                         />
                       </div>

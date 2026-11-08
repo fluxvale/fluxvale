@@ -766,6 +766,9 @@ defmodule FluxValeWeb.AdminLive.WalletDetail do
   defp reversing?(entry, {:reverse, opened}), do: entry.id == opened.id
   defp reversing?(_entry, _other), do: false
 
+  defp reverse_return_focus({:reverse, entry}),
+    do: "[data-testid='admin-wallet-reverse-#{entry.id}']"
+
   defp reversed_ids(entries) do
     entries
     |> MapSet.new(& &1.reverses_id)
@@ -868,7 +871,7 @@ defmodule FluxValeWeb.AdminLive.WalletDetail do
             class="rise rounded-panel border border-line-danger bg-danger-muted px-4 py-3"
             data-testid="admin-wallet-destroy-clock"
           >
-            <p class="text-sm font-semibold text-danger">
+            <p class="text-sm font-semibold text-danger-deep">
               {gettext("The balance is below zero.")}
             </p>
             <p class="mt-1 text-sm text-ink">
@@ -948,6 +951,7 @@ defmodule FluxValeWeb.AdminLive.WalletDetail do
                       event="confirm-waiver"
                       action_testid="admin-wallet-waiver-confirm"
                       cancel_testid="admin-wallet-waiver-cancel"
+                      return_focus="[data-testid='admin-wallet-waiver-flip']"
                       myself={nil}
                     />
                   </div>
@@ -1014,6 +1018,7 @@ defmodule FluxValeWeb.AdminLive.WalletDetail do
                       event="confirm-goodwill"
                       action_testid="admin-wallet-goodwill-confirm"
                       cancel_testid="admin-wallet-goodwill-cancel"
+                      return_focus="[data-testid='admin-wallet-goodwill-submit']"
                       myself={nil}
                     />
                   </div>
@@ -1139,6 +1144,7 @@ defmodule FluxValeWeb.AdminLive.WalletDetail do
                                 event="confirm-reverse"
                                 action_testid="admin-wallet-reverse-confirm"
                                 cancel_testid="admin-wallet-reverse-cancel"
+                                return_focus={reverse_return_focus(@confirm)}
                                 myself={nil}
                               />
                             </div>

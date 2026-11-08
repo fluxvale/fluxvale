@@ -311,7 +311,7 @@ defmodule FluxValeWeb.AdminLive.Billing do
                           <span
                             class={[
                               "whitespace-nowrap text-sm tabular-nums",
-                              wallet.balance < 0 && "font-semibold text-danger"
+                              wallet.balance < 0 && "font-semibold text-danger-deep"
                             ]}
                             data-testid={"admin-billing-balance-#{wallet.id}"}
                           >

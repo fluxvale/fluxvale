@@ -16,9 +16,11 @@ on staging (fleet-routed, internal-only, `STORYBOOK_ENABLED`-gated).
   `panel` / `panel-raised` (surfaces), `ink` / `ink-muted` /
   `ink-subtle` (text), `line` / `line-strong` (borders), `success` /
   `warning` / `danger` (+muted, line- variants), `focus`.
-  Mapped to utilities via `@theme inline` — `bg-primary`,
-  `text-ink-muted`, `border-line` … Dark side is v1's slate verbatim;
-  light neutrals warmed to stone to sit with amber.
+  `danger-deep` is the text-only ink for danger-muted fills — light
+  #b01818 (6.42:1 on the tint) where base danger sits at 4.41:1; dark
+  aliases danger (4.96:1). Mapped to utilities via `@theme inline` —
+  `bg-primary`, `text-ink-muted`, `border-line` … Dark side is v1's
+  slate verbatim; light neutrals warmed to stone to sit with amber.
 - **Type system** (#557) — three voices, all vendored woff2 in
   `priv/static/fonts/` (licenses in `FONTS.md` there): **Switzer**
   (variable sans, weights 100-900) is the interface voice.
@@ -39,7 +41,9 @@ range with label + unit readout, #195), `card`, `badge`, `status_badge`
 (instance lifecycle, pulsing dot on in-motion states), `table`
 (stream-ready), `flash` (toasts), `nav_link` (active state), `header`,
 `empty_state`, `icon`, `list`, `user_menu` (signed-in avatar dropdown,
-#205).
+#205), `confirm_block` (the two-step destructive confirm: danger-deep
+heading on the danger-muted fill, `role="alert"`, focus into the block
+and back to the trigger on cancel, #532).
 
 ## Surfaces on the system
 
