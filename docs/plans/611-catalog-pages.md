@@ -1,8 +1,7 @@
 # Plan: catalog app pages at PikaPods depth (#611)
 
-Status: **PLAN GATE. Nothing implements before Terence's go.**
-Decisions D1-D12 in §11 need answers; everything else is the
-recommended design.
+Status: **APPROVED — Terence, Nov 8 2026.** All D1-D12 settled as
+recommended; §11 records the ruling. Slices fan out per §10, S1 first.
 
 Evidence base: the four reference screenshots of
 [pikapods.com/apps/docmost](https://pikapods.com/apps/docmost)
@@ -555,6 +554,10 @@ after S1 and gates launch if D9 says so.
 
 ## 11. Decisions for Terence
 
+**Settled Nov 8 2026: approved, all twelve as recommended.** The text
+below is the record. Two clarifications from the ruling: D2 captures
+come from our staging instances, and D9 makes S7 a launch gate.
+
 Each has a recommendation. Answer inline on the issue.
 
 **D1. Authoring contract for the new fields.**
@@ -567,8 +570,8 @@ blocks new entries on copy.
 **D2. Screenshot source and storage.**
 Recommend: repo assets under
 `apps/platform/priv/static/images/catalog/<slug>/`, captured from our
-own instances (Playwright, seeded demo data), reviewed in the PR. No
-upstream marketing shots, no hotlinks, no admin uploads in v1.
+staging instances (Playwright, seeded demo data), reviewed in the PR.
+No upstream marketing shots, no hotlinks, no admin uploads in v1.
 *Who captures: the implementation agent. Who approves: you.*
 
 **D3. Surface scope.**
