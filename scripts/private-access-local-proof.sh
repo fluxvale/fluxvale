@@ -14,6 +14,9 @@
 # certificate, or a request from a tailnet device. That is the staging
 # runbook (docs/plans/273-private-access-staging-proof.md).
 #
+# Prereq in a fresh worktree: cd apps/platform && mix content.sync (the
+# app boot loads priv/content; the proof's `mix run` needs it too).
+#
 # Usage: scripts/private-access-local-proof.sh
 # Env:   FV273_PROOF_SHOTS   screenshot output dir (default: docs/screenshots/fv273-local-proof)
 #        FV273_PROOF_STATE   state json (default: /tmp/opencode/fv273-private-access-proof-state.json)
