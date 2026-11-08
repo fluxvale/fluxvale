@@ -2110,9 +2110,11 @@ defmodule FluxValeWeb.InstanceLive.Show do
   # entirely: the action's absent = keep-the-row's-value semantics
   # preserve 0, 7, 15, 200 GB alike — seeding the payload at a rung
   # would either guarantee a refusal (7 → 5, a shrink) or silently
-  # raise the bill on a CPU-only resize (0 → 5) that the lock makes
-  # unfixable. The disabled slider is display-only; up-only stays the
-  # action's enforcement.
+  # raise the bill on a CPU-only resize (3 → 5, a floor past the
+  # row's own off-rung GB) that the lock makes unfixable. (0 GB is
+  # itself a rung since #576, so a stateless row seeds exactly at
+  # itself — no raise.) The disabled slider is display-only; up-only
+  # stays the action's enforcement.
   #
   # Returns {:error, :unseeded} when any rung is missing: F1's guards
   # seed every rung on the real paths, so the arm only ever answers a
@@ -2178,7 +2180,8 @@ defmodule FluxValeWeb.InstanceLive.Show do
   # locked the payload omits the dimension and the action keeps the
   # row's value, so the rungs price with the row's storage substituted
   # — pricing the displayed rung would promise figures the resize
-  # never charges (worst on 0 GB rows: a stopped fee that can't exist).
+  # never charges (worst on off-rung rows below their floor: a stopped
+  # fee the row's own storage can never produce).
   defp preview_for(instance, rungs, storage_locked) do
     rungs =
       if storage_locked,

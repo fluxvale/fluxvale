@@ -71,11 +71,15 @@ defmodule FluxValeWeb.SiteAnalytics do
 
     ~H"""
     <%= if @script_url && @website_id do %>
-      <%!-- The tracker loads cross-origin from the analytics instance
-      itself, so it cannot ride the app.js bundle (a bundled import
-      would load on every surface and could never render "nothing at
-      all" when unconfigured — both are the point of this component).
-      `async` per Umami's embed snippet; cookieless, so no banner. --%>
+      <%!-- RECORDED DEVIATION from the app.js-bundle-only rule
+      (apps/platform/AGENTS.md, JS and CSS guidelines): the tracker
+      loads cross-origin from the analytics instance itself, so it
+      cannot ride the bundle — a bundled import would load on every
+      surface and could never render "nothing at all" when
+      unconfigured, and both are the point of this component. This is
+      the one sanctioned external script tag; any other wants its own
+      recorded exception. `async` per Umami's embed snippet; cookieless,
+      so no banner. --%>
       <script async src={@script_url} data-website-id={@website_id}>
       </script>
     <% end %>

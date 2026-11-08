@@ -40,6 +40,19 @@ defmodule FluxValeWeb.SiteAnalyticsTest do
       end
     end
 
+    test "a hand-set half config still renders nothing (the pair is atomic)", %{conn: conn} do
+      # runtime.exs drops half-configured env pairs to nil, but a
+      # release overlay or a stray Application.put_env can set exactly
+      # one key — the component's own guard is the backstop, and this
+      # is the arm that guard exists for.
+      stub_site_analytics(script_url: "https://umami.example.com/script.js")
+
+      landing = html_response(get(conn, ~p"/"), 200)
+
+      refute landing =~ ~s(data-website-id=)
+      refute landing =~ ~s(src="https://umami.example.com/script.js")
+    end
+
     test "renders the tracker on the public surfaces when configured", %{conn: conn} do
       stub_site_analytics(
         script_url: "https://umami.example.com/script.js",
