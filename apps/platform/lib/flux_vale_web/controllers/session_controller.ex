@@ -42,6 +42,12 @@ defmodule FluxValeWeb.SessionController do
   alias FluxValeWeb.AuthFlow
   alias FluxValeWeb.ReturnPath
 
+  @doc """
+  Writes the session from either proof shape: the connected flow's minted
+  `token`, or the native flow's `email` + `code` (#219). Both arms answer
+  on the step the outcome belongs to, per `AuthFlow`; a submission with
+  neither proof is the generic failure.
+  """
   def create(conn, %{"token" => token} = params) when is_binary(token) and token != "" do
     return_to = ReturnPath.safe(params["return_to"])
 
