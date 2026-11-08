@@ -169,4 +169,78 @@ defmodule FluxValeWeb.Api.CatalogRouteTest do
              }
     end
   end
+
+  # #597: the wiring recipe is catalog data a client can read (names
+  # only, the oidc_callback_path stance) — the fixture mirrors the
+  # Vaultwarden seed's recipe over its own declared SSO_* inputs.
+  describe "version reads — oidc_wiring (#597)" do
+    setup do
+      wired_version =
+        InstanceFixtures.app_version!(
+          app_slug: "vaultwarden",
+          configurable_env_vars: %{
+            "SSO_AUTHORITY" => %{label: "OIDC issuer URL", type: "string"},
+            "SSO_CLIENT_ID" => %{label: "OIDC client ID", type: "string"},
+            "SSO_CLIENT_SECRET" => %{label: "OIDC client secret", type: "string", secret: true},
+            "SSO_ENABLED" => %{label: "Enable Pocket ID sign-in", type: "boolean", default: false}
+          },
+          oidc_wiring: %{
+            "kind" => "env",
+            "issuer_env" => "SSO_AUTHORITY",
+            "client_id_env" => "SSO_CLIENT_ID",
+            "client_secret_env" => "SSO_CLIENT_SECRET",
+            "enabled_env" => "SSO_ENABLED",
+            "pkce" => true
+          }
+        )
+
+      pat = elem(ApiPat.member!(["catalog:read"]), 1)
+      %{wired_version: wired_version, pat: pat}
+    end
+
+    test "the versions list renders the recipe as the storage shape", %{
+      conn: conn,
+      wired_version: version,
+      pat: pat
+    } do
+      conn =
+        conn
+        |> auth(pat)
+        |> get("/api/v1/apps/#{version.app_id}/versions")
+
+      assert %{"data" => [row]} = json_response(conn, 200)
+
+      assert row["attributes"]["oidc_wiring"] == %{
+               "kind" => "env",
+               "issuer_env" => "SSO_AUTHORITY",
+               "client_id_env" => "SSO_CLIENT_ID",
+               "client_secret_env" => "SSO_CLIENT_SECRET",
+               "enabled_env" => "SSO_ENABLED",
+               "pkce" => true
+             }
+    end
+
+    test "the app-version get renders it too", %{conn: conn, wired_version: version, pat: pat} do
+      conn =
+        conn
+        |> auth(pat)
+        |> get("/api/v1/app-versions/#{version.id}")
+
+      assert %{"data" => row} = json_response(conn, 200)
+      assert row["attributes"]["oidc_wiring"]["client_secret_env"] == "SSO_CLIENT_SECRET"
+      assert row["attributes"]["oidc_wiring"]["pkce"] == true
+    end
+
+    test "a recipe-less version renders null, not an error", %{conn: conn, pat: pat} do
+      plain = InstanceFixtures.app_version!()
+
+      conn =
+        conn
+        |> auth(pat)
+        |> get("/api/v1/app-versions/#{plain.id}")
+
+      assert %{"data" => row} = json_response(conn, 200)
+      assert row["attributes"]["oidc_wiring"] == nil
+    end
+  end
 end

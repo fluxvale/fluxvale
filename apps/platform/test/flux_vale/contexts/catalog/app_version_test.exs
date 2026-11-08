@@ -8,6 +8,7 @@ defmodule FluxVale.Catalog.AppVersionTest do
   alias FluxVale.Catalog.Category
   alias FluxVale.Catalog.Types.EnvVarSpec
   alias FluxVale.Catalog.Types.FirstRunContract
+  alias FluxVale.Catalog.Types.OidcWiring
   alias FluxVale.Identity.User
   alias FluxVale.Pricing.Size
 
@@ -488,6 +489,164 @@ defmodule FluxVale.Catalog.AppVersionTest do
                &(&1.message =~ "must not appear in instance_url_env" and
                    &1.message =~ "APP__server__ROOT_URL")
              )
+    end
+  end
+
+  describe "oidc_wiring (typed by OidcWiring, #597)" do
+    # The recipe names this version's declared SSO inputs — the
+    # validation's contract. Shaped from the Vaultwarden seed.
+    @sso_specs %{
+      "SSO_AUTHORITY" => %{"label" => "Issuer", "type" => "string"},
+      "SSO_CLIENT_ID" => %{"label" => "Client ID", "type" => "string"},
+      "SSO_CLIENT_SECRET" => %{"label" => "Client secret", "type" => "string", "secret" => true},
+      "SSO_ENABLED" => %{"label" => "Enabled", "type" => "boolean"}
+    }
+
+    @recipe %{
+      "kind" => "env",
+      "issuer_env" => "SSO_AUTHORITY",
+      "client_id_env" => "SSO_CLIENT_ID",
+      "client_secret_env" => "SSO_CLIENT_SECRET",
+      "enabled_env" => "SSO_ENABLED",
+      "pkce" => true
+    }
+
+    test "defaults to nil and accepts a string-keyed recipe naming declared inputs" do
+      plain_attrs = version_attrs(app())
+
+      assert {:ok, plain} = AppVersion.create(plain_attrs, authorize?: false)
+      assert plain.oidc_wiring == nil
+
+      attrs = version_attrs(app(), %{configurable_env_vars: @sso_specs, oidc_wiring: @recipe})
+
+      assert {:ok, version} = AppVersion.create(attrs, authorize?: false)
+
+      assert %OidcWiring{} = version.oidc_wiring
+      assert version.oidc_wiring.kind == :env
+      assert version.oidc_wiring.client_secret_env == "SSO_CLIENT_SECRET"
+    end
+
+    test "round-trips through jsonb as an OidcWiring struct" do
+      attrs = version_attrs(app(), %{configurable_env_vars: @sso_specs, oidc_wiring: @recipe})
+      version = AppVersion.create!(attrs, authorize?: false)
+
+      # Fresh read — cast_stored re-casts the jsonb map into the struct.
+      assert {:ok, [reloaded]} = Ash.read(AppVersion, authorize?: false)
+      assert reloaded.id == version.id
+      assert %OidcWiring{} = reloaded.oidc_wiring
+      assert reloaded.oidc_wiring.enabled_env == "SSO_ENABLED"
+      assert reloaded.oidc_wiring.pkce == true
+    end
+
+    test "rejects a malformed recipe at the resource boundary" do
+      attrs =
+        version_attrs(app(), %{
+          configurable_env_vars: @sso_specs,
+          oidc_wiring: %{"kind" => "env", "issuer_env" => "SSO_AUTHORITY", "pkce" => true}
+        })
+
+      assert {:error, %Ash.Error.Invalid{}} = AppVersion.create(attrs, authorize?: false)
+    end
+
+    test "a recipe naming an input the version never declares fails create, naming it" do
+      attrs =
+        version_attrs(app(), %{
+          configurable_env_vars: Map.delete(@sso_specs, "SSO_ENABLED"),
+          oidc_wiring: @recipe
+        })
+
+      assert {:error, %Ash.Error.Invalid{errors: errors}} =
+               AppVersion.create(attrs, authorize?: false)
+
+      assert Enum.any?(
+               errors,
+               &(&1.message =~
+                   "enabled_env \"SSO_ENABLED\" is not in this version's configurable_env_vars")
+             )
+    end
+
+    test "the lock also holds on update — an AshAdmin edit cannot drift the recipe" do
+      base = version_attrs(app())
+      version = AppVersion.create!(base, authorize?: false)
+
+      # Neither the recipe nor the specs may drift apart on update:
+      # adding the recipe without declaring its inputs fails.
+      assert {:error, %Ash.Error.Invalid{errors: errors}} =
+               AppVersion.update(version, %{oidc_wiring: @recipe}, authorize?: false)
+
+      assert Enum.any?(
+               errors,
+               &(&1.message =~
+                   "issuer_env \"SSO_AUTHORITY\" is not in this version's configurable_env_vars")
+             )
+
+      # And stripping a declared input out from under a live recipe
+      # fails too.
+      seeded_attrs =
+        version_attrs(app(), %{configurable_env_vars: @sso_specs, oidc_wiring: @recipe})
+
+      seeded =
+        AppVersion.create!(
+          seeded_attrs,
+          authorize?: false
+        )
+
+      assert {:error, %Ash.Error.Invalid{errors: errors}} =
+               AppVersion.update(
+                 seeded,
+                 %{configurable_env_vars: Map.delete(@sso_specs, "SSO_CLIENT_ID")},
+                 authorize?: false
+               )
+
+      assert Enum.any?(
+               errors,
+               &(&1.message =~
+                   "client_id_env \"SSO_CLIENT_ID\" is not in this version's configurable_env_vars")
+             )
+    end
+
+    test "the secret env must be secret-typed — a plain spec fails loudly" do
+      plain_secret =
+        Map.put(@sso_specs, "SSO_CLIENT_SECRET", %{
+          "label" => "Client secret",
+          "type" => "string"
+        })
+
+      attrs =
+        version_attrs(app(), %{configurable_env_vars: plain_secret, oidc_wiring: @recipe})
+
+      assert {:error, %Ash.Error.Invalid{errors: errors}} =
+               AppVersion.create(attrs, authorize?: false)
+
+      assert Enum.any?(
+               errors,
+               &(&1.message =~
+                   "client_secret_env \"SSO_CLIENT_SECRET\" must name a secret-typed")
+             )
+    end
+
+    test "a nil recipe skips the validation — wiring is opt-in per version (D4)" do
+      # The SSO inputs can exist without a recipe (the manual #529
+      # posture), and a version with neither is plain.
+      attrs = version_attrs(app(), %{configurable_env_vars: @sso_specs})
+
+      assert {:ok, _manual_only} = AppVersion.create(attrs, authorize?: false)
+    end
+
+    test "a recipe without enabled_env skips that one check — the toggle is optional" do
+      # No SSO_ENABLED spec declared, none named: the remaining three
+      # names still validate against the version's inputs.
+      specs_sans_toggle = Map.delete(@sso_specs, "SSO_ENABLED")
+      recipe_sans_toggle = Map.delete(@recipe, "enabled_env")
+
+      attrs =
+        version_attrs(app(), %{
+          configurable_env_vars: specs_sans_toggle,
+          oidc_wiring: recipe_sans_toggle
+        })
+
+      assert {:ok, version} = AppVersion.create(attrs, authorize?: false)
+      assert version.oidc_wiring.enabled_env == nil
     end
   end
 

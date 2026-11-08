@@ -40,6 +40,7 @@ defmodule FluxVale.Catalog.AppVersion do
           :default_env_vars,
           :configurable_env_vars,
           :first_run,
+          :oidc_wiring,
           :release_notes,
           :published_at
         ]
@@ -63,6 +64,7 @@ defmodule FluxVale.Catalog.AppVersion do
           :default_env_vars,
           :configurable_env_vars,
           :first_run,
+          :oidc_wiring,
           :release_notes,
           :published_at
         ]
@@ -201,6 +203,19 @@ defmodule FluxVale.Catalog.AppVersion do
       public?(true)
     end
 
+    # The OIDC wiring recipe (#597): presence = this version can be
+    # wired to an org's Pocket ID automatically — which env names the
+    # wiring writes, whether the minted client gets PKCE. Per-version
+    # like oidc_callback_path (an upstream breaking change never
+    # re-wires older instances). The recipe's env names must exist in
+    # this version's configurable_env_vars (ValidateOidcWiringEnv);
+    # nil = no automatic wiring (Pocket ID itself, D4). Public read
+    # carries names only, never secret values — the
+    # oidc_callback_path stance.
+    attribute :oidc_wiring, FluxVale.Catalog.Types.OidcWiring do
+      public?(true)
+    end
+
     attribute :default_cpu_cores, :decimal do
       allow_nil?(false)
       default(Decimal.new("0.5"))
@@ -263,6 +278,7 @@ defmodule FluxVale.Catalog.AppVersion do
         :default_env_vars,
         :configurable_env_vars,
         :first_run,
+        :oidc_wiring,
         :default_cpu_cores,
         :default_memory_mb,
         :default_storage_gb,
@@ -275,6 +291,7 @@ defmodule FluxVale.Catalog.AppVersion do
       validate(present(:recommended_size_id))
       validate(FluxVale.Catalog.AppVersion.ValidateSizeMatchesAllocation)
       validate(FluxVale.Catalog.AppVersion.ValidateFirstRunEnv)
+      validate(FluxVale.Catalog.AppVersion.ValidateOidcWiringEnv)
     end
 
     update :update do
@@ -294,6 +311,7 @@ defmodule FluxVale.Catalog.AppVersion do
         :default_env_vars,
         :configurable_env_vars,
         :first_run,
+        :oidc_wiring,
         :default_cpu_cores,
         :default_memory_mb,
         :default_storage_gb,
@@ -309,6 +327,7 @@ defmodule FluxVale.Catalog.AppVersion do
       validate(present(:recommended_size_id))
       validate(FluxVale.Catalog.AppVersion.ValidateSizeMatchesAllocation)
       validate(FluxVale.Catalog.AppVersion.ValidateFirstRunEnv)
+      validate(FluxVale.Catalog.AppVersion.ValidateOidcWiringEnv)
     end
 
     # #360: the detail page reads versions through the app relationship;

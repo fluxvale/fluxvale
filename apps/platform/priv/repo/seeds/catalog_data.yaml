@@ -382,6 +382,25 @@
               description: The client secret from the Pocket ID OIDC client. Pocket ID shows it once when the client is created.
               type: string
               secret: true
+          # #597: the automatic-wiring recipe — presence = the deploy
+          # wizard can offer "sign in with your Pocket ID" for this
+          # version. kind env = the platform injects everything at
+          # deploy: it mints the Pocket ID client and writes the four
+          # SSO_* inputs above server-side (the manual values stay the
+          # fallback). pkce matches a Pocket ID client created with
+          # PKCE on. The names must exist in configurable_env_vars and
+          # the secret must be secret-typed — enforced at write time,
+          # so an upstream env rename fails the seed, not the deploy.
+          # Per-version data: more apps join by declaring a recipe
+          # (D4); Pocket ID itself and the in-app-configured consumers
+          # (Forgejo, Kavita, Memos) carry none in v1.
+          oidc_wiring:
+            kind: env
+            issuer_env: SSO_AUTHORITY
+            client_id_env: SSO_CLIENT_ID
+            client_secret_env: SSO_CLIENT_SECRET
+            enabled_env: SSO_ENABLED
+            pkce: true
 
 - category:
     name: Identity
