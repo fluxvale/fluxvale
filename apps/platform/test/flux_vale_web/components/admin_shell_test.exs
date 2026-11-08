@@ -44,8 +44,8 @@ defmodule FluxValeWeb.Components.AdminShellTest do
   # Every entry the sidebar carries, in order: the live sections, the
   # coming ones, the resource console's own group, then deep debugging.
   @entry_keys ~w(people catalog wallets feedback orgs gateways resources ash dashboard)
-  @live_keys ~w(people catalog wallets feedback resources ash dashboard)
-  @coming_keys ~w(orgs gateways)
+  @live_keys ~w(people catalog wallets feedback orgs resources ash dashboard)
+  @coming_keys ~w(gateways)
 
   test "the sections in order, live ones at their paths, coming ones linkless" do
     html = render_component(&AdminShell.sidebar/1, current: "people")
@@ -55,7 +55,7 @@ defmodule FluxValeWeb.Components.AdminShellTest do
              {"catalog", "/admin/catalog", nil},
              {"wallets", "/admin/billing", nil},
              {"feedback", "/admin/moderation", nil},
-             {"orgs", nil, nil},
+             {"orgs", "/admin/orgs", nil},
              {"gateways", nil, nil},
              {"resources", "/admin/resources", nil},
              {"ash", "/admin/ash", nil},
@@ -113,6 +113,7 @@ defmodule FluxValeWeb.Components.AdminShellTest do
       catalog: "Catalog and pricing",
       wallets: "Wallets and billing",
       feedback: "Feedback moderation",
+      orgs: "Orgs and instances",
       resources: "Resource console",
       ash: "AshAdmin",
       dashboard: "LiveDashboard"
@@ -174,6 +175,19 @@ defmodule FluxValeWeb.Components.AdminShellTest do
     exact_entries = entries(exact)
 
     assert Enum.at(exact_entries, 2) == {"wallets", "/admin/billing", "page"}
+  end
+
+  test "the orgs entry flips live with the section's own contract" do
+    # Same shape as the wallets flip: the org detail is a SUB-route of
+    # the section (an ancestor mark), the section route is the page.
+    sub = render_component(&AdminShell.sidebar/1, current: "orgs", exact: false)
+    sub_entries = entries(sub)
+    assert Enum.at(sub_entries, 4) == {"orgs", "/admin/orgs", "location"}
+
+    exact = render_component(&AdminShell.sidebar/1, current: "orgs")
+    exact_entries = entries(exact)
+
+    assert Enum.at(exact_entries, 4) == {"orgs", "/admin/orgs", "page"}
   end
 
   test "an unknown section key raises — the keys are the entries of groups/0" do

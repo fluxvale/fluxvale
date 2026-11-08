@@ -570,6 +570,17 @@ defmodule FluxValeWeb.Router do
       live("/resources/:domain", FluxValeWeb.AdminLive.Resources, :domain)
       live("/resources/:domain/:resource", FluxValeWeb.AdminLive.Resources, :index)
       live("/resources/:domain/:resource/:id", FluxValeWeb.AdminLive.Resources, :show)
+
+      # The orgs + instances overview surface (#501): read-only by
+      # design — the v1 plan reserved this section's writes. Every read
+      # rides the existing seams with the platform-admin actor and
+      # authorize?: true: org names ride the flagged :admin_lookup,
+      # wallet state rides the wallet read policy's admin arm, and
+      # instances render exactly as far as the members-only instance
+      # read policy admits the admin (the orgs they belong to). No
+      # writes anywhere on the surface, and no new domain actions.
+      live("/orgs", FluxValeWeb.AdminLive.Orgs)
+      live("/orgs/:id", FluxValeWeb.AdminLive.OrgDetail)
     end
 
     # LiveDashboard on the debug subpath (Am. 3): this node's BEAM and
