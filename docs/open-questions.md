@@ -16,9 +16,11 @@ the decision.
 2. **v2 launch gate** — v1's "FluxVale Sorted" gate (SFTP E2E, 5-app
    catalog, billing essentials, verified backups/restore, private
    beta) needs a v2 restatement. Which items make the v2 gate? One
-   settled input: cross-border VAT gates — registrations, checkout
-   tax evidence, and per-country return data before the first real
-   charge ([ADR-0029](adr/00029-payments-adapter-selfmor.md) Am. 3).
+   settled input: the cross-border VAT gates of Am. 3 dissolved when
+   Polar became the merchant of record
+   ([ADR-0029](adr/00029-payments-adapter-selfmor.md) Am. 6) — registrations,
+   checkout tax evidence, and return data are Polar's obligations,
+   not our launch gates.
 3. **Catalog lineup** — Forgejo #1 ([ADR-0031](adr/0031-build-order.md)
    M3 seed: the org's own git forge; SSH disabled initially,
    HTTPS-only git — the v1 port-22 lesson; SQLite-on-PVC) — seeded
@@ -33,14 +35,16 @@ the decision.
    Remaining dogfood apps TBD (v1 queued: SilverBullet, +1). Still
    open: per-app *command* overrides in the deployer (v1 #360) — mount
    path is now catalog data, command is not.
-4. **Payments provider** — resolved by
-   [ADR-0029](adr/00029-payments-adapter-selfmor.md): self-MoR with
-   HitPay behind a PaymentProvider adapter (PH entity; Stripe
-   unavailable there; Xendit swapped out pre-implementation, Am. 2).
-   Open launch-gate advisor items (map + registration gates decided,
-   [ADR-0029](adr/00029-payments-adapter-selfmor.md) Am. 3): OSS
-   member state, prepaid-credits voucher classification, PH
-   zero-rating documentation, DIY vs agent filings.
+4. **Payments provider** — resolved:
+    [ADR-0029](adr/00029-payments-adapter-selfmor.md) Am. 6 — Polar is
+    the provider and the merchant of record (cutover in #390, default
+    on main). Tax remittance, VAT registrations, and per-country
+    returns sit with Polar. HitPay remains the adapter's dormant
+    second implementation. The Am. 3 advisor items (OSS member state,
+    voucher classification, PH zero-rating documentation, DIY vs
+    agent filings) moved to Polar with the MoR switch and gate
+    nothing on our side while Polar is the provider. They revive only
+    if HitPay is ever reactivated in production.
 5. **Welcome credits anti-abuse** — mostly resolved by passwordless
    email-code auth (login proves inbox ownership by construction,
    [ADR-0003](adr/00003-ashauthentication-drop-authentik.md));
