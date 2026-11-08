@@ -40,10 +40,10 @@ defmodule PrivateAccessLocalProof do
 
   require Ash.Query
 
-  @namespace_prefix "fv273-proof"
+  @namespace_prefix "private-access-proof"
   @tailnet_domain "local-proof.ts.net"
   @pause_image "rancher/mirrored-pause:3.6"
-  @proof_label "fv273-private-access-proof"
+  @proof_label "private-access-proof"
 
   # ------------------------------------------------------------------
   # Entry
@@ -134,7 +134,7 @@ defmodule PrivateAccessLocalProof do
       # Keyless grant would double-post on a rerun; the purchase-style
       # credit with a stable idempotency key replays to the same ledger
       # row instead, which is what "seed idempotently" means here.
-      case Billing.credit_wallet(org, 200, idempotency_key: "fv273-private-access-proof:funding") do
+      case Billing.credit_wallet(org, 200, idempotency_key: "private-access-proof:funding") do
         {:ok, entry} -> {:ok, "ledger entry #{entry.id}"}
         {:error, reason} -> {:fail, "credit failed: #{inspect(reason)}"}
       end
@@ -362,12 +362,12 @@ defmodule PrivateAccessLocalProof do
   # ------------------------------------------------------------------
 
   # The shell's fallback deletes the gateway's named cluster objects
-  # directly, then re-runs cleanup with FV273_FORCE_CLEANUP=1 so a row
+  # directly, then re-runs cleanup with PRIVATE_ACCESS_PROOF_FORCE_CLEANUP=1 so a row
   # whose detach limb lost its namespace can still be removed. Without
   # the env flag this never runs: a real teardown failure must stay
   # visible, with its objects intact.
   defp force_destroy_gateway(gateway, reason) do
-    if System.get_env("FV273_FORCE_CLEANUP") == "1" do
+    if System.get_env("PRIVATE_ACCESS_PROOF_FORCE_CLEANUP") == "1" do
       changeset =
         Ash.Changeset.for_destroy(gateway, :destroy_after_teardown, %{}, authorize?: false)
 
@@ -648,8 +648,8 @@ defmodule PrivateAccessLocalProof do
 
   defp seed_instance!(org, cluster, version, namespace, suffix) do
     attrs = %{
-      name: "FV273 private proof app",
-      slug: "fv273-proof-#{suffix}",
+      name: "Private access proof app",
+      slug: "private-access-proof-#{suffix}",
       namespace: namespace,
       status: :starting,
       exposure: :private,
