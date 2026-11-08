@@ -21,10 +21,10 @@
 # and the proof's `mix run` needs it too.
 #
 # Usage: scripts/private-access-local-proof.sh
-# Env:   FV273_PROOF_SHOTS   screenshot output dir (default: docs/screenshots/fv273-local-proof)
-#        FV273_PROOF_STATE   state json (default: /tmp/opencode/fv273-private-access-proof-state.json)
-#        FV273_PROOF_KUBECONFIG  temp kubeconfig (default: /tmp/opencode/...kubeconfig)
-#        FV273_PROOF_BASE_URL    override the endpoint (a host `mix phx.server`,
+# Env:   PRIVATE_ACCESS_PROOF_SHOTS   screenshot output dir (default: docs/screenshots/private-access-proof)
+#        PRIVATE_ACCESS_PROOF_STATE   state json (default: /tmp/opencode/private-access-proof-state.json)
+#        PRIVATE_ACCESS_PROOF_KUBECONFIG  temp kubeconfig (default: /tmp/opencode/...kubeconfig)
+#        PRIVATE_ACCESS_PROOF_BASE_URL    override the endpoint (a host `mix phx.server`,
 #                                e.g. http://127.0.0.1:4000) when the k3d pod is
 #                                a stale image without the /internal/access route
 #
@@ -35,11 +35,11 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 MIX_DIR="$ROOT/apps/platform"
 E2E_DIR="$ROOT/apps/e2e"
-STATE="${FV273_PROOF_STATE:-/tmp/opencode/fv273-private-access-proof-state.json}"
-KUBECONFIG_PATH="${FV273_PROOF_KUBECONFIG:-/tmp/opencode/fv273-private-access-proof.kubeconfig}"
-SHOTS="${FV273_PROOF_SHOTS:-$ROOT/docs/screenshots/fv273-local-proof}"
+STATE="${PRIVATE_ACCESS_PROOF_STATE:-/tmp/opencode/private-access-proof-state.json}"
+KUBECONFIG_PATH="${PRIVATE_ACCESS_PROOF_KUBECONFIG:-/tmp/opencode/private-access-proof.kubeconfig}"
+SHOTS="${PRIVATE_ACCESS_PROOF_SHOTS:-$ROOT/docs/screenshots/private-access-proof}"
 CTX="k3d-fluxvale"
-EVIDENCE="$(mktemp -d /tmp/opencode/fv273-proof-evidence.XXXXXX)"
+EVIDENCE="$(mktemp -d /tmp/opencode/private-access-proof-evidence.XXXXXX)"
 
 FAILURES=0
 PF_PID=""
@@ -56,7 +56,7 @@ fail() { printf 'FAIL  %s\n' "$*"; FAILURES=$((FAILURES + 1)); }
 step() { printf '\n== %s ==\n' "$*"; }
 
 run_mix() {
-  local env_extra="${FV273_MIX_ENV_EXTRA:-}"
+  local env_extra="${PRIVATE_ACCESS_PROOF_MIX_ENV_EXTRA:-}"
   (cd "$MIX_DIR" && env $env_extra MIX_ENV=dev mix run "$ROOT/scripts/private-access-local-proof.exs" "$@")
 }
 
@@ -90,7 +90,7 @@ fallback_delete_objects() {
     kc delete namespace "$ns" --ignore-not-found --wait=false >/dev/null 2>&1 || true
   fi
 
-  kc delete namespace -l "app.kubernetes.io/part-of=fv273-private-access-proof" \
+  kc delete namespace -l "app.kubernetes.io/part-of=private-access-proof" \
     --ignore-not-found --wait=false >/dev/null 2>&1 || true
 }
 
@@ -125,14 +125,14 @@ do_cleanup() {
       cleanup_ok=0
       # The provider's teardown is the normal path. Its fallback deletes
       # the named objects directly, then a forced cleanup removes the
-      # row; FV273_FORCE_CLEANUP is what authorises the hard delete.
+      # row; PRIVATE_ACCESS_PROOF_FORCE_CLEANUP is what authorises the hard delete.
       fallback_delete_objects
-      if FV273_MIX_ENV_EXTRA="FV273_FORCE_CLEANUP=1" run_mix cleanup "$STATE" "$KUBECONFIG_PATH"; then
+      if PRIVATE_ACCESS_PROOF_MIX_ENV_EXTRA="PRIVATE_ACCESS_PROOF_FORCE_CLEANUP=1" run_mix cleanup "$STATE" "$KUBECONFIG_PATH"; then
         cleanup_ok=1
       fi
     fi
 
-    FV273_MIX_ENV_EXTRA="FV273_FORCE_CLEANUP=1" run_mix restore_cluster "$STATE" "$KUBECONFIG_PATH" ||
+    PRIVATE_ACCESS_PROOF_MIX_ENV_EXTRA="PRIVATE_ACCESS_PROOF_FORCE_CLEANUP=1" run_mix restore_cluster "$STATE" "$KUBECONFIG_PATH" ||
       cleanup_ok=0
 
     if wait_namespace_gone; then
@@ -197,8 +197,8 @@ preflight() {
     done
   done
 
-  if [[ -n "${FV273_PROOF_BASE_URL:-}" ]]; then
-    BASE_URL="${FV273_PROOF_BASE_URL%/}"
+  if [[ -n "${PRIVATE_ACCESS_PROOF_BASE_URL:-}" ]]; then
+    BASE_URL="${PRIVATE_ACCESS_PROOF_BASE_URL%/}"
     if [[ "$BASE_URL" == https://* ]]; then
       CURL=(curl -sk -m 20 --resolve app.fluxvale.lvh.me:443:127.0.0.1)
     else
@@ -316,7 +316,7 @@ main() {
     fail "wake route is absent/stale on $BASE_URL (body starts: $(printf '%s' "$route_body" | head -c 80))"
     echo "WALL  the endpoint has no /internal/access route. Start a current dev server"
     echo "      (cd apps/platform && MIX_ENV=dev mix phx.server) and rerun with"
-    echo "      FV273_PROOF_BASE_URL=http://127.0.0.1:4000. The k3d pod may be a stale image."
+    echo "      PRIVATE_ACCESS_PROOF_BASE_URL=http://127.0.0.1:4000. The k3d pod may be a stale image."
     exit 1
   fi
 

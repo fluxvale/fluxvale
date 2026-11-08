@@ -19,14 +19,14 @@ import { mkdirSync, readFileSync } from "node:fs";
 
 const BASE_AFTER = process.env.FV_AFTER_BASE ?? "http://127.0.0.1:4000";
 const BASE_BEFORE = process.env.FV_BEFORE_BASE ?? "http://127.0.0.1:4001";
-const tokenFile = process.env.FV_TOKEN_FILE ?? "/tmp/opencode/fv273_token.txt";
+const tokenFile = process.env.FV_TOKEN_FILE ?? "/tmp/opencode/access_pairing_token.txt";
 const token = process.env.FV_TOKEN ?? readFileSync(tokenFile, "utf8").trim();
 
 const ACCESS_URL = process.env.FV_ACCESS_URL;
 const INSTANCE_URL = process.env.FV_INSTANCE_URL;
 const CORNER_URL = process.env.FV_CORNER_URL;
 const BEFORE_INSTANCE_URL = process.env.FV_BEFORE_INSTANCE_URL;
-const outdir = process.argv[2] ?? "/tmp/opencode/fv273-shots";
+const outdir = process.argv[2] ?? "/tmp/opencode/access-pairing-shots";
 
 if (!ACCESS_URL || !INSTANCE_URL || !CORNER_URL) {
   console.error("FV_ACCESS_URL, FV_INSTANCE_URL and FV_CORNER_URL required (full URLs)");

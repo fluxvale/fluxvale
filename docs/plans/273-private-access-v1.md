@@ -16,7 +16,7 @@ The issue lists three unbuilt items. Two of them are built and merged; the fleet
 | P3 C1 namespace resolver | #307, `9f3b3dd` — one `InstanceK8s.gateway_access_namespace/0`, eager resolve before writes | Verify and close. |
 | P3 C2 teardown 404 | #306, `20fa6c2` — a 404 on disadmit reads `:ok` | Verify and close. |
 | P3 C3 policy spec types | #305, `9da3d99` — union type describes both real shapes | Verify and close. |
-| P3 C4 observer churn | **Not fixed** — `ObserveAccessGateway` still writes and broadcasts every minute for an unchanged `:active` row | Fix in this lane (slice S1). |
+| P3 C4 observer churn | **Not fixed** — `ObserveAccessGateway` still writes and broadcasts every minute for an unchanged `:active` row | Fix in this work (slice S1). |
 | Exit criteria | Neither proven end-to-end on a real tailnet | Split: local proofs tonight; the staging tailnet transcript needs Terence. |
 
 The issue's "refused-backend detection" phrasing is also stale: [ADR-0039 Amendment 2](../adr/00039-private-access-layer-tailscale.md) records why the shipped shape is status-driven (while asleep the serve target *is* the platform, so there is no refusal to detect; a running-but-dead app's 502 is correct and must not wake anything).
@@ -53,7 +53,7 @@ The fleet repo owns staging/production; the app repo keeps the local-dev mirror 
 - `RoleBinding` to `system:serviceaccount:fluxvale-dev:fluxvale-platform`.
 - Add the file to `Tiltfile`'s `k8s_yaml` list and `scripts/e2e-bootstrap.sh`'s apply list.
 
-The production handoff is a file, not an apply: `docs/plans/273-access-production-handoff.yaml` carries the `fluxvale-access-prod` namespace/quota/PSA/Role/RoleBinding (D2's per-env name) with a header naming it a handoff for the owner-stack repo. It is a named morning item beside #482; no agent applies it to staging or production.
+The production handoff is a file, not an apply: `docs/plans/273-access-production-handoff.yaml` carries the `fluxvale-access-prod` namespace/quota/PSA/Role/RoleBinding (D2's per-env name) with a header naming it a handoff for the owner-stack repo. It is a named morning item beside #482; nothing in this work applies it to staging or production.
 
 *Done when:* `kubectl apply -f deploy/local/k8s/02-access-fleet.yaml` succeeds; the per-verb `kubectl auth can-i` matrix returns yes only for the granted verbs (the comma-verb form is rejected by this kubectl — use per-verb loops); `kubectl create ... --as=system:serviceaccount:fluxvale-dev:fluxvale-platform --dry-run=server` succeeds for a Deployment, Secret and PVC in `fluxvale-access`; `kubectl get ns fluxvale-access --show-labels` shows the PSA labels; the prod handoff file exists and is explicitly marked do-not-apply.
 
@@ -67,9 +67,9 @@ Local (provable on this box, no tailnet):
 
 Not provable locally, and not faked: the gateway pod joining a real tailnet, the `.ts.net` HTTPS cert, a per-app port reached from a tailnet device, and a real serve-to-platform request waking a slept app.
 
-Staging (Terence, ~10 minutes, after this lane's PRs land): sign in to staging, open Settings → Access on the dogfood org, paste the staging key already in BWS (`tailscale-authkey-staging`), confirm the gateway reaches `:active` and record minutes-to-active; attach a private instance and visit the `.ts.net` address the panel shows for that instance (its allocated port — `8443` is only the first attach, not a fixed port); let it sleep, visit again, capture the wake page then the app; remove the gateway and confirm the namespace returns to 0/16. Paste the transcript into the issue; that closes the exit.
+Staging (Terence, ~10 minutes, after this work's PRs land): sign in to staging, open Settings → Access on the dogfood org, paste the staging key already in BWS (`tailscale-authkey-staging`), confirm the gateway reaches `:active` and record minutes-to-active; attach a private instance and visit the `.ts.net` address the panel shows for that instance (its allocated port — `8443` is only the first attach, not a fixed port); let it sleep, visit again, capture the wake page then the app; remove the gateway and confirm the namespace returns to its 1/17 baseline (the 1 is the `access-dns` resolver from infra#136; the issue's 0/16 text predates it). Paste the transcript into the issue; that closes the exit.
 
-The staging runbook rides S3 as a doc section with exact commands, expected outputs and pass criteria, so the human step is a 15-minute exercise rather than an investigation: key location (BWS name only), the panel clicks, the tailnet URL shape, the sleep trigger, the wake evidence to capture, the removal check, and the rollback. No secrets, no cluster writes by an agent.
+The staging runbook rides S3 as a doc section with exact commands, expected outputs and pass criteria, so the human step is a 15-minute exercise rather than an investigation: key location (BWS name only), the panel clicks, the tailnet URL shape, the sleep trigger, the wake evidence to capture, the removal check, and the rollback. No secrets, no cluster writes from this work.
 
 *Done when:* the local proof transcript is pasted in the PR; the staging runbook is reviewed; the PR body states plainly which criterion is proven and which is still waiting on Terence.
 
@@ -78,7 +78,7 @@ The staging runbook rides S3 as a doc section with exact commands, expected outp
 Each decision carries the options, the lean, and the reason. The lean is a recommendation, not a settlement.
 
 **D1 — Fleet provisioning ownership.** Options: (a) app-managed at boot — the platform SA creates the access namespace, quota and PSA labels itself; (b) owner-stack declarative manifests, app only consumes; (c) hybrid — owner-stack owns staging/production, the app repo keeps the local-dev mirror (ADR-0020 Am. 2).
-**Lean: (c).** ADR-0007's rule is "if it runs on the cluster, it lives in the fleet repo"; an app that can create its own namespace/quota is self-granting cluster permissions, which is exactly what this lane must not improvise. Staging is shipped in infra#105 and its Role corrected in infra#148 (the cert-manager Certificate verbs the ADR-0040 registry needs). The app-side deliverable is the local mirror plus the exact prod manifest in `docs/plans/273-access-production-handoff.yaml` — a file plus a named morning item, never an apply.
+**Lean: (c).** ADR-0007's rule is "if it runs on the cluster, it lives in the fleet repo"; an app that can create its own namespace/quota is self-granting cluster permissions, which is exactly what this work must not improvise. Staging is shipped in infra#105 and its Role corrected in infra#148 (the cert-manager Certificate verbs the ADR-0040 registry needs). The app-side deliverable is the local mirror plus the exact prod manifest in `docs/plans/273-access-production-handoff.yaml` — a file plus a named morning item, never an apply.
 
 **D2 — Production namespace isolation.** Options: (a) bind both SAs to the single `fluxvale-access`; (b) add an `ACCESS_GATEWAY_NAMESPACE` runtime override (default `fluxvale-access`) and give production its own `fluxvale-access-prod`, with `access_domains.certificate_namespace` following the same value; (c) rename staging to `fluxvale-access-staging` and let production keep the name.
 **Lean: (b).** One shared namespace across environments puts production gateway pods and PVCs under staging's quota and lets a staging SA list production pods; the fleet comment already flags this. (b) needs no staging migration and keeps the default for local. This is a production handoff decision, not a blocker for the staging proof.
@@ -99,9 +99,9 @@ Each decision carries the options, the lean, and the reason. The lean is a recom
 **Lean: (b).** (a) is needless write amplification and noise on the per-org topic. (c) loses the `:active` observation cadence that arms settlement and clears the attention clock. (b) removes the churn without weakening the stale-record protection: the no-op path writes nothing, so it cannot clobber; every transition still runs through `expected_state`.
 
 **D8 — Exit-proof split.** Options: (a) wait for one staging session and prove everything there; (b) prove the platform halves locally tonight, hand the real-tailnet half to Terence with a runbook; (c) stand up a local headscale to claim an end-to-end tailnet.
-**Lean: (b), reject (c).** (a) leaves the lane idle for a proof whose code is already merged. (c) is a different tailnet and a different product path; calling it the exit proof would be faking it. (b) gives an honest transcript now and leaves exactly one criterion open, owned by the person who owns the tailnet and the staging sign-in.
+**Lean: (b), reject (c).** (a) leaves the work idle for a proof whose code is already merged. (c) is a different tailnet and a different product path; calling it the exit proof would be faking it. (b) gives an honest transcript now and leaves exactly one criterion open, owned by the person who owns the tailnet and the staging sign-in.
 
-**D9 — Close semantics.** Options: (a) close #273 when this lane's PRs merge; (b) keep #273 open, reference it from every PR, close only on the staging transcript.
+**D9 — Close semantics.** Options: (a) close #273 when this work's PRs merge; (b) keep #273 open, reference it from every PR, close only on the staging transcript.
 **Lean: (b).** The issue's own exit is the tailnet proof; merging code is not the exit. PR bodies reference #273 without a closing keyword until Terence's transcript lands.
 
 **D10 — P3 close-out evidence.** Options: (a) trust the merged C1–C3 PRs; (b) re-run their named suites at the current HEAD and paste the counts.
@@ -116,7 +116,7 @@ Each decision carries the options, the lean, and the reason. The lean is a recom
 
 ## 6. Order and ownership
 
-S1 (P3 close-out) → S2 (local fleet) → S3 (proof). S2 and S3 can overlap once S1's plan doc lands; S3 depends on S2 only for the RBAC half of the local probe. One worker per slice on the routed model, one fresh hostile reviewer per PR on the opposite host, architect gate 1 and merge on the standing grant.
+S1 (P3 close-out) → S2 (local fleet) → S3 (proof). S2 and S3 can overlap once S1's plan doc lands; S3 depends on S2 only for the RBAC half of the local probe. One slice per PR, each with a fresh independent review and the gate re-run before merge; merge rides the overnight standing grant.
 
 ## 7. What this plan does not do
 
@@ -129,5 +129,5 @@ S1 (P3 close-out) → S2 (local fleet) → S3 (proof). S2 and S3 can overlap onc
 
 1. The inventory correction — wake #301, panel #300/#311, fleet staging infra#105 already shipped — appears in this plan's assumptions and in the first PR body, so the morning reader sees that the issue overstated what was missing. No standalone issue comments tonight; #273 stays open reference-only (D9).
 2. D6's revisit triggers are written verbatim in the decision above: a second admin can rotate a key, or a support case needs a queryable who/when rotation trail. The deferral is a recorded decision, not an omission; hostile review may probe custody and the answer lives there.
-3. D1's production manifest is `docs/plans/273-access-production-handoff.yaml`, a file plus a named morning item beside #482 on Terence's owner-stack apply list. No agent applies anything to staging or production clusters.
+3. D1's production manifest is `docs/plans/273-access-production-handoff.yaml`, a file plus a named morning item beside #482 on Terence's owner-stack apply list. Nothing in this work applies anything to staging or production clusters.
 4. S3's runbook gives Terence exact commands, expected outputs and pass criteria, so the staging transcript is a 15-minute exercise, not an investigation.

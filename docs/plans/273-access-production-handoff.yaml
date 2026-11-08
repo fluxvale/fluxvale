@@ -1,8 +1,8 @@
 # Production handoff for the owner-stack (fleet) repo — #273 / D1-D2.
 #
 #   *** DO NOT APPLY FROM THE APP REPO. ***
-#   *** No agent applies this to staging or production. It is a named ***
-#   *** morning item beside #482 on Terence's owner-stack apply list. ***
+#   *** Nothing in this repo applies this to staging or production. It is ***
+#   *** a named morning item beside #482 on Terence's owner-stack apply list. ***
 #
 # This is a file, not an apply: the fleet repo owns staging and
 # production (ADR-0007, ADR-0020 Am. 2). It carries the production
