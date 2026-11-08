@@ -268,7 +268,12 @@ defmodule FluxValeWeb.AdminShellLiveTest do
           {mod, path}
         end
 
-      assert length(admin_routes) == 16
+      # The shell's full live route set: the pre-console surfaces, one
+      # pair per landed section (#603 orgs, #608 gateways), and the
+      # console's six (four reads + :new + :edit). A new admin route
+      # that skips the expected map below fails the fetch, not just
+      # this count.
+      assert length(admin_routes) == 18
 
       for {mod, path} <- admin_routes do
         {key, mark} = Map.fetch!(expected, {mod, path})
