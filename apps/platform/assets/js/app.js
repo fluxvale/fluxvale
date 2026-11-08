@@ -66,6 +66,25 @@ const liveSocket = new LiveSocket("/live", Socket, {
   hooks: {...colocatedHooks, DetailsDismiss},
 })
 
+// #219: the sign-in forms carry native POST fallbacks (action + method)
+// for networks that block the WebSocket handshake. LiveView's document
+// submit handler intercepts any phx-submit form unconditionally — a
+// disconnected push is silently dropped — so let a flagged form submit
+// natively while the socket is down. Capture phase runs before
+// LiveView's listener; stopping propagation keeps the dropped push from
+// ever running. Connected, LiveView owns the submit as before.
+document.addEventListener(
+  "submit",
+  event => {
+    const form = event.target
+    if (!(form instanceof HTMLFormElement)) return
+    if (!form.hasAttribute("data-native-fallback")) return
+    if (liveSocket.isConnected()) return
+    event.stopImmediatePropagation()
+  },
+  true,
+)
+
 // Show progress bar on live navigation and form submits
 topbar.config({barColors: {0: "#29d"}, shadowColor: "rgba(0, 0, 0, .3)"})
 window.addEventListener("phx:page-loading-start", _info => topbar.show(300))

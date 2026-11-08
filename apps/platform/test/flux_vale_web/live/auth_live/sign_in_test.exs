@@ -126,6 +126,28 @@ defmodule FluxValeWeb.AuthLive.SignInTest do
     assert redirected_to(conn) == ~p"/"
   end
 
+  # #219: the native request's PRG landing is the same LiveView, mounted
+  # on the code step from the session-carried address. A visitor whose
+  # socket connects there gets the connected experience unchanged.
+  test "the code route mounts connected on the pending session's address", %{conn: conn} do
+    requested = post(conn, ~p"/auth/sign-in", %{"email" => @email})
+
+    page_conn = recycle(requested)
+    {:ok, view, html} = live(page_conn, ~p"/sign-in/code")
+
+    assert html =~ "We sent a 6-digit code to"
+    assert has_element?(view, "#code-form")
+
+    code = deliver_and_extract_code()
+
+    code_form = form(view, "#code-form", code: code)
+    render_submit(code_form)
+
+    # The connected hand-off still writes the session via the token.
+    signed_in = follow_trigger_action(code_form, page_conn)
+    assert redirected_to(signed_in) == ~p"/"
+  end
+
   test "wrong code shows a uniform error and stays on the code step", %{
     conn: conn
   } do

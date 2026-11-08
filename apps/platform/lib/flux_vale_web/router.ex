@@ -351,7 +351,13 @@ defmodule FluxValeWeb.Router do
 
     # #21: passwordless sign-in — LiveView flow + the POST-only session
     # write (token in the body, never a URL)
-    live("/sign-in", AuthLive.SignIn)
+    live("/sign-in", AuthLive.SignIn, :email)
+    # #219: the native fallback's two hops — the request-code POST and
+    # its PRG landing (the code step, address riding the session), so
+    # sign-in completes with the WebSocket handshake blocked. The
+    # verify POST is the session write below, in its code arm.
+    post("/auth/sign-in", SignInController, :create)
+    live("/sign-in/code", AuthLive.SignIn, :code)
     # #502: the invitee's accept landing — anonymous by design (the
     # invitee has no session yet, acceptance mints one), so it sits
     # beside /sign-in, OUTSIDE the :authenticated live_session below.
