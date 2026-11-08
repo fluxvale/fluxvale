@@ -486,8 +486,9 @@ them, and the lint makes the gap visible.
 
 ## 10. Slices
 
-Each slice is one PR with `Closes` only if it completes #611. S2-S5
-carry screenshots in the PR body per the owner convention.
+Each slice is one PR with `Closes` only if it completes #611.
+
+**PR body format (owner rule, Nov 8 2026).** No hard word wrap: each paragraph is one unbroken line and GitHub's renderer wraps it. Hard-wrapped prose renders as ragged blocks. Tables, code blocks, and lists format normally. When a slice embeds screenshots, open with a table indexing the captures (capture, what it shows), then embed the images directly beneath the table. S2-S7 carry screenshots, so every one follows the table-then-images shape.
 
 **S1. Catalog marketing metadata (data only)**
 Add the six App fields plus `Category.audience`, three typed list
