@@ -111,8 +111,9 @@ defmodule FluxVale.TestSupport.InstanceFixtures do
   the service shares, so the app carve (allocation − shares) stays
   positive; callers may override like any `app_version!` attr. Each
   declared `url_env` lands in `configurable_env_vars` as the S1
-  catalog contract requires (secret, optional), merged under any
-  explicitly passed specs.
+  catalog contract requires (secret, optional) — and where a caller
+  passes a conflicting spec for the same key, the contract's wins (a
+  declaring version must validate).
   """
   @spec backing_version!(map()) :: AppVersion.t()
   def backing_version!(attrs \\ %{}) do
