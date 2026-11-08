@@ -41,13 +41,12 @@ defmodule FluxValeWeb.Components.AdminShellTest do
   end
 
   # Every entry the sidebar carries, in order: the live sections, the
-  # Every entry the sidebar carries, in order: the live sections, the
   # coming ones, the resource console's own group, then deep debugging.
   @entry_keys ~w(people catalog wallets feedback orgs gateways resources ash dashboard)
-  @live_keys ~w(people catalog wallets feedback orgs resources ash dashboard)
-  @coming_keys ~w(gateways)
+  @live_keys ~w(people catalog wallets feedback orgs gateways resources ash dashboard)
+  @coming_keys ~w()
 
-  test "the sections in order, live ones at their paths, coming ones linkless" do
+  test "the sections in order, every entry at its path (the Coming grammar retired)" do
     html = render_component(&AdminShell.sidebar/1, current: "people")
 
     assert entries(html) == [
@@ -56,7 +55,7 @@ defmodule FluxValeWeb.Components.AdminShellTest do
              {"wallets", "/admin/billing", nil},
              {"feedback", "/admin/moderation", nil},
              {"orgs", "/admin/orgs", nil},
-             {"gateways", nil, nil},
+             {"gateways", "/admin/gateways", nil},
              {"resources", "/admin/resources", nil},
              {"ash", "/admin/ash", nil},
              {"dashboard", "/admin/debug/dashboard", nil}
@@ -66,41 +65,27 @@ defmodule FluxValeWeb.Components.AdminShellTest do
     assert Enum.map(keys, &elem(&1, 0)) == @entry_keys
   end
 
-  test "coming entries carry the Coming badge inline and nothing to follow" do
+  test "the Coming grammar is retired: no badge renders, every entry links" do
+    # The console's completing flip (orgs and gateways both live) left
+    # the Coming badge grammar nothing to render — the shell no longer
+    # carries the branch at all. This test keeps the retirement honest:
+    # a reintroduced placeholder (a path-less entry) cannot quietly
+    # resurrect the badge, because a path-less entry fails the render.
     html = render_component(&AdminShell.sidebar/1, current: "people")
     doc = LazyHTML.from_fragment(html)
 
-    for key <- @coming_keys do
-      badge_text =
-        doc
-        |> LazyHTML.query("[data-testid='admin-coming-#{key}']")
-        |> LazyHTML.text()
-        |> String.trim()
+    nodes = LazyHTML.query(doc, "[data-testid^='admin-coming-']")
 
-      assert badge_text == "Coming"
+    assert Enum.to_list(nodes) == []
+    refute html =~ "Coming"
 
-      # The honesty grammar: no href on the entry at all.
-      nodes = LazyHTML.query(doc, "[data-testid='admin-nav-#{key}'][href]")
-
-      assert Enum.to_list(nodes) == []
-
-      # The badge rides inline after the label (the nav's width budget):
-      # the entry is a label-plus-badge row, never a far-edge float.
-      entry_class =
-        doc
-        |> LazyHTML.query("[data-testid='admin-nav-#{key}']")
-        |> LazyHTML.attribute("class")
-        |> List.first()
-
-      assert entry_class =~ "items-center gap-2"
-      refute entry_class =~ "justify-between"
-    end
-
-    # Live entries all link.
+    # Every entry the sidebar carries links (the live-keys loop is the
+    # whole contract now).
     for key <- @live_keys do
       nodes = LazyHTML.query(doc, "[data-testid='admin-nav-#{key}'][href]")
 
       assert Enum.to_list(nodes) != []
+    end
     end
   end
 
@@ -114,6 +99,7 @@ defmodule FluxValeWeb.Components.AdminShellTest do
       wallets: "Wallets and billing",
       feedback: "Feedback moderation",
       orgs: "Orgs and instances",
+      gateways: "Access gateways and domains",
       resources: "Resource console",
       ash: "AshAdmin",
       dashboard: "LiveDashboard"
@@ -188,6 +174,19 @@ defmodule FluxValeWeb.Components.AdminShellTest do
     exact_entries = entries(exact)
 
     assert Enum.at(exact_entries, 4) == {"orgs", "/admin/orgs", "page"}
+  end
+
+  test "the gateways entry flips live with the section's own contract" do
+    # Same shape as the wallets flip: the gateway detail is a SUB-route
+    # of the section (an ancestor mark), the section route is the page.
+    sub = render_component(&AdminShell.sidebar/1, current: "gateways", exact: false)
+    sub_entries = entries(sub)
+    assert Enum.at(sub_entries, 5) == {"gateways", "/admin/gateways", "location"}
+
+    exact = render_component(&AdminShell.sidebar/1, current: "gateways")
+    exact_entries = entries(exact)
+
+    assert Enum.at(exact_entries, 5) == {"gateways", "/admin/gateways", "page"}
   end
 
   test "an unknown section key raises — the keys are the entries of groups/0" do

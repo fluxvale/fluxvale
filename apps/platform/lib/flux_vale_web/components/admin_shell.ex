@@ -6,11 +6,12 @@ defmodule FluxValeWeb.AdminShell do
   sidebar's idiom (#568) at admin scope: one shared component, the
   same shape users already know from settings.
 
-  Live sections link to their routes. The not-yet-built workflows are
-  honest entries — a Coming badge and no link (the homepage cards'
-  honesty grammar, transplanted; the cards themselves are retired).
-  The deep debugging group keeps the generated tools on their demoted
-  subpaths, with copy that says what they are.
+  Live sections link to their routes. Every section of the v1 console
+  is live, so the Coming badge grammar (the homepage cards' honesty
+  grammar, transplanted) retired at the console's completion: an entry
+  without a path has no way to render, and a section that is not built
+  yet simply has no entry. The deep debugging group keeps the generated
+  tools on their demoted subpaths, with copy that says what they are.
   """
 
   use FluxValeWeb, :html
@@ -28,8 +29,8 @@ defmodule FluxValeWeb.AdminShell do
   sub-routes (the sizes ladder, the edit forms) mark the section's
   entry with `aria-current="location"` — an ancestor mark, since
   "page" is reserved for the entry whose href IS the mounted page.
-  Entries without a `path` render badged and linkless — the badge is
-  their whole promise.
+  Every entry carries a path (the Coming grammar retired at the v1
+  console's completion); a path-less entry fails the render loudly.
   """
   @spec sidebar(map()) :: Phoenix.LiveView.Rendered.t()
   def sidebar(assigns) do
@@ -66,38 +67,23 @@ defmodule FluxValeWeb.AdminShell do
         </p>
         <div class="mt-1 flex flex-col items-stretch gap-0.5 md:mt-2">
           <%= for entry <- group.entries do %>
-            <%= if entry[:path] do %>
-              <.link
-                navigate={entry.path}
-                aria-current={aria_current(entry.key, @current, @exact)}
-                class={[
-                  "border-l-2 py-0.5 pl-3 pr-1 text-sm outline-offset-2 outline-focus focus-visible:outline-2 motion-safe:transition-colors motion-safe:duration-(--motion-fast)",
-                  entry.key == @current && "border-focus font-medium text-ink",
-                  entry.key != @current &&
-                    "border-transparent text-ink-muted hover:border-line hover:text-ink"
-                ]}
-                data-testid={"admin-nav-#{entry.key}"}
-              >
-                {entry.label}
-              </.link>
-            <% else %>
-              <%!-- A coming entry is an honest placeholder: the badge is
-              the whole promise, so there is no link to follow. The
-              badge rides inline after the label (gap-2), keeping the
-              nav's width budget slim — no far-edge float — and rides
-              the compact badge treatment (the ! utilities pin it over
-              the component's base sizing; the nav is the widest fixed
-              cost the content band has). --%>
-              <span
-                class="flex items-center gap-2 border-l-2 border-transparent py-0.5 pl-3 pr-1 text-sm text-ink-subtle"
-                data-testid={"admin-nav-#{entry.key}"}
-              >
-                {entry.label}
-                <.badge class="px-1.5! text-[11px]!" data-testid={"admin-coming-#{entry.key}"}>
-                  {gettext("Coming")}
-                </.badge>
-              </span>
-            <% end %>
+            <%!-- The Coming badge grammar retired at the v1 console's
+            completion (#501): every entry carries a path. A path-less
+            entry fails the render loudly rather than promising quietly.
+            --%>
+            <.link
+              navigate={entry.path}
+              aria-current={aria_current(entry.key, @current, @exact)}
+              class={[
+                "border-l-2 py-0.5 pl-3 pr-1 text-sm outline-offset-2 outline-focus focus-visible:outline-2 motion-safe:transition-colors motion-safe:duration-(--motion-fast)",
+                entry.key == @current && "border-focus font-medium text-ink",
+                entry.key != @current &&
+                  "border-transparent text-ink-muted hover:border-line hover:text-ink"
+              ]}
+              data-testid={"admin-nav-#{entry.key}"}
+            >
+              {entry.label}
+            </.link>
           <% end %>
         </div>
       </div>
@@ -137,7 +123,17 @@ defmodule FluxValeWeb.AdminShell do
           # reserved the section's writes; none are operationally
           # necessary today.
           %{key: "orgs", label: gettext("Orgs and instances"), path: ~p"/admin/orgs"},
-          %{key: "gateways", label: gettext("Access gateways and domains")}
+          # #501's last v1 section: live, read-only by design (the v1
+          # plan made gateways/domains oversight; registration and key
+          # writes stay on the product surfaces). With this flip every
+          # section is live: the Coming badge grammar retired at the
+          # console's completion (#501) — every entry carries a path,
+          # and a section that is not built yet simply has no entry.
+          %{
+            key: "gateways",
+            label: gettext("Access gateways and domains"),
+            path: ~p"/admin/gateways"
+          }
         ]
       },
       %{

@@ -10,11 +10,16 @@ defmodule FluxValeWeb.AdminShellLiveTest do
 
   use FluxValeWeb.ConnCase, async: false
 
+  use Mimic
+
   import Phoenix.LiveViewTest
 
+  alias FluxVale.Accounts.Membership
   alias FluxVale.Billing
   alias FluxVale.Identity.User
+  alias FluxVale.Infrastructure.AccessProviders.Tailscale
   alias FluxVale.Ops.FeatureFlag
+  alias FluxVale.TestSupport.AccessFixtures
   alias FluxVale.TestSupport.AccountsFixtures
   alias FluxVale.TestSupport.ApiPat
   alias FluxVale.TestSupport.BillingFixtures
@@ -29,6 +34,7 @@ defmodule FluxValeWeb.AdminShellLiveTest do
     {"sizes ladder", "/admin/catalog/sizes"},
     {"wallets", "/admin/billing"},
     {"orgs", "/admin/orgs"},
+    {"gateways", "/admin/gateways"},
     {"resources console", "/admin/resources"}
   ]
 
@@ -51,6 +57,9 @@ defmodule FluxValeWeb.AdminShellLiveTest do
 
   defp concrete_admin_path("/admin/orgs/:id", %{org: org}),
     do: "/admin/orgs/#{org.id}"
+
+  defp concrete_admin_path("/admin/gateways/:id", %{gateway: gateway}),
+    do: "/admin/gateways/#{gateway.id}"
 
   defp concrete_admin_path("/admin/catalog/sizes/:id", %{version: version}),
     do: "/admin/catalog/sizes/#{version.recommended_size.id}"
@@ -97,11 +106,31 @@ defmodule FluxValeWeb.AdminShellLiveTest do
       )
       |> Ash.create!()
 
+    # The gateways surface's mount target: a member org's gateway (the
+    # reads are members-only, so the setup admin needs the membership
+    # row for the detail route to mount at all). The cluster leg is
+    # Mimic-stubbed — the fixture's own contract.
+    stub(Tailscale, :provision_gateway, fn _gateway, _key ->
+      {:ok, %{credential_secret_ref: "credential-stub"}}
+    end)
+
+    stub(Tailscale, :scale_gateway, fn _gateway, _replicas -> :ok end)
+
+    {member_org, _owner} = BillingFixtures.grant_free_org!()
+
+    Membership.create!(
+      %{organization_id: member_org.id, user_id: admin.id, role: :member},
+      authorize?: false
+    )
+
+    gateway = AccessFixtures.gateway!(member_org)
+
     %{
       admin: admin,
       version: version,
       org: org,
       wallet: wallet,
+      gateway: gateway,
       flag: flag,
       conn: SessionHelpers.sign_in(conn, admin)
     }
@@ -176,6 +205,7 @@ defmodule FluxValeWeb.AdminShellLiveTest do
       version: version,
       org: org,
       wallet: wallet,
+      gateway: gateway,
       flag: flag
     } do
       # The enumeration, from the router itself: a new :admin live
@@ -193,6 +223,8 @@ defmodule FluxValeWeb.AdminShellLiveTest do
           {"wallets", "location"},
         {FluxValeWeb.AdminLive.Orgs, "/admin/orgs"} => {"orgs", "page"},
         {FluxValeWeb.AdminLive.OrgDetail, "/admin/orgs/:id"} => {"orgs", "location"},
+        {FluxValeWeb.AdminLive.Gateways, "/admin/gateways"} => {"gateways", "page"},
+        {FluxValeWeb.AdminLive.GatewayDetail, "/admin/gateways/:id"} => {"gateways", "location"},
         {FluxValeWeb.AdminLive.Sizes, "/admin/catalog/sizes"} => {"catalog", "location"},
         {FluxValeWeb.AdminLive.SizeEdit, "/admin/catalog/sizes/:id"} => {"catalog", "location"},
         {FluxValeWeb.AdminLive.VersionEdit, "/admin/catalog/versions/:id"} =>
@@ -218,7 +250,13 @@ defmodule FluxValeWeb.AdminShellLiveTest do
         {key, mark} = Map.fetch!(expected, {mod, path})
 
         concrete_path =
-          concrete_admin_path(path, %{version: version, org: org, wallet: wallet, flag: flag})
+          concrete_admin_path(path, %{
+            version: version,
+            org: org,
+            wallet: wallet,
+            gateway: gateway,
+            flag: flag
+          })
 
         {:ok, view, _html} = live(conn, concrete_path)
 
@@ -246,13 +284,20 @@ defmodule FluxValeWeb.AdminShellLiveTest do
       version: version,
       org: org,
       wallet: wallet,
+      gateway: gateway,
       flag: flag
     } do
       for {path, {_mod, _action, _info, _session}} <- admin_live_route_info() do
         {:ok, view, _html} =
           live(
             conn,
-            concrete_admin_path(path, %{version: version, org: org, wallet: wallet, flag: flag})
+            concrete_admin_path(path, %{
+              version: version,
+              org: org,
+              wallet: wallet,
+              gateway: gateway,
+              flag: flag
+            })
           )
 
         assert has_element?(view, ".appgram.console"),
@@ -296,22 +341,15 @@ defmodule FluxValeWeb.AdminShellLiveTest do
     test "badged, linkless, on a live surface", %{conn: conn} do
       {:ok, view, _html} = live(conn, "/admin/people")
 
-      # Wallets (#571), feedback moderation (#592), and orgs (this
-      # slice) are live; gateways stays an honest placeholder.
-      for key <- ["gateways"] do
-        assert has_element?(view, "[data-testid='admin-coming-#{key}']", "Coming")
-        refute has_element?(view, "[data-testid='admin-nav-#{key}'][href]")
-      end
+      # The console's completing flip: every v1 section is live, so no
+      # Coming badge renders anywhere (the shell's grammar branch
+      # retired with it). The flipped-live entries all link.
+      refute has_element?(view, "[data-testid^='admin-coming-']")
 
-      # The flipped-live entries: linked, no Coming badge.
       assert has_element?(view, "[data-testid='admin-nav-wallets'][href='/admin/billing']")
-      refute has_element?(view, "[data-testid='admin-coming-wallets']")
-
       assert has_element?(view, "[data-testid='admin-nav-feedback'][href='/admin/moderation']")
-      refute has_element?(view, "[data-testid='admin-coming-feedback']")
-
       assert has_element?(view, "[data-testid='admin-nav-orgs'][href='/admin/orgs']")
-      refute has_element?(view, "[data-testid='admin-coming-orgs']")
+      assert has_element?(view, "[data-testid='admin-nav-gateways'][href='/admin/gateways']
     end
   end
 
