@@ -28,6 +28,31 @@ defmodule FluxValeWeb.AdminShellLiveTest do
     {"wallets", "/admin/billing"}
   ]
 
+  # The console-lane flush test's route source (#593): the router's
+  # own :admin enumeration, shared with the shell test below — a new
+  # admin route (#571, #592) joins both tests or fails loudly.
+  defp admin_live_route_info do
+    for r <- FluxValeWeb.Router.__routes__(),
+        is_map_key(r, :metadata),
+        is_map_key(r.metadata, :phoenix_live_view),
+        {_mod, _action, _info, session} = r.metadata.phoenix_live_view,
+        session[:name] == :admin,
+        r.path != "/admin" do
+      {r.path, r.metadata.phoenix_live_view}
+    end
+  end
+
+  defp concrete_admin_path("/admin/billing/wallets/:id", %{wallet: wallet}),
+    do: "/admin/billing/wallets/#{wallet.id}"
+
+  defp concrete_admin_path("/admin/catalog/sizes/:id", %{version: version}),
+    do: "/admin/catalog/sizes/#{version.recommended_size.id}"
+
+  defp concrete_admin_path("/admin/catalog/versions/:id", %{version: version}),
+    do: "/admin/catalog/versions/#{version.id}"
+
+  defp concrete_admin_path(literal, _ctx), do: literal
+
   setup %{conn: conn} do
     admin =
       User.create!(
@@ -141,13 +166,8 @@ defmodule FluxValeWeb.AdminShellLiveTest do
       }
 
       admin_routes =
-        for r <- FluxValeWeb.Router.__routes__(),
-            is_map_key(r, :metadata),
-            is_map_key(r.metadata, :phoenix_live_view),
-            {mod, _action, _info, session} = r.metadata.phoenix_live_view,
-            session[:name] == :admin,
-            r.path != "/admin" do
-          {mod, r.path}
+        for {path, {mod, _action, _info, _session}} <- admin_live_route_info() do
+          {mod, path}
         end
 
       assert length(admin_routes) == 8
@@ -155,13 +175,7 @@ defmodule FluxValeWeb.AdminShellLiveTest do
       for {mod, path} <- admin_routes do
         {key, mark} = Map.fetch!(expected, {mod, path})
 
-        concrete_path =
-          case path do
-            "/admin/billing/wallets/:id" -> "/admin/billing/wallets/#{wallet.id}"
-            "/admin/catalog/sizes/:id" -> "/admin/catalog/sizes/#{version.recommended_size.id}"
-            "/admin/catalog/versions/:id" -> "/admin/catalog/versions/#{version.id}"
-            literal -> literal
-          end
+        concrete_path = concrete_admin_path(path, %{version: version, wallet: wallet})
 
         {:ok, view, _html} = live(conn, concrete_path)
 
@@ -172,6 +186,35 @@ defmodule FluxValeWeb.AdminShellLiveTest do
 
         entry = render(element(view, "[data-testid='admin-nav-#{key}']"))
         assert entry =~ ~s(aria-current="#{mark}"), "#{concrete_path} marks #{key} #{mark}"
+      end
+    end
+  end
+
+  describe "the console lane is flush (#593)" do
+    # The layout fix rides the shared frame, not per-section patches:
+    # every admin surface renders the unbounded chrome (`wide`) and
+    # the `appgram console` root, which opts its wraps out of the
+    # centered 64rem measure (app_grammar.css). max-w-5xl is the
+    # header row's own marketing-era measure — its absence there is
+    # the flush-header evidence, scoped to that element so unrelated
+    # content can never flip the assert.
+    test "every admin surface renders the console root and the unbounded chrome", %{
+      conn: conn,
+      version: version,
+      wallet: wallet
+    } do
+      for {path, {_mod, _action, _info, _session}} <- admin_live_route_info() do
+        {:ok, view, _html} =
+          live(conn, concrete_admin_path(path, %{version: version, wallet: wallet}))
+
+        assert has_element?(view, ".appgram.console"),
+               "#{path} should opt into the console measure"
+
+        assert has_element?(view, "header > div.flex.h-14"),
+               "#{path} should render the unbounded header row"
+
+        refute has_element?(view, "header > div.max-w-5xl"),
+               "#{path} should render no centered chrome measure in the header row"
       end
     end
   end

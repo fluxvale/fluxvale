@@ -889,8 +889,11 @@ defmodule FluxValeWeb.AdminLive.Moderation do
       username={@username}
       nav_section={@nav_section}
       bare
+      wide
     >
-      <div class="appgram contents" data-testid="admin-moderation">
+      <%!-- The console lane (#593): `wide` chrome + `appgram console`
+      - flush sidebar, the surface fills the space beside it. --%>
+      <div class="appgram console contents" data-testid="admin-moderation">
         <section class="band">
           <div class="wrap pt-8 pb-10">
             <div class="rise">

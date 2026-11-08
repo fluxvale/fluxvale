@@ -384,8 +384,15 @@ defmodule FluxValeWeb.AdminLive.People do
       username={@username}
       nav_section={@nav_section}
       bare
+      wide
     >
-      <div class="appgram contents" data-testid="admin-people">
+      <%!-- The console lane (#593): `wide` chrome + `appgram console`
+      opts the page out of the centered 64rem measure — the sidebar
+      anchors at the viewport gutter, the table stretches. The invite
+      and search pair keeps the settings idiom's form measure (the
+      grid cap below): an email input at viewport width is a ruled
+      line, not a field. --%>
+      <div class="appgram console contents" data-testid="admin-people">
         <section class="band">
           <div class="wrap pt-8 pb-10">
             <div class="rise">
@@ -407,9 +414,13 @@ defmodule FluxValeWeb.AdminLive.People do
             <AdminShell.sidebar current="people" />
 
             <div class="min-w-0 flex-1 space-y-6">
-              <div class="grid items-start gap-6 lg:grid-cols-2">
+              <div class="grid max-w-3xl items-start gap-6 lg:grid-cols-2">
                 <%!-- The page's primary action. The consequence is named
-                before the click: one email, one-time link, inert account. --%>
+                before the click: one email, one-time link, inert account.
+                The pair keeps the settings idiom's form measure (the
+                grid cap, not per-card caps — two capped cards in
+                uncapped cells read as a grid with a missing third
+                card); the table below stretches, data needs no cap. --%>
                 <.card class="space-y-4" data-testid="admin-people-invite-card">
                   <div>
                     <h2 class="text-base font-medium text-ink">{gettext("Invite someone")}</h2>
@@ -498,13 +509,19 @@ defmodule FluxValeWeb.AdminLive.People do
                   :if={not @rows_empty?}
                   class="overflow-x-auto rounded-panel border border-line bg-panel text-ink"
                 >
-                  <div class="min-w-[39rem]">
+                  <div class="min-w-[41.5rem]">
                     <%!-- One grid template shared by the header and every
                 row (kept literal in both spots), so the columns can
-                never drift. Track mins total 37.5rem, so the populated list
-                fits the band beside the sidebar at 1024+ with no horizontal
-                scroll. --%>
-                    <div class="grid grid-cols-[minmax(7.5rem,1.8fr)_5.5rem_repeat(4,4.25rem)_5.25rem] items-center gap-x-1.5 border-b border-line px-3 py-3 text-left text-xs font-medium tracking-wide text-ink-muted uppercase">
+                never drift. The date tracks carry their stamps with
+                trailing slack and flex with the email column (1fr
+                against 1.8fr), so the stretch distributes across the
+                row instead of pooling in one giant email void. Mins
+                total 41.5rem — 37.75rem tracks + 2.25rem gaps + the
+                1.5rem px-3 the grid carries inside this floored
+                wrapper: below it the table rides its own
+                overflow-x-auto (the md-band posture), never the
+                page. --%>
+                    <div class="grid grid-cols-[minmax(7rem,1.8fr)_5.5rem_repeat(4,minmax(5rem,1fr))_5.25rem] items-center gap-x-1.5 border-b border-line px-3 py-3 text-left text-xs font-medium tracking-wide text-ink-muted uppercase">
                       <div>{gettext("Email")}</div>
                       <div>{gettext("State")}</div>
                       <div>{gettext("Invited")}</div>
@@ -520,7 +537,7 @@ defmodule FluxValeWeb.AdminLive.People do
                         id={dom_id}
                         class="border-b border-line last:border-0"
                       >
-                        <div class="grid grid-cols-[minmax(7.5rem,1.8fr)_5.5rem_repeat(4,4.25rem)_5.25rem] items-center gap-x-1.5 px-3 py-3 transition-colors hover:bg-panel-raised/60">
+                        <div class="grid grid-cols-[minmax(7rem,1.8fr)_5.5rem_repeat(4,minmax(5rem,1fr))_5.25rem] items-center gap-x-1.5 px-3 py-3 transition-colors hover:bg-panel-raised/60">
                           <div class="min-w-0">
                             <span
                               class="block truncate whitespace-nowrap font-medium text-ink"

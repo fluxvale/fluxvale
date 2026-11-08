@@ -817,8 +817,11 @@ defmodule FluxValeWeb.AdminLive.WalletDetail do
       username={@username}
       nav_section={@nav_section}
       bare
+      wide
     >
-      <div class="appgram contents" data-testid="admin-wallet-detail">
+      <%!-- The console lane (#593): `wide` chrome + `appgram console`
+      - flush sidebar, the surface fills the space beside it. --%>
+      <div class="appgram console contents" data-testid="admin-wallet-detail">
         <section class="band">
           <div class="wrap pt-8 pb-10">
             <div class="rise">

@@ -249,8 +249,13 @@ defmodule FluxValeWeb.AdminLive.SizeEdit do
       username={@username}
       nav_section={@nav_section}
       bare
+      wide
     >
-      <div class="appgram contents" data-testid="admin-size-edit">
+      <%!-- The console lane (#593): `wide` chrome + `appgram console`
+      — flush sidebar, the page fills the space beside it. The form
+      pair keeps the settings idiom's measure via the grid cap: a
+      rate input at viewport width is a ruled line, not a field. --%>
+      <div class="appgram console contents" data-testid="admin-size-edit">
         <section class="band">
           <div class="wrap pt-8 pb-10">
             <div class="rise">
@@ -281,11 +286,13 @@ defmodule FluxValeWeb.AdminLive.SizeEdit do
             <AdminShell.sidebar current="catalog" exact={false} />
 
             <div class="min-w-0 flex-1">
-              <div class="grid gap-6 lg:grid-cols-2">
+              <div class="grid max-w-3xl gap-6 lg:grid-cols-2">
                 <%!-- Prices: business data, freely editable — the admin path
             this resource exists for. The consequence callout states the
             reach: past-grace running instances settle at the new rate
-            at their next settle. --%>
+            at their next settle. The pair keeps the settings idiom's
+            form measure via the grid cap (the people grid's posture).
+            --%>
                 <.card class="space-y-4" data-testid="admin-size-prices">
                   <div>
                     <h2 class="text-base font-medium text-ink">{gettext("Prices")}</h2>

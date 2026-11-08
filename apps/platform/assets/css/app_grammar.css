@@ -75,6 +75,22 @@
     }
   }
 
+  /* ---- Console (#593): the operator lane's full-bleed measure. An
+   * admin surface opts in with `appgram console` on its root: the
+   * wraps drop the chrome's centered 64rem measure and span the
+   * viewport at the header row's own gutter — this file's
+   * padding-inline ladder (1/1.5/2rem) MUST equal Layouts' wide
+   * header row's px-4/sm:px-6/lg:px-8 (layouts.ex), or the logo
+   * drifts off the sidebar line; the layouts_test wide pair pins the
+   * header side. The 64rem measure survives on every non-console
+   * page untouched; within a console, readability measure is earned
+   * per block — prose keeps its max-w-prose utility, form cards keep
+   * the settings idiom's caps — never imposed on data. ---- */
+  .appgram.console .wrap {
+    max-width: none;
+    margin-inline: 0;
+  }
+
   /* ---- Band: a full-bleed sunken header band. The surface change is
    * the edge — one hairline top and bottom in the line language, never a
    * shadow (the chrome's border-first depth, #277 T3). Band content goes

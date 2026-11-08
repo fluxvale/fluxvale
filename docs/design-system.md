@@ -83,6 +83,14 @@ surface's content, live sections at their routes, unbuilt ones as
 linkless Coming entries. The generated debug tools keep their own
 chrome.
 
+The console runs on a different measure from the rest of the app
+(#593): `wide` chrome + `appgram console` on the page root make the
+admin layouts full-bleed — the header row and the sidebar anchor at
+the viewport gutter, tables stretch — while every other chrome'd
+surface keeps its bounded header row and the centered 64rem wraps.
+Only prose and forms keep a readability measure (`max-w-prose`,
+the settings idiom's form caps); data never gets one.
+
 ## The resource picker (#195, rungs-only #221)
 
 ![Resources step, light](screenshots/design/resource-picker/resources-picker-light.png)
