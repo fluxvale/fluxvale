@@ -1,0 +1,45 @@
+/* Catalog app pages (#611 plan §6.1, S2) — the public app page's
+ * display type block, scoped under .catalog-page. Mirrors the
+ * per-lane pattern of blog.css/docs.css (mono eyebrow with the amber
+ * dash, Instrument Serif display headings). Layout rides Tailwind
+ * utilities, so this file carries type only.
+ */
+
+.catalog-page .eyebrow {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--link);
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.catalog-page .eyebrow::before {
+  content: "";
+  width: 34px;
+  height: 1px;
+  background: var(--border-primary);
+}
+
+.catalog-page .display {
+  font-family: var(--font-display);
+  font-weight: 400;
+  font-size: clamp(40px, 6vw, 64px);
+  letter-spacing: -0.01em;
+  line-height: 1.05;
+  /* No margin here: a class margin beats Tailwind utilities, and the
+   * icon row's wrapper owns the spacing (#611 review ruling). */
+}
+
+/* Section headings for the S3+ sections (benefits, FAQ); shipped with
+ * the hero so the lane's type block is one edit, like docs.css. */
+.catalog-page .display-h2 {
+  font-family: var(--font-display);
+  font-weight: 400;
+  font-size: clamp(30px, 4vw, 44px);
+  letter-spacing: -0.01em;
+  line-height: 1.08;
+  margin-top: 18px;
+}

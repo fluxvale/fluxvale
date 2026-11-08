@@ -20,6 +20,7 @@
 @import "./blog.css";
 @import "./markdown.css";
 @import "./docs.css";
+@import "./catalog.css";
 @import "./feedback.css";
 @source "../css";
 @source "../js";

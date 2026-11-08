@@ -1,108 +1,16 @@
 <Layouts.public flash={@flash} current_user={@current_user} return_to={@return_to}>
-  <div class="space-y-8">
-    <div>
-      <.button variant="ghost" size="sm" navigate={~p"/catalog"} class="-ml-2 mb-4">
-        &larr; Catalog
-      </.button>
-
-      <%!-- App poster (#277 T4): identity + description in one card —
-      the page's panel band; versions stay cards on canvas below. --%>
-      <.card class="space-y-4">
-        <div class="flex items-start gap-4">
-          <div class="grid size-14 shrink-0 place-items-center rounded-control bg-primary-muted text-xl font-semibold text-link">
-            <img
-              :if={@app.icon_url}
-              src={@app.icon_url}
-              alt={@app.name}
-              class="size-9 rounded-control"
-            />
-            <span :if={is_nil(@app.icon_url)}>{String.first(@app.name)}</span>
-          </div>
-          <div class="space-y-1.5">
-            <h1 class="text-2xl font-semibold tracking-tight text-ink">{@app.name}</h1>
-            <p :if={@app.tagline} class="text-ink-muted">{@app.tagline}</p>
-            <div class="flex flex-wrap items-center gap-3 pt-1 text-sm">
-              <.badge>{@app.category.name}</.badge>
-              <a
-                :if={@app.source_url}
-                href={@app.source_url}
-                class="font-medium text-link hover:underline"
-                target="_blank"
-                rel="noopener"
-              >
-                Source
-              </a>
-              <a
-                :if={@app.docs_url}
-                href={@app.docs_url}
-                class="font-medium text-link hover:underline"
-                target="_blank"
-                rel="noopener"
-              >
-                Docs
-              </a>
-            </div>
-          </div>
-        </div>
-        <p
-          :if={is_binary(@app.description) and String.trim(@app.description) != ""}
-          class="border-t border-line pt-4 leading-relaxed text-ink-muted"
-        >
-          <%!-- pre-line rides the span: the p's own whitespace is normal,
-          so the template's indentation newlines collapse instead of
-          laying out a phantom blank line (T4 review). --%>
-          <span class="whitespace-pre-line">{String.trim(@app.description)}</span>
-        </p>
-      </.card>
-    </div>
-
-    <div class="space-y-4">
-      <h2 class="text-lg font-semibold tracking-tight text-ink">Versions</h2>
-
-      <div class="space-y-4">
-        <.card :for={version <- @versions} id={"version-#{version.id}"} class="space-y-4">
-          <div class="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <h3 class="font-mono font-semibold text-ink">v{version.version}</h3>
-              <p :if={version.published_at} class="mt-0.5 text-xs text-ink-subtle">
-                Published {Calendar.strftime(version.published_at, "%b %d, %Y")}
-              </p>
-            </div>
-            <.button
-              navigate={~p"/apps/#{@app.slug}/deploy"}
-              size="sm"
-              id={"deploy-#{version.id}"}
-              data-testid={"deploy-#{version.version}"}
-            >
-              Deploy
-            </.button>
-          </div>
-          <p :if={version.release_notes} class="text-sm text-ink-muted">
-            <%!-- pre-line rides the span — same phantom-line fix as the
-            poster description above (T4 review). --%>
-            <span class="whitespace-pre-line">{version.release_notes}</span>
-          </p>
-          <div class="flex flex-wrap gap-2">
-            <.badge>{version.default_cpu_cores} CPU</.badge>
-            <.badge>{version.default_memory_mb} MB RAM</.badge>
-            <.badge>{version.default_storage_gb} GB storage</.badge>
-            <.price_badge version={version} />
-            <.stopped_rate version={version} />
-            <%!-- #398: pricing is one hop away — the card shows this
-            version's plan, /pricing prices every resource (#558:
-            compute classes and storage price apart, so no sizes list
-            exists to link at). --%>
-            <.link
-              navigate={~p"/pricing"}
-              class="self-center text-sm font-medium text-link hover:underline"
-              data-testid={"see-all-sizes-#{version.version}"}
-            >
-              {gettext("See pricing")}
-            </.link>
-          </div>
-        </.card>
-      </div>
-    </div>
+  <%!-- #611 S2 (plan §6.4): the rebuilt hero — prose column plus the
+  transactional aside (pricing card, facts card). The version card
+  list is gone: the marketing page carries version and release facts
+  in the facts card, and the authenticated page keeps its version
+  cards (S6/D12). Sections below (benefits, FAQ, similar apps, CTA)
+  land with S3. --%>
+  <div class="catalog-page pt-6 pb-12">
+    <CatalogPageComponents.hero
+      app={@app}
+      newest_version={@newest_version}
+      wake_estimates={@wake_estimates}
+    />
   </div>
 
   <%!-- Structured data for crawlers (#164, ADR-00025 §3): rendered

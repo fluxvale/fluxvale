@@ -12,6 +12,7 @@ defmodule FluxValeWeb.CatalogController do
 
   alias FluxVale.Catalog.App
   alias FluxVale.Catalog.Category
+  alias FluxVale.Observability.WakeStats
   alias FluxVale.Pricing
   alias FluxValeWeb.Seo
 
@@ -36,14 +37,17 @@ defmodule FluxValeWeb.CatalogController do
     case App.get_by_slug(slug, actor: nil) do
       {:ok, app} ->
         app = Ash.load!(app, [:category, app_versions: :recommended_size], actor: nil)
+        versions = sorted_desc(app.app_versions)
 
         conn
-        |> assign(:page_title, "#{app.name} · FluxVale")
+        # #611 plan §9: the title matches the H1 and the search intent.
+        |> assign(:page_title, "#{app.name} hosting · FluxVale")
         |> assign(:page_description, app.tagline || @catalog_description)
         |> assign(:canonical_path, "/catalog/#{app.slug}")
         |> assign(:json_ld, json_ld(app))
         |> assign(:app, app)
-        |> assign(:versions, sorted_desc(app.app_versions))
+        |> assign(:newest_version, List.first(versions))
+        |> assign(:wake_estimates, WakeStats.median_total_by_app_safe())
         |> render(:show)
 
       # Unknown slugs read as "not here" — a real 404, unlike the
