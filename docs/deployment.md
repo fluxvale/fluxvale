@@ -239,6 +239,17 @@ other operator-entered rows): heal it through the release rpc —
 Idempotent — a second call adds nothing, and the welcome grant rides
 the org create exactly once.
 
+One refusal is expected: a pre-T3 account may still carry a NULL
+username (the #285 rolling-window straggler — sign-in heals the
+address row, never the handle), and the org is named after the handle,
+so the rpc answers `{:error, :username_missing}` instead of a
+changeset dump. Set the handle first, then re-run the heal (#287's
+sweep retires the shape at the contract migration):
+
+```sh
+/app/bin/flux_vale eval 'user = FluxVale.Identity.User.get_by_email!("user@example.com", authorize?: false); user = Ash.update!(user, %{username: "chosen-handle"}, action: :set_username, authorize?: false); FluxVale.Accounts.provision_personal_org(user)'
+```
+
 ## Feature flags
 
 Staging/prod divergence is feature flags only — a `FeatureFlag` Ash

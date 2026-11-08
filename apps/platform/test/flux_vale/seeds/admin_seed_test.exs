@@ -303,6 +303,28 @@ defmodule FluxVale.Seeds.AdminSeedTest do
       assert length(welcome_entries(wallet)) == 1
     end
 
+    test "a healed pre-T3 admin with no username raises :username_missing" do
+      # The true old-pod shape — NULL username too (the shape the
+      # pre-#119 fixture above avoids with its explicit `username:`).
+      # seed_admin!/0 heals the mirror row (the admin get-or-create
+      # gate passes); the org heal then names the org after the handle
+      # and refuses with {:error, :username_missing} — the seed fails
+      # loudly instead of inventing a handle; the remedy is the
+      # docs/deployment.md rpc block (F1's sweep retires the shape).
+      Ash.Seed.seed!(User, %{email: "admin@fluxvale.com", platform_role: :admin})
+
+      :ok = Seeds.seed_admin!()
+
+      assert_raise RuntimeError, ~r/username_missing/, fn ->
+        Seeds.seed_admin_org!()
+      end
+
+      # nothing was invented: no org, and the straggler keeps NULL
+      admin = User.get_by_email!("admin@fluxvale.com", authorize?: false)
+      assert is_nil(admin.username)
+      assert org_count(admin.id) == 0
+    end
+
     test "the welcome grant is 300 cents with reason :welcome" do
       seed_pre119_admin!()
 
