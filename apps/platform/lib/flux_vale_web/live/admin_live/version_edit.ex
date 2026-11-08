@@ -381,8 +381,14 @@ defmodule FluxValeWeb.AdminLive.VersionEdit do
       username={@username}
       nav_section={@nav_section}
       bare
+      wide
     >
-      <div class="appgram contents" data-testid="admin-version-edit">
+      <%!-- The console lane (#593): `wide` chrome + `appgram console`
+      — flush sidebar, the page fills the space beside it. The form
+      cards keep the settings idiom's max-w-2xl measure: a textarea at
+      viewport width is unreadable, and this page is mostly textareas.
+      --%>
+      <div class="appgram console contents" data-testid="admin-version-edit">
         <section class="band">
           <div class="wrap pt-8 pb-10">
             <div class="rise">
@@ -424,7 +430,7 @@ defmodule FluxValeWeb.AdminLive.VersionEdit do
                 <%!-- Blueprint and size, presented together. The static
             rule is a quiet note; the live mismatch is the loudest thing
             on the page, naming the dimensions that drifted. --%>
-                <.card class="space-y-5" data-testid="admin-version-allocation">
+                <.card class="max-w-2xl space-y-5" data-testid="admin-version-allocation">
                   <div>
                     <h2 class="text-base font-medium text-ink">{gettext("Blueprint and size")}</h2>
                     <p class="mt-1 text-sm text-ink-muted">
@@ -507,7 +513,7 @@ defmodule FluxValeWeb.AdminLive.VersionEdit do
                 <%!-- The first-run contract, edited in place. The key-ownership
             rule rides the same save, and the failure names where the
             colliding fields live. --%>
-                <.card class="space-y-5" data-testid="admin-version-firstrun">
+                <.card class="max-w-2xl space-y-5" data-testid="admin-version-firstrun">
                   <div>
                     <h2 class="text-base font-medium text-ink">{gettext("First-run contract")}</h2>
                     <p class="mt-1 text-sm text-ink-muted">

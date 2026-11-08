@@ -56,8 +56,11 @@ defmodule FluxValeWeb.AdminLive.Sizes do
       username={@username}
       nav_section={@nav_section}
       bare
+      wide
     >
-      <div class="appgram contents" data-testid="admin-sizes">
+      <%!-- The console lane (#593): `wide` chrome + `appgram console`
+      — flush sidebar, the ladder table stretches. --%>
+      <div class="appgram console contents" data-testid="admin-sizes">
         <section class="band">
           <div class="wrap pt-8 pb-10">
             <div class="rise">

@@ -5,13 +5,15 @@ defmodule FluxVale.TestSupport.ChromeProbe do
   directly (the slot needs the compiled closure), so this probe is the
   parent. It passes `nav_section` through like the real callers do
   (NavSection's on_mount guarantees the assign on the socket), plus
-  `bare` for the band-capable lane.
+  `bare` for the band-capable lane and `wide` for the console lane
+  (#593).
   """
 
   use Phoenix.Component
 
   attr(:nav_section, :atom, default: nil)
   attr(:bare, :boolean, default: false)
+  attr(:wide, :boolean, default: false)
 
   def with_section(assigns) do
     ~H"""
@@ -21,6 +23,7 @@ defmodule FluxVale.TestSupport.ChromeProbe do
       username="terence"
       nav_section={@nav_section}
       bare={@bare}
+      wide={@wide}
     >
       hello
     </FluxValeWeb.Layouts.app>

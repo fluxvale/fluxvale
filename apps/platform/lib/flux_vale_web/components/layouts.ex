@@ -84,6 +84,13 @@ defmodule FluxValeWeb.Layouts do
   # between, and below sections is the page's to place.
   attr(:bare, :boolean, default: false)
 
+  # Console-wide chrome (#593): the header row renders unbounded (no
+  # max-w-5xl, no centering), so the logo anchors at the viewport
+  # gutter above a flush-left console. Pairs with `bare` + the
+  # `appgram console` root — the admin surfaces are the lane; every
+  # other caller renders byte-identical.
+  attr(:wide, :boolean, default: false)
+
   slot(:inner_block, required: true)
 
   def app(assigns) do
@@ -97,6 +104,7 @@ defmodule FluxValeWeb.Layouts do
       current_org={@current_org}
       nav_section={@nav_section}
       bare={@bare}
+      wide={@wide}
       apps={true}
       return_to={@return_to}
     >
@@ -190,6 +198,7 @@ defmodule FluxValeWeb.Layouts do
   attr(:current_org, :map, default: nil)
   attr(:nav_section, :atom, default: nil, doc: "the active nav section (see app/1)")
   attr(:bare, :boolean, default: false, doc: "render main unbounded (see app/1)")
+  attr(:wide, :boolean, default: false, doc: "render the header row unbounded (see app/1)")
   attr(:apps, :boolean, default: false, doc: "show the app-surface links (authenticated chrome)")
   attr(:footer, :boolean, default: false, doc: "render the marketing footer")
 
@@ -203,9 +212,18 @@ defmodule FluxValeWeb.Layouts do
     <%!-- Border-first depth (#277 T3): a hairline edge over a
     translucent surface — never a heavy shadow. In dark, elevation
     collapses to transparent by design, so the border lifts to
-    --line-strong and carries the depth. --%>
+    --line-strong and carries the depth. wide (#593): the console
+    lane drops the header row's centered 64rem measure — the row
+    spans the viewport at the same gutter the console's own wraps sit
+    on, so the logo anchors above the sidebar. The default keeps the
+    marketing-era measure every other chrome caller renders. --%>
     <header class="sticky top-0 z-40 border-b border-line bg-canvas/80 backdrop-blur dark:border-line-strong">
-      <div class="mx-auto flex h-14 max-w-5xl items-center justify-between gap-4 px-4 sm:px-6 lg:px-8">
+      <div class={
+        if(@wide,
+          do: "flex h-14 items-center justify-between gap-4 px-4 sm:px-6 lg:px-8",
+          else: "mx-auto flex h-14 max-w-5xl items-center justify-between gap-4 px-4 sm:px-6 lg:px-8"
+        )
+      }>
         <%!-- min-w-0: the cluster is a flex child that must be allowed to
         shrink — without it the switcher label's intrinsic width puts the
         header into horizontal scroll (280-336px and 640-642px bands, and

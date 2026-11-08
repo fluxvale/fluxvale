@@ -24,6 +24,19 @@ defmodule FluxValeWeb.Components.LayoutsTest do
     |> List.first()
   end
 
+  # The header row's own measure (#593): `wide` is the console lane's
+  # half of the flush layout — main's bounded/unbounded split has its
+  # pair below, this is the header's.
+  defp header_row_class(opts) do
+    html = render_component(&ChromeProbe.with_section/1, opts)
+
+    html
+    |> LazyHTML.from_fragment()
+    |> LazyHTML.query("header > div")
+    |> LazyHTML.attribute("class")
+    |> List.first()
+  end
+
   describe "bare main" do
     test "default: main keeps the bounded chrome class list, byte-identical" do
       assert main_class([]) == "mx-auto w-full max-w-5xl flex-1 px-4 py-10 sm:px-6 lg:px-8"
@@ -31,6 +44,22 @@ defmodule FluxValeWeb.Components.LayoutsTest do
 
     test "bare: main renders unbounded — no max-width, no padding" do
       assert main_class(bare: true) == "flex-1"
+    end
+  end
+
+  describe "wide header row (#593)" do
+    test "default: the header row keeps the centered measure, byte-identical" do
+      assert header_row_class([]) ==
+               "mx-auto flex h-14 max-w-5xl items-center justify-between gap-4 px-4 sm:px-6 lg:px-8"
+    end
+
+    # The gutter tokens are load-bearing: the console's own wraps sit
+    # on the same px-4 sm:px-6 lg:px-8 (app_grammar.css's .wrap
+    # padding-inline), so the logo anchors above the sidebar. A drift
+    # here re-opens the defect #593 fixed with a green suite.
+    test "wide: the header row spans the viewport at the wrap gutter — no centering, no measure" do
+      assert header_row_class(wide: true) ==
+               "flex h-14 items-center justify-between gap-4 px-4 sm:px-6 lg:px-8"
     end
   end
 
