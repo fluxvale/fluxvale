@@ -63,9 +63,11 @@ defmodule FluxValeWeb.AuthLive.SignIn do
               data-native-fallback
               class="space-y-4"
             >
-              <%!-- #462/#219: the return path rides the POST body in both
-              transports — the native fallback never re-emits it into a
-              URL of its own. --%>
+              <%!-- #462/#219: the email form carries the return path in its
+              POST body for both transports. The native request's PRG
+              puts the validated value in the code page's URL (the same
+              query-param convention the #462 sign-in link uses); the
+              verify step's body is the only place it travels then. --%>
               <input :if={@return_to} type="hidden" name="return_to" value={@return_to} />
               <.input
                 field={@form[:email]}
@@ -172,13 +174,13 @@ defmodule FluxValeWeb.AuthLive.SignIn do
     # #219: /sign-in/code is the native request-code endpoint's PRG
     # target. Its address rides the session (never a URL); a direct hit
     # with no pending request has nothing to verify — back to the email
-    # step's own URL.
+    # step's own URL, the validated return path carried along.
     case {socket.assigns.live_action, session["sign_in_email"]} do
       {:code, email} when is_binary(email) ->
         {:ok, mount_state(socket, :code, email, return_to)}
 
       {:code, _no_pending_request} ->
-        {:ok, redirect(socket, to: ~p"/sign-in")}
+        {:ok, redirect(socket, to: ReturnPath.sign_in_path(return_to))}
 
       {:email, _no_pending_request} ->
         {:ok, mount_state(socket, :email, nil, return_to)}

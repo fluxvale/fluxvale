@@ -125,10 +125,21 @@ defmodule FluxValeWeb.SignInControllerTest do
     refute_received {:email, %Swoosh.Email{}}
   end
 
+  test "a non-scalar email param is answered as malformed, never a crash", %{conn: conn} do
+    refused = post(conn, ~p"/auth/sign-in", %{"email" => %{"a" => "b"}})
+
+    assert redirected_to(refused) == ~p"/sign-in"
+    assert Phoenix.Flash.get(refused.assigns.flash, :error) =~ "look like an email address"
+    refute_received {:email, %Swoosh.Email{}}
+  end
+
   # #26: the gate runs inside the operation, so the native door is
-  # exactly as closed as the LiveView one.
+  # exactly as closed as the LiveView one. The rule names its own
+  # domain so this suite never waits on another suite's uncommitted
+  # `(purpose, "fluxvale.com")` row (the unique index serializes them).
   test "a denied address is told to ask an admin", %{conn: conn} do
-    AccessRule.create!(%{domain: "fluxvale.com"}, authorize?: false)
+    allowed = "native-allowed-#{System.unique_integer()}.example"
+    AccessRule.create!(%{domain: allowed}, authorize?: false)
 
     refused = request_code(conn, "outsider-#{System.unique_integer()}@example.com")
 
@@ -147,5 +158,11 @@ defmodule FluxValeWeb.SignInControllerTest do
     page = get(conn, ~p"/sign-in/code")
 
     assert redirected_to(page) == ~p"/sign-in"
+  end
+
+  test "that bounce keeps the return path for the retry", %{conn: conn} do
+    page = get(conn, ~p"/sign-in/code?return_to=%2Ffeedback%2Fsome-post")
+
+    assert redirected_to(page) == ~p"/sign-in?return_to=%2Ffeedback%2Fsome-post"
   end
 end
