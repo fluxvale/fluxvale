@@ -100,7 +100,10 @@ defmodule FluxVale.Pricing.Size do
       # referencing versions, which can't be one atomic expression.
       require_atomic?(false)
 
-      validate(FluxVale.Pricing.Size.ValidateAllocationFrozen)
+      # before_action?: the probe must run inside the transaction so
+      # its size-row lock holds to commit — at changeset time the lock
+      # would evaporate at statement end (#543).
+      validate(FluxVale.Pricing.Size.ValidateAllocationFrozen, before_action?: true)
     end
 
     read :get_by_slug do
