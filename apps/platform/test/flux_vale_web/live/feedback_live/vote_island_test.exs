@@ -90,7 +90,7 @@ defmodule FluxValeWeb.FeedbackLive.VoteIslandTest do
     # island shows the sign-in CTA, not paying copy.
     orgless =
       Ash.Seed.seed!(FluxVale.Identity.User, %{
-        email: "orgless-vote-#{System.unique_integer()}@fluxvale.test"
+        username: "orgless-vote-#{System.unique_integer()}"
       })
 
     post = post!()
@@ -150,7 +150,10 @@ defmodule FluxValeWeb.FeedbackLive.VoteIslandTest do
   test "a launch-allowlisted actor passes through the island too", %{conn: conn} do
     post = post!()
     user = AccountsFixtures.user!()
-    AccessRule.create!(%{purpose: :feedback, email: user.email}, authorize?: false)
+
+    AccessRule.create!(%{purpose: :feedback, email: AccountsFixtures.primary_address!(user)},
+      authorize?: false
+    )
 
     {:ok, view, _html} = mount_island(conn, post, user)
 

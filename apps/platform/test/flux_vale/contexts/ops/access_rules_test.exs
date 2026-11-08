@@ -174,7 +174,7 @@ defmodule FluxVale.Ops.AccessRulesTest do
       # A user without user_emails rows is a state actions cannot produce
       # (the create mirror stamps one) — seed! is the sanctioned bypass.
       seeded =
-        Ash.Seed.seed!(User, %{email: "gate-drift-#{System.unique_integer()}@example.com"})
+        Ash.Seed.seed!(User, %{username: "gate-drift-#{System.unique_integer()}"})
 
       assert {:error, :not_allowed} = AccessRules.ensure_allowed_user(seeded)
     end

@@ -20,6 +20,7 @@ defmodule FluxValeWeb.AdminModerationLiveTest do
   alias FluxVale.Feedback.Tag
   alias FluxVale.Feedback.Vote
   alias FluxVale.Identity.User
+  alias FluxVale.TestSupport.AccountsFixtures
   alias FluxVale.TestSupport.FeedbackFixtures
   alias FluxVale.TestSupport.SessionHelpers
   alias FluxValeWeb.AdminLive.Moderation
@@ -274,7 +275,7 @@ defmodule FluxValeWeb.AdminModerationLiveTest do
       refute has_element?(
                view,
                "[data-testid^='admin-moderation-title-']",
-               to_string(admin.email)
+               to_string(AccountsFixtures.primary_address!(admin))
              )
     end
   end

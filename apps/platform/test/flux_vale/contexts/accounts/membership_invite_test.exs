@@ -84,10 +84,14 @@ defmodule FluxVale.Accounts.MembershipInviteTest do
       {org, _owner} = owned_org!()
       invitee = AccountsFixtures.user!()
 
-      invite = invite_for!(org, invitee.email)
+      invite = invite_for!(org, AccountsFixtures.primary_address!(invitee))
       accepted = accept!(invite, invitee.id)
 
-      assert {:ok, _fresh} = create_invite(%{organization_id: org.id, email: invitee.email})
+      assert {:ok, _fresh} =
+               create_invite(%{
+                 organization_id: org.id,
+                 email: AccountsFixtures.primary_address!(invitee)
+               })
 
       assert accepted.accepted_at
     end
@@ -115,7 +119,7 @@ defmodule FluxVale.Accounts.MembershipInviteTest do
     test "an accepted row reads :accepted — a raced revoke refuses, and a row carrying both stamps still reads accepted" do
       {org, _owner} = owned_org!()
       invitee = AccountsFixtures.user!()
-      invite = invite_for!(org, invitee.email)
+      invite = invite_for!(org, AccountsFixtures.primary_address!(invitee))
 
       accept!(invite, invitee.id)
       assert reload_with_state!(invite).state == :accepted
@@ -166,7 +170,7 @@ defmodule FluxVale.Accounts.MembershipInviteTest do
     test "single-fire: the second accept refuses and the stamp never moves" do
       {org, _owner} = owned_org!()
       invitee = AccountsFixtures.user!()
-      invite = invite_for!(org, invitee.email)
+      invite = invite_for!(org, AccountsFixtures.primary_address!(invitee))
 
       accepted = accept!(invite, invitee.id)
 
@@ -190,7 +194,7 @@ defmodule FluxVale.Accounts.MembershipInviteTest do
     test "revoking an ACCEPTED invite refuses — the join record is never stamped" do
       {org, _owner} = owned_org!()
       invitee = AccountsFixtures.user!()
-      invite = invite_for!(org, invitee.email)
+      invite = invite_for!(org, AccountsFixtures.primary_address!(invitee))
 
       accepted = accept!(invite, invitee.id)
 
@@ -231,7 +235,7 @@ defmodule FluxVale.Accounts.MembershipInviteTest do
         authorize?: false
       )
 
-      invite = invite_for!(org, invitee.email)
+      invite = invite_for!(org, AccountsFixtures.primary_address!(invitee))
 
       assert {:error, _duplicate_membership} = accept(invite, invitee.id)
 
@@ -282,13 +286,17 @@ defmodule FluxVale.Accounts.MembershipInviteTest do
       accepted_stale =
         Ash.Seed.seed!(MembershipInvite, %{
           organization_id: org.id,
-          email: invitee2.email,
+          email: AccountsFixtures.primary_address!(invitee2),
           token_hash: arbitrary_hash(),
           accepted_at: ~U[2024-06-01 12:00:00Z],
           expires_at: past
         })
 
-      assert :ok = MembershipInvite.supersede_expired(org.id, invitee2.email)
+      assert :ok =
+               MembershipInvite.supersede_expired(
+                 org.id,
+                 AccountsFixtures.primary_address!(invitee2)
+               )
 
       assert %{revoked_at: nil, accepted_at: kept} =
                Ash.load!(accepted_stale, [:revoked_at, :accepted_at], authorize?: false)

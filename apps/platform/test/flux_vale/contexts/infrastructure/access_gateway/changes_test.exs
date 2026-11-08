@@ -416,9 +416,7 @@ defmodule FluxVale.Infrastructure.AccessGateway.ChangesTest do
       # exception). The personal-org lookup answers :none and the change
       # errors the field instead of a bare required-attribute crash.
       orgless =
-        Ash.Seed.seed!(User, %{
-          email: "orgless-gw-#{System.unique_integer([:positive])}@fluxvale.test"
-        })
+        Ash.Seed.seed!(User, %{username: "orgless-gw-#{System.unique_integer([:positive])}"})
 
       assert {:error, %Ash.Error.Invalid{errors: errors}} =
                AccessGateway.create(

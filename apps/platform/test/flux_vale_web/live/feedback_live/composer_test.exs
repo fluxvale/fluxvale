@@ -323,7 +323,10 @@ defmodule FluxValeWeb.FeedbackLive.ComposerTest do
 
   test "a launch-allowlisted actor gets the working form", %{conn: conn} do
     user = AccountsFixtures.user!()
-    AccessRule.create!(%{purpose: :feedback, email: user.email}, authorize?: false)
+
+    AccessRule.create!(%{purpose: :feedback, email: AccountsFixtures.primary_address!(user)},
+      authorize?: false
+    )
 
     {:ok, view, _html} = mount_composer(conn, user)
 

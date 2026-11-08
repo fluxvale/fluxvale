@@ -9,10 +9,14 @@ defmodule FluxVale.TestSupport.UserInviteHelpers do
   # hash-without-invite shape are states actions cannot produce (no
   # backdating surface) — seed! is the sanctioned bypass there (the #23
   # janitor posture), with the hash kept derivable so tests can drive
-  # the accept link.
+  # the accept link. #287: seed! writes neither the username
+  # (NOT NULL — passed, derived from the address like :invite does) nor
+  # the reservation row (attached through :add, the InvitedEmailRow
+  # shape: pending, non-primary).
 
   alias FluxVale.Identity
   alias FluxVale.Identity.User
+  alias FluxVale.Identity.UserEmail
 
   @doc "Invites `address` through the real operation; returns {user, raw_token}."
   def invite_user!(address) do
@@ -31,16 +35,34 @@ defmodule FluxVale.TestSupport.UserInviteHelpers do
   @doc """
   Stages an EXPIRED invited user — actions cannot backdate the window,
   so seed! is the sanctioned bypass. The token hash matches
-  "expired-raw" so accept-link tests can drive it.
+  "expired-raw" so accept-link tests can drive it. The reservation row
+  rides :add (pending, non-primary) — the shape :invite writes.
   """
   def expired_invited_user!(address) do
     now = DateTime.utc_now()
 
-    Ash.Seed.seed!(User, %{
-      email: address,
-      invited_at: DateTime.add(now, -14, :day),
-      invite_expires_at: DateTime.truncate(DateTime.add(now, -7, :day), :second),
-      invite_token_hash: User.token_hash("expired-raw")
-    })
+    user =
+      Ash.Seed.seed!(User, %{
+        username: username_for(address),
+        invited_at: DateTime.add(now, -14, :day),
+        invite_expires_at: DateTime.truncate(DateTime.add(now, -7, :day), :second),
+        invite_token_hash: User.token_hash("expired-raw")
+      })
+
+    {:ok, _reservation} = UserEmail.add(address, %{user: user}, authorize?: false)
+    user
+  end
+
+  # The seed! username companion: derive from the address's local part
+  # the way DeriveUsername does (the addresses these helpers receive
+  # are unique_integer-keyed, so the local part is unique; reserved
+  # words never appear in these prefixes).
+  defp username_for(address) do
+    [local | _] = String.split(to_string(address), "@", parts: 2)
+
+    local
+    |> String.downcase()
+    |> String.replace(~r/[^a-z0-9-]+/, "-")
+    |> String.trim("-")
   end
 end

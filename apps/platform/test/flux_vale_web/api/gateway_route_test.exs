@@ -72,7 +72,7 @@ defmodule FluxValeWeb.Api.GatewayRouteTest do
   describe "GET /api/v1/organizations/:organization_id/access-gateway" do
     test "404s with no gateway, returns the org's row once enabled", %{conn: conn} do
       {user, org} = paid_member!()
-      pat = ApiPat.mint!(user.email, ["gateways:write"])
+      pat = ApiPat.mint!(user, ["gateways:write"])
 
       conn =
         conn
@@ -103,7 +103,7 @@ defmodule FluxValeWeb.Api.GatewayRouteTest do
   describe "POST /api/v1/access-gateways" do
     test "enables the org — 201, and the price is the config's, not the body's", %{conn: conn} do
       {user, _org} = paid_member!()
-      pat = ApiPat.mint!(user.email, ["gateways:write"])
+      pat = ApiPat.mint!(user, ["gateways:write"])
 
       conn =
         conn
@@ -145,7 +145,7 @@ defmodule FluxValeWeb.Api.GatewayRouteTest do
 
       refute other_org.id == org.id
 
-      pat = ApiPat.mint!(user.email, ["gateways:write"])
+      pat = ApiPat.mint!(user, ["gateways:write"])
 
       conn =
         conn
@@ -168,7 +168,7 @@ defmodule FluxValeWeb.Api.GatewayRouteTest do
     test "naming the caller's own org lands the row there (#408)", %{conn: conn} do
       {user, org} = paid_member!()
 
-      pat = ApiPat.mint!(user.email, ["gateways:write"])
+      pat = ApiPat.mint!(user, ["gateways:write"])
 
       conn =
         conn
@@ -196,7 +196,7 @@ defmodule FluxValeWeb.Api.GatewayRouteTest do
     test "resumes a suspended gateway for a funded org (provider stubbed)", %{conn: conn} do
       {user, org} = paid_member!()
       gateway = AccessFixtures.gateway!(org, state: :suspended)
-      pat = ApiPat.mint!(user.email, ["gateways:write"])
+      pat = ApiPat.mint!(user, ["gateways:write"])
 
       conn =
         conn
@@ -216,7 +216,7 @@ defmodule FluxValeWeb.Api.GatewayRouteTest do
       {user, org} = paid_member!()
       gateway = AccessFixtures.gateway!(org)
       instance = AccessFixtures.private_instance!(org, user)
-      pat = ApiPat.mint!(user.email, ["gateways:write"])
+      pat = ApiPat.mint!(user, ["gateways:write"])
 
       conn =
         conn
@@ -237,7 +237,7 @@ defmodule FluxValeWeb.Api.GatewayRouteTest do
       {user, org} = paid_member!()
       gateway = AccessFixtures.gateway!(org)
       instance = AccessFixtures.public_instance!(org, user)
-      pat = ApiPat.mint!(user.email, ["gateways:write"])
+      pat = ApiPat.mint!(user, ["gateways:write"])
 
       conn =
         conn
@@ -255,7 +255,7 @@ defmodule FluxValeWeb.Api.GatewayRouteTest do
       {user, org} = paid_member!()
       gateway = AccessFixtures.gateway!(org, state: :suspended)
       instance = AccessFixtures.private_instance!(org, user)
-      pat = ApiPat.mint!(user.email, ["gateways:write"])
+      pat = ApiPat.mint!(user, ["gateways:write"])
 
       conn =
         conn
@@ -284,7 +284,7 @@ defmodule FluxValeWeb.Api.GatewayRouteTest do
         |> InstanceFixtures.instance!(user)
         |> InstanceFixtures.pin!(exposure: :private)
 
-      pat = ApiPat.mint!(user.email, ["gateways:write"])
+      pat = ApiPat.mint!(user, ["gateways:write"])
 
       conn =
         conn
@@ -317,7 +317,7 @@ defmodule FluxValeWeb.Api.GatewayRouteTest do
       )
 
       instance = AccessFixtures.private_instance!(other_org, user)
-      pat = ApiPat.mint!(user.email, ["gateways:write"])
+      pat = ApiPat.mint!(user, ["gateways:write"])
 
       attach =
         conn
@@ -350,7 +350,7 @@ defmodule FluxValeWeb.Api.GatewayRouteTest do
         {:error, %Error{reason: :timeout, message: "provider timed out"}}
       end)
 
-      pat = ApiPat.mint!(user.email, ["gateways:write"])
+      pat = ApiPat.mint!(user, ["gateways:write"])
 
       conn =
         conn
@@ -373,7 +373,7 @@ defmodule FluxValeWeb.Api.GatewayRouteTest do
       _route =
         FluxVale.Infrastructure.attach_instance(gateway, instance, authorize?: false)
 
-      pat = ApiPat.mint!(user.email, ["gateways:write"])
+      pat = ApiPat.mint!(user, ["gateways:write"])
 
       conn =
         conn

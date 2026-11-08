@@ -93,16 +93,18 @@ defmodule FluxVale.TestSupport.BillingFixtures do
     # JIT-provisions a personal org (and its welcome grant), and this
     # fixture needs the owner org-less so the FIXTURE org — created
     # marked, below — is their personal org at an exact zero balance.
+    address = "billing-owner-#{System.unique_integer([:positive])}@fluxvale.test"
+
     owner =
       Ash.Seed.seed!(User, %{
-        email: "billing-owner-#{System.unique_integer([:positive])}@fluxvale.test",
         username: "billing-owner-#{System.unique_integer([:positive])}"
       })
 
-    # The T1-backfill shape (see AccountsFixtures.backfill_email!/1):
-    # table-backed identity (#285 T3) — get_by_email and the PAT seam
-    # resolve through user_emails, which seed! cannot produce.
-    AccountsFixtures.backfill_email!(owner)
+    # The address row seed! cannot write (#287 — the users table
+    # carries no address): attach_primary_email! gives the owner the
+    # create path's end state, so get_by_email and the PAT seam see
+    # them.
+    AccountsFixtures.attach_primary_email!(owner, address)
 
     # authorize?: false — system-op posture, the same bootstrap stance as
     # seeds (memberships are system-created; see the Membership resource).

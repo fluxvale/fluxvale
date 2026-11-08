@@ -43,7 +43,10 @@ defmodule FluxVale.Checks.ActorOwnsPaidOrgTest do
     test "the owner of an unpaid org passes under the launch arm — a :feedback row waives the paid test, not ownership" do
       user = AccountsFixtures.user!()
       org = AccountsFixtures.personal_org!(user)
-      AccessRule.create!(%{purpose: :feedback, email: user.email}, authorize?: false)
+
+      AccessRule.create!(%{purpose: :feedback, email: AccountsFixtures.primary_address!(user)},
+        authorize?: false
+      )
 
       assert ActorOwnsPaidOrg.board_write_allowed?(user, org.id)
     end
@@ -79,13 +82,17 @@ defmodule FluxVale.Checks.ActorOwnsPaidOrgTest do
 
     test "an owner whose primary email cannot resolve fails closed — even with a :feedback row for their address" do
       # Ash.Seed.seed! — the only way to produce a user with no
-      # user_emails rows: the create action mirrors the signup address as
+      # user_emails rows: the create action writes the signup address as
       # a VERIFIED PRIMARY row (the documented seed! exception). The
-      # launch arm reads the PRIMARY email; nothing resolves → nobody.
-      orgless = Ash.Seed.seed!(User, %{email: "orgless-#{System.unique_integer()}@fluxvale.test"})
+      # launch arm reads the PRIMARY email; nothing resolves → nobody —
+      # even with a rule that WOULD admit the address they lack.
+      orgless = Ash.Seed.seed!(User, %{username: "orgless-#{System.unique_integer()}"})
       org = AccountsFixtures.owned_org!(orgless)
 
-      AccessRule.create!(%{purpose: :feedback, email: orgless.email}, authorize?: false)
+      AccessRule.create!(
+        %{purpose: :feedback, email: "unreachable-#{System.unique_integer()}@fluxvale.test"},
+        authorize?: false
+      )
 
       refute ActorOwnsPaidOrg.board_write_allowed?(orgless, org.id)
     end
@@ -131,7 +138,7 @@ defmodule FluxVale.Checks.ActorOwnsPaidOrgTest do
     test "a create naming nothing with an org-less actor fails closed" do
       # Ash.Seed.seed! — see the primary-email test above (the documented
       # seed! exception).
-      orgless = Ash.Seed.seed!(User, %{email: "orgless-#{System.unique_integer()}@fluxvale.test"})
+      orgless = Ash.Seed.seed!(User, %{username: "orgless-#{System.unique_integer()}"})
 
       subject = Ash.Changeset.for_create(Vote, :cast, %{}, authorize?: false)
 

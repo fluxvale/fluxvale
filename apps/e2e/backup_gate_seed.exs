@@ -27,29 +27,35 @@ require Ash.Query
 # collision-free on their own.
 suffix = Base.encode16(:crypto.strong_rand_bytes(4), case: :lower)
 
-user_a = User.create!("capture-a-#{suffix}@fluxvale.test", %{}, authorize?: false)
-user_b = User.create!("capture-b-#{suffix}@fluxvale.test", %{}, authorize?: false)
-user_c = User.create!("capture-c-#{suffix}@fluxvale.test", %{}, authorize?: false)
+address_user_a = "capture-a-#{suffix}@fluxvale.test"
+user_a = User.create!(address_user_a, %{}, authorize?: false)
+address_user_b = "capture-b-#{suffix}@fluxvale.test"
+user_b = User.create!(address_user_b, %{}, authorize?: false)
+address_user_c = "capture-c-#{suffix}@fluxvale.test"
+user_c = User.create!(address_user_c, %{}, authorize?: false)
 
-Enum.each([user_a, user_b, user_c], fn user ->
-  existing =
-    UserEmail
-    |> Ash.Query.filter(address == ^user.email)
-    |> Ash.read!(authorize?: false)
+Enum.each(
+  [{user_a, address_user_a}, {user_b, address_user_b}, {user_c, address_user_c}],
+  fn {user, address} ->
+    existing =
+      UserEmail
+      |> Ash.Query.filter(address == ^address)
+      |> Ash.read!(authorize?: false)
 
-  row =
-    case existing do
-      [row | _] ->
-        row
+    row =
+      case existing do
+        [row | _] ->
+          row
 
-      [] ->
-        {:ok, added} = UserEmail.add(user.email, %{user: user}, authorize?: false)
-        added
-    end
+        [] ->
+          {:ok, added} = UserEmail.add(address, %{user: user}, authorize?: false)
+          added
+      end
 
-  {:ok, verified} = UserEmail.mark_verified(row, authorize?: false)
-  {:ok, _primary} = UserEmail.set_primary(verified, actor: user)
-end)
+    {:ok, verified} = UserEmail.mark_verified(row, authorize?: false)
+    {:ok, _primary} = UserEmail.set_primary(verified, actor: user)
+  end
+)
 
 # A catalog chain the instances point at (the fixtures' shape — dev
 # screenshot data, authorize?: false). The slug base is the random
@@ -110,28 +116,31 @@ FluxVale.Seeds.seed_local_cluster!()
 # the create), namespace pinned and walked to :running — the state the
 # panel's actions live in. The deploy trigger's cluster calls fail
 # loudly in the log (no dev cluster); the row is what the capture reads.
-Enum.each([user_a, user_b, user_c], fn user ->
-  instance =
-    Instance.create!(
-      %{name: "Capture #{System.unique_integer([:positive])}", app_version_id: version.id},
-      actor: user
-    )
+Enum.each(
+  [{user_a, address_user_a}, {user_b, address_user_b}, {user_c, address_user_c}],
+  fn {user, address} ->
+    instance =
+      Instance.create!(
+        %{name: "Capture #{System.unique_integer([:positive])}", app_version_id: version.id},
+        actor: user
+      )
 
-  {:ok, deploying} = InstanceK8s.update_status(instance, :deploying, nil)
+    {:ok, deploying} = InstanceK8s.update_status(instance, :deploying, nil)
 
-  # The namespace is write-once (the deploy action owns it) — force it
-  # the way the test fixtures' pin! does (dev capture data).
-  pinned =
-    deploying
-    |> Ash.Changeset.for_update(:update_status, %{}, authorize?: false)
-    |> Ash.Changeset.force_change_attribute(:namespace, "fluxvale-app-#{instance.id}")
-    |> Ash.update!()
+    # The namespace is write-once (the deploy action owns it) — force it
+    # the way the test fixtures' pin! does (dev capture data).
+    pinned =
+      deploying
+      |> Ash.Changeset.for_update(:update_status, %{}, authorize?: false)
+      |> Ash.Changeset.force_change_attribute(:namespace, "fluxvale-app-#{instance.id}")
+      |> Ash.update!()
 
-  Enum.reduce([:starting, :running], pinned, fn status, acc ->
-    {:ok, next} = InstanceK8s.update_status(acc, status, nil)
-    next
-  end)
-end)
+    Enum.reduce([:starting, :running], pinned, fn status, acc ->
+      {:ok, next} = InstanceK8s.update_status(acc, status, nil)
+      next
+    end)
+  end
+)
 
 # (b) is PAID once (a real $1 top-up through the payment-webhook seam)
 # and then drained to zero — the paid-but-unfunded run refusal.

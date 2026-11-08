@@ -238,13 +238,13 @@ defmodule FluxValeWeb.Components.UserMenuTest do
   describe "web surfaces after the REAL SetPrimaryEmail" do
     # The one fixture all surface tests ride: a signed-in user whose
     # verified secondary was promoted through the real operations —
-    # AddEmail (code mailed) → VerifyEmail → SetPrimaryEmail. The mirror
-    # (users.email) keeps the demoted signup address throughout.
+    # AddEmail (code mailed) → VerifyEmail → SetPrimaryEmail. Post-#287
+    # the surfaces read the live primary; there is no mirror to drift.
     setup %{conn: conn} do
       user = SessionHelpers.user!()
       conn = SessionHelpers.sign_in(conn, user)
 
-      mirror = to_string(user.email)
+      mirror = to_string(AccountsFixtures.primary_address!(user))
       promoted = "promoted-#{System.unique_integer([:positive])}@fluxvale.test"
 
       assert {:ok, row} = Identity.add_email(user, promoted)

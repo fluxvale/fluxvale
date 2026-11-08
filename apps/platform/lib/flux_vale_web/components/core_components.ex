@@ -1273,16 +1273,16 @@ defmodule FluxValeWeb.CoreComponents do
 
       <.user_menu username={@current_user.username} email={@current_user.primary_email} />
   """
-  # #285 T4: the glyph and the panel's name line derive from the
+  # #285 T4, #287: the glyph and the panel's name line derive from the
   # username; the email line shows the account's PRIMARY address. Call
-  # sites pass `User.primary_email` (the calculation) — falling back to
-  # the frozen `users.email` mirror when nil (old-pod straggler, see the
-  # calculation's comment); the component renders what it is given.
+  # sites pass `User.primary_email` (the calculation) — no fallback
+  # remains post-#287 (a nil primary is data drift); the component
+  # renders what it is given.
   attr(:username, :string, required: true, doc: "the account's handle — glyph + name line")
 
   attr(:email, :string,
     required: true,
-    doc: "the account's primary address (callers fall back to the frozen mirror)"
+    doc: "the account's primary address"
   )
 
   attr(:app_links, :boolean,

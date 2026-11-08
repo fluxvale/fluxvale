@@ -51,7 +51,11 @@ defmodule FluxVale.Identity.Operations.ResolveInviteLinkTest do
       # written alongside invited_at) — seed! is the sanctioned bypass
       # for the hand-built shape
       address = "orphan-#{System.unique_integer()}@partner.example"
-      Ash.Seed.seed!(User, %{email: address, invite_token_hash: User.token_hash("orphan")})
+
+      Ash.Seed.seed!(User, %{
+        username: "orphan-#{System.unique_integer([:positive])}",
+        invite_token_hash: User.token_hash("orphan")
+      })
 
       assert {:error, :unknown_token} = Identity.resolve_invite_link("orphan")
     end

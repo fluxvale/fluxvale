@@ -318,9 +318,9 @@ defmodule FluxValeWeb.Layouts do
             overflows 375px by 133px otherwise, dropdown closed. --%>
             <li :if={@current_user} class="ml-2">
               <%!-- #285 T4: the menu carries the handle + the PRIMARY
-              address — the frozen mirror is the fallback for an
-              old-pod straggler with no verified primary row (see
-              User.primary_email). #319: nav_section rides along so the
+              address (post-#287 a nil primary is data drift — every
+              account is born with its verified-primary row; no
+              fallback remains). #319: nav_section rides along so the
               menu rows can mark the section active — the below-sm
               folded rows, and Billing's every-width row since its
               header link retired (#467). #551: the Admin row rides the
@@ -328,7 +328,7 @@ defmodule FluxValeWeb.Layouts do
               (nil-safe), so an anonymous render derives no row. --%>
               <.user_menu
                 username={@current_user.username}
-                email={@current_user.primary_email || @current_user.email}
+                email={@current_user.primary_email}
                 app_links={@apps}
                 nav_section={@nav_section}
                 platform_admin={ActorIsPlatformAdmin.platform_admin?(@current_user)}

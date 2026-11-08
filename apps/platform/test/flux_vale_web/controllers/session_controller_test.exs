@@ -32,8 +32,8 @@ defmodule FluxValeWeb.SessionControllerTest do
   end
 
   # #285 review P3-1: pins the user-level gate at SessionController
-  # (ensure_allowed_user, NOT ensure_allowed(user.email) — the frozen
-  # users.email would sever users the table-backed identity admits).
+  # (ensure_allowed_user, NOT ensure_allowed(AccountsFixtures.primary_address!(user)) — the frozen
+  # column-era address storage would sever users the table admits).
   describe "user-level gate pins (#285 T3 — create/2)" do
     setup do
       AccessRule.create!(%{domain: "fluxvale.com"}, authorize?: false)
@@ -91,11 +91,12 @@ defmodule FluxValeWeb.SessionControllerTest do
     test "a pre-T3 user with an allowlisted frozen address and no rows is severed", %{conn: conn} do
       # A state actions cannot produce (the create mirror stamps a row) —
       # seed! is the sanctioned bypass. Nothing proven, nothing granted:
-      # the allowlisted users.email alone must not admit them.
-      old_pod =
-        Ash.Seed.seed!(User, %{email: "old-pod-#{System.unique_integer()}@fluxvale.com"})
+      # an account with NO address rows must not be admitted (#287 —
+      # the mirror-era allowlisted-column shape died with the column).
+      rowless =
+        Ash.Seed.seed!(User, %{username: "rowless-#{System.unique_integer()}"})
 
-      {:ok, token, _claims} = Jwt.token_for_user(old_pod)
+      {:ok, token, _claims} = Jwt.token_for_user(rowless)
 
       conn =
         conn

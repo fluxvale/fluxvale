@@ -36,14 +36,19 @@ defmodule FluxValeWeb.SettingsLiveTest do
     refute has_element?(view, "[data-testid='username-confirm']")
 
     # the mirror row: verified primary, and it is the only row
-    assert has_element?(view, "[data-testid='email-row']", to_string(user.email))
+    assert has_element?(
+             view,
+             "[data-testid='email-row']",
+             to_string(AccountsFixtures.primary_address!(user))
+           )
+
     assert has_element?(view, "[class~='fv-badge']", "Primary")
     assert has_element?(view, "[class~='fv-badge']", "Verified")
     refute has_element?(view, "[class~='fv-badge']", "Pending")
 
     # a primary row offers no Set primary, and Remove is disabled — the
     # frozen-mirror/primary invariants mirrored as UX, not enforcement
-    mirror_id = mirror_row_id(user)
+    mirror_id = signup_row_id(user)
 
     refute has_element?(view, "[data-testid='email-set-primary-#{mirror_id}']")
     assert disabled?(view, "[data-testid='email-remove-#{mirror_id}']")
@@ -342,12 +347,13 @@ defmodule FluxValeWeb.SettingsLiveTest do
     assert [%{verified_at: %DateTime{}}] = mine_rows(user, address)
   end
 
-  test "set-primary flips the DB primary and demotes the mirror; the frozen mirror refuses removal at the domain",
+  test "set-primary flips the DB primary and demotes the signup row; the demoted row removes at the domain (#287)",
        %{
          conn: conn,
          user: user
        } do
     address = "promote-me-#{System.unique_integer()}@fluxvale.test"
+    signup_address = AccountsFixtures.primary_address!(user)
     {:ok, verified} = add_and_verify(user, address)
 
     {:ok, view, _html} = live(conn, ~p"/settings")
@@ -363,19 +369,18 @@ defmodule FluxValeWeb.SettingsLiveTest do
     promoted = Enum.find(rows, &(&1.id == verified.id))
     assert promoted.is_primary
 
-    mirror = Enum.find(rows, &(&1.address == user.email))
-    refute mirror.is_primary
+    # post-#287 the demoted signup row is ordinary: its Remove renders
+    # ENABLED (verified, non-primary, siblings remain) and the domain
+    # takes it — the mirror-era permanent freeze died with the column
+    signup = Enum.find(rows, &(to_string(&1.address) == signup_address))
+    refute signup.is_primary
+    refute disabled?(view, "[data-testid='email-remove-#{signup.id}']")
 
-    # the demoted mirror is STILL frozen: its Remove renders disabled,
-    # and a crafted (un-disabled) click meets the domain's refusal —
-    # which layer refused: RemoveGuard, on the resource
-    assert disabled?(view, "[data-testid='email-remove-#{mirror.id}']")
+    # and the domain takes it — one verified address remains after
+    removal = render_click(view, "remove-email", %{"row_id" => signup.id})
 
-    refusal = render_click(view, "remove-email", %{"row_id" => mirror.id})
-
-    assert refusal =~ "frozen into users.email"
-    assert [%{id: mirror_id}] = mine_rows(user, to_string(mirror.address))
-    assert mirror_id == mirror.id
+    assert removal =~ "Address removed."
+    assert [] == mine_rows(user, signup_address)
   end
 
   test "a second verified address is removable through the UI; the last verified is not", %{
@@ -399,7 +404,7 @@ defmodule FluxValeWeb.SettingsLiveTest do
     # with only the frozen mirror verified, its remove stays disabled —
     # the last-verified invariant mirrored (and enforced by the domain)
     {:ok, fresh_view, _html} = live(conn, ~p"/settings")
-    mirror_id = mirror_row_id(user)
+    mirror_id = signup_row_id(user)
     assert disabled?(fresh_view, "[data-testid='email-remove-#{mirror_id}']")
   end
 
@@ -499,7 +504,7 @@ defmodule FluxValeWeb.SettingsLiveTest do
   } do
     # the user's own address must stay allowed — only the target domain
     # closes (otherwise the session gate severs the user before the page)
-    AccessRule.create!(%{email: user.email}, authorize?: false)
+    AccessRule.create!(%{email: AccountsFixtures.primary_address!(user)}, authorize?: false)
     denied = "denied-#{System.unique_integer()}@example.com"
 
     {:ok, view, _html} = live(conn, ~p"/settings")
@@ -682,7 +687,7 @@ defmodule FluxValeWeb.SettingsLiveTest do
     {:ok, view, _html} = live(conn, ~p"/settings")
 
     # the frozen mirror's remove is disabled; craft the click anyway
-    result = render_click(view, "remove-email", %{"row_id" => mirror_row_id(user)})
+    result = render_click(view, "remove-email", %{"row_id" => signup_row_id(user)})
 
     assert result =~ "was refused"
   end
@@ -694,7 +699,7 @@ defmodule FluxValeWeb.SettingsLiveTest do
 
     {:ok, view, _html} = live(conn, ~p"/settings")
 
-    result = render_click(view, "set-primary", %{"row_id" => mirror_row_id(user)})
+    result = render_click(view, "set-primary", %{"row_id" => signup_row_id(user)})
 
     assert result =~ "was refused"
   end
@@ -722,12 +727,19 @@ defmodule FluxValeWeb.SettingsLiveTest do
 
   # -- Helpers -------------------------------------------------------------
 
-  defp reload(user), do: User.get_by_email(user.email, authorize?: false)
+  defp reload(user) do
+    address = AccountsFixtures.primary_address!(user)
+    User.get_by_email(address, authorize?: false)
+  end
 
-  defp mirror_row_id(user) do
+  # The signup row's id (#287: located by the user's verified-primary
+  # address — downcast both sides, CiString never equals String).
+  defp signup_row_id(user) do
+    signup = AccountsFixtures.primary_address!(user)
+
     user
     |> mine_all()
-    |> Enum.find(&(&1.address == user.email))
+    |> Enum.find(&(to_string(&1.address) == signup))
     |> Map.fetch!(:id)
   end
 

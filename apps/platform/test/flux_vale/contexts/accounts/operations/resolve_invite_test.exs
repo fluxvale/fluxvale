@@ -29,8 +29,10 @@ defmodule FluxVale.Accounts.Operations.ResolveInviteTest do
     org = AccountsFixtures.owned_org!(owner)
     invitee = AccountsFixtures.user!()
 
-    assert {:ok, _invite} = Accounts.invite_member(owner, org, invitee.email)
-    raw = invited_token!(invitee.email)
+    assert {:ok, _invite} =
+             Accounts.invite_member(owner, org, AccountsFixtures.primary_address!(invitee))
+
+    raw = invited_token!(AccountsFixtures.primary_address!(invitee))
 
     assert {:ok, _accepted} = Accounts.accept_invite(raw, invitee)
     assert {:ok, :accepted} = Accounts.resolve_invite(raw)
@@ -41,8 +43,10 @@ defmodule FluxVale.Accounts.Operations.ResolveInviteTest do
     org = AccountsFixtures.owned_org!(owner)
     invitee = AccountsFixtures.user!()
 
-    assert {:ok, invite} = Accounts.invite_member(owner, org, invitee.email)
-    raw = invited_token!(invitee.email)
+    assert {:ok, invite} =
+             Accounts.invite_member(owner, org, AccountsFixtures.primary_address!(invitee))
+
+    raw = invited_token!(AccountsFixtures.primary_address!(invitee))
 
     assert {:ok, _revoked} = Accounts.revoke_invite(owner, invite)
     assert {:ok, :revoked} = Accounts.resolve_invite(raw)

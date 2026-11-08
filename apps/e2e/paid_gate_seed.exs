@@ -17,13 +17,15 @@ require Ash.Query
 # hostname must stay collision-free on their own.
 suffix = Base.encode16(:crypto.strong_rand_bytes(4), case: :lower)
 
-user_a = User.create!("capture-a-#{suffix}@fluxvale.test", %{}, authorize?: false)
-user_b = User.create!("capture-b-#{suffix}@fluxvale.test", %{}, authorize?: false)
+address_user_a = "capture-a-#{suffix}@fluxvale.test"
+user_a = User.create!(address_user_a, %{}, authorize?: false)
+address_user_b = "capture-b-#{suffix}@fluxvale.test"
+user_b = User.create!(address_user_b, %{}, authorize?: false)
 
-Enum.each([user_a, user_b], fn user ->
+Enum.each([{user_a, address_user_a}, {user_b, address_user_b}], fn {user, address} ->
   existing =
     UserEmail
-    |> Ash.Query.filter(address == ^user.email)
+    |> Ash.Query.filter(address == ^address)
     |> Ash.read!(authorize?: false)
 
   row =
@@ -32,7 +34,7 @@ Enum.each([user_a, user_b], fn user ->
         row
 
       [] ->
-        {:ok, added} = UserEmail.add(user.email, %{user: user}, authorize?: false)
+        {:ok, added} = UserEmail.add(address, %{user: user}, authorize?: false)
         added
     end
 

@@ -17,19 +17,21 @@ require Ash.Query
 # counter, and the dev DB keeps rows across runs.
 suffix = Base.encode16(:crypto.strong_rand_bytes(4), case: :lower)
 
-user = User.create!("org-new-capture-#{suffix}@fluxvale.test", %{}, authorize?: false)
+user = address = "org-new-capture-#{suffix}@fluxvale.test"
+
+user = User.create!(address, %{}, authorize?: false)
 
 # A verified primary address — AccessRules.ensure_allowed_user severs
 # users with none (the result_state_seed posture).
 existing =
   UserEmail
-  |> Ash.Query.filter(address == ^user.email)
+  |> Ash.Query.filter(address == ^address)
   |> Ash.read!(authorize?: false)
 
 row =
   case existing do
     [row | _rest] -> row
-    [] -> UserEmail.add!(user.email, %{user: user}, authorize?: false)
+    [] -> UserEmail.add!(address, %{user: user}, authorize?: false)
   end
 
 {:ok, verified} = UserEmail.mark_verified(row, authorize?: false)

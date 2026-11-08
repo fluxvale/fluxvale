@@ -395,10 +395,10 @@ defmodule FluxVale.Billing.Operations.SweepZeroBalance do
       |> Ash.get!(organization_id, authorize?: false)
       |> Ash.load!(:members, authorize?: false)
 
-    # The recipient is the member's primary VERIFIED address (#285 T3) —
-    # `users.email` is a frozen mirror, not the account's live address.
-    # A member without one (data drift — actions always stamp the
-    # mirror) has nowhere to send and is skipped.
+    # The recipient is the member's primary VERIFIED address (#285 T3,
+    # #287 — user_emails is the only address storage). A member without
+    # one (data drift — actions always stamp the primary) has nowhere
+    # to send and is skipped.
     Enum.flat_map(organization.members, fn member ->
       case primary_address(member.id) do
         {:ok, address} -> [address]

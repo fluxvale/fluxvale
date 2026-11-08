@@ -1,17 +1,20 @@
 defmodule FluxVale.Identity.User.DeriveUsername do
   @moduledoc """
-  Derives the username from the email at signup (#285 T2) — the
+  Derives the username from the signup address (#285 T2, #287) — the
   ProvisionPersonalOrg slug pattern applied to usernames: sanitize the
   local part, probe `-2`, `-3`… on collision, bounded probes then an
   unguessable random suffix.
 
-  A username already on the changeset is kept, but derivation is the
-  only writer in this slice (no input surface, no format validation;
-  both arrive with the rename UI). Signup must never fail on derivation
-  (the #279 lesson): every produced value satisfies
-  `[a-z0-9][a-z0-9-]*[a-z0-9]` at 2–39 chars — long local parts
-  truncate, they do not break the signup. Wired before
-  ProvisionPersonalOrg, which must see the username.
+  Runs on :create (JIT signup) and :invite (the handle exists from
+  birth — `username` is NOT NULL, #287); both carry the address as the
+  private :email argument, which is this change's only source (the
+  legacy column is gone). A username already on the changeset is kept,
+  but derivation is the only writer past :set_username (no input
+  surface, no format validation; both arrive with the rename UI).
+  Signup must never fail on derivation (the #279 lesson): every
+  produced value satisfies `[a-z0-9][a-z0-9-]*[a-z0-9]` at 2–39 chars —
+  long local parts truncate, they do not break the signup. Wired
+  before ProvisionPersonalOrg, which must see the username.
   """
 
   use Ash.Resource.Change
@@ -38,7 +41,7 @@ defmodule FluxVale.Identity.User.DeriveUsername do
   def change(changeset, _opts, _context) do
     case Ash.Changeset.get_attribute(changeset, :username) do
       nil ->
-        email = Ash.Changeset.get_attribute(changeset, :email)
+        email = Ash.Changeset.get_argument(changeset, :email)
         Ash.Changeset.change_attribute(changeset, :username, derive_unique(email))
 
       _already_set ->

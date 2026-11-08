@@ -34,7 +34,7 @@ defmodule FluxValeWeb.Mcp.ToolsTest do
     test "returns the token's identity, role, and exact scopes", %{conn: conn} do
       {user, pat} = ApiPat.member!(["instances:read", "wallet:read"])
       user_id = user.id
-      user_email = to_string(user.email)
+      user_email = to_string(AccountsFixtures.primary_address!(user))
 
       conn = call_tool(conn, pat, "whoami", %{})
 
@@ -86,7 +86,7 @@ defmodule FluxValeWeb.Mcp.ToolsTest do
     test "a zero-scope token still gets whoami — the tool is scopeless", %{conn: conn} do
       user = AccountsFixtures.user!()
       org = AccountsFixtures.personal_org!(user)
-      pat = ApiPat.mint!(user.email, [])
+      pat = ApiPat.mint!(user, [])
 
       conn = call_tool(conn, pat, "whoami", %{})
 
@@ -115,7 +115,7 @@ defmodule FluxValeWeb.Mcp.ToolsTest do
   describe "list_instances / get_instance" do
     test "lists the member's instances with the pinned public field set", %{conn: conn} do
       {user, instance} = member_with_instance()
-      pat = ApiPat.mint!(user.email, ["instances:read"])
+      pat = ApiPat.mint!(user, ["instances:read"])
 
       instance_id = instance.id
 
@@ -136,7 +136,7 @@ defmodule FluxValeWeb.Mcp.ToolsTest do
 
     test "returns the detail field set — never env_vars or status_message", %{conn: conn} do
       {user, instance} = member_with_instance()
-      pat = ApiPat.mint!(user.email, ["instances:read"])
+      pat = ApiPat.mint!(user, ["instances:read"])
 
       conn = call_tool(conn, pat, "get_instance", %{"id" => instance.id})
 
@@ -167,7 +167,7 @@ defmodule FluxValeWeb.Mcp.ToolsTest do
       # The foreign side needs only a member and a token — no second
       # cluster (ResolveCluster pins one cluster per test).
       foreign_user = elem(ApiPat.member!(["instances:read"]), 0)
-      pat = ApiPat.mint!(foreign_user.email, ["instances:read"])
+      pat = ApiPat.mint!(foreign_user, ["instances:read"])
 
       conn = call_tool(conn, pat, "get_instance", %{"id" => instance.id})
 
@@ -178,7 +178,7 @@ defmodule FluxValeWeb.Mcp.ToolsTest do
   describe "list_apps" do
     test "lists the catalog; slug fetches one app", %{conn: conn} do
       {user, app} = catalog_app!()
-      pat = ApiPat.mint!(user.email, ["catalog:read"])
+      pat = ApiPat.mint!(user, ["catalog:read"])
 
       listing_conn = call_tool(conn, pat, "list_apps", %{})
 
@@ -201,7 +201,7 @@ defmodule FluxValeWeb.Mcp.ToolsTest do
 
     test "an unknown slug surfaces the action's not-found as a tool error", %{conn: conn} do
       {user, _app} = catalog_app!()
-      pat = ApiPat.mint!(user.email, ["catalog:read"])
+      pat = ApiPat.mint!(user, ["catalog:read"])
 
       conn = call_tool(conn, pat, "list_apps", %{"slug" => "no-such-app"})
 
@@ -213,7 +213,7 @@ defmodule FluxValeWeb.Mcp.ToolsTest do
     test "returns the settings row — the key id, never the secret", %{conn: conn} do
       {user, instance} = member_with_instance()
       setting = backup_setting!(instance)
-      pat = ApiPat.mint!(user.email, ["backups:read"])
+      pat = ApiPat.mint!(user, ["backups:read"])
 
       conn = call_tool(conn, pat, "get_backup_settings", %{"instance_id" => instance.id})
 
@@ -232,7 +232,7 @@ defmodule FluxValeWeb.Mcp.ToolsTest do
 
     test "an instance without settings errors with the action's not-found", %{conn: conn} do
       {user, instance} = member_with_instance()
-      pat = ApiPat.mint!(user.email, ["backups:read"])
+      pat = ApiPat.mint!(user, ["backups:read"])
 
       conn = call_tool(conn, pat, "get_backup_settings", %{"instance_id" => instance.id})
 
@@ -243,7 +243,7 @@ defmodule FluxValeWeb.Mcp.ToolsTest do
       {user, instance} = member_with_instance()
       older = backup_run!(instance, DateTime.add(DateTime.utc_now(), -3600))
       newer = backup_run!(instance, DateTime.utc_now())
-      pat = ApiPat.mint!(user.email, ["backups:read"])
+      pat = ApiPat.mint!(user, ["backups:read"])
 
       conn = call_tool(conn, pat, "list_backup_runs", %{"instance_id" => instance.id})
 
@@ -274,7 +274,7 @@ defmodule FluxValeWeb.Mcp.ToolsTest do
       {_user, instance} = member_with_instance()
 
       foreign_user = elem(ApiPat.member!(["backups:read"]), 0)
-      pat = ApiPat.mint!(foreign_user.email, ["backups:read"])
+      pat = ApiPat.mint!(foreign_user, ["backups:read"])
 
       conn = call_tool(conn, pat, "list_backup_runs", %{"instance_id" => instance.id})
 
@@ -299,7 +299,7 @@ defmodule FluxValeWeb.Mcp.ToolsTest do
       {user, org} = member_org!()
       InstanceFixtures.local_cluster!()
       gateway = AccessFixtures.gateway!(org)
-      pat = ApiPat.mint!(user.email, ["gateways:read"])
+      pat = ApiPat.mint!(user, ["gateways:read"])
 
       conn = call_tool(conn, pat, "get_gateway", %{"organization_id" => org.id})
 
@@ -328,7 +328,7 @@ defmodule FluxValeWeb.Mcp.ToolsTest do
       InstanceFixtures.local_cluster!()
       AccessFixtures.gateway!(other_org)
       # (the stubs above serve this fixture too)
-      pat = ApiPat.mint!(user.email, ["gateways:read"])
+      pat = ApiPat.mint!(user, ["gateways:read"])
 
       conn = call_tool(conn, pat, "get_gateway", %{"organization_id" => other_org.id})
 
@@ -339,7 +339,7 @@ defmodule FluxValeWeb.Mcp.ToolsTest do
   describe "get_wallet" do
     test "merges the wallet and the runway projection into one response", %{conn: conn} do
       {user, org, wallet} = funded_member_org!(1_500)
-      pat = ApiPat.mint!(user.email, ["wallet:read"])
+      pat = ApiPat.mint!(user, ["wallet:read"])
 
       wallet_id = wallet.id
 
@@ -367,7 +367,7 @@ defmodule FluxValeWeb.Mcp.ToolsTest do
     test "a foreign org's wallet is not visible", %{conn: conn} do
       {user, _org, _wallet} = funded_member_org!(0)
       {other_org, _other_owner} = BillingFixtures.grant_free_org!()
-      pat = ApiPat.mint!(user.email, ["wallet:read"])
+      pat = ApiPat.mint!(user, ["wallet:read"])
 
       conn = call_tool(conn, pat, "get_wallet", %{"organization_id" => other_org.id})
 
@@ -380,7 +380,7 @@ defmodule FluxValeWeb.Mcp.ToolsTest do
       {user, _org, wallet} = funded_member_org!(0)
       {:ok, older} = Billing.grant_credits(wallet, 100, reason: :adjustment)
       {:ok, newer} = Billing.grant_credits(wallet, 200, reason: :adjustment)
-      pat = ApiPat.mint!(user.email, ["wallet:read"])
+      pat = ApiPat.mint!(user, ["wallet:read"])
       newer_id = newer.id
       older_id = older.id
 
@@ -411,7 +411,7 @@ defmodule FluxValeWeb.Mcp.ToolsTest do
     test "a foreign wallet's ledger filters to empty, leaking nothing", %{conn: conn} do
       {user, _org, _wallet} = funded_member_org!(0)
       {_other_org, other_wallet} = BillingFixtures.funded_wallet!()
-      pat = ApiPat.mint!(user.email, ["wallet:read"])
+      pat = ApiPat.mint!(user, ["wallet:read"])
 
       conn = call_tool(conn, pat, "list_ledger_entries", %{"wallet_id" => other_wallet.id})
 

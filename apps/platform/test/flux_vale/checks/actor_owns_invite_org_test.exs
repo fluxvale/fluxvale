@@ -82,7 +82,7 @@ defmodule FluxVale.Checks.ActorOwnsInviteOrgTest do
       org = AccountsFixtures.owned_org!(owner)
       invitee = AccountsFixtures.user!()
 
-      assert {:ok, invite} = invite!(owner, org, invitee.email)
+      assert {:ok, invite} = invite!(owner, org, AccountsFixtures.primary_address!(invitee))
 
       subject = Ash.Changeset.for_update(invite, :revoke, %{}, authorize?: false)
 
@@ -100,7 +100,9 @@ defmodule FluxVale.Checks.ActorOwnsInviteOrgTest do
 
       other_owner = AccountsFixtures.user!()
       other_org = AccountsFixtures.owned_org!(other_owner)
-      assert {:ok, invite} = invite!(other_owner, other_org, invitee.email)
+
+      assert {:ok, invite} =
+               invite!(other_owner, other_org, AccountsFixtures.primary_address!(invitee))
 
       tampered =
         invite
@@ -119,7 +121,7 @@ defmodule FluxVale.Checks.ActorOwnsInviteOrgTest do
       org = AccountsFixtures.owned_org!(owner)
       invitee = AccountsFixtures.user!()
 
-      assert {:ok, invite} = invite!(owner, org, invitee.email)
+      assert {:ok, invite} = invite!(owner, org, AccountsFixtures.primary_address!(invitee))
       Ash.destroy!(invite, authorize?: false)
 
       subject = Ash.Changeset.for_update(invite, :revoke, %{}, authorize?: false)

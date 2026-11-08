@@ -55,8 +55,7 @@ defmodule FluxValeWeb.FeedbackLive.OrgChoiceTest do
     test "nil for an org-less actor (the seeded straggler shape)" do
       # Ash.Seed.seed! — the only org-less shape (the create action's
       # JIT change always provisions one; the documented exception).
-      orgless =
-        Ash.Seed.seed!(User, %{email: "orgless-choice-#{System.unique_integer()}@fluxvale.test"})
+      orgless = Ash.Seed.seed!(User, %{username: "orgless-choice-#{System.unique_integer()}"})
 
       assert OrgChoice.default(orgless, []) == nil
     end

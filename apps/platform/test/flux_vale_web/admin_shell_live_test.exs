@@ -15,6 +15,7 @@ defmodule FluxValeWeb.AdminShellLiveTest do
   alias FluxVale.Billing
   alias FluxVale.Identity.User
   alias FluxVale.Ops.FeatureFlag
+  alias FluxVale.TestSupport.AccountsFixtures
   alias FluxVale.TestSupport.ApiPat
   alias FluxVale.TestSupport.BillingFixtures
   alias FluxVale.TestSupport.InstanceFixtures
@@ -324,7 +325,8 @@ defmodule FluxValeWeb.AdminShellLiveTest do
       # The PAT is minted for the ADMIN (self-mint, ApiPat's gate), so
       # the route pipeline passes on the bearer — and the socket still
       # carries no session, which is what AdminGate re-checks.
-      pat = ApiPat.mint!(admin.email, ["instances:read"])
+      address = AccountsFixtures.primary_address!(admin)
+      pat = ApiPat.mint!(address, ["instances:read"])
       conn = put_req_header(build_conn(), "authorization", "Bearer " <> pat)
 
       assert {:error, {:redirect, %{to: "/sign-in"}}} = live(conn, "/admin/people")
@@ -333,7 +335,8 @@ defmodule FluxValeWeb.AdminShellLiveTest do
     test "the same arm on /admin itself — the redirect head owns that path", %{admin: admin} do
       # on_mount runs before the mount callback, so the gate's bounce
       # wins over the :home head's push_navigate to /admin/people.
-      pat = ApiPat.mint!(admin.email, ["instances:read"])
+      address = AccountsFixtures.primary_address!(admin)
+      pat = ApiPat.mint!(address, ["instances:read"])
       conn = put_req_header(build_conn(), "authorization", "Bearer " <> pat)
 
       assert {:error, {:redirect, %{to: "/sign-in"}}} = live(conn, "/admin")

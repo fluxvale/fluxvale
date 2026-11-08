@@ -22,12 +22,11 @@ defmodule FluxValeWeb.AdminBillingEmptyLiveTest do
   setup %{conn: conn} do
     admin =
       Ash.Seed.seed!(User, %{
-        email: "admin-billing-empty-#{@n}@fluxvale.com",
         username: "admin-billing-empty-#{@n}",
         platform_role: :admin
       })
 
-    AccountsFixtures.backfill_email!(admin)
+    AccountsFixtures.attach_primary_email!(admin, "admin-billing-empty-#{@n}@fluxvale.com")
 
     %{conn: SessionHelpers.sign_in(conn, admin)}
   end

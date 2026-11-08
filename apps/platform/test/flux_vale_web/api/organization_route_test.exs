@@ -88,7 +88,7 @@ defmodule FluxValeWeb.Api.OrganizationRouteTest do
   test "a scopeless token passes — the route is identity-adjacent, :any", %{conn: conn} do
     user = AccountsFixtures.user!()
     personal = AccountsFixtures.personal_org!(user)
-    pat = ApiPat.mint!(user.email, [])
+    pat = ApiPat.mint!(user, [])
 
     conn =
       conn

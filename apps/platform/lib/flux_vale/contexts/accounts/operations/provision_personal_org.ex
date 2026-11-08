@@ -60,15 +60,6 @@ defmodule FluxVale.Accounts.Operations.ProvisionPersonalOrg do
     end
   end
 
-  defp create_personal_org(%User{username: nil}) do
-    # The rolling-window straggler (NULL username) reaching the
-    # docs/deployment.md operator heal: provisioning names the org after
-    # the handle, so a bare Required :name/:slug error would name
-    # nothing. One clear arm — the operator needs the straggler sweep,
-    # not a changeset dump.
-    {:error, :username_missing}
-  end
-
   defp create_personal_org(%User{} = user) do
     outcome =
       Organization

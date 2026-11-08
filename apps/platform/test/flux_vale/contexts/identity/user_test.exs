@@ -9,9 +9,11 @@ defmodule FluxVale.Identity.UserTest do
   # files never overlap.
   use FluxVale.DataCase, async: false
 
+  alias Ecto.Adapters.SQL
   alias FluxVale.Identity.User
   alias FluxVale.Identity.User.DeriveUsername
   alias FluxVale.Identity.UserEmail
+  alias FluxVale.Repo
 
   require Ash.Query
 
@@ -25,6 +27,23 @@ defmodule FluxVale.Identity.UserTest do
   end
 
   describe "create/1" do
+    test "the #287 contract, by schema reflection: no email column, username NOT NULL" do
+      # The DoD assert: the legacy column is GONE and the handle is
+      # constrained — pinned against the live information_schema, not
+      # the migration file, so a reintroduction (or a slack constraint)
+      # fails here even if a snapshot drifts.
+      rows =
+        SQL.query!(
+          Repo,
+          "SELECT column_name, is_nullable FROM information_schema.columns WHERE table_name = 'users'",
+          []
+        ).rows
+
+      columns = Map.new(rows, fn [name, nullable] -> {name, nullable} end)
+      refute Map.has_key?(columns, "email"), "the legacy users.email column must not exist"
+      assert columns["username"] == "NO", "users.username must be NOT NULL"
+    end
+
     test "mints UUIDv7 ids (ADR-0032)" do
       first = User.create!("a@fluxvale.com", %{}, authorize?: false)
       second = User.create!("b@fluxvale.com", %{}, authorize?: false)
@@ -33,11 +52,18 @@ defmodule FluxVale.Identity.UserTest do
       assert v7?(first.id) and v7?(second.id)
     end
 
-    test "defaults platform_role to :user and stores email case-insensitively" do
+    test "defaults platform_role to :user and stores the address case-insensitively" do
       user = User.create!("someone@fluxvale.com", %{}, authorize?: false)
 
       assert user.platform_role == :user
-      assert to_string(user.email) == "someone@fluxvale.com"
+
+      # #287: the address lives in the signup row (citext), not a column
+      assert [%{address: address}] =
+               UserEmail
+               |> Ash.Query.filter(user_id == ^user.id)
+               |> Ash.read!(authorize?: false)
+
+      assert to_string(address) == "someone@fluxvale.com"
     end
 
     test "rejects unknown platform roles" do
@@ -70,8 +96,10 @@ defmodule FluxVale.Identity.UserTest do
                User.create("created@fluxvale.com", %{}, actor: admin, authorize?: true)
     end
 
-    # The mirror (#285 T3 §5): the account is table-backed from birth.
-    test "a fresh create leaves users.email AND one verified primary user_emails row" do
+    # The signup row (#285 T3 §5, #287): the account is table-backed
+    # from birth — the :email argument lands as the verified primary
+    # row; the users table carries no address.
+    test "a fresh create writes one verified primary user_emails row" do
       user = User.create!("mirrored@x.test", %{}, authorize?: false)
 
       rows =
@@ -217,7 +245,7 @@ defmodule FluxVale.Identity.UserTest do
       Enum.each(1..100, fn i ->
         username = if i == 1, do: "user", else: "user-#{i}"
 
-        Ash.Seed.seed!(User, %{email: "occupant-#{i}@x.test", username: username})
+        Ash.Seed.seed!(User, %{username: username})
       end)
 
       user = User.create!("+@exhausted.test", %{}, authorize?: false)
@@ -276,8 +304,15 @@ defmodule FluxVale.Identity.UserTest do
       assert {:ok, renamed} = rename(user, "new-handle", user)
 
       assert renamed.username == "new-handle"
-      assert to_string(renamed.email) == to_string(user.email)
       assert renamed.id == user.id
+
+      # the rename touches nothing else — the signup row stands
+      assert [%{address: address}] =
+               UserEmail
+               |> Ash.Query.filter(user_id == ^user.id)
+               |> Ash.read!(authorize?: false)
+
+      assert to_string(address) == "renamable@x.test"
     end
 
     test "rejects an uppercase, a 1-char, a too-long, and a hyphen-edged name (DeriveUsername's rules)" do
@@ -316,7 +351,7 @@ defmodule FluxVale.Identity.UserTest do
     test "a taken username fails with the identity's message" do
       # seed! is the sanctioned bypass: a chosen username is a state the
       # create action can't produce (username is not accepted there).
-      occupant = Ash.Seed.seed!(User, %{email: "occupant-set@x.test", username: "taken-name"})
+      occupant = Ash.Seed.seed!(User, %{username: "taken-name"})
       assert occupant.username == "taken-name"
 
       user = User.create!("contender@x.test", %{}, authorize?: false)

@@ -160,7 +160,7 @@ defmodule FluxValeWeb.Api.BackupRouteTest do
   describe "GET /api/v1/instances/:instance_id/backup-setting" do
     test "404s unconfigured, returns the row once configured", %{conn: conn} do
       {user, instance} = member_with_instance()
-      pat = ApiPat.mint!(user.email, ["backups:write"])
+      pat = ApiPat.mint!(user, ["backups:write"])
 
       conn =
         conn
@@ -189,7 +189,7 @@ defmodule FluxValeWeb.Api.BackupRouteTest do
     test "creates the row with instance_id from the PATH", %{conn: conn} do
       stub_converge_cluster()
       {user, instance} = member_with_instance()
-      pat = ApiPat.mint!(user.email, ["backups:write"])
+      pat = ApiPat.mint!(user, ["backups:write"])
 
       conn =
         conn
@@ -219,7 +219,7 @@ defmodule FluxValeWeb.Api.BackupRouteTest do
       other_version = InstanceFixtures.app_version!()
       other = InstanceFixtures.instance!(other_version, user)
 
-      pat = ApiPat.mint!(user.email, ["backups:write"])
+      pat = ApiPat.mint!(user, ["backups:write"])
 
       conn =
         conn
@@ -258,7 +258,7 @@ defmodule FluxValeWeb.Api.BackupRouteTest do
       conn: conn
     } do
       {user, instance} = member_with_instance()
-      pat = ApiPat.mint!(user.email, ["backups:write"])
+      pat = ApiPat.mint!(user, ["backups:write"])
 
       stub(K8s, :kubeconfig, fn nil -> {:ok, %{}} end)
 
@@ -324,7 +324,7 @@ defmodule FluxValeWeb.Api.BackupRouteTest do
     test "PATCH coordinates-only rebuilds the repo URL and re-applies the margin", %{conn: conn} do
       {user, instance} = member_with_instance()
       setting = setting!(instance)
-      pat = ApiPat.mint!(user.email, ["backups:write"])
+      pat = ApiPat.mint!(user, ["backups:write"])
 
       stub(K8s, :kubeconfig, fn nil -> {:ok, %{}} end)
 
@@ -379,7 +379,7 @@ defmodule FluxValeWeb.Api.BackupRouteTest do
     } do
       {user, instance} = member_with_instance()
       setting = setting!(instance)
-      pat = ApiPat.mint!(user.email, ["backups:write"])
+      pat = ApiPat.mint!(user, ["backups:write"])
 
       stub(K8s, :kubeconfig, fn nil -> {:ok, %{}} end)
 
@@ -431,7 +431,7 @@ defmodule FluxValeWeb.Api.BackupRouteTest do
          %{conn: conn} do
       {user, instance} = member_with_instance()
       setting = setting!(instance)
-      pat = ApiPat.mint!(user.email, ["backups:write"])
+      pat = ApiPat.mint!(user, ["backups:write"])
 
       stub(K8s, :kubeconfig, fn nil -> {:ok, %{}} end)
 
@@ -472,7 +472,7 @@ defmodule FluxValeWeb.Api.BackupRouteTest do
       conn: conn
     } do
       {user, instance} = member_with_instance()
-      pat = ApiPat.mint!(user.email, ["backups:write"])
+      pat = ApiPat.mint!(user, ["backups:write"])
 
       stub(K8s, :kubeconfig, fn nil -> {:ok, %{}} end)
 
@@ -510,7 +510,7 @@ defmodule FluxValeWeb.Api.BackupRouteTest do
     test "a Secret apply failure on update rolls the row back to its OLD values", %{conn: conn} do
       {user, instance} = member_with_instance()
       setting = setting!(instance)
-      pat = ApiPat.mint!(user.email, ["backups:write"])
+      pat = ApiPat.mint!(user, ["backups:write"])
 
       stub(K8s, :kubeconfig, fn nil -> {:ok, %{}} end)
       stub(Secret, :get_data, fn _kc, _ns, _n -> {:error, %Error{reason: :not_found}} end)
@@ -545,7 +545,7 @@ defmodule FluxValeWeb.Api.BackupRouteTest do
       conn: conn
     } do
       {user, pending} = paid_member_with_pending_instance()
-      pat = ApiPat.mint!(user.email, ["backups:write"])
+      pat = ApiPat.mint!(user, ["backups:write"])
 
       # Namespace nil → the kubeconfig guard refuses (:not_deployed)
       # before any cluster read or write — NO stubs, and the test's
@@ -575,7 +575,7 @@ defmodule FluxValeWeb.Api.BackupRouteTest do
 
     test "a Secret apply failure on create persists no row", %{conn: conn} do
       {user, instance} = member_with_instance()
-      pat = ApiPat.mint!(user.email, ["backups:write"])
+      pat = ApiPat.mint!(user, ["backups:write"])
 
       stub(K8s, :kubeconfig, fn nil -> {:ok, %{}} end)
       stub(Secret, :get_data, fn _kc, _ns, _n -> {:error, %Error{reason: :not_found}} end)
@@ -618,7 +618,7 @@ defmodule FluxValeWeb.Api.BackupRouteTest do
     test "a paid org pauses over the wire — zero cluster calls", %{conn: conn} do
       {user, instance} = member_with_instance()
       setting = setting!(instance)
-      pat = ApiPat.mint!(user.email, ["backups:write"])
+      pat = ApiPat.mint!(user, ["backups:write"])
 
       reject(K8s, :kubeconfig, 1)
       reject(Secret, :get_data, 3)
@@ -646,7 +646,7 @@ defmodule FluxValeWeb.Api.BackupRouteTest do
     test "an unpaid org can always pause — zero cluster calls", %{conn: conn} do
       {user, instance} = unpaid_member_with_instance()
       setting = setting!(instance)
-      pat = ApiPat.mint!(user.email, ["backups:write"])
+      pat = ApiPat.mint!(user, ["backups:write"])
 
       reject(K8s, :kubeconfig, 1)
       reject(Secret, :get_data, 3)
@@ -680,7 +680,7 @@ defmodule FluxValeWeb.Api.BackupRouteTest do
     test "saves the row's fields", %{conn: conn} do
       {user, instance} = member_with_instance()
       setting = setting!(instance)
-      pat = ApiPat.mint!(user.email, ["backups:write"])
+      pat = ApiPat.mint!(user, ["backups:write"])
 
       conn =
         conn
@@ -702,7 +702,7 @@ defmodule FluxValeWeb.Api.BackupRouteTest do
     test "removes the row (the stop-backing-up verb)", %{conn: conn} do
       {user, instance} = member_with_instance()
       setting = setting!(instance)
-      pat = ApiPat.mint!(user.email, ["backups:write"])
+      pat = ApiPat.mint!(user, ["backups:write"])
 
       conn =
         conn
@@ -723,7 +723,7 @@ defmodule FluxValeWeb.Api.BackupRouteTest do
       # precision, so the id (uuidv7) tiebreak carries the ordering.
       _older = run!(instance, %{kind: :scheduled, snapshot_id: String.duplicate("b", 64)})
       _newest = run!(instance, %{kind: :manual, snapshot_id: String.duplicate("a", 64)})
-      pat = ApiPat.mint!(user.email, ["backups:write"])
+      pat = ApiPat.mint!(user, ["backups:write"])
 
       conn =
         conn
@@ -741,7 +741,7 @@ defmodule FluxValeWeb.Api.BackupRouteTest do
       stub_backup_cluster()
       {user, instance} = member_with_instance()
       setting!(instance)
-      pat = ApiPat.mint!(user.email, ["backups:write"])
+      pat = ApiPat.mint!(user, ["backups:write"])
 
       conn =
         conn
@@ -757,7 +757,7 @@ defmodule FluxValeWeb.Api.BackupRouteTest do
 
     test "an unconfigured instance refuses with the operation's own words", %{conn: conn} do
       {user, instance} = member_with_instance()
-      pat = ApiPat.mint!(user.email, ["backups:write"])
+      pat = ApiPat.mint!(user, ["backups:write"])
 
       conn =
         conn
@@ -776,7 +776,7 @@ defmodule FluxValeWeb.Api.BackupRouteTest do
       {user, instance} = member_with_instance()
       setting!(instance)
       newest = run!(instance, %{snapshot_id: String.duplicate("c", 64)})
-      pat = ApiPat.mint!(user.email, ["backups:write"])
+      pat = ApiPat.mint!(user, ["backups:write"])
 
       conn =
         conn
@@ -801,7 +801,7 @@ defmodule FluxValeWeb.Api.BackupRouteTest do
       older = run!(instance, %{snapshot_id: String.duplicate("d", 64)})
       _newest = run!(instance, %{snapshot_id: String.duplicate("e", 64)})
 
-      pat = ApiPat.mint!(user.email, ["backups:write"])
+      pat = ApiPat.mint!(user, ["backups:write"])
 
       conn =
         conn
@@ -816,7 +816,7 @@ defmodule FluxValeWeb.Api.BackupRouteTest do
       stub_restore_cluster()
       {user, instance} = member_with_instance()
       setting!(instance)
-      pat = ApiPat.mint!(user.email, ["backups:write"])
+      pat = ApiPat.mint!(user, ["backups:write"])
 
       conn =
         conn
@@ -842,7 +842,7 @@ defmodule FluxValeWeb.Api.BackupRouteTest do
       {user, instance} = member_with_instance()
       setting!(instance)
       _newest = run!(instance, %{snapshot_id: String.duplicate("f", 64)})
-      pat = ApiPat.mint!(user.email, ["backups:write"])
+      pat = ApiPat.mint!(user, ["backups:write"])
 
       conn =
         conn

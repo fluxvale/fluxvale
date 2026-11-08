@@ -19,6 +19,7 @@ defmodule FluxValeWeb.AdminPeopleLiveTest do
 
   alias FluxVale.Identity
   alias FluxVale.Identity.User
+  alias FluxVale.TestSupport.AccountsFixtures
   alias FluxVale.TestSupport.SessionHelpers
 
   require Ash.Query
@@ -125,7 +126,7 @@ defmodule FluxValeWeb.AdminPeopleLiveTest do
 
       # The address column is the invitation's address.
       assert text_of(view, "[data-testid='admin-people-email-#{pending.id}']") ==
-               to_string(pending.email)
+               to_string(AccountsFixtures.any_address!(pending))
     end
 
     test "rows run newest-first by the invited stamp", %{conn: conn, admin: admin} do
@@ -144,7 +145,11 @@ defmodule FluxValeWeb.AdminPeopleLiveTest do
           String.trim(text)
         end
 
-      assert addresses == Enum.map([newer.email, older.email], &to_string/1)
+      assert addresses ==
+               Enum.map(
+                 [AccountsFixtures.any_address!(newer), AccountsFixtures.any_address!(older)],
+                 &to_string/1
+               )
     end
 
     test "an expired invite reads honestly and still offers the reinvite lever", %{
@@ -226,7 +231,9 @@ defmodule FluxValeWeb.AdminPeopleLiveTest do
 
       # The scope holds: a live account's address is not a match, even
       # though the search rides the same users table.
-      render_change(view, "search", %{"search" => %{"query" => to_string(outsider.email)}})
+      render_change(view, "search", %{
+        "search" => %{"query" => to_string(AccountsFixtures.any_address!(outsider))}
+      })
 
       assert has_element?(view, "[data-testid='admin-people-list'] p", "No invitation matches")
 
@@ -273,7 +280,9 @@ defmodule FluxValeWeb.AdminPeopleLiveTest do
 
       view
       |> element("#admin-people-invite-form")
-      |> render_submit(%{"invite" => %{"email" => to_string(pending.email)}})
+      |> render_submit(%{
+        "invite" => %{"email" => to_string(AccountsFixtures.any_address!(pending))}
+      })
 
       # The form is the one invite verb, so this was a re-issue; the
       # copy branch says so instead of staying silent about the killed
@@ -281,7 +290,7 @@ defmodule FluxValeWeb.AdminPeopleLiveTest do
       assert has_element?(view, "#flash-info", "Reinvite sent")
       assert has_element?(view, "#flash-info", "Any earlier link no longer works")
 
-      new_raw = token_from_mail(to_string(pending.email))
+      new_raw = token_from_mail(to_string(AccountsFixtures.any_address!(pending)))
       refute new_raw == old_raw
       assert {:error, :unknown_token} = Identity.resolve_invite_link(old_raw)
       assert {:ok, :pending} = Identity.resolve_invite_link(new_raw)
@@ -310,13 +319,14 @@ defmodule FluxValeWeb.AdminPeopleLiveTest do
 
       view
       |> element("#admin-people-invite-form")
-      |> render_submit(%{"invite" => %{"email" => live_account.email}})
+      |> render_submit(%{"invite" => %{"email" => AccountsFixtures.any_address!(live_account)}})
 
       assert has_element?(view, "#flash-error", "already has an active account")
 
       # Refused before the write: the live account is untouched (no
       # invite stamped on it, delivery only follows a committed row).
-      [live_account_row] = users_with_email(to_string(live_account.email))
+      [live_account_row] =
+        users_with_email(to_string(AccountsFixtures.any_address!(live_account)))
 
       assert live_account_row
              |> Ash.load!(:invite_state, authorize?: false)
@@ -344,7 +354,7 @@ defmodule FluxValeWeb.AdminPeopleLiveTest do
       # the inbox carrying a DIFFERENT one-time link.
       assert has_element?(view, "[data-testid='admin-people-state-#{pending.id}']", "Pending")
 
-      new_raw = token_from_mail(to_string(pending.email))
+      new_raw = token_from_mail(to_string(AccountsFixtures.any_address!(pending)))
       refute new_raw == old_raw
 
       # The old link's credential is gone from the row entirely.
@@ -363,7 +373,8 @@ defmodule FluxValeWeb.AdminPeopleLiveTest do
       # The button's absence is UX; the domain is the gate. A crafted
       # reinvite at an accepted account refuses with the same shape the
       # invite form reads.
-      assert {:error, :already_active} = Identity.invite_user(admin, accepted.email)
+      assert {:error, :already_active} =
+               Identity.invite_user(admin, AccountsFixtures.any_address!(accepted))
     end
 
     test "opening a second withdraw reveal collapses the first panel", %{
@@ -379,7 +390,12 @@ defmodule FluxValeWeb.AdminPeopleLiveTest do
       |> render_click()
 
       assert has_element?(view, "[data-testid='destructive-confirm']")
-      assert has_element?(view, "[data-testid='destructive-confirm']", to_string(first.email))
+
+      assert has_element?(
+               view,
+               "[data-testid='destructive-confirm']",
+               to_string(AccountsFixtures.any_address!(first))
+             )
 
       # The second reveal: the reset collapses the first panel, so the
       # destructive button can only ever act on the panel the operator
@@ -388,8 +404,17 @@ defmodule FluxValeWeb.AdminPeopleLiveTest do
       |> element("[data-testid='admin-people-withdraw-#{second.id}']")
       |> render_click()
 
-      assert has_element?(view, "[data-testid='destructive-confirm']", to_string(second.email))
-      refute has_element?(view, "[data-testid='destructive-confirm']", to_string(first.email))
+      assert has_element?(
+               view,
+               "[data-testid='destructive-confirm']",
+               to_string(AccountsFixtures.any_address!(second))
+             )
+
+      refute has_element?(
+               view,
+               "[data-testid='destructive-confirm']",
+               to_string(AccountsFixtures.any_address!(first))
+             )
 
       view
       |> element("[data-testid='admin-people-withdraw-cancel']")
@@ -497,7 +522,9 @@ defmodule FluxValeWeb.AdminPeopleLiveTest do
       # The invitee accepts while the stale row still offers Reinvite.
       assert {:ok, _user, _jwt} = Identity.accept_invitation(raw)
 
-      render_click(view, "reinvite", %{"email" => to_string(pending.email)})
+      render_click(view, "reinvite", %{
+        "email" => to_string(AccountsFixtures.any_address!(pending))
+      })
 
       assert has_element?(view, "#flash-error", "already active")
       assert has_element?(view, "[data-testid='admin-people-state-#{pending.id}']", "Accepted")
@@ -532,15 +559,18 @@ defmodule FluxValeWeb.AdminPeopleLiveTest do
       # The reissue arm: the address resolves its occupant, whose
       # :reinvite update rides the same non-admin actor.
       assert {:error, %Ash.Error.Forbidden{}} =
-               Identity.invite_user(non_admin, to_string(pending.email))
+               Identity.invite_user(non_admin, to_string(AccountsFixtures.any_address!(pending)))
 
       assert {:error, %Ash.Error.Forbidden{}} = Identity.withdraw_invite(non_admin, pending)
     end
   end
 
+  # #287: the occupant lookup — any row on the address resolves its
+  # owner (the users table carries no address).
   defp users_with_email(address) do
-    User
-    |> Ash.Query.filter(email == ^address)
-    |> Ash.read!(authorize?: false)
+    case User.get_by_address(address, authorize?: false) do
+      {:ok, user} -> [user]
+      {:error, _not_found} -> []
+    end
   end
 end

@@ -421,9 +421,12 @@ defmodule FluxVale.Seeds.FeedbackSeedConcurrencyTest do
     committed?(fn ->
       user_ids =
         uuid_ids(
-          Repo.query!("SELECT id FROM users WHERE email = ANY($1::citext[])", [
-            ["admin@fluxvale.com", @commenter_email]
-          ])
+          Repo.query!(
+            "SELECT u.id FROM users u JOIN user_emails e ON e.user_id = u.id WHERE e.address = ANY($1::citext[])",
+            [
+              ["admin@fluxvale.com", @commenter_email]
+            ]
+          )
         )
 
       # orgs: the users' personal orgs (via memberships) plus the demo

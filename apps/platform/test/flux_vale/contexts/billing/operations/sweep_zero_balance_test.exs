@@ -172,16 +172,16 @@ defmodule FluxVale.Billing.Operations.SweepZeroBalanceTest do
       assert body =~ "about 7 hours"
     end
 
-    # #285 T3: the recipient rides user_emails (the primary VERIFIED
-    # address) — users.email is a frozen mirror now.
+    # #285 T3, #287: the recipient rides user_emails (the primary
+    # VERIFIED address) — the table is the only address storage.
     test "the warning goes to the member's primary verified address; a member without one is skipped",
          %{version: version} do
       {user, wallet} = org!()
       instance!(user, :running, version)
       adjust_to!(wallet, 1)
 
-      # diverge the primary: users.email stays the signup address, the
-      # table's primary moves to the new inbox
+      # diverge the primary: the signup row demotes, the promoted row
+      # takes the inbox
       switched = "switched-#{System.unique_integer([:positive])}@fluxvale.test"
       {:ok, row} = UserEmail.add(switched, %{user: user}, authorize?: false)
       {:ok, _verified} = UserEmail.mark_verified(row, authorize?: false)
@@ -192,7 +192,8 @@ defmodule FluxVale.Billing.Operations.SweepZeroBalanceTest do
       # so seed! is the sanctioned bypass
       drifted =
         Ash.Seed.seed!(User, %{
-          email: "drifted-#{System.unique_integer([:positive])}@fluxvale.test"
+          username:
+            username_seed_for("drifted-#{System.unique_integer([:positive])}@fluxvale.test")
         })
 
       {:ok, _membership} =
@@ -372,5 +373,15 @@ defmodule FluxVale.Billing.Operations.SweepZeroBalanceTest do
       assert summary.destroyed_ids == []
       assert reload_wallet!(wallet).negative_since == nil
     end
+  end
+
+  # #287: seed! companions need the handle explicitly (NOT NULL); the
+  # local part of the original address is unique per call.
+  defp username_seed_for(address) do
+    [local | _rest] = String.split(address, "@", parts: 2)
+
+    local
+    |> String.replace(~r/[^a-z0-9-]+/, "-")
+    |> String.trim("-")
   end
 end

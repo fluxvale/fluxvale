@@ -34,7 +34,7 @@ defmodule FluxVale.Accounts.Operations.PersonalOrgForUserTest do
       # JIT-provisions a marked org, and this shape needs an org-less
       # user owning an unmarked org — exactly what the marker semantics
       # must NOT resolve as personal (the old derivation would have).
-      user = Ash.Seed.seed!(User, %{email: "unmarked-owner@fluxvale.test"})
+      user = Ash.Seed.seed!(User, %{username: "unmarked-owner"})
       _owned = AccountsFixtures.owned_org!(user)
 
       assert :none = Accounts.personal_org_for_user(user.id, authorize?: false)
@@ -42,7 +42,7 @@ defmodule FluxVale.Accounts.Operations.PersonalOrgForUserTest do
 
     test "a user with no org at all reads :none" do
       # Ash.Seed.seed! — the create action provisions (see above).
-      orgless = Ash.Seed.seed!(User, %{email: "orgless@fluxvale.test"})
+      orgless = Ash.Seed.seed!(User, %{username: "orgless"})
 
       assert :none = Accounts.personal_org_for_user(orgless.id, authorize?: false)
     end

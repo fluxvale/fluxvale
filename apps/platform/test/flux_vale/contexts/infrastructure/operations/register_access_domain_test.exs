@@ -349,7 +349,8 @@ defmodule FluxVale.Infrastructure.Operations.RegisterAccessDomainTest do
       # actions cannot produce (the SetOrganizationFromActor stance).
       orgless =
         Ash.Seed.seed!(FluxVale.Identity.User, %{
-          email: "orgless-#{System.unique_integer([:positive])}@fluxvale.test"
+          username:
+            username_seed_for("orgless-#{System.unique_integer([:positive])}@fluxvale.test")
         })
 
       assert {:error, _error} =
@@ -428,5 +429,15 @@ defmodule FluxVale.Infrastructure.Operations.RegisterAccessDomainTest do
     AccessDomain
     |> Ash.Query.filter(domain == ^domain_name)
     |> Ash.exists?(authorize?: false)
+  end
+
+  # #287: seed! companions need the handle explicitly (NOT NULL); the
+  # local part of the original address is unique per call.
+  defp username_seed_for(address) do
+    [local | _rest] = String.split(address, "@", parts: 2)
+
+    local
+    |> String.replace(~r/[^a-z0-9-]+/, "-")
+    |> String.trim("-")
   end
 end

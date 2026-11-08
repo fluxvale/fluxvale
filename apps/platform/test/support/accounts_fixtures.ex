@@ -12,6 +12,9 @@ defmodule FluxVale.TestSupport.AccountsFixtures do
   alias FluxVale.Identity.User
   alias FluxVale.Identity.UserEmail
 
+  # Ash.Query.filter is a macro
+  require Ash.Query
+
   @doc """
   Creates a user via the create action; the JIT change provisions the
   personal org as a side effect. `local_part` pins the derived username,
@@ -32,6 +35,37 @@ defmodule FluxVale.TestSupport.AccountsFixtures do
     email = "#{local_part || "admin-#{System.unique_integer([:positive])}"}@fluxvale.test"
 
     User.create!(email, %{platform_role: :admin}, authorize?: false)
+  end
+
+  @doc """
+  The user's verified primary address (#287: the users table carries no
+  address — this reads the signup row). For action-created users only;
+  a nil answer is data drift and fails the caller's next assert.
+  """
+  @spec primary_address!(User.t()) :: String.t()
+  def primary_address!(%User{} = user) do
+    row =
+      UserEmail
+      |> Ash.Query.filter(user_id == ^user.id and is_primary and not is_nil(verified_at))
+      |> Ash.read_one!(authorize?: false)
+
+    to_string(row.address)
+  end
+
+  @doc """
+  The user's one address row, whatever its state — the signup row for
+  live accounts, the reservation for invited ones (#287: invited
+  accounts hold exactly one pending row; `primary_address!/1` would
+  miss it).
+  """
+  @spec any_address!(User.t()) :: String.t()
+  def any_address!(%User{} = user) do
+    [row | _] =
+      UserEmail
+      |> Ash.Query.filter(user_id == ^user.id)
+      |> Ash.read!(authorize?: false)
+
+    to_string(row.address)
   end
 
   @doc "The user's personal org (loud failure if JIT provisioning didn't run)."
@@ -92,14 +126,15 @@ defmodule FluxVale.TestSupport.AccountsFixtures do
   end
 
   @doc """
-  Stamps the T1-backfill shape onto a pre-existing (seeded) user: one
-  VERIFIED PRIMARY user_emails row for their address — exactly what the
-  backfill gave every pre-existing user. Without it the table-backed
-  identity (#285 T3) cannot see a seeded user at all.
+  Attaches a VERIFIED PRIMARY user_emails row for `address` to a
+  hand-seeded user — the end state the create path gives every
+  action-created account (#287: seed! cannot write user_emails, and
+  the users table carries no address — the address is an argument to
+  this seam because it lives nowhere else).
   """
-  @spec backfill_email!(User.t()) :: UserEmail.t()
-  def backfill_email!(%User{} = user) do
-    {:ok, row} = UserEmail.add(user.email, %{user: user}, authorize?: false)
+  @spec attach_primary_email!(User.t(), String.t()) :: UserEmail.t()
+  def attach_primary_email!(%User{} = user, address) do
+    {:ok, row} = UserEmail.add(address, %{user: user}, authorize?: false)
     {:ok, verified} = UserEmail.mark_verified(row, authorize?: false)
     {:ok, primary} = UserEmail.set_primary(verified, actor: user)
     primary

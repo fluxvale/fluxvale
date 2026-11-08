@@ -125,7 +125,7 @@ defmodule FluxVale.Identity.UserEmail.SupersedeConcurrencyTest do
       unique = System.unique_integer([:positive])
       address = "supersede-cc-#{unique}@fluxvale.test"
 
-      owner = Ash.Seed.seed!(User, %{email: "supersede-cc-owner-#{unique}@fluxvale.test"})
+      owner = Ash.Seed.seed!(User, %{username: "supersede-cc-owner-#{unique}"})
       {:ok, row} = UserEmail.add(address, %{user: owner}, authorize?: false)
       row = Ash.get!(UserEmail, row.id, authorize?: false)
 

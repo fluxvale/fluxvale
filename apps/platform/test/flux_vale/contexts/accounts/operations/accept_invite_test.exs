@@ -22,8 +22,10 @@ defmodule FluxVale.Accounts.Operations.AcceptInviteTest do
       org = AccountsFixtures.owned_org!(owner)
       invitee = AccountsFixtures.user!()
 
-      assert {:ok, invite} = Accounts.invite_member(owner, org, invitee.email)
-      raw = invited_token!(invitee.email)
+      assert {:ok, invite} =
+               Accounts.invite_member(owner, org, AccountsFixtures.primary_address!(invitee))
+
+      raw = invited_token!(AccountsFixtures.primary_address!(invitee))
 
       assert {:ok, accepted} = Accounts.accept_invite(raw, invitee)
 
@@ -40,8 +42,10 @@ defmodule FluxVale.Accounts.Operations.AcceptInviteTest do
       org = AccountsFixtures.owned_org!(owner)
       invitee = AccountsFixtures.user!()
 
-      assert {:ok, _invite} = Accounts.invite_member(owner, org, invitee.email)
-      raw = invited_token!(invitee.email)
+      assert {:ok, _invite} =
+               Accounts.invite_member(owner, org, AccountsFixtures.primary_address!(invitee))
+
+      raw = invited_token!(AccountsFixtures.primary_address!(invitee))
 
       assert {:ok, _accepted} = Accounts.accept_invite(raw, invitee)
       assert {:error, :already_accepted} = Accounts.accept_invite(raw, invitee)
@@ -53,7 +57,7 @@ defmodule FluxVale.Accounts.Operations.AcceptInviteTest do
       owner = AccountsFixtures.user!()
       org = AccountsFixtures.owned_org!(owner)
       invitee = AccountsFixtures.user!()
-      address = to_string(invitee.email)
+      address = to_string(AccountsFixtures.primary_address!(invitee))
 
       # The invite is addressed in a different case than the account's
       # address — citext on the row, downcase on the fence, one answer.
@@ -80,8 +84,10 @@ defmodule FluxVale.Accounts.Operations.AcceptInviteTest do
       invitee = AccountsFixtures.user!()
       stranger = AccountsFixtures.user!()
 
-      assert {:ok, _invite} = Accounts.invite_member(owner, org, invitee.email)
-      raw = invited_token!(invitee.email)
+      assert {:ok, _invite} =
+               Accounts.invite_member(owner, org, AccountsFixtures.primary_address!(invitee))
+
+      raw = invited_token!(AccountsFixtures.primary_address!(invitee))
 
       assert {:error, :email_mismatch} = Accounts.accept_invite(raw, stranger)
       assert memberships(org, stranger) == []
@@ -92,17 +98,21 @@ defmodule FluxVale.Accounts.Operations.AcceptInviteTest do
       org = AccountsFixtures.owned_org!(owner)
       invitee = AccountsFixtures.user!()
 
-      assert {:ok, _invite} = Accounts.invite_member(owner, org, invitee.email)
-      raw = invited_token!(invitee.email)
+      assert {:ok, _invite} =
+               Accounts.invite_member(owner, org, AccountsFixtures.primary_address!(invitee))
 
-      # Ash.seed! — an account without its verified primary row is a
-      # state the create mirror makes unproducible through actions
-      # (the documented seed! exception, #285 T3). The invite row is
-      # unaffected; only the account shape changes under the test.
-      seed_email = to_string(invitee.email) <> ".seed"
-      mirrorless = Ash.Seed.seed!(FluxVale.Identity.User, %{email: seed_email})
+      raw = invited_token!(AccountsFixtures.primary_address!(invitee))
 
-      assert {:error, :email_mismatch} = Accounts.accept_invite(raw, mirrorless)
+      # #287: every account owns its verified primary row from birth
+      # (SignupEmailRow rides the create) — a rowless account is no
+      # longer a producible shape, so the mismatch arm pins on a
+      # DIFFERENT address's owner instead: the join is refused because
+      # the acceptor is not the invitee.
+      other = AccountsFixtures.user!()
+
+      assert {:error, :email_mismatch} = Accounts.accept_invite(raw, other)
+
+      assert memberships(org, other) == []
       assert memberships(org, invitee) == []
     end
 
@@ -120,7 +130,7 @@ defmodule FluxVale.Accounts.Operations.AcceptInviteTest do
 
       Ash.Seed.seed!(MembershipInvite, %{
         organization_id: org.id,
-        email: invitee.email,
+        email: AccountsFixtures.primary_address!(invitee),
         token_hash: MembershipInvite.token_hash(raw),
         expires_at: past
       })
@@ -134,8 +144,10 @@ defmodule FluxVale.Accounts.Operations.AcceptInviteTest do
       org = AccountsFixtures.owned_org!(owner)
       invitee = AccountsFixtures.user!()
 
-      assert {:ok, invite} = Accounts.invite_member(owner, org, invitee.email)
-      raw = invited_token!(invitee.email)
+      assert {:ok, invite} =
+               Accounts.invite_member(owner, org, AccountsFixtures.primary_address!(invitee))
+
+      raw = invited_token!(AccountsFixtures.primary_address!(invitee))
 
       assert {:ok, _revoked} = Accounts.revoke_invite(owner, invite)
 
@@ -148,8 +160,10 @@ defmodule FluxVale.Accounts.Operations.AcceptInviteTest do
       org = AccountsFixtures.owned_org!(owner)
       invitee = AccountsFixtures.user!()
 
-      assert {:ok, _invite} = Accounts.invite_member(owner, org, invitee.email)
-      raw = invited_token!(invitee.email)
+      assert {:ok, _invite} =
+               Accounts.invite_member(owner, org, AccountsFixtures.primary_address!(invitee))
+
+      raw = invited_token!(AccountsFixtures.primary_address!(invitee))
 
       # The invitee is a member of THIS org (the system path) while an
       # open invite for their address still stands.
