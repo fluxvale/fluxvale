@@ -8,9 +8,10 @@ defmodule FluxVale.Billing do
   `Wallet.carryover` (micro-cents). Refunds are compensating entries
   (`reverse_entry/2`), never row mutations (ADR-0029). Postings run
   `authorize?: false` — the operations are the system seam; actors read
-  their org's wallet and ledger through the policies, and the one
-  actor-facing posting is the admin goodwill credit (`LedgerEntry
-  :grant_goodwill`, #140).
+  their org's wallet and ledger through the policies, and the
+  actor-facing postings are the admin goodwill credit (`LedgerEntry
+  :grant_goodwill`, #140) and the admin reversal (`LedgerEntry
+  :reverse`, #577).
   """
 
   # AshJsonApi.Domain (#360): the resource-level json_api blocks ride

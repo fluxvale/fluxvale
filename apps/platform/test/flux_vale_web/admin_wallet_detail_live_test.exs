@@ -9,9 +9,8 @@ defmodule FluxValeWeb.AdminWalletDetailLiveTest do
   # views. The demotion window — the gap the mount-time gate cannot
   # cover, since a socket outlives a demotion — is pinned by the
   # demote-then-click test: every write re-resolves the actor from the
-  # session first. The reversal seam is system-level by design (no
-  # actor-facing reversal action exists — the flagged gap), so that
-  # per-event gate is the surface's own.
+  # session first. The reversal is the `LedgerEntry :reverse` action
+  # (#577), policy-gated like the goodwill credit.
 
   use FluxValeWeb.ConnCase, async: false
 
@@ -22,7 +21,6 @@ defmodule FluxValeWeb.AdminWalletDetailLiveTest do
   alias FluxVale.Billing
   alias FluxVale.Billing.LedgerEntry
   alias FluxVale.Billing.Wallet
-  alias FluxVale.Checks.ActorIsPlatformAdmin
   alias FluxVale.Identity.User
   alias FluxVale.TestSupport.BillingFixtures
   alias FluxVale.TestSupport.SessionHelpers
@@ -991,17 +989,12 @@ defmodule FluxValeWeb.AdminWalletDetailLiveTest do
       assert {:error, %Ash.Error.Forbidden{}} =
                LedgerEntry.grant_goodwill(wallet.id, 500, actor: non_admin)
 
-      # The reversal: the seam is system-level (no actor-facing
-      # reversal action exists — the flagged gap), so the surface's
-      # handler gates it on the actor-authorized read plus the
-      # platform-admin predicate. The read arm renders the denial as
-      # NotFound (the not-here answer) for a non-member.
+      # The reversal: the actor-facing `LedgerEntry :reverse` action,
+      # policy-gated like the goodwill credit.
       {:ok, original} = LedgerEntry.grant_goodwill(wallet.id, 250, actor: admin)
 
-      assert {:error, %Ash.Error.Invalid{}} =
-               Ash.get(LedgerEntry, original.id, actor: non_admin)
-
-      refute ActorIsPlatformAdmin.platform_admin?(non_admin)
+      assert {:error, %Ash.Error.Forbidden{}} =
+               LedgerEntry.reverse(original.id, actor: non_admin)
     end
   end
 end

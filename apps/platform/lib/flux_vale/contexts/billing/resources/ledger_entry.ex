@@ -28,9 +28,11 @@ defmodule FluxVale.Billing.LedgerEntry do
   Append-only means only `:read`/`:create` exist — no update, no destroy,
   and no `updated_at` (rows never change). Actors may read their org's
   entries; posting is a system operation (`authorize?: false`, the
-  operations under `FluxVale.Billing`) — the one actor-facing exception
-  is `:grant_goodwill` (#140): a platform-admin goodwill credit that
-  posts through the same `GrantCredits` seam, never around it.
+  operations under `FluxVale.Billing`) — the actor-facing exceptions
+  are `:grant_goodwill` (#140), a platform-admin goodwill credit that
+  posts through the same `GrantCredits` seam, and `:reverse` (#577),
+  the admin reversal that posts through `ReverseEntry` — never around
+  either seam.
   """
 
   use Ash.Resource,
@@ -82,10 +84,19 @@ defmodule FluxVale.Billing.LedgerEntry do
     # never overlap. Reads: members OR platform admins (the AshAdmin
     # support surface, #140) inside ONE policy, or the member filter
     # would apply to admins too. Creates: the system :create (by name)
-    # is actor-forbidden; :grant_goodwill is the admin-only exception.
+    # is actor-forbidden; :grant_goodwill and :reverse are the admin-only
+    # exceptions.
     policy [FluxVale.Checks.ActorIsPlatformAdmin, action(:grant_goodwill)] do
       description(
         "Platform admins post goodwill credits (#140) — the refund policy's only override path"
+      )
+
+      authorize_if(always())
+    end
+
+    policy [FluxVale.Checks.ActorIsPlatformAdmin, action(:reverse)] do
+      description(
+        "Platform admins reverse ledger entries (#577) — the compensating unwind as an actor-facing path"
       )
 
       authorize_if(always())
@@ -103,10 +114,12 @@ defmodule FluxVale.Billing.LedgerEntry do
     end
   end
 
-  # The admin surface (#140, ADR-0027 §3): goodwill creates + ledger
-  # reads only — the system :create is the posting machinery's, never a
+  # The AshAdmin surface (#140, ADR-0027 §3): the goodwill create plus
+  # ledger reads. The system :create is the posting machinery's, never a
   # form (it's actor-forbidden regardless; hiding it keeps the admin UI
-  # from offering a button that can only fail).
+  # from offering a button that can only fail). :reverse is absent by
+  # deliberation too: the operator path is the wallet detail LiveView,
+  # not a raw entry-id form.
   admin do
     create_actions([:grant_goodwill])
   end
@@ -284,6 +297,40 @@ defmodule FluxVale.Billing.LedgerEntry do
       end)
     end
 
+    # #577: the actor-facing reversal — the admin surface's compensating
+    # unwind, gated by the same scoped platform-admin policy as
+    # :grant_goodwill. The row it "creates" is posted by ReverseEntry,
+    # the same seam system callers ride.
+    create :reverse do
+      description(
+        "Reverse a ledger entry (#577) — admin-only, any org, either direction; posts the compensating entry"
+      )
+
+      argument(:entry_id, :uuid, allow_nil?: false)
+
+      accept([])
+
+      # Manual create: the compensating row is posted by ReverseEntry.
+      # The original is read system-side because the action's policy
+      # already gated the caller; the operation owns the double-reversal
+      # guard and the tax-fact copy. __MODULE__ — inside the resource's
+      # own manual fn the bare alias is not resolvable as a resource
+      # (see Organization :admin_lookup's run fn).
+      #
+      # Revisit trigger: if the :reverse policy ever stops being
+      # platform-admin-only (a member refunding their own purchase is
+      # the obvious ask), this read must be scoped to the actor — the
+      # system-side read does no org or wallet scoping.
+      manual(fn changeset, _context ->
+        entry_id = Ash.Changeset.get_argument(changeset, :entry_id)
+
+        case Ash.get(__MODULE__, entry_id, authorize?: false) do
+          {:ok, original} -> FluxVale.Billing.reverse_entry(original)
+          {:error, error} -> {:error, error}
+        end
+      end)
+    end
+
     # #123's history surface: keyset-paginated (newest first) — the
     # ledger is append-only, so a cursor survives inserts landing between
     # pages; an offset window would skip or repeat rows. The caller owns
@@ -332,6 +379,7 @@ defmodule FluxVale.Billing.LedgerEntry do
     define(:read)
     define(:list_for_wallet, args: [:wallet_id])
     define(:grant_goodwill, args: [:wallet_id, :amount_cents])
+    define(:reverse, args: [:entry_id])
   end
 
   identities do

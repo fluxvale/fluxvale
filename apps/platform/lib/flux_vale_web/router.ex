@@ -548,9 +548,9 @@ defmodule FluxValeWeb.Router do
       # per-wallet detail with its ledger, the waiver flip, and the
       # goodwill credit. Reads and writes ride the billing domain with
       # the platform-admin actor and authorize?: true — the domain
-      # policies decide, never the UI. The reversal rides the system
-      # seam behind the admin gate the handler enforces itself (the
-      # flagged gap: no actor-facing reversal action exists).
+      # policies decide, never the UI. The reversal rides the
+      # `LedgerEntry :reverse` action (#577), policy-gated like the
+      # goodwill credit.
       live("/billing", FluxValeWeb.AdminLive.Billing)
       live("/billing/wallets/:id", FluxValeWeb.AdminLive.WalletDetail)
 

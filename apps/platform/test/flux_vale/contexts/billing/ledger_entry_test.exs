@@ -324,6 +324,63 @@ defmodule FluxVale.Billing.LedgerEntryTest do
     end
   end
 
+  # #577: the actor-facing reversal — the admin surface's compensating
+  # unwind, gated by the same platform-admin policy as :grant_goodwill.
+  describe "reverse (#577 — the actor-facing reversal)" do
+    setup do
+      {_org, wallet} = BillingFixtures.funded_wallet!(balance_cents: 0)
+      %{wallet: wallet, admin: admin()}
+    end
+
+    test "a platform admin reverses an entry through the action", %{wallet: wallet, admin: admin} do
+      {:ok, original} = LedgerEntry.grant_goodwill(wallet.id, 250, actor: admin)
+
+      assert {:ok, reversal} = LedgerEntry.reverse(original.id, actor: admin)
+
+      assert reversal.type == :debit
+      assert reversal.amount == -250
+      assert reversal.reverses_id == original.id
+      assert reversal.wallet_id == wallet.id
+
+      assert {:ok, 0} = Billing.balance(wallet, authorize?: false)
+    end
+
+    test "non-admins and anonymous calls stay outside", %{wallet: wallet, admin: admin} do
+      {:ok, original} = LedgerEntry.grant_goodwill(wallet.id, 250, actor: admin)
+      stranger = AccountsFixtures.user!()
+
+      assert {:error, %Ash.Error.Forbidden{}} =
+               LedgerEntry.reverse(original.id, actor: stranger)
+
+      assert {:error, %Ash.Error.Forbidden{}} =
+               LedgerEntry.reverse(original.id, authorize?: true)
+
+      # Nothing posted: the balance and the ledger are untouched.
+      assert {:ok, 250} = Billing.balance(wallet, authorize?: false)
+      refute Enum.any?(wallet_page(wallet).results, &(&1.reverses_id == original.id))
+    end
+
+    test "a second reversal is refused", %{wallet: wallet, admin: admin} do
+      {:ok, original} = LedgerEntry.grant_goodwill(wallet.id, 250, actor: admin)
+      {:ok, _reversal} = LedgerEntry.reverse(original.id, actor: admin)
+
+      assert {:error,
+              %Ash.Error.Unknown{
+                errors: [
+                  %Ash.Error.Unknown.UnknownError{error: "unknown error: :already_reversed"}
+                ]
+              }} = LedgerEntry.reverse(original.id, actor: admin)
+    end
+
+    test "an unknown entry id posts nothing", %{wallet: wallet, admin: admin} do
+      assert {:error, %Ash.Error.Invalid{}} =
+               LedgerEntry.reverse(Ash.UUID.generate(), actor: admin)
+
+      assert [] = wallet_page(wallet).results
+      assert {:ok, 0} = Billing.balance(wallet, authorize?: false)
+    end
+  end
+
   defp wallet_page(wallet) do
     LedgerEntry
     |> Ash.Query.for_read(:list_for_wallet, %{wallet_id: wallet.id}, authorize?: false)
