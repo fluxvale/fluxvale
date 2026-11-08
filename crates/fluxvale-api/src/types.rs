@@ -11784,6 +11784,1125 @@ pub struct OrganizationRelationshipsMembersDataItem {
     #[serde(rename = "type")]
     pub type_: ::std::string::String,
 }
+///A "Resource object" representing a storage_request
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct StorageRequest {
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub attributes: ::std::option::Option<StorageRequestAttributes>,
+    pub id: ::std::string::String,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub relationships: ::std::option::Option<StorageRequestRelationships>,
+    #[serde(rename = "type")]
+    pub type_: ::std::string::String,
+}
+///An attributes object for a storage_request
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct StorageRequestAttributes {
+    ///Field included by default.
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub applied_at: ::std::option::Option<::serde_json::Value>,
+    ///Field included by default.
+    pub current_storage_gb: i64,
+    ///Field included by default.
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub decided_at: ::std::option::Option<::serde_json::Value>,
+    ///Field included by default.
+    pub instance_id: ::std::string::String,
+    ///Field included by default.
+    pub organization_id: ::std::string::String,
+    ///Field included by default.
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub quoted_current_cents: ::std::option::Option<i64>,
+    ///Field included by default.
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub quoted_monthly_cents: ::std::option::Option<i64>,
+    ///Field included by default.
+    pub reason: ::std::string::String,
+    ///Field included by default.
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub rejection_reason: ::std::option::Option<::std::string::String>,
+    ///Field included by default.
+    pub requested_by_user_id: ::std::string::String,
+    ///Field included by default.
+    pub requested_gb: i64,
+    ///Field included by default.
+    pub status: StorageRequestAttributesStatus,
+}
+///Field included by default.
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum StorageRequestAttributesStatus {
+    #[serde(rename = "requested")]
+    Requested,
+    #[serde(rename = "approved")]
+    Approved,
+    #[serde(rename = "rejected")]
+    Rejected,
+    #[serde(rename = "applied")]
+    Applied,
+}
+impl ::std::fmt::Display for StorageRequestAttributesStatus {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Requested => f.write_str("requested"),
+            Self::Approved => f.write_str("approved"),
+            Self::Rejected => f.write_str("rejected"),
+            Self::Applied => f.write_str("applied"),
+        }
+    }
+}
+impl ::std::str::FromStr for StorageRequestAttributesStatus {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "requested" => Ok(Self::Requested),
+            "approved" => Ok(Self::Approved),
+            "rejected" => Ok(Self::Rejected),
+            "applied" => Ok(Self::Applied),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for StorageRequestAttributesStatus {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for StorageRequestAttributesStatus {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+///Filters the query to results matching the given filter object
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
+#[serde(deny_unknown_fields)]
+pub struct StorageRequestFilter {
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub and: ::std::option::Option<::std::vec::Vec<StorageRequestFilter>>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub applied_at: ::std::option::Option<StorageRequestFilterAppliedAt>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub current_storage_gb: ::std::option::Option<StorageRequestFilterCurrentStorageGb>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub decided_at: ::std::option::Option<StorageRequestFilterDecidedAt>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub id: ::std::option::Option<StorageRequestFilterId>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub instance: ::std::option::Option<InstanceFilter>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub instance_id: ::std::option::Option<StorageRequestFilterInstanceId>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub not: ::std::option::Option<::std::boxed::Box<StorageRequestFilter>>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub or: ::std::option::Option<::std::vec::Vec<StorageRequestFilter>>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub organization: ::std::option::Option<OrganizationFilter>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub organization_id: ::std::option::Option<StorageRequestFilterOrganizationId>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub quoted_current_cents: ::std::option::Option<StorageRequestFilterQuotedCurrentCents>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub quoted_monthly_cents: ::std::option::Option<StorageRequestFilterQuotedMonthlyCents>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub reason: ::std::option::Option<StorageRequestFilterReason>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub rejection_reason: ::std::option::Option<StorageRequestFilterRejectionReason>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub requested_by_user_id: ::std::option::Option<StorageRequestFilterRequestedByUserId>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub requested_gb: ::std::option::Option<StorageRequestFilterRequestedGb>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub status: ::std::option::Option<StorageRequestFilterStatus>,
+}
+///`StorageRequestFilterAppliedAt`
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
+#[serde(deny_unknown_fields)]
+pub struct StorageRequestFilterAppliedAt {
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub eq: ::std::option::Option<::serde_json::Value>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub greater_than: ::std::option::Option<::serde_json::Value>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub greater_than_or_equal: ::std::option::Option<::serde_json::Value>,
+    #[serde(
+        rename = "in",
+        default,
+        skip_serializing_if = "::std::vec::Vec::is_empty"
+    )]
+    pub in_: ::std::vec::Vec<::serde_json::Value>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub is_distinct_from: ::std::option::Option<::serde_json::Value>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub is_nil: ::std::option::Option<bool>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub is_not_distinct_from: ::std::option::Option<::serde_json::Value>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub less_than: ::std::option::Option<::serde_json::Value>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub less_than_or_equal: ::std::option::Option<::serde_json::Value>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub not_eq: ::std::option::Option<::serde_json::Value>,
+}
+///`StorageRequestFilterCurrentStorageGb`
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
+#[serde(deny_unknown_fields)]
+pub struct StorageRequestFilterCurrentStorageGb {
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub eq: ::std::option::Option<i64>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub greater_than: ::std::option::Option<i64>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub greater_than_or_equal: ::std::option::Option<i64>,
+    #[serde(
+        rename = "in",
+        default,
+        skip_serializing_if = "::std::vec::Vec::is_empty"
+    )]
+    pub in_: ::std::vec::Vec<i64>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub is_distinct_from: ::std::option::Option<i64>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub is_nil: ::std::option::Option<bool>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub is_not_distinct_from: ::std::option::Option<i64>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub less_than: ::std::option::Option<i64>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub less_than_or_equal: ::std::option::Option<i64>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub not_eq: ::std::option::Option<i64>,
+}
+///`StorageRequestFilterDecidedAt`
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
+#[serde(deny_unknown_fields)]
+pub struct StorageRequestFilterDecidedAt {
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub eq: ::std::option::Option<::serde_json::Value>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub greater_than: ::std::option::Option<::serde_json::Value>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub greater_than_or_equal: ::std::option::Option<::serde_json::Value>,
+    #[serde(
+        rename = "in",
+        default,
+        skip_serializing_if = "::std::vec::Vec::is_empty"
+    )]
+    pub in_: ::std::vec::Vec<::serde_json::Value>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub is_distinct_from: ::std::option::Option<::serde_json::Value>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub is_nil: ::std::option::Option<bool>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub is_not_distinct_from: ::std::option::Option<::serde_json::Value>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub less_than: ::std::option::Option<::serde_json::Value>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub less_than_or_equal: ::std::option::Option<::serde_json::Value>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub not_eq: ::std::option::Option<::serde_json::Value>,
+}
+///`StorageRequestFilterId`
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
+#[serde(deny_unknown_fields)]
+pub struct StorageRequestFilterId {
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub eq: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub greater_than: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub greater_than_or_equal: ::std::option::Option<::std::string::String>,
+    #[serde(
+        rename = "in",
+        default,
+        skip_serializing_if = "::std::vec::Vec::is_empty"
+    )]
+    pub in_: ::std::vec::Vec<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub is_distinct_from: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub is_nil: ::std::option::Option<bool>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub is_not_distinct_from: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub less_than: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub less_than_or_equal: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub not_eq: ::std::option::Option<::std::string::String>,
+}
+///`StorageRequestFilterInstanceId`
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
+#[serde(deny_unknown_fields)]
+pub struct StorageRequestFilterInstanceId {
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub eq: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub greater_than: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub greater_than_or_equal: ::std::option::Option<::std::string::String>,
+    #[serde(
+        rename = "in",
+        default,
+        skip_serializing_if = "::std::vec::Vec::is_empty"
+    )]
+    pub in_: ::std::vec::Vec<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub is_distinct_from: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub is_nil: ::std::option::Option<bool>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub is_not_distinct_from: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub less_than: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub less_than_or_equal: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub not_eq: ::std::option::Option<::std::string::String>,
+}
+///`StorageRequestFilterOrganizationId`
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
+#[serde(deny_unknown_fields)]
+pub struct StorageRequestFilterOrganizationId {
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub eq: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub greater_than: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub greater_than_or_equal: ::std::option::Option<::std::string::String>,
+    #[serde(
+        rename = "in",
+        default,
+        skip_serializing_if = "::std::vec::Vec::is_empty"
+    )]
+    pub in_: ::std::vec::Vec<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub is_distinct_from: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub is_nil: ::std::option::Option<bool>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub is_not_distinct_from: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub less_than: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub less_than_or_equal: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub not_eq: ::std::option::Option<::std::string::String>,
+}
+///`StorageRequestFilterQuotedCurrentCents`
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
+#[serde(deny_unknown_fields)]
+pub struct StorageRequestFilterQuotedCurrentCents {
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub eq: ::std::option::Option<i64>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub greater_than: ::std::option::Option<i64>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub greater_than_or_equal: ::std::option::Option<i64>,
+    #[serde(
+        rename = "in",
+        default,
+        skip_serializing_if = "::std::vec::Vec::is_empty"
+    )]
+    pub in_: ::std::vec::Vec<i64>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub is_distinct_from: ::std::option::Option<i64>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub is_nil: ::std::option::Option<bool>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub is_not_distinct_from: ::std::option::Option<i64>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub less_than: ::std::option::Option<i64>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub less_than_or_equal: ::std::option::Option<i64>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub not_eq: ::std::option::Option<i64>,
+}
+///`StorageRequestFilterQuotedMonthlyCents`
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
+#[serde(deny_unknown_fields)]
+pub struct StorageRequestFilterQuotedMonthlyCents {
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub eq: ::std::option::Option<i64>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub greater_than: ::std::option::Option<i64>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub greater_than_or_equal: ::std::option::Option<i64>,
+    #[serde(
+        rename = "in",
+        default,
+        skip_serializing_if = "::std::vec::Vec::is_empty"
+    )]
+    pub in_: ::std::vec::Vec<i64>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub is_distinct_from: ::std::option::Option<i64>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub is_nil: ::std::option::Option<bool>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub is_not_distinct_from: ::std::option::Option<i64>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub less_than: ::std::option::Option<i64>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub less_than_or_equal: ::std::option::Option<i64>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub not_eq: ::std::option::Option<i64>,
+}
+///`StorageRequestFilterReason`
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
+#[serde(deny_unknown_fields)]
+pub struct StorageRequestFilterReason {
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub contains: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub eq: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub greater_than: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub greater_than_or_equal: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub ilike: ::std::option::Option<::std::string::String>,
+    #[serde(
+        rename = "in",
+        default,
+        skip_serializing_if = "::std::vec::Vec::is_empty"
+    )]
+    pub in_: ::std::vec::Vec<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub is_distinct_from: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub is_nil: ::std::option::Option<bool>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub is_not_distinct_from: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub less_than: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub less_than_or_equal: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub like: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub not_eq: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub string_ends_with: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub string_starts_with: ::std::option::Option<::std::string::String>,
+}
+///`StorageRequestFilterRejectionReason`
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
+#[serde(deny_unknown_fields)]
+pub struct StorageRequestFilterRejectionReason {
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub contains: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub eq: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub greater_than: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub greater_than_or_equal: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub ilike: ::std::option::Option<::std::string::String>,
+    #[serde(
+        rename = "in",
+        default,
+        skip_serializing_if = "::std::vec::Vec::is_empty"
+    )]
+    pub in_: ::std::vec::Vec<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub is_distinct_from: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub is_nil: ::std::option::Option<bool>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub is_not_distinct_from: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub less_than: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub less_than_or_equal: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub like: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub not_eq: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub string_ends_with: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub string_starts_with: ::std::option::Option<::std::string::String>,
+}
+///`StorageRequestFilterRequestedByUserId`
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
+#[serde(deny_unknown_fields)]
+pub struct StorageRequestFilterRequestedByUserId {
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub eq: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub greater_than: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub greater_than_or_equal: ::std::option::Option<::std::string::String>,
+    #[serde(
+        rename = "in",
+        default,
+        skip_serializing_if = "::std::vec::Vec::is_empty"
+    )]
+    pub in_: ::std::vec::Vec<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub is_distinct_from: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub is_nil: ::std::option::Option<bool>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub is_not_distinct_from: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub less_than: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub less_than_or_equal: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub not_eq: ::std::option::Option<::std::string::String>,
+}
+///`StorageRequestFilterRequestedGb`
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
+#[serde(deny_unknown_fields)]
+pub struct StorageRequestFilterRequestedGb {
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub eq: ::std::option::Option<i64>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub greater_than: ::std::option::Option<i64>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub greater_than_or_equal: ::std::option::Option<i64>,
+    #[serde(
+        rename = "in",
+        default,
+        skip_serializing_if = "::std::vec::Vec::is_empty"
+    )]
+    pub in_: ::std::vec::Vec<i64>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub is_distinct_from: ::std::option::Option<i64>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub is_nil: ::std::option::Option<bool>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub is_not_distinct_from: ::std::option::Option<i64>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub less_than: ::std::option::Option<i64>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub less_than_or_equal: ::std::option::Option<i64>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub not_eq: ::std::option::Option<i64>,
+}
+///`StorageRequestFilterStatus`
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
+#[serde(deny_unknown_fields)]
+pub struct StorageRequestFilterStatus {
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub eq: ::std::option::Option<StorageRequestFilterStatusEq>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub greater_than: ::std::option::Option<StorageRequestFilterStatusGreaterThan>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub greater_than_or_equal: ::std::option::Option<StorageRequestFilterStatusGreaterThanOrEqual>,
+    #[serde(
+        rename = "in",
+        default,
+        skip_serializing_if = "::std::vec::Vec::is_empty"
+    )]
+    pub in_: ::std::vec::Vec<StorageRequestFilterStatusInItem>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub is_distinct_from: ::std::option::Option<StorageRequestFilterStatusIsDistinctFrom>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub is_nil: ::std::option::Option<bool>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub is_not_distinct_from: ::std::option::Option<StorageRequestFilterStatusIsNotDistinctFrom>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub less_than: ::std::option::Option<StorageRequestFilterStatusLessThan>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub less_than_or_equal: ::std::option::Option<StorageRequestFilterStatusLessThanOrEqual>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub not_eq: ::std::option::Option<StorageRequestFilterStatusNotEq>,
+}
+///`StorageRequestFilterStatusEq`
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum StorageRequestFilterStatusEq {
+    #[serde(rename = "requested")]
+    Requested,
+    #[serde(rename = "approved")]
+    Approved,
+    #[serde(rename = "rejected")]
+    Rejected,
+    #[serde(rename = "applied")]
+    Applied,
+}
+impl ::std::fmt::Display for StorageRequestFilterStatusEq {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Requested => f.write_str("requested"),
+            Self::Approved => f.write_str("approved"),
+            Self::Rejected => f.write_str("rejected"),
+            Self::Applied => f.write_str("applied"),
+        }
+    }
+}
+impl ::std::str::FromStr for StorageRequestFilterStatusEq {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "requested" => Ok(Self::Requested),
+            "approved" => Ok(Self::Approved),
+            "rejected" => Ok(Self::Rejected),
+            "applied" => Ok(Self::Applied),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for StorageRequestFilterStatusEq {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for StorageRequestFilterStatusEq {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+///`StorageRequestFilterStatusGreaterThan`
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum StorageRequestFilterStatusGreaterThan {
+    #[serde(rename = "requested")]
+    Requested,
+    #[serde(rename = "approved")]
+    Approved,
+    #[serde(rename = "rejected")]
+    Rejected,
+    #[serde(rename = "applied")]
+    Applied,
+}
+impl ::std::fmt::Display for StorageRequestFilterStatusGreaterThan {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Requested => f.write_str("requested"),
+            Self::Approved => f.write_str("approved"),
+            Self::Rejected => f.write_str("rejected"),
+            Self::Applied => f.write_str("applied"),
+        }
+    }
+}
+impl ::std::str::FromStr for StorageRequestFilterStatusGreaterThan {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "requested" => Ok(Self::Requested),
+            "approved" => Ok(Self::Approved),
+            "rejected" => Ok(Self::Rejected),
+            "applied" => Ok(Self::Applied),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for StorageRequestFilterStatusGreaterThan {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for StorageRequestFilterStatusGreaterThan {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+///`StorageRequestFilterStatusGreaterThanOrEqual`
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum StorageRequestFilterStatusGreaterThanOrEqual {
+    #[serde(rename = "requested")]
+    Requested,
+    #[serde(rename = "approved")]
+    Approved,
+    #[serde(rename = "rejected")]
+    Rejected,
+    #[serde(rename = "applied")]
+    Applied,
+}
+impl ::std::fmt::Display for StorageRequestFilterStatusGreaterThanOrEqual {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Requested => f.write_str("requested"),
+            Self::Approved => f.write_str("approved"),
+            Self::Rejected => f.write_str("rejected"),
+            Self::Applied => f.write_str("applied"),
+        }
+    }
+}
+impl ::std::str::FromStr for StorageRequestFilterStatusGreaterThanOrEqual {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "requested" => Ok(Self::Requested),
+            "approved" => Ok(Self::Approved),
+            "rejected" => Ok(Self::Rejected),
+            "applied" => Ok(Self::Applied),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for StorageRequestFilterStatusGreaterThanOrEqual {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String>
+    for StorageRequestFilterStatusGreaterThanOrEqual
+{
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+///`StorageRequestFilterStatusInItem`
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum StorageRequestFilterStatusInItem {
+    #[serde(rename = "requested")]
+    Requested,
+    #[serde(rename = "approved")]
+    Approved,
+    #[serde(rename = "rejected")]
+    Rejected,
+    #[serde(rename = "applied")]
+    Applied,
+}
+impl ::std::fmt::Display for StorageRequestFilterStatusInItem {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Requested => f.write_str("requested"),
+            Self::Approved => f.write_str("approved"),
+            Self::Rejected => f.write_str("rejected"),
+            Self::Applied => f.write_str("applied"),
+        }
+    }
+}
+impl ::std::str::FromStr for StorageRequestFilterStatusInItem {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "requested" => Ok(Self::Requested),
+            "approved" => Ok(Self::Approved),
+            "rejected" => Ok(Self::Rejected),
+            "applied" => Ok(Self::Applied),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for StorageRequestFilterStatusInItem {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for StorageRequestFilterStatusInItem {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+///`StorageRequestFilterStatusIsDistinctFrom`
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum StorageRequestFilterStatusIsDistinctFrom {
+    #[serde(rename = "requested")]
+    Requested,
+    #[serde(rename = "approved")]
+    Approved,
+    #[serde(rename = "rejected")]
+    Rejected,
+    #[serde(rename = "applied")]
+    Applied,
+}
+impl ::std::fmt::Display for StorageRequestFilterStatusIsDistinctFrom {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Requested => f.write_str("requested"),
+            Self::Approved => f.write_str("approved"),
+            Self::Rejected => f.write_str("rejected"),
+            Self::Applied => f.write_str("applied"),
+        }
+    }
+}
+impl ::std::str::FromStr for StorageRequestFilterStatusIsDistinctFrom {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "requested" => Ok(Self::Requested),
+            "approved" => Ok(Self::Approved),
+            "rejected" => Ok(Self::Rejected),
+            "applied" => Ok(Self::Applied),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for StorageRequestFilterStatusIsDistinctFrom {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for StorageRequestFilterStatusIsDistinctFrom {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+///`StorageRequestFilterStatusIsNotDistinctFrom`
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum StorageRequestFilterStatusIsNotDistinctFrom {
+    #[serde(rename = "requested")]
+    Requested,
+    #[serde(rename = "approved")]
+    Approved,
+    #[serde(rename = "rejected")]
+    Rejected,
+    #[serde(rename = "applied")]
+    Applied,
+}
+impl ::std::fmt::Display for StorageRequestFilterStatusIsNotDistinctFrom {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Requested => f.write_str("requested"),
+            Self::Approved => f.write_str("approved"),
+            Self::Rejected => f.write_str("rejected"),
+            Self::Applied => f.write_str("applied"),
+        }
+    }
+}
+impl ::std::str::FromStr for StorageRequestFilterStatusIsNotDistinctFrom {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "requested" => Ok(Self::Requested),
+            "approved" => Ok(Self::Approved),
+            "rejected" => Ok(Self::Rejected),
+            "applied" => Ok(Self::Applied),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for StorageRequestFilterStatusIsNotDistinctFrom {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String>
+    for StorageRequestFilterStatusIsNotDistinctFrom
+{
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+///`StorageRequestFilterStatusLessThan`
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum StorageRequestFilterStatusLessThan {
+    #[serde(rename = "requested")]
+    Requested,
+    #[serde(rename = "approved")]
+    Approved,
+    #[serde(rename = "rejected")]
+    Rejected,
+    #[serde(rename = "applied")]
+    Applied,
+}
+impl ::std::fmt::Display for StorageRequestFilterStatusLessThan {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Requested => f.write_str("requested"),
+            Self::Approved => f.write_str("approved"),
+            Self::Rejected => f.write_str("rejected"),
+            Self::Applied => f.write_str("applied"),
+        }
+    }
+}
+impl ::std::str::FromStr for StorageRequestFilterStatusLessThan {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "requested" => Ok(Self::Requested),
+            "approved" => Ok(Self::Approved),
+            "rejected" => Ok(Self::Rejected),
+            "applied" => Ok(Self::Applied),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for StorageRequestFilterStatusLessThan {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for StorageRequestFilterStatusLessThan {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+///`StorageRequestFilterStatusLessThanOrEqual`
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum StorageRequestFilterStatusLessThanOrEqual {
+    #[serde(rename = "requested")]
+    Requested,
+    #[serde(rename = "approved")]
+    Approved,
+    #[serde(rename = "rejected")]
+    Rejected,
+    #[serde(rename = "applied")]
+    Applied,
+}
+impl ::std::fmt::Display for StorageRequestFilterStatusLessThanOrEqual {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Requested => f.write_str("requested"),
+            Self::Approved => f.write_str("approved"),
+            Self::Rejected => f.write_str("rejected"),
+            Self::Applied => f.write_str("applied"),
+        }
+    }
+}
+impl ::std::str::FromStr for StorageRequestFilterStatusLessThanOrEqual {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "requested" => Ok(Self::Requested),
+            "approved" => Ok(Self::Approved),
+            "rejected" => Ok(Self::Rejected),
+            "applied" => Ok(Self::Applied),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for StorageRequestFilterStatusLessThanOrEqual {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for StorageRequestFilterStatusLessThanOrEqual {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+///`StorageRequestFilterStatusNotEq`
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum StorageRequestFilterStatusNotEq {
+    #[serde(rename = "requested")]
+    Requested,
+    #[serde(rename = "approved")]
+    Approved,
+    #[serde(rename = "rejected")]
+    Rejected,
+    #[serde(rename = "applied")]
+    Applied,
+}
+impl ::std::fmt::Display for StorageRequestFilterStatusNotEq {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Requested => f.write_str("requested"),
+            Self::Approved => f.write_str("approved"),
+            Self::Rejected => f.write_str("rejected"),
+            Self::Applied => f.write_str("applied"),
+        }
+    }
+}
+impl ::std::str::FromStr for StorageRequestFilterStatusNotEq {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "requested" => Ok(Self::Requested),
+            "approved" => Ok(Self::Approved),
+            "rejected" => Ok(Self::Rejected),
+            "applied" => Ok(Self::Applied),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for StorageRequestFilterStatusNotEq {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for StorageRequestFilterStatusNotEq {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+///A relationships object for a storage_request
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
+#[serde(deny_unknown_fields)]
+pub struct StorageRequestRelationships {
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub instance: ::std::option::Option<StorageRequestRelationshipsInstance>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub organization: ::std::option::Option<StorageRequestRelationshipsOrganization>,
+}
+///`StorageRequestRelationshipsInstance`
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
+pub struct StorageRequestRelationshipsInstance {
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub data: ::std::option::Option<StorageRequestRelationshipsInstanceData>,
+}
+///An identifier for instance
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct StorageRequestRelationshipsInstanceData {
+    pub id: ::std::string::String,
+    #[serde(default, skip_serializing_if = "::serde_json::Map::is_empty")]
+    pub meta: ::serde_json::Map<::std::string::String, ::serde_json::Value>,
+    #[serde(rename = "type")]
+    pub type_: ::std::string::String,
+}
+///`StorageRequestRelationshipsOrganization`
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
+pub struct StorageRequestRelationshipsOrganization {
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub data: ::std::option::Option<StorageRequestRelationshipsOrganizationData>,
+}
+///An identifier for organization
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct StorageRequestRelationshipsOrganizationData {
+    pub id: ::std::string::String,
+    #[serde(default, skip_serializing_if = "::serde_json::Map::is_empty")]
+    pub meta: ::serde_json::Map<::std::string::String, ::serde_json::Value>,
+    #[serde(rename = "type")]
+    pub type_: ::std::string::String,
+}
 ///A "Resource object" representing a user
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
 #[serde(deny_unknown_fields)]

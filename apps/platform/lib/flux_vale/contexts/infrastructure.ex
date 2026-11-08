@@ -17,6 +17,7 @@ defmodule FluxVale.Infrastructure do
     extensions: [AshAdmin.Domain, AshJsonApi.Domain]
 
   alias FluxVale.Infrastructure.BackupSetting
+  alias FluxVale.Infrastructure.Operations.ApproveStorageRequest
   alias FluxVale.Infrastructure.Operations.AttachInstance
   alias FluxVale.Infrastructure.Operations.ClaimAccessDomain
   alias FluxVale.Infrastructure.Operations.ConfigureBackups
@@ -26,10 +27,12 @@ defmodule FluxVale.Infrastructure do
   alias FluxVale.Infrastructure.Operations.ReadBackupCredential
   alias FluxVale.Infrastructure.Operations.ReadFileAccessCredential
   alias FluxVale.Infrastructure.Operations.RegisterAccessDomain
+  alias FluxVale.Infrastructure.Operations.RejectStorageRequest
   alias FluxVale.Infrastructure.Operations.RemoveAccessDomain
   alias FluxVale.Infrastructure.Operations.ResizePreview
   alias FluxVale.Infrastructure.Operations.RestoreInstanceBackup
   alias FluxVale.Infrastructure.Operations.RestoreServingEdge
+  alias FluxVale.Infrastructure.Operations.RetryStorageRequest
   alias FluxVale.Infrastructure.Operations.RevokePocketIdKey
   alias FluxVale.Infrastructure.Operations.RunInstanceBackup
   alias FluxVale.Infrastructure.Operations.SetAccessApiToken
@@ -59,6 +62,7 @@ defmodule FluxVale.Infrastructure do
     resource(FluxVale.Infrastructure.InstanceHostname)
     resource(FluxVale.Infrastructure.PocketIdCustody)
     resource(FluxVale.Infrastructure.PocketIdCustodyEvent)
+    resource(FluxVale.Infrastructure.StorageRequest)
   end
 
   defdelegate sweep_stranded_instances(), to: SweepStrandedInstances, as: :call
@@ -138,6 +142,22 @@ defmodule FluxVale.Infrastructure do
   defdelegate resize_preview(instance, allocation), to: ResizePreview, as: :call
 
   defdelegate storage_expansion_capable?(instance), to: StorageExpansion, as: :capable?
+
+  # #250 (ADR-0046): the storage-request workflow's operator seam — the
+  # approve decision + apply, the rejection with member-visible
+  # feedback, and the apply retry. All three carry the actor; the
+  # request's own policies are the operator gate.
+  defdelegate approve_storage_request(actor, request_id),
+    to: ApproveStorageRequest,
+    as: :call
+
+  defdelegate reject_storage_request(actor, request_id, feedback),
+    to: RejectStorageRequest,
+    as: :call
+
+  defdelegate retry_storage_request(actor, request_id),
+    to: RetryStorageRequest,
+    as: :call
 
   # #203: the anonymous edge's wake and restore — the wake endpoint's
   # entries (the funded gate and the route flip live on the ops).

@@ -48,6 +48,14 @@ defmodule FluxVale.Infrastructure.Instance.StorageGrowthGuard do
 
   @legal_statuses [:running, :stopped, :sleeping, :error]
 
+  @doc """
+  The statuses an online storage-only growth accepts. Public because the
+  approval's decision gate reuses the same set (#250) — one authority for
+  "can this instance grow right now".
+  """
+  @spec legal_status?(atom()) :: boolean()
+  def legal_status?(status), do: status in @legal_statuses
+
   @impl Ash.Resource.Change
   def change(changeset, _opts, _context) do
     %Instance{} = data = changeset.data
@@ -58,7 +66,7 @@ defmodule FluxVale.Infrastructure.Instance.StorageGrowthGuard do
     # outcome decides the write.
     changeset = normalize_allocation(changeset)
 
-    if data.status in @legal_statuses do
+    if legal_status?(data.status) do
       changeset
       |> check_effective_allocation()
       |> settle_open_interval()
@@ -175,7 +183,7 @@ defmodule FluxVale.Infrastructure.Instance.StorageGrowthGuard do
   end
 
   defp fence_settled(changeset, {:ok, settled}) do
-    if settled.status in @legal_statuses do
+    if legal_status?(settled.status) do
       changeset
     else
       refuse(changeset, settled.status)
