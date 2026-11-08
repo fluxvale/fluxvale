@@ -224,8 +224,8 @@ defmodule FluxVale.Catalog.AppVersion do
     # blueprint only). [] = none (every existing entry; opt-in per
     # version, the oidc_wiring stance). Registry membership + env
     # ownership are validated at write time (ValidateBackingServices);
-    # public read carries kind + major only — no values exist at
-    # catalog level (the oidc_callback_path stance).
+    # public read carries names only — kind, major, and url_env — no
+    # values exist at catalog level (the oidc_callback_path stance).
     attribute :backing_services, {:array, FluxVale.Catalog.Types.BackingService} do
       allow_nil?(false)
       default([])

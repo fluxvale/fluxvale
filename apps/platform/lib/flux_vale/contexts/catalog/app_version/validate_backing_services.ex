@@ -163,7 +163,7 @@ defmodule FluxVale.Catalog.AppVersion.ValidateBackingServices do
   end
 
   defp duplicate_url_env_error(services) do
-    envs = Enum.map(services, & &1.url_env)
+    envs = Enum.map(services, &String.downcase(&1.url_env))
     duplicates = envs -- Enum.uniq(envs)
 
     if duplicates == [] do

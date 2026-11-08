@@ -106,7 +106,7 @@ of OQ #14 by avoidance, and a new ADR records the posture.
 
 ### 4.1 Metadata type — `FluxVale.Catalog.Types.BackingService`
 
-One nullable-attribute family on **AppVersion** (blueprint land, the
+One attribute family on **AppVersion** (blueprint land, the
 `oidc_wiring` precedent — per-version so an upstream breaking change
 never re-wires older instances):
 

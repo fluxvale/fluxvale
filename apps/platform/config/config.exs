@@ -161,7 +161,10 @@ config :flux_vale,
   # 2026-11-19) and what Docmost's and Vikunja's official composes
   # ship, above Umami's 12.14 minimum; redis 8 = Docmost's official
   # compose. Exact tags + digests verified against registry-1.docker.io
-  # (the #587 upstream-facts discipline). `cpu` must stay a STRING —
+  # (the #587 upstream-facts discipline). Tag pins, never `:latest` —
+  # the house convention (file_access/backups); a re-pushed tag can't
+  # shift a live instance because the S2 create-time snapshot resolves
+  # the ref onto the Instance. `cpu` must stay a STRING —
   # the quota math does `Decimal.new/1`, which rejects floats (the
   # backups stance). The requests are carved from the purchased
   # allocation, NOT added on top (D1: PG 0.10/256, Redis 0.05/64).

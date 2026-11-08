@@ -245,8 +245,8 @@ defmodule FluxValeWeb.Api.CatalogRouteTest do
   end
 
   # #612 (ADR-0045): the bundled-services declaration is catalog data a
-  # client can read — kind + major only, never values (the
-  # oidc_callback_path stance: no values exist at catalog level).
+  # client can read — names only (kind, major, url_env), never values
+  # (the oidc_callback_path stance: no values exist at catalog level).
   describe "version reads — backing_services (#612)" do
     setup do
       registry = Application.fetch_env!(:flux_vale, :backing_services)

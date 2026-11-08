@@ -829,7 +829,33 @@ defmodule FluxVale.Catalog.AppVersionTest do
           ]
         })
 
-      assert_rejection(attrs, ~s(duplicate url_env ["REDIS_URL"]))
+      assert_rejection(attrs, ~s(duplicate url_env ["redis_url"]))
+    end
+
+    test "case-variant duplicate url_envs fail too — the lock folds, like ValidateFirstRunEnv" do
+      specs =
+        @db_specs
+        |> Map.put("PG_URL", @db_specs["DATABASE_URL"])
+        |> Map.put("pg_url", @db_specs["DATABASE_URL"])
+
+      attrs =
+        version_attrs(app(), %{
+          configurable_env_vars: specs,
+          backing_services: [
+            %{
+              "kind" => "postgres",
+              "version" => registry_major(:postgres),
+              "url_env" => "PG_URL"
+            },
+            %{
+              "kind" => "redis",
+              "version" => registry_major(:redis),
+              "url_env" => "pg_url"
+            }
+          ]
+        })
+
+      assert_rejection(attrs, ~s(duplicate url_env ["pg_url"]))
     end
 
     test "a major not in the platform registry fails, naming the approved majors" do
@@ -847,6 +873,32 @@ defmodule FluxVale.Catalog.AppVersionTest do
         attrs,
         ~s(version #{inspect(unknown)} for kind :postgres is not in the platform backing-services registry)
       )
+    end
+
+    test "the registry itself holds a well-formed entry for every known kind (#612)" do
+      # The config comment's load-bearing claims, made true by
+      # construction: S2's quota math does Decimal.new/1 on cpu
+      # (rejects floats — the backups stance) and reads port/memory_mb
+      # as integers; image is an exact-tag pin, never :latest.
+      registry = Application.fetch_env!(:flux_vale, :backing_services)
+
+      for kind <- BackingService.known_kinds() do
+        entries = Keyword.fetch!(registry, kind)
+        assert Map.keys(entries) != [], "#{kind} registry has no majors"
+
+        for {major, entry} <- entries do
+          assert Regex.match?(~r/^\d+$/, major)
+          assert is_binary(entry.image)
+          assert entry.image =~ ":"
+          refute entry.image =~ ":latest"
+
+          assert is_integer(entry.port) and entry.port in 1..65_535
+          assert is_binary(entry.cpu)
+          assert {cpu, ""} = Decimal.parse(entry.cpu)
+          assert Decimal.compare(cpu, Decimal.new(0)) == :gt
+          assert is_integer(entry.memory_mb) and entry.memory_mb > 0
+        end
+      end
     end
 
     test "the lock also holds on update — an AshAdmin edit cannot drift a declaration" do
