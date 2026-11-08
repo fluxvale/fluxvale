@@ -417,11 +417,63 @@ defmodule FluxVale.Seeds.CatalogDataTest do
       assert version.storage_mount_path == "/data"
       assert version.oidc_callback_path == nil
       assert version.oidc_wiring == nil
+      assert version.backing_services == []
       assert version.recommended_size == "s"
 
       # #190: the toggle is optional and defaults off
       entry = hd(CatalogData.entries(path))
       assert hd(entry.apps).file_access == false
+    end
+
+    test "no shipped entry declares backing services — every version normalizes to [] (#612)" do
+      versions =
+        default_catalog_path()
+        |> CatalogData.entries()
+        |> Enum.flat_map(fn entry -> entry.apps end)
+        |> Enum.flat_map(fn app -> app.versions end)
+
+      assert versions != []
+      assert Enum.all?(versions, &(&1.backing_services == []))
+    end
+
+    test "passes a backing-services declaration through raw for write-time validation (#612)" do
+      db_yaml = """
+      - category:
+          name: T
+          slug: t
+          description: d
+        apps:
+          - name: A
+            slug: a
+            tagline: t
+            description: d
+            icon_url: https://example.com/i.svg
+            source_url: https://example.com
+            docs_url: https://example.com
+            versions:
+              - version: "1.0.0"
+                image: test/image:1.0
+                port: 8080
+                recommended_size: s
+                configurable_env_vars:
+                  DATABASE_URL:
+                    label: Database URL
+                    type: string
+                    secret: true
+                backing_services:
+                  - kind: postgres
+                    version: "18"
+                    url_env: DATABASE_URL
+      """
+
+      path = tmp_path(db_yaml)
+      entries = CatalogData.entries(path)
+      version = first_version(entries)
+      # Raw pass-through (string keys); the BackingService type +
+      # ValidateBackingServices own validation at write time.
+      assert version.backing_services == [
+               %{"kind" => "postgres", "version" => "18", "url_env" => "DATABASE_URL"}
+             ]
     end
 
     test "raises naming the version when recommended_size is missing (#125)" do

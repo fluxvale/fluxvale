@@ -41,6 +41,7 @@ defmodule FluxVale.Catalog.AppVersion do
           :configurable_env_vars,
           :first_run,
           :oidc_wiring,
+          :backing_services,
           :release_notes,
           :published_at
         ]
@@ -65,6 +66,7 @@ defmodule FluxVale.Catalog.AppVersion do
           :configurable_env_vars,
           :first_run,
           :oidc_wiring,
+          :backing_services,
           :release_notes,
           :published_at
         ]
@@ -216,6 +218,20 @@ defmodule FluxVale.Catalog.AppVersion do
       public?(true)
     end
 
+    # Bundled backing services (#612, ADR-0045): presence = this
+    # version deploys with Postgres/Redis containers inside the
+    # instance's own pod (the deployer's S2 renders them; here it is
+    # blueprint only). [] = none (every existing entry; opt-in per
+    # version, the oidc_wiring stance). Registry membership + env
+    # ownership are validated at write time (ValidateBackingServices);
+    # public read carries names only — kind, major, and url_env — no
+    # values exist at catalog level (the oidc_callback_path stance).
+    attribute :backing_services, {:array, FluxVale.Catalog.Types.BackingService} do
+      allow_nil?(false)
+      default([])
+      public?(true)
+    end
+
     attribute :default_cpu_cores, :decimal do
       allow_nil?(false)
       default(Decimal.new("0.5"))
@@ -279,6 +295,7 @@ defmodule FluxVale.Catalog.AppVersion do
         :configurable_env_vars,
         :first_run,
         :oidc_wiring,
+        :backing_services,
         :default_cpu_cores,
         :default_memory_mb,
         :default_storage_gb,
@@ -296,6 +313,7 @@ defmodule FluxVale.Catalog.AppVersion do
       validate(FluxVale.Catalog.AppVersion.ValidateSizeMatchesAllocation, before_action?: true)
       validate(FluxVale.Catalog.AppVersion.ValidateFirstRunEnv)
       validate(FluxVale.Catalog.AppVersion.ValidateOidcWiringEnv)
+      validate(FluxVale.Catalog.AppVersion.ValidateBackingServices)
     end
 
     update :update do
@@ -316,6 +334,7 @@ defmodule FluxVale.Catalog.AppVersion do
         :configurable_env_vars,
         :first_run,
         :oidc_wiring,
+        :backing_services,
         :default_cpu_cores,
         :default_memory_mb,
         :default_storage_gb,
@@ -335,6 +354,7 @@ defmodule FluxVale.Catalog.AppVersion do
       validate(FluxVale.Catalog.AppVersion.ValidateSizeMatchesAllocation, before_action?: true)
       validate(FluxVale.Catalog.AppVersion.ValidateFirstRunEnv)
       validate(FluxVale.Catalog.AppVersion.ValidateOidcWiringEnv)
+      validate(FluxVale.Catalog.AppVersion.ValidateBackingServices)
     end
 
     # #360: the detail page reads versions through the app relationship;

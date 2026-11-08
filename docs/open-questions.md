@@ -76,6 +76,12 @@ the decision.
     provisioning layer only if instances ever get platform-provisioned
     DBs (unsettled — ADR-0005 instances are namespace + Deployment +
     PVC; Forgejo runs SQLite-on-PVC); then with a clean seam.
+    Per-instance clause since settled by avoidance
+    ([ADR-0045](adr/00045-bundled-backing-services.md), #612): app
+    versions bundle Postgres/Redis containers in the instance's own
+    pod from catalog metadata — no provisioning layer, no
+    [ADR-0009](adr/00009-single-cnpg-cluster.md) amendment. The
+    managed-DB product shapes above stay deferred with their triggers.
 17. **Custom-allocation pricing semantics** (#180) — resolved (#186,
     2026-10-21): Terence chose **(a), the continuous anchor formula**.
     The curve lives as code (`FluxVale.Pricing.price_allocation/1`,

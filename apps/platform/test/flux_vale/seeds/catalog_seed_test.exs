@@ -611,6 +611,36 @@ defmodule FluxVale.Seeds.CatalogSeedTest do
       assert version_for!("testapp").oidc_callback_path == nil
     end
 
+    test "seeds a key-less version as [] and converges drifted declarations back to it (#612)" do
+      assert :ok == seed_fixture!()
+
+      # The fixture names no backing_services — the create branch lands
+      # the resource default's [] (no shipped entry declares any yet).
+      assert version_for!("testapp").backing_services == []
+
+      # Drift through a VALID declaration (the update path validates it
+      # for real — a secret, non-required, declared input).
+      registry = Application.fetch_env!(:flux_vale, :backing_services)
+      pg_entries = Keyword.fetch!(registry, :postgres)
+      pg_major = hd(Map.keys(pg_entries))
+
+      version = version_for!("testapp")
+
+      AppVersion.update!(
+        version,
+        %{
+          backing_services: [
+            %{"kind" => "postgres", "version" => pg_major, "url_env" => "SMTP_PASSWORD"}
+          ]
+        },
+        authorize?: false
+      )
+
+      assert :ok == seed_fixture!()
+
+      assert version_for!("testapp").backing_services == []
+    end
+
     test "converges drifted category and app data too (symmetric convergence)" do
       assert :ok == seed_fixture!()
 

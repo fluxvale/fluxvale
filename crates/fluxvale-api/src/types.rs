@@ -3458,6 +3458,8 @@ pub struct AppVersionAttributes {
     ///Field included by default.
     pub app_id: ::std::string::String,
     ///Field included by default.
+    pub backing_services: ::std::vec::Vec<AppVersionAttributesBackingServicesItem>,
+    ///Field included by default.
     pub configurable_env_vars: ::serde_json::Value,
     ///Field included by default.
     pub default_cpu_cores: ::std::string::String,
@@ -3501,6 +3503,67 @@ pub struct AppVersionAttributes {
     pub storage_mount_path: ::std::string::String,
     ///Field included by default.
     pub version: ::std::string::String,
+}
+///`AppVersionAttributesBackingServicesItem`
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct AppVersionAttributesBackingServicesItem {
+    pub kind: AppVersionAttributesBackingServicesItemKind,
+    pub url_env: ::std::string::String,
+    pub version: ::std::string::String,
+}
+///`AppVersionAttributesBackingServicesItemKind`
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum AppVersionAttributesBackingServicesItemKind {
+    #[serde(rename = "postgres")]
+    Postgres,
+    #[serde(rename = "redis")]
+    Redis,
+}
+impl ::std::fmt::Display for AppVersionAttributesBackingServicesItemKind {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Postgres => f.write_str("postgres"),
+            Self::Redis => f.write_str("redis"),
+        }
+    }
+}
+impl ::std::str::FromStr for AppVersionAttributesBackingServicesItemKind {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "postgres" => Ok(Self::Postgres),
+            "redis" => Ok(Self::Redis),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for AppVersionAttributesBackingServicesItemKind {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String>
+    for AppVersionAttributesBackingServicesItemKind
+{
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
 }
 ///Filters the query to results matching the given filter object
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]

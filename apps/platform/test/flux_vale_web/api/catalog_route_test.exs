@@ -243,4 +243,82 @@ defmodule FluxValeWeb.Api.CatalogRouteTest do
       assert row["attributes"]["oidc_wiring"] == nil
     end
   end
+
+  # #612 (ADR-0045): the bundled-services declaration is catalog data a
+  # client can read — names only (kind, major, url_env), never values
+  # (the oidc_callback_path stance: no values exist at catalog level).
+  describe "version reads — backing_services (#612)" do
+    setup do
+      registry = Application.fetch_env!(:flux_vale, :backing_services)
+
+      pg_entries = Keyword.fetch!(registry, :postgres)
+      redis_entries = Keyword.fetch!(registry, :redis)
+      pg_major = hd(Map.keys(pg_entries))
+      redis_major = hd(Map.keys(redis_entries))
+
+      db_version =
+        InstanceFixtures.app_version!(
+          configurable_env_vars: %{
+            "DATABASE_URL" => %{label: "Database URL", type: "string", secret: true},
+            "REDIS_URL" => %{label: "Redis URL", type: "string", secret: true}
+          },
+          backing_services: [
+            %{"kind" => "postgres", "version" => pg_major, "url_env" => "DATABASE_URL"},
+            %{"kind" => "redis", "version" => redis_major, "url_env" => "REDIS_URL"}
+          ]
+        )
+
+      pat = elem(ApiPat.member!(["catalog:read"]), 1)
+      %{db_version: db_version, pg_major: pg_major, redis_major: redis_major, pat: pat}
+    end
+
+    test "the versions list renders the pair as the storage shape", %{
+      conn: conn,
+      db_version: version,
+      pg_major: pg_major,
+      redis_major: redis_major,
+      pat: pat
+    } do
+      conn =
+        conn
+        |> auth(pat)
+        |> get("/api/v1/apps/#{version.app_id}/versions")
+
+      assert %{"data" => [row]} = json_response(conn, 200)
+
+      assert row["attributes"]["backing_services"] == [
+               %{"kind" => "postgres", "version" => pg_major, "url_env" => "DATABASE_URL"},
+               %{"kind" => "redis", "version" => redis_major, "url_env" => "REDIS_URL"}
+             ]
+    end
+
+    test "the app-version get renders it too", %{
+      conn: conn,
+      db_version: version,
+      redis_major: redis_major,
+      pat: pat
+    } do
+      conn =
+        conn
+        |> auth(pat)
+        |> get("/api/v1/app-versions/#{version.id}")
+
+      assert %{"data" => row} = json_response(conn, 200)
+
+      assert [_postgres, %{"kind" => "redis", "version" => ^redis_major}] =
+               row["attributes"]["backing_services"]
+    end
+
+    test "a services-less version renders an empty list, not an error", %{conn: conn, pat: pat} do
+      plain = InstanceFixtures.app_version!()
+
+      conn =
+        conn
+        |> auth(pat)
+        |> get("/api/v1/app-versions/#{plain.id}")
+
+      assert %{"data" => row} = json_response(conn, 200)
+      assert row["attributes"]["backing_services"] == []
+    end
+  end
 end

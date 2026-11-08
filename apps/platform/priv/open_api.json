@@ -1916,6 +1916,34 @@
                 "format": "uuid",
                 "type": "string"
               },
+              "backing_services": {
+                "description": "Field included by default.",
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "kind": {
+                      "enum": [
+                        "postgres",
+                        "redis"
+                      ],
+                      "type": "string"
+                    },
+                    "url_env": {
+                      "type": "string"
+                    },
+                    "version": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "version",
+                    "url_env"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
               "configurable_env_vars": {
                 "description": "Field included by default."
               },
@@ -2052,6 +2080,7 @@
               "storage_mount_path",
               "default_env_vars",
               "configurable_env_vars",
+              "backing_services",
               "default_cpu_cores",
               "default_memory_mb",
               "default_storage_gb",
@@ -9557,12 +9586,12 @@
             "schema": {
               "additionalProperties": true,
               "example": {
-                "app_version": "id,version,image,port,healthcheck_path,storage_mount_path,instance_url_env,host_allowlist_env,oidc_callback_path,default_env_vars,configurable_env_vars,first_run,oidc_wiring,default_cpu_cores,default_memory_mb,default_storage_gb,release_notes,published_at,app_id,recommended_size_id"
+                "app_version": "id,version,image,port,healthcheck_path,storage_mount_path,instance_url_env,host_allowlist_env,oidc_callback_path,default_env_vars,configurable_env_vars,first_run,oidc_wiring,backing_services,default_cpu_cores,default_memory_mb,default_storage_gb,release_notes,published_at,app_id,recommended_size_id"
               },
               "properties": {
                 "app_version": {
                   "description": "Comma separated field names for app_version",
-                  "example": "id,version,image,port,healthcheck_path,storage_mount_path,instance_url_env,host_allowlist_env,oidc_callback_path,default_env_vars,configurable_env_vars,first_run,oidc_wiring,default_cpu_cores,default_memory_mb,default_storage_gb,release_notes,published_at,app_id,recommended_size_id",
+                  "example": "id,version,image,port,healthcheck_path,storage_mount_path,instance_url_env,host_allowlist_env,oidc_callback_path,default_env_vars,configurable_env_vars,first_run,oidc_wiring,backing_services,default_cpu_cores,default_memory_mb,default_storage_gb,release_notes,published_at,app_id,recommended_size_id",
                   "type": "string"
                 }
               },
@@ -9590,6 +9619,34 @@
                               "description": "Field included by default.",
                               "format": "uuid",
                               "type": "string"
+                            },
+                            "backing_services": {
+                              "description": "Field included by default.",
+                              "items": {
+                                "additionalProperties": false,
+                                "properties": {
+                                  "kind": {
+                                    "enum": [
+                                      "postgres",
+                                      "redis"
+                                    ],
+                                    "type": "string"
+                                  },
+                                  "url_env": {
+                                    "type": "string"
+                                  },
+                                  "version": {
+                                    "type": "string"
+                                  }
+                                },
+                                "required": [
+                                  "kind",
+                                  "version",
+                                  "url_env"
+                                ],
+                                "type": "object"
+                              },
+                              "type": "array"
                             },
                             "configurable_env_vars": {
                               "description": "Field included by default."
@@ -9724,6 +9781,7 @@
                             "storage_mount_path",
                             "default_env_vars",
                             "configurable_env_vars",
+                            "backing_services",
                             "default_cpu_cores",
                             "default_memory_mb",
                             "default_storage_gb",
@@ -10105,12 +10163,12 @@
             "schema": {
               "additionalProperties": true,
               "example": {
-                "app_version": "id,version,image,port,healthcheck_path,storage_mount_path,instance_url_env,host_allowlist_env,oidc_callback_path,default_env_vars,configurable_env_vars,first_run,oidc_wiring,default_cpu_cores,default_memory_mb,default_storage_gb,release_notes,published_at,app_id,recommended_size_id"
+                "app_version": "id,version,image,port,healthcheck_path,storage_mount_path,instance_url_env,host_allowlist_env,oidc_callback_path,default_env_vars,configurable_env_vars,first_run,oidc_wiring,backing_services,default_cpu_cores,default_memory_mb,default_storage_gb,release_notes,published_at,app_id,recommended_size_id"
               },
               "properties": {
                 "app_version": {
                   "description": "Comma separated field names for app_version",
-                  "example": "id,version,image,port,healthcheck_path,storage_mount_path,instance_url_env,host_allowlist_env,oidc_callback_path,default_env_vars,configurable_env_vars,first_run,oidc_wiring,default_cpu_cores,default_memory_mb,default_storage_gb,release_notes,published_at,app_id,recommended_size_id",
+                  "example": "id,version,image,port,healthcheck_path,storage_mount_path,instance_url_env,host_allowlist_env,oidc_callback_path,default_env_vars,configurable_env_vars,first_run,oidc_wiring,backing_services,default_cpu_cores,default_memory_mb,default_storage_gb,release_notes,published_at,app_id,recommended_size_id",
                   "type": "string"
                 }
               },
@@ -10140,6 +10198,34 @@
                                 "description": "Field included by default.",
                                 "format": "uuid",
                                 "type": "string"
+                              },
+                              "backing_services": {
+                                "description": "Field included by default.",
+                                "items": {
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "kind": {
+                                      "enum": [
+                                        "postgres",
+                                        "redis"
+                                      ],
+                                      "type": "string"
+                                    },
+                                    "url_env": {
+                                      "type": "string"
+                                    },
+                                    "version": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "kind",
+                                    "version",
+                                    "url_env"
+                                  ],
+                                  "type": "object"
+                                },
+                                "type": "array"
                               },
                               "configurable_env_vars": {
                                 "description": "Field included by default."
@@ -10274,6 +10360,7 @@
                               "storage_mount_path",
                               "default_env_vars",
                               "configurable_env_vars",
+                              "backing_services",
                               "default_cpu_cores",
                               "default_memory_mb",
                               "default_storage_gb",
