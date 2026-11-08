@@ -51,8 +51,9 @@ defmodule FluxVale.Catalog.ValidateCopyRules do
     end
   end
 
-  # coveralls-ignore-next-line defensive — the string/array casts reject
-  # every other shape before a validation runs, so this arm can't fire.
+  # Defensive arm: the string/array casts reject every other shape
+  # before a validation runs, so this can't fire in a test.
+  # coveralls-ignore-next-line
   defp value_errors(field, other),
     do: [
       InvalidAttribute.exception(
@@ -62,7 +63,8 @@ defmodule FluxVale.Catalog.ValidateCopyRules do
     ]
 
   @impl Validation
-  # coveralls-ignore-next-line trivial callback — string scanning, no
-  # atomic expression (same stance as ValidateFirstRunEnv).
+  # Trivial callback — string scanning, no atomic expression (same
+  # stance as ValidateFirstRunEnv).
+  # coveralls-ignore-next-line
   def atomic?, do: false
 end
