@@ -144,8 +144,12 @@ defmodule FluxVale.Seeds do
       when state in [:pending, :withdrawn, :expired] ->
         raise "seed admin: #{@admin_email} carries an outstanding invitation (#{inspect(state)}) on account #{invited.id} — withdraw or accept it, then re-run"
 
+      # coveralls-ignore-start - race-only: needs a commit in the
+      # residual window after the supersede — a re-run converges
       _occupied_by_a_race ->
         raise "seed admin: #{@admin_email} could not be created (#{Exception.message(collision)}) — re-run"
+
+        # coveralls-ignore-stop
     end
   end
 
@@ -730,9 +734,14 @@ defmodule FluxVale.Seeds do
     # The authored slug is the get-or-create key: a future entry whose
     # title no longer derives to it would mint an unfindable duplicate
     # on every re-run. Fail the seed loudly instead.
+    # coveralls-ignore-start - authoring guard: the shipped YAML derives
+    # cleanly; a mismatch is a content-edit error the operator fixes in
+    # the file, not a runtime state a test can produce
     if created.slug != entry.slug do
       raise "seed feedback: #{inspect(entry.title)} derived slug #{inspect(created.slug)}, expected #{inspect(entry.slug)} — fix the entry's title to derive it"
     end
+
+    # coveralls-ignore-stop
 
     moved =
       if entry.status == :open do

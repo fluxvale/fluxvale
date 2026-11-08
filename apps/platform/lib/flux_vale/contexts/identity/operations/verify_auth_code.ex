@@ -404,27 +404,27 @@ defmodule FluxVale.Identity.Operations.VerifyAuthCode do
     |> Ash.create()
   end
 
+  # coveralls-ignore-start - race-only cluster since #287: the
+  # occupant pre-check is the sequential arbiter, so every arm in here
+  # needs a commit inside the concurrent window (the flip between the
+  # re-lookup and the create) or a DB read failure mid-verify (the
+  # health db_up? class — not simulatable under the sandbox)
   defp resolve_collided(email) do
     case lookup_user(email) do
       # The concurrent VerifyEmail's row landed inside the window —
       # that account is the proven owner.
-      # coveralls-ignore-start - race arm: needs the flip to commit
-      # between the re-lookup and the create — true concurrency
       {:ok, user} ->
         {:ok, user}
-
-      # coveralls-ignore-stop
 
       {:error, :not_found} ->
         collide_with_occupant(email)
 
-      # coveralls-ignore-start - DB read failure mid-verify: same class
-      # as health's db_up? — not simulatable under the sandbox
       {:error, _read_failed} = error ->
         error
-        # coveralls-ignore-stop
     end
   end
+
+  # coveralls-ignore-stop
 
   # The create collided, so a row existed moments ago: an invited
   # reservation (its account decides the refusal — the invitation wins,

@@ -301,10 +301,16 @@ defmodule FluxValeWeb.SettingsLive do
     end)
   end
 
+  # coveralls-ignore-start - defensive fallbacks: every refusal the
+  # three operations return is %Ash.Error.Invalid{} with binary field
+  # messages (asserted across the suites); these arms exist so an
+  # unexpected shape degrades to copy, never a crash
   defp cap_hit?(_other), do: false
 
   defp message_of(%{message: message}) when is_binary(message), do: message
   defp message_of(_other), do: ""
+
+  # coveralls-ignore-stop
 
   defp present(rows) do
     verified_count = Enum.count(rows, &(not is_nil(&1.verified_at)))
