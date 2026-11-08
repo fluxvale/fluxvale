@@ -12,11 +12,23 @@ defmodule FluxValeWeb.AuthLive.SignIn do
   so the POST body carries it and SessionController can land the
   visitor back where they came from. The controller re-validates; the
   validation here only keeps garbage out of the rendered form.
+
+  #219: every form also carries a native `action`/`method` fallback —
+  the resilience track for networks that block the WebSocket handshake
+  (and for JavaScript-off browsers). The email form POSTs to
+  `SignInController`, which requests the code and lands on `/sign-in/code`
+  (this same LiveView, step preselected, the address riding the session —
+  never a URL). The verify form POSTs to `SessionController`, which
+  accepts the code where the connected flow hands it a minted token. The
+  connected experience is unchanged; `assets/js/app.js` lets a fallback
+  form submit natively while the socket is down (LiveView's own submit
+  handler would otherwise swallow it).
   """
 
   use FluxValeWeb, :live_view
 
   alias FluxVale.Identity
+  alias FluxValeWeb.AuthFlow
   alias FluxValeWeb.ReturnPath
 
   # Outside any live_session (anonymous surface), so the locale hook is
@@ -45,9 +57,16 @@ defmodule FluxValeWeb.AuthLive.SignIn do
               :if={@step == :email}
               for={@form}
               id="email-form"
+              action={~p"/auth/sign-in"}
+              method="post"
               phx-submit="request-code"
+              data-native-fallback
               class="space-y-4"
             >
+              <%!-- #462/#219: the return path rides the POST body in both
+              transports — the native fallback never re-emits it into a
+              URL of its own. --%>
+              <input :if={@return_to} type="hidden" name="return_to" value={@return_to} />
               <.input
                 field={@form[:email]}
                 type="email"
@@ -85,14 +104,18 @@ defmodule FluxValeWeb.AuthLive.SignIn do
               <.form
                 for={@form}
                 id="code-form"
-                phx-submit="verify"
                 action={~p"/auth/session"}
                 method="post"
+                phx-submit="verify"
                 phx-trigger-action={@trigger_submit}
+                data-native-fallback
                 class="space-y-4"
               >
-                <input type="hidden" name="_csrf_token" value={Phoenix.Controller.get_csrf_token()} />
-                <input type="hidden" name="token" value={@token} />
+                <%!-- #219: the native verify carries the address and code
+                to SessionController; the connected hand-off still carries
+                the minted token (and wins there). --%>
+                <input type="hidden" name="email" value={@email} />
+                <input :if={@token} type="hidden" name="token" value={@token} />
                 <%!-- #462: the return path rides the POST body with the
                 token — never re-emitted into a URL by this flow. --%>
                 <input :if={@return_to} type="hidden" name="return_to" value={@return_to} />
@@ -117,12 +140,22 @@ defmodule FluxValeWeb.AuthLive.SignIn do
                 </.button>
               </.form>
 
+              <%!-- #219: connected keeps the in-place reset; the native
+              page's fallback is a plain link (no socket to handle it). --%>
               <button
+                :if={@connected}
                 phx-click="change-email"
                 class="text-sm font-medium text-link transition-colors hover:text-link-hover"
               >
                 Use a different email
               </button>
+              <a
+                :if={!@connected}
+                href={ReturnPath.sign_in_path(@return_to)}
+                class="text-sm font-medium text-link transition-colors hover:text-link-hover"
+              >
+                Use a different email
+              </a>
             </div>
           </div>
         </div>
@@ -131,122 +164,59 @@ defmodule FluxValeWeb.AuthLive.SignIn do
     """
   end
 
-  def mount(params, _session, socket) do
+  def mount(params, session, socket) do
     # Local-only at the door (ReturnPath.safe/1): garbage never reaches
     # the rendered form, and SessionController re-validates regardless.
     return_to = ReturnPath.safe(params["return_to"])
 
-    {:ok,
-     socket
-     |> assign(step: :email, email: nil, token: nil, trigger_submit: false, return_to: return_to)
-     # An auth surface is noindex (the launch SEO audit gap): the root
-     # layout's seo tags render the <meta name="robots"> from this
-     # assign — the same key the SeoNoindex plug sets on non-canonical
-     # hosts.
-     |> assign(robots_noindex: true)
-     |> assign(form: to_form(%{"email" => ""}))}
+    # #219: /sign-in/code is the native request-code endpoint's PRG
+    # target. Its address rides the session (never a URL); a direct hit
+    # with no pending request has nothing to verify — back to the email
+    # step's own URL.
+    case {socket.assigns.live_action, session["sign_in_email"]} do
+      {:code, email} when is_binary(email) ->
+        {:ok, mount_state(socket, :code, email, return_to)}
+
+      {:code, _no_pending_request} ->
+        {:ok, redirect(socket, to: ~p"/sign-in")}
+
+      {:email, _no_pending_request} ->
+        {:ok, mount_state(socket, :email, nil, return_to)}
+    end
   end
 
   def handle_event("request-code", %{"email" => email}, socket) do
-    case Identity.request_auth_code(email) do
-      :ok ->
+    outcome = Identity.request_auth_code(email)
+
+    case AuthFlow.request_outcome(outcome) do
+      {:ok, message} ->
         {:noreply,
          socket
          |> assign(step: :code, email: email)
          |> assign(form: to_form(%{"code" => ""}))
-         |> put_flash(:info, "Code sent. Check your inbox.")}
+         |> put_flash(:info, message)}
 
-      {:error, :throttled} ->
-        {:noreply,
-         put_flash(
-           socket,
-           :error,
-           "Please wait a minute before requesting another code."
-         )}
-
-      {:error, :not_allowed} ->
-        # #26: explicit, not enumeration-safe — staging is team-only;
-        # uniform messaging is a beta-invite-flow concern, not an M2 one
-        {:noreply,
-         put_flash(
-           socket,
-           :error,
-           "That address can't sign in yet. Ask an admin for access."
-         )}
-
-      {:error, :delivery_failed} ->
-        {:noreply,
-         put_flash(
-           socket,
-           :error,
-           "We couldn't send the email. Please wait a minute, then try again."
-         )}
-
-      {:error, :invalid_address} ->
-        {:noreply,
-         put_flash(
-           socket,
-           :error,
-           "That doesn't look like an email address. Check it and try again."
-         )}
+      {:error, message} ->
+        {:noreply, put_flash(socket, :error, message)}
     end
   end
 
   def handle_event("verify", %{"code" => code}, socket) do
-    case Identity.verify_auth_code(socket.assigns.email, code) do
+    outcome = Identity.verify_auth_code(socket.assigns.email, code)
+
+    case AuthFlow.verify_outcome(outcome) do
       {:ok, _user, token} ->
         {:noreply, assign(socket, token: token, trigger_submit: true)}
 
-      {:error, :locked_out} ->
+      {:code, message} ->
+        {:noreply, put_flash(socket, :error, message)}
+
+      {:email, message} ->
         {:noreply,
          socket
          |> assign(step: :email)
          |> assign(form: to_form(%{"email" => socket.assigns.email}))
-         |> put_flash(:error, "Too many attempts. Request a fresh code.")}
-
-      {:error, :not_allowed} ->
-        # #26: the rule changed after the code was sent — retrying that
-        # code can never succeed; back to the email step with the why
-        {:noreply,
-         socket
-         |> assign(step: :email)
-         |> assign(form: to_form(%{"email" => socket.assigns.email}))
-         |> put_flash(:error, "That address can't sign in yet. Ask an admin for access.")}
-
-      {:error, :invitation_required} ->
-        # #478: the invitation wall — the friction point's honest copy,
-        # no dead end (the ask sits in the text). The login code burned
-        # with the verify, so the retry is a fresh request anyway; back
-        # to the email step, their draft intact.
-        {:noreply,
-         socket
-         |> assign(step: :email)
-         |> assign(form: to_form(%{"email" => socket.assigns.email}))
-         |> put_flash(
-           :error,
-           "FluxVale is in invitation-only early access. Creating an account needs an " <>
-             "invited address. Write to support@fluxvale.com and we'll send you an invite."
-         )}
-
-      {:error, :invite_pending} ->
-        # #502: the invited account's only door is the emailed accept
-        # link — a code verify can never open it. The code burned with
-        # the verify, so the retry is a fresh request anyway; back to
-        # the email step, their draft intact (the :invitation_required
-        # shape).
-        {:noreply,
-         socket
-         |> assign(step: :email)
-         |> assign(form: to_form(%{"email" => socket.assigns.email}))
-         |> put_flash(
-           :error,
-           "This address has an invitation waiting. Use the link in the invitation email " <>
-             "to accept it."
-         )}
-
-      {:error, _reason} ->
-        # Uniform message: unknown address and wrong code look identical
-        {:noreply, put_flash(socket, :error, "That code didn't match. Try again.")}
+         |> put_flash(:error, message)}
     end
   end
 
@@ -255,5 +225,21 @@ defmodule FluxValeWeb.AuthLive.SignIn do
      socket
      |> assign(step: :email, token: nil, trigger_submit: false)
      |> assign(form: to_form(%{"email" => socket.assigns.email}))}
+  end
+
+  defp mount_state(socket, step, email, return_to) do
+    form = if step == :code, do: %{"code" => ""}, else: %{"email" => email || ""}
+
+    socket
+    |> assign(step: step, email: email, token: nil, trigger_submit: false, return_to: return_to)
+    |> assign(form: to_form(form))
+    # The native fallback's one markup difference: an anchor instead of
+    # the in-place phx-click reset (see render/1).
+    |> assign(connected: connected?(socket))
+    # An auth surface is noindex (the launch SEO audit gap): the root
+    # layout's seo tags render the <meta name="robots"> from this
+    # assign — the same key the SeoNoindex plug sets on non-canonical
+    # hosts.
+    |> assign(robots_noindex: true)
   end
 end

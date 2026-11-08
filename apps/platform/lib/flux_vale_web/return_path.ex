@@ -59,4 +59,18 @@ defmodule FluxValeWeb.ReturnPath do
       path -> ~p"/sign-in?return_to=#{path}"
     end
   end
+
+  @doc """
+  The code step's link for a return target (#219): the native POST's
+  PRG target and the failed-verify retry both land here. Same rule as
+  `sign_in_path/1` — a local target rides the query, anything else is
+  dropped.
+  """
+  @spec code_path(term()) :: String.t()
+  def code_path(target) do
+    case safe(target) do
+      nil -> ~p"/sign-in/code"
+      path -> ~p"/sign-in/code?return_to=#{path}"
+    end
+  end
 end

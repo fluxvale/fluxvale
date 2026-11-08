@@ -59,7 +59,9 @@ BASE_URL=https://staging.fluxvale.com E2E_TESTINBOX_TOKEN=<pat> npx playwright t
   re-click). #551: the account user menu rides the same hook and the
   same two pins. Signed-in chrome, so the same gates as sign-in.
 - `sign-in.spec.ts` — the human login flow via TestInbox; staging and
-  local.
+  local. #219 pins the native fallbacks too: the same round-trip with
+  the WebSocket handshake blocked (the forms POST natively while the
+  socket is down) and with JavaScript disabled.
 - `actual-lifecycle.spec.ts` — ActualBudget's lifecycle (#492): deploy
   through the stepper → running → HTTPS UI + `/health` → the
   first-open claim over the wire (needs-bootstrap false → bootstrap →
