@@ -127,6 +127,64 @@ defmodule FluxValeWeb.AdminResourcesLiveTest do
     end
   end
 
+  describe "the domain-divided sidebar navigation (D3 revised)" do
+    test "the landing renders every domain group collapsed and says what the sidebar shows", %{
+      conn: conn
+    } do
+      {:ok, view, _html} = live(conn, "/admin/resources")
+
+      assert has_element?(view, "[data-testid='admin-sidebar-domain-ops']")
+      refute has_element?(view, "[data-testid='admin-sidebar-domain-ops'][open]")
+      refute has_element?(view, "details[open]")
+
+      assert has_element?(
+               view,
+               "[data-testid='admin-resources-pending']",
+               "The sidebar groups every live domain here under Resources, collapsed to start."
+             )
+    end
+
+    test "a resource index opens its domain's group and marks its leaf as the page", %{
+      conn: conn,
+      admin: admin
+    } do
+      flag!(admin)
+
+      {:ok, view, _html} = live(conn, "/admin/resources/ops/feature_flag")
+
+      assert has_element?(view, "[data-testid='admin-sidebar-domain-ops'][open]")
+
+      leaf = render(element(view, "[data-testid='admin-nav-resource-ops-feature_flag']"))
+      assert leaf =~ ~s(aria-current="page")
+
+      # One marked entry per surface: the landing entry goes quiet.
+      landing = render(element(view, "[data-testid='admin-nav-resources']"))
+      refute landing =~ "aria-current"
+    end
+
+    test "a record's sub-route marks its leaf as an ancestor, not the page", %{
+      conn: conn,
+      admin: admin
+    } do
+      flag = flag!(admin)
+
+      {:ok, view, _html} = live(conn, "/admin/resources/ops/feature_flag/#{flag.id}")
+
+      assert has_element?(view, "[data-testid='admin-sidebar-domain-ops'][open]")
+
+      leaf = render(element(view, "[data-testid='admin-nav-resource-ops-feature_flag']"))
+      assert leaf =~ ~s(aria-current="location")
+      refute leaf =~ ~s(aria-current="page")
+    end
+
+    test "a non-console surface renders every domain group collapsed", %{conn: conn} do
+      {:ok, view, _html} = live(conn, "/admin/people")
+
+      assert has_element?(view, "[data-testid='admin-sidebar-domain-ops']")
+      refute has_element?(view, "details[open]")
+    end
+  end
+
   describe "route resolution honesty" do
     test "an unknown domain segment bounces to the landing with the honest flash", %{conn: conn} do
       assert {:error, {:live_redirect, %{to: "/admin/resources", flash: flash}}} =

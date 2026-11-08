@@ -51,9 +51,17 @@ AshAdmin itself. Three properties, in priority order:
   the registry once slice 5 lands. Any future member-scoped resource
   added to the registry carries its arm decision at intake (the
   registry parity test forces the intake).
-- **D3 — SETTLED: one "Resources" sidebar entry.** The landing page at
-  `/admin/resources` is the domain picker (domain cards linking to
-  domain pages); no per-domain sidebar entries.
+- **D3 — REVISED 2026-11-08 (Terence): domain-divided navigation.**
+  The console does not navigate through one flat everything-page: the
+  MAIN sidebar rail carries a "Resources" group whose collapsible
+  domain sub-groups (plain `<details>/<summary>`, collapsed by
+  default, the active domain's group open) hold every live registry
+  resource as a leaf link — the registry drives the nav, pending
+  domains render nothing until their slice. The `/admin/resources`
+  landing stays as the group's link target and the honest bounce
+  destination: an overview, never the only path. (Supersedes the
+  original one-entry ruling; the architect's call within Terence's
+  latitude put the grouping in the main rail, not an in-section one.)
 - **D4 — SETTLED: clean removal, no flag.** Slice 8 deletes route,
   dep, and `admin do` blocks in one PR. That PR keeps Terence's
   explicit sign-off gate: it is prepared, shown to him, and merged

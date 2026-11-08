@@ -167,13 +167,17 @@ defmodule FluxValeWeb.AdminLive.Resources do
           </div>
         </section>
 
-        <%!-- The section sidebar (Am. 4, the #568 idiom); the domain,
-        index, and record pages are sub-routes of the one Resources
-        entry, so they mark the entry as an ancestor (location) and the
-        landing marks it as the page. --%>
+        <%!-- The section sidebar (Am. 4, the #568 idiom); the console
+        surfaces pass their nav state so the Resources group renders
+        the active domain open and marks the active resource leaf (the
+        landing passes none — every group renders collapsed). --%>
         <section class="wrap pt-8 pb-16">
           <div class="rise flex flex-col gap-8 md:flex-row md:gap-12">
-            <AdminShell.sidebar current="resources" exact={@live_action == :domains} />
+            <AdminShell.sidebar
+              current="resources"
+              exact={@live_action == :domains}
+              console={console_nav(assigns)}
+            />
 
             <div class="min-w-0 flex-1 space-y-6">
               <%= case @live_action do %>
@@ -197,7 +201,7 @@ defmodule FluxValeWeb.AdminLive.Resources do
                   </div>
                   <p class="text-sm text-ink-subtle" data-testid="admin-resources-pending">
                     {gettext(
-                      "Not every domain is on this console yet. The ones here are fully supported."
+                      "The sidebar groups every live domain here under Resources, collapsed to start. Not every domain is live yet. The ones here are fully supported."
                     )}
                   </p>
                 <% :domain -> %>
@@ -1056,6 +1060,21 @@ defmodule FluxValeWeb.AdminLive.Resources do
 
   defp show_path(domain_key, resource_key, id),
     do: ~p"/admin/resources/#{domain_key}/#{resource_key}/#{id}"
+
+  # The sidebar's console nav state (D3 revised): the active domain
+  # whose group renders open, and the active resource leaf with its
+  # page/location truth. The landing passes nil — every group renders
+  # collapsed, no leaf marked.
+  defp console_nav(%{live_action: :domains}), do: nil
+
+  defp console_nav(%{live_action: :domain, domain: domain}),
+    do: %{domain: domain.key, resource: nil, exact: false}
+
+  defp console_nav(%{live_action: :index, domain_key: domain, resource_key: resource}),
+    do: %{domain: domain, resource: resource, exact: true}
+
+  defp console_nav(%{domain_key: domain, resource_key: resource}),
+    do: %{domain: domain, resource: resource, exact: false}
 
   defp save_flash(:new), do: gettext("The record was created.")
   defp save_flash(:edit), do: gettext("The record was updated.")

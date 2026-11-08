@@ -230,10 +230,11 @@ defmodule FluxValeWeb.AdminShellLiveTest do
       # The enumeration, from the router itself: a new :admin live
       # route without a shell expectation fails here. /admin is the
       # redirect head (its bounce is pinned below) and rides the same
-      # module as /admin/people. The resources console's domain,
-      # index, and record pages are sub-routes of its one entry —
-      # they mark the entry as an ancestor (location), the landing
-      # marks it as the page.
+      # module as /admin/people. The resources console's surfaces are
+      # domain-divided navigation (D3 revised): the landing and domain
+      # pages mark the Resources entry, a resource's own surfaces mark
+      # the resource LEAF (page on the index, location on its
+      # sub-routes) while the entry goes quiet.
       expected = %{
         {FluxValeWeb.AdminLive.People, "/admin/people"} => {"people", "page"},
         {FluxValeWeb.AdminLive.Catalog, "/admin/catalog"} => {"catalog", "page"},
@@ -253,13 +254,13 @@ defmodule FluxValeWeb.AdminShellLiveTest do
         {FluxValeWeb.AdminLive.Resources, "/admin/resources/:domain"} =>
           {"resources", "location"},
         {FluxValeWeb.AdminLive.Resources, "/admin/resources/:domain/:resource"} =>
-          {"resources", "location"},
+          {"resource-ops-feature_flag", "page"},
         {FluxValeWeb.AdminLive.Resources, "/admin/resources/:domain/:resource/new"} =>
-          {"resources", "location"},
+          {"resource-ops-feature_flag", "location"},
         {FluxValeWeb.AdminLive.Resources, "/admin/resources/:domain/:resource/:id/edit"} =>
-          {"resources", "location"},
+          {"resource-ops-feature_flag", "location"},
         {FluxValeWeb.AdminLive.Resources, "/admin/resources/:domain/:resource/:id"} =>
-          {"resources", "location"}
+          {"resource-ops-feature_flag", "location"}
       }
 
       admin_routes =
