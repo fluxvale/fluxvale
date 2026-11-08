@@ -13,6 +13,7 @@ msgstr ""
 
 #: lib/flux_vale_web/components/core_components.ex:718
 #: lib/flux_vale_web/live/admin_live/billing.ex:286
+#: lib/flux_vale_web/live/admin_live/gateways.ex:357
 #: lib/flux_vale_web/live/admin_live/moderation.ex:1046
 #: lib/flux_vale_web/live/admin_live/moderation.ex:1438
 #: lib/flux_vale_web/live/admin_live/orgs.ex:313
@@ -673,39 +674,42 @@ msgstr ""
 msgid "Guides"
 msgstr ""
 
-#: lib/flux_vale_web/components/admin_shell.ex:140
+#: lib/flux_vale_web/components/admin_shell.ex:134
+#: lib/flux_vale_web/live/admin_live/gateways.ex:224
 #, elixir-autogen, elixir-format
 msgid "Access gateways and domains"
 msgstr ""
 
-#: lib/flux_vale_web/components/admin_shell.ex:47
+#: lib/flux_vale_web/components/admin_shell.ex:48
 #, elixir-autogen, elixir-format
 msgid "Admin"
 msgstr ""
 
-#: lib/flux_vale_web/components/admin_shell.ex:166
+#: lib/flux_vale_web/components/admin_shell.ex:162
 #, elixir-autogen, elixir-format
 msgid "AshAdmin"
 msgstr ""
 
-#: lib/flux_vale_web/components/admin_shell.ex:155
+#: lib/flux_vale_web/components/admin_shell.ex:151
 #, elixir-autogen, elixir-format
 msgid "Deep debugging"
 msgstr ""
 
-#: lib/flux_vale_web/components/admin_shell.ex:133
+#: lib/flux_vale_web/components/admin_shell.ex:119
 #: lib/flux_vale_web/live/admin_live/moderation.ex:902
 #, elixir-autogen, elixir-format
 msgid "Feedback moderation"
 msgstr ""
 
-#: lib/flux_vale_web/components/admin_shell.ex:167
+#: lib/flux_vale_web/components/admin_shell.ex:163
 #, elixir-autogen, elixir-format
 msgid "LiveDashboard"
 msgstr ""
 
 #: lib/flux_vale_web/live/admin_live/billing.ex:195
 #: lib/flux_vale_web/live/admin_live/catalog.ex:52
+#: lib/flux_vale_web/live/admin_live/gateway_detail.ex:183
+#: lib/flux_vale_web/live/admin_live/gateways.ex:223
 #: lib/flux_vale_web/live/admin_live/moderation.ex:901
 #: lib/flux_vale_web/live/admin_live/org_detail.ex:249
 #: lib/flux_vale_web/live/admin_live/orgs.ex:194
@@ -719,24 +723,24 @@ msgstr ""
 msgid "Operator console"
 msgstr ""
 
-#: lib/flux_vale_web/components/admin_shell.ex:139
+#: lib/flux_vale_web/components/admin_shell.ex:125
 #: lib/flux_vale_web/live/admin_live/orgs.ex:195
 #, elixir-autogen, elixir-format
 msgid "Orgs and instances"
 msgstr ""
 
-#: lib/flux_vale_web/components/admin_shell.ex:124
+#: lib/flux_vale_web/components/admin_shell.ex:110
 #: lib/flux_vale_web/live/admin_live/people.ex:406
 #, elixir-autogen, elixir-format
 msgid "People and invites"
 msgstr ""
 
-#: lib/flux_vale_web/components/admin_shell.ex:162
+#: lib/flux_vale_web/components/admin_shell.ex:158
 #, elixir-autogen, elixir-format
 msgid "The generated tools. They run as trusted superuser without the resource policies. For emergencies and data surgery."
 msgstr ""
 
-#: lib/flux_vale_web/components/admin_shell.ex:129
+#: lib/flux_vale_web/components/admin_shell.ex:115
 #: lib/flux_vale_web/live/admin_live/billing.ex:196
 #, elixir-autogen, elixir-format
 msgid "Wallets and billing"
@@ -828,7 +832,7 @@ msgstr ""
 msgid "CPU cores"
 msgstr ""
 
-#: lib/flux_vale_web/components/admin_shell.ex:125
+#: lib/flux_vale_web/components/admin_shell.ex:111
 #: lib/flux_vale_web/live/admin_live/catalog.ex:53
 #, elixir-autogen, elixir-format
 msgid "Catalog and pricing"
@@ -977,6 +981,7 @@ msgid "None"
 msgstr ""
 
 #: lib/flux_vale_web/live/admin_live/billing.ex:379
+#: lib/flux_vale_web/live/admin_live/gateways.ex:411
 #, elixir-autogen, elixir-format
 msgid "Open"
 msgstr ""
@@ -1249,6 +1254,7 @@ msgstr ""
 msgid "One email goes out with a one-time accept link. The account stays inert until the link is used."
 msgstr ""
 
+#: lib/flux_vale_web/components/admin_components.ex:242
 #: lib/flux_vale_web/live/admin_live/people.ex:366
 #, elixir-autogen, elixir-format
 msgid "Pending"
@@ -1264,6 +1270,8 @@ msgstr ""
 msgid "Send invite"
 msgstr ""
 
+#: lib/flux_vale_web/live/admin_live/gateway_detail.ex:396
+#: lib/flux_vale_web/live/admin_live/gateways.ex:354
 #: lib/flux_vale_web/live/admin_live/people.ex:535
 #, elixir-autogen, elixir-format
 msgid "State"
@@ -1487,6 +1495,7 @@ msgid "Org name or slug"
 msgstr ""
 
 #: lib/flux_vale_web/live/admin_live/billing.ex:282
+#: lib/flux_vale_web/live/admin_live/gateways.ex:352
 #: lib/flux_vale_web/live/admin_live/orgs.ex:309
 #, elixir-autogen, elixir-format
 msgid "Organization"
@@ -1791,12 +1800,7 @@ msgstr ""
 msgid "The org's instances are stopped. The destroy clock starts at the next automatic check. A top-up that puts the balance back above zero clears it there."
 msgstr ""
 
-#: lib/flux_vale_web/components/admin_shell.ex:97
-#, elixir-autogen, elixir-format
-msgid "Coming"
-msgstr ""
-
-#: lib/flux_vale_web/components/admin_shell.ex:121
+#: lib/flux_vale_web/components/admin_shell.ex:107
 #, elixir-autogen, elixir-format
 msgid "Sections"
 msgstr ""
@@ -2220,13 +2224,13 @@ msgstr ""
 msgid "Previous"
 msgstr ""
 
-#: lib/flux_vale_web/components/admin_shell.ex:150
+#: lib/flux_vale_web/components/admin_shell.ex:146
 #: lib/flux_vale_web/live/admin_live/resources.ex:606
 #, elixir-autogen, elixir-format
 msgid "Resource console"
 msgstr ""
 
-#: lib/flux_vale_web/components/admin_shell.ex:147
+#: lib/flux_vale_web/components/admin_shell.ex:143
 #, elixir-autogen, elixir-format
 msgid "Resources"
 msgstr ""
@@ -2301,6 +2305,8 @@ msgstr ""
 msgid "Balance state"
 msgstr ""
 
+#: lib/flux_vale_web/live/admin_live/gateway_detail.ex:289
+#: lib/flux_vale_web/live/admin_live/gateways.ex:356
 #: lib/flux_vale_web/live/admin_live/org_detail.ex:460
 #, elixir-autogen, elixir-format
 msgid "Created"
@@ -2615,4 +2621,254 @@ msgstr ""
 #: lib/flux_vale_web/components/catalog_page_components.ex:357
 #, elixir-autogen, elixir-format
 msgid "yesterday"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/gateway_detail.ex:304
+#, elixir-autogen, elixir-format
+msgid "A gateway's keys live in the platform's secret store, outside this app. The names below point at the store entries that hold them."
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/gateway_detail.ex:329
+#, elixir-autogen, elixir-format
+msgid "API token entry"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/gateway_detail.ex:320
+#, elixir-autogen, elixir-format
+msgid "Auth key entry"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/gateway_detail.ex:200
+#, elixir-autogen, elixir-format
+msgid "Back to gateways"
+msgstr ""
+
+#: lib/flux_vale_web/components/admin_components.ex:222
+#, elixir-autogen, elixir-format
+msgid "Connected"
+msgstr ""
+
+#: lib/flux_vale_web/components/admin_components.ex:221
+#, elixir-autogen, elixir-format
+msgid "Connecting"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/gateway_detail.ex:302
+#, elixir-autogen, elixir-format
+msgid "Credential references"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/gateway_detail.ex:159
+#, elixir-autogen, elixir-format
+msgid "Custom"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/gateway_detail.ex:394
+#, elixir-autogen, elixir-format
+msgid "Domain"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/gateway_detail.ex:361
+#, elixir-autogen, elixir-format
+msgid "Domains"
+msgstr ""
+
+#: lib/flux_vale_web/components/admin_components.ex:245
+#, elixir-autogen, elixir-format
+msgid "Failed"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/gateways.ex:252
+#, elixir-autogen, elixir-format
+msgid "Find a gateway"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/gateway_detail.ex:222
+#: lib/flux_vale_web/live/admin_live/gateways.ex:353
+#, elixir-autogen, elixir-format
+msgid "Gateway"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/gateway_detail.ex:186
+#, elixir-autogen, elixir-format
+msgid "Gateway of %{org}"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/gateways.ex:234
+#, elixir-autogen, elixir-format
+msgid "Gateway reads are member-scoped, so this list is the gateways of orgs you belong to."
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/gateways.ex:323
+#, elixir-autogen, elixir-format
+msgid "Gateways are readable by org members only, so none are listed here."
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/gateway_detail.ex:241
+#, elixir-autogen, elixir-format
+msgid "Hostname"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/gateways.ex:268
+#, elixir-autogen, elixir-format
+msgid "Hostname or org"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/gateway_detail.ex:395
+#, elixir-autogen, elixir-format
+msgid "Kind"
+msgstr ""
+
+#: lib/flux_vale_web/components/admin_components.ex:223
+#: lib/flux_vale_web/components/admin_components.ex:244
+#, elixir-autogen, elixir-format
+msgid "Needs attention"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/gateway_detail.ex:385
+#, elixir-autogen, elixir-format
+msgid "No domains registered for this org yet."
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/gateways.ex:333
+#, elixir-autogen, elixir-format
+msgid "No gateway matches that search."
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/gateways.ex:301
+#, elixir-autogen, elixir-format
+msgid "No gateways in the orgs you belong to."
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/gateway_detail.ex:325
+#: lib/flux_vale_web/live/admin_live/gateway_detail.ex:347
+#, elixir-autogen, elixir-format
+msgid "Not recorded."
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/gateway_detail.ex:158
+#, elixir-autogen, elixir-format
+msgid "Platform"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/gateways.ex:304
+#, elixir-autogen, elixir-format
+msgid "Private access is opt-in per org. An org's gateway appears here once its owner enables it."
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/gateways.ex:226
+#, elixir-autogen, elixir-format
+msgid "Private-access gateways and the domains that serve them. This page is read-only: registration and keys live on each org's Access panel."
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/gateway_detail.ex:259
+#, elixir-autogen, elixir-format
+msgid "Provider"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/gateway_detail.ex:281
+#, elixir-autogen, elixir-format
+msgid "Provisioned"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/gateway_detail.ex:265
+#: lib/flux_vale_web/live/admin_live/gateways.ex:355
+#, elixir-autogen, elixir-format
+msgid "Rate"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/gateway_detail.ex:397
+#, elixir-autogen, elixir-format
+msgid "Registered"
+msgstr ""
+
+#: lib/flux_vale_web/components/admin_components.ex:225
+#, elixir-autogen, elixir-format
+msgid "Removing"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/gateways.ex:269
+#, elixir-autogen, elixir-format
+msgid "Search by hostname or org name or slug"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/gateways.ex:254
+#, elixir-autogen, elixir-format
+msgid "Search narrows this list by hostname or org name or slug. It never reaches past it."
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/gateway_detail.ex:374
+#, elixir-autogen, elixir-format
+msgid "Showing the latest 100 domains."
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/gateways.ex:285
+#, elixir-autogen, elixir-format
+msgid "Showing the latest 100 gateways. Attention pins to the top."
+msgstr ""
+
+#: lib/flux_vale_web/components/admin_components.ex:224
+#: lib/flux_vale_web/components/admin_components.ex:246
+#, elixir-autogen, elixir-format
+msgid "Suspended"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/gateway_detail.ex:250
+#, elixir-autogen, elixir-format
+msgid "Tailnet domain"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/gateway_detail.ex:161
+#, elixir-autogen, elixir-format
+msgid "Tailscale"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/gateway_detail.ex:78
+#, elixir-autogen, elixir-format
+msgid "That gateway does not exist."
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/gateway_detail.ex:90
+#, elixir-autogen, elixir-format
+msgid "That gateway is not listed. Gateway reads are member-scoped."
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/gateway_detail.ex:190
+#, elixir-autogen, elixir-format
+msgid "The gateway's facts, its credential references, and this org's domains. Everything here is read-only: the org's Access panel owns the writes."
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/gateway_detail.ex:101
+#, elixir-autogen, elixir-format
+msgid "The gateway's org did not load. Try again."
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/gateway_detail.ex:312
+#, elixir-autogen, elixir-format
+msgid "The keys themselves are never stored in the app database and never pass through this console. This page can show a name, never a key."
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/gateway_detail.ex:363
+#, elixir-autogen, elixir-format
+msgid "The names this org serves its private instances under. Registration lives on the org's own surfaces."
+msgstr ""
+
+#: lib/flux_vale_web/components/admin_components.ex:243
+#, elixir-autogen, elixir-format
+msgid "Verified"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/gateways.ex:320
+#, elixir-autogen, elixir-format
+msgid "You are not a member of any org."
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/gateways.ex:391
+#, elixir-autogen, elixir-format
+msgid "per month"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/gateway_detail.ex:271
+#, elixir-autogen, elixir-format
+msgid "per month, billed while connected. Suspended or removed, nothing accrues."
 msgstr ""

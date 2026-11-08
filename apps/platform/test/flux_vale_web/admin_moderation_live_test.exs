@@ -1378,12 +1378,13 @@ defmodule FluxValeWeb.AdminModerationLiveTest do
       assert has_element?(view, "[data-testid='admin-nav-feedback'][aria-current='page']")
       assert has_element?(view, "[data-testid='admin-nav-feedback']", "Feedback moderation")
       refute has_element?(view, "[data-testid='admin-coming-feedback']")
-      # Wallets (#571), feedback (#592), and orgs (this lane) flipped
-      # live: all three link. Gateways stays an honest placeholder.
+      # The console's completing flip: wallets, feedback, orgs, and
+      # gateways all link, and no Coming badge renders anywhere (the
+      # shell's grammar branch retired with the last flip).
       assert has_element?(view, "[data-testid='admin-nav-wallets'][href]")
       assert has_element?(view, "[data-testid='admin-nav-orgs'][href]")
-      refute has_element?(view, "[data-testid='admin-coming-orgs']")
-      assert has_element?(view, "[data-testid='admin-coming-gateways']")
+      assert has_element?(view, "[data-testid='admin-nav-gateways'][href='/admin/gateways']")
+      refute has_element?(view, "[data-testid^='admin-coming-']")
     end
 
     test "anonymous bounces to /sign-in", %{bare_conn: conn} do

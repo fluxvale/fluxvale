@@ -587,6 +587,19 @@ defmodule FluxValeWeb.Router do
       # writes anywhere on the surface, and no new domain actions.
       live("/orgs", FluxValeWeb.AdminLive.Orgs)
       live("/orgs/:id", FluxValeWeb.AdminLive.OrgDetail)
+
+      # The access gateways + domains oversight surface (#501): the
+      # last v1 section, read-only by design — registration and key
+      # writes belong to the product surfaces. Reads ride the
+      # infrastructure domain with the platform-admin actor and
+      # authorize?: true — the domain policies decide, never the UI.
+      # The gateway and domain read policies are members-only filters
+      # with no platform-admin arm, so the section renders exactly the
+      # rows those policies admit and says so honestly. With the orgs
+      # section live above it, the v1 surface set is complete and the
+      # shell's Coming grammar has retired.
+      live("/gateways", FluxValeWeb.AdminLive.Gateways)
+      live("/gateways/:id", FluxValeWeb.AdminLive.GatewayDetail)
     end
 
     # LiveDashboard on the debug subpath (Am. 3): this node's BEAM and

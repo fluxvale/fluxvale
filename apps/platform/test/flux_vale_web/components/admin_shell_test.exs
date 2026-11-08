@@ -44,8 +44,7 @@ defmodule FluxValeWeb.Components.AdminShellTest do
   # Every entry the sidebar carries, in order: the live sections, the
   # coming ones, the resource console's own group, then deep debugging.
   @entry_keys ~w(people catalog wallets feedback orgs gateways resources ash dashboard)
-  @live_keys ~w(people catalog wallets feedback orgs resources ash dashboard)
-  @coming_keys ~w(gateways)
+  @live_keys ~w(people catalog wallets feedback orgs gateways resources ash dashboard)
 
   test "the sections in order, live ones at their paths, coming ones linkless" do
     html = render_component(&AdminShell.sidebar/1, current: "people")
@@ -56,7 +55,7 @@ defmodule FluxValeWeb.Components.AdminShellTest do
              {"wallets", "/admin/billing", nil},
              {"feedback", "/admin/moderation", nil},
              {"orgs", "/admin/orgs", nil},
-             {"gateways", nil, nil},
+             {"gateways", "/admin/gateways", nil},
              {"resources", "/admin/resources", nil},
              {"ash", "/admin/ash", nil},
              {"dashboard", "/admin/debug/dashboard", nil}
@@ -66,42 +65,21 @@ defmodule FluxValeWeb.Components.AdminShellTest do
     assert Enum.map(keys, &elem(&1, 0)) == @entry_keys
   end
 
-  test "coming entries carry the Coming badge inline and nothing to follow" do
+  test "the Coming grammar is retired: every section links, nothing is badged" do
     html = render_component(&AdminShell.sidebar/1, current: "people")
     doc = LazyHTML.from_fragment(html)
 
-    for key <- @coming_keys do
-      badge_text =
-        doc
-        |> LazyHTML.query("[data-testid='admin-coming-#{key}']")
-        |> LazyHTML.text()
-        |> String.trim()
-
-      assert badge_text == "Coming"
-
-      # The honesty grammar: no href on the entry at all.
-      nodes = LazyHTML.query(doc, "[data-testid='admin-nav-#{key}'][href]")
-
-      assert Enum.to_list(nodes) == []
-
-      # The badge rides inline after the label (the nav's width budget):
-      # the entry is a label-plus-badge row, never a far-edge float.
-      entry_class =
-        doc
-        |> LazyHTML.query("[data-testid='admin-nav-#{key}']")
-        |> LazyHTML.attribute("class")
-        |> List.first()
-
-      assert entry_class =~ "items-center gap-2"
-      refute entry_class =~ "justify-between"
-    end
-
-    # Live entries all link.
-    for key <- @live_keys do
+    # The completion flip (#608): all six sections live, zero Coming entries.
+    # A path-less entry fails the render loudly rather than promising quietly.
+    for key <- @entry_keys do
       nodes = LazyHTML.query(doc, "[data-testid='admin-nav-#{key}'][href]")
 
       assert Enum.to_list(nodes) != []
     end
+
+    badge_nodes = LazyHTML.query(doc, "[data-testid^='admin-coming-']")
+    assert Enum.to_list(badge_nodes) == []
+    refute html =~ "Coming"
   end
 
   test "the live entries' labels read as the section names" do

@@ -362,6 +362,9 @@ defmodule FluxVale.Infrastructure.AccessGateway do
 
     # The Secret's NAME in the access namespace. Never the key. Opaque
     # to everything outside the provider implementation (ADR-0039 §2).
+    # The admin console's gateway detail renders this AS A NAME (the
+    # #501 gateways slice) — the identifier is the point, the key never
+    # leaves the store.
     attribute :credential_secret_ref, :string do
       public?(false)
     end
@@ -369,8 +372,11 @@ defmodule FluxVale.Infrastructure.AccessGateway do
     # The Secret's NAME holding the org's Tailscale API token (ADR-0040
     # §5 — the tailnet-claiming trust surface, dns + routes scopes).
     # Same discipline as `credential_secret_ref`: the token itself never
-    # reaches Postgres and no user surface reads it back. Nullable: a
-    # gateway that never claimed needs no token.
+    # reaches Postgres. No PRODUCT surface reads it back; the admin
+    # console renders the name (never the token, #501). Nullable: a
+    # gateway whose claims were never written carries no ref, and a nil
+    # ref alone proves nothing about whether a Secret exists (the claim
+    # path reads the Secret by its derived name).
     attribute :api_token_secret_ref, :string do
       public?(false)
     end
