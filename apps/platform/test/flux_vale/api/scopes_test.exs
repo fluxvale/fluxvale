@@ -120,6 +120,17 @@ defmodule FluxVale.Api.ScopesTest do
       assert {:ok, "instances:write"} = Scopes.required_scope("DELETE", ["instances", "abc"])
     end
 
+    test "storage-request routes ride the instances domain" do
+      assert {:ok, "instances:write"} =
+               Scopes.required_scope("POST", ["instances", "abc", "storage-requests"])
+
+      assert {:ok, "instances:read"} =
+               Scopes.required_scope("GET", ["instances", "abc", "storage-requests"])
+
+      assert {:ok, "instances:read"} =
+               Scopes.required_scope("GET", ["storage-requests", "req-1"])
+    end
+
     test "backup routes" do
       assert {:ok, "backups:read"} =
                Scopes.required_scope("GET", ["instances", "abc", "backup-setting"])

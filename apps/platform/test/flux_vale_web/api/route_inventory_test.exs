@@ -28,6 +28,11 @@ defmodule FluxValeWeb.Api.RouteInventoryTest do
     {:patch, "/instances/:id/exposure"},
     # #493: the stopped-first resize.
     {:patch, "/instances/:id/resize"},
+    # #250: the member storage-request verbs (operator decisions stay
+    # web-only — no admin scope).
+    {:post, "/instances/:instance_id/storage-requests"},
+    {:get, "/instances/:instance_id/storage-requests"},
+    {:get, "/storage-requests/:id"},
     {:delete, "/instances/:id"},
     # backups:read / backups:write
     {:get, "/instances/:instance_id/backup-setting"},
@@ -97,6 +102,15 @@ defmodule FluxValeWeb.Api.RouteInventoryTest do
     {FluxVale.Infrastructure.AccessDomain, :mark_failed},
     {FluxVale.Infrastructure.AccessDomain, :mark_needs_attention},
     {FluxVale.Infrastructure.AccessDomain, :mark_suspended},
+    # The storage-request workflow's operator/system writes (#250) —
+    # approve/reject/retry are the web queue's, mark_* the apply's, and
+    # the queue read is admin-only.
+    {FluxVale.Infrastructure.StorageRequest, :queue},
+    {FluxVale.Infrastructure.StorageRequest, :approve},
+    {FluxVale.Infrastructure.StorageRequest, :reject},
+    {FluxVale.Infrastructure.StorageRequest, :retry_apply},
+    {FluxVale.Infrastructure.StorageRequest, :mark_applied},
+    {FluxVale.Infrastructure.StorageRequest, :mark_apply_failed},
     # The money machinery is system-only; the API reads the wallet
     {FluxVale.Billing.Wallet, :create},
     {FluxVale.Billing.Wallet, :set_carryover},

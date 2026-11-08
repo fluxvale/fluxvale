@@ -61,6 +61,12 @@ defmodule FluxVale.Api.Scopes do
     {{"PATCH", ["instances", :_, "exposure"]}, "instances:write"},
     # #493: the stopped-first resize rides the same write scope.
     {{"PATCH", ["instances", :_, "resize"]}, "instances:write"},
+    # #250 (ADR-0046): the member storage-request verbs ride the
+    # instances domain — approve/reject/retry stay web-only (no admin
+    # scope exists).
+    {{"POST", ["instances", :_, "storage-requests"]}, "instances:write"},
+    {{"GET", ["instances", :_, "storage-requests"]}, "instances:read"},
+    {{"GET", ["storage-requests", :_]}, "instances:read"},
     {{"DELETE", ["instances", :_]}, "instances:write"},
     # Backups.
     {{"GET", ["instances", :_, "backup-setting"]}, "backups:read"},
