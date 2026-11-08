@@ -56,14 +56,34 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
   argument), defaulting to the actor's personal org. Origin-tracking
   (defaulting to the org a browse started from) is declared v1
   residual: the picker is the scope, the default stays Personal.
+
+  The Pocket ID SSO offer (#597 S3, D2/D7): on step 2, above the
+  manual env form, when ALL hold — the version carries an
+  `oidc_wiring` recipe (S1), the target org has an active public
+  Pocket ID (the detection read), and the `pocketid_sso_wiring` flag
+  is on (fail-closed: unseeded in prod until S4 completes the flow,
+  so no user sees a toggle that wires nothing yet). The card has four
+  states (offer / mid-setup / no-custody / unreachable); the offer's
+  checkbox is UNTICKED by default (D7 — prefilling sign-in into a new
+  app is a behavior change the user must choose), and ticking it
+  hides the recipe's manual env inputs (the platform writes them,
+  S4) while everything else stays. The probe answer and the choice
+  ride wizard state only — the submit path is untouched until S4.
   """
 
   use FluxValeWeb, :live_view
 
   alias FluxVale.Catalog
+  alias FluxVale.Infrastructure
   alias FluxVale.Infrastructure.Instance
+  alias FluxVale.Infrastructure.PocketIdCustody
+  alias FluxVale.Ops.FeatureFlags
   alias FluxVale.Pricing.Size
   alias FluxValeWeb.AllocationSliders
+
+  # #597 D7: the offer's checkbox starts cold. Ticking is an explicit
+  # choice — the platform must never prefill sign-in into a new app.
+  @pocketid_offer_default_unticked false
 
   @impl Phoenix.LiveView
   def mount(%{"slug" => slug}, _session, socket) do
@@ -83,6 +103,15 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
           |> assign(:pricing_sizes, preset_sizes(user))
           |> assign(:org_options, org_options)
           |> assign(:org_id, default_org_id(org_options, socket.assigns.personal_org_id))
+          # #597 S3: the Pocket ID offer's wizard-lifetime state — the
+          # card state (nil = nothing renders), the probe cache (one
+          # answer per Pocket ID instance, kept for the wizard's life),
+          # and the tick + chosen instance riding toward S4's submit
+          # wiring.
+          |> assign(:pocketid_offer, nil)
+          |> assign(:pocketid_probes, %{})
+          |> assign(:pocketid_ticked, @pocketid_offer_default_unticked)
+          |> assign(:pocketid_instance_id, nil)
           |> assign(
             :form,
             Instance
@@ -102,11 +131,18 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
 
   @impl Phoenix.LiveView
   def render(assigns) do
-    # The quick-pick rows carry their own pressed/recommended state —
-    # `aria-pressed` is a string attribute (a bare boolean renders as an
-    # empty value and announces nothing), and the allocation parses once
-    # per size instead of twice.
-    assigns = assign(assigns, :presets, preset_options(assigns))
+    # Resolve once per render: the quick-pick rows (pressed/recommended
+    # state — `aria-pressed` is a string attribute, a bare boolean
+    # renders as an empty value and announces nothing), and the env
+    # form's visible schema — the recipe's inputs render only while the
+    # offer is unticked (or absent): a ticked offer means the platform
+    # writes those values (#597 S3→S4), so the manual inputs vanish and
+    # everything else stays.
+    assigns =
+      assign(assigns,
+        presets: preset_options(assigns),
+        visible_schema: visible_schema(assigns)
+      )
 
     ~H"""
     <Layouts.app
@@ -162,15 +198,27 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
               native select — one control, no dropdown chrome to manage;
               the wizard's own band is the only surface that needs it.
               Hidden when the actor resolves no orgs at all (the seeded
-              shape — the create keeps its personal-org default). --%>
-              <div :if={@org_options != []} class="mt-4 flex items-center gap-3">
+              shape — the create keeps its personal-org default).
+
+              The wrapping form is load-bearing, not layout: phx-change
+              is a FORM binding — on the bare select no change event
+              ever reached the server (the picker looked picked in the
+              DOM while the create kept the personal-org default;
+              found from the browser while capturing #597 S3 — the
+              channel-level tests bypass the DOM binding, so only a
+              real browser trips it). --%>
+              <form
+                :if={@org_options != []}
+                id="deploy-org-form"
+                phx-change="pick-org"
+                class="mt-4 flex items-center gap-3"
+              >
                 <label for="deploy-org" class="text-sm text-ink-muted">
                   Deploy to
                 </label>
                 <select
                   id="deploy-org"
                   name="org_id"
-                  phx-change="pick-org"
                   data-testid="deploy-org-picker"
                   class="rounded-lg border border-line bg-panel px-2.5 py-1.5 text-sm text-ink outline-offset-2 outline-focus transition-colors hover:bg-panel-raised focus-visible:outline-2"
                 >
@@ -178,7 +226,7 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
                     {org.name}
                   </option>
                 </select>
-              </div>
+              </form>
             </div>
           </div>
         </section>
@@ -246,6 +294,140 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
             <.card :if={@step == 2} class="max-w-lg space-y-4">
               <h2 class="text-base font-medium text-ink">Configuration</h2>
 
+              <%!-- #597 S3: the Pocket ID offer, above the manual env
+              form. nil = nothing renders (flag off, no recipe, or no
+              active Pocket ID in the target org) — the whole card is
+              absent, not collapsed. --%>
+              <div :if={@pocketid_offer} id="pocketid-offer" data-testid="pocketid-offer">
+                <%= case @pocketid_offer.state do %>
+                  <% :offer -> %>
+                    <%!-- The working offer: UNTICKED by default (D7).
+                    Ticking is the user's explicit yes to the platform
+                    creating the client. --%>
+                    <div class="rounded-xl border border-primary bg-primary-muted px-4 py-3">
+                      <label
+                        for="pocketid-offer-check"
+                        class="flex cursor-pointer items-start gap-3 text-sm text-ink"
+                      >
+                        <input
+                          type="checkbox"
+                          id="pocketid-offer-check"
+                          phx-click="toggle-pocketid"
+                          checked={@pocketid_ticked}
+                          class="mt-0.5 size-4 accent-primary"
+                          data-testid="pocketid-offer-check"
+                        />
+                        <span>
+                          <span class="font-medium">
+                            Sign in with your Pocket ID — {selected_pocketid_url(
+                              @pocketid_offer,
+                              @pocketid_instance_id
+                            )}
+                          </span>
+                          FluxVale creates a {@app.name} client named after this instance in your Pocket ID automatically. The manual sign-in inputs stay as the fallback.
+                        </span>
+                      </label>
+
+                      <%!-- Multiple ready Pocket IDs: pick which one
+                      serves the sign-in — a native select riding a
+                      form (phx-change is a form binding; the bare
+                      select never fires — the org picker's lesson,
+                      same fix), most recently deployed first, the
+                      default already selected. --%>
+                      <div :if={@pocketid_offer.picker?} class="mt-3 flex items-center gap-3 pl-7">
+                        <form
+                          id="pocketid-picker-form"
+                          phx-change="pick-pocketid"
+                          class="flex items-center gap-3"
+                        >
+                          <label for="pocketid-picker" class="text-sm text-ink-muted">
+                            Use
+                          </label>
+                          <select
+                            id="pocketid-picker"
+                            name="pocketid_id"
+                            data-testid="pocketid-picker"
+                            class="rounded-lg border border-line bg-panel px-2.5 py-1.5 text-sm text-ink outline-offset-2 outline-focus transition-colors hover:bg-panel-raised focus-visible:outline-2"
+                          >
+                            <option
+                              :for={pocketid <- @pocketid_offer.ready}
+                              value={pocketid.id}
+                              selected={pocketid.id == @pocketid_instance_id}
+                            >
+                              {pocketid.name} — {pocketid.url}
+                            </option>
+                          </select>
+                        </form>
+                      </div>
+
+                      <%!-- The tick's consequence, named: what hides
+                      and what the platform does at deploy (S4). --%>
+                      <p
+                        :if={@pocketid_ticked}
+                        id="pocketid-offer-confirmed"
+                        data-testid="pocketid-offer-confirmed"
+                        class="mt-2 pl-7 text-xs text-ink-muted"
+                      >
+                        FluxVale wires sign-in when you deploy. The manual inputs below are hidden for now.
+                      </p>
+                    </div>
+                  <% :mid_setup -> %>
+                    <%!-- 204 from the probe: the admin account is still
+                    unclaimed — the Pocket ID can't host clients yet. --%>
+                    <div
+                      id="pocketid-mid-setup"
+                      data-testid="pocketid-mid-setup"
+                      class="rounded-xl border border-line bg-panel-raised px-4 py-3 text-sm text-ink"
+                    >
+                      <p class="font-medium">Finish setting up your Pocket ID first</p>
+                      <p class="mt-0.5 text-ink-muted">
+                        Its admin account isn't claimed yet, so it can't sign anyone in. Configure sign-in manually below, or come back after setup.
+                      </p>
+                      <.link
+                        navigate={~p"/instances/#{@pocketid_offer.link_instance_id}"}
+                        class="mt-1.5 inline-block font-medium text-link hover:underline"
+                        data-testid="pocketid-mid-setup-link"
+                      >
+                        Open your Pocket ID
+                      </.link>
+                    </div>
+                  <% :no_custody -> %>
+                    <%!-- Active Pocket ID but no verified API key held:
+                    the one-time owner act that unlocks the automatic
+                    wiring (S2's card lives on the instance page). --%>
+                    <div
+                      id="pocketid-no-custody"
+                      data-testid="pocketid-no-custody"
+                      class="rounded-xl border border-line bg-panel-raised px-4 py-3 text-sm text-ink"
+                    >
+                      <p class="font-medium">One-time: let FluxVale manage sign-in clients</p>
+                      <p class="mt-0.5 text-ink-muted">
+                        Paste a Pocket ID admin API key once and FluxVale can wire sign-in for your apps automatically. Or configure it manually below.
+                      </p>
+                      <.link
+                        navigate={~p"/instances/#{@pocketid_offer.link_instance_id}"}
+                        class="mt-1.5 inline-block font-medium text-link hover:underline"
+                        data-testid="pocketid-no-custody-link"
+                      >
+                        Open your Pocket ID
+                      </.link>
+                    </div>
+                  <% :unreachable -> %>
+                    <%!-- Honest degradation (D3): the wizard works, the
+                    offer doesn't — the manual inputs are right below. --%>
+                    <div
+                      id="pocketid-unreachable"
+                      data-testid="pocketid-unreachable"
+                      class="rounded-xl border border-warning bg-warning-muted px-4 py-3 text-sm text-ink"
+                    >
+                      <p class="font-medium">Pocket ID not reachable right now</p>
+                      <p class="mt-0.5 text-ink-muted">
+                        We couldn't check whether it's ready for automatic sign-in. Configure manually below, or start the wizard again in a moment.
+                      </p>
+                    </div>
+                <% end %>
+              </div>
+
               <%!-- The error shape here is map-level (every message hangs
               off the :env_vars attribute — no per-env-name attribution
               exists to wire aria-invalid/aria-describedby against), so
@@ -273,17 +455,17 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
                 }
               </script>
 
-              <p :if={@schema == []} class="text-sm text-ink-muted">
+              <p :if={@visible_schema == []} class="text-sm text-ink-muted">
                 Nothing to configure for this app. Continue.
               </p>
 
               <form
-                :if={@schema != []}
+                :if={@visible_schema != []}
                 id="env-form"
                 phx-submit="env-continue"
                 class="space-y-4"
               >
-                <div :for={{name, spec} <- @schema}>
+                <div :for={{name, spec} <- @visible_schema}>
                   <label class="mb-1.5 block text-sm font-medium text-ink" for={"env-#{name}"}>
                     {spec.label}
                     <span :if={spec.required} class="text-danger">*</span>
@@ -309,7 +491,7 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
                 </div>
               </form>
 
-              <div :if={@schema == []} class="flex justify-end gap-3">
+              <div :if={@visible_schema == []} class="flex justify-end gap-3">
                 <.button variant="ghost" size="sm" type="button" phx-click="back-version">
                   Back
                 </.button>
@@ -627,6 +809,209 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
     |> Keyword.values()
   end
 
+  # --- the Pocket ID SSO offer (#597 S3) -------------------------------------
+  # State machine: flag + recipe + active Pocket ID in the target org
+  # → probe the custody-ready ones → one of four card states. nil =
+  # nothing renders. The probe answers cache per Pocket ID instance
+  # for the wizard's life; detection and custody re-read per recompute
+  # (cheap org-scoped DB reads — the org picker can move the target).
+
+  defp assign_pocketid_offer(socket) do
+    {offer, probes} = pocketid_offer(socket)
+
+    socket
+    |> assign(:pocketid_probes, probes)
+    |> assign(:pocketid_offer, offer)
+    |> assign(:pocketid_ticked, @pocketid_offer_default_unticked)
+    |> assign(:pocketid_instance_id, default_pocketid_id(offer))
+  end
+
+  # The flag is fail-closed and checked FIRST: off means no reads and
+  # no probes at all — prod (unseeded) never touches a Pocket ID.
+  defp pocketid_offer(socket) do
+    probes = socket.assigns.pocketid_probes
+    version = socket.assigns.selected
+
+    cond do
+      not FeatureFlags.enabled?(:pocketid_sso_wiring) ->
+        {nil, probes}
+
+      is_nil(version.oidc_wiring) ->
+        {nil, probes}
+
+      # Seeded/legacy shape: an actor with no resolvable orgs (see
+      # default_org_id/2) — no sign-in path produces it, and there is
+      # no org to detect Pocket IDs in.
+      # coveralls-ignore-next-line
+      is_nil(socket.assigns.org_id) ->
+        {nil, probes}
+
+      true ->
+        org_pocketid_offer(socket)
+    end
+  end
+
+  # The target org's offer. Active Pocket IDs first (the detection
+  # read, §4.1's one query); an empty answer is the card's own absence
+  # — an org without a Pocket ID sees nothing at all.
+  defp org_pocketid_offer(socket) do
+    org_id = socket.assigns.org_id
+    user = socket.assigns.current_user
+
+    active = Instance.list_active_pocket_ids_for_organization!(org_id, actor: user)
+
+    if active == [] do
+      {nil, socket.assigns.pocketid_probes}
+    else
+      # S2's seam: the org's custody rows, member-scoped by the read
+      # policy (for_organization — built for this detection read).
+      custodies = PocketIdCustody.for_organization!(org_id, actor: user)
+      ready = Enum.filter(active, &custody_ready?(&1, custodies))
+      {probes, completed} = probe_pocketids(socket.assigns.pocketid_probes, ready)
+
+      {offer_state(active, ready, completed, probes), probes}
+    end
+  end
+
+  # Custody ready = a row for (org, instance) whose ref and
+  # verification both stand. The resource holds both not-null by
+  # contract (a row exists only once its key verified live), so the
+  # checks read degenerate today — kept explicit so a future shape
+  # relaxing verification fails the offer closed, not silently.
+  defp custody_ready?(instance, custodies) do
+    Enum.any?(custodies, fn custody ->
+      custody.instance_id == instance.id and not is_nil(custody.api_key_secret_ref) and
+        not is_nil(custody.verified_at)
+    end)
+  end
+
+  # Probe each custody-ready Pocket ID (204 = mid-setup, 404 =
+  # completed, anything else = unreachable), caching per instance for
+  # the wizard's life — a re-entry or org round trip never re-asks.
+  # The ready list is newest-deployed first (the detection read's
+  # sort); completed keeps that order — its head is the default pick.
+  defp probe_pocketids(cached, ready) do
+    probes =
+      Enum.reduce(ready, cached, fn instance, probes ->
+        Map.put_new_lazy(probes, instance.id, fn ->
+          Infrastructure.probe_pocketid_setup(instance)
+        end)
+      end)
+
+    completed = Enum.filter(ready, &(Map.get(probes, &1.id) == :completed))
+
+    {probes, completed}
+  end
+
+  # The four card states, decided in precedence order:
+  #
+  # - :offer — at least one custody-ready Pocket ID answered completed
+  #   (404). The pickable set is the completed ones only: a mid-setup
+  #   or unreachable Pocket ID can't host the client.
+  # - :no_custody — active Pocket IDs but none custody-ready: the
+  #   one-time owner act (S2's intake card) unlocks the offer. Links
+  #   the most recently deployed one.
+  # - :mid_setup — custody ready but every probed Pocket ID still
+  #   answers 204 (admin unclaimed). Links the most recently deployed
+  #   mid-setup one.
+  # - :unreachable — custody ready, none completed, none mid-setup:
+  #   the honest can't-check copy (D3's degrade posture).
+  defp offer_state(active, ready, completed, probes) do
+    cond do
+      completed != [] ->
+        %{
+          state: :offer,
+          ready: Enum.map(completed, &pocketid_option/1),
+          picker?: length(completed) > 1,
+          link_instance_id: nil
+        }
+
+      ready == [] ->
+        %{state: :no_custody, ready: [], picker?: false, link_instance_id: hd(active).id}
+
+      Enum.any?(ready, &(Map.get(probes, &1.id) == :mid_setup)) ->
+        # The ready list is newest-deployed first; the first mid-setup
+        # one is the card's link target.
+        mid = Enum.find(ready, &(Map.get(probes, &1.id) == :mid_setup))
+
+        %{state: :mid_setup, ready: [], picker?: false, link_instance_id: mid.id}
+
+      true ->
+        %{state: :unreachable, ready: [], picker?: false, link_instance_id: nil}
+    end
+  end
+
+  defp untick(socket) do
+    assign(socket, :pocketid_ticked, false)
+  end
+
+  defp tick(socket) do
+    recipe_names = recipe_env_names(socket.assigns.selected)
+    env_values = Map.drop(socket.assigns.env_values, recipe_names)
+
+    socket
+    |> assign(:pocketid_ticked, true)
+    |> assign(:env_values, env_values)
+  end
+
+  # A picker row / the offer's copy: the Pocket ID instance's id,
+  # name, and public URL — the issuer it will answer as (§4.4).
+  defp pocketid_option(instance) do
+    %{id: instance.id, name: instance.name, url: pocketid_url(instance)}
+  end
+
+  # The offer's default pick: the most recently deployed completed
+  # Pocket ID (the ready list's head). Non-offer states carry no pick.
+  defp default_pocketid_id(%{state: :offer, ready: [first | _rest]}), do: first.id
+
+  defp default_pocketid_id(_offer_or_nil), do: nil
+
+  # The recipe's manual env names — the inputs a ticked offer hides
+  # (the platform writes them, #597 §4.2). enabled_env is optional in
+  # a recipe; a nil names nothing. The nil clause is defensive: a tick
+  # can only exist for a version whose oidc_wiring produced an offer
+  # (to-env resets the tick on every version change), so it cannot
+  # run in a test.
+  # coveralls-ignore-next-line
+  defp recipe_env_names(%{oidc_wiring: nil}), do: []
+
+  defp recipe_env_names(%{oidc_wiring: wiring}) do
+    names = [
+      wiring.issuer_env,
+      wiring.client_id_env,
+      wiring.client_secret_env,
+      wiring.enabled_env
+    ]
+
+    Enum.reject(names, &is_nil/1)
+  end
+
+  # What the env form renders: the whole schema, minus the recipe's
+  # inputs while the offer is ticked. An unticked (or absent) offer
+  # keeps every input — the manual fallback is always fully rendered.
+  defp visible_schema(%{pocketid_ticked: true} = assigns) do
+    Enum.reject(assigns.schema, fn {name, _spec} ->
+      name in recipe_env_names(assigns.selected)
+    end)
+  end
+
+  defp visible_schema(assigns), do: assigns.schema
+
+  # The Pocket ID instance's public URL — the same derivation the
+  # deployer seeds APP_URL from (`<slug>.<instances_base_domain>`);
+  # no trailing slash (the issuer form the recipe's env expects).
+  defp pocketid_url(instance) do
+    base_domain = Application.fetch_env!(:flux_vale, :instances_base_domain)
+    "https://#{instance.slug}.#{base_domain}"
+  end
+
+  # The offer copy's URL: the chosen Pocket ID's (the default pick,
+  # or the picker's selection once it moves).
+  defp selected_pocketid_url(%{state: :offer} = offer, selected_id) do
+    selected = Enum.find(offer.ready, &(&1.id == selected_id)) || hd(offer.ready)
+    selected.url
+  end
+
   @impl Phoenix.LiveView
   def handle_event("pick-version", %{"id" => id}, socket) do
     {:noreply, assign(socket, :version_id, id)}
@@ -634,14 +1019,21 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
 
   # The org context pick (#408). A crafted id: the rendered options
   # can't produce one, so nothing to read and nothing changes — the
-  # current pick stays (to-env's guard posture).
+  # current pick stays (to-env's guard posture). On step 2 the offer
+  # follows the org (#597): a different org's Pocket IDs (or none)
+  # recompute the card.
   def handle_event("pick-org", %{"org_id" => org_id}, socket) do
     case Enum.find(socket.assigns.org_options, &(&1.id == org_id)) do
       nil ->
         {:noreply, socket}
 
       _option ->
-        {:noreply, assign(socket, :org_id, org_id)}
+        socket = assign(socket, :org_id, org_id)
+
+        socket =
+          if socket.assigns.step == 2, do: assign_pocketid_offer(socket), else: socket
+
+        {:noreply, socket}
     end
   end
 
@@ -660,6 +1052,7 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
         socket =
           socket
           |> assign(step: 2, schema: sorted_schema(version), selected: version)
+          |> assign_pocketid_offer()
           |> validate_step(%{"app_version_id" => version.id})
 
         {:noreply, socket}
@@ -685,6 +1078,47 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
 
   def handle_event("back-env", _params, socket) do
     {:noreply, assign(socket, step: 2)}
+  end
+
+  # The offer's tick (#597 D7). Ticking also drops any recipe env
+  # values the user had typed: the platform writes those (S4), and a
+  # hidden leftover value riding the submit would be the opposite of
+  # the platform-injected posture the card promises. Unticking brings
+  # the inputs back empty — the manual fallback, honestly blank.
+  def handle_event("toggle-pocketid", _params, socket) do
+    offer = socket.assigns.pocketid_offer
+
+    socket =
+      cond do
+        not (is_map(offer) and offer.state == :offer) ->
+          # A crafted toggle with no offer on the table (or a non-offer
+          # state): nothing to agree to, nothing changes.
+          socket
+
+        socket.assigns.pocketid_ticked ->
+          untick(socket)
+
+        true ->
+          tick(socket)
+      end
+
+    {:noreply, socket}
+  end
+
+  # Which ready Pocket ID serves the sign-in (the picker's select). A
+  # crafted id: the rendered options can't produce one — the pick-org
+  # posture, current choice stays.
+  def handle_event("pick-pocketid", %{"pocketid_id" => id}, socket) do
+    offer = socket.assigns.pocketid_offer
+
+    socket =
+      if is_map(offer) and offer.state == :offer and Enum.any?(offer.ready, &(&1.id == id)) do
+        assign(socket, :pocketid_instance_id, id)
+      else
+        socket
+      end
+
+    {:noreply, socket}
   end
 
   # Live: every slider move or preset pick re-renders the

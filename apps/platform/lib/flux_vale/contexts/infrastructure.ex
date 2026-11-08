@@ -22,6 +22,7 @@ defmodule FluxVale.Infrastructure do
   alias FluxVale.Infrastructure.Operations.ConfigureBackups
   alias FluxVale.Infrastructure.Operations.DetachInstance
   alias FluxVale.Infrastructure.Operations.ObserveAccessGateway
+  alias FluxVale.Infrastructure.Operations.ProbePocketIdSetup
   alias FluxVale.Infrastructure.Operations.ReadBackupCredential
   alias FluxVale.Infrastructure.Operations.ReadFileAccessCredential
   alias FluxVale.Infrastructure.Operations.RegisterAccessDomain
@@ -201,4 +202,10 @@ defmodule FluxVale.Infrastructure do
   defdelegate restore_instance_backup(instance, opts \\ []),
     to: RestoreInstanceBackup,
     as: :call
+
+  # #597 §4.1: the mid-setup probe — asks a Pocket ID instance whether
+  # its first-boot admin is still unclaimed. Read-only, best-effort: a
+  # failure is an answer (:unreachable), never an error the caller must
+  # handle — the wizard's offer card degrades on it, nothing breaks.
+  defdelegate probe_pocketid_setup(instance), to: ProbePocketIdSetup, as: :call
 end
