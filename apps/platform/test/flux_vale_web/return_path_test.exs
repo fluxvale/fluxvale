@@ -16,7 +16,7 @@ defmodule FluxValeWeb.ReturnPathTest do
       # Query and fragment ride along — the invitation token, the
       # device-flow anchor — the value stays one local path.
       assert FluxValeWeb.ReturnPath.local?("/invitations/accept?token=abc")
-      assert FluxValeWeb.ReturnPath.local?("/settings/access#device-sign-ins")
+      assert FluxValeWeb.ReturnPath.local?("/settings/developer#device-sign-ins")
     end
 
     test "refuses the open-redirect shapes" do

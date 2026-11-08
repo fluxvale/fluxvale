@@ -6,7 +6,7 @@ defmodule FluxVale.Identity.DeviceCode do
   state the poll endpoint's answers ride.
 
   Lifecycle: :pending (minted by `POST /api/v1/device/code`) →
-  :approved / :denied (the settings/access panel's Device sign-ins
+  :approved / :denied (the developer settings page's Device sign-ins
   section) → :consumed (the first poll that finds :approved mints the
   PAT and burns the row's one-time delivery). :expired exists in the
   state machine but nothing ever SETS it — expiry rides the timestamp

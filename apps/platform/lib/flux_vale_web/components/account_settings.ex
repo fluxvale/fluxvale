@@ -1,9 +1,10 @@
 defmodule FluxValeWeb.AccountSettings do
   @moduledoc """
   Account settings chrome shared by the personal settings surfaces (#551):
-  the section sidebar. Both surfaces render it, so the account cluster's
-  navigation cannot drift between them (the OrgSettings posture at
-  account scope).
+  the section sidebar. Every account settings surface renders it
+  (Settings, the access personal head, DeveloperSettingsLive), so the
+  account cluster's navigation cannot drift between them (the
+  OrgSettings posture at account scope).
 
   Sections group the existing surfaces — Account (Profile, Access,
   Developer) and Billing (Wallet). No dead entries ship: Access and
@@ -67,7 +68,7 @@ defmodule FluxValeWeb.AccountSettings do
   # hid on this exact condition, and BillingLive's mount degrades
   # identically. The gate leaves the no-org sidebar at Profile and
   # Developer (#635: the developer page is actor-scoped, no org at
-  # mount, so its entry is the one ungated neighbor).
+  # mount, so its entry ships ungated beside Profile).
   defp sections(nil), do: [%{key: "account", label: "Account", entries: [profile(), developer()]}]
 
   defp sections(_personal_org_id) do

@@ -1614,16 +1614,5 @@ defmodule FluxValeWeb.OrganizationLive.AccessTest do
       refute has_element?(view, "[data-testid='device-sign-ins']")
       refute has_element?(view, "[data-testid='api-tokens']")
     end
-
-    test "the moved events are inert here, never crashes", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/settings/access")
-
-      # A crafted (or stale-bookmarked) event aimed at the moved
-      # sections finds no handler — LiveView raises on unknown events,
-      # so the honest posture is that the panel keeps working for its
-      # own surface and the events simply cannot arrive from this
-      # page's markup. The render round-trip is the assertion.
-      assert render(view) =~ "Access"
-    end
   end
 end

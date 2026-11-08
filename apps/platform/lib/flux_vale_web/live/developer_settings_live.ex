@@ -6,12 +6,15 @@ defmodule FluxValeWeb.DeveloperSettingsLive do
   private-access gateway panel it is named for.
 
   Actor-scoped like the settings cluster: no org resolves at mount,
-  so the page works for every signed-in actor (the sidebar's
-  Developer entry is the one ungated neighbor — Profile and Access
-  ride the personal-org gate). The device flow's verification_uri
-  landing (/settings/access/device) redirects here at the
-  #device-sign-ins anchor; the section ids keep their old names so
-  the fragment targets stay stable.
+  so the page works for every signed-in actor (in the sidebar, Profile
+  and Developer are the ungated entries; Access and Wallet ride the
+  personal-org gate). The device flow's verification_uri landing
+  (/settings/access/device) redirects here at the #device-sign-ins
+  anchor, and the section ids keep their old names —
+  verification_uri_complete-style links against THIS page resolve
+  against the same targets. A fragment on the old /settings/access
+  URL can never be redirected (fragments never reach the server); the
+  path-level landing covers the link the system itself mints.
 
   Device sign-ins: the actor's pending requests — approve binds the
   row to the clicking user and the CLI's next poll mints the PAT for

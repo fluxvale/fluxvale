@@ -442,8 +442,9 @@ defmodule FluxValeWeb.Router do
   end
 
   # #362: the device flow's verification_uri target — a controller
-  # redirect to the access panel at the Device sign-ins section (the
-  # fragment). Outside the live_session above on purpose: a plain GET
+  # redirect to the developer settings page at the Device sign-ins
+  # section (the fragment; #635 moved the section off /settings/access).
+  # Outside the live_session above on purpose: a plain GET
   # can't ride on_mount gates, and the controller checks the same
   # session chain (UserAuth.resolve_user) — anonymous visitors go to
   # sign-in, the panel's own gate would bounce them there anyway.

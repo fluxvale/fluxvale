@@ -111,6 +111,15 @@ defmodule FluxValeWeb.DeveloperSettingsLiveTest do
       refute has_element?(view, "[data-testid='device-sign-in-row']")
     end
 
+    test "both section anchors keep their ids on the new page", %{conn: conn} do
+      # The device flow's landing and any verification_uri_complete-style
+      # deep link target these ids; they moved WITH the sections.
+      {:ok, view, _html} = live(conn, ~p"/settings/developer")
+
+      assert has_element?(view, "#device-sign-ins")
+      assert has_element?(view, "#api-tokens")
+    end
+
     test "a pending sign-in renders its user_code, scopes, client and expiry", %{
       conn: conn
     } do
