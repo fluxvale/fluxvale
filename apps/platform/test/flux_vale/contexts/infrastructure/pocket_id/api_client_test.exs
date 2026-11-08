@@ -26,6 +26,7 @@ defmodule FluxVale.Infrastructure.PocketId.ApiClientTest do
       assert opts[:url] == path
       assert opts[:receive_timeout] == 3_000
       assert req.options[:retry] == false
+      assert req.options[:connect_options][:timeout] == 3_000
 
       respond.(opts)
     end)
