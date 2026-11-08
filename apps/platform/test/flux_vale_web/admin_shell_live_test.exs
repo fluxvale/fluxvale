@@ -115,8 +115,10 @@ defmodule FluxValeWeb.AdminShellLiveTest do
       authorize?: false
     )
 
+    gateway_org = elem(gateway_org_pair, 0)
+
     gateway =
-      elem(gateway_org_pair, 0)
+      gateway_org
       |> AccessFixtures.gateway!()
       |> Ash.Changeset.for_update(
         :update_state,
