@@ -77,7 +77,8 @@ defmodule FluxValeWeb.Components.AdminShellTest do
       assert Enum.to_list(nodes) != []
     end
 
-    assert Enum.to_list(LazyHTML.query(doc, "[data-testid^='admin-coming-']")) == []
+    badge_nodes = LazyHTML.query(doc, "[data-testid^='admin-coming-']")
+    assert Enum.to_list(badge_nodes) == []
     refute html =~ "Coming"
   end
 
