@@ -15,12 +15,8 @@ msgstr ""
 #: lib/flux_vale_web/live/admin_live/billing.ex:278
 #: lib/flux_vale_web/live/admin_live/moderation.ex:1046
 #: lib/flux_vale_web/live/admin_live/moderation.ex:1434
-<<<<<<< HEAD
-#: lib/flux_vale_web/live/admin_live/people.ex:535
-#: lib/flux_vale_web/live/admin_live/resources.ex:231
-=======
 #: lib/flux_vale_web/live/admin_live/people.ex:540
->>>>>>> 8ea8e6c (gettext: re-extract POT after the line shifts)
+#: lib/flux_vale_web/live/admin_live/resources.ex:231
 #: lib/flux_vale_web/live/admin_live/wallet_detail.ex:1051
 #, elixir-autogen, elixir-format
 msgid "Actions"
@@ -711,12 +707,8 @@ msgstr ""
 #: lib/flux_vale_web/live/admin_live/billing.ex:195
 #: lib/flux_vale_web/live/admin_live/catalog.ex:52
 #: lib/flux_vale_web/live/admin_live/moderation.ex:901
-<<<<<<< HEAD
-#: lib/flux_vale_web/live/admin_live/people.ex:400
-#: lib/flux_vale_web/live/admin_live/resources.ex:114
-=======
 #: lib/flux_vale_web/live/admin_live/people.ex:405
->>>>>>> 8ea8e6c (gettext: re-extract POT after the line shifts)
+#: lib/flux_vale_web/live/admin_live/resources.ex:114
 #: lib/flux_vale_web/live/admin_live/size_edit.ex:262
 #: lib/flux_vale_web/live/admin_live/sizes.ex:67
 #: lib/flux_vale_web/live/admin_live/version_edit.ex:395
