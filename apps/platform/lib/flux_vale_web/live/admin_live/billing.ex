@@ -266,11 +266,19 @@ defmodule FluxValeWeb.AdminLive.Billing do
                 shared helper (#602). Track mins total 31rem (+ gaps and
                 padding, ~34rem): the populated list scrolls INTERNALLY
                 below the band beside the sidebar at 1024+ (the people
-                surface's floor-and-scroll idiom), never the page. --%>
-                <div class={[
-                  "grid-cols-[minmax(7.5rem,1.6fr)_5.5rem_6.5rem_minmax(8.5rem,1.2fr)_3rem]",
-                  AdminComponents.admin_table_header_class()
-                ]}>
+                surface's floor-and-scroll idiom), never the page.
+                Gated behind rows-present: a dangling header over an
+                empty state promises columns nothing is there to fill
+                (the orgs surface's shared defect class, fixed here too
+                and disclosed on that PR). --%>
+                <div
+                  :if={not @rows_empty?}
+                  class={[
+                    "grid-cols-[minmax(7.5rem,1.6fr)_5.5rem_6.5rem_minmax(8.5rem,1.2fr)_3rem]",
+                    AdminComponents.admin_table_header_class()
+                  ]}
+                  data-testid="admin-billing-table-header"
+                >
                   <div>{gettext("Organization")}</div>
                   <div class="text-right">{gettext("Balance")}</div>
                   <div>{gettext("Waiver")}</div>

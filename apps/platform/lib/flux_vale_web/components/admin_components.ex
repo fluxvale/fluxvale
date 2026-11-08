@@ -71,7 +71,7 @@ defmodule FluxValeWeb.AdminComponents do
   stay literal, so Tailwind's source scan keeps emitting them.
   Semantic CSS classes in app.css would re-express utilities as raw
   CSS. The design system keeps component chrome hand-written Tailwind
-  on the tokens.
+  on the tokens. The orgs surfaces' tables ride the same chrome.
   """
   @spec admin_table_header_class :: String.t()
   def admin_table_header_class do
@@ -87,5 +87,70 @@ defmodule FluxValeWeb.AdminComponents do
   @spec admin_table_row_class :: String.t()
   def admin_table_row_class do
     "grid items-center gap-x-1.5 px-3 py-3 transition-colors hover:bg-panel-raised/60"
+  end
+
+  @doc """
+  The allocation a live instance runs at: "0.5 CPU · 256 MB · 12 GB".
+  The version blueprint's shape (`allocation_text/1`) over the
+  instance's own numbers — an instance still carries the storage term
+  (#558 moved the storage axis out of sizes, not out of instances).
+  """
+  @spec instance_allocation_text(map()) :: String.t()
+  def instance_allocation_text(instance) do
+    gettext("%{cpu} CPU · %{memory} MB · %{storage} GB",
+      cpu: Decimal.to_string(instance.cpu_cores),
+      memory: Integer.to_string(instance.memory_mb),
+      storage: Integer.to_string(instance.storage_gb)
+    )
+  end
+
+  # The wallet balance's three-way state (the orgs surfaces' summary
+  # badge, #501): negative is the destroy clock's countdown, zero
+  # blocks the funded gates (deploys, starts, resizes), positive is
+  # the resting rung and takes NO badge at all (the plain state — a
+  # green chip on every quiet row reads louder than the alarms).
+  # Tone never rides alone — each badged state carries its own icon
+  # and word.
+  @doc """
+  The balance state's parts: `{tone, icon, label}`, or `:none` for the
+  resting (positive) rung — the plain state, deliberately unbadged.
+  Negative reads as the countdown (danger, clock), zero as the funded
+  gate's block (warning, triangle).
+  """
+  @spec wallet_state(integer()) :: {String.t(), String.t() | nil, String.t()} | :none
+  def wallet_state(balance_cents) when balance_cents < 0 do
+    {"danger", "hero-clock", gettext("Negative")}
+  end
+
+  def wallet_state(0), do: {"warning", "hero-exclamation-triangle", gettext("Zero")}
+
+  def wallet_state(_balance_cents), do: :none
+
+  @doc """
+  The badge itself: the state helper's parts as one rendered cue, so
+  the two orgs surfaces (the list row and the detail card) show the
+  SAME badge. The wallets section renders its own grammar (the waiver
+  is that section's state column) — deliberately not shared.
+  """
+  attr(:balance_cents, :integer, required: true)
+  attr(:class, :any, default: nil)
+
+  @spec wallet_state_badge(map()) :: Phoenix.LiveView.Rendered.t()
+  def wallet_state_badge(%{balance_cents: balance_cents} = assigns) do
+    case wallet_state(balance_cents) do
+      :none ->
+        ~H"""
+        """
+
+      {tone, icon, label} ->
+        assigns = assign(assigns, tone: tone, icon: icon, label: label)
+
+        ~H"""
+        <.badge tone={@tone} class={@class}>
+          <.icon :if={@icon} name={@icon} class="size-3.5" />
+          <span>{@label}</span>
+        </.badge>
+        """
+    end
   end
 end

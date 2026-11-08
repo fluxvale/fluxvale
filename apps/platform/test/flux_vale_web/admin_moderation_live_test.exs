@@ -1378,10 +1378,11 @@ defmodule FluxValeWeb.AdminModerationLiveTest do
       assert has_element?(view, "[data-testid='admin-nav-feedback'][aria-current='page']")
       assert has_element?(view, "[data-testid='admin-nav-feedback']", "Feedback moderation")
       refute has_element?(view, "[data-testid='admin-coming-feedback']")
-      # Wallets flipped live with #571: both sections link, orgs and
-      # gateways stay honest placeholders.
+      # Wallets (#571), feedback (#592), and orgs (this lane) flipped
+      # live: all three link. Gateways stays an honest placeholder.
       assert has_element?(view, "[data-testid='admin-nav-wallets'][href]")
-      assert has_element?(view, "[data-testid='admin-coming-orgs']")
+      assert has_element?(view, "[data-testid='admin-nav-orgs'][href]")
+      refute has_element?(view, "[data-testid='admin-coming-orgs']")
       assert has_element?(view, "[data-testid='admin-coming-gateways']")
     end
 

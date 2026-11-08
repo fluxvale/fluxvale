@@ -131,7 +131,12 @@ defmodule FluxValeWeb.AdminShell do
           # the posts list, the per-post expansion, and the tag
           # vocabulary.
           %{key: "feedback", label: gettext("Feedback moderation"), path: ~p"/admin/moderation"},
-          %{key: "orgs", label: gettext("Orgs and instances")},
+          # #501's orgs and instances section: live. The overview and
+          # the per-org detail (a sub-route, which marks this entry
+          # aria-current="location"). Read-only by design — the v1 plan
+          # reserved the section's writes; none are operationally
+          # necessary today.
+          %{key: "orgs", label: gettext("Orgs and instances"), path: ~p"/admin/orgs"},
           %{key: "gateways", label: gettext("Access gateways and domains")}
         ]
       },

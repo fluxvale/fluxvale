@@ -28,6 +28,7 @@ defmodule FluxValeWeb.AdminShellLiveTest do
     {"catalog", "/admin/catalog"},
     {"sizes ladder", "/admin/catalog/sizes"},
     {"wallets", "/admin/billing"},
+    {"orgs", "/admin/orgs"},
     {"resources console", "/admin/resources"}
   ]
 
@@ -47,6 +48,9 @@ defmodule FluxValeWeb.AdminShellLiveTest do
 
   defp concrete_admin_path("/admin/billing/wallets/:id", %{wallet: wallet}),
     do: "/admin/billing/wallets/#{wallet.id}"
+
+  defp concrete_admin_path("/admin/orgs/:id", %{org: org}),
+    do: "/admin/orgs/#{org.id}"
 
   defp concrete_admin_path("/admin/catalog/sizes/:id", %{version: version}),
     do: "/admin/catalog/sizes/#{version.recommended_size.id}"
@@ -96,6 +100,7 @@ defmodule FluxValeWeb.AdminShellLiveTest do
     %{
       admin: admin,
       version: version,
+      org: org,
       wallet: wallet,
       flag: flag,
       conn: SessionHelpers.sign_in(conn, admin)
@@ -169,6 +174,7 @@ defmodule FluxValeWeb.AdminShellLiveTest do
     test "every :admin live route renders the shell with the right active mark", %{
       conn: conn,
       version: version,
+      org: org,
       wallet: wallet,
       flag: flag
     } do
@@ -185,6 +191,8 @@ defmodule FluxValeWeb.AdminShellLiveTest do
         {FluxValeWeb.AdminLive.Billing, "/admin/billing"} => {"wallets", "page"},
         {FluxValeWeb.AdminLive.WalletDetail, "/admin/billing/wallets/:id"} =>
           {"wallets", "location"},
+        {FluxValeWeb.AdminLive.Orgs, "/admin/orgs"} => {"orgs", "page"},
+        {FluxValeWeb.AdminLive.OrgDetail, "/admin/orgs/:id"} => {"orgs", "location"},
         {FluxValeWeb.AdminLive.Sizes, "/admin/catalog/sizes"} => {"catalog", "location"},
         {FluxValeWeb.AdminLive.SizeEdit, "/admin/catalog/sizes/:id"} => {"catalog", "location"},
         {FluxValeWeb.AdminLive.VersionEdit, "/admin/catalog/versions/:id"} =>
@@ -204,12 +212,13 @@ defmodule FluxValeWeb.AdminShellLiveTest do
           {mod, path}
         end
 
-      assert length(admin_routes) == 12
+      assert length(admin_routes) == 14
 
       for {mod, path} <- admin_routes do
         {key, mark} = Map.fetch!(expected, {mod, path})
 
-        concrete_path = concrete_admin_path(path, %{version: version, wallet: wallet, flag: flag})
+        concrete_path =
+          concrete_admin_path(path, %{version: version, org: org, wallet: wallet, flag: flag})
 
         {:ok, view, _html} = live(conn, concrete_path)
 
@@ -235,12 +244,16 @@ defmodule FluxValeWeb.AdminShellLiveTest do
     test "every admin surface renders the console root and the unbounded chrome", %{
       conn: conn,
       version: version,
+      org: org,
       wallet: wallet,
       flag: flag
     } do
       for {path, {_mod, _action, _info, _session}} <- admin_live_route_info() do
         {:ok, view, _html} =
-          live(conn, concrete_admin_path(path, %{version: version, wallet: wallet, flag: flag}))
+          live(
+            conn,
+            concrete_admin_path(path, %{version: version, org: org, wallet: wallet, flag: flag})
+          )
 
         assert has_element?(view, ".appgram.console"),
                "#{path} should opt into the console measure"
@@ -283,17 +296,22 @@ defmodule FluxValeWeb.AdminShellLiveTest do
     test "badged, linkless, on a live surface", %{conn: conn} do
       {:ok, view, _html} = live(conn, "/admin/people")
 
-      # Wallets (#571) and feedback moderation (#501) are live; orgs
-      # and gateways stay honest placeholders.
-      for key <- ["orgs", "gateways"] do
+      # Wallets (#571), feedback moderation (#592), and orgs (this
+      # slice) are live; gateways stays an honest placeholder.
+      for key <- ["gateways"] do
         assert has_element?(view, "[data-testid='admin-coming-#{key}']", "Coming")
         refute has_element?(view, "[data-testid='admin-nav-#{key}'][href]")
       end
 
-      # The wallets entry flipped live with the #571 slice: linked, no
-      # Coming badge.
+      # The flipped-live entries: linked, no Coming badge.
       assert has_element?(view, "[data-testid='admin-nav-wallets'][href='/admin/billing']")
       refute has_element?(view, "[data-testid='admin-coming-wallets']")
+
+      assert has_element?(view, "[data-testid='admin-nav-feedback'][href='/admin/moderation']")
+      refute has_element?(view, "[data-testid='admin-coming-feedback']")
+
+      assert has_element?(view, "[data-testid='admin-nav-orgs'][href='/admin/orgs']")
+      refute has_element?(view, "[data-testid='admin-coming-orgs']")
     end
   end
 
