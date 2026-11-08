@@ -94,7 +94,7 @@ BASE_URL=https://staging.fluxvale.com E2E_TESTINBOX_TOKEN=<pat> npx playwright t
   kubectl, since CNPG disables superuser TCP access by default, the
   backups spec's exec pattern) → running → HTTPS UI +
   `/api/heartbeat` → the default admin signs in over the API
-  (ADR-0034 Am. 2) → stop ($0.00 stopped — zero storage) → start →
+  ([ADR-0034](../../docs/adr/00034-first-run-contract.md) Am. 2) → stop ($0.00 stopped — zero storage) → start →
   the admin still signs in (the external database held the state) →
   destroy, and the per-run database and role are dropped. Local only,
   like backups.spec.ts (the kubectl provisioning names the local

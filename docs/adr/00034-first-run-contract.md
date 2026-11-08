@@ -154,3 +154,16 @@ env secret" — no credential is generated or injected; the account is
 upstream's own, shipped inside the image. The rejected option's
 revisit trigger ("a second app whose first-run genuinely needs
 generated credentials") remains unmet.
+
+Known tradeoff, accepted: until the owner's first sign-in the default
+account is live on the instance URL with publicly documented
+credentials — anyone who learns the URL in that window can claim the
+install first. Held because the account is upstream's own (nothing
+platform-side to mint, leak, or rotate), the URL is unlisted, and the
+contract's `guidance` plus the catalog description both tell the
+owner to sign in and change the password immediately. The window also
+closes retroactively nowhere — a stolen-credential install is
+indistinguishable from the owner's — which is why the guidance is
+"immediately", not "soon". Per-app generated credentials remain the
+rejected option above; a platform-side mitigation (first-boot access
+gate, forced password change) would be its own amendment.

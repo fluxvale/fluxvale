@@ -76,3 +76,16 @@ reads priv with the same boot/compile semantics, `mix blog.lint`
 still runs in `mix ci` (now against the source tree), and every URL,
 slug, frontmatter field, feed entry, and draft policy is exactly as
 it was. The move is invisible on the public surface by design.
+
+## Amendment 3 — analytics provider (2026-11-08)
+
+§5's analytics choice moves: site measurement runs on self-hosted
+Umami (#576, the dogfood instance the platform itself hosts —
+`FluxValeWeb.SiteAnalytics` renders the env-pinned tag on public
+pages), and Cloudflare Web Analytics is dropped. A third-party
+tracker we do not own contradicts the privacy policy of record
+("we run no tracker we do not own"), and self-hosting the analytics
+instance is the dogfood the catalog entry exists to prove. Umami is
+cookieless and sets no local storage, so the policy's no-tracking-
+cookies claim holds. Everything else in §5 (Search Console, Bing,
+DNS TXT verification) is unchanged.

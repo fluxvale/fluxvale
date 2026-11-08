@@ -70,43 +70,47 @@ test(
     // deploy, the database provisioning, and destroy must fit the cap.
     test.setTimeout(20 * 60_000);
 
-    // The owner-supplied Postgres: a per-run database in the stack's
-    // CNPG cluster, owned by a per-run login role (superuser TCP access
-    // is off by default, so the role is the connection identity).
     const suffix = runId.replace(/[^a-z0-9]/g, "");
     const database = `umami_e2e_${suffix}`;
     const dbRole = `umami_e2e_${suffix}`;
     // base64url keeps the password URL-safe for the connection string.
     const dbPassword = randomBytes(18).toString("base64url");
-    await kubectl([
-      "-n",
-      PLATFORM_NAMESPACE,
-      "exec",
-      CNPG_POD,
-      "--",
-      "psql",
-      "-U",
-      "postgres",
-      "-c",
-      `CREATE ROLE ${dbRole} LOGIN PASSWORD '${dbPassword}'`,
-    ]);
-    await kubectl([
-      "-n",
-      PLATFORM_NAMESPACE,
-      "exec",
-      CNPG_POD,
-      "--",
-      "psql",
-      "-U",
-      "postgres",
-      "-c",
-      `CREATE DATABASE ${database} OWNER ${dbRole}`,
-    ]);
 
     const databaseUrl = `postgresql://${dbRole}:${dbPassword}@${CNPG_HOST}/${database}`;
     const appSecret = randomBytes(24).toString("base64");
 
     try {
+      // The owner-supplied Postgres: a per-run database in the stack's
+      // CNPG cluster, owned by a per-run login role (superuser TCP
+      // access is off by default, so the role is the connection
+      // identity). Inside the try on purpose: if CREATE DATABASE dies
+      // after CREATE ROLE lands, the finally still drops the role —
+      // the persistent local cluster keeps nothing of a failed run.
+      await kubectl([
+        "-n",
+        PLATFORM_NAMESPACE,
+        "exec",
+        CNPG_POD,
+        "--",
+        "psql",
+        "-U",
+        "postgres",
+        "-c",
+        `CREATE ROLE ${dbRole} LOGIN PASSWORD '${dbPassword}'`,
+      ]);
+      await kubectl([
+        "-n",
+        PLATFORM_NAMESPACE,
+        "exec",
+        CNPG_POD,
+        "--",
+        "psql",
+        "-U",
+        "postgres",
+        "-c",
+        `CREATE DATABASE ${database} OWNER ${dbRole}`,
+      ]);
+
       // Sign in as a fresh per-run user (JIT-provisioned; nobody's data
       // gets touched, and the instances list starts empty)
       const email = `test+e2e-${runId}@fluxvale.com`;
@@ -319,7 +323,11 @@ async function kubectl(
   // promisify(execFile) has no reject:false — an unknown option is
   // silently ignored and a non-zero exit still rejects, so best-effort
   // callers (the teardown) swallow failures HERE, not in an option the
-  // library never reads.
+  // library never reads. The strict path rethrows REDACTED: execFile's
+  // rejection message leads with "Command failed:" plus the full
+  // command line, and the CREATE ROLE line carries the database
+  // password — the report artifact is public (the trace-off posture,
+  // above), so only the exit code and stderr may reach it.
   const result = run("kubectl", ["--context", "k3d-fluxvale", ...args]);
 
   if (options.bestEffort) {
@@ -329,5 +337,14 @@ async function kubectl(
     );
   }
 
-  return (await result).stdout;
+  try {
+    return (await result).stdout;
+  } catch (error) {
+    const exit = (error as { code?: number }).code;
+    const stderr = String((error as { stderr?: string }).stderr ?? "").trim();
+
+    throw new Error(
+      `kubectl psql failed (exit ${exit ?? "unknown"}): ${stderr.slice(0, 200) || "no stderr; see the run log"}`,
+    );
+  }
 }
