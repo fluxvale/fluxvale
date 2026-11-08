@@ -92,6 +92,14 @@ defmodule FluxValeWeb.AdminGatewaysLiveTest do
       # The product's own state vocabulary, never the raw atom.
       assert text_of(view, "[data-testid='admin-gateways-state-#{gateway.id}']") == "Connected"
 
+      # The shape cue rides the badge: no two states share tone AND
+      # shape, and the still frame must tell the states apart (the
+      # review's blocker).
+      assert has_element?(
+               view,
+               "[data-testid='admin-gateways-state-#{gateway.id}'] .hero-check-circle"
+             )
+
       assert text_of(view, "[data-testid='admin-gateways-rate-#{gateway.id}']") =~ "$2.00"
       assert text_of(view, "[data-testid='admin-gateways-rate-#{gateway.id}']") =~ "per month"
 
@@ -102,6 +110,55 @@ defmodule FluxValeWeb.AdminGatewaysLiveTest do
                view,
                "[data-testid='admin-gateways-open-#{gateway.id}'][href='/admin/gateways/#{gateway.id}']"
              )
+    end
+
+    test "every gateway state carries its own shape cue", %{conn: conn, admin: admin} do
+      cue_by_state = [
+        {:provisioning, "Connecting", ".hero-bolt"},
+        {:active, "Connected", ".hero-check-circle"},
+        {:needs_attention, "Needs attention", ".hero-exclamation-triangle"},
+        {:suspended, "Suspended", ".hero-pause"},
+        {:destroying, "Removing", ".hero-trash"}
+      ]
+
+      built =
+        for {state, label, icon} <- cue_by_state do
+          {_org, gateway} = gateway_for_admin!(admin, state: state)
+          {gateway.id, label, icon}
+        end
+
+      {:ok, view, _html} = live(conn, "/admin/gateways")
+
+      # One label, one shape per section: the shared labels resolve to
+      # the same icons their domain namesakes carry (triangle, pause),
+      # and Connecting/Removing move on their own icons.
+      for {id, label, icon} <- built do
+        assert text_of(view, "[data-testid='admin-gateways-state-#{id}']") == label
+        assert has_element?(view, "[data-testid='admin-gateways-state-#{id}'] " <> icon)
+      end
+    end
+
+    test "the main empty state is filter-scoped, never a global claim", %{
+      conn: conn,
+      admin: admin
+    } do
+      {org, _owner} = BillingFixtures.grant_free_org!()
+
+      Membership.create!(%{organization_id: org.id, user_id: admin.id, role: :member},
+        authorize?: false
+      )
+
+      {:ok, view, _html} = live(conn, "/admin/gateways")
+
+      # The title names the orgs this admin belongs to — the
+      # member-scoped read cannot support "no gateways anywhere".
+      assert has_element?(
+               view,
+               "[data-testid='admin-gateways-empty']",
+               "No gateways in the orgs you belong to"
+             )
+
+      refute has_element?(view, "[data-testid='admin-gateways-scope-note']")
     end
 
     test "an org-less admin gets the honest scope note, and a stranger's gateway stays hidden", %{
@@ -127,26 +184,10 @@ defmodule FluxValeWeb.AdminGatewaysLiveTest do
       refute has_element?(view, "[data-testid='admin-gateways-host-#{hidden.id}']")
 
       # The membership probe answers "not inside", and the honest scope
-      # note is what renders instead of a bare empty state.
+      # note is what renders instead of the filter-scoped empty.
       assert has_element?(view, "[data-testid='admin-gateways-scope-note']")
       assert has_element?(view, "[data-testid='admin-gateways-scope-note']", "not a member")
       refute has_element?(view, "[data-testid='admin-gateways-empty']")
-    end
-
-    test "a member admin with no gateways gets the honest empty state", %{
-      conn: conn,
-      admin: admin
-    } do
-      {org, _owner} = BillingFixtures.grant_free_org!()
-
-      Membership.create!(%{organization_id: org.id, user_id: admin.id, role: :member},
-        authorize?: false
-      )
-
-      {:ok, view, _html} = live(conn, "/admin/gateways")
-
-      assert has_element?(view, "[data-testid='admin-gateways-empty']")
-      refute has_element?(view, "[data-testid='admin-gateways-scope-note']")
     end
 
     test "search narrows by hostname or org name, and never reaches past the list", %{
@@ -154,7 +195,7 @@ defmodule FluxValeWeb.AdminGatewaysLiveTest do
       admin: admin
     } do
       {alpha_org, alpha} = gateway_for_admin!(admin, tailnet_domain: "alpha.ts.net")
-      {_beta_org, beta} = gateway_for_admin!(admin, tailnet_domain: "beta.ts.net")
+      {beta_org, beta} = gateway_for_admin!(admin, tailnet_domain: "beta.ts.net")
 
       # The fixtures share a display name ("billing-fixture"), so the
       # name arm needs a distinct one: the rename action is owner-gated,
@@ -175,6 +216,12 @@ defmodule FluxValeWeb.AdminGatewaysLiveTest do
       assert has_element?(view, "[data-testid='admin-gateways-host-#{alpha.id}']")
       refute has_element?(view, "[data-testid='admin-gateways-host-#{beta.id}']")
 
+      # The slug is the org's address: the third way in (the name
+      # clause's sibling).
+      render_change(view, "search", %{"search" => %{"query" => beta_org.slug}})
+      assert has_element?(view, "[data-testid='admin-gateways-host-#{beta.id}']")
+      refute has_element?(view, "[data-testid='admin-gateways-host-#{alpha.id}']")
+
       # Clearing hands the whole list back.
       render_change(view, "search", %{"search" => %{"query" => ""}})
       assert has_element?(view, "[data-testid='admin-gateways-host-#{alpha.id}']")
@@ -183,16 +230,44 @@ defmodule FluxValeWeb.AdminGatewaysLiveTest do
       # A match-shaped string that is nobody's gateway: the honest
       # no-match state.
       render_change(view, "search", %{"search" => %{"query" => "zzz-no-such-gateway"}})
-      assert has_element?(view, "[data-testid='admin-gateways-list'] p", "No gateway matches")
+      assert has_element?(view, "[data-testid='admin-gateways-search-empty']")
+
+      # A bare wildcard is a LITERAL under the escaping (the #603
+      # class): it matches nothing, it does not match everything.
+      render_change(view, "search", %{"search" => %{"query" => "%"}})
+      assert has_element?(view, "[data-testid='admin-gateways-search-empty']")
+      refute has_element?(view, "[data-testid='admin-gateways-host-#{alpha.id}']")
+      refute has_element?(view, "[data-testid='admin-gateways-host-#{beta.id}']")
     end
 
-    test "a gateway the observer flagged pins to the top of the list", %{conn: conn, admin: admin} do
+    test "a gateway whose STATE is flagged pins to the top, built first like the seed's shape", %{
+      conn: conn,
+      admin: admin
+    } do
+      # The flagged row is created FIRST — created_at desc alone would
+      # land it last, so the assertion fails if the state-keyed sort is
+      # deleted. The stamp rides the state funnel (the seed's shape).
+      {flagged_org, flagged} = gateway_for_admin!(admin, state: :needs_attention)
+
+      # The stale-stamp shape the finding names: Suspend does not clear
+      # needs_attention_since, so this suspended row carries the anchor
+      # — and must NOT pin, because the pin keys on the state.
+      {stale_org, stale_gateway} = gateway_for_admin!(admin, state: :active)
+
+      stale_row =
+        stale_gateway
+        |> Ash.Changeset.for_update(
+          :update_state,
+          %{state: :suspended, needs_attention_since: DateTime.add(DateTime.utc_now(), -1, :day)},
+          authorize?: false
+        )
+        |> Ash.update!()
+
       {_healthy_org, healthy} = gateway_for_admin!(admin, state: :active)
-      {attention_org, attention} = gateway_for_admin!(admin, state: :needs_attention)
 
       {:ok, view, _html} = live(conn, "/admin/gateways")
 
-      assert text_of(view, "[data-testid='admin-gateways-state-#{attention.id}']") ==
+      assert text_of(view, "[data-testid='admin-gateways-state-#{flagged.id}']") ==
                "Needs attention"
 
       ids =
@@ -209,11 +284,13 @@ defmodule FluxValeWeb.AdminGatewaysLiveTest do
           |> String.replace_prefix("admin-gateways-host-", "")
         end)
 
-      # The flagged row pins first; the healthy one keeps provisioning
-      # order.
-      assert ids == [attention.id, healthy.id]
+      # The flagged row pins (it is the OLDEST row here — the pin is
+      # the state, not recency); the suspended stale-stamp row stays in
+      # provisioning order; the newest active leads the rest.
+      assert ids == [flagged.id, healthy.id, stale_row.id]
 
-      assert attention_org
+      assert flagged_org
+      assert stale_org
     end
 
     test "the list caps at the latest 100 and says so", %{conn: conn, admin: admin} do

@@ -75,7 +75,7 @@ defmodule FluxValeWeb.AdminComponents do
   """
   @spec admin_table_header_class :: String.t()
   def admin_table_header_class do
-    "grid items-center gap-x-1.5 border-b border-line px-3 py-3 text-left text-xs font-medium tracking-wide text-ink-muted uppercase"
+    "grid items-center gap-x-3 border-b border-line px-3 py-3 text-left text-xs font-medium tracking-wide text-ink-muted uppercase"
   end
 
   @doc """
@@ -86,7 +86,7 @@ defmodule FluxValeWeb.AdminComponents do
   """
   @spec admin_table_row_class :: String.t()
   def admin_table_row_class do
-    "grid items-center gap-x-1.5 px-3 py-3 transition-colors hover:bg-panel-raised/60"
+    "grid items-center gap-x-3 px-3 py-3 transition-colors hover:bg-panel-raised/60"
   end
 
   @doc """
@@ -153,4 +153,95 @@ defmodule FluxValeWeb.AdminComponents do
         """
     end
   end
+
+# -- the access-gateway section's state badges (#501, #608 review) ----
+
+  # The gateway and domain state vocabularies ride ONE grammar: tone
+  # plus shape cue plus word, at the house badge size, with the rule
+  # that no two states ever share BOTH tone and shape (the people
+  # surface's discipline). The gateway states keep the product's own
+  # words (the #179 split: the shared `status_badge`'s labels) but
+  # carry their own shape cues — the review's blocker: the shared
+  # component marks Connecting and Needs attention with the same amber
+  # dot, which differentiates only in motion. Here Connecting rides a
+  # bolt and the shared labels resolve across BOTH machines: one label,
+  # one shape, per section and across them (Needs attention is the
+  # triangle on a gateway and on a domain, Suspended is the pause).
+
+  attr(:state, :atom, required: true, doc: "an AccessGatewayState value")
+
+  @spec gateway_state_badge(map()) :: Phoenix.LiveView.Rendered.t()
+  def gateway_state_badge(assigns) do
+    assigns = assign(assigns, cue: gateway_state_cue(assigns.state))
+
+    ~H"""
+    <.badge tone={gateway_state_tone(@state)} data-testid="gateway-state-badge">
+      <%= case @cue do %>
+        <% {:icon, name} -> %>
+          <.icon name={name} class="size-3.5" />
+        <% {:icon, name, :pulse} -> %>
+          <.icon name={name} class="size-3.5 motion-safe:animate-pulse" />
+      <% end %>
+      {gateway_state_label(@state)}
+    </.badge>
+    """
+  end
+
+  attr(:state, :atom, required: true, doc: "an AccessDomainState value")
+
+  @spec domain_state_badge(map()) :: Phoenix.LiveView.Rendered.t()
+  def domain_state_badge(assigns) do
+    ~H"""
+    <.badge tone={domain_state_tone(@state)} data-testid="domain-state-badge">
+      <%= case domain_state_cue(@state) do %>
+        <% {:icon, name} -> %>
+          <.icon name={name} class="size-3.5" />
+        <% {:dot, :pulse} -> %>
+          <span class="size-1.5 rounded-full bg-current motion-safe:animate-pulse" />
+      <% end %>
+      {domain_state_label(@state)}
+    </.badge>
+    """
+  end
+
+  # The gateway states' grammar. The labels are the shared component's
+  # (the product's own words, #179), now gettext'd on this surface.
+  defp gateway_state_tone(:provisioning), do: "warning"
+  defp gateway_state_tone(:active), do: "success"
+  defp gateway_state_tone(:needs_attention), do: "warning"
+  defp gateway_state_tone(:suspended), do: "neutral"
+  defp gateway_state_tone(:destroying), do: "danger"
+
+  defp gateway_state_cue(:provisioning), do: {:icon, "hero-bolt", :pulse}
+  defp gateway_state_cue(:active), do: {:icon, "hero-check-circle"}
+  defp gateway_state_cue(:needs_attention), do: {:icon, "hero-exclamation-triangle"}
+  defp gateway_state_cue(:suspended), do: {:icon, "hero-pause"}
+  defp gateway_state_cue(:destroying), do: {:icon, "hero-trash", :pulse}
+
+  defp gateway_state_label(:provisioning), do: gettext("Connecting")
+  defp gateway_state_label(:active), do: gettext("Connected")
+  defp gateway_state_label(:needs_attention), do: gettext("Needs attention")
+  defp gateway_state_label(:suspended), do: gettext("Suspended")
+  defp gateway_state_label(:destroying), do: gettext("Removing")
+
+  # The domain states' grammar (the verification life, ADR-0040): the
+  # pulse is the non-color half of the in-flight state, the triangle
+  # and the pause match their gateway namesakes.
+  defp domain_state_tone(:pending), do: "primary"
+  defp domain_state_tone(:verified), do: "success"
+  defp domain_state_tone(:needs_attention), do: "warning"
+  defp domain_state_tone(:failed), do: "danger"
+  defp domain_state_tone(:suspended), do: "neutral"
+
+  defp domain_state_cue(:pending), do: {:dot, :pulse}
+  defp domain_state_cue(:verified), do: {:icon, "hero-check-circle"}
+  defp domain_state_cue(:needs_attention), do: {:icon, "hero-exclamation-triangle"}
+  defp domain_state_cue(:failed), do: {:icon, "hero-x-mark"}
+  defp domain_state_cue(:suspended), do: {:icon, "hero-pause"}
+
+  defp domain_state_label(:pending), do: gettext("Pending")
+  defp domain_state_label(:verified), do: gettext("Verified")
+  defp domain_state_label(:needs_attention), do: gettext("Needs attention")
+  defp domain_state_label(:failed), do: gettext("Failed")
+  defp domain_state_label(:suspended), do: gettext("Suspended")
 end

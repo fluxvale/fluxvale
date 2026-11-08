@@ -1,14 +1,19 @@
 # Dev-only capture setup for the admin gateways surface (#501). RESETS
 # its own prior rows (slug prefix gateways-capture-), then builds one
-# deterministic state: the seeded admin is a MEMBER of five gateway orgs
+# SHAPE-DETERMINISTIC state (the same orgs, gateways, and states every
+# run; names carry a random suffix) — the admin is a MEMBER of five
+# gateway orgs
 # (one gateway per org — the resource's unique_organization identity),
 # covering every gateway state the product defines (provisioning /
 # active / needs_attention / suspended / destroying), a member org with
 # the detail capture's domains (platform verified + custom pending /
-# verified / failed / needs_attention), and a NON-member org with an
+# verified / failed / needs_attention / suspended), a member org whose
+# gateway runs no domains (the detail's honest empty), and a NON-member
+# org with an
 # active gateway the list must NOT render (the policy-exact shape on
 # camera). Two more admins cover the honest empties: one whose orgs run
-# no gateways ("No gateways yet") and one org-less admin (the scope
+# no gateways (the filter-scoped empty) and one org-less admin (the
+# scope
 # note — the create action JIT-provisions a personal org, so an
 # org-less account is only producible by the sanctioned Ash.Seed.seed!
 # escape).
@@ -218,6 +223,20 @@ attention_verified =
 attention_domain =
   Ash.update!(attention_verified, %{}, action: :mark_needs_attention, authorize?: false)
 
+# The fifth domain state: :suspended rides Ash.Seed.seed! — the
+# mark_suspended funnel is fail-closed on its cluster legs (the unclaim
+# limb, the edge-route removal), which dev-capture tooling has no
+# cluster to satisfy, so no action path can produce the row here (the
+# documented seed! exception; the legacy-resume shape is what this
+# state renders).
+suspended_domain =
+  Ash.Seed.seed!(AccessDomain, %{
+    domain: "apps.stonemarch.com",
+    kind: :custom,
+    state: :suspended,
+    organization_id: detail_org.id
+  })
+
 # The other four member orgs: one gateway per remaining state.
 provisioning_org = org!.("Beacon Works")
 member!.(provisioning_org)
@@ -226,11 +245,12 @@ gateway!.(provisioning_org, state: :provisioning)
 attention_org = org!.("Ferrostamp Co")
 member!.(attention_org)
 
-gateway!.(attention_org,
-  state: :needs_attention,
-  status_message: "We can't reach your gateway. Paste a fresh key to reconnect.",
-  provisioned_at: DateTime.utc_now()
-)
+attention_gateway =
+  gateway!.(attention_org,
+    state: :needs_attention,
+    status_message: "We can't reach your gateway. Paste a fresh key to reconnect.",
+    provisioned_at: DateTime.utc_now()
+  )
 
 suspended_org = org!.("Harborworks")
 member!.(suspended_org)
@@ -239,6 +259,12 @@ gateway!.(suspended_org, state: :suspended, status_message: "Suspended. The bala
 destroying_org = org!.("Lanternmill")
 member!.(destroying_org)
 gateway!.(destroying_org, state: :destroying, status_message: "Removing access")
+
+# The domains-empty detail subject: a member org whose gateway runs,
+# whose org holds no domain rows (the detail's honest empty).
+quiet_org = org!.("Quiet Org")
+member!.(quiet_org)
+quiet_gateway = gateway!.(quiet_org, state: :active, status_message: "Connected")
 
 # The non-member org: its gateway exists and is healthy, and the list
 # must NOT render it — the member-scoped read is the point.
@@ -258,7 +284,7 @@ Membership.create!(%{organization_id: stranger_org.id, user_id: stranger.id, rol
 hidden_gateway = gateway!.(stranger_org, state: :active, status_message: "Connected")
 
 # The empty admin: a real account (its JIT personal org runs no
-# gateway) — the honest "No gateways yet" capture subject.
+# gateway) — the filter-scoped empty's capture subject.
 empty_admin =
   case User.get_by_email("gateways-empty-capture@fluxvale.test", authorize?: false) do
     {:ok, existing} ->
@@ -303,8 +329,10 @@ IO.puts("FV_TOKEN=#{token}")
 IO.puts("FV_TOKEN_EMPTY=#{empty_token}")
 IO.puts("FV_TOKEN_ORGLESS=#{orgless_token}")
 IO.puts("FV_GATEWAY_DETAIL=#{detail_gateway.id}")
+IO.puts("FV_GATEWAY_ATTENTION=#{attention_gateway.id}")
+IO.puts("FV_GATEWAY_NODOMAINS=#{quiet_gateway.id}")
 IO.puts("FV_GATEWAY_HIDDEN=#{hidden_gateway.id}")
 
 IO.puts(
-  "FV_DOMAINS=#{pending_domain.id},#{verified_domain.id},#{failed_domain.id},#{attention_domain.id}"
+  "FV_DOMAINS=#{pending_domain.id},#{verified_domain.id},#{failed_domain.id},#{attention_domain.id},#{suspended_domain.id}"
 )

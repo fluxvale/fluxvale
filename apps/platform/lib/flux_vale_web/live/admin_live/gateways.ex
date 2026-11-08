@@ -10,28 +10,32 @@ defmodule FluxValeWeb.AdminLive.Gateways do
   [:organization, :members]) with NO platform-admin arm — unlike the
   wallet seam the orgs surface rides. `relates_to_actor_via` is a
   FILTER, so a non-member admin's read answers `[]`, not Forbidden:
-  this list is exactly the gateways of orgs the admin belongs to. One
-  Membership read (the policy's own "you are not inside" answer, the
-  orgs slice's probe) tells "no gateways in your orgs" apart from "you
-  belong to no orgs", and the page says which one it is. Widening the
-  read policy is a policy change this lane does not make — the gap is
-  reported, not built around.
+  this list is exactly the gateways of orgs the admin belongs to. The
+  empty state says that in its title (filter-scoped, never a global
+  claim), and for an admin with no org memberships at all (only
+  producible by bypassing the create's JIT personal org) a scope note
+  says why the list is empty instead. Widening the read policy is a
+  policy change this lane does not make — the gap is reported, not
+  built around (#613).
 
   Columns the policies admit: the org name (the flagged `:admin_lookup`
   seam, the lane's one org path), the identifier grammar the product
   uses (`fv-<8 hex>` + the tailnet domain, ADR-0039 §1), the state (the
-  shared `status_badge` — the product's own vocabulary), the rate
-  snapshot, the created stamp. The credential references stay off the
-  list: they render on the detail page, as names, with the copy that
-  keeps them honest.
+  product's own vocabulary, rendered through the section's shared badge
+  in AdminComponents with a shape cue per state), the rate snapshot,
+  the created stamp. The credential references stay off the list: they
+  render on the detail page, as names, with the copy that keeps them
+  honest.
 
-  Attention first: a gateway the observer flagged `:needs_attention`
-  pins to the top (its `needs_attention_since` anchor recency, the
-  wallets surface's destroy-clock posture), then newest created. The
-  list caps at the latest 100 (the lane's cap rationale). Revisit
-  trigger: pagination once gateway volume approaches the cap. Search
-  narrows by hostname or org name/slug — the relationship filter runs
-  at the data layer, so the search never needs an org read.
+  Attention first: a gateway whose STATE is `:needs_attention` pins to
+  the top, then newest created. The pin keys on the state, not the
+  `needs_attention_since` stamp — Suspend does not clear that stamp, so
+  a stamp-keyed sort would pin a suspended row indefinitely (the review
+  finding; the domain-side fix is #613, not ours). The list caps at the
+  latest 100 (the lane's cap rationale). Revisit trigger: pagination
+  once gateway volume approaches the cap. Search narrows by hostname or
+  org name/slug — the relationship filter runs at the data layer, so
+  the search never needs an org read.
   """
 
   use FluxValeWeb, :live_view
@@ -40,6 +44,7 @@ defmodule FluxValeWeb.AdminLive.Gateways do
   alias FluxVale.Accounts.Organization
   alias FluxVale.Infrastructure.AccessGateway
   alias FluxVale.Pricing
+  alias FluxValeWeb.AdminComponents
   alias FluxValeWeb.AdminShell
 
   require Ash.Query
@@ -75,18 +80,26 @@ defmodule FluxValeWeb.AdminLive.Gateways do
 
   # -- reads ----------------------------------------------------------------
 
-  # Attention first, then newest provisioned. Capped one past the cap
-  # so the overflow question answers without a count. The org names
-  # ride the flagged lookup seam — one read for the page's ids, mapped
-  # by id; a gateway whose org vanished (the FK is :restrict, so this
-  # cannot happen today) would simply render without a name.
+  # Attention first, then newest provisioned. The pin is a STATE-keyed
+  # expression sort (Ash.Expr.calc): needs_attention_since is written
+  # by the state funnel but never cleared by Suspend, so a stamp-keyed
+  # sort would pin a suspended row above a newer active one forever.
+  # Capped one past the cap so the overflow question answers without a
+  # count. The org names ride the flagged lookup seam — one read for
+  # the page's ids, mapped by id; a gateway whose org vanished (the FK
+  # is :restrict, so this cannot happen today) would simply render
+  # without a name.
   defp refresh_rows(socket) do
     admin = socket.assigns.current_user
 
     fetched =
       AccessGateway
       |> Ash.Query.for_read(:read, %{}, actor: admin)
-      |> Ash.Query.sort(needs_attention_since: :desc_nils_last, created_at: :desc, id: :desc)
+      |> Ash.Query.sort([
+        {Ash.Expr.calc(state == :needs_attention), :desc},
+        {:created_at, :desc},
+        {:id, :desc}
+      ])
       |> maybe_search(socket.assigns.query)
       |> Ash.Query.limit(@list_cap + 1)
       |> Ash.read!()
@@ -152,8 +165,10 @@ defmodule FluxValeWeb.AdminLive.Gateways do
   # Membership read policy is members-only with the same
   # relates_to_actor_via filter, so a non-member admin's read answers
   # [] — the policy's own "you are not inside" answer. No new action,
-  # no widened policy: the probe rides the member read exactly as the
-  # gateway list does.
+  # no widened policy. It serves ONLY the org-less shape (a seeded
+  # service account): a product-created admin always carries the JIT
+  # personal org, so the main empty state stays filter-scoped and never
+  # leans on this.
   defp any_membership?(admin) do
     Membership
     |> Ash.Query.for_read(:read, %{}, actor: admin)
@@ -212,7 +227,10 @@ defmodule FluxValeWeb.AdminLive.Gateways do
                   "Private-access gateways and the domains that serve them. This page is read-only: registration and keys live on each org's Access panel."
                 )}
               </p>
-              <p class="mt-1 max-w-prose text-sm text-ink-subtle">
+              <%!-- The one honesty statement the page carries: the read
+              scope, stated at fact weight, not as a footnote (the orgs
+              surface's treatment). --%>
+              <p class="mt-1 max-w-prose text-sm font-medium text-ink">
                 {gettext(
                   "Gateway reads are member-scoped, so this list is the gateways of orgs you belong to."
                 )}
@@ -267,16 +285,27 @@ defmodule FluxValeWeb.AdminLive.Gateways do
                   {gettext("Showing the latest 100 gateways. Attention pins to the top.")}
                 </p>
 
-                <.empty_state
+                <%!-- The empty states ride the lane's panel-inset shape
+                (the scope note's card, the #571/#603 treatment) — no
+                dashed boxes on this surface, dark mode included. The
+                MAIN empty is filter-scoped: the member-scoped read
+                cannot support a global claim, so the title names the
+                orgs this admin belongs to and only the copy carries
+                the once-enabled story. --%>
+                <div
                   :if={@rows_empty? and @query == "" and @any_membership?}
-                  title={gettext("No gateways yet.")}
+                  class="rounded-panel border border-line bg-panel px-4 py-3"
+                  data-testid="admin-gateways-empty"
                 >
-                  <span data-testid="admin-gateways-empty">
+                  <p class="text-sm font-medium text-ink">
+                    {gettext("No gateways in the orgs you belong to.")}
+                  </p>
+                  <p class="mt-1 text-sm text-ink-muted">
                     {gettext(
                       "Private access is opt-in per org. An org's gateway appears here once its owner enables it."
                     )}
-                  </span>
-                </.empty_state>
+                  </p>
+                </div>
 
                 <%!-- The honest scope note: a members-only read cannot
                 tell "no gateways anywhere" from "not yours to see", so
@@ -295,82 +324,93 @@ defmodule FluxValeWeb.AdminLive.Gateways do
                   </p>
                 </div>
 
-                <.empty_state
+                <div
                   :if={@rows_empty? and @query != ""}
-                  title={gettext("No gateway matches that search.")}
-                />
+                  class="rounded-panel border border-line bg-panel px-4 py-3"
+                  data-testid="admin-gateways-search-empty"
+                >
+                  <p class="text-sm font-medium text-ink">
+                    {gettext("No gateway matches that search.")}
+                  </p>
+                </div>
 
                 <%!-- The table chrome lives under the rows guard: an
                 empty list renders its honest empty state, never a dead
                 header (the people surface's structure). One grid
                 template shared by the header and every row (kept
                 literal in both spots), so the columns can never drift.
-                Every track shrinks (minmax(0, …)): no min-width floor,
-                long names truncate instead of pushing the row past the
-                band. --%>
-                <div :if={not @rows_empty?}>
-                  <div class="grid grid-cols-[minmax(0,1.5fr)_minmax(0,1.2fr)_9rem_7rem_6.5rem_3.5rem] items-center gap-x-1.5 border-b border-line px-3 py-3 text-left text-xs font-medium tracking-wide text-ink-muted uppercase">
-                    <div>{gettext("Organization")}</div>
-                    <div>{gettext("Gateway")}</div>
-                    <div>{gettext("State")}</div>
-                    <div class="text-right">{gettext("Rate")}</div>
-                    <div>{gettext("Created")}</div>
-                    <div class="sr-only">{gettext("Actions")}</div>
-                  </div>
+                Every track shrinks (minmax(0, …)) inside the fixed
+                ones; the whole chrome rides its own scroll below the
+                fixed tracks' floor (the people surface's
+                floor-and-scroll idiom), so the page never scrolls
+                sideways. The gutter is the console's disclosed delta
+                (the review round): gap-x-3, so the right-aligned tracks
+                stop colliding with their neighbors. --%>
+                <div :if={not @rows_empty?} class="overflow-x-auto">
+                  <div class="min-w-[32.25rem]">
+                    <div class="grid grid-cols-[minmax(0,1.5fr)_minmax(0,1.2fr)_9.5rem_7.5rem_6.5rem_3.5rem] items-center gap-x-3 border-b border-line px-3 py-3 text-left text-xs font-medium tracking-wide text-ink-muted uppercase">
+                      <div>{gettext("Organization")}</div>
+                      <div>{gettext("Gateway")}</div>
+                      <div>{gettext("State")}</div>
+                      <div class="text-right">{gettext("Rate")}</div>
+                      <div>{gettext("Created")}</div>
+                      <div class="sr-only">{gettext("Actions")}</div>
+                    </div>
 
-                  <div>
-                    <div id="admin-gateways-table" phx-update="stream">
-                      <div
-                        :for={{dom_id, gateway} <- @streams.gateways}
-                        id={dom_id}
-                        class="grid grid-cols-[minmax(0,1.5fr)_minmax(0,1.2fr)_9rem_7rem_6.5rem_3.5rem] items-center gap-x-1.5 border-b border-line px-3 py-3 transition-colors last:border-0 hover:bg-panel-raised/60"
-                      >
-                        <div class="min-w-0" data-testid={"admin-gateways-org-#{gateway.id}"}>
-                          <p class="truncate font-medium text-ink">{org_name(@orgs, gateway)}</p>
-                          <p class="truncate font-mono text-xs text-ink-muted">
-                            {org_slug(@orgs, gateway)}
-                          </p>
-                        </div>
-                        <div class="min-w-0" data-testid={"admin-gateways-host-#{gateway.id}"}>
-                          <p class="truncate font-mono text-sm text-ink">{gateway.hostname}</p>
-                          <p class="truncate font-mono text-xs text-ink-muted">
-                            {gateway.tailnet_domain}
-                          </p>
-                        </div>
-                        <div>
-                          <span data-testid={"admin-gateways-state-#{gateway.id}"}>
-                            <.status_badge status={gateway.state} />
-                          </span>
-                        </div>
-                        <div class="text-right">
-                          <span
-                            class="whitespace-nowrap text-sm tabular-nums text-ink"
-                            data-testid={"admin-gateways-rate-#{gateway.id}"}
-                          >
-                            {Pricing.format_usd(gateway.monthly_cents)}
-                            <span class="text-xs font-normal text-ink-muted">
-                              {gettext("per month")}
+                    <div>
+                      <div id="admin-gateways-table" phx-update="stream">
+                        <div
+                          :for={{dom_id, gateway} <- @streams.gateways}
+                          id={dom_id}
+                          class="grid grid-cols-[minmax(0,1.5fr)_minmax(0,1.2fr)_9.5rem_7.5rem_6.5rem_3.5rem] items-center gap-x-3 border-b border-line px-3 py-3 transition-colors last:border-0 hover:bg-panel-raised/60"
+                        >
+                          <div class="min-w-0" data-testid={"admin-gateways-org-#{gateway.id}"}>
+                            <p class="truncate font-medium text-ink">{org_name(@orgs, gateway)}</p>
+                            <p class="truncate font-mono text-xs text-ink-muted">
+                              {org_slug(@orgs, gateway)}
+                            </p>
+                          </div>
+                          <div class="min-w-0" data-testid={"admin-gateways-host-#{gateway.id}"}>
+                            <p class="truncate font-mono text-sm text-ink">{gateway.hostname}</p>
+                            <p class="truncate font-mono text-xs text-ink-muted">
+                              {gateway.tailnet_domain}
+                            </p>
+                          </div>
+                          <div>
+                            <span data-testid={"admin-gateways-state-#{gateway.id}"}>
+                              <AdminComponents.gateway_state_badge state={gateway.state} />
                             </span>
-                          </span>
-                        </div>
-                        <div>
-                          <span
-                            :if={gateway.created_at}
-                            class="text-sm text-ink-muted"
-                            data-testid={"admin-gateways-created-#{gateway.id}"}
-                          >
-                            {stamp_text(gateway.created_at)}
-                          </span>
-                        </div>
-                        <div>
-                          <div class="flex items-center justify-end">
-                            <.link
-                              navigate={~p"/admin/gateways/#{gateway.id}"}
-                              data-testid={"admin-gateways-open-#{gateway.id}"}
-                              class="text-sm font-medium text-link underline-offset-2 hover:underline"
+                          </div>
+                          <div class="text-right">
+                            <span
+                              class="whitespace-nowrap text-sm tabular-nums text-ink"
+                              data-testid={"admin-gateways-rate-#{gateway.id}"}
                             >
-                              {gettext("Open")}
-                            </.link>
+                              {Pricing.format_usd(gateway.monthly_cents)}
+                              <span class="text-xs font-normal text-ink-muted">
+                                {gettext("per month")}
+                              </span>
+                            </span>
+                          </div>
+                          <div>
+                            <span
+                              :if={gateway.created_at}
+                              class="text-sm text-ink-muted"
+                              data-testid={"admin-gateways-created-#{gateway.id}"}
+                            >
+                              {stamp_text(gateway.created_at)}
+                            </span>
+                          </div>
+                          <div>
+                            <div class="flex items-center justify-end">
+                              <.link
+                                navigate={~p"/admin/gateways/#{gateway.id}"}
+                                data-testid={"admin-gateways-open-#{gateway.id}"}
+                                class="text-sm font-medium text-link underline-offset-2 hover:underline"
+                              >
+                                {gettext("Open")}
+                              </.link>
+                            </div>
                           </div>
                         </div>
                       </div>

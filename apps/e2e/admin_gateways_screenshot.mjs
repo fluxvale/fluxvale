@@ -1,12 +1,15 @@
-/* Admin gateways surface captures (#501). Deterministic: one seeded
+/* Admin gateways surface captures (#501, review round 2). One seeded
  * state (admin_gateways_seed.exs resets its own rows first), light and
  * dark shot from the SAME state. Read-only surface: stills only, no
- * motion. The width probes print scrollWidth vs clientWidth for the
- * content band at 1024 / 1280 / 1440 — the no-min-width-floor
- * contract, numbers in the PR.
+ * motion. The width probes print scrollWidth vs clientWidth for EVERY
+ * content band on the page (the hero band was a false green — the
+ * review's finding) plus the console root and the document, at 480 /
+ * 768 / 1024 / 1280 / 1440 where the surface claims them; the script
+ * throws on overflow.
  *
- * Three sessions: the member admin (list + detail + the hidden-id arm),
- * the gateway-less admin (the honest empty), and the org-less admin
+ * Four sessions: the member admin (list + detail + the non-connected
+ * detail + the domains-empty detail + the hidden-id arm), the
+ * gateway-less admin (the filter-scoped empty), and the org-less admin
  * (the scope note).
  *
  *   node admin_gateways_screenshot.mjs <outdir>
@@ -15,16 +18,26 @@ import { chromium } from "@playwright/test";
 import { mkdirSync } from "node:fs";
 
 const BASE = process.env.FV_BASE ?? "http://127.0.0.1:4000";
-const outdir = process.argv[2] ?? "/tmp/opencode/fv501-gateways-shots";
+const outdir = process.argv[2] ?? "/tmp/opencode/fv501-gw-shots";
 mkdirSync(outdir, { recursive: true });
 
 const token = process.env.FV_TOKEN ?? "";
 const tokenEmpty = process.env.FV_TOKEN_EMPTY ?? "";
 const tokenOrgless = process.env.FV_TOKEN_ORGLESS ?? "";
 const gatewayDetail = process.env.FV_GATEWAY_DETAIL ?? "";
+const gatewayAttention = process.env.FV_GATEWAY_ATTENTION ?? "";
+const gatewayNoDomains = process.env.FV_GATEWAY_NODOMAINS ?? "";
 const gatewayHidden = process.env.FV_GATEWAY_HIDDEN ?? "";
 
-const ids = { token, tokenEmpty, tokenOrgless, gatewayDetail, gatewayHidden };
+const ids = {
+  token,
+  tokenEmpty,
+  tokenOrgless,
+  gatewayDetail,
+  gatewayAttention,
+  gatewayNoDomains,
+  gatewayHidden,
+};
 const missing = Object.entries(ids).filter(([k, v]) => !v).map(([k]) => k);
 
 if (missing.length) {
@@ -41,25 +54,39 @@ async function setTheme(page, mode) {
   await page.waitForTimeout(300);
 }
 
-// The width probe: the content band must not scroll horizontally at
-// the lane's three widths. Prints the numbers; throws on overflow.
-async function probeWidth(page, label) {
+// The width probe: EVERY .wrap on the page (the hero band AND the
+// content band — querySelector's first-match hero band was the false
+// green), the console root, and the document. Prints the numbers;
+// throws on overflow at the lane's claimed widths. The narrow shots
+// (480/768) print informational numbers without gating — the fixed
+// grid tracks are allowed to ride their own scroll there.
+async function probeWidth(page, label, gate) {
   const numbers = await page.evaluate(() => {
-    const band = document.querySelector(".wrap");
+    const wraps = [...document.querySelectorAll(".wrap")];
+    const console_root = document.querySelector(".appgram.console");
     const doc = document.documentElement;
     return {
-      label_band: band ? `${band.scrollWidth}==${band.clientWidth}` : "no-band",
-      label_doc: `${doc.scrollWidth}==${doc.clientWidth}`,
+      bands: wraps.map(
+        (band, i) => `wrap${i}:${band.scrollWidth}==${band.clientWidth}`
+      ),
+      console_root: console_root
+        ? `console:${console_root.scrollWidth}==${console_root.clientWidth}`
+        : "no-console",
+      doc: `doc:${doc.scrollWidth}==${doc.clientWidth}`,
     };
   });
-  console.log(`width[${label}] band ${numbers.label_band} doc ${numbers.label_doc}`);
-  if (numbers.label_band.split("==")[0] !== numbers.label_band.split("==")[1]) {
-    throw new Error(`horizontal overflow at ${label}: ${numbers.label_band}`);
-  }
-  if (numbers.label_doc.split("==")[0] !== numbers.label_doc.split("==")[1]) {
-    throw new Error(`document overflow at ${label}: ${numbers.label_doc}`);
+  const line = [...numbers.bands, numbers.console_root, numbers.doc].join(" ");
+  console.log(`width[${label}] ${line}`);
+  for (const part of line.split(" ")) {
+    const [measured, client] = part.split(":").pop().split("==");
+    if (gate && measured !== client) {
+      throw new Error(`horizontal overflow at ${label}: ${part}`);
+    }
   }
 }
+
+const LIST_WIDTHS = [480, 768, 1024, 1280, 1440];
+const DETAIL_WIDTHS = [480, 768, 1024, 1280, 1440];
 
 const browser = await chromium.launch();
 
@@ -76,25 +103,42 @@ async function newSession(sessionToken) {
   return { ctx, page };
 }
 
-// The member admin: the populated list, the search arm, the detail,
-// and the hidden-id flash.
+async function atWidths(page, label, widths) {
+  for (const width of widths) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.waitForTimeout(400);
+    await probeWidth(page, `${label}-${width}`, width >= 1024);
+  }
+  await page.setViewportSize({ width: 1440, height: 900 });
+}
+
+// The member admin: the populated list, the search arm, the connected
+// detail (all five domain states), the non-connected detail (the
+// credential card beside the reconnect message), the domains-empty
+// detail, and the hidden-id arm.
 for (const mode of ["light", "dark"]) {
   const { ctx, page } = await newSession(token);
 
-  // The gateway table: attention pinned first, then the state
-  // vocabulary (Connected / Connecting / Suspended / Removing). The
-  // stranger org's gateway is deliberately absent from this frame.
+  // The gateway table: the state-keyed attention pin, then the state
+  // vocabulary with its shape cues. The stranger org's gateway is
+  // deliberately absent from this frame.
   await page.goto(`${BASE}/admin/gateways`, { waitUntil: "networkidle" });
   await setTheme(page, mode);
   await page.waitForSelector("[data-testid^='admin-gateways-host-']");
   await page.screenshot({ path: `${outdir}/admin-gateways-table-${mode}.png`, fullPage: true });
   console.log(`table-${mode}`);
 
-  // Width probes: the no-min-width-floor contract, numbers printed.
-  for (const width of [1024, 1280, 1440]) {
+  await atWidths(page, `gateways-${mode}`, LIST_WIDTHS);
+
+  // The narrow pair for the list.
+  for (const width of [480, 768]) {
     await page.setViewportSize({ width, height: 900 });
     await page.waitForTimeout(400);
-    await probeWidth(page, `gateways-${mode}-${width}`);
+    await page.screenshot({
+      path: `${outdir}/admin-gateways-table-${mode}-${width}.png`,
+      fullPage: true,
+    });
+    console.log(`table-${mode}-${width}`);
   }
   await page.setViewportSize({ width: 1440, height: 900 });
 
@@ -110,8 +154,8 @@ for (const mode of ["light", "dark"]) {
   await searchBox.fill("");
   await page.waitForTimeout(600);
 
-  // The detail: facts card, THE credential-references card (names,
-  // never keys), and the domains in their verification states.
+  // The connected detail: facts, THE credential-references card, and
+  // the org's domains in all five verification states.
   await page.goto(`${BASE}/admin/gateways/${gatewayDetail}`, { waitUntil: "networkidle" });
   await setTheme(page, mode);
   await page.waitForSelector("[data-testid='admin-gateways-secret-card']");
@@ -121,7 +165,39 @@ for (const mode of ["light", "dark"]) {
     fullPage: true,
   });
   console.log(`detail-${mode}`);
-  await probeWidth(page, `detail-${mode}-1440`);
+
+  await atWidths(page, `detail-${mode}`, DETAIL_WIDTHS);
+
+  // The narrow pair for the detail.
+  for (const width of [480, 768]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.waitForTimeout(400);
+    await page.screenshot({
+      path: `${outdir}/admin-gateways-detail-${mode}-${width}.png`,
+      fullPage: true,
+    });
+    console.log(`detail-${mode}-${width}`);
+  }
+  await page.setViewportSize({ width: 1440, height: 900 });
+
+  // The non-connected detail: the reconnect copy and the credential
+  // card side by side — where the trust copy matters most.
+  await page.goto(`${BASE}/admin/gateways/${gatewayAttention}`, { waitUntil: "networkidle" });
+  await page.waitForSelector("[data-testid='admin-gateways-secret-card']");
+  await page.screenshot({
+    path: `${outdir}/admin-gateways-detail-attention-${mode}.png`,
+    fullPage: true,
+  });
+  console.log(`detail-attention-${mode}`);
+
+  // The domains-empty detail.
+  await page.goto(`${BASE}/admin/gateways/${gatewayNoDomains}`, { waitUntil: "networkidle" });
+  await page.waitForSelector("[data-testid='admin-gateways-domains-empty']");
+  await page.screenshot({
+    path: `${outdir}/admin-gateways-detail-nodomains-${mode}.png`,
+    fullPage: true,
+  });
+  console.log(`detail-nodomains-${mode}`);
 
   // The missing arm: a stranger org's gateway id reads exactly like an
   // unknown id — one flash, back to the list.
@@ -136,7 +212,7 @@ for (const mode of ["light", "dark"]) {
   await ctx.close();
 }
 
-// The gateway-less admin: the honest empty state.
+// The gateway-less admin: the filter-scoped empty.
 for (const mode of ["light", "dark"]) {
   const { ctx, page } = await newSession(tokenEmpty);
   await page.goto(`${BASE}/admin/gateways`, { waitUntil: "networkidle" });

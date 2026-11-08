@@ -22,6 +22,14 @@ defmodule FluxValeWeb.AdminLive.GatewayDetail do
   enter this app's database and never pass through this console. The
   auth key an owner pasted appears NOWHERE on this page.
 
+  Known limitation, stated: this view is org-scoped THROUGH the
+  gateway, so it shows domains only while the gateway row stands.
+  `MintDefaultHostname` mints a domain row for every instance create,
+  so orgs that never enabled private access — and orgs past teardown —
+  hold domains this page cannot show (no gateway row to mount). The
+  read arm that would lift this is the policy escalation (#613), not
+  this surface's to build.
+
   The domains list caps at the latest 100 (the lane's cap rationale).
   """
 
@@ -31,6 +39,7 @@ defmodule FluxValeWeb.AdminLive.GatewayDetail do
   alias FluxVale.Infrastructure.AccessDomain
   alias FluxVale.Infrastructure.AccessGateway
   alias FluxVale.Pricing
+  alias FluxValeWeb.AdminComponents
   alias FluxValeWeb.AdminShell
 
   # The domains list cap (the moduledoc names it; move the two
@@ -44,33 +53,55 @@ defmodule FluxValeWeb.AdminLive.GatewayDetail do
   def mount(%{"id" => raw_id}, _session, socket) do
     admin = socket.assigns.current_user
 
-    # Ash.read! answers a bare list: [] covers a bad id, a malformed
-    # param, and an id the members-only read does not admit — one arm,
-    # one answer, the flash saying what the list can see.
     with {:ok, id} <- cast_uuid(raw_id),
          [gateway] <- gateway_read(admin, id),
          {:ok, [org]} <- org_lookup(admin, gateway.organization_id) do
-      {domains_state, domains, capped?} = domains_page(admin, gateway.organization_id)
+      {domains, capped?} = domains_page(admin, gateway.organization_id)
 
       {:ok,
        socket
        |> assign(
          gateway: gateway,
          org: org,
-         domains_state: domains_state,
          domains_capped?: capped?,
          domains_empty?: domains == []
        )
        |> stream(:domains, domains)}
     else
-      _missing ->
+      # Each arm carries its own honest answer, folded nowhere.
+      #
+      # A malformed param is a TYPO, not an authorization outcome: the
+      # plain answer, the orgs sibling's copy.
+      :error ->
+        {:ok,
+         socket
+         |> put_flash(:error, gettext("That gateway does not exist."))
+         |> push_navigate(to: ~p"/admin/gateways")}
+
+      # The members-only read answers [] for a bad id AND for an id the
+      # policy does not admit — one arm, the scope named, no per-cause
+      # guessing. The flash rides the INFO posture: whatever happened,
+      # the list is the truthful answer, not an error at the operator.
+      [] ->
         {:ok,
          socket
          |> put_flash(
-           :error,
+           :info,
            gettext("That gateway is not listed. Gateway reads are member-scoped.")
          )
          |> push_navigate(to: ~p"/admin/gateways")}
+
+      # The lookup's error class is DB-down, not a policy answer — its
+      # own arm. (An org_lookup [] cannot happen while the FK stands,
+      # so that shape rides here too.)
+      # coveralls-ignore-start - not simulatable under the sandbox
+      _lookup_failed ->
+        {:ok,
+         socket
+         |> put_flash(:error, gettext("The gateway's org did not load. Try again."))
+         |> push_navigate(to: ~p"/admin/gateways")}
+
+        # coveralls-ignore-stop
     end
   end
 
@@ -105,7 +136,9 @@ defmodule FluxValeWeb.AdminLive.GatewayDetail do
   # The org's domains — the same member read the gateway ride proved.
   # A rendered gateway page means the admin is inside this org, so no
   # second probe is needed. Capped one past the cap so the overflow
-  # question answers without a count.
+  # question answers without a count. No error arm: Ash.read! raises
+  # the DB-down class, and a caught-and-reflashed variant of that would
+  # be scope creep on a read that cannot fail for policy reasons.
   defp domains_page(admin, org_id) do
     fetched =
       AccessDomain
@@ -115,7 +148,7 @@ defmodule FluxValeWeb.AdminLive.GatewayDetail do
       |> Ash.read!()
 
     capped? = length(fetched) > @list_cap
-    {:ok, Enum.take(fetched, @list_cap), capped?}
+    {Enum.take(fetched, @list_cap), capped?}
   end
 
   # -- display helpers ------------------------------------------------------
@@ -124,29 +157,6 @@ defmodule FluxValeWeb.AdminLive.GatewayDetail do
   # create path, ADR-0040), the custom row is the owner's registration.
   defp kind_label(:platform), do: gettext("Platform")
   defp kind_label(:custom), do: gettext("Custom")
-
-  # The domain states' badge grammar (tone + cue + word, no two states
-  # ever share both tone and shape — the people surface's discipline).
-  # The shared `status_badge` cannot serve here: its label map has no
-  # :verified/:failed arms (they are not instance states), so the
-  # vocabulary lives on this surface, from birth, in gettext.
-  defp domain_state_tone(:pending), do: "primary"
-  defp domain_state_tone(:verified), do: "success"
-  defp domain_state_tone(:needs_attention), do: "warning"
-  defp domain_state_tone(:failed), do: "danger"
-  defp domain_state_tone(:suspended), do: "neutral"
-
-  defp domain_state_cue(:pending), do: {:dot, :pulse}
-  defp domain_state_cue(:verified), do: {:icon, "hero-check-circle"}
-  defp domain_state_cue(:needs_attention), do: {:icon, "hero-exclamation-triangle"}
-  defp domain_state_cue(:failed), do: {:icon, "hero-x-mark"}
-  defp domain_state_cue(:suspended), do: {:icon, "hero-pause"}
-
-  defp domain_state_label(:pending), do: gettext("Pending")
-  defp domain_state_label(:verified), do: gettext("Verified")
-  defp domain_state_label(:needs_attention), do: gettext("Needs attention")
-  defp domain_state_label(:failed), do: gettext("Failed")
-  defp domain_state_label(:suspended), do: gettext("Suspended")
 
   defp provider_label(:tailscale), do: gettext("Tailscale")
 
@@ -174,8 +184,8 @@ defmodule FluxValeWeb.AdminLive.GatewayDetail do
               <h1 class="page-title mt-1.5 font-mono">{@gateway.hostname}</h1>
               <p class="mt-1 text-base text-ink-muted">
                 {gettext("Gateway of %{org}", org: @org.name)}
-                <span class="font-mono text-sm">{@org.slug}</span>
               </p>
+              <p class="mt-0.5 font-mono text-sm text-ink-subtle">{@org.slug}</p>
               <p class="mt-2 max-w-prose text-base text-ink-muted">
                 {gettext(
                   "The gateway's facts, its credential references, and this org's domains. Everything here is read-only: the org's Access panel owns the writes."
@@ -202,19 +212,24 @@ defmodule FluxValeWeb.AdminLive.GatewayDetail do
 
             <div class="min-w-0 flex-1 space-y-8">
               <%!-- The gateway's facts: the state (the product's own
-              badge vocabulary), the friendly status copy, the
-              identifier grammar (hostname + tailnet domain), the rate
-              snapshot. --%>
+              badge vocabulary, the section's shape-cued badge), the
+              row's message ONLY for the informative states (a bare
+              "Connected" under a Connected pill is a stray echo —
+              needs_attention and suspended are where the row's words
+              carry), the identifier grammar, the rate snapshot. --%>
               <.card class="space-y-4" data-testid="admin-gateways-facts-card">
                 <div class="flex items-center gap-2">
                   <h2 class="text-base font-medium text-ink">{gettext("Gateway")}</h2>
                   <span data-testid="admin-gateways-detail-state">
-                    <.status_badge status={@gateway.state} />
+                    <AdminComponents.gateway_state_badge state={@gateway.state} />
                   </span>
                 </div>
 
                 <p
-                  :if={@gateway.status_message}
+                  :if={
+                    @gateway.status_message != nil and
+                      @gateway.state in [:needs_attention, :suspended]
+                  }
                   class="text-sm text-ink-muted"
                   data-testid="admin-gateways-detail-status-message"
                 >
@@ -285,12 +300,15 @@ defmodule FluxValeWeb.AdminLive.GatewayDetail do
               <.card class="space-y-4" data-testid="admin-gateways-secret-card">
                 <div>
                   <h2 class="text-base font-medium text-ink">{gettext("Credential references")}</h2>
-                  <p class="mt-1 text-sm text-ink-muted">
+                  <p class="mt-1 max-w-prose text-sm text-ink-muted">
                     {gettext(
                       "A gateway's keys live in the platform's secret store, outside this app. The names below point at the store entries that hold them."
                     )}
                   </p>
-                  <p class="mt-1 text-sm font-medium text-ink">
+                  <%!-- THE trust line: real separation, fact weight — the
+                  page's one honesty statement (the list band's
+                  member-scope line is its sibling). --%>
+                  <p class="mt-3 max-w-prose text-sm font-medium text-ink">
                     {gettext(
                       "The keys themselves are never stored in the app database and never pass through this console. This page can show a name, never a key."
                     )}
@@ -304,7 +322,7 @@ defmodule FluxValeWeb.AdminLive.GatewayDetail do
                       class="min-w-0 font-mono text-ink [overflow-wrap:anywhere]"
                       data-testid="admin-gateways-secret-credential-ref"
                     >
-                      {@gateway.credential_secret_ref || gettext("Not recorded")}
+                      {@gateway.credential_secret_ref || gettext("Not recorded.")}
                     </dd>
                   </div>
                   <div class="flex flex-wrap gap-x-4 gap-y-1 text-sm">
@@ -317,11 +335,16 @@ defmodule FluxValeWeb.AdminLive.GatewayDetail do
                         {@gateway.api_token_secret_ref}
                       </dd>
                     <% else %>
+                      <%!-- What the card CAN say about a nil ref is only
+                      that nothing is recorded: the claim path reads the
+                      Secret by its derived name, so a usable Secret can
+                      exist without a ref on the row — an inference
+                      about claims would cross facts. --%>
                       <dd
                         class="min-w-0 text-ink-muted"
                         data-testid="admin-gateways-secret-token-none"
                       >
-                        {gettext("None. This gateway has not claimed any tailnet domains.")}
+                        {gettext("Not recorded.")}
                       </dd>
                     <% end %>
                   </div>
@@ -351,16 +374,23 @@ defmodule FluxValeWeb.AdminLive.GatewayDetail do
                   {gettext("Showing the latest 100 domains.")}
                 </p>
 
-                <.empty_state
-                  :if={@domains_state == :ok and @domains_empty?}
-                  title={gettext("No domains registered for this org yet.")}
-                />
+                <%!-- The empty and the table ride the lane's panel-inset
+                shape and the disclosed gutter, same as the list. --%>
+                <div
+                  :if={@domains_empty?}
+                  class="rounded-panel border border-line bg-panel px-4 py-3"
+                  data-testid="admin-gateways-domains-empty"
+                >
+                  <p class="text-sm font-medium text-ink">
+                    {gettext("No domains registered for this org yet.")}
+                  </p>
+                </div>
 
-                <div :if={@domains_state == :ok and not @domains_empty?} class="space-y-3">
+                <div :if={not @domains_empty?} class="space-y-3">
                   <%!-- One grid template shared by the header and every
                   row (kept literal in both spots), so the columns can
                   never drift. --%>
-                  <div class="grid grid-cols-[minmax(0,1.6fr)_6.5rem_9.5rem_6.5rem] items-center gap-x-1.5 border-b border-line px-3 py-3 text-left text-xs font-medium tracking-wide text-ink-muted uppercase">
+                  <div class="grid grid-cols-[minmax(0,1.6fr)_6.5rem_10rem_6.5rem] items-center gap-x-3 border-b border-line px-3 py-3 text-left text-xs font-medium tracking-wide text-ink-muted uppercase">
                     <div>{gettext("Domain")}</div>
                     <div>{gettext("Kind")}</div>
                     <div>{gettext("State")}</div>
@@ -372,7 +402,7 @@ defmodule FluxValeWeb.AdminLive.GatewayDetail do
                       <div
                         :for={{dom_id, domain} <- @streams.domains}
                         id={dom_id}
-                        class="grid grid-cols-[minmax(0,1.6fr)_6.5rem_9.5rem_6.5rem] items-center gap-x-1.5 border-b border-line px-3 py-3 transition-colors last:border-0 hover:bg-panel-raised/60"
+                        class="grid grid-cols-[minmax(0,1.6fr)_6.5rem_10rem_6.5rem] items-center gap-x-3 border-b border-line px-3 py-3 transition-colors last:border-0 hover:bg-panel-raised/60"
                       >
                         <div class="min-w-0">
                           <p
@@ -392,18 +422,11 @@ defmodule FluxValeWeb.AdminLive.GatewayDetail do
                         </div>
                         <div>
                           <span data-testid={"admin-gateways-domain-state-#{domain.id}"}>
-                            <.badge
-                              tone={domain_state_tone(domain.state)}
-                              class="px-1.5! text-[11px]!"
-                            >
-                              <%= case domain_state_cue(domain.state) do %>
-                                <% {:dot, :pulse} -> %>
-                                  <span class="size-1.5 rounded-full bg-current motion-safe:animate-pulse" />
-                                <% {:icon, name} -> %>
-                                  <.icon name={name} class="size-3.5" />
-                              <% end %>
-                              {domain_state_label(domain.state)}
-                            </.badge>
+                            <%!-- The house badge size, no overrides — these
+                            pills carry Failed and must not read
+                            dinkier than their neighbors (the review's
+                            scale note). --%>
+                            <AdminComponents.domain_state_badge state={domain.state} />
                           </span>
                         </div>
                         <div>

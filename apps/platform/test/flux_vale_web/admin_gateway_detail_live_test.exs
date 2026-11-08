@@ -175,9 +175,13 @@ defmodule FluxValeWeb.AdminGatewayDetailLiveTest do
 
       assert has_element?(view, "[data-testid='admin-gateways-back-link']")
       assert render(view) =~ org.name
+
+      # A bare "Connected" message under a Connected pill is a stray
+      # echo — the row's words render only for the informative states.
+      refute has_element?(view, "[data-testid='admin-gateways-detail-status-message']")
     end
 
-    test "an attention state renders its honest word and the row's friendly copy", %{
+    test "an attention state renders its honest word, the row's copy, and the shape cue", %{
       conn: conn,
       admin: admin
     } do
@@ -186,7 +190,27 @@ defmodule FluxValeWeb.AdminGatewayDetailLiveTest do
       {:ok, view, _html} = live(conn, "/admin/gateways/#{gateway.id}")
 
       assert text_of(view, "[data-testid='admin-gateways-detail-state']") == "Needs attention"
+
+      # One label, one shape per section: the gateway's Needs attention
+      # carries the same triangle its domain namesake does.
+      assert has_element?(
+               view,
+               "[data-testid='admin-gateways-detail-state'] .hero-exclamation-triangle"
+             )
+
       assert has_element?(view, "[data-testid='admin-gateways-detail-status-message']")
+    end
+
+    test "a Connecting gateway moves on its own icon, not the shared amber dot", %{
+      conn: conn,
+      admin: admin
+    } do
+      {_org, gateway} = member_gateway!(admin, state: :provisioning)
+
+      {:ok, view, _html} = live(conn, "/admin/gateways/#{gateway.id}")
+
+      assert text_of(view, "[data-testid='admin-gateways-detail-state']") == "Connecting"
+      assert has_element?(view, "[data-testid='admin-gateways-detail-state'] .hero-bolt")
     end
   end
 
@@ -223,13 +247,15 @@ defmodule FluxValeWeb.AdminGatewayDetailLiveTest do
       refute render(view) =~ "tskey-test"
     end
 
-    test "a gateway that never claimed a tailnet says so", %{conn: conn, admin: admin} do
+    test "a nil API token entry reads as exactly what the card knows", %{conn: conn, admin: admin} do
       {_org, gateway} = member_gateway!(admin)
 
       {:ok, view, _html} = live(conn, "/admin/gateways/#{gateway.id}")
 
-      assert text_of(view, "[data-testid='admin-gateways-secret-token-none']") =~
-               "has not claimed any tailnet domains"
+      # A nil ref means only that nothing is recorded: the claim path
+      # reads the Secret by its derived name, so a usable Secret can
+      # exist without a ref on the row — no inference about claims.
+      assert text_of(view, "[data-testid='admin-gateways-secret-token-none']") == "Not recorded."
 
       refute has_element?(view, "[data-testid='admin-gateways-secret-token-ref']")
     end
@@ -238,7 +264,7 @@ defmodule FluxValeWeb.AdminGatewayDetailLiveTest do
       conn: conn,
       admin: admin
     } do
-      {org, gateway} = member_gateway!(admin)
+      {_org, gateway} = member_gateway!(admin)
 
       # A nil credential ref is a state the create cannot produce (the
       # provider's provision leg writes it synchronously), and the
@@ -260,7 +286,7 @@ defmodule FluxValeWeb.AdminGatewayDetailLiveTest do
       {:ok, view, _html} = live(conn, "/admin/gateways/#{cleared.id}")
 
       assert text_of(view, "[data-testid='admin-gateways-secret-credential-ref']") ==
-               "Not recorded"
+               "Not recorded."
     end
   end
 
@@ -302,6 +328,28 @@ defmodule FluxValeWeb.AdminGatewayDetailLiveTest do
       assert text_of(view, "[data-testid='admin-gateways-domain-state-#{suspended.id}']") ==
                "Suspended"
 
+      # The shape cues, one per state (the review's grammar): the
+      # triangle and the pause match their gateway namesakes.
+      assert has_element?(
+               view,
+               "[data-testid='admin-gateways-domain-state-#{verified.id}'] .hero-check-circle"
+             )
+
+      assert has_element?(
+               view,
+               "[data-testid='admin-gateways-domain-state-#{failed.id}'] .hero-x-mark"
+             )
+
+      assert has_element?(
+               view,
+               "[data-testid='admin-gateways-domain-state-#{attention.id}'] .hero-exclamation-triangle"
+             )
+
+      assert has_element?(
+               view,
+               "[data-testid='admin-gateways-domain-state-#{suspended.id}'] .hero-pause"
+             )
+
       # The pulse is the non-color half of the in-flight state.
       assert render(element(view, "[data-testid='admin-gateways-domain-state-#{pending.id}']")) =~
                "animate-pulse"
@@ -337,22 +385,31 @@ defmodule FluxValeWeb.AdminGatewayDetailLiveTest do
 
       {:ok, view, _html} = live(conn, "/admin/gateways/#{gateway.id}")
 
-      assert has_element?(view, "[data-testid='admin-gateways-detail-domains']", "No domains")
+      assert has_element?(view, "[data-testid='admin-gateways-domains-empty']")
       refute has_element?(view, "[data-testid^='admin-gateways-domain-name-']")
     end
   end
 
   describe "the missing arm" do
-    test "an unknown id bounces back to the list with the flash", %{conn: conn} do
+    test "an unknown id bounces back with the member-scope flash copy", %{conn: conn} do
       missing_id = "00000000-0000-0000-0000-000000000000"
 
-      assert {:error, {:live_redirect, %{to: "/admin/gateways"}}} =
+      assert {:error, {:live_redirect, %{to: "/admin/gateways", flash: flash}}} =
                live(conn, "/admin/gateways/#{missing_id}")
+
+      assert flash["info"] =~ "That gateway is not listed"
+      assert flash["info"] =~ "member-scoped"
     end
 
-    test "a malformed id takes the same arm", %{conn: conn} do
-      assert {:error, {:live_redirect, %{to: "/admin/gateways"}}} =
+    test "a malformed id takes the plain typo arm, no authorization cause", %{conn: conn} do
+      assert {:error, {:live_redirect, %{to: "/admin/gateways", flash: flash}}} =
                live(conn, "/admin/gateways/not-a-uuid")
+
+      # A typo gets the sibling's plain answer — presenting the
+      # member-scope sentence here would read as an authorization
+      # verdict on a mistyped id.
+      assert flash["error"] == "That gateway does not exist."
+      refute Map.has_key?(flash, "info")
     end
 
     test "a stranger org's gateway takes the same arm — the member read answers [], not Forbidden",
@@ -363,8 +420,10 @@ defmodule FluxValeWeb.AdminGatewayDetailLiveTest do
       {_stranger_org, hidden} =
         member_gateway_unreachable!(admin)
 
-      assert {:error, {:live_redirect, %{to: "/admin/gateways"}}} =
+      assert {:error, {:live_redirect, %{to: "/admin/gateways", flash: flash}}} =
                live(conn, "/admin/gateways/#{hidden.id}")
+
+      assert flash["info"] =~ "That gateway is not listed"
     end
   end
 
