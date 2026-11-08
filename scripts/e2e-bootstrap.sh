@@ -114,7 +114,8 @@ docker push "$REGISTRY_HOST/fluxvale/platform-dev:$tag"
 # ---- apply, in the Tiltfile's dependency order: namespace/RBAC, the
 # two charts (CRDs land with them), then the CRs + app + route.
 echo "==> applying namespace + RBAC"
-apply_with_retry -f deploy/local/k8s/00-namespace.yaml -f deploy/local/k8s/01-platform-rbac.yaml
+apply_with_retry -f deploy/local/k8s/00-namespace.yaml -f deploy/local/k8s/01-platform-rbac.yaml \
+  -f deploy/local/k8s/02-access-fleet.yaml
 
 echo "==> charts: cnpg $cnpg_version, traefik $traefik_version"
 helm upgrade --install cnpg cloudnative-pg --version "$cnpg_version" \
