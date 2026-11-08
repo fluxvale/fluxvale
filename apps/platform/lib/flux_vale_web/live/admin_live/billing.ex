@@ -261,12 +261,16 @@ defmodule FluxValeWeb.AdminLive.Billing do
                 />
 
                 <%!-- One grid template shared by the header and every
-                row (kept literal in both spots), so the columns can
-                never drift. Track mins total 31rem (+ gaps and padding,
-                ~34rem): the populated list scrolls INTERNALLY below the
-                band beside the sidebar at 1024+ (the people surface's
-                floor-and-scroll idiom), never the page. --%>
-                <div class="grid grid-cols-[minmax(7.5rem,1.6fr)_5.5rem_6.5rem_minmax(8.5rem,1.2fr)_3rem] items-center gap-x-1.5 border-b border-line px-3 py-3 text-left text-xs font-medium tracking-wide text-ink-muted uppercase">
+                row (the tracks kept literal in both spots), so the
+                columns can never drift. The chrome around them is the
+                shared helper (#602). Track mins total 31rem (+ gaps and
+                padding, ~34rem): the populated list scrolls INTERNALLY
+                below the band beside the sidebar at 1024+ (the people
+                surface's floor-and-scroll idiom), never the page. --%>
+                <div class={[
+                  "grid-cols-[minmax(7.5rem,1.6fr)_5.5rem_6.5rem_minmax(8.5rem,1.2fr)_3rem]",
+                  AdminComponents.admin_table_header()
+                ]}>
                   <div>{gettext("Organization")}</div>
                   <div class="text-right">{gettext("Balance")}</div>
                   <div>{gettext("Waiver")}</div>
@@ -277,11 +281,16 @@ defmodule FluxValeWeb.AdminLive.Billing do
                 <div class="overflow-x-auto" data-noscroll>
                   <div class="min-w-[34rem]">
                     <div id="admin-billing-table" phx-update="stream">
+                      <%!-- The one chrome deviation: the stream items ARE
+                      the rows, so the separator and last-row reset ride
+                      the grid itself (no wrapper to carry them). --%>
                       <div
                         :for={{dom_id, wallet} <- @streams.wallets}
                         id={dom_id}
                         class={[
-                          "grid grid-cols-[minmax(7.5rem,1.6fr)_5.5rem_6.5rem_minmax(8.5rem,1.2fr)_3rem] items-center gap-x-1.5 border-b border-line px-3 py-3 transition-colors last:border-0 hover:bg-panel-raised/60",
+                          "grid-cols-[minmax(7.5rem,1.6fr)_5.5rem_6.5rem_minmax(8.5rem,1.2fr)_3rem]",
+                          AdminComponents.admin_table_row(),
+                          "border-b border-line last:border-0",
                           negative?(wallet) && "bg-danger-muted"
                         ]}
                       >

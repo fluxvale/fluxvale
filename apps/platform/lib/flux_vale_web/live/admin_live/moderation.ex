@@ -29,6 +29,7 @@ defmodule FluxValeWeb.AdminLive.Moderation do
   alias FluxVale.Feedback.Post
   alias FluxVale.Feedback.Tag
   alias FluxVale.Feedback.Vote
+  alias FluxValeWeb.AdminComponents
   alias FluxValeWeb.AdminShell
   alias FluxValeWeb.FeedbackHTML
 
@@ -1033,7 +1034,10 @@ defmodule FluxValeWeb.AdminLive.Moderation do
                   drift. Track mins total about 24rem, so the populated
                   list fits the band beside the sidebar at 1024+ with no
                   horizontal scroll and no min-width floor. --%>
-                  <div class="grid grid-cols-[minmax(0,1fr)_5rem_3rem_4.5rem_5rem_4.25rem] items-center gap-x-1.5 border-b border-line px-3 py-3 text-left text-xs font-medium tracking-wide text-ink-muted uppercase">
+                  <div class={[
+                    "grid-cols-[minmax(0,1fr)_5rem_3rem_4.5rem_5rem_4.25rem]",
+                    AdminComponents.admin_table_header()
+                  ]}>
                     <div>{gettext("Post")}</div>
                     <div>{gettext("Status")}</div>
                     <div>{gettext("Votes")}</div>
@@ -1042,13 +1046,18 @@ defmodule FluxValeWeb.AdminLive.Moderation do
                     <div class="sr-only">{gettext("Actions")}</div>
                   </div>
 
+                  <%!-- The separator rides this stream wrapper. The grid
+                  inside stays pure shared chrome (#602). --%>
                   <div id="admin-moderation-posts" phx-update="stream">
                     <div
                       :for={{dom_id, post} <- @streams.posts}
                       id={dom_id}
                       class="border-b border-line last:border-0"
                     >
-                      <div class="grid grid-cols-[minmax(0,1fr)_5rem_3rem_4.5rem_5rem_4.25rem] items-center gap-x-1.5 px-3 py-3 transition-colors hover:bg-panel-raised/60">
+                      <div class={[
+                        "grid-cols-[minmax(0,1fr)_5rem_3rem_4.5rem_5rem_4.25rem]",
+                        AdminComponents.admin_table_row()
+                      ]}>
                         <div class="min-w-0">
                           <p
                             class="text-sm font-medium text-ink [overflow-wrap:anywhere]"
@@ -1416,7 +1425,10 @@ defmodule FluxValeWeb.AdminLive.Moderation do
                 </.form>
 
                 <div class="rounded-panel border border-line">
-                  <div class="grid grid-cols-[minmax(0,1fr)_4rem_8rem] items-center gap-x-1.5 border-b border-line px-3 py-3 text-left text-xs font-medium tracking-wide text-ink-muted uppercase">
+                  <div class={[
+                    "grid-cols-[minmax(0,1fr)_4rem_8rem]",
+                    AdminComponents.admin_table_header()
+                  ]}>
                     <div>{gettext("Tag")}</div>
                     <div>{gettext("Posts")}</div>
                     <div class="sr-only">{gettext("Actions")}</div>
@@ -1430,13 +1442,18 @@ defmodule FluxValeWeb.AdminLive.Moderation do
                     {gettext("No tags yet. Create the first one above.")}
                   </p>
 
+                  <%!-- The separator rides this stream wrapper. The grid
+                  inside stays pure shared chrome (#602). --%>
                   <div id="admin-moderation-tags-list" phx-update="stream">
                     <div
                       :for={{dom_id, tag} <- @streams.tags}
                       id={dom_id}
                       class="border-b border-line last:border-0"
                     >
-                      <div class="grid grid-cols-[minmax(0,1fr)_4rem_8rem] items-center gap-x-1.5 px-3 py-3 transition-colors hover:bg-panel-raised/60">
+                      <div class={[
+                        "grid-cols-[minmax(0,1fr)_4rem_8rem]",
+                        AdminComponents.admin_table_row()
+                      ]}>
                         <div class="min-w-0">
                           <p
                             class="truncate text-sm font-medium text-ink"

@@ -1040,7 +1040,10 @@ defmodule FluxValeWeb.AdminLive.WalletDetail do
                   <div :if={not @ledger_empty?}>
                     <div class="overflow-x-auto" data-noscroll>
                       <div class="min-w-[38rem]">
-                        <div class="grid grid-cols-[minmax(8.5rem,1fr)_minmax(8.5rem,1.2fr)_5.5rem_minmax(5.5rem,0.9fr)_4.5rem] items-center gap-x-1.5 border-b border-line px-3 py-3 text-left text-xs font-medium tracking-wide text-ink-muted uppercase">
+                        <div class={[
+                          "grid-cols-[minmax(8.5rem,1fr)_minmax(8.5rem,1.2fr)_5.5rem_minmax(5.5rem,0.9fr)_4.5rem]",
+                          AdminComponents.admin_table_header()
+                        ]}>
                           <div>{gettext("When")}</div>
                           <div>{gettext("Entry")}</div>
                           <div class="text-right">{gettext("Amount")}</div>
@@ -1049,13 +1052,21 @@ defmodule FluxValeWeb.AdminLive.WalletDetail do
                         </div>
 
                         <div id="admin-wallet-ledger" phx-update="stream">
+                          <%!-- The ledger's one deviation: separators run
+                          ABOVE each row (border-t, first reset) so an
+                          entry's hover tint reads as one block with its
+                          own edge. The grid inside stays pure shared
+                          chrome (#602). --%>
                           <div
                             :for={{dom_id, entry} <- @streams.entries}
                             id={dom_id}
                             data-testid={"admin-wallet-entry-#{entry.id}"}
                             class="border-t border-line px-4 py-3 first:border-t-0"
                           >
-                            <div class="grid grid-cols-[minmax(8.5rem,1fr)_minmax(8.5rem,1.2fr)_5.5rem_minmax(5.5rem,0.9fr)_4.5rem] items-center gap-x-1.5 px-3 py-3 transition-colors hover:bg-panel-raised/60">
+                            <div class={[
+                              "grid-cols-[minmax(8.5rem,1fr)_minmax(8.5rem,1.2fr)_5.5rem_minmax(5.5rem,0.9fr)_4.5rem]",
+                              AdminComponents.admin_table_row()
+                            ]}>
                               <span class="whitespace-nowrap text-xs text-ink-muted">
                                 {Calendar.strftime(entry.created_at, "%b %d, %Y %H:%M UTC")}
                               </span>
