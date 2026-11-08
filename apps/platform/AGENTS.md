@@ -116,6 +116,12 @@ This is a web application written using the Phoenix web framework.
     element where practical, light+dark where the motion differs.
     Stills stay the default — static layout needs no animation. A
     motion-change PR with only stills is an incomplete capture.
+  - **One sanctioned exception** to the no-vendor-src and
+    no-inline-script JS rules below: `FluxValeWeb.SiteAnalytics`
+    renders the env-pinned Umami tag as a cross-origin
+    `<script async>` — it must load from the analytics instance
+    itself and render nothing at all when unconfigured, which a
+    bundled app.js import can never do (#576).
 
 ## Toolchain recipes (session-tested — read before scaffolding)
 

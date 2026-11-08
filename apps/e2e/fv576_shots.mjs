@@ -1,19 +1,21 @@
 // #576 capture: the Umami catalog surfaces (public /catalog grid +
 // /catalog/umami detail), light and dark, plus the landing with the
-// analytics env set (visual proof: cookieless means NO banner). Adapted
-// from apps/e2e/screenshot.mjs's capture pattern (per-surface route
-// list, never generic).
+// analytics env set (visual proof: the tracked page shows no banner).
+// Adapted from apps/e2e/screenshot.mjs's capture pattern (per-surface
+// route list, never generic). The committed artifacts live under
+// docs/screenshots/587/ (the PR number) with the -tracked suffix on
+// the landing shots; pass that dir as argv[1] to overwrite in place.
 import { chromium } from "@playwright/test";
 import { mkdirSync } from "node:fs";
 
 const BASE = process.env.BASE_URL ?? "http://localhost:4000";
-const OUT = process.env.OUT_DIR ?? "docs/screenshots/576";
+const OUT = process.argv[2] ?? "/tmp/opencode/fv576-shots";
 const UA = "fluxvale-capture/576";
 
 const routes = [
   { name: "catalog", path: "/catalog" },
   { name: "detail", path: "/catalog/umami" },
-  { name: "landing", path: "/" },
+  { name: "landing-tracked", path: "/" },
 ];
 
 mkdirSync(OUT, { recursive: true });

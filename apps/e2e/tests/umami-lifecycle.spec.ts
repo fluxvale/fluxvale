@@ -48,14 +48,15 @@ test.skip(
   "E2E_TESTINBOX_TOKEN not set — bootstrap the stack first (apps/e2e/README.md)",
 );
 
-// Local + staging runtimes (#116: staging is instance-capable). Production
-// stays read-only (ADR-0024): the suite never mutates it. In practice
-// this spec is LOCAL-ONLY like backups.spec.ts — it provisions its
-// database by kubectl exec into the local stack's CNPG primary, which
-// no other runtime names.
+// LOCAL-ONLY like backups.spec.ts: the spec provisions its database by
+// kubectl exec into the local stack's CNPG primary, and the
+// DATABASE_URL it fills names that cluster's -rw service — on any
+// other runtime the deploy would point at a host it cannot resolve
+// (staging's #497-convention proof run adapts a copy with the staging
+// context and namespace, never this file).
 test.skip(
-  runtime === "production",
-  "instance lifecycle is destructive — production stays read-only (ADR-0024)",
+  runtime !== "local",
+  "local only, like backups.spec.ts — the database provisioning and DATABASE_URL name the local stack's CNPG",
 );
 
 const CNPG_POD = "fluxvale-cnpg-1";
@@ -243,7 +244,12 @@ test(
     } finally {
       // Local re-runs share a persistent cluster; CI's is ephemeral.
       // Either way the per-run database and role go away with the spec
-      // — best-effort, never a failure of the lifecycle itself.
+      // — best-effort (a green lifecycle must never report red at
+      // teardown, and a failed one must keep its original error).
+      // WITH (FORCE) terminates the connections the just-destroyed
+      // instance's async Oban teardown may still hold; the role drop
+      // follows only once the database is gone (a role that owns
+      // anything refuses the drop).
       await kubectl(
         [
           "-n",
@@ -255,9 +261,9 @@ test(
           "-U",
           "postgres",
           "-c",
-          `DROP DATABASE ${database}`,
+          `DROP DATABASE ${database} WITH (FORCE)`,
         ],
-        { reject: false },
+        { bestEffort: true },
       );
       await kubectl(
         [
@@ -272,7 +278,7 @@ test(
           "-c",
           `DROP ROLE ${dbRole}`,
         ],
-        { reject: false },
+        { bestEffort: true },
       );
     }
   },
@@ -308,9 +314,20 @@ async function waitForStatus(page: Page, want: string, timeoutMs: number) {
 
 async function kubectl(
   args: string[],
-  options: { reject?: boolean } = {},
+  options: { bestEffort?: boolean } = {},
 ): Promise<string> {
-  const { stdout } = await run("kubectl", ["--context", "k3d-fluxvale", ...args], options);
+  // promisify(execFile) has no reject:false — an unknown option is
+  // silently ignored and a non-zero exit still rejects, so best-effort
+  // callers (the teardown) swallow failures HERE, not in an option the
+  // library never reads.
+  const result = run("kubectl", ["--context", "k3d-fluxvale", ...args]);
 
-  return stdout;
+  if (options.bestEffort) {
+    return result.then(
+      ({ stdout }) => stdout,
+      () => "",
+    );
+  }
+
+  return (await result).stdout;
 }

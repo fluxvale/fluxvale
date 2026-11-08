@@ -6,7 +6,7 @@
     </.header>
 
     <p class="text-xs text-ink-subtle">
-      Last updated: November 4, 2026
+      Last updated: November 8, 2026
       <%!-- set at the pre-merge push; the
       final push after sign-off re-verifies the date --%>
     </p>
@@ -14,9 +14,11 @@
     <%!-- fv332 D5: the privacy text of record. Plain English, not
         gettext — this template is the policy's wording, same as the
         terms. Every statement below describes what the platform
-        actually does today (verified against the code, Nov 4 2026).
-        Advisory edits land here. The copy rules apply: plain
-        sentences, no em-dashes, no semicolons. --%>
+        actually does today (verified against the code, Nov 8 2026:
+        the analytics claim matches FluxValeWeb.SiteAnalytics —
+        self-hosted Umami, cookieless, public pages only). Advisory
+        edits land here. The copy rules apply: plain sentences, no
+        em-dashes, no semicolons. --%>
     <.card class="space-y-4" data-testid="privacy-policy">
       <h2 class="text-base font-medium text-ink">About this policy</h2>
       <p class="text-sm text-ink-muted">
@@ -73,10 +75,13 @@
         is the payment's outcome and its order reference.
       </p>
       <p class="text-sm text-ink-muted">
-        The site runs no analytics and no advertising trackers, and no
-        third-party trackers ride our pages. The site sets no tracking
-        cookies. The everyday cookies are your signed-in session and
-        the standard request token that protects forms.
+        We measure traffic on our public pages with Umami, a cookieless
+        analytics service we run ourselves on FluxVale. It sets no
+        cookies and stores nothing on your device, and it never loads
+        on the signed-in app. No advertising trackers ride our pages,
+        and we run no tracker we do not own. The everyday cookies are
+        your signed-in session and the standard request token that
+        protects forms.
       </p>
       <p class="text-sm text-ink-muted">
         We do not read, scan, or mine the data inside your apps. Your

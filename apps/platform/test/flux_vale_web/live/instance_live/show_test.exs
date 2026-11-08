@@ -2116,6 +2116,12 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
 
       refute render(element(view, "[data-testid='resource-storage']")) =~ ~s(disabled="")
       refute has_element?(view, "[data-testid='slider-locked-note']")
+
+      # The 0 GB row seeds the thumb at the 0 rung (#576), unlocked
+      # and expandable upward — no hidden fixed line, no floored 5 GB
+      # (the row's own value IS the bottom rung now).
+      assert render(element(view, "[data-testid='resource-storage']")) =~
+               ~s(aria-valuetext="0 GB")
     end
 
     test "a probe that fails locks storage with the try-again note (not the boundary copy)", %{

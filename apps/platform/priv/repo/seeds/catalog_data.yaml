@@ -655,12 +655,12 @@
       description: |
         Web analytics you host yourself. See pageviews, visitors, and
         events for each site, with funnels, journeys, retention,
-        revenue, session replay, and heatmaps built in. Tracking works
-        without cookies, so no consent banner is needed. Umami is MIT
-        licensed. All data lives in a PostgreSQL database you connect
-        at deploy time, and that database stays yours to run and back
-        up. Sign in soon after deploying, because a fresh install
-        answers to a default admin account.
+        revenue, session replay, and heatmaps built in. Tracking sets
+        no cookies and stores nothing on your visitors' devices. Umami
+        is MIT licensed. All data lives in a PostgreSQL database you
+        connect at deploy time, and that database stays yours to run
+        and back up. Sign in soon after deploying, because a fresh
+        install answers to a default admin account.
       # The repo's apple-touch-icon is the self-contained mark (the
       # ActualBudget lesson): a black glyph on a solid white field, so
       # it reads on the icon tile in both themes. The repo's other

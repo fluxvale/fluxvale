@@ -801,6 +801,44 @@ defmodule FluxValeWeb.CatalogLive.DeployTest do
       assert has_element?(view, "#resource-memory-mb[value='0']")
     end
 
+    test "a zero-storage version default opens the picker at the 0 rung", %{conn: conn} do
+      # #576's stateless shape: a version whose honest storage default
+      # is 0 (every row lives in the owner's database) opens the picker
+      # AT 0 — the pre-#576 ladder had no 0 rung, so the wizard would
+      # have floored the default up to 5 GB and billed an unused
+      # volume. The compute defaults sit on the ladder, so the storage
+      # thumb is the assertion under test.
+      version =
+        InstanceFixtures.app_version!(
+          default_cpu_cores: Decimal.new("0.25"),
+          default_memory_mb: 512,
+          default_storage_gb: 0,
+          published_at: DateTime.utc_now()
+        )
+
+      app = Ash.load!(version, :app, authorize?: false).app
+
+      {:ok, view, _html} = live(conn, ~p"/apps/#{app.slug}/deploy")
+      to_step_2(view, version)
+
+      # This fixture carries no env schema — the env step's
+      # nothing-to-configure Continue (the #178 wave 2 branch).
+      view
+      |> element("[data-testid='continue-env']")
+      |> render_click()
+
+      # The storage thumb sits on rung index 0 (0 GB), not the old
+      # 5 GB floor; the price is the fixture size row's own cents
+      # (compute only — 0 GB adds nothing, the pre-#576 floor would
+      # have billed 5 GB on top).
+      assert has_element?(view, "#resource-storage-gb[value='0']")
+
+      html = render(view)
+      assert html =~ ~s(aria-valuetext="0 GB")
+
+      assert has_element?(view, "[data-testid='resources-price']", "$1.00/mo · billed hourly")
+    end
+
     test "a default above the ladder's top rung clamps down to it", %{conn: conn} do
       # Past the ladder's end there is no at-or-above rung: the floor
       # lands on the top rung (4 CPU — #399 trimmed the ladder to the

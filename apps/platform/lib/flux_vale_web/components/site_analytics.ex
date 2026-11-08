@@ -6,7 +6,7 @@ defmodule FluxValeWeb.SiteAnalytics do
   silent until an operator sets both `UMAMI_SCRIPT_URL` and
   `UMAMI_WEBSITE_ID` (runtime.exs composes the pair).
 
-  Umami is cookieless, so no consent banner gates the tag: the script
+  Umami sets no cookies or local storage on visitors, so the script
   element is the whole integration. It renders from the public chrome
   (`Layouts.public`) and the self-contained landing page, never from
   the authenticated app surface.

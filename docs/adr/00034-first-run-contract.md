@@ -21,10 +21,11 @@ comment in a YAML file.
    declares, per app, how first open works — one generalized field for
    every catalog app:
 
-   - `pattern` — the taxonomy atom. Two values exist today:
+   - `pattern` — the taxonomy atom. Three values exist today:
      `first_registered_user_admin` (registration open on first boot,
-     first registrant becomes the admin) and `first_open_sets_password`
-     (Amendment 1). Adding a pattern = add the
+     first registrant becomes the admin), `first_open_sets_password`
+     (Amendment 1), and `default_admin_credentials` (Amendment 2).
+     Adding a pattern = add the
      atom to the type's known set plus a row here; nothing else in the
      machinery is pattern-specific.
    - `env` — the guaranteed env posture. `DeriveFromAppVersion`

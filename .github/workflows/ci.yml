@@ -750,7 +750,10 @@ jobs:
     # re-waits up to 600s) push the legitimate worst to ≈ 48.5m — 60
     # leaves ~11.5m hang slack. Tighter than the old slack on purpose:
     # the new worst already carries congestion padding the old one
-    # didn't. The waits themselves are unchanged.
+    # didn't. The waits themselves are unchanged. #587 added
+    # umami-lifecycle (20m bounded) as the lifecycle leg's seventh
+    # spec: the leg's observed worst is 17.1m at #587's head (its
+    # cold pulls ride the warm-up), ≈ 30m under the ceiling.
     timeout-minutes: 60
     strategy:
       # A red leg must not cancel the others — its report is triage
