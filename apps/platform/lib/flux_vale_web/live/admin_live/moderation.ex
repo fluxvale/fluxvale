@@ -70,7 +70,8 @@ defmodule FluxValeWeb.AdminLive.Moderation do
   # -- events ---------------------------------------------------------------
 
   @impl Phoenix.LiveView
-  def handle_event("search", %{"search" => %{"query" => query}}, socket) do
+  def handle_event("search", %{"search" => %{"query" => query}}, socket)
+      when is_binary(query) do
     trimmed = String.trim(query)
 
     {:noreply,
@@ -86,6 +87,9 @@ defmodule FluxValeWeb.AdminLive.Moderation do
      )
      |> refresh_rows()}
   end
+
+  # A crafted query that is not a string is a no-op, not a crash.
+  def handle_event("search", _params, socket), do: {:noreply, socket}
 
   # All: the chip clears the status filter. Known statuses narrow to
   # it. Anything else (a crafted value) leaves the filter alone.
@@ -111,10 +115,16 @@ defmodule FluxValeWeb.AdminLive.Moderation do
 
   # The expansion toggle. The open is a fresh domain read (the people
   # reveal posture): a post deleted between the list render and the
-  # click never opens a panel.
+  # click never opens a panel. The stream RESET re-renders every row
+  # from the new assigns, so an earlier expansion collapses — a lone
+  # stream_insert would leave the previous panel on its row and grow a
+  # second expansion (the stale-panel defect class, pinned by test).
   def handle_event("open-post", %{"id" => id}, socket) do
     if socket.assigns.expanded_id == id do
-      {:noreply, close_expansion(socket)}
+      {:noreply,
+       socket
+       |> close_expansion()
+       |> refresh_rows()}
     else
       admin = socket.assigns.current_user
 
@@ -123,7 +133,7 @@ defmodule FluxValeWeb.AdminLive.Moderation do
           {:noreply,
            socket
            |> assign(expanded_id: id, detail: detail, confirm: nil)
-           |> stream_insert(:posts, detail.post)}
+           |> refresh_rows()}
 
         {:error, _gone} ->
           {:noreply,
@@ -181,10 +191,7 @@ defmodule FluxValeWeb.AdminLive.Moderation do
 
     case Ash.get(Vote, id, actor: admin, authorize?: true) do
       {:ok, vote} ->
-        {:noreply,
-         socket
-         |> assign(confirm: %{kind: :vote, id: vote.id})
-         |> stream_insert(:posts, socket.assigns.detail.post)}
+        confirm_held_vote(vote, socket)
 
       {:error, _gone} ->
         {:noreply,
@@ -207,10 +214,7 @@ defmodule FluxValeWeb.AdminLive.Moderation do
 
     case Ash.get(Comment, id, actor: admin, authorize?: true) do
       {:ok, comment} ->
-        {:noreply,
-         socket
-         |> assign(confirm: %{kind: :comment, id: comment.id})
-         |> stream_insert(:posts, socket.assigns.detail.post)}
+        confirm_held_comment(comment, socket)
 
       {:error, _gone} ->
         {:noreply,
@@ -255,6 +259,9 @@ defmodule FluxValeWeb.AdminLive.Moderation do
   end
 
   def handle_event("validate-tag", %{"tag" => params}, socket) when is_map(params) do
+    # The create form exists from mount to teardown (every failure path
+    # rebuilds it), so there is no nil form to guard here — unlike the
+    # rename pair, whose form only exists while a rename is open.
     form = AshPhoenix.Form.validate(socket.assigns.tag_form, normalize_tag_params(params))
 
     {:noreply, assign(socket, tag_form: form)}
@@ -262,7 +269,7 @@ defmodule FluxValeWeb.AdminLive.Moderation do
 
   def handle_event("validate-tag", _params, socket), do: {:noreply, socket}
 
-  def handle_event("create-tag", %{"tag" => params}, socket) do
+  def handle_event("create-tag", %{"tag" => params}, socket) when is_map(params) do
     admin = socket.assigns.current_user
     params = normalize_tag_params(params)
     form = AshPhoenix.Form.validate(socket.assigns.tag_form, params)
@@ -295,7 +302,7 @@ defmodule FluxValeWeb.AdminLive.Moderation do
         {:noreply,
          socket
          |> assign(tag_rename_id: tag.id, tag_rename_form: form, tag_rename_tag: tag)
-         |> stream_insert(:tags, tag)}
+         |> refresh_tags()}
 
       {:error, _gone} ->
         {:noreply,
@@ -307,40 +314,54 @@ defmodule FluxValeWeb.AdminLive.Moderation do
 
   def handle_event("validate-tag-rename", %{"tag_rename" => params}, socket)
       when is_map(params) do
-    params = Map.put(params, "name", trimmed(params["name"]))
-    form = AshPhoenix.Form.validate(socket.assigns.tag_rename_form, params)
+    case socket.assigns.tag_rename_form do
+      nil ->
+        # A crafted keystroke with no rename open is a no-op.
+        {:noreply, socket}
 
-    {:noreply, assign(socket, tag_rename_form: form)}
+      form ->
+        params = Map.put(params, "name", trimmed(params["name"]))
+        form = AshPhoenix.Form.validate(form, params)
+
+        {:noreply, assign(socket, tag_rename_form: form)}
+    end
   end
 
   def handle_event("validate-tag-rename", _params, socket), do: {:noreply, socket}
 
-  def handle_event("save-tag-rename", %{"tag_rename" => params}, socket) do
-    params = Map.put(params, "name", trimmed(params["name"]))
-    form = AshPhoenix.Form.validate(socket.assigns.tag_rename_form, params)
+  def handle_event("save-tag-rename", %{"tag_rename" => params}, socket)
+      when is_map(params) do
+    case socket.assigns.tag_rename_form do
+      nil ->
+        {:noreply, socket}
 
-    case AshPhoenix.Form.submit(form, params: params) do
-      {:ok, _tag} ->
-        {:noreply,
-         socket
-         |> put_flash(:info, gettext("Tag renamed."))
-         |> assign(tag_rename_id: nil, tag_rename_form: nil, tag_rename_tag: nil)
-         |> refresh_tags()}
+      form ->
+        params = Map.put(params, "name", trimmed(params["name"]))
+        form = AshPhoenix.Form.validate(form, params)
 
-      {:error, error_form} ->
-        {:noreply, assign(socket, tag_rename_form: to_form(error_form))}
+        case AshPhoenix.Form.submit(form, params: params) do
+          {:ok, _tag} ->
+            {:noreply,
+             socket
+             |> put_flash(:info, gettext("Tag renamed."))
+             |> assign(tag_rename_id: nil, tag_rename_form: nil, tag_rename_tag: nil)
+             |> refresh_tags()}
+
+          {:error, error_form} ->
+            {:noreply, assign(socket, tag_rename_form: to_form(error_form))}
+        end
     end
   end
 
   def handle_event("save-tag-rename", _params, socket), do: {:noreply, socket}
 
   def handle_event("cancel-rename-tag", _params, socket) do
-    tag = socket.assigns.tag_rename_tag
-
-    socket =
-      assign(socket, tag_rename_id: nil, tag_rename_form: nil, tag_rename_tag: nil)
-
-    {:noreply, if(tag, do: stream_insert(socket, :tags, tag), else: socket)}
+    # The reset re-renders every tag row, so the open form actually
+    # leaves the DOM (the stale-panel rule, pinned by test).
+    {:noreply,
+     socket
+     |> assign(tag_rename_id: nil, tag_rename_form: nil, tag_rename_tag: nil)
+     |> refresh_tags()}
   end
 
   # One cancel for every confirm panel (the single confirm slot makes
@@ -353,9 +374,43 @@ defmodule FluxValeWeb.AdminLive.Moderation do
 
   # -- writes ----------------------------------------------------------------
 
-  # The probe's two honest outcomes: the note (a duplicate points here)
-  # or the confirm (it does not). Both re-stream the row — stream items
-  # do not re-render on assign changes.
+  # A vote the open panel does not hold (a crafted or stale frame) gets
+  # the quiet expired arm, consistent with the destroy reveal's guard.
+  defp confirm_held_vote(vote, socket) do
+    detail = socket.assigns.detail
+
+    if is_nil(detail) or not Enum.any?(detail.votes, &(&1.id == vote.id)) do
+      {:noreply,
+       socket
+       |> put_flash(:error, stale_copy())
+       |> close_expansion()
+       |> refresh_all()}
+    else
+      {:noreply,
+       socket
+       |> assign(confirm: %{kind: :vote, id: vote.id})
+       |> refresh_rows()}
+    end
+  end
+
+  # The comment twin of the retract reveal's guard.
+  defp confirm_held_comment(comment, socket) do
+    detail = socket.assigns.detail
+
+    if is_nil(detail) or not Enum.any?(detail.comments, &(&1.id == comment.id)) do
+      {:noreply,
+       socket
+       |> put_flash(:error, stale_copy())
+       |> close_expansion()
+       |> refresh_all()}
+    else
+      {:noreply,
+       socket
+       |> assign(confirm: %{kind: :comment, id: comment.id})
+       |> refresh_rows()}
+    end
+  end
+
   defp reveal_destroy_probe(post, socket) do
     admin = socket.assigns.current_user
     count = referenced_count(post.id, admin)
@@ -366,16 +421,16 @@ defmodule FluxValeWeb.AdminLive.Moderation do
       {:noreply,
        socket
        |> assign(detail: detail, confirm: nil)
-       |> stream_insert(:posts, post)}
+       |> refresh_rows()}
     else
       {:noreply,
        socket
        |> assign(confirm: %{kind: :post, id: post.id})
-       |> stream_insert(:posts, post)}
+       |> refresh_rows()}
     end
   end
 
-  defp open_delete_tag(tag, admin, socket) do
+  defp open_delete_tag(tag, _admin, socket) do
     usage = length(tag.post_tags)
 
     if usage > 0 do
@@ -384,8 +439,9 @@ defmodule FluxValeWeb.AdminLive.Moderation do
       {:noreply,
        socket
        |> assign(confirm: confirm)
-       |> stream_insert(:tags, tag)}
+       |> refresh_tags()}
     else
+      admin = socket.assigns.current_user
       delete_unused_tag(tag, admin, socket)
     end
   end
@@ -481,10 +537,17 @@ defmodule FluxValeWeb.AdminLive.Moderation do
     end
   end
 
+  # The confirm's click re-reads the tag WITH its pairings: the
+  # reveal's count can go stale while the panel is up (another admin
+  # tagging or untagging), so the destructive action rides the truth at
+  # the moment of the write. The consequence the panel named either
+  # still holds or has dissolved to nothing — both answers are the
+  # delete the operator asked for, and the refresh makes the list say
+  # so.
   defp do_delete_tag(id, socket) do
     admin = socket.assigns.current_user
 
-    case Ash.get(Tag, id, actor: admin, authorize?: true) do
+    case Ash.get(Tag, id, actor: admin, authorize?: true, load: :post_tags) do
       {:ok, tag} ->
         case destroy_tag(tag, admin) do
           :ok ->
@@ -537,18 +600,30 @@ defmodule FluxValeWeb.AdminLive.Moderation do
     |> refresh_all()
   end
 
-  defp referenced_refusal?(%Ash.Error.Invalid{errors: errors}) do
-    Enum.any?(errors, fn
-      %{field: :duplicate_of_id} -> true
-      _other -> false
-    end)
+  # The classifier behind the destroy refusal, public for the test that
+  # pins each error class. The in-transaction probe answers the
+  # ordinary race (Invalid with the guard's field-scoped error); the
+  # TRULY-concurrent race — a duplicate inserted between the probe read
+  # and the DELETE — loses at the duplicate_of FK, which Ash wraps as
+  # Unknown-class. Both name the duplicate; everything else (NotFound,
+  # the DB-down class) reads the generic line.
+  @doc false
+  @spec referenced_refusal?(term()) :: boolean()
+  def referenced_refusal?(%Ash.Error.Invalid{errors: errors}) do
+    Enum.any?(errors, &duplicate_ref?/1)
   end
 
-  # Every reachable destroy refusal is an Invalid (the guard's changeset
-  # error, NotFound): a non-Invalid error here is the DB-down class,
-  # which ExUnit cannot simulate.
-  # coveralls-ignore-next-line
-  defp referenced_refusal?(_other), do: false
+  def referenced_refusal?(%Ash.Error.Unknown{errors: errors}) do
+    Enum.any?(errors, &duplicate_ref?/1)
+  end
+
+  # coveralls-ignore-next-line - a refusal that is neither class is the
+  # DB-down class, which ExUnit cannot simulate; the generic flash is
+  # the honest answer there.
+  def referenced_refusal?(_other), do: false
+
+  defp duplicate_ref?(%{field: :duplicate_of_id}), do: true
+  defp duplicate_ref?(_other), do: false
 
   defp refused_refresh(socket) do
     socket
@@ -694,15 +769,11 @@ defmodule FluxValeWeb.AdminLive.Moderation do
 
   # -- state helpers ---------------------------------------------------------
 
+  # Closing is an assign change only: every caller re-renders the list
+  # right after (refresh_rows or refresh_all), because stream items do
+  # not re-render on assign changes.
   defp close_expansion(socket) do
-    detail = socket.assigns.detail
-    socket = assign(socket, expanded_id: nil, detail: nil, confirm: nil)
-
-    if detail do
-      stream_insert(socket, :posts, detail.post)
-    else
-      socket
-    end
+    assign(socket, expanded_id: nil, detail: nil, confirm: nil)
   end
 
   # Every write lands here: the list, the vocabulary, and any open
@@ -773,6 +844,36 @@ defmodule FluxValeWeb.AdminLive.Moderation do
 
   defp author_label(%{created_by_user: nil}), do: nil
 
+  # The vote's caster, nil-safe: the demo seed casts ownerless votes on
+  # purpose (cast_demo_vote! has no actor), so ownerless rows are a
+  # normal state of a seeded board and read as unknown, not a crash.
+  defp caster_label(%{cast_by_user: %{username: username}}) when is_binary(username) do
+    username
+  end
+
+  defp caster_label(_ownerless), do: gettext("Unknown caster")
+
+  # The expansion's age line WITHOUT doubling the status word: the
+  # badge beside it already says the status, so this carries only the
+  # age ("10 minutes ago"), falling back to the posted age for a post
+  # that never moved.
+  defp status_age_line(%{status_changed_at: %DateTime{} = at}), do: time_ago(at)
+
+  defp status_age_line(post) do
+    gettext("posted %{ago}", ago: time_ago(post.created_at))
+  end
+
+  # The non-color shape cue for the tone-collision pairs (the 583
+  # icon-on-Expired grammar): Started and Planned share the amber tone,
+  # Open and Duplicate share the neutral one, so each carries its own
+  # icon in either theme. Completed and Declined own their tones alone
+  # and rest uncued.
+  defp status_cue(:planned), do: "hero-calendar-days"
+  defp status_cue(:started), do: "hero-arrow-path"
+  defp status_cue(:open), do: "hero-flag"
+  defp status_cue(:duplicate), do: "hero-link"
+  defp status_cue(_completed_or_declined), do: nil
+
   defp stamp_text(stamp), do: Calendar.strftime(stamp, "%b %d, %Y")
 
   defp time_ago(datetime), do: FeedbackHTML.time_ago(datetime)
@@ -824,23 +925,32 @@ defmodule FluxValeWeb.AdminLive.Moderation do
               <%!-- The toolbar: the search and the status filter. The
               status vocabulary is worth filtering by (it IS the board's
               workflow), so the filter chips ride beside the search —
-              the same chips the public board renders. --%>
+              the same chips the public board renders. The search field
+              sits carded (the 571 shape). --%>
               <div class="space-y-4" data-testid="admin-moderation-toolbar">
-                <.form
-                  for={@search_form}
-                  id="admin-moderation-search"
-                  phx-change="search"
-                  phx-submit="search"
-                >
-                  <.input
-                    field={@search_form[:query]}
-                    type="text"
-                    label={gettext("Search")}
-                    placeholder={gettext("Search by title or author")}
-                    phx-debounce="200"
-                    data-testid="admin-moderation-search-input"
-                  />
-                </.form>
+                <.card class="space-y-4" data-testid="admin-moderation-search-card">
+                  <div>
+                    <h2 class="text-base font-medium text-ink">{gettext("Find posts")}</h2>
+                    <p class="mt-1 text-sm text-ink-muted">
+                      {gettext("Search by title or author. It never reaches past this list.")}
+                    </p>
+                  </div>
+                  <.form
+                    for={@search_form}
+                    id="admin-moderation-search"
+                    phx-change="search"
+                    phx-submit="search"
+                  >
+                    <.input
+                      field={@search_form[:query]}
+                      type="text"
+                      label={gettext("Search")}
+                      placeholder={gettext("Search by title or author")}
+                      phx-debounce="200"
+                      data-testid="admin-moderation-search-input"
+                    />
+                  </.form>
+                </.card>
 
                 <div
                   class="flex flex-wrap items-center gap-2"
@@ -892,17 +1002,27 @@ defmodule FluxValeWeb.AdminLive.Moderation do
                   {gettext("Showing the latest 100 posts.")}
                 </p>
 
-                <.empty_state
-                  :if={@rows_empty? and @query == "" and is_nil(@status)}
-                  title={gettext("No posts on the board yet.")}
+                <%!-- The empty states ride the inset shape (571's): inside
+                the list panel, not a bare dashed box. --%>
+                <div
+                  :if={@rows_empty?}
+                  class="rounded-panel border border-line bg-panel px-6 py-8"
+                  data-testid="admin-moderation-empty"
                 >
-                  {gettext("Posts land here as the community files them.")}
-                </.empty_state>
+                  <.empty_state
+                    :if={@query == "" and is_nil(@status)}
+                    title={gettext("No posts on the board yet.")}
+                    class="border-none bg-transparent"
+                  >
+                    {gettext("Posts land here as the community files them.")}
+                  </.empty_state>
 
-                <.empty_state
-                  :if={@rows_empty? and (@query != "" or not is_nil(@status))}
-                  title={gettext("No post matches that search or filter.")}
-                />
+                  <.empty_state
+                    :if={@query != "" or not is_nil(@status)}
+                    title={gettext("No post matches that search or filter.")}
+                    class="border-none bg-transparent"
+                  />
+                </div>
 
                 <div :if={not @rows_empty?} class="rounded-panel border border-line bg-panel text-ink">
                   <%!-- One grid template shared by the header and every row
@@ -944,8 +1064,11 @@ defmodule FluxValeWeb.AdminLive.Moderation do
                           <span data-testid={"admin-moderation-status-#{post.id}"}>
                             <.badge
                               tone={FeedbackHTML.status_tone(post.status)}
-                              class="px-1.5! text-[11px]!"
+                              class="gap-1 px-1.5! text-[11px]!"
                             >
+                              <%= if cue = status_cue(post.status) do %>
+                                <.icon name={cue} class="size-3" />
+                              <% end %>
                               {FeedbackHTML.status_label(post.status)}
                             </.badge>
                           </span>
@@ -1004,10 +1127,13 @@ defmodule FluxValeWeb.AdminLive.Moderation do
                         data-testid={"admin-moderation-detail-#{post.id}"}
                       >
                         <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-ink-muted">
-                          <.badge tone={FeedbackHTML.status_tone(@detail.post.status)}>
+                          <.badge tone={FeedbackHTML.status_tone(@detail.post.status)} class="gap-1">
+                            <%= if cue = status_cue(@detail.post.status) do %>
+                              <.icon name={cue} class="size-3.5" />
+                            <% end %>
                             {FeedbackHTML.status_label(@detail.post.status)}
                           </.badge>
-                          <span>{FeedbackHTML.status_changed_label(@detail.post)}</span>
+                          <span>{status_age_line(@detail.post)}</span>
                         </div>
 
                         <div
@@ -1015,6 +1141,9 @@ defmodule FluxValeWeb.AdminLive.Moderation do
                           class="flex flex-wrap items-center gap-2"
                           data-testid="admin-moderation-post-tags"
                         >
+                          <span class="text-xs font-medium tracking-wide text-ink-muted uppercase">
+                            {gettext("Tags")}
+                          </span>
                           <span
                             :for={tag <- @detail.post.tags}
                             data-testid={"admin-moderation-post-tag-#{tag.slug}"}
@@ -1026,17 +1155,24 @@ defmodule FluxValeWeb.AdminLive.Moderation do
 
                         <%!-- The body rides Feedback.Markdown (#488), the
                         board's own sanitized renderer — the same posture
-                        as the public post page, never a raw body. --%>
+                        as the public post page, never a raw body. The
+                        measure stays a read surface's: about 65
+                        characters at 14px. --%>
                         <div
                           data-testid="admin-moderation-post-body"
-                          class="feedback-body text-sm leading-relaxed text-ink [overflow-wrap:anywhere]"
+                          class="feedback-body max-w-[65ch] text-sm leading-relaxed text-ink [overflow-wrap:anywhere]"
                         >
                           {raw(@detail.description_html)}
                         </div>
 
                         <%!-- The moderation levers share one destructive
                         slot (@confirm), so the confirm_block contract's
-                        one-confirm-per-panel holds on this page too. --%>
+                        one-confirm-per-panel holds on this page too. The
+                        heavy danger grammar is the post destroy's alone:
+                        the vote's inline confirm stays light (571's
+                        color grammar), and a referenced original's
+                        delete button disables WITH its reason rather
+                        than offering a click the action will refuse. --%>
                         <div class="space-y-3" data-testid="admin-moderation-danger-zone">
                           <.callout
                             :if={@detail.referenced_count > 0}
@@ -1052,20 +1188,16 @@ defmodule FluxValeWeb.AdminLive.Moderation do
                           >
                             <p>
                               {gettext(
-                                "This original refuses deletion while a duplicate points at it. Delete the duplicate, or move it to another original, then delete this one."
+                                "This original refuses deletion while a duplicate points at it. Delete the duplicate first, then delete this one."
                               )}
                             </p>
                           </.callout>
 
-                          <div class="flex flex-wrap items-center justify-between gap-3">
-                            <p class="text-xs text-ink-muted">
-                              {gettext(
-                                "Deleting a post is permanent. Its votes and comments go with it."
-                              )}
-                            </p>
+                          <div class="flex justify-end">
                             <.button
                               size="sm"
                               variant="destructive"
+                              disabled={@detail.referenced_count > 0}
                               phx-click="open-destroy-post"
                               phx-value-id={@detail.post.id}
                               phx-disable-with={gettext("Opening...")}
@@ -1110,7 +1242,7 @@ defmodule FluxValeWeb.AdminLive.Moderation do
                               data-testid={"admin-moderation-vote-#{vote.id}"}
                             >
                               <span class="min-w-0 text-sm text-ink">
-                                <span class="font-medium">{vote.cast_by_user.username}</span>
+                                <span class="font-medium">{caster_label(vote)}</span>
                                 <span class="text-ink-muted">
                                   · {stamp_text(vote.created_at)}
                                 </span>
@@ -1127,26 +1259,39 @@ defmodule FluxValeWeb.AdminLive.Moderation do
                               </.button>
                             </li>
                           </ul>
+                          <%!-- The vote's confirm is the LIGHT inline
+                          shape: one question, one consequence line, a
+                          plain bordered strip. The heavy danger panel is
+                          the post destroy's alone. --%>
                           <div
                             :if={
                               @confirm && @confirm.kind == :vote &&
                                 Enum.any?(@detail.votes, &(&1.id == @confirm.id))
                             }
-                            class="mt-3"
+                            class="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-control border border-line bg-panel-raised px-3 py-2"
+                            data-testid="admin-moderation-retract-panel"
                           >
-                            <.confirm_block
-                              title={gettext("Remove this vote?")}
-                              body={
-                                gettext(
-                                  "The vote comes off the post. The post's vote count drops by one. This cannot be undone."
-                                )
-                              }
-                              action={gettext("Yes, remove this vote")}
-                              event="confirm-retract-vote"
-                              action_testid="admin-moderation-retract-confirm"
-                              cancel_testid="admin-moderation-retract-cancel"
-                              myself={nil}
-                            />
+                            <p class="text-sm text-ink">
+                              {gettext("Remove this vote? The post's vote count drops by one.")}
+                            </p>
+                            <div class="flex items-center gap-2">
+                              <.button
+                                size="sm"
+                                variant="secondary"
+                                phx-click="confirm-retract-vote"
+                                data-testid="admin-moderation-retract-confirm"
+                              >
+                                {gettext("Remove")}
+                              </.button>
+                              <.button
+                                size="sm"
+                                variant="ghost"
+                                phx-click="cancel-confirm"
+                                data-testid="admin-moderation-retract-cancel"
+                              >
+                                {gettext("Cancel")}
+                              </.button>
+                            </div>
                           </div>
                         </div>
 
@@ -1171,7 +1316,7 @@ defmodule FluxValeWeb.AdminLive.Moderation do
                                 <span class="min-w-0 text-ink">
                                   <span class="font-medium">{comment.author_username}</span>
                                   <span class="text-ink-muted">
-                                    · {time_ago(comment.created_at)}
+                                    · {stamp_text(comment.created_at)}
                                   </span>
                                 </span>
                                 <.button
@@ -1325,7 +1470,7 @@ defmodule FluxValeWeb.AdminLive.Moderation do
                               phx-click="open-delete-tag"
                               phx-value-id={tag.id}
                               phx-disable-with={gettext("Deleting...")}
-                              class="text-sm font-medium text-danger underline-offset-2 hover:underline disabled:pointer-events-none disabled:opacity-50"
+                              class="text-sm font-medium text-ink-muted underline-offset-2 hover:text-ink hover:underline disabled:pointer-events-none disabled:opacity-50"
                               data-testid={"admin-moderation-tag-delete-#{tag.id}"}
                             >
                               {gettext("Delete")}

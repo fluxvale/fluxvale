@@ -195,17 +195,21 @@ defmodule FluxValeWeb.AdminLive.People do
   # through the domain, so the reveal itself is a server-side state
   # check and a raced acceptance (or a crafted frame naming an accepted
   # account) never opens a confirm the domain would refuse anyway.
+  #
+  # The stream RESET re-renders every row from the new assigns, so any
+  # confirm already open on another row collapses — a lone
+  # stream_insert here let two panels coexist and the first row's
+  # button act on the second record (the stale-panel defect class,
+  # repaired in the moderation surface's review, pinned here).
   def handle_event("open-withdraw", %{"id" => id}, socket) do
     admin = socket.assigns.current_user
 
     with {:ok, user} <- Ash.get(User, id, actor: admin, load: [:invite_state]),
          :pending <- user.invite_state do
-      # Stream items do not re-render on unrelated assign changes, so
-      # the reveal re-streams the row with the new expansion state.
       revealed =
         socket
         |> assign(withdrawing_id: user.id, withdrawing_user: user)
-        |> stream_insert(:people, user)
+        |> refresh_rows()
 
       {:noreply, revealed}
     else
@@ -241,10 +245,12 @@ defmodule FluxValeWeb.AdminLive.People do
 
   @impl Phoenix.LiveView
   def handle_event("cancel-confirm", _params, socket) do
+    # The reset re-renders every row, so the open panel actually leaves
+    # the DOM (the stale-panel rule).
     {:noreply,
      socket
      |> assign(withdrawing_id: nil, withdrawing_user: nil)
-     |> stream_insert(:people, socket.assigns.withdrawing_user)}
+     |> refresh_rows()}
   end
 
   defp withdraw_done(socket, :info) do

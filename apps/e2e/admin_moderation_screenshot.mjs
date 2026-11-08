@@ -62,11 +62,16 @@ const newSession = async ({ width = 1440, height = 900, video = false } = {}) =>
 };
 
 // goto + the page-mounted assertion (a 500 or a bounce must never
-// masquerade as a capture) + theme, then the still.
+// masquerade as a capture) + theme, then the still. The sticky header
+// is neutralized for the shot: a fullPage stitch scrolls the page and
+// the fixed header ghosts into every viewport band (the re-shoot
+// finding) — the still shows the document at scroll 0 with the header
+// in document flow.
 async function shot(page, name, mode, { fullPage = true, path = "/admin/moderation" } = {}) {
   await page.goto(`${BASE}${path}`, { waitUntil: "networkidle" });
   await page.waitForSelector("[data-testid='admin-sidebar']");
   await setTheme(page, mode);
+  await page.addStyleTag({ content: "header.sticky { position: static !important; }" });
   await page.screenshot({ path: `${outdir}/${name}.png`, fullPage });
   console.log(`captured ${name}.png`);
 }
@@ -119,6 +124,7 @@ if (phase === "full") {
     await page.goto(`${BASE}/admin/moderation`, { waitUntil: "networkidle" });
     await page.waitForSelector("[data-testid='admin-sidebar']");
     await setTheme(page, mode);
+    await page.addStyleTag({ content: "header.sticky { position: static !important; }" });
 
     const row = page
       .locator("#admin-moderation-posts > div", {
@@ -134,23 +140,21 @@ if (phase === "full") {
     await ctx.close();
   }
 
-  // The referenced-original guard note: the duplicate points at the
-  // CSV export post, so its destroy reveal shows the honest note.
+  // The referenced-original guard: the duplicate points at the CSV
+  // export post, so its expansion shows the honest note and its delete
+  // button renders disabled WITH the reason (no click needed, no dead
+  // lever offered).
   for (const mode of ["light", "dark"]) {
     const { ctx, page } = await newSession();
     await page.goto(`${BASE}/admin/moderation`, { waitUntil: "networkidle" });
     await page.waitForSelector("[data-testid='admin-sidebar']");
     await setTheme(page, mode);
+    await page.addStyleTag({ content: "header.sticky { position: static !important; }" });
 
     const rowContainer = page.locator("#admin-moderation-posts > div", {
       hasText: "Moderation capture export usage as CSV",
     });
     await rowContainer.locator("[data-testid^='admin-moderation-expand-']").first().click();
-    await page.waitForSelector("[data-testid='admin-moderation-danger-zone']");
-    await rowContainer
-      .locator("[data-testid='admin-moderation-destroy-post']")
-      .first()
-      .click();
     await page.waitForSelector("[data-testid='admin-moderation-referenced-note']");
     await page.waitForTimeout(300);
     await page.screenshot({
@@ -170,6 +174,7 @@ if (phase === "full") {
     await page.goto(`${BASE}/admin/moderation`, { waitUntil: "networkidle" });
     await page.waitForSelector("[data-testid='admin-sidebar']");
     await setTheme(page, mode);
+    await page.addStyleTag({ content: "header.sticky { position: static !important; }" });
 
     const rowContainer = page.locator("#admin-moderation-posts > div", {
       hasText: "Moderation capture keyboard shortcuts everywhere",
@@ -213,6 +218,7 @@ if (phase === "full") {
     await page.goto(`${BASE}/admin/moderation`, { waitUntil: "networkidle" });
     await page.waitForSelector("[data-testid='admin-sidebar']");
     await setTheme(page, mode);
+    await page.addStyleTag({ content: "header.sticky { position: static !important; }" });
 
     const rowContainer = page.locator("#admin-moderation-posts > div", {
       hasText: "Moderation capture export usage as CSV",
@@ -259,6 +265,14 @@ if (phase === "full") {
     });
     console.log(`captured admin-moderation-search-empty-${mode}.png`);
 
+    await ctx.close();
+  }
+
+  // The band widths (the shell capture's contract): the populated list
+  // beside the nav at the md floor and mid-band.
+  for (const width of [768, 900]) {
+    const { ctx, page } = await newSession({ width, height: 900 });
+    await shot(page, `admin-moderation-band-${width}-light`, "light");
     await ctx.close();
   }
 
@@ -309,15 +323,12 @@ if (phase === "gif") {
 
   const panel = page.locator("[data-testid^='admin-moderation-detail-']");
   await panel.waitFor();
-  const preBox = await panel.evaluate((n) => {
-    const r = n.getBoundingClientRect();
-    return { x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height) };
-  });
-  console.log(`panel bbox pre-reveal: ${JSON.stringify(preBox)}`);
+  const preRow = await rowContainer.boundingBox();
+  console.log(`row bbox pre-reveal: ${JSON.stringify(preRow)}`);
 
-  // Park the panel at a fixed height so the reveal stays inside the
-  // video crop.
-  await page.mouse.wheel(0, preBox.y - 300);
+  // Park the row's TITLE at a fixed height so the whole row (title
+  // through the grown panel) stays inside the video crop.
+  await page.mouse.wheel(0, preRow.y - 120);
   await page.waitForTimeout(300);
 
   const destroy = rowContainer.locator("[data-testid='admin-moderation-destroy-post']");
@@ -329,19 +340,19 @@ if (phase === "gif") {
   await page.waitForTimeout(150);
   await page.mouse.up();
   await page.locator("[data-testid='admin-moderation-destroy-confirm']").waitFor();
-  // The reveal HELD.
-  await page.waitForTimeout(1200);
+  // The reveal HELD for half the loop.
+  await page.waitForTimeout(2800);
 
-  // The crop is measured AFTER the reveal, so the grown panel (the
-  // confirm inside it) frames fully (the #554 discipline).
-  const revealed = await panel.boundingBox();
+  // The crop is measured AFTER the reveal and frames the WHOLE row:
+  // the title on top, the panel below, nothing else.
+  const revealed = await rowContainer.boundingBox();
   const box = {
     x: Math.round(revealed.x),
     y: Math.round(revealed.y),
     w: Math.round(revealed.width),
     h: Math.round(revealed.height),
   };
-  console.log(`panel bbox post-reveal: ${JSON.stringify(box)}`);
+  console.log(`row bbox post-reveal: ${JSON.stringify(box)}`);
 
   const cancel = page.locator("[data-testid='admin-moderation-destroy-cancel']");
   const cbox = await cancel.boundingBox();
@@ -350,13 +361,13 @@ if (phase === "gif") {
   await page.locator("[data-testid='admin-moderation-destroy-confirm']").waitFor({
     state: "detached",
   });
-  await page.waitForTimeout(500);
+  await page.waitForTimeout(400);
 
   const video = await page.video().path();
   await ctx.close();
   console.log(`recorded ${video}`);
 
-  const m = 40; // margin around the panel
+  const m = 20; // margin around the framed row
   const x = Math.max(0, box.x - m);
   const y = Math.max(0, box.y - m);
   const w = Math.min(1440 - x, box.w + 2 * m);
@@ -369,9 +380,9 @@ if (phase === "gif") {
     // Output-side seek: frame-accurate (the webm's variable frame rate
     // makes keyframe input seeks land wherever they like).
     "-ss",
-    "2.0",
+    "2.2",
     "-vf",
-    `fps=5,crop=${w}:${h}:${x}:${y},scale=420:-1:flags=lanczos,split[s0][s1];[s0]palettegen=max_colors=128[p];[s1][p]paletteuse=dither=none`,
+    `fps=4,crop=${w}:${h}:${x}:${y},scale=380:-1:flags=lanczos,split[s0][s1];[s0]palettegen=max_colors=96[p];[s1][p]paletteuse=dither=none`,
     "-loop",
     "0",
     out,

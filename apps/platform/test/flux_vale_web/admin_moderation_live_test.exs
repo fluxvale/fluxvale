@@ -22,6 +22,7 @@ defmodule FluxValeWeb.AdminModerationLiveTest do
   alias FluxVale.Identity.User
   alias FluxVale.TestSupport.FeedbackFixtures
   alias FluxVale.TestSupport.SessionHelpers
+  alias FluxValeWeb.AdminLive.Moderation
 
   require Ash.Query
 
@@ -97,6 +98,13 @@ defmodule FluxValeWeb.AdminModerationLiveTest do
       _vote = vote!(post, admin)
       author_user = Ash.load!(post, :created_by_user, authorize?: false).created_by_user
 
+      # The two tones that own their color alone rest uncued: the badge
+      # renders without an icon (the status_cue fallback arm).
+      done = FeedbackFixtures.post!(%{title: "Already done"})
+      FeedbackFixtures.move_status!(done, :completed)
+      rejected = FeedbackFixtures.post!(%{title: "Politely rejected"})
+      FeedbackFixtures.move_status!(rejected, :declined)
+
       {:ok, view, _html} = live(conn, "/admin/moderation")
 
       assert has_element?(
@@ -114,6 +122,14 @@ defmodule FluxValeWeb.AdminModerationLiveTest do
 
       assert has_element?(view, "[data-testid='admin-moderation-comments-#{post.id}']", "1")
       refute text_of(view, "[data-testid='admin-moderation-posted-#{post.id}']") == ""
+
+      assert has_element?(view, "[data-testid='admin-moderation-status-#{done.id}']", "Completed")
+
+      assert has_element?(
+               view,
+               "[data-testid='admin-moderation-status-#{rejected.id}']",
+               "Declined"
+             )
     end
 
     test "a system post with no author renders the empty author cell", %{conn: conn, admin: admin} do
@@ -417,17 +433,13 @@ defmodule FluxValeWeb.AdminModerationLiveTest do
       assert {:error, _not_found} = Ash.get(Post, post.id, authorize?: false)
     end
 
-    test "a referenced original shows the honest note instead of a confirm", %{conn: conn} do
+    test "a referenced original shows the honest note and a disabled delete", %{conn: conn} do
       original = FeedbackFixtures.post!()
       duplicate = FeedbackFixtures.post!()
       FeedbackFixtures.move_status!(duplicate, :duplicate, duplicate_of: original)
 
       {:ok, view, _html} = live(conn, "/admin/moderation")
       open_detail(view, original.id)
-
-      view
-      |> element("[data-testid='admin-moderation-destroy-post']")
-      |> render_click()
 
       assert has_element?(
                view,
@@ -441,10 +453,34 @@ defmodule FluxValeWeb.AdminModerationLiveTest do
                "refuses deletion"
              )
 
+      assert render(element(view, "[data-testid='admin-moderation-destroy-post']")) =~
+               "disabled"
+
       refute has_element?(view, "[data-testid='destructive-confirm']")
 
       # The post is untouched.
       assert Ash.get!(Post, original.id, authorize?: false).id == original.id
+    end
+
+    test "a duplicate landing between the render and the destroy reveal turns the click into the note",
+         %{conn: conn} do
+      post = FeedbackFixtures.post!()
+
+      {:ok, view, _html} = live(conn, "/admin/moderation")
+      open_detail(view, post.id)
+
+      # Unreferenced at render: the button is enabled. The duplicate
+      # lands behind it.
+      refute has_element?(view, "[data-testid='admin-moderation-referenced-note']")
+      duplicate = FeedbackFixtures.post!()
+      FeedbackFixtures.move_status!(duplicate, :duplicate, duplicate_of: post)
+
+      view
+      |> element("[data-testid='admin-moderation-destroy-post']")
+      |> render_click()
+
+      assert has_element?(view, "[data-testid='admin-moderation-referenced-note']")
+      refute has_element?(view, "[data-testid='destructive-confirm']")
     end
 
     test "a duplicate planted behind the open confirm refuses at the action", %{conn: conn} do
@@ -530,15 +566,22 @@ defmodule FluxValeWeb.AdminModerationLiveTest do
       |> element("[data-testid='admin-moderation-retract-#{vote.id}']")
       |> render_click()
 
-      assert has_element?(view, "[data-testid='destructive-confirm']")
-      assert has_element?(view, "[data-testid='destructive-confirm']", "vote count drops by one")
+      # The vote's confirm is the light inline panel, not the heavy
+      # danger grammar (reserved for the post destroy).
+      assert has_element?(view, "[data-testid='admin-moderation-retract-panel']")
+
+      assert has_element?(
+               view,
+               "[data-testid='admin-moderation-retract-panel']",
+               "vote count drops by one"
+             )
 
       # Cancel: nothing happened.
       view
       |> element("[data-testid='admin-moderation-retract-cancel']")
       |> render_click()
 
-      refute has_element?(view, "[data-testid='destructive-confirm']")
+      refute has_element?(view, "[data-testid='admin-moderation-retract-panel']")
       assert Ash.get!(Post, post.id, authorize?: false).vote_count == 1
 
       # Execute.
@@ -570,6 +613,7 @@ defmodule FluxValeWeb.AdminModerationLiveTest do
       |> element("[data-testid='admin-moderation-retract-#{vote.id}']")
       |> render_click()
 
+      assert has_element?(view, "[data-testid='admin-moderation-retract-panel']")
       assert Vote.retract!(vote, actor: admin) == :ok
 
       view
@@ -577,7 +621,7 @@ defmodule FluxValeWeb.AdminModerationLiveTest do
       |> render_click()
 
       assert has_element?(view, "#flash-error", "moved before the click")
-      refute has_element?(view, "[data-testid='destructive-confirm']")
+      refute has_element?(view, "[data-testid='admin-moderation-retract-panel']")
     end
 
     test "a retract reveal naming a vote that is already gone refreshes honestly", %{
@@ -979,6 +1023,309 @@ defmodule FluxValeWeb.AdminModerationLiveTest do
                "[data-testid='admin-moderation-tags-empty']",
                "No tags yet"
              )
+    end
+  end
+
+  describe "the review fixes" do
+    test "an ownerless seed-shaped vote expands with an honest unknown caster", %{
+      conn: conn,
+      admin: admin
+    } do
+      post = FeedbackFixtures.post!()
+      {:ok, org} = FluxVale.Accounts.personal_org_for_user(admin.id, authorize?: false)
+
+      # The demo seeder's exact shape: a cast with no actor, the org
+      # named, running authorize?: false (cast_demo_vote!).
+      Vote
+      |> Ash.Changeset.for_create(
+        :cast,
+        %{post_id: post.id, organization_id: org.id},
+        authorize?: false
+      )
+      |> Ash.create!(authorize?: false)
+
+      {:ok, view, _html} = live(conn, "/admin/moderation")
+      open_detail(view, post.id)
+
+      # No crash, and the ownerless row reads honestly.
+      assert has_element?(view, "[data-testid='admin-moderation-votes']")
+      assert has_element?(view, "[data-testid^='admin-moderation-vote-']")
+
+      assert has_element?(
+               view,
+               "[data-testid='admin-moderation-votes']",
+               "Unknown caster"
+             )
+
+      # The moderation levers stay reachable for a seeded post.
+      assert has_element?(view, "[data-testid='admin-moderation-destroy-post']")
+    end
+
+    test "opening a second tag confirm closes the first: one panel, acting on its own row", %{
+      conn: conn
+    } do
+      tag_one = FeedbackFixtures.tag!()
+      tag_two = FeedbackFixtures.tag!()
+      post = FeedbackFixtures.post!()
+      FeedbackFixtures.tag_post!(post, [tag_one, tag_two])
+
+      {:ok, view, _html} = live(conn, "/admin/moderation")
+
+      view
+      |> element("[data-testid='admin-moderation-tag-delete-#{tag_one.id}']")
+      |> render_click()
+
+      assert has_element?(view, "[data-testid='destructive-confirm']")
+      assert has_element?(view, "[data-testid='destructive-confirm']", tag_one.name)
+
+      # The second reveal: the reset collapses the first panel.
+      view
+      |> element("[data-testid='admin-moderation-tag-delete-#{tag_two.id}']")
+      |> render_click()
+
+      # One panel in the DOM, and it names tag_two.
+      assert has_element?(view, "[data-testid='destructive-confirm']", tag_two.name)
+      refute has_element?(view, "[data-testid='destructive-confirm']", tag_one.name)
+
+      # Executing acts on tag_two, not tag_one (the probe-proven
+      # wrong-record arm).
+      view
+      |> element("[data-testid='admin-moderation-tag-delete-confirm']")
+      |> render_click()
+
+      assert has_element?(view, "#flash-info", "Tag deleted.")
+      assert {:ok, _tag} = Tag.get_by_slug(tag_one.slug, authorize?: false)
+      assert {:error, _gone} = Tag.get_by_slug(tag_two.slug, authorize?: false)
+    end
+
+    test "opening a second expansion closes the first", %{conn: conn} do
+      alpha = FeedbackFixtures.post!(%{title: "Expansion alpha"})
+      beta = FeedbackFixtures.post!(%{title: "Expansion beta"})
+
+      {:ok, view, _html} = live(conn, "/admin/moderation")
+      open_detail(view, alpha.id)
+      assert has_element?(view, "[data-testid='admin-moderation-detail-#{alpha.id}']")
+
+      open_detail(view, beta.id)
+
+      refute has_element?(view, "[data-testid='admin-moderation-detail-#{alpha.id}']")
+      assert has_element?(view, "[data-testid='admin-moderation-detail-#{beta.id}']")
+    end
+
+    test "a crafted retract reveal naming a vote the open panel does not hold expires quietly", %{
+      conn: conn,
+      admin: admin
+    } do
+      shown_post = FeedbackFixtures.post!()
+      other_post = FeedbackFixtures.post!()
+      other_vote = vote!(other_post, admin)
+
+      {:ok, view, _html} = live(conn, "/admin/moderation")
+      open_detail(view, shown_post.id)
+
+      render_click(view, "open-retract-vote", %{"id" => other_vote.id})
+
+      assert has_element?(view, "#flash-error", "panel is no longer open")
+      refute has_element?(view, "[data-testid='admin-moderation-retract-panel']")
+      refute has_element?(view, "[data-testid^='admin-moderation-detail-']")
+    end
+
+    test "a crafted comment reveal naming a comment the open panel does not hold expires quietly",
+         %{conn: conn} do
+      shown_post = FeedbackFixtures.post!()
+      other_post = FeedbackFixtures.post!()
+      other_comment = comment!(other_post, "on another post", SessionHelpers.user!())
+
+      {:ok, view, _html} = live(conn, "/admin/moderation")
+      open_detail(view, shown_post.id)
+
+      render_click(view, "open-delete-comment", %{"id" => other_comment.id})
+
+      assert has_element?(view, "#flash-error", "panel is no longer open")
+      refute has_element?(view, "[data-testid='destructive-confirm']")
+    end
+
+    test "the tag form events with no rename open are silent no-ops", %{conn: conn} do
+      {:ok, view, _html} = live(conn, "/admin/moderation")
+
+      render_change(view, "validate-tag-rename", %{"tag_rename" => %{"name" => "Crafted"}})
+      render_submit(view, "save-tag-rename", %{"tag_rename" => %{"name" => "Crafted"}})
+
+      refute has_element?(view, "#flash-error")
+      refute has_element?(view, "#flash-info", "Tag renamed.")
+    end
+
+    test "a crafted search query that is not a string is a no-op", %{conn: conn} do
+      post = FeedbackFixtures.post!()
+      {:ok, view, _html} = live(conn, "/admin/moderation")
+
+      render_change(view, "search", %{"search" => %{"query" => %{"nested" => "map"}}})
+
+      assert has_element?(view, "[data-testid='admin-moderation-title-#{post.id}']")
+    end
+
+    test "the refusal classifier names every duplicate error class" do
+      invalid = %Ash.Error.Invalid{errors: [%{field: :duplicate_of_id, message: "refused"}]}
+      assert Moderation.referenced_refusal?(invalid)
+
+      # The truly-concurrent race loses at the duplicate_of FK, which
+      # Ash wraps as Unknown-class.
+      unknown_fk = %Ash.Error.Unknown{errors: [%{field: :duplicate_of_id, message: "fk"}]}
+      assert Moderation.referenced_refusal?(unknown_fk)
+
+      unknown_other = %Ash.Error.Unknown{errors: [%{field: :other, message: "fk"}]}
+      refute Moderation.referenced_refusal?(unknown_other)
+
+      refute Moderation.referenced_refusal?(%Ash.Error.Query.NotFound{})
+    end
+
+    test "a referenced original disables its delete button with the reason attached", %{
+      conn: conn
+    } do
+      original = FeedbackFixtures.post!()
+      duplicate = FeedbackFixtures.post!()
+      FeedbackFixtures.move_status!(duplicate, :duplicate, duplicate_of: original)
+
+      {:ok, view, _html} = live(conn, "/admin/moderation")
+      open_detail(view, original.id)
+
+      assert has_element?(view, "[data-testid='admin-moderation-referenced-note']")
+
+      assert has_element?(
+               view,
+               "[data-testid='admin-moderation-referenced-note']",
+               "Delete the duplicate first"
+             )
+
+      assert render(element(view, "[data-testid='admin-moderation-destroy-post']")) =~
+               "disabled"
+    end
+
+    test "the duplicate note plurals across counts", %{conn: conn} do
+      pair_original = FeedbackFixtures.post!()
+      five_original = FeedbackFixtures.post!()
+
+      duplicates =
+        for _n <- 1..2 do
+          dup = FeedbackFixtures.post!()
+          FeedbackFixtures.move_status!(dup, :duplicate, duplicate_of: pair_original)
+          dup
+        end
+
+      for _n <- 1..5 do
+        dup = FeedbackFixtures.post!()
+        FeedbackFixtures.move_status!(dup, :duplicate, duplicate_of: five_original)
+      end
+
+      {:ok, view, _html} = live(conn, "/admin/moderation")
+
+      # The duplicate rows carry their own shape cue (the link, for the
+      # pointer to the original) — the neutral-tone collision with Open.
+      first_duplicate = List.first(duplicates)
+
+      assert has_element?(
+               view,
+               "[data-testid='admin-moderation-status-#{first_duplicate.id}'] .hero-link"
+             )
+
+      open_detail(view, pair_original.id)
+
+      assert has_element?(
+               view,
+               "[data-testid='admin-moderation-referenced-note']",
+               "2 duplicates point at this post"
+             )
+
+      open_detail(view, five_original.id)
+
+      assert has_element?(
+               view,
+               "[data-testid='admin-moderation-referenced-note']",
+               "5 duplicates point at this post"
+             )
+    end
+
+    test "the used-tag confirm plurals across counts", %{conn: conn} do
+      tag = FeedbackFixtures.tag!()
+      post = FeedbackFixtures.post!()
+      FeedbackFixtures.tag_post!(post, [tag])
+
+      {:ok, view, _html} = live(conn, "/admin/moderation")
+
+      view
+      |> element("[data-testid='admin-moderation-tag-delete-#{tag.id}']")
+      |> render_click()
+
+      assert has_element?(view, "[data-testid='destructive-confirm']", "1 post carries it today")
+
+      view
+      |> element("[data-testid='admin-moderation-tag-delete-cancel']")
+      |> render_click()
+
+      # Two and five: the ngettext plural arms. The count is the POSTS
+      # carrying the tag, so each arm tags more posts.
+      two = Enum.map(1..1, fn _n -> FeedbackFixtures.post!() end)
+      Enum.each(two, &FeedbackFixtures.tag_post!(&1, [tag]))
+
+      view
+      |> element("[data-testid='admin-moderation-tag-delete-#{tag.id}']")
+      |> render_click()
+
+      assert has_element?(view, "[data-testid='destructive-confirm']", "2 posts carry it today")
+
+      view
+      |> element("[data-testid='admin-moderation-tag-delete-cancel']")
+      |> render_click()
+
+      more = Enum.map(1..3, fn _n -> FeedbackFixtures.post!() end)
+      Enum.each(more, &FeedbackFixtures.tag_post!(&1, [tag]))
+
+      view
+      |> element("[data-testid='admin-moderation-tag-delete-#{tag.id}']")
+      |> render_click()
+
+      assert has_element?(view, "[data-testid='destructive-confirm']", "5 posts carry it today")
+
+      view
+      |> element("[data-testid='admin-moderation-tag-delete-cancel']")
+      |> render_click()
+    end
+
+    test "the tag confirm re-reads the count at click time", %{conn: conn} do
+      tag = FeedbackFixtures.tag!()
+      post = FeedbackFixtures.post!()
+      other = FeedbackFixtures.post!()
+      FeedbackFixtures.tag_post!(post, [tag])
+
+      {:ok, view, _html} = live(conn, "/admin/moderation")
+
+      view
+      |> element("[data-testid='admin-moderation-tag-delete-#{tag.id}']")
+      |> render_click()
+
+      assert has_element?(view, "[data-testid='destructive-confirm']", "1 post carries it today")
+
+      # The count drifts while the panel is up.
+      FeedbackFixtures.tag_post!(other, [tag])
+
+      view
+      |> element("[data-testid='admin-moderation-tag-delete-confirm']")
+      |> render_click()
+
+      assert has_element?(view, "#flash-info", "Tag deleted.")
+      assert {:error, _gone} = Tag.get_by_slug(tag.slug, authorize?: false)
+    end
+
+    test "the expansion meta does not stutter the status word", %{conn: conn} do
+      post = FeedbackFixtures.post!()
+      FeedbackFixtures.move_status!(post, :started)
+
+      {:ok, view, _html} = live(conn, "/admin/moderation")
+      open_detail(view, post.id)
+
+      meta = render(element(view, "[data-testid='admin-moderation-detail-#{post.id}']"))
+      refute meta =~ "Started Started"
+      assert meta =~ "Started"
     end
   end
 
