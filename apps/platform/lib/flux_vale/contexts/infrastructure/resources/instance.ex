@@ -79,8 +79,10 @@ defmodule FluxVale.Infrastructure.Instance do
   alias FluxVale.Infrastructure.Instance.SetOrganizationFromActor
   alias FluxVale.Infrastructure.Instance.StatusMarkers
   alias FluxVale.Infrastructure.Instance.StatusTransition
+  alias FluxVale.Infrastructure.Instance.StorageGrowthGuard
   alias FluxVale.Infrastructure.Instance.ValidateEnvVars
   alias FluxVale.Infrastructure.Instance.WakeMarkers
+  alias FluxVale.Infrastructure.Operations.GrowStorageVolume
   alias FluxVale.Infrastructure.Operations.InstanceK8s
   alias FluxVale.Infrastructure.Operations.RenderAccessDNS
   alias FluxVale.Infrastructure.Operations.ResizeInstance
@@ -370,6 +372,10 @@ defmodule FluxVale.Infrastructure.Instance do
     # must re-read it (the panel resets on a seed mismatch), so it lands
     # on the same topic.
     publish(:resize, ["instances", :id])
+    # #250: an online storage growth moves the row's allocation and
+    # pricing — every open tab must re-read the instance, like the
+    # resize's publish.
+    publish(:grow_storage, ["instances", :id])
     publish(:mark_deploy_error, ["instances", :id])
     publish(:mark_teardown_error, ["instances", :id])
     publish(:destroy, ["instances", :id])
@@ -1042,6 +1048,45 @@ defmodule FluxVale.Infrastructure.Instance do
       end)
     end
 
+    # #250: the online storage-only growth path (the operator approval's
+    # apply). System-only — no policy arm, no JSON:API route — the
+    # approval operation calls it with `authorize?: false` after the
+    # request's own approve policy passed. Storage only grows; the guard
+    # settles the open interval at the old rate before the flip and the
+    # cluster apply rides after_action (a failed apply rolls the row and
+    # the audit era back).
+    update :grow_storage do
+      description(
+        "Online storage-only growth (#250): up-only, capability-gated, priced like a fresh create; the volume grows without a pod roll (a restart may be needed to see the new space)."
+      )
+
+      require_atomic?(false)
+      accept([:storage_gb])
+
+      # Racing growths/resizes refuse the slower one cleanly (the
+      # set_exposure precedent).
+      change(optimistic_lock(:version))
+
+      change(StorageGrowthGuard)
+      change(ResizePricing)
+      change(AppendAllocationSnapshot)
+
+      change(fn changeset, _context ->
+        instance = changeset.data
+
+        if cluster_managed?(instance) do
+          Ash.Changeset.after_action(changeset, fn _changeset, updated ->
+            case GrowStorageVolume.call(updated, instance.storage_gb) do
+              :ok -> {:ok, updated}
+              {:error, _reason} = error -> error
+            end
+          end)
+        else
+          changeset
+        end
+      end)
+    end
+
     action :delete, :struct do
       description("""
       Deletes an instance (async teardown). Deployed instances flip to
@@ -1268,6 +1313,7 @@ defmodule FluxVale.Infrastructure.Instance do
     define(:set_always_on)
     define(:set_exposure)
     define(:resize)
+    define(:grow_storage)
   end
 
   identities do
