@@ -34,7 +34,8 @@ defmodule FluxValeWeb.SignInController do
     # A list/map-shaped param (repeated or indexed form key) is not an
     # address: answer it as malformed input instead of raising in
     # to_string — this endpoint is anonymous, so its crash surface is
-    # anyone's to hit (the code arm below guards the same shape).
+    # anyone's to hit (SessionController's native-verify arm guards the
+    # same shape on its own inputs).
     email = if is_binary(raw), do: raw, else: ""
     return_to = ReturnPath.safe(params["return_to"])
     outcome = Identity.request_auth_code(email)

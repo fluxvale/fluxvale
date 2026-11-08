@@ -39,12 +39,16 @@ export async function nativeSignIn(
   // navigation.
   const settle = async () => {
     if (!opts.waitForDisconnect) return;
-    await page.waitForFunction(
-      () =>
-        !(
-          window as unknown as { liveSocket?: { isConnected(): boolean } }
-        ).liveSocket?.isConnected(),
-    );
+    // Wait for app.js's socket object to exist *and* be down: an
+    // undefined liveSocket would satisfy a bare !isConnected() while the
+    // bundle is still loading, leaving the click to race the first
+    // connect attempt.
+    await page.waitForFunction(() => {
+      const socket = (
+        window as unknown as { liveSocket?: { isConnected(): boolean } }
+      ).liveSocket;
+      return socket !== undefined && !socket.isConnected();
+    });
   };
 
   await page.goto("/sign-in");

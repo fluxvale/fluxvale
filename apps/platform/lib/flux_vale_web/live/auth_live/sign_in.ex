@@ -66,8 +66,7 @@ defmodule FluxValeWeb.AuthLive.SignIn do
               <%!-- #462/#219: the email form carries the return path in its
               POST body for both transports. The native request's PRG
               puts the validated value in the code page's URL (the same
-              query-param convention the #462 sign-in link uses); the
-              verify step's body is the only place it travels then. --%>
+              query-param convention the #462 sign-in link uses). --%>
               <input :if={@return_to} type="hidden" name="return_to" value={@return_to} />
               <.input
                 field={@form[:email]}
@@ -118,8 +117,12 @@ defmodule FluxValeWeb.AuthLive.SignIn do
                 the minted token (and wins there). --%>
                 <input type="hidden" name="email" value={@email} />
                 <input :if={@token} type="hidden" name="token" value={@token} />
-                <%!-- #462: the return path rides the POST body with the
-                token — never re-emitted into a URL by this flow. --%>
+                <%!-- #462/#219: the code form carries the return path in
+                its POST body — with the minted token on the connected
+                hand-off, with the code on the native one. The session
+                write redirects to the validated target; a failed verify
+                re-links this page with the value, re-validated on every
+                hop. --%>
                 <input :if={@return_to} type="hidden" name="return_to" value={@return_to} />
                 <.input
                   field={@form[:code]}
