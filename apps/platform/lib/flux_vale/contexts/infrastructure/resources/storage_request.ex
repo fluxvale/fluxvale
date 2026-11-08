@@ -251,9 +251,10 @@ defmodule FluxVale.Infrastructure.StorageRequest do
       public?(true)
     end
 
-    # The decision/apply serialization (#250): a racing approve and a
-    # racing reject refuse the slower one cleanly (the set_exposure
-    # precedent). System marks re-read at write time.
+    # The decision/apply serialization (#250): EVERY state write locks
+    # on this version, so a racing approve/reject/retry/mark refuses the
+    # slower one instead of overwriting a newer state with a stale
+    # struct (the set_exposure precedent).
     attribute :version, :integer do
       allow_nil?(false)
       default(1)
@@ -360,6 +361,7 @@ defmodule FluxVale.Infrastructure.StorageRequest do
 
       require_atomic?(false)
       accept([:rejection_reason])
+      change(optimistic_lock(:version))
       change(RejectionGuard)
     end
 
@@ -367,6 +369,7 @@ defmodule FluxVale.Infrastructure.StorageRequest do
       description("The operator's retry of an approved request's apply — no decision is written.")
 
       require_atomic?(false)
+      change(optimistic_lock(:version))
 
       change(fn changeset, _context ->
         if changeset.data.status == :approved do
@@ -385,6 +388,7 @@ defmodule FluxVale.Infrastructure.StorageRequest do
       description("The apply's success mark: approved → applied.")
 
       require_atomic?(false)
+      change(optimistic_lock(:version))
 
       change(fn changeset, _context ->
         if changeset.data.status == :approved do
@@ -406,6 +410,7 @@ defmodule FluxVale.Infrastructure.StorageRequest do
 
       require_atomic?(false)
       argument(:error, :string, allow_nil?: false)
+      change(optimistic_lock(:version))
 
       change(fn changeset, _context ->
         if changeset.data.status == :approved do

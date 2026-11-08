@@ -820,4 +820,75 @@ defmodule FluxVale.Infrastructure.StorageRequestTest do
                StorageRequest.mark_apply_failed(approved, %{error: "no"}, actor: admin)
     end
   end
+
+  # --- optimistic locking ---------------------------------------------
+
+  describe "optimistic locking" do
+    setup do
+      admin = AccountsFixtures.platform_admin!()
+      user = user!()
+      request = stopped_request!(user, %{requested_gb: 150})
+      allow_expansion!()
+      {:ok, approved} = StorageRequest.approve(request, %{}, actor: admin)
+
+      %{admin: admin, approved: approved}
+    end
+
+    test "a stale reject cannot overwrite a newer apply mark", %{
+      admin: admin,
+      approved: approved
+    } do
+      {:ok, applied} = StorageRequest.mark_applied(approved, %{}, authorize?: false)
+
+      assert {:error, error} =
+               StorageRequest.reject(
+                 approved,
+                 %{rejection_reason: "Too late"},
+                 actor: admin
+               )
+
+      assert Exception.message(error) =~ "stale record"
+
+      assert {:ok, row} = StorageRequest.get_by_id(applied.id, authorize?: false)
+      assert row.status == :applied
+      assert row.rejection_reason == nil
+    end
+
+    test "a stale retry cannot overwrite a newer rejection", %{
+      admin: admin,
+      approved: approved
+    } do
+      {:ok, rejected} =
+        StorageRequest.reject(approved, %{rejection_reason: "No capacity"}, actor: admin)
+
+      assert {:error, error} = StorageRequest.retry_apply(approved, %{}, actor: admin)
+      assert Exception.message(error) =~ "stale record"
+
+      assert {:ok, row} = StorageRequest.get_by_id(rejected.id, authorize?: false)
+      assert row.status == :rejected
+    end
+
+    test "stale apply marks cannot overwrite a newer rejection", %{
+      admin: admin,
+      approved: approved
+    } do
+      {:ok, rejected} =
+        StorageRequest.reject(approved, %{rejection_reason: "No capacity"}, actor: admin)
+
+      assert {:error, applied_error} =
+               StorageRequest.mark_applied(approved, %{}, authorize?: false)
+
+      assert Exception.message(applied_error) =~ "stale record"
+
+      assert {:error, failed_error} =
+               StorageRequest.mark_apply_failed(approved, %{error: "boom"}, authorize?: false)
+
+      assert Exception.message(failed_error) =~ "stale record"
+
+      assert {:ok, row} = StorageRequest.get_by_id(rejected.id, authorize?: false)
+      assert row.status == :rejected
+      assert row.applied_at == nil
+      assert row.apply_error == nil
+    end
+  end
 end
