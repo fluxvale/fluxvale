@@ -55,6 +55,37 @@ defmodule FluxVale.Checks.ActorIsOrganizationOwnerTest do
       refute ActorIsOrganizationOwner.owner?(nil, org)
       refute ActorIsOrganizationOwner.owner?(nil, %Ash.Changeset{})
     end
+
+    # The general changeset clause (#597's custody rows): any resource's
+    # changeset resolves by the org it carries — and an orgless one
+    # fails closed rather than guessing.
+    test "an orgless changeset fails closed" do
+      user = AccountsFixtures.user!()
+
+      orgless = Ash.Changeset.for_create(FluxVale.Infrastructure.PocketIdCustody, :create, %{})
+
+      refute ActorIsOrganizationOwner.owner?(user, orgless)
+    end
+
+    test "an org-carrying changeset of another resource resolves by that org" do
+      user = AccountsFixtures.user!()
+      org = AccountsFixtures.personal_org!(user)
+      member = AccountsFixtures.user!()
+
+      Membership.create!(%{organization_id: org.id, user_id: member.id, role: :member},
+        authorize?: false
+      )
+
+      owner_changeset =
+        Ash.Changeset.for_create(FluxVale.Infrastructure.PocketIdCustody, :create, %{
+          organization_id: org.id,
+          api_key_secret_ref: "fluxvale-pocketid-test",
+          verified_at: DateTime.utc_now()
+        })
+
+      assert ActorIsOrganizationOwner.owner?(user, owner_changeset)
+      refute ActorIsOrganizationOwner.owner?(member, owner_changeset)
+    end
   end
 
   describe "owner?/2 — the user_id/org_id form (ActorOwnsPaidOrg's seam)" do

@@ -723,6 +723,34 @@ defmodule FluxVale.Infrastructure.Instance do
       prepare(build(sort: [created_at: :desc], load: [app_version: :app]))
     end
 
+    # #597 §4.1: the SSO offer's detection read — the org's ACTIVE
+    # Pocket IDs in one query: deployed (namespace pinned), not dying
+    # (:deleting/:lost out), public (a private Pocket ID serves no
+    # issuer — ADR-0038 §4), app_version→app slug "pocket-id".
+    # Newest-deployed first: the offer's default pick and the
+    # no-custody/mid-setup link target are "the most recently deployed".
+    # Member-scoped by the read policy (the list_for_organization
+    # posture).
+    read :list_active_pocket_ids_for_organization do
+      description(
+        "The org's active Pocket IDs (#597 — deployed, public, not deleting/lost; newest-deployed first)"
+      )
+
+      argument(:organization_id, :uuid, allow_nil?: false)
+
+      filter(
+        expr(
+          organization_id == ^arg(:organization_id) and
+            app_version.app.slug == "pocket-id" and
+            not is_nil(namespace) and
+            status not in [:deleting, :lost] and
+            exposure == :public
+        )
+      )
+
+      prepare(build(sort: [deployed_at: :desc]))
+    end
+
     update :update_status do
       description(
         "System status write — the state machine's single funnel (MaintainAnchors + StatusTransition)."
@@ -1230,6 +1258,7 @@ defmodule FluxVale.Infrastructure.Instance do
     define(:list_for_actor)
     define(:list_for_organization, args: [:organization_id])
     define(:list_for_organization_with_app, args: [:organization_id])
+    define(:list_active_pocket_ids_for_organization, args: [:organization_id])
     define(:delete, args: [:id])
     define(:deploy)
     define(:stop)

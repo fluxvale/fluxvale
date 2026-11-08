@@ -47,6 +47,18 @@ defmodule FluxVale.Checks.ActorIsOrganizationOwner do
     owner?(user_id, org_id)
   end
 
+  # An org-carrying changeset of ANY resource (a custody row, a
+  # gateway write): the org the row will belong to names the
+  # membership. get_attribute falls back to the data's value, so
+  # creates (attribute set) and updates (unchanged attribute read off
+  # the record) both resolve.
+  def owner?(%{id: user_id}, %Ash.Changeset{} = changeset) do
+    case Ash.Changeset.get_attribute(changeset, :organization_id) do
+      org_id when is_binary(org_id) -> owner?(user_id, org_id)
+      _orgless -> false
+    end
+  end
+
   def owner?(_actor, _subject), do: false
 
   # authorize?: false — the check IS the authorization; the membership
