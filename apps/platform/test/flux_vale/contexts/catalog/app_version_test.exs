@@ -6,6 +6,7 @@ defmodule FluxVale.Catalog.AppVersionTest do
   alias FluxVale.Catalog.App
   alias FluxVale.Catalog.AppVersion
   alias FluxVale.Catalog.Category
+  alias FluxVale.Catalog.Types.BackingService
   alias FluxVale.Catalog.Types.EnvVarSpec
   alias FluxVale.Catalog.Types.FirstRunContract
   alias FluxVale.Catalog.Types.OidcWiring
@@ -647,6 +648,224 @@ defmodule FluxVale.Catalog.AppVersionTest do
 
       assert {:ok, version} = AppVersion.create(attrs, authorize?: false)
       assert version.oidc_wiring.enabled_env == nil
+    end
+  end
+
+  # #612 (ADR-0045): the bundled backing-services declarations. The
+  # pair mirrors the Docmost-class shape; majors come from the real
+  # registry config so registry growth can't stale the suite.
+  describe "backing_services (typed by BackingService, #612)" do
+    @db_specs %{
+      "DATABASE_URL" => %{
+        "label" => "Database URL",
+        "type" => "string",
+        "secret" => true
+      },
+      "REDIS_URL" => %{"label" => "Redis URL", "type" => "string", "secret" => true}
+    }
+
+    defp registry_major(kind) do
+      registry = Application.fetch_env!(:flux_vale, :backing_services)
+      majors = Keyword.fetch!(registry, kind)
+      hd(Map.keys(majors))
+    end
+
+    defp pair_attrs(specs \\ @db_specs) do
+      version_attrs(app(), %{
+        configurable_env_vars: specs,
+        backing_services: [
+          %{
+            "kind" => "postgres",
+            "version" => registry_major(:postgres),
+            "url_env" => "DATABASE_URL"
+          },
+          %{"kind" => "redis", "version" => registry_major(:redis), "url_env" => "REDIS_URL"}
+        ]
+      })
+    end
+
+    defp assert_rejection(attrs, expected) do
+      assert {:error, %Ash.Error.Invalid{errors: errors}} =
+               AppVersion.create(attrs, authorize?: false)
+
+      assert Enum.any?(errors, &(&1.message =~ expected)),
+             "expected an error mentioning #{inspect(expected)}, got: #{inspect(Enum.map(errors, & &1.message))}"
+    end
+
+    test "defaults to [] and accepts a valid postgres+redis pair against the real registry config" do
+      plain_attrs = version_attrs(app())
+
+      assert {:ok, plain} = AppVersion.create(plain_attrs, authorize?: false)
+      assert plain.backing_services == []
+
+      assert {:ok, version} = AppVersion.create(pair_attrs(), authorize?: false)
+
+      assert [%BackingService{}, %BackingService{}] = version.backing_services
+      assert Enum.map(version.backing_services, & &1.kind) == [:postgres, :redis]
+    end
+
+    test "round-trips through jsonb as BackingService structs" do
+      version = AppVersion.create!(pair_attrs(), authorize?: false)
+
+      # Fresh read — cast_stored re-casts each jsonb element.
+      assert {:ok, [reloaded]} = Ash.read(AppVersion, authorize?: false)
+      assert reloaded.id == version.id
+      assert [%BackingService{} = postgres, %BackingService{} = redis] = reloaded.backing_services
+      assert postgres.url_env == "DATABASE_URL"
+      assert redis.kind == :redis
+    end
+
+    test "rejects a malformed declaration at the resource boundary" do
+      attrs =
+        version_attrs(app(), %{
+          configurable_env_vars: @db_specs,
+          backing_services: [%{"kind" => "postgres", "url_env" => "DATABASE_URL"}]
+        })
+
+      assert {:error, %Ash.Error.Invalid{}} = AppVersion.create(attrs, authorize?: false)
+    end
+
+    test "a url_env the version never declares fails create, naming it" do
+      attrs =
+        version_attrs(app(), %{
+          configurable_env_vars: Map.delete(@db_specs, "REDIS_URL"),
+          backing_services: [
+            %{
+              "kind" => "redis",
+              "version" => registry_major(:redis),
+              "url_env" => "REDIS_URL"
+            }
+          ]
+        })
+
+      assert_rejection(
+        attrs,
+        ~s(url_env "REDIS_URL" is not in this version's configurable_env_vars)
+      )
+    end
+
+    test "a plain (non-secret) url_env spec fails loudly — the URL embeds the password" do
+      plain =
+        Map.put(@db_specs, "DATABASE_URL", %{"label" => "Database URL", "type" => "string"})
+
+      assert_rejection(pair_attrs(plain), ~s(url_env "DATABASE_URL" must name a secret-typed))
+    end
+
+    test "a required url_env spec fails — the platform provides it" do
+      forced =
+        Map.put(@db_specs, "DATABASE_URL", %{
+          "label" => "Database URL",
+          "type" => "string",
+          "secret" => true,
+          "required" => true
+        })
+
+      assert_rejection(
+        pair_attrs(forced),
+        ~s(url_env "DATABASE_URL" must not be a required input)
+      )
+    end
+
+    test "a url_env colliding with a first-run contract key fails, case-insensitively" do
+      contract = %{
+        "pattern" => "first_registered_user_admin",
+        "env" => %{"database_url" => "postgres://external"},
+        "guidance" => "g"
+      }
+
+      attrs = Map.put(pair_attrs(), :first_run, contract)
+
+      assert_rejection(attrs, "url_env must not be a first-run contract key, got: database_url")
+    end
+
+    test "a url_env colliding with instance_url_env fails — the deployer owns that key" do
+      attrs = Map.put(pair_attrs(), :instance_url_env, "DATABASE_URL")
+
+      assert_rejection(attrs, ~s(url_env "DATABASE_URL" collides with instance_url_env))
+    end
+
+    test "a url_env colliding with host_allowlist_env fails — the deployer owns that key" do
+      attrs = Map.put(pair_attrs(), :host_allowlist_env, "REDIS_URL")
+
+      assert_rejection(attrs, ~s(url_env "REDIS_URL" collides with host_allowlist_env))
+    end
+
+    test "duplicate kinds fail — at most one service per kind" do
+      attrs =
+        version_attrs(app(), %{
+          configurable_env_vars: Map.put(@db_specs, "PG_EXTRA_URL", @db_specs["REDIS_URL"]),
+          backing_services: [
+            %{
+              "kind" => "postgres",
+              "version" => registry_major(:postgres),
+              "url_env" => "DATABASE_URL"
+            },
+            %{
+              "kind" => "postgres",
+              "version" => registry_major(:postgres),
+              "url_env" => "PG_EXTRA_URL"
+            }
+          ]
+        })
+
+      assert_rejection(attrs, "at most one backing service per kind, duplicate: [:postgres]")
+    end
+
+    test "duplicate url_envs fail — one owner per key" do
+      attrs =
+        version_attrs(app(), %{
+          configurable_env_vars: @db_specs,
+          backing_services: [
+            %{
+              "kind" => "postgres",
+              "version" => registry_major(:postgres),
+              "url_env" => "REDIS_URL"
+            },
+            %{
+              "kind" => "redis",
+              "version" => registry_major(:redis),
+              "url_env" => "REDIS_URL"
+            }
+          ]
+        })
+
+      assert_rejection(attrs, ~s(duplicate url_env ["REDIS_URL"]))
+    end
+
+    test "a major not in the platform registry fails, naming the approved majors" do
+      unknown = Integer.to_string(String.to_integer(registry_major(:postgres)) + 1)
+
+      attrs =
+        version_attrs(app(), %{
+          configurable_env_vars: @db_specs,
+          backing_services: [
+            %{"kind" => "postgres", "version" => unknown, "url_env" => "DATABASE_URL"}
+          ]
+        })
+
+      assert_rejection(
+        attrs,
+        ~s(version #{inspect(unknown)} for kind :postgres is not in the platform backing-services registry)
+      )
+    end
+
+    test "the lock also holds on update — an AshAdmin edit cannot drift a declaration" do
+      version = AppVersion.create!(pair_attrs(), authorize?: false)
+
+      # Stripping a declared input out from under a live declaration
+      # fails, exactly like the create-time arm.
+      assert {:error, %Ash.Error.Invalid{errors: errors}} =
+               AppVersion.update(
+                 version,
+                 %{configurable_env_vars: Map.delete(@db_specs, "DATABASE_URL")},
+                 authorize?: false
+               )
+
+      assert Enum.any?(
+               errors,
+               &(&1.message =~
+                   ~s(url_env "DATABASE_URL" is not in this version's configurable_env_vars))
+             )
     end
   end
 

@@ -152,6 +152,27 @@ config :flux_vale,
     # the same reason.
     stale_after_seconds: 5 * 60 * 60
   ],
+  # Bundled backing services (#612, ADR-0045): the platform's
+  # approved-image registry (D2) — entries declare MAJORS, this maps
+  # each kind+major to the exact-pinned image and per-kind constants;
+  # one approved major per kind at launch (the smallest closed set;
+  # more join by deliberate registry growth). Pin choices verified
+  # 2026-11-08: postgres 18 = current stable major (19 GA lands
+  # 2026-11-19) and what Docmost's and Vikunja's official composes
+  # ship, above Umami's 12.14 minimum; redis 8 = Docmost's official
+  # compose. Exact tags + digests verified against registry-1.docker.io
+  # (the #587 upstream-facts discipline). `cpu` must stay a STRING —
+  # the quota math does `Decimal.new/1`, which rejects floats (the
+  # backups stance). The requests are carved from the purchased
+  # allocation, NOT added on top (D1: PG 0.10/256, Redis 0.05/64).
+  backing_services: [
+    postgres: %{
+      "18" => %{image: "postgres:18.6-alpine3.24", port: 5432, cpu: "0.10", memory_mb: 256}
+    },
+    redis: %{
+      "8" => %{image: "redis:8.10.3-alpine3.23", port: 6379, cpu: "0.05", memory_mb: 64}
+    }
+  ],
   # Scale-to-zero (#203, ADR-0036). idle threshold = the settled owner
   # number (1h); probe user-agents never count as traffic (settled) —
   # the beacon filters them before the idle clock. E2E shortens the

@@ -30,7 +30,9 @@ defmodule FluxVale.Seeds.CatalogData do
   `default_memory_mb` 256, `default_storage_gb` 0, `published_at` nil,
   env maps `%{}`, `first_run` nil (no first-open posture needed — the
   contract is optional per app, #181), `oidc_wiring` nil (no automatic
-  SSO wiring — the recipe is opt-in per version, #597).
+  SSO wiring — the recipe is opt-in per version, #597),
+  `backing_services` `[]` (no bundled services — the declaration is
+  opt-in per version, #612).
 
   `recommended_size` (the priced unit, #125) is **required** in the YAML —
   a version without one cannot be priced (ADR-0028). The loader only
@@ -135,6 +137,13 @@ defmodule FluxVale.Seeds.CatalogData do
       # OidcWiring type + ValidateOidcWiringEnv validate at write time
       # (one enforcement point, the first_run stance).
       oidc_wiring: Map.get(version, "oidc_wiring"),
+      # Bundled backing services (#612, ADR-0045): raw pass-through,
+      # string keys — the BackingService type + ValidateBackingServices
+      # validate at write time (one enforcement point). Defaults to []
+      # so entries without the key converge to "no services" (the
+      # first_run/oidc_wiring opt-in stance); no shipped entry declares
+      # any yet.
+      backing_services: Map.get(version, "backing_services", []),
       default_cpu_cores: cpu_cores(version),
       default_memory_mb: Map.get(version, "default_memory_mb", 256),
       default_storage_gb: Map.get(version, "default_storage_gb", 0),
