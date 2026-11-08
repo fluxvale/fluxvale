@@ -1,8 +1,8 @@
 # Plan: bundled per-instance backing services (#612)
 
-Status: **PLAN GATE — awaiting Terence's go.** Decisions D1–D8 in §9
-are open recommendations. Nothing implements before the go; this doc
-rides S1's PR onto main once approved (the
+Status: **APPROVED — Terence, Nov 8 2026.** All decisions D1–D8
+settled as recommended; section 9 records the settlement. Slices fan
+out per section 7; this doc rides S1's PR onto main (the
 [597 precedent](597-pocketid-sso.md)).
 Evidence base: the deployer and catalog types read at HEAD `a6da18c8`,
 issue #612 + the waiting entries (#587 open PR, #609, #610), the
@@ -456,3 +456,14 @@ upgrades.
   (recommended; cluster verified v1.37) vs. explicit wait-init
   containers vs. app-side retry only (not owned by the platform —
   rejected in the ADR regardless).
+
+## Settled — Terence, Nov 8 2026
+
+All eight accepted as recommended. Two emphases ride the slices
+verbatim ([ADR-0045](../adr/00045-bundled-backing-services.md)):
+
+- **D5**: the below-recommendation path for DB-backed entries
+  **refuses, don't sell broken** — floors are hard rejections, not
+  warnings.
+- **D6**: the loud takeover rejection is a **TESTED behavior** — a
+  failing create with an honest error, never a log line.

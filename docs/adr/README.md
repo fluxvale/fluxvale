@@ -53,6 +53,7 @@ already ruled out.
 | [ADR-0042](00042-user-created-organizations.md) | User-created organizations: create-with-owner under a 10-org cap, the `personal_owner_id` marker, per-org wallets with their own top-up (Option A), Stripe-model membership via invites; transfers deferred | Accepted |
 | [ADR-0043](00043-instance-resize.md) | Instance resize: stopped-first apply, CPU/RAM both ways, storage up-only behind a live StorageClass capability probe, create-equivalent re-pricing (fresh 1-year clock), append-only allocation-era trail | Accepted (amended — see Amendment 1) |
 | [ADR-0044](00044-public-docs-surface.md) | Content home: `docs/public` + `docs/blog` source of truth, synced gitignored priv copies, `FluxVale.Docs` mirroring the blog lane, `/docs` SSR pages, lint-enforced public/internal boundary | Accepted |
+| [ADR-0045](00045-bundled-backing-services.md) | Bundled per-instance backing services: Postgres/Redis as native-sidecar containers in the instance pod, catalog-declared majors + platform-owned exact pins, resources carved from the purchased allocation, generated credentials, loud create-time takeover rejection | Accepted |
 
 ## Conventions
 
