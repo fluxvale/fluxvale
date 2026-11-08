@@ -222,7 +222,6 @@ defmodule FluxValeWeb.InstanceLive.PocketIdCustodyCardTest do
 
   test "a private PocketID is refused with the make-it-public copy", %{
     conn: conn,
-    owner: owner,
     instance: instance
   } do
     flag_on!()
@@ -239,9 +238,6 @@ defmodule FluxValeWeb.InstanceLive.PocketIdCustodyCardTest do
       })
 
     assert html =~ "Make this Pocket ID public first"
-    # The owner stays readable on the private instance's page (the
-    # pin! helper builds through the owner).
-    assert owner.id
   end
 
   test "revoke returns the card to the intake state", %{conn: conn, instance: instance} do
