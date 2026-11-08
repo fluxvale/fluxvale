@@ -689,6 +689,10 @@ defmodule FluxValeWeb.AdminStorageRequestsLiveTest do
     test "pending_count without an actor is zero" do
       assert AdminChrome.pending_count(nil) == 0
     end
+
+    test "pending_count for a demoted actor is zero, not a crashed admin page" do
+      assert AdminChrome.pending_count(user!()) == 0
+    end
   end
 
   # -- the gate -------------------------------------------------------------
