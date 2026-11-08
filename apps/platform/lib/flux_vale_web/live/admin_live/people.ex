@@ -27,6 +27,7 @@ defmodule FluxValeWeb.AdminLive.People do
 
   alias FluxVale.Identity
   alias FluxVale.Identity.User
+  alias FluxValeWeb.AdminComponents
   alias FluxValeWeb.AdminShell
 
   require Ash.Query
@@ -521,7 +522,10 @@ defmodule FluxValeWeb.AdminLive.People do
                 wrapper: below it the table rides its own
                 overflow-x-auto (the md-band posture), never the
                 page. --%>
-                    <div class="grid grid-cols-[minmax(7rem,1.8fr)_5.5rem_repeat(4,minmax(5rem,1fr))_5.25rem] items-center gap-x-1.5 border-b border-line px-3 py-3 text-left text-xs font-medium tracking-wide text-ink-muted uppercase">
+                    <div class={[
+                      "grid-cols-[minmax(7rem,1.8fr)_5.5rem_repeat(4,minmax(5rem,1fr))_5.25rem]",
+                      AdminComponents.admin_table_header_class()
+                    ]}>
                       <div>{gettext("Email")}</div>
                       <div>{gettext("State")}</div>
                       <div>{gettext("Invited")}</div>
@@ -531,13 +535,18 @@ defmodule FluxValeWeb.AdminLive.People do
                       <div class="sr-only">{gettext("Actions")}</div>
                     </div>
 
+                    <%!-- The separator rides this stream wrapper. The grid
+                    inside stays pure shared chrome (#602). --%>
                     <div id="admin-people-table" phx-update="stream">
                       <div
                         :for={{dom_id, user} <- @streams.people}
                         id={dom_id}
                         class="border-b border-line last:border-0"
                       >
-                        <div class="grid grid-cols-[minmax(7rem,1.8fr)_5.5rem_repeat(4,minmax(5rem,1fr))_5.25rem] items-center gap-x-1.5 px-3 py-3 transition-colors hover:bg-panel-raised/60">
+                        <div class={[
+                          "grid-cols-[minmax(7rem,1.8fr)_5.5rem_repeat(4,minmax(5rem,1fr))_5.25rem]",
+                          AdminComponents.admin_table_row_class()
+                        ]}>
                           <div class="min-w-0">
                             <span
                               class="block truncate whitespace-nowrap font-medium text-ink"
