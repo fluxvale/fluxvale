@@ -196,7 +196,7 @@ defmodule FluxValeWeb.InstanceLive.Show do
               </div>
 
               <div class="min-w-0 space-y-1">
-                <h2 class={["text-sm font-semibold", family == :danger && "text-danger"]}>
+                <h2 class={["text-sm font-semibold", family == :danger && "text-danger-deep"]}>
                   Status
                 </h2>
                 <%!-- #179: user-facing copy derived from the state machine —

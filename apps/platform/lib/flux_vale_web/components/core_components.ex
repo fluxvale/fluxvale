@@ -1042,8 +1042,8 @@ defmodule FluxValeWeb.CoreComponents do
   say "consequence", where the status `.callout`s stay muted — a stop
   must never read like a notice. The heading uses `danger-deep` (the AA
   text ink on the danger-muted fill); the block is a `role="alert"` live
-  region, takes focus on mount, and returns it to `return_focus`'s
-  trigger when cancelled (#532).
+  region, takes focus on mount when `return_focus` names a trigger, and
+  returns focus there when the block is destroyed (#532).
 
   Contract: one confirm per panel by design, so the container's shared
   `destructive-confirm` testid is safe — parameterize it if a surface
@@ -1126,12 +1126,15 @@ defmodule FluxValeWeb.CoreComponents do
     <script :type={Phoenix.LiveView.ColocatedHook} name=".ConfirmFocus">
       // #532: focus follows the confirm. Insertion announces the block
       // (role=alert); moving focus into it keeps the keyboard user on
-      // the consequence. On destroy (cancel) the trigger mounts in the
-      // same patch, so focus returns on the next frame.
+      // the consequence. The focus handoff is a live-transition
+      // concern: a caller with no return target (a static preview) is
+      // left alone. On destroy the trigger may mount in the same patch
+      // (backups) or have stayed mounted (admin) — focus returns on the
+      // next frame.
       export default {
         mounted() {
           this.returnSelector = this.el.dataset.returnFocus
-          requestAnimationFrame(() => this.el.focus())
+          if (this.returnSelector) requestAnimationFrame(() => this.el.focus())
         },
         destroyed() {
           if (!this.returnSelector) return

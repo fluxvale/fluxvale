@@ -106,6 +106,13 @@ test("resize: stop → panel reprices → confirm → resized → running again"
   await expect(confirm).toContainText("The instance stays stopped.");
   await expect(confirm).toContainText("while stopped");
 
+  // #532: focus lands in the confirm; Cancel returns it to Continue.
+  await expect(confirm).toBeFocused();
+  await page.getByTestId("resize-cancel").click();
+  await expect(page.getByTestId("resize-continue")).toBeFocused();
+  await page.getByTestId("resize-continue").click();
+  await expect(confirm).toContainText("Resize instance");
+
   await page.getByTestId("resize-submit").click();
   await expect(
     page.getByText("Resized. Start your instance to run at the new size."),
