@@ -82,6 +82,8 @@ k8s_yaml(
     [
         'deploy/local/k8s/00-namespace.yaml',
         'deploy/local/k8s/01-platform-rbac.yaml',
+        # #273: the local mirror of the fleet's access namespace/quota/Role.
+        'deploy/local/k8s/02-access-fleet.yaml',
         'deploy/local/k8s/10-platform.yaml',
         # #222: the e2e S3 target (plain core objects — Secret, PVC,
         # Deployment, Services, Job — so static parsing is fine here).

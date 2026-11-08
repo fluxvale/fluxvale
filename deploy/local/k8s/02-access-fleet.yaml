@@ -1,0 +1,124 @@
+# Local mirror of the fleet's access namespace (ADR-0020 Am. 2,
+# ADR-0039 §1, #273): the namespace, quota and platform Role the
+# gateway provider assumes. Staging/production equivalents live in the
+# fleet repo (`access/staging`); this file exists so public-repo
+# contributors get the same shape without private-repo access. One
+# owner per object set — these objects are NOT in 01-platform-rbac.yaml.
+#
+# PSA baseline on all three labels: the gateway pod template ships no
+# securityContext (userspace tailscaled needs no capabilities), which
+# passes baseline but fails restricted. Same posture as the fleet file.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: fluxvale-access
+  labels:
+    app.kubernetes.io/part-of: fluxvale
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/warn: baseline
+    pod-security.kubernetes.io/audit: baseline
+---
+# The fleet staging numbers, verbatim: a 16-gateway model (Deployment
+# requests 5m/64Mi, limits 100m/192Mi, one 64Mi PVC, replicas 0-or-1)
+# plus one resolver pod (15m/48Mi requests, 150m/160Mi limits).
+#
+#   requests.cpu     95m    = (16 x 5m) + 15m
+#   requests.memory  1072Mi = (16 x 64Mi) + 48Mi
+#   limits.cpu       1750m  = (16 x 100m) + 150m
+#   limits.memory    3232Mi = (16 x 192Mi) + 160Mi
+#   PVC count/storage 16 / 1Gi = one 64Mi claim per gateway
+#   count/deployments.apps "17" = 16 gateways + the resolver slot
+#
+# Local does not run the resolver today, so the 17th Deployment slot is
+# headroom, not a claim. Sizing is object-count headroom for this box,
+# not a capacity plan (the box also runs the platform, CNPG and MinIO);
+# if it pinches, shrink here without touching the fleet.
+#
+# Honest scope: the platform's cluster-wide operator grants (rolebindings
+# create plus bind on fluxvale-platform-workload, which carries
+# resourcequotas verbs) mean it could rebind itself and lift this quota.
+# The quota is a capacity plan against the app's code paths, not a
+# security boundary against the platform; narrowing the bind grant is
+# #73-machinery surgery, out of scope here.
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: access-quota
+  namespace: fluxvale-access
+spec:
+  hard:
+    requests.cpu: 95m
+    requests.memory: 1072Mi
+    limits.cpu: 1750m
+    limits.memory: 3232Mi
+    persistentvolumeclaims: "16"
+    requests.storage: 1Gi
+    count/deployments.apps: "17"
+---
+# Exactly the verbs the provider calls (access_providers/tailscale.ex)
+# plus the resolver render pass and the domain-registry Certificate
+# (ADR-0040 S1), no more:
+#
+#   deployments:  create (apply/provision), get (status/restart/scale
+#                 pre-read), patch (restart, scale, re-apply), delete
+#                 (teardown)
+#   secrets:      create (credential/serve-config writes), get
+#                 (provision retry re-reads its key), patch, delete
+#   pvc:          create/patch (state claim), delete (teardown) — no get:
+#                 no access-namespace call path reads a PVC back
+#   pods:         list (the render pass keys each org's view on the pod IP)
+#   configmaps:   create/patch (the zones ConfigMap: create absent, patch
+#                 existing; nothing reads or removes it)
+#   certificates: create/get/patch/delete — the wildcard Certificate per
+#                 custom domain lives in this namespace: register applies
+#                 it, the 15-min verify reads its Ready condition,
+#                 reconcile re-applies a missing object, remove
+#                 safe-deletes it. The Nov 6 live proof's 403 was exactly
+#                 this gap.
+#
+# Deliberately NOT granted: resourcequotas and networkpolicies (the fleet
+# owns the cap; private-policy writes target INSTANCE namespaces under
+# the existing workload RoleBindings), services, ingressroutes,
+# rolebindings.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: fluxvale-platform-access
+  namespace: fluxvale-access
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["create", "get", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["create", "get", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["persistentvolumeclaims"]
+    verbs: ["create", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["list"]
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["create", "patch"]
+  # ADR-0040 S1's domain registry: the per-domain wildcard Certificate
+  # lives here. Register applies it, verify reads Ready every 15m,
+  # reconcile re-applies, remove safe-deletes (access_domain/
+  # mint_certificate.ex, verify_access_domains.ex, remove_access_domain.ex).
+  - apiGroups: ["cert-manager.io"]
+    resources: ["certificates"]
+    verbs: ["create", "get", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: fluxvale-platform-access
+  namespace: fluxvale-access
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: fluxvale-platform-access
+subjects:
+  - kind: ServiceAccount
+    name: fluxvale-platform
+    namespace: fluxvale-dev

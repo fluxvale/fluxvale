@@ -1,0 +1,113 @@
+# Production handoff for the owner-stack (fleet) repo — #273 / D1-D2.
+#
+#   *** DO NOT APPLY FROM THE APP REPO. ***
+#   *** No agent applies this to staging or production. It is a named ***
+#   *** morning item beside #482 on Terence's owner-stack apply list. ***
+#
+# This is a file, not an apply: the fleet repo owns staging and
+# production (ADR-0007, ADR-0020 Am. 2). It carries the production
+# namespace/quota/PSA/Role/RoleBinding with the per-env name D2 chose.
+#
+# Pairs with the per-env ACCESS_GATEWAY_NAMESPACE follow-up: the app must
+# land its runtime override (default `fluxvale-access`, production
+# `fluxvale-access-prod`, with `access_domains.certificate_namespace`
+# following the same value) before the production platform can use this
+# namespace. Without it the production SA stays unbound here — the
+# intended fail-safe (403 on the first gateway op) until both land.
+#
+# The fleet's existing apps/production namespace is `fluxvale-production`
+# and its platform SA is `fluxvale-platform`.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: fluxvale-access-prod
+  labels:
+    app.kubernetes.io/part-of: fluxvale
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/warn: baseline
+    pod-security.kubernetes.io/audit: baseline
+---
+# Same exact-sum sizing as access/staging: a 16-gateway model (Deployment
+# requests 5m/64Mi, limits 100m/192Mi, one 64Mi PVC, replicas 0-or-1)
+# plus one resolver pod (15m/48Mi requests, 150m/160Mi limits).
+#
+#   requests.cpu     95m    = (16 x 5m) + 15m
+#   requests.memory  1072Mi = (16 x 64Mi) + 48Mi
+#   limits.cpu       1750m  = (16 x 100m) + 150m
+#   limits.memory    3232Mi = (16 x 192Mi) + 160Mi
+#   PVC count/storage 16 / 1Gi = one 64Mi claim per gateway
+#   count/deployments.apps "17" = 16 gateways + the resolver slot
+#
+# The resolver slot is a real claim in production (the fleet resolver
+# runs there); the gateway ceiling stays 16.
+#
+# Honest scope: the platform's cluster-wide operator grants (rolebindings
+# create plus bind on fluxvale-platform-workload, which carries
+# resourcequotas verbs) mean it could rebind itself and lift this quota.
+# The quota is a capacity plan against the app's code paths, not a
+# security boundary against the platform; narrowing the bind grant is
+# #73-machinery surgery, out of scope here.
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: access-quota
+  namespace: fluxvale-access-prod
+spec:
+  hard:
+    requests.cpu: 95m
+    requests.memory: 1072Mi
+    limits.cpu: 1750m
+    limits.memory: 3232Mi
+    persistentvolumeclaims: "16"
+    requests.storage: 1Gi
+    count/deployments.apps: "17"
+---
+# Exactly the provider's called verbs plus the resolver render pass and
+# the domain-registry Certificate (ADR-0040 S1) — identical to the local
+# and staging shapes:
+#   deployments create/get/patch/delete; secrets create/get/patch/delete;
+#   PVCs create/patch/delete (no get: no call site); pods list;
+#   configmaps create/patch; certificates create/get/patch/delete
+#   (register applies, verify reads Ready, reconcile re-applies, remove
+#   safe-deletes).
+#
+# Deliberately NOT granted: resourcequotas, networkpolicies, services,
+# ingressroutes, rolebindings.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: fluxvale-platform-access
+  namespace: fluxvale-access-prod
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["create", "get", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["create", "get", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["persistentvolumeclaims"]
+    verbs: ["create", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["list"]
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["create", "patch"]
+  - apiGroups: ["cert-manager.io"]
+    resources: ["certificates"]
+    verbs: ["create", "get", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: fluxvale-platform-access
+  namespace: fluxvale-access-prod
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: fluxvale-platform-access
+subjects:
+  - kind: ServiceAccount
+    name: fluxvale-platform
+    namespace: fluxvale-production
