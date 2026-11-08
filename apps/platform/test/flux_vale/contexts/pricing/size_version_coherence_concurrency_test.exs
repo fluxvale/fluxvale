@@ -15,15 +15,18 @@ defmodule FluxVale.Pricing.SizeVersionCoherenceConcurrencyTest do
   order-independent, so the assertions hold under every interleaving.
   Parks are observed in `pg_stat_activity` (a bounded poll loop is the
   observation mechanism, converging on a stable state — the assertions
-  themselves are on settled rows and messages, never on a clock
-  window; #586's discipline). The suite pins the fix in layers: the
-  race test proves the invariant end-to-end (failing pre-fix with the
-  fork), the parked-SQL tests prove each half's lock exists and has
-  the right shape (FOR UPDATE on the size side, FOR SHARE on the
-  version side, on update and create), and the hold-through-write
-  tests prove the version side's share is still held at its own write
-  — the property `before_action?` exists for, and the one a
-  reverted-to-changeset-time validation loses.
+  themselves are on settled rows and lock-manager state, never on a
+  clock window; #586's discipline). The suite pins the fix in layers,
+  all read from `pg_locks` — `pg_stat_activity.query` lags a statement
+  under pipelining (observed on CI), so the parked statement is
+  identified by its lock footprint instead: the race test proves the
+  invariant end-to-end (failing pre-fix with the fork), the freeze
+  test proves the probe parks at a locked read of its own row (a
+  locked SELECT holds the relation under RowShareLock; a lock-less
+  probe parks at the UPDATE under RowExclusiveLock), and the
+  write-parked tests prove the version side holds a granted FOR SHARE
+  on the size row at its own write — placement (`before_action?`) and
+  mode together.
 
   Uses `Sandbox.checkout(_, sandbox: false)` connections (the
   DebitWalletConcurrency posture): T2's commit must be visible to T1's
@@ -125,7 +128,12 @@ defmodule FluxVale.Pricing.SizeVersionCoherenceConcurrencyTest do
   end
 
   describe "each half of the fix parks on the size row lock (#543)" do
-    test "the freeze probe locks its own row before probing" do
+    # Parked statements are identified by their pg_locks footprint,
+    # not pg_stat_activity.query — the text lags a statement when
+    # Postgrex pipelines (observed on CI: a worker parked mid-action
+    # displaying "BEGIN"), so only the lock manager is trusted.
+
+    test "the freeze probe parks at a locked read of its own row" do
       %{version: version, from_id: from_id, target: target} = seeded!()
 
       t =
@@ -144,15 +152,26 @@ defmodule FluxVale.Pricing.SizeVersionCoherenceConcurrencyTest do
       assert_receive :gate_held, 5_000
       {:backend, :freeze, backend} = release_and_await!(t, :freeze)
 
-      assert parked_sql!(backend, "size reallocation") =~
-               ~r/SELECT.*FROM "pricing_sizes".*FOR UPDATE OF/s
+      wait_until_parked!(backend, "size reallocation")
+
+      # A locked SELECT holds the relation under RowShareLock; an
+      # UPDATE (where a lock-less validation would park — its probe
+      # already done) holds RowExclusiveLock. RowShareLock parked ==
+      # the probe is gated behind its own row lock.
+      assert relation_lock_mode!(backend, "pricing_sizes") == "RowShareLock"
 
       send(gate, :release)
       assert_receive {:freeze, {:ok, moved}}, 15_000
       assert Decimal.eq?(moved.cpu_cores, Decimal.new("1"))
     end
 
-    test "a version re-point reads the size under FOR SHARE" do
+    # One setup, two proofs. Gating the version ROW parks the writer
+    # at its own UPDATE — past the validation. While parked there:
+    # the relation lock still held on pricing_sizes is the placement
+    # proof (a changeset-time validation released it at statement
+    # end), and the granted tuple lock's mode is the shape proof —
+    # ShareLock is FOR SHARE; FOR UPDATE would read ExclusiveLock.
+    test "a re-point holds a FOR SHARE on the size row across its write" do
       %{version: version, from_id: from_id, target: target} = seeded!()
 
       t =
@@ -168,7 +187,7 @@ defmodule FluxVale.Pricing.SizeVersionCoherenceConcurrencyTest do
           )
         end)
 
-      gate = start_gate!(target.id)
+      gate = start_gate!(version.id, table: "app_versions")
 
       on_exit(fn ->
         kill_if_alive(gate)
@@ -179,62 +198,18 @@ defmodule FluxVale.Pricing.SizeVersionCoherenceConcurrencyTest do
       assert_receive :gate_held, 5_000
       {:backend, :repoint, backend} = release_and_await!(t, :repoint)
 
-      assert parked_sql!(backend, "version re-point") =~
-               ~r/SELECT.*FROM "pricing_sizes".*FOR SHARE OF/s
+      wait_until_parked!(backend, "version write")
+
+      assert relation_lock_mode!(backend, "pricing_sizes") == "RowShareLock"
+      assert share_challenge_succeeds!(target.id)
 
       send(gate, :release)
       assert_receive {:repoint, {:ok, _moved}}, 15_000
     end
 
-    # Placement, not just presence: parking at the locked read proves
-    # the read locks; this proves the lock is still held AT the write —
-    # only true when the validation ran inside the action's
-    # transaction. A reverted `before_action?` parks at the same SELECT
-    # but releases the share at statement end, and the challenge below
-    # then succeeds — failing here deterministically.
-    test "a re-point still holds the size row while it writes the version" do
-      %{version: version, from_id: from_id, target: target} = seeded!()
-
-      t =
-        spawn_worker(:hold, fn ->
-          AppVersion.update(
-            version,
-            %{
-              recommended_size_id: target.id,
-              default_cpu_cores: Decimal.new("0.5"),
-              default_memory_mb: 256
-            },
-            authorize?: false
-          )
-        end)
-
-      # Gate the version ROW, not the size: the writer sails through
-      # its validation and parks at its own UPDATE — past the read.
-      gate = start_gate!(version.id, table: "app_versions")
-
-      on_exit(fn ->
-        kill_if_alive(gate)
-        kill_if_alive(t)
-        cleanup!(version.id, from_id, target.id)
-      end)
-
-      assert_receive :gate_held, 5_000
-      {:backend, :hold, backend} = release_and_await!(t, :hold)
-
-      wait_until_parked!(backend, "version write")
-
-      # parked at the write (the gate is on the version row, nothing
-      # else contends) with the size share still held — the placement
-      # proof. `pg_stat_activity.query` is useless here: it lags one
-      # statement when Postgrex pipelines, so the locks are read
-      # directly.
-      assert holds_size_row_share!(backend)
-
-      send(gate, :release)
-      assert_receive {:hold, {:ok, _moved}}, 15_000
-    end
-
-    test "a version create reads the size under FOR SHARE" do
+    # Same proof on the create path: the app row's FK check parks the
+    # INSERT with the validation's share already held.
+    test "a create holds a FOR SHARE on the size row across its write" do
       %{version: version, from_id: from_id, target: target} = seeded!()
 
       t =
@@ -253,50 +228,6 @@ defmodule FluxVale.Pricing.SizeVersionCoherenceConcurrencyTest do
           )
         end)
 
-      gate = start_gate!(target.id)
-
-      on_exit(fn ->
-        kill_if_alive(gate)
-        kill_if_alive(t)
-        # The create's extra version row goes with the app's teardown —
-        # delete it explicitly: it may or may not exist on failure.
-        cleanup!(version.id, from_id, target.id, extra_for_app: version.app_id)
-      end)
-
-      assert_receive :gate_held, 5_000
-      {:backend, :create, backend} = release_and_await!(t, :create)
-
-      assert parked_sql!(backend, "version create") =~
-               ~r/SELECT.*FROM "pricing_sizes".*FOR SHARE OF/s
-
-      send(gate, :release)
-      assert_receive {:create, {:ok, _created}}, 15_000
-    end
-
-    # Same placement proof as the re-point's, for the create path: the
-    # writer parks at its INSERT (gated through the app row's FK) with
-    # the size share still held.
-    test "a create still holds the size row while it writes the version" do
-      %{version: version, from_id: from_id, target: target} = seeded!()
-
-      t =
-        spawn_worker(:hold_create, fn ->
-          AppVersion.create(
-            %{
-              version: "2.0.#{System.unique_integer()}",
-              image: "registry.example.com/app:2.0",
-              port: 3000,
-              default_cpu_cores: Decimal.new("0.5"),
-              default_memory_mb: 256,
-              app_id: version.app_id,
-              recommended_size_id: target.id
-            },
-            authorize?: false
-          )
-        end)
-
-      # Gate the APP row: the create's FK check parks the INSERT while
-      # the validation's size share is already held.
       gate = start_gate!(version.app_id, table: "apps")
 
       on_exit(fn ->
@@ -306,13 +237,15 @@ defmodule FluxVale.Pricing.SizeVersionCoherenceConcurrencyTest do
       end)
 
       assert_receive :gate_held, 5_000
-      {:backend, :hold_create, backend} = release_and_await!(t, :hold_create)
+      {:backend, :create, backend} = release_and_await!(t, :create)
 
       wait_until_parked!(backend, "version insert")
-      assert holds_size_row_share!(backend)
+
+      assert relation_lock_mode!(backend, "pricing_sizes") == "RowShareLock"
+      assert share_challenge_succeeds!(target.id)
 
       send(gate, :release)
-      assert_receive {:hold_create, {:ok, _created}}, 15_000
+      assert_receive {:create, {:ok, _created}}, 15_000
     end
   end
 
@@ -382,27 +315,15 @@ defmodule FluxVale.Pricing.SizeVersionCoherenceConcurrencyTest do
   # reaches the gated statement. Converges within a few polls; the
   # budget only bounds a bug (never parking) into a loud failure.
   defp wait_until_parked!(backend, label, polls_left \\ @park_budget_polls) do
-    _sql = parked_sql!(backend, label, polls_left)
-    :ok
-  end
-
-  # Same convergence as wait_until_parked!/2, returning the parked
-  # statement's SQL — the half-pinning tests assert on it because the
-  # parked statement IS the fix: pre-fix, the same workers park on the
-  # raw UPDATE/INSERT instead.
-  defp parked_sql!(backend, label, polls_left \\ @park_budget_polls)
-
-  defp parked_sql!(backend, label, polls_left) do
-    result =
-      Repo.query!("SELECT wait_event_type, query FROM pg_stat_activity WHERE pid = $1", [backend])
+    result = Repo.query!("SELECT wait_event_type FROM pg_stat_activity WHERE pid = $1", [backend])
 
     case result.rows do
-      [["Lock", sql]] ->
-        sql
+      [["Lock"]] ->
+        :ok
 
       _not_yet when polls_left > 1 ->
         Process.sleep(@poll_interval_ms)
-        parked_sql!(backend, label, polls_left - 1)
+        wait_until_parked!(backend, label, polls_left - 1)
 
       _never ->
         flunk("#{label} never parked on the size row lock")
@@ -415,25 +336,55 @@ defmodule FluxVale.Pricing.SizeVersionCoherenceConcurrencyTest do
     if Process.alive?(pid), do: Process.exit(pid, :kill)
   end
 
-  # True when the backend's open transaction holds a granted
-  # RowShareLock on pricing_sizes — the in-transaction footprint of
-  # the validation's locked read; relation locks persist to
-  # transaction end. A validation that ran at changeset time released
-  # it at statement end, so held *while parked at the write* is the
-  # placement proof: the lock rides to commit. (RowShareLock is
-  # relation-level: FOR SHARE and FOR UPDATE row locks both take it —
-  # the mode is pinned by the shape tests instead.)
-  defp holds_size_row_share!(backend) do
+  # The backend's relation-level lock mode on `table` — the parked
+  # statement's class. A locked SELECT holds RowShareLock; an
+  # UPDATE/INSERT holds RowExclusiveLock. Nil when the transaction
+  # holds no relation lock there (a changeset-time validation that
+  # already released, or a lock-less validation).
+  defp relation_lock_mode!(backend, table) do
     result =
       Repo.query!(
-        "SELECT count(*) FROM pg_locks l JOIN pg_class c ON c.oid = l.relation " <>
-          "WHERE l.pid = $1 AND l.granted AND l.mode = 'RowShareLock' " <>
-          "AND c.relname = 'pricing_sizes'",
-        [backend]
+        "SELECT l.mode FROM pg_locks l JOIN pg_class c ON c.oid = l.relation " <>
+          "WHERE l.pid = $1 AND l.locktype = 'relation' AND l.granted AND c.relname = $2",
+        [backend, table]
       )
 
-    [[count]] = result.rows
-    count > 0
+    case result.rows do
+      [[mode]] -> mode
+      [] -> nil
+    end
+  end
+
+  # The mode proof by the conflict matrix itself (uncontended row
+  # locks live in the heap tuple, invisible to pg_locks): while the
+  # parked writer holds its size lock, a concurrent FOR SHARE NOWAIT
+  # on the same row must SUCCEED — FOR SHARE is compatible with
+  # itself. A FOR UPDATE regression answers lock_not_available. The
+  # challenger acquires and releases on its own autocommit connection;
+  # nothing is disturbed. The freeze side's own mode is not pinnable
+  # this way (its validation parks before acquiring), but a weak
+  # freeze lock forks the race test's interleaving.
+  defp share_challenge_succeeds!(size_id) do
+    conn = Sandbox.checkout(Repo, sandbox: false)
+
+    try do
+      size_uuid = Ecto.UUID.dump!(size_id)
+
+      result =
+        Repo.query!("SELECT id FROM pricing_sizes WHERE id = $1 FOR SHARE NOWAIT", [size_uuid])
+
+      [[_id]] = result.rows
+      true
+    rescue
+      error in Postgrex.Error ->
+        if error.postgres.code == :lock_not_available do
+          false
+        else
+          reraise(error, __STACKTRACE__)
+        end
+    after
+      Sandbox.checkin(Repo, conn)
+    end
   end
 
   # Seeds through the actions on a committed connection so both
