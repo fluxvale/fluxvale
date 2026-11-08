@@ -117,12 +117,12 @@ The COGS floor is ≈ **1.4¢/GB/mo** (€13/TB ≈ $14.04 at €1 ≈ $1.08), s
 
 Rejected — extend the per-GB curve instead: the v5 curve is underwater
 at 1 TB (**$12.80** vs $14.04) and the gap widens — 2 TB **$21.53** vs
-$28.08; 7.6 TB **$58.63** vs $106.70. Pass-through + margin never sells
+$28.08; 7.6 TB **$58.61** vs $106.70. Pass-through + margin never sells
 below the procurement it triggers, and it is one config line.
 
 The member surface shows only the computed monthly figure — never the
 per-GB rate, the COGS, or the rule (the runbook's copy rule:
-[block-storage](../runbooks/block-storage.md)).
+[block-storage](runbooks/block-storage.md)).
 
 ## Density vs the box (the sanity check)
 

@@ -346,16 +346,17 @@ A 200 GB instance's storage rate = the existing curve at 100 GB (228¢) + 100 ×
 
 **Option B — extend the per-GB curve.** The v5 curve at 1 TB is **$12.80/mo** against
 €13 ≈ **$14.04 COGS** — underwater — and the gap widens: 2 TB $21.53 vs $28.08; 7.6 TB
-$58.63 vs $106.70. Rejected as a rule; it cannot cover the procurement it triggers.
+$58.61 vs $106.70. Rejected as a rule; it cannot cover the procurement it triggers.
 
 **Mechanism (same for either rule): configuration, not code.** One block:
 
 ```elixir
-config :flux_vale, :storage_beyond_threshold,
+config :flux_vale, :storage_beyond_threshold, %{
   threshold_gb: 100,
   # PROVISIONAL — S6 (Terence's one-line ratification) sets the final rate.
   cents_per_gb: 3,
   max_gb: 7_600
+}
 ```
 
 `PriceAllocation.storage_usd_cents/2` prices the first `threshold_gb` on the existing
@@ -442,7 +443,7 @@ math, and the attach steps. Contents:
 - **Recommend (a)**, as a configurable marginal rate above the threshold (provisional
   3¢/GB/mo, marked **PROVISIONAL** in config; COGS floor ≈ 1.4¢/GB at €13/TB ≈ $14.04).
 - **Why**: the curve extended is underwater at 1 TB ($12.80 vs $14.04 COGS) and worsens
-  with size (2 TB $21.53 vs $28.08; 7.6 TB $58.63 vs $106.70). Pass-through + margin never
+  with size (2 TB $21.53 vs $28.08; 7.6 TB $58.61 vs $106.70). Pass-through + margin never
   sells below the procurement it triggers, and it is one config line. **The number is
   Terence's morning ratification** — S6 is #250's closer; the mechanism ships now, the
   rate is marked provisional, member copy stays rate-agnostic (it shows the computed

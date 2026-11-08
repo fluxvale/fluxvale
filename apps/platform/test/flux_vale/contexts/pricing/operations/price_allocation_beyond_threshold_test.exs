@@ -54,8 +54,11 @@ defmodule FluxVale.Pricing.Operations.PriceAllocationBeyondThresholdTest do
     test "the threshold and rate move together with configuration" do
       previous = config()
 
+      # The override threshold sits above every async-tested exact price
+      # (the ladder tops at 100 GB), so the window cannot perturb another
+      # module — async: false does not serialize against async suites.
       Application.put_env(:flux_vale, :storage_beyond_threshold, %{
-        threshold_gb: 5,
+        threshold_gb: 1_000,
         cents_per_gb: 10,
         max_gb: 7_600
       })
@@ -63,9 +66,10 @@ defmodule FluxVale.Pricing.Operations.PriceAllocationBeyondThresholdTest do
       on_exit(fn -> Application.put_env(:flux_vale, :storage_beyond_threshold, previous) end)
 
       # At the overridden threshold the curve still owns the price…
-      assert PriceAllocation.storage_cents(5, :nuremberg) == 24
-      # …and the next GB bills the overridden marginal rate.
-      assert PriceAllocation.storage_cents(6, :nuremberg) == 34
+      assert PriceAllocation.storage_cents(1_000, :nuremberg) == 1_280
+      # …and each GB above bills the overridden marginal rate.
+      assert PriceAllocation.storage_cents(1_001, :nuremberg) == 1_290
+      assert PriceAllocation.storage_cents(2_000, :nuremberg) == 11_280
     end
   end
 

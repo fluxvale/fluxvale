@@ -23,7 +23,10 @@ wait for the customer to stop the instance.
 
 1. **The boundary is configuration, never a code constant.** One block:
    `config :flux_vale, :storage_beyond_threshold` with `threshold_gb: 100`,
-   `cents_per_gb: 3`, `max_gb: 7_600`. A test pins `threshold_gb` to
+   `cents_per_gb: 3`, `max_gb: 7_600`. The value is a map —
+   `%{threshold_gb:, cents_per_gb:, max_gb:}` — and `PriceAllocation`
+   pattern-matches it, so a missing or malformed key fails loudly instead
+   of mispricing. A test pins `threshold_gb` to
    `FluxValeWeb.AllocationSliders.storage_dimension()`'s top rung, so a
    future ladder move is a reviewed two-line change, never a silent fork.
    `max_gb` is the attachable ceiling (7.6 TB), not a ladder value.
@@ -69,7 +72,7 @@ wait for the customer to stop the instance.
 
 - **Extend the per-GB curve** (the pre-#250 reading). The v5 curve is
   underwater at 1 TB ($12.80/mo vs ≈ $14.04 COGS) and the gap widens — 2 TB
-  $21.53 vs $28.08; 7.6 TB $58.63 vs $106.70. It cannot cover the
+  $21.53 vs $28.08; 7.6 TB $58.61 vs $106.70. It cannot cover the
   procurement it triggers.
 - **Reuse the stopped-first resize** for approved growth. It turns a
   two-party workflow (member asks, operator procures) into a three-party
