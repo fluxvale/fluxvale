@@ -10,21 +10,24 @@ defmodule FluxVale.Catalog.Category do
     authorizers: [Ash.Policy.Authorizer]
 
   postgres do
-    table "categories"
-    repo FluxVale.Repo
+    table("categories")
+    repo(FluxVale.Repo)
 
     # ADR-0032 §3: no DB-side id default — ids are Ash's job (see User).
-    migration_defaults id: "nil"
+    migration_defaults(id: "nil")
   end
 
   policies do
     policy action_type(:read) do
-      description "Public browse — the catalog is a public marketing surface (#164, ADR-00025); writes stay admin-only"
+      description(
+        "Public browse — the catalog is a public marketing surface (#164, ADR-00025); writes stay admin-only"
+      )
+
       authorize_if(always())
     end
 
     policy FluxVale.Checks.ActorIsPlatformAdmin do
-      description "Platform admins manage catalog categories (ADR-0027, ADR-0030)"
+      description("Platform admins manage catalog categories (ADR-0027, ADR-0030)")
       authorize_if(always())
     end
   end
@@ -55,6 +58,15 @@ defmodule FluxVale.Catalog.Category do
     attribute :icon, :string do
       public?(true)
     end
+
+    # Marketing metadata (#611 plan §4.2, S1): the "who is this for"
+    # line every app page in the category renders — one authored
+    # sentence per category instead of one per app. Optional; omission
+    # omits the hero's audience paragraph.
+    attribute :audience, :string do
+      public?(true)
+      constraints(max_length: 180)
+    end
   end
 
   relationships do
@@ -67,31 +79,31 @@ defmodule FluxVale.Catalog.Category do
     defaults([:read, :destroy])
 
     create :create do
-      primary? true
-      accept([:name, :slug, :description, :icon])
+      primary?(true)
+      accept([:name, :slug, :description, :icon, :audience])
     end
 
     update :update do
-      primary? true
+      primary?(true)
       # slug is the identity seeds look up by — immutable after create.
-      accept([:name, :description, :icon])
+      accept([:name, :description, :icon, :audience])
     end
 
     read :get_by_slug do
-      description "Get a category by its slug"
+      description("Get a category by its slug")
       get?(true)
       argument(:slug, :string, allow_nil?: false)
       filter(expr(slug == ^arg(:slug)))
     end
 
     read :list_with_apps do
-      description "The browse surfaces' category list: name-sorted with its apps loaded"
+      description("The browse surfaces' category list: name-sorted with its apps loaded")
       prepare(build(sort: :name, load: [:apps]))
     end
   end
 
   code_interface do
-    domain FluxVale.Catalog
+    domain(FluxVale.Catalog)
 
     define(:create)
     define(:update)

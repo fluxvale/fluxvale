@@ -2,10 +2,16 @@
 # schema covering all three supported types (string / integer / boolean) plus a
 # secret field. Used by catalog_data_test.exs; the loader passes the schema
 # through raw (string keys) — validation is the EnvVarSchema type's job.
+#
+# The #611 marketing fields ride it too (raw pass-through, the same
+# stance) so the seed tests drive every new type through the real
+# write path — the shipped YAML carries no screenshots/features/faq
+# until the S7 content pass.
 - category:
     name: Test
     slug: test
     description: Test category
+    audience: A fit for fixture apps that prove the loader passes audience through.
   apps:
     - name: TestApp
       slug: testapp
@@ -14,6 +20,30 @@
       icon_url: https://example.com/icon.svg
       source_url: https://example.com
       docs_url: https://example.com
+      caveats:
+        - Fixture caveat one, long enough for the twenty char floor.
+        - Fixture caveat two, also past the twenty char floor.
+      alternatives:
+        - FixtureAlt
+        - OtherAlt
+      in_action_intro: A fixture intro line under the heading.
+      screenshots:
+        - src: /images/catalog/testapp/one.webp
+          alt: The fixture app's main screen
+          caption: The dashboard on first open
+        - src: /images/catalog/testapp/two.png
+          alt: The fixture app's settings screen
+      features:
+        - icon: hero-archive-box
+          title: Repositories
+          body: Host your own fixture repositories with full control.
+        - icon: hero-bolt
+          title: Fast by default
+          body: The fixture app starts in well under a second every time.
+      faq:
+        - question: Does the fixture app support SSH?
+          answer: No. The fixture app speaks HTTPS only, on every instance.
+      community_url: https://community.example.com
       versions:
         - version: "1.0.0"
           image: test/image:1.0

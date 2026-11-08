@@ -485,6 +485,47 @@ defmodule FluxVale.Seeds.CatalogSeedTest do
       vaultwarden = version_for!("vaultwarden")
       assert %OidcWiring{} = vaultwarden.oidc_wiring
       assert vaultwarden.oidc_wiring.issuer_env == "SSO_AUTHORITY"
+
+      # #611: the marketing retro-fill survives the second run too,
+      # converged by slug (the update path, not just create).
+      assert length(App.get_by_slug!("forgejo", authorize?: false).caveats) == 3
+      assert Category.get_by_slug!("identity", authorize?: false).audience != nil
+    end
+
+    # #611 S1 retro-fill: every shipped app lands its curated fields,
+    # and every category its audience line (plan §7.3, verbatim).
+    test "seeds the marketing retro-fill for all six apps (#611)" do
+      assert :ok == Seeds.seed_pricing!()
+      assert :ok == Seeds.seed_catalog!()
+
+      for slug <- ~w(forgejo kavita memos vaultwarden pocket-id actualbudget) do
+        app = App.get_by_slug!(slug, authorize?: false)
+        assert app.caveats != [], "#{slug} carries no caveats"
+        assert length(app.caveats) <= 6
+        assert app.alternatives != [], "#{slug} carries no alternatives"
+        # S7 content stays absent: the typed lists read back [].
+        assert app.screenshots == []
+        assert app.features == []
+        assert app.faq == []
+      end
+
+      assert Category.get_by_slug!("developer-tools", authorize?: false).audience ==
+               "A fit for teams that want their own source control and CI without running the servers."
+
+      assert Category.get_by_slug!("media", authorize?: false).audience ==
+               "A fit for personal libraries and households that want their own media server."
+
+      assert Category.get_by_slug!("productivity", authorize?: false).audience ==
+               "A fit for people who want their notes in one place, on their own terms."
+
+      assert Category.get_by_slug!("security", authorize?: false).audience ==
+               "A fit for anyone who would rather hold their own passwords and keys."
+
+      assert Category.get_by_slug!("identity", authorize?: false).audience ==
+               "A fit for households and teams that want one sign-in they control."
+
+      assert Category.get_by_slug!("finance", authorize?: false).audience ==
+               "A fit for households that want their budget data under their own roof."
     end
   end
 
@@ -546,6 +587,90 @@ defmodule FluxVale.Seeds.CatalogSeedTest do
       assert contract.env == %{"APP__security__INSTALL_LOCK" => "true"}
       assert contract.forbidden_env == ["APP__service__DISABLE_REGISTRATION"]
       assert contract.guidance == "Register first; you become admin."
+    end
+
+    # #611: the fixture's marketing fields ride the real write path —
+    # loader pass-through, typed cast at create, jsonb round-trip on
+    # read. The shipped YAML carries no typed lists until S7, so this
+    # is the seed-level proof the types hold end to end.
+    test "seeds the marketing metadata through the typed cast (#611)" do
+      assert :ok == seed_fixture!()
+
+      assert Category.get_by_slug!("test", authorize?: false).audience ==
+               "A fit for fixture apps that prove the loader passes audience through."
+
+      app = App.get_by_slug!("testapp", authorize?: false)
+
+      assert app.caveats == [
+               "Fixture caveat one, long enough for the twenty char floor.",
+               "Fixture caveat two, also past the twenty char floor."
+             ]
+
+      assert app.alternatives == ["FixtureAlt", "OtherAlt"]
+      assert app.in_action_intro == "A fixture intro line under the heading."
+      assert app.community_url == "https://community.example.com"
+
+      assert app.screenshots == [
+               %{
+                 src: "/images/catalog/testapp/one.webp",
+                 alt: "The fixture app's main screen",
+                 caption: "The dashboard on first open"
+               },
+               %{
+                 src: "/images/catalog/testapp/two.png",
+                 alt: "The fixture app's settings screen",
+                 caption: nil
+               }
+             ]
+
+      assert app.features == [
+               %{
+                 icon: "hero-archive-box",
+                 title: "Repositories",
+                 body: "Host your own fixture repositories with full control."
+               },
+               %{
+                 icon: "hero-bolt",
+                 title: "Fast by default",
+                 body: "The fixture app starts in well under a second every time."
+               }
+             ]
+
+      assert app.faq == [
+               %{
+                 question: "Does the fixture app support SSH?",
+                 answer: "No. The fixture app speaks HTTPS only, on every instance."
+               }
+             ]
+    end
+
+    test "converges drifted marketing metadata back to the YAML (#611)" do
+      assert :ok == seed_fixture!()
+
+      app = App.get_by_slug!("testapp", authorize?: false)
+
+      App.update!(
+        app,
+        %{caveats: ["Stale caveat that still clears the length floor."], screenshots: []},
+        authorize?: false
+      )
+
+      category = Category.get_by_slug!("test", authorize?: false)
+      Ash.update!(category, %{audience: "stale"}, authorize?: false)
+
+      assert :ok == seed_fixture!()
+
+      converged = App.get_by_slug!("testapp", authorize?: false)
+
+      assert converged.caveats == [
+               "Fixture caveat one, long enough for the twenty char floor.",
+               "Fixture caveat two, also past the twenty char floor."
+             ]
+
+      assert length(converged.screenshots) == 2
+
+      assert Category.get_by_slug!("test", authorize?: false).audience ==
+               "A fit for fixture apps that prove the loader passes audience through."
     end
   end
 

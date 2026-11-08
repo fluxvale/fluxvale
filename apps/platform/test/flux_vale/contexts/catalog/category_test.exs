@@ -50,6 +50,33 @@ defmodule FluxVale.Catalog.CategoryTest do
       assert {:error, %Ash.Error.Invalid{}} =
                Category.create(%{name: "Media", slug: "other"}, authorize?: false)
     end
+
+    # #611 (D5): the audience line every app page in the category
+    # renders as its hero's "who it suits" paragraph.
+    test "accepts an audience line up to 180 chars, in create and update" do
+      line = "A fit for teams that want their own source control without running the servers."
+
+      assert {:ok, category} =
+               Category.create(
+                 %{name: "Developer Tools", slug: "devtools", audience: line},
+                 authorize?: false
+               )
+
+      assert category.audience == line
+
+      updated =
+        Category.update!(category, %{audience: "A fit for someone else."}, authorize?: false)
+
+      assert updated.audience == "A fit for someone else."
+    end
+
+    test "rejects an audience line over 180 chars" do
+      assert {:error, %Ash.Error.Invalid{}} =
+               Category.create(
+                 %{name: "Long", slug: "long-audience", audience: String.duplicate("a", 181)},
+                 authorize?: false
+               )
+    end
   end
 
   describe "get_by_slug/1" do

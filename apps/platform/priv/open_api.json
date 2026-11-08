@@ -1196,10 +1196,36 @@
             "additionalProperties": false,
             "description": "An attributes object for a app",
             "properties": {
+              "alternatives": {
+                "description": "Field included by default.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
               "category_id": {
                 "description": "Field included by default.",
                 "format": "uuid",
                 "type": "string"
+              },
+              "caveats": {
+                "description": "Field included by default.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "community_url": {
+                "anyOf": [
+                  {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Field included by default."
               },
               "description": {
                 "anyOf": [
@@ -1225,6 +1251,12 @@
                 ],
                 "description": "Field included by default."
               },
+              "faq": {
+                "description": "Field included by default."
+              },
+              "features": {
+                "description": "Field included by default."
+              },
               "file_access": {
                 "description": "Field included by default.",
                 "type": "boolean"
@@ -1241,9 +1273,24 @@
                 ],
                 "description": "Field included by default."
               },
+              "in_action_intro": {
+                "anyOf": [
+                  {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Field included by default."
+              },
               "name": {
                 "description": "Field included by default.",
                 "type": "string"
+              },
+              "screenshots": {
+                "description": "Field included by default."
               },
               "slug": {
                 "description": "Field included by default.",
@@ -1278,6 +1325,11 @@
               "name",
               "slug",
               "file_access",
+              "caveats",
+              "alternatives",
+              "screenshots",
+              "features",
+              "faq",
               "category_id"
             ],
             "type": "object"
@@ -1350,11 +1402,20 @@
           "category_id": {
             "$ref": "#/components/schemas/app-filter-category_id"
           },
+          "community_url": {
+            "$ref": "#/components/schemas/app-filter-community_url"
+          },
           "description": {
             "$ref": "#/components/schemas/app-filter-description"
           },
           "docs_url": {
             "$ref": "#/components/schemas/app-filter-docs_url"
+          },
+          "faq": {
+            "$ref": "#/components/schemas/app-filter-faq"
+          },
+          "features": {
+            "$ref": "#/components/schemas/app-filter-features"
           },
           "file_access": {
             "$ref": "#/components/schemas/app-filter-file_access"
@@ -1364,6 +1425,9 @@
           },
           "id": {
             "$ref": "#/components/schemas/app-filter-id"
+          },
+          "in_action_intro": {
+            "$ref": "#/components/schemas/app-filter-in_action_intro"
           },
           "name": {
             "$ref": "#/components/schemas/app-filter-name"
@@ -1377,6 +1441,9 @@
             },
             "type": "array",
             "uniqueItems": true
+          },
+          "screenshots": {
+            "$ref": "#/components/schemas/app-filter-screenshots"
           },
           "slug": {
             "$ref": "#/components/schemas/app-filter-slug"
@@ -1433,6 +1500,60 @@
           },
           "not_eq": {
             "format": "uuid",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "app-filter-community_url": {
+        "additionalProperties": false,
+        "properties": {
+          "contains": {
+            "type": "string"
+          },
+          "eq": {
+            "type": "string"
+          },
+          "greater_than": {
+            "type": "string"
+          },
+          "greater_than_or_equal": {
+            "type": "string"
+          },
+          "ilike": {
+            "type": "string"
+          },
+          "in": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "type": "string"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "type": "string"
+          },
+          "less_than": {
+            "type": "string"
+          },
+          "less_than_or_equal": {
+            "type": "string"
+          },
+          "like": {
+            "type": "string"
+          },
+          "not_eq": {
+            "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
             "type": "string"
           }
         },
@@ -1543,6 +1664,48 @@
           "string_starts_with": {
             "type": "string"
           }
+        },
+        "type": "object"
+      },
+      "app-filter-faq": {
+        "additionalProperties": false,
+        "properties": {
+          "eq": {},
+          "greater_than": {},
+          "greater_than_or_equal": {},
+          "in": {
+            "items": {},
+            "type": "array"
+          },
+          "is_distinct_from": {},
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {},
+          "less_than": {},
+          "less_than_or_equal": {},
+          "not_eq": {}
+        },
+        "type": "object"
+      },
+      "app-filter-features": {
+        "additionalProperties": false,
+        "properties": {
+          "eq": {},
+          "greater_than": {},
+          "greater_than_or_equal": {},
+          "in": {
+            "items": {},
+            "type": "array"
+          },
+          "is_distinct_from": {},
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {},
+          "less_than": {},
+          "less_than_or_equal": {},
+          "not_eq": {}
         },
         "type": "object"
       },
@@ -1687,6 +1850,60 @@
         },
         "type": "object"
       },
+      "app-filter-in_action_intro": {
+        "additionalProperties": false,
+        "properties": {
+          "contains": {
+            "type": "string"
+          },
+          "eq": {
+            "type": "string"
+          },
+          "greater_than": {
+            "type": "string"
+          },
+          "greater_than_or_equal": {
+            "type": "string"
+          },
+          "ilike": {
+            "type": "string"
+          },
+          "in": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "type": "string"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "type": "string"
+          },
+          "less_than": {
+            "type": "string"
+          },
+          "less_than_or_equal": {
+            "type": "string"
+          },
+          "like": {
+            "type": "string"
+          },
+          "not_eq": {
+            "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "app-filter-name": {
         "additionalProperties": false,
         "properties": {
@@ -1738,6 +1955,27 @@
           "string_starts_with": {
             "type": "string"
           }
+        },
+        "type": "object"
+      },
+      "app-filter-screenshots": {
+        "additionalProperties": false,
+        "properties": {
+          "eq": {},
+          "greater_than": {},
+          "greater_than_or_equal": {},
+          "in": {
+            "items": {},
+            "type": "array"
+          },
+          "is_distinct_from": {},
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {},
+          "less_than": {},
+          "less_than_or_equal": {},
+          "not_eq": {}
         },
         "type": "object"
       },
@@ -9884,7 +10122,7 @@
             "name": "sort",
             "required": false,
             "schema": {
-              "pattern": "^(id|-id|\\+\\+id|--id|name|-name|\\+\\+name|--name|slug|-slug|\\+\\+slug|--slug|tagline|-tagline|\\+\\+tagline|--tagline|description|-description|\\+\\+description|--description|icon_url|-icon_url|\\+\\+icon_url|--icon_url|source_url|-source_url|\\+\\+source_url|--source_url|docs_url|-docs_url|\\+\\+docs_url|--docs_url|file_access|-file_access|\\+\\+file_access|--file_access|category_id|-category_id|\\+\\+category_id|--category_id)(,(id|-id|\\+\\+id|--id|name|-name|\\+\\+name|--name|slug|-slug|\\+\\+slug|--slug|tagline|-tagline|\\+\\+tagline|--tagline|description|-description|\\+\\+description|--description|icon_url|-icon_url|\\+\\+icon_url|--icon_url|source_url|-source_url|\\+\\+source_url|--source_url|docs_url|-docs_url|\\+\\+docs_url|--docs_url|file_access|-file_access|\\+\\+file_access|--file_access|category_id|-category_id|\\+\\+category_id|--category_id))*$",
+              "pattern": "^(id|-id|\\+\\+id|--id|name|-name|\\+\\+name|--name|slug|-slug|\\+\\+slug|--slug|tagline|-tagline|\\+\\+tagline|--tagline|description|-description|\\+\\+description|--description|icon_url|-icon_url|\\+\\+icon_url|--icon_url|source_url|-source_url|\\+\\+source_url|--source_url|docs_url|-docs_url|\\+\\+docs_url|--docs_url|file_access|-file_access|\\+\\+file_access|--file_access|in_action_intro|-in_action_intro|\\+\\+in_action_intro|--in_action_intro|screenshots|-screenshots|\\+\\+screenshots|--screenshots|features|-features|\\+\\+features|--features|faq|-faq|\\+\\+faq|--faq|community_url|-community_url|\\+\\+community_url|--community_url|category_id|-category_id|\\+\\+category_id|--category_id)(,(id|-id|\\+\\+id|--id|name|-name|\\+\\+name|--name|slug|-slug|\\+\\+slug|--slug|tagline|-tagline|\\+\\+tagline|--tagline|description|-description|\\+\\+description|--description|icon_url|-icon_url|\\+\\+icon_url|--icon_url|source_url|-source_url|\\+\\+source_url|--source_url|docs_url|-docs_url|\\+\\+docs_url|--docs_url|file_access|-file_access|\\+\\+file_access|--file_access|in_action_intro|-in_action_intro|\\+\\+in_action_intro|--in_action_intro|screenshots|-screenshots|\\+\\+screenshots|--screenshots|features|-features|\\+\\+features|--features|faq|-faq|\\+\\+faq|--faq|community_url|-community_url|\\+\\+community_url|--community_url|category_id|-category_id|\\+\\+category_id|--category_id))*$",
               "type": "string"
             },
             "style": "form"
@@ -9909,12 +10147,12 @@
             "schema": {
               "additionalProperties": true,
               "example": {
-                "app": "id,name,slug,tagline,description,icon_url,source_url,docs_url,file_access,category_id"
+                "app": "id,name,slug,tagline,description,icon_url,source_url,docs_url,file_access,caveats,alternatives,in_action_intro,screenshots,features,faq,community_url,category_id"
               },
               "properties": {
                 "app": {
                   "description": "Comma separated field names for app",
-                  "example": "id,name,slug,tagline,description,icon_url,source_url,docs_url,file_access,category_id",
+                  "example": "id,name,slug,tagline,description,icon_url,source_url,docs_url,file_access,caveats,alternatives,in_action_intro,screenshots,features,faq,community_url,category_id",
                   "type": "string"
                 }
               },
@@ -9940,9 +10178,32 @@
                             "additionalProperties": false,
                             "description": "An attributes object for a app",
                             "properties": {
+                              "alternatives": {
+                                "items": {
+                                  "type": "string"
+                                },
+                                "type": "array"
+                              },
                               "category_id": {
                                 "format": "uuid",
                                 "type": "string"
+                              },
+                              "caveats": {
+                                "items": {
+                                  "type": "string"
+                                },
+                                "type": "array"
+                              },
+                              "community_url": {
+                                "anyOf": [
+                                  {
+                                    "nullable": true,
+                                    "type": "string"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
                               },
                               "description": {
                                 "anyOf": [
@@ -9968,6 +10229,8 @@
                                 ],
                                 "description": "Field included by default."
                               },
+                              "faq": {},
+                              "features": {},
                               "file_access": {
                                 "description": "Field included by default.",
                                 "type": "boolean"
@@ -9984,10 +10247,22 @@
                                 ],
                                 "description": "Field included by default."
                               },
+                              "in_action_intro": {
+                                "anyOf": [
+                                  {
+                                    "nullable": true,
+                                    "type": "string"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
                               "name": {
                                 "description": "Field included by default.",
                                 "type": "string"
                               },
+                              "screenshots": {},
                               "slug": {
                                 "description": "Field included by default.",
                                 "type": "string"
@@ -10021,6 +10296,11 @@
                               "name",
                               "slug",
                               "file_access",
+                              "caveats",
+                              "alternatives",
+                              "screenshots",
+                              "features",
+                              "faq",
                               "category_id"
                             ],
                             "type": "object"
@@ -10479,12 +10759,12 @@
             "schema": {
               "additionalProperties": true,
               "example": {
-                "app": "id,name,slug,tagline,description,icon_url,source_url,docs_url,file_access,category_id"
+                "app": "id,name,slug,tagline,description,icon_url,source_url,docs_url,file_access,caveats,alternatives,in_action_intro,screenshots,features,faq,community_url,category_id"
               },
               "properties": {
                 "app": {
                   "description": "Comma separated field names for app",
-                  "example": "id,name,slug,tagline,description,icon_url,source_url,docs_url,file_access,category_id",
+                  "example": "id,name,slug,tagline,description,icon_url,source_url,docs_url,file_access,caveats,alternatives,in_action_intro,screenshots,features,faq,community_url,category_id",
                   "type": "string"
                 }
               },
@@ -10508,9 +10788,32 @@
                           "additionalProperties": false,
                           "description": "An attributes object for a app",
                           "properties": {
+                            "alternatives": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
                             "category_id": {
                               "format": "uuid",
                               "type": "string"
+                            },
+                            "caveats": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "community_url": {
+                              "anyOf": [
+                                {
+                                  "nullable": true,
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
                             },
                             "description": {
                               "anyOf": [
@@ -10536,6 +10839,8 @@
                               ],
                               "description": "Field included by default."
                             },
+                            "faq": {},
+                            "features": {},
                             "file_access": {
                               "description": "Field included by default.",
                               "type": "boolean"
@@ -10552,10 +10857,22 @@
                               ],
                               "description": "Field included by default."
                             },
+                            "in_action_intro": {
+                              "anyOf": [
+                                {
+                                  "nullable": true,
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
                             "name": {
                               "description": "Field included by default.",
                               "type": "string"
                             },
+                            "screenshots": {},
                             "slug": {
                               "description": "Field included by default.",
                               "type": "string"
@@ -10589,6 +10906,11 @@
                             "name",
                             "slug",
                             "file_access",
+                            "caveats",
+                            "alternatives",
+                            "screenshots",
+                            "features",
+                            "faq",
                             "category_id"
                           ],
                           "type": "object"
