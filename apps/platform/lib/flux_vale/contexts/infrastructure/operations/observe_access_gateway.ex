@@ -14,10 +14,25 @@ defmodule FluxVale.Infrastructure.Operations.ObserveAccessGateway do
     clears the attention clock, arms the settlement anchor if the row
     had none (the first observation after create — the settle trigger's
     `where` is `:active`, so this is what turns billing on);
+  - observed `:active` on a row already `:active` re-reads the committed
+    row: if it still carries the settled shape (`:active`, no attention
+    clock, both anchors set, the settled message), the fresh row is
+    returned with **no write and no broadcast** — the minute tick is a
+    no-op instead of a row write per gateway per minute;
   - observed `:needs_attention` from `:active`/`:provisioning` →
     `:needs_attention` (stamps the clock once, on entry);
   - observed `:provisioning` → left alone (the objects are still
     landing); no write, no clock.
+
+  The quiet arm is safe because a skipped write cannot clobber: it only
+  fires after comparing the observation against the **committed** row,
+  and it publishes nothing (Ash's PubSub notifier fires on update). The
+  old "already active, nothing to do" shortcut's bug was not the
+  absence of a write — it was deciding from the stale struct it already
+  held, with no comparison to the committed row, so a concurrent
+  suspend went unseen and the caller got the stale struct back. Here
+  every divergent field (or a moved state) falls through to the filtered
+  write below, which still refuses a row another writer moved.
 
   `:suspended` is never overridden by an observation: a scaled-to-zero
   gateway observes as "not serving" and the row's suspended state is
@@ -43,6 +58,8 @@ defmodule FluxVale.Infrastructure.Operations.ObserveAccessGateway do
   alias FluxVale.Infrastructure.AccessProvider
 
   require Logger
+
+  @settled_message "Connected to your tailnet"
 
   @spec call(AccessGateway.t()) :: {:ok, AccessGateway.t()} | {:error, term()}
   def call(%AccessGateway{} = gateway), do: apply_observation(gateway, 1)
@@ -73,11 +90,18 @@ defmodule FluxVale.Infrastructure.Operations.ObserveAccessGateway do
         {:ok, fresh} ->
           apply_observation(fresh, effort - 1)
 
-        # The row was torn down between the stale write and this re-read.
-        # Nothing to observe; the teardown owns it from here.
-        # coveralls-ignore-next-line race only: teardown winning mid-retry
-        {:error, _gone} ->
+        # coveralls-ignore-start - race/defensive: the row was torn down
+        # between the stale write and this re-read, or the read failed;
+        # ExUnit can stage neither deterministically. Logged rather than
+        # swallowed, and the next tick re-observes either way.
+        {:error, reason} ->
+          Logger.warning(
+            "Access gateway #{gateway.id} re-read failed mid-retry; leaving the row untouched: " <>
+              inspect(reason)
+          )
+
           {:ok, gateway}
+          # coveralls-ignore-stop
       end
     else
       {:error, error}
@@ -104,25 +128,39 @@ defmodule FluxVale.Infrastructure.Operations.ObserveAccessGateway do
     {:ok, gateway}
   end
 
-  # Always writes (the instance reconciler's stance: an observation is a
-  # write, and it bumps updated_at even when nothing changed). The old
-  # in-memory "already active, nothing to do" shortcut was the bug's other
-  # half: deciding from the STALE record it skipped the write entirely, so
-  # no filter could refuse it and the caller got the stale struct back while
-  # the real row said :suspended. The filtered write is what makes the
-  # decision safe, so the decision has to be the write.
+  # The quiet arm: the passed row is already :active, so re-read the
+  # committed row and return it untouched when it matches the settled
+  # shape. No write means no UPDATE and no PubSub notification (the
+  # notifier fires on update), so the per-org topic stays quiet for an
+  # unchanged gateway. Any divergence — a field or the state itself —
+  # falls through to the filtered write, where `expected_state` is the
+  # passed row's state: a concurrent suspend still trips StaleRecord and
+  # the retry re-decides against the committed row.
+  defp apply_status(%AccessGateway{state: :active} = gateway, :active, _status) do
+    case AccessGateway.get_by_id(gateway.id, authorize?: false) do
+      {:ok, %AccessGateway{} = fresh} ->
+        if settled_active?(fresh), do: {:ok, fresh}, else: write_active(gateway)
+
+      # coveralls-ignore-start - race/defensive: the row was torn down
+      # between the observation read and this re-read, or the read failed;
+      # ExUnit can stage neither deterministically. Logged rather than
+      # swallowed, and the next tick re-observes either way.
+      {:error, reason} ->
+        Logger.warning(
+          "Access gateway #{gateway.id} re-read failed; leaving the row untouched: " <>
+            inspect(reason)
+        )
+
+        {:ok, gateway}
+        # coveralls-ignore-stop
+    end
+  end
+
+  # Observed :active from any other committed state: promote, clear the
+  # attention clock, and arm any missing settlement anchors. The write is
+  # filtered and cannot clobber a concurrent writer (see the moduledoc).
   defp apply_status(%AccessGateway{} = gateway, :active, _status) do
-    write(
-      gateway,
-      %{
-        state: :active,
-        status_message: "Connected to your tailnet",
-        needs_attention_since: nil,
-        metering_since: gateway.metering_since || DateTime.utc_now(),
-        provisioned_at: gateway.provisioned_at || DateTime.utc_now()
-      },
-      gateway.state
-    )
+    write_active(gateway)
   end
 
   defp apply_status(%AccessGateway{state: :needs_attention} = gateway, :needs_attention, _status) do
@@ -143,6 +181,34 @@ defmodule FluxVale.Infrastructure.Operations.ObserveAccessGateway do
 
   defp apply_status(%AccessGateway{} = gateway, _provisioning_or_unknown, _status) do
     {:ok, gateway}
+  end
+
+  # Anchors are only armed when the passed row has none. Settlement advances
+  # `metering_since` without changing state (the `settle_anchors` write), so
+  # the state filter cannot refuse an anchor write — writing a held anchor
+  # back could rewind the cursor and re-bill a window. Omitting the field
+  # leaves the committed advance intact.
+  defp write_active(gateway) do
+    attrs =
+      %{state: :active, status_message: @settled_message, needs_attention_since: nil}
+      |> arm_anchor(:metering_since, gateway.metering_since)
+      |> arm_anchor(:provisioned_at, gateway.provisioned_at)
+
+    write(gateway, attrs, gateway.state)
+  end
+
+  defp arm_anchor(attrs, _field, %DateTime{}), do: attrs
+  defp arm_anchor(attrs, field, nil), do: Map.put(attrs, field, DateTime.utc_now())
+
+  # The shape an observation can safely leave untouched: the row is
+  # serving, nothing is asking for attention, both anchors are armed and
+  # the copy is the settled one the :active write lands.
+  defp settled_active?(%AccessGateway{} = gateway) do
+    gateway.state == :active and
+      is_nil(gateway.needs_attention_since) and
+      not is_nil(gateway.metering_since) and
+      not is_nil(gateway.provisioned_at) and
+      gateway.status_message == @settled_message
   end
 
   # `update_state` accepts `metering_since` (it is the observed-state

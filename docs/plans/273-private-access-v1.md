@@ -41,7 +41,7 @@ One code change: make the observer quiet when the observed state already matches
 - A skipped write cannot clobber a concurrent writer, which is what makes the quiet arm safe — the old shortcut's bug was deciding from a stale struct with no comparison to the committed row, not the absence of a write itself.
 - Verify C1/C2/C3 by re-running their named suites at HEAD and recording the result in the PR body. No code changes there.
 
-*Done when:* a new test subscribes to `access_gateways:<org>` and refutes a broadcast on an unchanged active observation, and asserts `updated_at` is unchanged; the stale-suspend and stale-write tests still pass; `mix ci` is green at `[TOTAL] 100.0%`; the C1/C2/C3 suite transcript is pasted.
+*Done when:* new tests subscribe to `access_gateways:<org>` and refute a broadcast on an unchanged active observation, and assert `updated_at` is unchanged; the stale-suspend and stale-write tests still pass; `mix ci` is green and this slice adds no uncovered line (the repo's current `[TOTAL] 99.9%` total — three pre-existing unrelated misses, base-reproduced and named in the PR body — is recorded rather than claimed as 100.0%); the C1/C2/C3 suite transcript is pasted.
 
 ### S2 — Local fleet parity (the app repo's deliverable)
 
@@ -49,7 +49,7 @@ The fleet repo owns staging/production; the app repo keeps the local-dev mirror 
 
 - `Namespace fluxvale-access` with `pod-security.kubernetes.io/{enforce,warn,audit}: baseline` and `app.kubernetes.io/part-of: fluxvale`. Move the namespace out of `01-platform-rbac.yaml` so one file owns the access objects.
 - `ResourceQuota access-quota` at the fleet's 16-gateway + resolver numbers (requests 95m/1072Mi, limits 1750m/3232Mi, 16 PVCs / 1Gi, 17 Deployments incl. the resolver slot). Local does not run the resolver today; the slot is headroom, not a claim.
-- `Role fluxvale-platform-access` with exactly the provider's called verbs: Deployments `create/get/patch/delete`; Secrets `create/get/patch/delete`; PVCs `create/patch/delete` (no `get`: no call site); Pods `list` (the resolver render pass); ConfigMaps `create/patch` (zones). No `resourcequotas`, `networkpolicies`, Services, IngressRoutes or Certificates in this namespace.
+- `Role fluxvale-platform-access` with exactly the provider's called verbs: Deployments `create/get/patch/delete`; Secrets `create/get/patch/delete`; PVCs `create/patch/delete` (no `get`: no call site); Pods `list` (the resolver render pass); ConfigMaps `create/patch` (zones); Certificates `create/get/patch/delete` — [ADR-0040](../adr/00040-strong-private-access-and-custom-domains.md) §2/§6 puts the domain registry's verification and reconcile writes (`RegisterAccessDomain`, `VerifyAccessDomains`, `RemoveAccessDomain`, `EdgeRoutes`) in `certificate_namespace`, the platform's access namespace, so the local mirror carries the fleet's infra#148 verbs. No `resourcequotas`, `networkpolicies`, Services or IngressRoutes in this namespace.
 - `RoleBinding` to `system:serviceaccount:fluxvale-dev:fluxvale-platform`.
 - Add the file to `Tiltfile`'s `k8s_yaml` list and `scripts/e2e-bootstrap.sh`'s apply list.
 
@@ -78,7 +78,7 @@ The staging runbook rides S3 as a doc section with exact commands, expected outp
 Each decision carries the options, the lean, and the reason. The lean is a recommendation, not a settlement.
 
 **D1 — Fleet provisioning ownership.** Options: (a) app-managed at boot — the platform SA creates the access namespace, quota and PSA labels itself; (b) owner-stack declarative manifests, app only consumes; (c) hybrid — owner-stack owns staging/production, the app repo keeps the local-dev mirror (ADR-0020 Am. 2).
-**Lean: (c).** ADR-0007's rule is "if it runs on the cluster, it lives in the fleet repo"; an app that can create its own namespace/quota is self-granting cluster permissions, which is exactly what this lane must not improvise. Staging is already shipped in infra#105. The app-side deliverable is the local mirror plus the exact prod manifest in `docs/plans/273-access-production-handoff.yaml` — a file plus a named morning item, never an apply.
+**Lean: (c).** ADR-0007's rule is "if it runs on the cluster, it lives in the fleet repo"; an app that can create its own namespace/quota is self-granting cluster permissions, which is exactly what this lane must not improvise. Staging is shipped in infra#105 and its Role corrected in infra#148 (the cert-manager Certificate verbs the ADR-0040 registry needs). The app-side deliverable is the local mirror plus the exact prod manifest in `docs/plans/273-access-production-handoff.yaml` — a file plus a named morning item, never an apply.
 
 **D2 — Production namespace isolation.** Options: (a) bind both SAs to the single `fluxvale-access`; (b) add an `ACCESS_GATEWAY_NAMESPACE` runtime override (default `fluxvale-access`) and give production its own `fluxvale-access-prod`, with `access_domains.certificate_namespace` following the same value; (c) rename staging to `fluxvale-access-staging` and let production keep the name.
 **Lean: (b).** One shared namespace across environments puts production gateway pods and PVCs under staging's quota and lets a staging SA list production pods; the fleet comment already flags this. (b) needs no staging migration and keeps the default for local. This is a production handoff decision, not a blocker for the staging proof.
