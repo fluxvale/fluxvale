@@ -95,7 +95,10 @@ defmodule FluxValeWeb.CatalogLive.DeployPocketIdOfferTest do
   end
 
   defp with_custody!(instance) do
-    PocketIdCustody.create!(
+    # S2's system funnel (their resource's writes are op-owned; the
+    # bootstrap staging posture passes authorize?: false, their seed's
+    # own stance).
+    PocketIdCustody.record!(
       %{
         organization_id: instance.organization_id,
         instance_id: instance.id,
@@ -566,7 +569,7 @@ defmodule FluxValeWeb.CatalogLive.DeployPocketIdOfferTest do
         deployed_at: ~U[2026-04-01 00:00:00Z]
       )
 
-      PocketIdCustody.create!(
+      PocketIdCustody.record!(
         %{
           organization_id: team.id,
           instance_id: team_pocketid.id,

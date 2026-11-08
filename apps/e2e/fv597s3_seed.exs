@@ -118,7 +118,10 @@ end
 custody! = fn instance ->
   # Row only, ref names a Secret that does not exist — no key anywhere
   # (the no-read-back discipline; a fake name points at nothing).
-  FluxVale.Infrastructure.PocketIdCustody.create!(
+  # S2's system funnel (their resource's writes are op-owned; the
+  # bootstrap staging posture passes authorize?: false, their seed's
+  # own stance).
+  FluxVale.Infrastructure.PocketIdCustody.record!(
     %{
       organization_id: instance.organization_id,
       instance_id: instance.id,
@@ -148,7 +151,8 @@ Instance
     Ash.Query.filter(FluxVale.Infrastructure.PocketIdCustody, instance_id == ^staged.id)
     |> Ash.read!(authorize?: false)
 
-  Enum.each(custody_rows, &Ash.destroy!(&1, authorize?: false))
+  # Their funnel is the only destroy (the resource has no default).
+  Enum.each(custody_rows, &FluxVale.Infrastructure.PocketIdCustody.revoke!(&1, authorize?: false))
   Ash.destroy!(staged, authorize?: false)
 end)
 

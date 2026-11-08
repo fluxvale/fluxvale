@@ -861,7 +861,9 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
     if active == [] do
       {nil, socket.assigns.pocketid_probes}
     else
-      custodies = PocketIdCustody.list_for_organization!(org_id, actor: user)
+      # S2's seam: the org's custody rows, member-scoped by the read
+      # policy (for_organization — built for this detection read).
+      custodies = PocketIdCustody.for_organization!(org_id, actor: user)
       ready = Enum.filter(active, &custody_ready?(&1, custodies))
       {probes, completed} = probe_pocketids(socket.assigns.pocketid_probes, ready)
 
