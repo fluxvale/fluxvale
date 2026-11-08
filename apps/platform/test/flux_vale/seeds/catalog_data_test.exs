@@ -171,6 +171,19 @@ defmodule FluxVale.Seeds.CatalogDataTest do
 
       assert %{"type" => "string", "secret" => true} =
                version.configurable_env_vars["SSO_CLIENT_SECRET"]
+
+      # #597: the automatic-wiring recipe passes through raw (string
+      # keys); the OidcWiring type + ValidateOidcWiringEnv own
+      # validation at write time. Pins the shipped shape — the seed
+      # test asserts the typed struct this becomes.
+      assert version.oidc_wiring == %{
+               "kind" => "env",
+               "issuer_env" => "SSO_AUTHORITY",
+               "client_id_env" => "SSO_CLIENT_ID",
+               "client_secret_env" => "SSO_CLIENT_SECRET",
+               "enabled_env" => "SSO_ENABLED",
+               "pkce" => true
+             }
     end
 
     test "shipped catalog_data.yaml normalizes the Pocket ID entry (#492)" do
@@ -403,6 +416,7 @@ defmodule FluxVale.Seeds.CatalogDataTest do
       assert version.first_run == nil
       assert version.storage_mount_path == "/data"
       assert version.oidc_callback_path == nil
+      assert version.oidc_wiring == nil
       assert version.recommended_size == "s"
 
       # #190: the toggle is optional and defaults off

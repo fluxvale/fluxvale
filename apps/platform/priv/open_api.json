@@ -1988,6 +1988,15 @@
                 ],
                 "description": "Field included by default."
               },
+              "oidc_wiring": {
+                "anyOf": [
+                  {},
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Field included by default."
+              },
               "port": {
                 "description": "Field included by default.",
                 "type": "integer"
@@ -2152,6 +2161,9 @@
           },
           "oidc_callback_path": {
             "$ref": "#/components/schemas/app_version-filter-oidc_callback_path"
+          },
+          "oidc_wiring": {
+            "$ref": "#/components/schemas/app_version-filter-oidc_wiring"
           },
           "or": {
             "items": {
@@ -2742,6 +2754,27 @@
           "string_starts_with": {
             "type": "string"
           }
+        },
+        "type": "object"
+      },
+      "app_version-filter-oidc_wiring": {
+        "additionalProperties": false,
+        "properties": {
+          "eq": {},
+          "greater_than": {},
+          "greater_than_or_equal": {},
+          "in": {
+            "items": {},
+            "type": "array"
+          },
+          "is_distinct_from": {},
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {},
+          "less_than": {},
+          "less_than_or_equal": {},
+          "not_eq": {}
         },
         "type": "object"
       },
@@ -9531,12 +9564,12 @@
             "schema": {
               "additionalProperties": true,
               "example": {
-                "app_version": "id,version,image,port,healthcheck_path,storage_mount_path,instance_url_env,host_allowlist_env,oidc_callback_path,default_env_vars,configurable_env_vars,first_run,default_cpu_cores,default_memory_mb,default_storage_gb,release_notes,published_at,app_id,recommended_size_id"
+                "app_version": "id,version,image,port,healthcheck_path,storage_mount_path,instance_url_env,host_allowlist_env,oidc_callback_path,default_env_vars,configurable_env_vars,first_run,oidc_wiring,default_cpu_cores,default_memory_mb,default_storage_gb,release_notes,published_at,app_id,recommended_size_id"
               },
               "properties": {
                 "app_version": {
                   "description": "Comma separated field names for app_version",
-                  "example": "id,version,image,port,healthcheck_path,storage_mount_path,instance_url_env,host_allowlist_env,oidc_callback_path,default_env_vars,configurable_env_vars,first_run,default_cpu_cores,default_memory_mb,default_storage_gb,release_notes,published_at,app_id,recommended_size_id",
+                  "example": "id,version,image,port,healthcheck_path,storage_mount_path,instance_url_env,host_allowlist_env,oidc_callback_path,default_env_vars,configurable_env_vars,first_run,oidc_wiring,default_cpu_cores,default_memory_mb,default_storage_gb,release_notes,published_at,app_id,recommended_size_id",
                   "type": "string"
                 }
               },
@@ -9629,6 +9662,15 @@
                                   "nullable": true,
                                   "type": "string"
                                 },
+                                {
+                                  "type": "null"
+                                }
+                              ],
+                              "description": "Field included by default."
+                            },
+                            "oidc_wiring": {
+                              "anyOf": [
+                                {},
                                 {
                                   "type": "null"
                                 }
@@ -10045,7 +10087,7 @@
             "name": "sort",
             "required": false,
             "schema": {
-              "pattern": "^(id|-id|\\+\\+id|--id|version|-version|\\+\\+version|--version|image|-image|\\+\\+image|--image|port|-port|\\+\\+port|--port|healthcheck_path|-healthcheck_path|\\+\\+healthcheck_path|--healthcheck_path|storage_mount_path|-storage_mount_path|\\+\\+storage_mount_path|--storage_mount_path|instance_url_env|-instance_url_env|\\+\\+instance_url_env|--instance_url_env|host_allowlist_env|-host_allowlist_env|\\+\\+host_allowlist_env|--host_allowlist_env|oidc_callback_path|-oidc_callback_path|\\+\\+oidc_callback_path|--oidc_callback_path|default_env_vars|-default_env_vars|\\+\\+default_env_vars|--default_env_vars|configurable_env_vars|-configurable_env_vars|\\+\\+configurable_env_vars|--configurable_env_vars|first_run|-first_run|\\+\\+first_run|--first_run|default_cpu_cores|-default_cpu_cores|\\+\\+default_cpu_cores|--default_cpu_cores|default_memory_mb|-default_memory_mb|\\+\\+default_memory_mb|--default_memory_mb|default_storage_gb|-default_storage_gb|\\+\\+default_storage_gb|--default_storage_gb|release_notes|-release_notes|\\+\\+release_notes|--release_notes|published_at|-published_at|\\+\\+published_at|--published_at|app_id|-app_id|\\+\\+app_id|--app_id|recommended_size_id|-recommended_size_id|\\+\\+recommended_size_id|--recommended_size_id)(,(id|-id|\\+\\+id|--id|version|-version|\\+\\+version|--version|image|-image|\\+\\+image|--image|port|-port|\\+\\+port|--port|healthcheck_path|-healthcheck_path|\\+\\+healthcheck_path|--healthcheck_path|storage_mount_path|-storage_mount_path|\\+\\+storage_mount_path|--storage_mount_path|instance_url_env|-instance_url_env|\\+\\+instance_url_env|--instance_url_env|host_allowlist_env|-host_allowlist_env|\\+\\+host_allowlist_env|--host_allowlist_env|oidc_callback_path|-oidc_callback_path|\\+\\+oidc_callback_path|--oidc_callback_path|default_env_vars|-default_env_vars|\\+\\+default_env_vars|--default_env_vars|configurable_env_vars|-configurable_env_vars|\\+\\+configurable_env_vars|--configurable_env_vars|first_run|-first_run|\\+\\+first_run|--first_run|default_cpu_cores|-default_cpu_cores|\\+\\+default_cpu_cores|--default_cpu_cores|default_memory_mb|-default_memory_mb|\\+\\+default_memory_mb|--default_memory_mb|default_storage_gb|-default_storage_gb|\\+\\+default_storage_gb|--default_storage_gb|release_notes|-release_notes|\\+\\+release_notes|--release_notes|published_at|-published_at|\\+\\+published_at|--published_at|app_id|-app_id|\\+\\+app_id|--app_id|recommended_size_id|-recommended_size_id|\\+\\+recommended_size_id|--recommended_size_id))*$",
+              "pattern": "^(id|-id|\\+\\+id|--id|version|-version|\\+\\+version|--version|image|-image|\\+\\+image|--image|port|-port|\\+\\+port|--port|healthcheck_path|-healthcheck_path|\\+\\+healthcheck_path|--healthcheck_path|storage_mount_path|-storage_mount_path|\\+\\+storage_mount_path|--storage_mount_path|instance_url_env|-instance_url_env|\\+\\+instance_url_env|--instance_url_env|host_allowlist_env|-host_allowlist_env|\\+\\+host_allowlist_env|--host_allowlist_env|oidc_callback_path|-oidc_callback_path|\\+\\+oidc_callback_path|--oidc_callback_path|default_env_vars|-default_env_vars|\\+\\+default_env_vars|--default_env_vars|configurable_env_vars|-configurable_env_vars|\\+\\+configurable_env_vars|--configurable_env_vars|first_run|-first_run|\\+\\+first_run|--first_run|oidc_wiring|-oidc_wiring|\\+\\+oidc_wiring|--oidc_wiring|default_cpu_cores|-default_cpu_cores|\\+\\+default_cpu_cores|--default_cpu_cores|default_memory_mb|-default_memory_mb|\\+\\+default_memory_mb|--default_memory_mb|default_storage_gb|-default_storage_gb|\\+\\+default_storage_gb|--default_storage_gb|release_notes|-release_notes|\\+\\+release_notes|--release_notes|published_at|-published_at|\\+\\+published_at|--published_at|app_id|-app_id|\\+\\+app_id|--app_id|recommended_size_id|-recommended_size_id|\\+\\+recommended_size_id|--recommended_size_id)(,(id|-id|\\+\\+id|--id|version|-version|\\+\\+version|--version|image|-image|\\+\\+image|--image|port|-port|\\+\\+port|--port|healthcheck_path|-healthcheck_path|\\+\\+healthcheck_path|--healthcheck_path|storage_mount_path|-storage_mount_path|\\+\\+storage_mount_path|--storage_mount_path|instance_url_env|-instance_url_env|\\+\\+instance_url_env|--instance_url_env|host_allowlist_env|-host_allowlist_env|\\+\\+host_allowlist_env|--host_allowlist_env|oidc_callback_path|-oidc_callback_path|\\+\\+oidc_callback_path|--oidc_callback_path|default_env_vars|-default_env_vars|\\+\\+default_env_vars|--default_env_vars|configurable_env_vars|-configurable_env_vars|\\+\\+configurable_env_vars|--configurable_env_vars|first_run|-first_run|\\+\\+first_run|--first_run|oidc_wiring|-oidc_wiring|\\+\\+oidc_wiring|--oidc_wiring|default_cpu_cores|-default_cpu_cores|\\+\\+default_cpu_cores|--default_cpu_cores|default_memory_mb|-default_memory_mb|\\+\\+default_memory_mb|--default_memory_mb|default_storage_gb|-default_storage_gb|\\+\\+default_storage_gb|--default_storage_gb|release_notes|-release_notes|\\+\\+release_notes|--release_notes|published_at|-published_at|\\+\\+published_at|--published_at|app_id|-app_id|\\+\\+app_id|--app_id|recommended_size_id|-recommended_size_id|\\+\\+recommended_size_id|--recommended_size_id))*$",
               "type": "string"
             },
             "style": "form"
@@ -10070,12 +10112,12 @@
             "schema": {
               "additionalProperties": true,
               "example": {
-                "app_version": "id,version,image,port,healthcheck_path,storage_mount_path,instance_url_env,host_allowlist_env,oidc_callback_path,default_env_vars,configurable_env_vars,first_run,default_cpu_cores,default_memory_mb,default_storage_gb,release_notes,published_at,app_id,recommended_size_id"
+                "app_version": "id,version,image,port,healthcheck_path,storage_mount_path,instance_url_env,host_allowlist_env,oidc_callback_path,default_env_vars,configurable_env_vars,first_run,oidc_wiring,default_cpu_cores,default_memory_mb,default_storage_gb,release_notes,published_at,app_id,recommended_size_id"
               },
               "properties": {
                 "app_version": {
                   "description": "Comma separated field names for app_version",
-                  "example": "id,version,image,port,healthcheck_path,storage_mount_path,instance_url_env,host_allowlist_env,oidc_callback_path,default_env_vars,configurable_env_vars,first_run,default_cpu_cores,default_memory_mb,default_storage_gb,release_notes,published_at,app_id,recommended_size_id",
+                  "example": "id,version,image,port,healthcheck_path,storage_mount_path,instance_url_env,host_allowlist_env,oidc_callback_path,default_env_vars,configurable_env_vars,first_run,oidc_wiring,default_cpu_cores,default_memory_mb,default_storage_gb,release_notes,published_at,app_id,recommended_size_id",
                   "type": "string"
                 }
               },
@@ -10170,6 +10212,15 @@
                                     "nullable": true,
                                     "type": "string"
                                   },
+                                  {
+                                    "type": "null"
+                                  }
+                                ],
+                                "description": "Field included by default."
+                              },
+                              "oidc_wiring": {
+                                "anyOf": [
+                                  {},
                                   {
                                     "type": "null"
                                   }

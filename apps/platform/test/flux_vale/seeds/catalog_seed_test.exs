@@ -20,6 +20,7 @@ defmodule FluxVale.Seeds.CatalogSeedTest do
   alias FluxVale.Catalog.Category
   alias FluxVale.Catalog.Types.EnvVarSpec
   alias FluxVale.Catalog.Types.FirstRunContract
+  alias FluxVale.Catalog.Types.OidcWiring
   alias FluxVale.Pricing.Size
   alias FluxVale.Seeds
   alias FluxVale.Seeds.CatalogData
@@ -216,6 +217,17 @@ defmodule FluxVale.Seeds.CatalogSeedTest do
       assert %EnvVarSpec{} = secret
       assert secret.type == :string
       assert secret.secret == true
+
+      # #597: the wiring recipe lands typed on the row — presence =
+      # this version offers automatic Pocket ID wiring, names ⊆ the
+      # SSO_* inputs above (ValidateOidcWiringEnv enforced it).
+      assert %OidcWiring{} = version.oidc_wiring
+      assert version.oidc_wiring.kind == :env
+      assert version.oidc_wiring.issuer_env == "SSO_AUTHORITY"
+      assert version.oidc_wiring.client_id_env == "SSO_CLIENT_ID"
+      assert version.oidc_wiring.client_secret_env == "SSO_CLIENT_SECRET"
+      assert version.oidc_wiring.enabled_env == "SSO_ENABLED"
+      assert version.oidc_wiring.pkce == true
     end
 
     test "seeds the shipped Pocket ID entry and its first-run contract (#492)" do
@@ -401,6 +413,36 @@ defmodule FluxVale.Seeds.CatalogSeedTest do
       end
     end
 
+    test "seeds the OIDC wiring recipe for Vaultwarden only (#597)" do
+      assert :ok == Seeds.seed_pricing!()
+      assert :ok == Seeds.seed_catalog!()
+
+      # D4: v1 wires Vaultwarden end to end; every other app — Pocket
+      # ID included — carries no recipe (nil = no automatic wiring).
+      expected = %{
+        "vaultwarden" => %{kind: :env, pkce: true},
+        "forgejo" => nil,
+        "kavita" => nil,
+        "actualbudget" => nil,
+        "memos" => nil,
+        "pocket-id" => nil
+      }
+
+      for {slug, recipe} <- expected do
+        version = version_for!(slug)
+
+        case recipe do
+          nil ->
+            assert version.oidc_wiring == nil
+
+          shape ->
+            assert %OidcWiring{} = version.oidc_wiring
+            assert version.oidc_wiring.kind == shape.kind
+            assert version.oidc_wiring.pkce == shape.pkce
+        end
+      end
+    end
+
     test "re-seeding the shipped catalog converges without dupes" do
       assert :ok == Seeds.seed_pricing!()
       assert :ok == Seeds.seed_catalog!()
@@ -437,6 +479,12 @@ defmodule FluxVale.Seeds.CatalogSeedTest do
 
       assert length(actualbudget.app_versions) == 1
       assert hd(actualbudget.app_versions).version == "26.11.0"
+
+      # The recipe survives the second run (update-convergence carries
+      # it — not just the create path), still typed.
+      vaultwarden = version_for!("vaultwarden")
+      assert %OidcWiring{} = vaultwarden.oidc_wiring
+      assert vaultwarden.oidc_wiring.issuer_env == "SSO_AUTHORITY"
     end
   end
 

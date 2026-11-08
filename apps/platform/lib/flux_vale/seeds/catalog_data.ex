@@ -29,7 +29,8 @@ defmodule FluxVale.Seeds.CatalogData do
   `storage_mount_path` "/data", `default_cpu_cores` "0.5",
   `default_memory_mb` 256, `default_storage_gb` 0, `published_at` nil,
   env maps `%{}`, `first_run` nil (no first-open posture needed — the
-  contract is optional per app, #181).
+  contract is optional per app, #181), `oidc_wiring` nil (no automatic
+  SSO wiring — the recipe is opt-in per version, #597).
 
   `recommended_size` (the priced unit, #125) is **required** in the YAML —
   a version without one cannot be priced (ADR-0028). The loader only
@@ -130,6 +131,10 @@ defmodule FluxVale.Seeds.CatalogData do
       # keys — the FirstRunContract type validates at write time, one
       # enforcement point like the env-var schema below.
       first_run: Map.get(version, "first_run"),
+      # OIDC wiring recipe (#597): raw pass-through, string keys — the
+      # OidcWiring type + ValidateOidcWiringEnv validate at write time
+      # (one enforcement point, the first_run stance).
+      oidc_wiring: Map.get(version, "oidc_wiring"),
       default_cpu_cores: cpu_cores(version),
       default_memory_mb: Map.get(version, "default_memory_mb", 256),
       default_storage_gb: Map.get(version, "default_storage_gb", 0),
