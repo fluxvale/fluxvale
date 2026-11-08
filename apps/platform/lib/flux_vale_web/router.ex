@@ -610,6 +610,15 @@ defmodule FluxValeWeb.Router do
       # shell's Coming grammar has retired.
       live("/gateways", FluxValeWeb.AdminLive.Gateways)
       live("/gateways/:id", FluxValeWeb.AdminLive.GatewayDetail)
+
+      # The storage-request approval queue (#250, ADR-0046 D5): a
+      # purpose-built workflow section — approve/reject/retry, with the
+      # capability and wallet context the decision needs. Reads and
+      # writes ride the Infrastructure domain with the platform-admin
+      # actor and authorize?: true; the instance's decision context is a
+      # scoped system read after the admin gate (the member Instance
+      # read policy gains no admin arm here).
+      live("/storage-requests", FluxValeWeb.AdminLive.StorageRequests)
     end
 
     # LiveDashboard on the debug subpath (Am. 3): this node's BEAM and

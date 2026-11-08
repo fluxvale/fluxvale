@@ -177,6 +177,7 @@ defmodule FluxValeWeb.AdminLive.Resources do
               current="resources"
               exact={@live_action == :domains}
               console={console_nav(assigns)}
+              pending_requests={@pending_storage_requests}
             />
 
             <div class="min-w-0 flex-1 space-y-6">

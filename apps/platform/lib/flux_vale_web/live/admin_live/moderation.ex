@@ -923,7 +923,7 @@ defmodule FluxValeWeb.AdminLive.Moderation do
         section's subject, not navigation. --%>
         <section class="wrap pt-8 pb-16">
           <div class="rise flex flex-col gap-8 md:flex-row md:gap-12">
-            <AdminShell.sidebar current="feedback" />
+            <AdminShell.sidebar current="feedback" pending_requests={@pending_storage_requests} />
 
             <div class="min-w-0 flex-1 space-y-6" data-testid="admin-moderation-content">
               <%!-- The toolbar: the search and the status filter. The

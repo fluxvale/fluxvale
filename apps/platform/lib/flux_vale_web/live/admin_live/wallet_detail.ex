@@ -910,7 +910,11 @@ defmodule FluxValeWeb.AdminLive.WalletDetail do
             <%!-- The section entry is an ANCESTOR mark (exact: false):
             this page is the wallets section's sub-route, so the
             sidebar's wallets entry carries aria-current="location". --%>
-            <AdminShell.sidebar current="wallets" exact={false} />
+            <AdminShell.sidebar
+              current="wallets"
+              exact={false}
+              pending_requests={@pending_storage_requests}
+            />
 
             <div class="min-w-0 flex-1 space-y-8">
               <div class="grid items-start gap-6 xl:grid-cols-2">

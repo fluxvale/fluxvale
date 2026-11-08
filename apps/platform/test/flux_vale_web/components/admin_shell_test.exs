@@ -50,8 +50,7 @@ defmodule FluxValeWeb.Components.AdminShellTest do
   # Every entry the sidebar carries, in order: the live sections, the
   # Every entry the sidebar carries, in order: the live sections, the
   # coming ones, the resource console's own group, then deep debugging.
-  @entry_keys ~w(people catalog wallets feedback orgs gateways resources ash dashboard)
-  @live_keys ~w(people catalog wallets feedback orgs gateways resources ash dashboard)
+  @entry_keys ~w(people catalog wallets feedback orgs storage-requests gateways resources ash dashboard)
 
   test "the sections in order, live ones at their paths, coming ones linkless" do
     html = render_component(&AdminShell.sidebar/1, current: "people")
@@ -62,6 +61,7 @@ defmodule FluxValeWeb.Components.AdminShellTest do
              {"wallets", "/admin/billing", nil},
              {"feedback", "/admin/moderation", nil},
              {"orgs", "/admin/orgs", nil},
+             {"storage-requests", "/admin/storage-requests", nil},
              {"gateways", "/admin/gateways", nil},
              {"resources", "/admin/resources", nil},
              {"ash", "/admin/ash", nil},
@@ -99,6 +99,7 @@ defmodule FluxValeWeb.Components.AdminShellTest do
       wallets: "Wallets and billing",
       feedback: "Feedback moderation",
       orgs: "Orgs and instances",
+      "storage-requests": "Storage requests",
       resources: "Resource console",
       ash: "AshAdmin",
       dashboard: "LiveDashboard"
@@ -113,6 +114,47 @@ defmodule FluxValeWeb.Components.AdminShellTest do
     end
   end
 
+  test "the storage-requests entry carries the pending count badge" do
+    quiet = render_component(&AdminShell.sidebar/1, current: "people")
+    refute has_badge?(quiet)
+
+    html =
+      render_component(&AdminShell.sidebar/1,
+        current: "storage-requests",
+        pending_requests: 3
+      )
+
+    doc = LazyHTML.from_fragment(html)
+
+    badge =
+      doc
+      |> LazyHTML.query("[data-testid='admin-pending-storage-requests']")
+      |> LazyHTML.text()
+      |> String.trim()
+
+    assert badge == "3"
+
+    label =
+      doc
+      |> LazyHTML.query("[data-testid='admin-pending-storage-requests']")
+      |> LazyHTML.attribute("aria-label")
+      |> List.first()
+
+    assert label == "3 pending storage requests"
+
+    ordered = entries(html)
+
+    assert Enum.at(ordered, 5) == {"storage-requests", "/admin/storage-requests", "page"}
+  end
+
+  defp has_badge?(html) do
+    doc = LazyHTML.from_fragment(html)
+
+    doc
+    |> LazyHTML.query("[data-testid='admin-pending-storage-requests']")
+    |> Enum.to_list() != []
+  end
+
   test "the active entry flips with the surface" do
     html = render_component(&AdminShell.sidebar/1, current: "catalog")
     all = entries(html)
@@ -125,6 +167,7 @@ defmodule FluxValeWeb.Components.AdminShellTest do
              {"wallets", nil},
              {"feedback", nil},
              {"orgs", nil},
+             {"storage-requests", nil},
              {"gateways", nil},
              {"resources", nil},
              {"ash", nil},

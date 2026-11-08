@@ -4,9 +4,10 @@ defmodule FluxVale.Clients.K8s.Resources.StorageClass do
 
   The PVC manifest sets no `storageClassName` — every claim lands on
   the cluster's default class — so volume expansion is that class's
-  capability (`spec.allowVolumeExpansion`), not ours (#493). local-path
-  answers false today; when the storage lane ships an expandable class
-  (TopoLVM), the up-only resize policy self-unlocks through this probe.
+  top-level `allowVolumeExpansion` capability, not ours (#493).
+  local-path answers false until the local enabler sets it; when the
+  storage lane ships an expandable class (TopoLVM), the up-only resize
+  policy self-unlocks through this probe.
   """
 
   alias FluxVale.Clients.K8s.Error
@@ -40,8 +41,10 @@ defmodule FluxVale.Clients.K8s.Resources.StorageClass do
     get_in(class, ["metadata", "annotations", @default_annotation]) == "true"
   end
 
+  # `allowVolumeExpansion` is a top-level StorageClass field in
+  # storage.k8s.io/v1 — not under `spec` (the API does not return one).
   defp allows_expansion?(class) do
-    get_in(class, ["spec", "allowVolumeExpansion"]) == true
+    class["allowVolumeExpansion"] == true
   end
 
   @spec list(Kubereq.Kubeconfig.t()) :: {:ok, list(map())} | {:error, Error.t()}

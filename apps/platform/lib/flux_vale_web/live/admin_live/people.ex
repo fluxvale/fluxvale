@@ -417,7 +417,7 @@ defmodule FluxValeWeb.AdminLive.People do
         cross-section wayfinding — no console-level back link. --%>
         <section class="wrap pt-8 pb-16">
           <div class="rise flex flex-col gap-8 md:flex-row md:gap-12">
-            <AdminShell.sidebar current="people" />
+            <AdminShell.sidebar current="people" pending_requests={@pending_storage_requests} />
 
             <div class="min-w-0 flex-1 space-y-6">
               <div class="grid max-w-3xl items-start gap-6 lg:grid-cols-2">
