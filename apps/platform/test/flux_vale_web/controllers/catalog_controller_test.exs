@@ -704,7 +704,8 @@ defmodule FluxValeWeb.CatalogControllerTest do
       assert html =~ ~s(href="/docs/guides/sso")
 
       for path <- ["/docs/getting-started/first-app", "/docs/guides/sso"] do
-        assert conn |> get(path) |> html_response(200) =~ "<"
+        response = get(conn, path)
+        assert html_response(response, 200) =~ "<"
       end
     end
 
