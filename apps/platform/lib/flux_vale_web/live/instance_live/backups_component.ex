@@ -666,6 +666,7 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponent do
       event="restore"
       action_testid="restore-confirm"
       cancel_testid="restore-cancel"
+      return_focus="[data-testid='restore-latest']"
       myself={@myself}
     />
 
@@ -678,6 +679,7 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponent do
       event="remove-settings"
       action_testid="stop-backups-confirm"
       cancel_testid="stop-backups-cancel"
+      return_focus="[data-testid='stop-backups']"
       myself={@myself}
     />
 

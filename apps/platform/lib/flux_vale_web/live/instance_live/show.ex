@@ -1002,10 +1002,14 @@ defmodule FluxValeWeb.InstanceLive.Show do
           </div>
         <% else %>
           <div
-            class="space-y-3 rounded-panel border-2 border-line-danger bg-danger-muted px-4 py-3"
+            id="resize-confirm"
+            role="alert"
+            tabindex="-1"
+            phx-hook=".ResizeConfirmFocus"
+            class="space-y-3 rounded-panel border-2 border-line-danger bg-danger-muted px-4 py-3 focus:outline-none"
             data-testid="resize-confirm"
           >
-            <p class="text-sm font-semibold text-danger">Resize instance</p>
+            <p class="text-sm font-semibold text-danger-deep">Resize instance</p>
             <p class="text-sm text-ink">
               {@resources["cpu_cores"]} CPU · {@resources["memory_mb"]} MB · {if(@storage_omitted,
                 do: @instance.storage_gb,
@@ -1038,6 +1042,22 @@ defmodule FluxValeWeb.InstanceLive.Show do
               </.button>
             </div>
           </div>
+          <script :type={Phoenix.LiveView.ColocatedHook} name=".ResizeConfirmFocus">
+            // #532: the two-step confirm follows the trigger the same
+            // way the shared confirm_block does — announce on insert,
+            // focus the consequence, return to Continue on cancel.
+            export default {
+              mounted() {
+                requestAnimationFrame(() => this.el.focus())
+              },
+              destroyed() {
+                requestAnimationFrame(() => {
+                  const target = document.querySelector("[data-testid='resize-continue']")
+                  if (target && !target.disabled) target.focus()
+                })
+              },
+            }
+          </script>
         <% end %>
       </.form>
     </.card>
