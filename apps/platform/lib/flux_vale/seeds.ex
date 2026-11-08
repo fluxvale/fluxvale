@@ -182,15 +182,16 @@ defmodule FluxVale.Seeds do
       {:ok, _org, _created?} ->
         :ok
 
-      # Sequentially reachable since the seed heal (#285): a pre-T3
-      # admin with a NULL username — the true old-pod shape (no
-      # username, no org, address only in users.email) — heals its
-      # mirror row in seed_admin!/0 but cannot provision: the org is
-      # named after the handle, so provisioning answers
-      # {:error, :username_missing} (ProvisionPersonalOrg's straggler
-      # arm) and the seed fails loudly with the remedy one fix away —
-      # the rpc block in docs/deployment.md. Other reasons (a lost
-      # slug race, a DB failure) keep the same loud posture.
+      # Reachable (covered in AdminSeedTest): an admin row with a NULL
+      # username AND no personal org — drifted or hand-seeded data, not
+      # a deploy shape (org provisioning predates usernames and the
+      # #290 backfill filled every then-existing handle; #285-window
+      # old pods provisioned orgs). seed_admin!/0's heal writes the
+      # mirror row and carries such a row past its gate; the org heal
+      # then names the org after the handle and answers
+      # {:error, :username_missing} — loudly, with the remedy in
+      # docs/deployment.md's rpc block. A lost slug race or a DB
+      # failure lands here too; same loud posture.
       {:error, reason} ->
         raise "seed admin org: provisioning failed — #{inspect(reason)}"
     end
