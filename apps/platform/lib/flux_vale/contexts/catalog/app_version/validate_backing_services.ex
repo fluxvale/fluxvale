@@ -13,9 +13,9 @@ defmodule FluxVale.Catalog.AppVersion.ValidateBackingServices do
       and a required platform-owned input deadlocks the deploy wizard;
     * it stays disjoint from the first-run contract's keys (env ∪
       forbidden, case-insensitive like ValidateFirstRunEnv),
-      `instance_url_env`, and `host_allowlist_env` — one owner per
-      key, each of those layers applies over user env exactly like the
-      composed URL does;
+      `instance_url_env`, `host_allowlist_env`, and the `oidc_wiring`
+      recipe's named envs — one owner per key, each of those layers
+      applies over user env exactly like the composed URL does;
     * no duplicate kinds and no duplicate `url_env`s — one service per
       kind, one key per service;
     * the declared major exists in the platform registry for its kind
@@ -102,16 +102,18 @@ defmodule FluxVale.Catalog.AppVersion.ValidateBackingServices do
   end
 
   # One owner per key: the first-run contract owns its keys, the
-  # deployer owns the URL/host seeds. Case-insensitive, folded like
-  # ValidateFirstRunEnv — consumers fold env names without preserving
-  # case, so an exact-string lock would miss case-variant spellings.
+  # deployer owns the URL/host seeds, the SSO recipe owns its names.
+  # Case-insensitive, folded like ValidateFirstRunEnv — consumers
+  # fold env names without preserving case, so an exact-string lock
+  # would miss case-variant spellings.
   defp cross_field_errors(changeset, service) do
     url_env = String.downcase(service.url_env)
 
     [
       contract_error(changeset, url_env),
       seed_field_error(changeset, url_env, :instance_url_env),
-      seed_field_error(changeset, url_env, :host_allowlist_env)
+      seed_field_error(changeset, url_env, :host_allowlist_env),
+      oidc_wiring_error(changeset, url_env)
     ]
   end
 
@@ -145,6 +147,32 @@ defmodule FluxVale.Catalog.AppVersion.ValidateBackingServices do
       error("url_env #{inspect(name)} collides with #{field} — the deployer owns that key")
     else
       nil
+    end
+  end
+
+  # The SSO recipe is one more platform-owned writer over user env —
+  # a composed service URL and a wiring value on the same key would
+  # silently shadow each other, so the recipe's names lock here like
+  # the seeds above. One home is enough: this changeset sees both
+  # attributes on every create/update, whichever side is edited.
+  defp oidc_wiring_error(changeset, url_env) do
+    wiring = Changeset.get_attribute(changeset, :oidc_wiring)
+
+    collision =
+      wiring &&
+        Enum.find_value(
+          [:issuer_env, :client_id_env, :client_secret_env, :enabled_env],
+          fn field ->
+            name = Map.get(wiring, field)
+            name && String.downcase(name) == url_env && field
+          end
+        )
+
+    if collision do
+      error(
+        "url_env collides with the oidc_wiring recipe's #{collision} (#{url_env}) " <>
+          "— the recipe is the sole owner of that key"
+      )
     end
   end
 

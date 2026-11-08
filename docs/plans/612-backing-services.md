@@ -136,7 +136,8 @@ version row:
   catalog bug), and is **`required: false`** (the platform provides
   it; a required platform-owned input deadlocks the wizard);
 - `url_env` stays disjoint from `first_run` keys (env ∪ forbidden),
-  `instance_url_env`, and `host_allowlist_env` — one owner per key;
+  `instance_url_env`, `host_allowlist_env`, and the `oidc_wiring`
+  recipe's named envs — one owner per key;
 - no duplicate kinds, no duplicate `url_env`s.
 
 Public JSON:API routes gain the field (names + majors only, never

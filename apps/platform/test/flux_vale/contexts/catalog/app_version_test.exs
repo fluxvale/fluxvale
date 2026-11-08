@@ -684,6 +684,26 @@ defmodule FluxVale.Catalog.AppVersionTest do
       })
     end
 
+    # The collision arms' recipe side: SSO inputs the wiring names,
+    # joined onto the db specs so both validators pass except for the
+    # one-owner collision under test.
+    defp sso_db_specs do
+      Map.merge(@db_specs, %{
+        "SSO_AUTHORITY" => %{"label" => "Issuer", "type" => "string"},
+        "SSO_CLIENT_ID" => %{"label" => "Client ID", "type" => "string"}
+      })
+    end
+
+    defp sso_recipe(secret_env) do
+      %{
+        "kind" => "env",
+        "issuer_env" => "SSO_AUTHORITY",
+        "client_id_env" => "SSO_CLIENT_ID",
+        "client_secret_env" => secret_env,
+        "pkce" => true
+      }
+    end
+
     defp assert_rejection(attrs, expected) do
       assert {:error, %Ash.Error.Invalid{errors: errors}} =
                AppVersion.create(attrs, authorize?: false)
@@ -788,6 +808,46 @@ defmodule FluxVale.Catalog.AppVersionTest do
       attrs = Map.put(pair_attrs(), :host_allowlist_env, "REDIS_URL")
 
       assert_rejection(attrs, ~s(url_env "REDIS_URL" collides with host_allowlist_env))
+    end
+
+    test "a url_env colliding with an oidc_wiring recipe env fails — the recipe owns that key" do
+      base = pair_attrs(sso_db_specs())
+      attrs = Map.put(base, :oidc_wiring, sso_recipe("DATABASE_URL"))
+
+      assert_rejection(
+        attrs,
+        "url_env collides with the oidc_wiring recipe's client_secret_env (database_url)"
+      )
+    end
+
+    test "case-variant recipe spellings don't dodge the lock" do
+      base = pair_attrs(sso_db_specs())
+      attrs = Map.put(base, :oidc_wiring, sso_recipe("database_url"))
+
+      assert_rejection(
+        attrs,
+        "url_env collides with the oidc_wiring recipe's client_secret_env (database_url)"
+      )
+    end
+
+    test "a recipe edit colliding with a stored declaration fails on update" do
+      version = AppVersion.create!(pair_attrs(), authorize?: false)
+
+      # The recipe arrives alone, the services sit in stored data —
+      # the lock still fires because the validator reads both sides
+      # of the changeset, whichever is edited.
+      assert {:error, %Ash.Error.Invalid{errors: errors}} =
+               AppVersion.update(
+                 version,
+                 %{oidc_wiring: sso_recipe("REDIS_URL"), configurable_env_vars: sso_db_specs()},
+                 authorize?: false
+               )
+
+      assert Enum.any?(
+               errors,
+               &(&1.message =~
+                   "url_env collides with the oidc_wiring recipe's client_secret_env (redis_url)")
+             )
     end
 
     test "duplicate kinds fail — at most one service per kind" do
