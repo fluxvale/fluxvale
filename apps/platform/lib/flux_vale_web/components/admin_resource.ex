@@ -352,4 +352,131 @@ defmodule FluxValeWeb.AdminResource do
   """
   @spec short_uuid(String.t()) :: String.t()
   def short_uuid(value), do: String.slice(value, 0, 8)
+
+  # -- form inputs (the write path) ---------------------------------------
+
+  @doc """
+  The `<.input>` type for an attribute shape (the plan's input
+  mapping): string/ci_string and uuid FKs → text, integer → number,
+  decimal → number, boolean → checkbox, a one_of atom → select.
+
+  `nil` is a shape the engine cannot map yet (maps, arrays, custom
+  composites — slice 4 owns the JSON-textarea decision for those):
+  the form SKIPS the field rather than guess at an encoding, the
+  flagged-not-forced rule.
+  """
+  @spec input_type(map()) :: String.t() | nil
+  def input_type(%{type: Ash.Type.String}), do: "text"
+  def input_type(%{type: Ash.Type.CiString}), do: "text"
+  # FK labels come from the relationship (slice 4); the input is text —
+  # a uuid is typed, never picked from a list the engine cannot size.
+  def input_type(%{type: Ash.Type.UUID}), do: "text"
+  def input_type(%{type: Ash.Type.Integer}), do: "number"
+  def input_type(%{type: Ash.Type.Decimal}), do: "number"
+  def input_type(%{type: Ash.Type.Boolean}), do: "checkbox"
+
+  def input_type(%{type: Ash.Type.Atom, constraints: constraints}) do
+    if Keyword.has_key?(constraints, :one_of), do: "select", else: nil
+  end
+
+  def input_type(_unmapped), do: nil
+
+  @doc """
+  A select's options from a one_of constraint: the declared atoms as
+  string values (the cast resolves them back through the same
+  constraint — no atom is ever built from input), labels derived like
+  column labels.
+  """
+  @spec enum_options(map()) :: [{String.t(), String.t()}]
+  def enum_options(%{constraints: constraints}) do
+    one_of = Keyword.fetch!(constraints, :one_of)
+    Enum.map(one_of, fn value -> {label(value), Atom.to_string(value)} end)
+  end
+
+  @doc """
+  An input's required flag: `allow_nil?` governs, except checkboxes —
+  a boolean's false is a real value the hidden input always submits,
+  so a required checkbox would force every boolean on.
+  """
+  @spec input_required?(map(), String.t()) :: boolean()
+  def input_required?(_attr, "checkbox"), do: false
+  def input_required?(attr, _submits_a_value), do: not attr.allow_nil?
+
+  # -- write affordances ---------------------------------------------------
+
+  @doc """
+  The index's create affordance: a link to the :new route. `path: nil`
+  (no create action the actor may run) renders nothing — the actions
+  surface shows nothing when nothing is permitted.
+  """
+
+  attr(:path, :string, default: nil, doc: "the :new route, or nil to render nothing")
+
+  @spec new_button(map()) :: Phoenix.LiveView.Rendered.t()
+  # The empty clause needs the sigil's assigns binding to render a
+  # valid (empty) template — a bare list is not renderable.
+  def new_button(%{path: nil} = assigns), do: ~H""
+
+  def new_button(assigns) do
+    ~H"""
+    <.link
+      navigate={@path}
+      data-testid="admin-resource-new"
+      class="rounded-control border border-line bg-panel px-3 py-1.5 text-sm font-medium text-link transition-colors hover:bg-panel-raised"
+    >
+      {gettext("New")}
+    </.link>
+    """
+  end
+
+  @doc """
+  The record page's actions bar: one Edit link per permitted update
+  action, one Delete button per permitted destroy action (the delete
+  opens the confirm_block; it never destroys directly). Both lists
+  empty renders nothing — the bar is absent, not an empty box.
+  """
+
+  attr(:update_actions, :list,
+    required: true,
+    doc: "[%{name: action_name, path: path, label: label}] — one per permitted update action"
+  )
+
+  attr(:destroy_actions, :list,
+    required: true,
+    doc: "[%{name: action_name, label: label}] — one per permitted destroy action"
+  )
+
+  @spec actions_bar(map()) :: Phoenix.LiveView.Rendered.t()
+  # Same empty-template nothing as new_button's empty clause.
+  def actions_bar(%{update_actions: [], destroy_actions: []} = assigns), do: ~H""
+
+  def actions_bar(assigns) do
+    ~H"""
+    <div
+      class="flex flex-wrap items-center gap-3 border-t border-line pt-4"
+      data-testid="admin-resource-actions"
+    >
+      <.link
+        :for={action <- @update_actions}
+        navigate={action.path}
+        data-testid={"admin-resource-edit-#{action.name}"}
+        class="text-sm font-medium text-link underline-offset-2 hover:underline"
+      >
+        {action.label}
+      </.link>
+
+      <button
+        :for={action <- @destroy_actions}
+        type="button"
+        phx-click="open-destroy"
+        phx-value-action={action.name}
+        phx-disable-with={gettext("Opening...")}
+        data-testid={"admin-resource-destroy-#{action.name}"}
+        class="text-sm font-medium text-danger underline-offset-2 hover:underline"
+      >
+        {action.label}
+      </button>
+    </div>
+    """
+  end
 end

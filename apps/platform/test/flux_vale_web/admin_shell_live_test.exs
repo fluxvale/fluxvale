@@ -70,6 +70,12 @@ defmodule FluxValeWeb.AdminShellLiveTest do
   defp concrete_admin_path("/admin/resources/:domain/:resource", _ctx),
     do: "/admin/resources/ops/feature_flag"
 
+  defp concrete_admin_path("/admin/resources/:domain/:resource/new", _ctx),
+    do: "/admin/resources/ops/feature_flag/new"
+
+  defp concrete_admin_path("/admin/resources/:domain/:resource/:id/edit", %{flag: flag}),
+    do: "/admin/resources/ops/feature_flag/#{flag.id}/edit"
+
   defp concrete_admin_path("/admin/resources/:domain/:resource/:id", %{flag: flag}),
     do: "/admin/resources/ops/feature_flag/#{flag.id}"
 
@@ -247,6 +253,10 @@ defmodule FluxValeWeb.AdminShellLiveTest do
         {FluxValeWeb.AdminLive.Resources, "/admin/resources/:domain"} =>
           {"resources", "location"},
         {FluxValeWeb.AdminLive.Resources, "/admin/resources/:domain/:resource"} =>
+          {"resources", "location"},
+        {FluxValeWeb.AdminLive.Resources, "/admin/resources/:domain/:resource/new"} =>
+          {"resources", "location"},
+        {FluxValeWeb.AdminLive.Resources, "/admin/resources/:domain/:resource/:id/edit"} =>
           {"resources", "location"},
         {FluxValeWeb.AdminLive.Resources, "/admin/resources/:domain/:resource/:id"} =>
           {"resources", "location"}

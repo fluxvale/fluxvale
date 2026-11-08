@@ -230,7 +230,12 @@ AND dark, from the seeded local stack, under
 before PR when `main` moved. Hostile fresh-context review on Synthetic
 `syn:large:text` per the standard arc. Copy: no em-dashes, no
 semicolons, no ops-ticket/agent/automation mentions anywhere public.
-Read the platform AGENTS.md toolchain recipes before scaffolding.
+PR bodies carry NO hard wordwrap: each paragraph is ONE unbroken line
+(GitHub wraps it; 80-column prose renders as ragged blocks), tables
+and code blocks excepted. A body that embeds screenshots opens with a
+table indexing them (capture name, what it shows), the embeds directly
+beneath. Read the platform AGENTS.md toolchain recipes before
+scaffolding.
 
 ### Slice 1 — engine read path, proven on Ops
 

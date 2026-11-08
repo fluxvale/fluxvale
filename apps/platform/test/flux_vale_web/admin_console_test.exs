@@ -198,4 +198,24 @@ defmodule FluxValeWeb.AdminConsoleTest do
       refute AdminConsole.visible?(user, FluxVale.Ops.FeatureFlag, :create)
     end
   end
+
+  describe "the registry-intent gate (allowed_actions/3)" do
+    test "a resource's write actions of one type, straight from its definition" do
+      creates = AdminConsole.allowed_actions(FluxVale.Ops.FeatureFlag, :create, %{})
+      updates = AdminConsole.allowed_actions(FluxVale.Ops.FeatureFlag, :update, %{})
+      destroys = AdminConsole.allowed_actions(FluxVale.Ops.AccessRule, :destroy, %{})
+
+      assert Enum.map(creates, & &1.name) == [:create]
+      assert Enum.map(updates, & &1.name) == [:update]
+      assert Enum.map(destroys, & &1.name) == [:destroy]
+    end
+
+    test "the exclusion lists are the machinery-action gate — intent beats policy" do
+      # Whatever Ash.can? would say, a registry-excluded action never
+      # renders: an excluded :create empties the create set entirely.
+      config = %{create_actions: [:create]}
+
+      assert AdminConsole.allowed_actions(FluxVale.Ops.FeatureFlag, :create, config) == []
+    end
+  end
 end
