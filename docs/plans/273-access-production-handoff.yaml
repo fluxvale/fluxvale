@@ -40,6 +40,13 @@ metadata:
 #
 # The resolver slot is a real claim in production (the fleet resolver
 # runs there); the gateway ceiling stays 16.
+#
+# Honest scope: the platform's cluster-wide operator grants (rolebindings
+# create plus bind on fluxvale-platform-workload, which carries
+# resourcequotas verbs) mean it could rebind itself and lift this quota.
+# The quota is a capacity plan against the app's code paths, not a
+# security boundary against the platform; narrowing the bind grant is
+# #73-machinery surgery, out of scope here.
 apiVersion: v1
 kind: ResourceQuota
 metadata:
@@ -55,14 +62,17 @@ spec:
     requests.storage: 1Gi
     count/deployments.apps: "17"
 ---
-# Exactly the provider's called verbs plus the resolver render pass —
-# identical to the local and staging shapes:
+# Exactly the provider's called verbs plus the resolver render pass and
+# the domain-registry Certificate (ADR-0040 S1) — identical to the local
+# and staging shapes:
 #   deployments create/get/patch/delete; secrets create/get/patch/delete;
 #   PVCs create/patch/delete (no get: no call site); pods list;
-#   configmaps create/patch.
+#   configmaps create/patch; certificates create/get/patch/delete
+#   (register applies, verify reads Ready, reconcile re-applies, remove
+#   safe-deletes).
 #
 # Deliberately NOT granted: resourcequotas, networkpolicies, services,
-# ingressroutes, certificates, rolebindings.
+# ingressroutes, rolebindings.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
@@ -84,6 +94,9 @@ rules:
   - apiGroups: [""]
     resources: ["configmaps"]
     verbs: ["create", "patch"]
+  - apiGroups: ["cert-manager.io"]
+    resources: ["certificates"]
+    verbs: ["create", "get", "patch", "delete"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
