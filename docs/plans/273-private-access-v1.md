@@ -116,7 +116,7 @@ Each decision carries the options, the lean, and the reason. The lean is a recom
 
 ## 6. Order and ownership
 
-S1 (P3 close-out) → S2 (local fleet) → S3 (proof). S2 and S3 can overlap once S1's plan doc lands; S3 depends on S2 only for the RBAC half of the local probe. One slice per PR, each with a fresh independent review and the gate re-run before merge; merge rides the overnight standing grant.
+S1 (P3 close-out) → S2 (local fleet) → S3 (proof). S2 and S3 can overlap once S1's plan doc lands; S3 depends on S2 only for the RBAC half of the local probe. One slice per PR, each with a fresh independent review and the gate re-run before merge; the maintainer merges only after that gate passes.
 
 ## 7. What this plan does not do
 

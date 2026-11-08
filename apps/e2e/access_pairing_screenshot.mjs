@@ -19,7 +19,7 @@ import { mkdirSync, readFileSync } from "node:fs";
 
 const BASE_AFTER = process.env.FV_AFTER_BASE ?? "http://127.0.0.1:4000";
 const BASE_BEFORE = process.env.FV_BEFORE_BASE ?? "http://127.0.0.1:4001";
-const tokenFile = process.env.FV_TOKEN_FILE ?? "/tmp/opencode/access_pairing_token.txt";
+const tokenFile = process.env.FV_TOKEN_FILE ?? "/tmp/opencode/access-pairing-token.txt";
 const token = process.env.FV_TOKEN ?? readFileSync(tokenFile, "utf8").trim();
 
 const ACCESS_URL = process.env.FV_ACCESS_URL;
