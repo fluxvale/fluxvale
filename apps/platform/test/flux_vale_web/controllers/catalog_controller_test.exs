@@ -494,9 +494,12 @@ defmodule FluxValeWeb.CatalogControllerTest do
       assert html =~ "How FluxVale works"
 
       # FAQ: the hero's anchor lands, both columns render their
-      # constants, and data ownership is the one open row (D11).
+      # constants, and data ownership is the one open row (D11). The
+      # scroll margin clears the sticky 57px chrome (the flash band's
+      # own top-18 reasoning).
       assert html =~ ~s(id="faq")
       assert html =~ ~s(href="#faq")
+      assert html =~ ~s(scroll-mt-16)
       assert html =~ "Frequently asked questions"
       assert html =~ ~s(data-testid="faq-setup-column")
       assert html =~ ~s(data-testid="faq-about-column")

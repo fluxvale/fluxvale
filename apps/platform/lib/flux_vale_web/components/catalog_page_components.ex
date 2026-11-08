@@ -399,7 +399,11 @@ defmodule FluxValeWeb.CatalogPageComponents do
       |> assign(:about_items, CatalogPageContent.faq_about_items(assigns.app))
 
     ~H"""
-    <section class="border-t border-line py-14 sm:py-16" id="faq" data-testid="faq-section">
+    <section
+      class="border-t border-line py-14 scroll-mt-16 sm:py-16"
+      id="faq"
+      data-testid="faq-section"
+    >
       <p class="eyebrow">{gettext("FAQ")}</p>
       <h2 class="display-h2">{gettext("Frequently asked questions")}</h2>
 
