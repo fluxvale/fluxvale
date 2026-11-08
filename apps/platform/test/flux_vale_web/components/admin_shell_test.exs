@@ -41,9 +41,10 @@ defmodule FluxValeWeb.Components.AdminShellTest do
   end
 
   # Every entry the sidebar carries, in order: the live sections, the
-  # coming ones, then deep debugging.
-  @entry_keys ~w(people catalog wallets feedback orgs gateways ash dashboard)
-  @live_keys ~w(people catalog wallets feedback ash dashboard)
+  # Every entry the sidebar carries, in order: the live sections, the
+  # coming ones, the resource console's own group, then deep debugging.
+  @entry_keys ~w(people catalog wallets feedback orgs gateways resources ash dashboard)
+  @live_keys ~w(people catalog wallets feedback resources ash dashboard)
   @coming_keys ~w(orgs gateways)
 
   test "the sections in order, live ones at their paths, coming ones linkless" do
@@ -56,6 +57,7 @@ defmodule FluxValeWeb.Components.AdminShellTest do
              {"feedback", "/admin/moderation", nil},
              {"orgs", nil, nil},
              {"gateways", nil, nil},
+             {"resources", "/admin/resources", nil},
              {"ash", "/admin/ash", nil},
              {"dashboard", "/admin/debug/dashboard", nil}
            ]
@@ -111,6 +113,7 @@ defmodule FluxValeWeb.Components.AdminShellTest do
       catalog: "Catalog and pricing",
       wallets: "Wallets and billing",
       feedback: "Feedback moderation",
+      resources: "Resource console",
       ash: "AshAdmin",
       dashboard: "LiveDashboard"
     }
@@ -137,6 +140,7 @@ defmodule FluxValeWeb.Components.AdminShellTest do
              {"feedback", nil},
              {"orgs", nil},
              {"gateways", nil},
+             {"resources", nil},
              {"ash", nil},
              {"dashboard", nil}
            ]

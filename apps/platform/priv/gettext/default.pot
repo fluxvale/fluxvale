@@ -16,6 +16,7 @@ msgstr ""
 #: lib/flux_vale_web/live/admin_live/moderation.ex:1046
 #: lib/flux_vale_web/live/admin_live/moderation.ex:1434
 #: lib/flux_vale_web/live/admin_live/people.ex:535
+#: lib/flux_vale_web/live/admin_live/resources.ex:231
 #: lib/flux_vale_web/live/admin_live/wallet_detail.ex:1051
 #, elixir-autogen, elixir-format
 msgid "Actions"
@@ -682,12 +683,12 @@ msgstr ""
 msgid "Admin"
 msgstr ""
 
-#: lib/flux_vale_web/components/admin_shell.ex:151
+#: lib/flux_vale_web/components/admin_shell.ex:161
 #, elixir-autogen, elixir-format
 msgid "AshAdmin"
 msgstr ""
 
-#: lib/flux_vale_web/components/admin_shell.ex:140
+#: lib/flux_vale_web/components/admin_shell.ex:150
 #, elixir-autogen, elixir-format
 msgid "Deep debugging"
 msgstr ""
@@ -698,7 +699,7 @@ msgstr ""
 msgid "Feedback moderation"
 msgstr ""
 
-#: lib/flux_vale_web/components/admin_shell.ex:152
+#: lib/flux_vale_web/components/admin_shell.ex:162
 #, elixir-autogen, elixir-format
 msgid "LiveDashboard"
 msgstr ""
@@ -707,6 +708,7 @@ msgstr ""
 #: lib/flux_vale_web/live/admin_live/catalog.ex:52
 #: lib/flux_vale_web/live/admin_live/moderation.ex:901
 #: lib/flux_vale_web/live/admin_live/people.ex:400
+#: lib/flux_vale_web/live/admin_live/resources.ex:114
 #: lib/flux_vale_web/live/admin_live/size_edit.ex:262
 #: lib/flux_vale_web/live/admin_live/sizes.ex:67
 #: lib/flux_vale_web/live/admin_live/version_edit.ex:395
@@ -726,7 +728,7 @@ msgstr ""
 msgid "People and invites"
 msgstr ""
 
-#: lib/flux_vale_web/components/admin_shell.ex:147
+#: lib/flux_vale_web/components/admin_shell.ex:157
 #, elixir-autogen, elixir-format
 msgid "The generated tools. They run as trusted superuser without the resource policies. For emergencies and data surgery."
 msgstr ""
@@ -2125,4 +2127,120 @@ msgstr ""
 #: lib/flux_vale_web/live/admin_live/moderation.ex:864
 #, elixir-autogen, elixir-format
 msgid "posted %{ago}"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/resources.ex:156
+#, elixir-autogen, elixir-format
+msgid "1 resource"
+msgid_plural "%{count} resources"
+msgstr[0] ""
+msgstr[1] ""
+
+#: lib/flux_vale_web/live/admin_live/resources.ex:188
+#, elixir-autogen, elixir-format
+msgid "1 row"
+msgid_plural "%{count} rows"
+msgstr[0] ""
+msgstr[1] ""
+
+#: lib/flux_vale_web/live/admin_live/resources.ex:642
+#: lib/flux_vale_web/live/admin_live/resources.ex:645
+#, elixir-autogen, elixir-format
+msgid "Back to %{name}"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/resources.ex:639
+#, elixir-autogen, elixir-format
+msgid "Back to the domains"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/resources.ex:612
+#, elixir-autogen, elixir-format
+msgid "Every domain the console exposes, with its resources and every public field. The raw tables behind the curated sections."
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/resources.ex:630
+#, elixir-autogen, elixir-format
+msgid "Every public attribute of this record. Non-public attributes never render on this surface."
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/resources.ex:624
+#, elixir-autogen, elixir-format
+msgid "Every row, newest first, 25 to a page. Reads run through the resource policies with your account as the actor."
+msgstr ""
+
+#: lib/flux_vale_web/components/admin_resource.ex:284
+#, elixir-autogen, elixir-format
+msgid "Next"
+msgstr ""
+
+#: lib/flux_vale_web/components/admin_resource.ex:119
+#, elixir-autogen, elixir-format
+msgid "No"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/resources.ex:198
+#, elixir-autogen, elixir-format
+msgid "No rows yet."
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/resources.ex:161
+#, elixir-autogen, elixir-format
+msgid "Not every domain is on this console yet. The ones here are fully supported."
+msgstr ""
+
+#: lib/flux_vale_web/components/admin_resource.ex:184
+#, elixir-autogen, elixir-format
+msgid "Not set"
+msgstr ""
+
+#: lib/flux_vale_web/components/admin_resource.ex:252
+#, elixir-autogen, elixir-format
+msgid "Pagination"
+msgstr ""
+
+#: lib/flux_vale_web/components/admin_resource.ex:259
+#, elixir-autogen, elixir-format
+msgid "Previous"
+msgstr ""
+
+#: lib/flux_vale_web/components/admin_shell.ex:145
+#: lib/flux_vale_web/live/admin_live/resources.ex:606
+#, elixir-autogen, elixir-format
+msgid "Resource console"
+msgstr ""
+
+#: lib/flux_vale_web/components/admin_shell.ex:142
+#, elixir-autogen, elixir-format
+msgid "Resources"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/resources.ex:600
+#, elixir-autogen, elixir-format
+msgid "That page does not exist here."
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/resources.ex:357
+#, elixir-autogen, elixir-format
+msgid "That record is not available here."
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/resources.ex:618
+#, elixir-autogen, elixir-format
+msgid "The resources this domain exposes. Reads run through the resource policies with your account as the actor."
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/resources.ex:199
+#, elixir-autogen, elixir-format
+msgid "This table is empty. Rows appear here as they are created."
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/resources.ex:260
+#, elixir-autogen, elixir-format
+msgid "View"
+msgstr ""
+
+#: lib/flux_vale_web/components/admin_resource.ex:119
+#, elixir-autogen, elixir-format
+msgid "Yes"
 msgstr ""

@@ -136,6 +136,16 @@ defmodule FluxValeWeb.AdminShell do
         ]
       },
       %{
+        # The generic resource console (#595, D3: one group, one entry
+        # — the landing is the domain picker, never per-domain entries).
+        key: "resources",
+        label: gettext("Resources"),
+        copy: nil,
+        entries: [
+          %{key: "resources", label: gettext("Resource console"), path: ~p"/admin/resources"}
+        ]
+      },
+      %{
         key: "deep-debugging",
         label: gettext("Deep debugging"),
         # The generated tools' own pages (AshAdmin, LiveDashboard) carry
