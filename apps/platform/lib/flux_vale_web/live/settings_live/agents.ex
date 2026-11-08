@@ -269,7 +269,9 @@ defmodule FluxValeWeb.SettingsLive.Agents do
   # placeholder, no per-visitor interpolation — the placeholder rule
   # holds by construction, not by filtering.
 
-  defp server_url, do: "https://mcp.fluxvale.com"
+  # The protocol nests at /mcp (apps/mcp/src/main.rs MCP_PATH) — the
+  # client-facing endpoint is the path, not the bare origin.
+  defp server_url, do: "https://mcp.fluxvale.com/mcp"
 
   defp claude_desktop_config do
     """

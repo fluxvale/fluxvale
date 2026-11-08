@@ -9,8 +9,9 @@ from where the token is minted (the Access panel's API tokens
 section, #483); this doc mirrors it and carries the tool-surface
 record the app cannot: the catalog and the changelog below.
 
-Endpoints: prod `https://mcp.fluxvale.com`, staging
-`https://mcp.staging.fluxvale.com`.
+Endpoints (the protocol nests at `/mcp` — `apps/mcp/src/main.rs`
+`MCP_PATH`): prod `https://mcp.fluxvale.com/mcp`, staging
+`https://mcp.staging.fluxvale.com/mcp`.
 
 ## The recipe (two steps, one token)
 
@@ -29,7 +30,7 @@ Edit Config; restart after saving):
 {
   "mcpServers": {
     "fluxvale": {
-      "url": "https://mcp.fluxvale.com",
+      "url": "https://mcp.fluxvale.com/mcp",
       "headers": {
         "Authorization": "Bearer fvpat_…"
       }
@@ -45,7 +46,7 @@ everywhere — same shape either way):
 {
   "mcpServers": {
     "fluxvale": {
-      "url": "https://mcp.fluxvale.com",
+      "url": "https://mcp.fluxvale.com/mcp",
       "headers": {
         "Authorization": "Bearer fvpat_…"
       }
@@ -64,7 +65,7 @@ the server's 401 is a bearer challenge, not an OAuth dance):
   "mcp": {
     "fluxvale": {
       "type": "remote",
-      "url": "https://mcp.fluxvale.com",
+      "url": "https://mcp.fluxvale.com/mcp",
       "oauth": false,
       "headers": {
         "Authorization": "Bearer fvpat_…"

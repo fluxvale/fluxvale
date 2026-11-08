@@ -25,11 +25,12 @@ defmodule FluxValeWeb.SettingsLive.AgentsTest do
 
     assert has_element?(view, "[data-testid='agents-title']", "Use with AI agents")
 
-    # The server URL and its copy button carry the same value.
-    assert has_element?(view, "[data-testid='agents-server-url']", "https://mcp.fluxvale.com")
+    # The server URL and its copy button carry the same value — the
+    # protocol path, not the bare origin (main.rs nests at /mcp).
+    assert has_element?(view, "[data-testid='agents-server-url']", "https://mcp.fluxvale.com/mcp")
 
     assert render(element(view, "[data-testid='agents-server-url-copy']")) =~
-             "https://mcp.fluxvale.com"
+             "https://mcp.fluxvale.com/mcp"
 
     # Step 1 sends the visitor to the tokens panel's section anchor;
     # the scopes callout links the same place.
@@ -57,7 +58,7 @@ defmodule FluxValeWeb.SettingsLive.AgentsTest do
     # them even in text nodes); the URL carries nothing escapable.
     claude = render(element(view, "[data-testid='agents-config-claude'] pre"))
     assert claude =~ "&quot;mcpServers&quot;"
-    assert claude =~ "https://mcp.fluxvale.com"
+    assert claude =~ "https://mcp.fluxvale.com/mcp"
     assert has_element?(view, "[data-testid='agents-config-claude-copy']")
 
     opencode = render(element(view, "[data-testid='agents-config-opencode'] pre"))
