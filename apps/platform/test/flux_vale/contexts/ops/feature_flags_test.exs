@@ -7,11 +7,11 @@ defmodule FluxVale.Ops.FeatureFlagsTest do
   alias FluxVale.Ops.FeatureFlag
   alias FluxVale.Ops.FeatureFlags
 
-  # @known_flags ships empty (mechanism-first, #25): the decision table is
-  # exercised through the pure core `decide/3` with an action-created row —
-  # the edge `enabled?/2` is declare-gated and its happy path returns with
-  # the first real flag (M3+). The undeclared/non-atom guards below are the
-  # edge behavior that exists today.
+  # @known_flags carries its first real flag (:pocketid_sso_wiring,
+  # #597 S2) — the declare-gated happy paths are exercised against it
+  # below, alongside the pure decide/3 decision table. The
+  # undeclared/non-atom guards are the edge behavior that always
+  # existed.
   setup do
     user = User.create!("flagged-#{System.unique_integer()}@fluxvale.com", %{}, authorize?: false)
 
@@ -48,14 +48,30 @@ defmodule FluxVale.Ops.FeatureFlagsTest do
     end
   end
 
-  describe "enable/2 disable/2 (FunWithFlags-style verbs, Am. 4)" do
-    # Declare-gated like enabled?'s happy path, these return with the first
-    # real flag (M3+): create-on-enable, percentage set/preserve, invalid
-    # percentage failing validation on update too, disable keeps pct,
-    # non-admin actor forbidden (policy already covered in
-    # feature_flag_test.exs), and the `actor:`-required KeyError. The
-    # guard rail that exists today is the declare gate.
+  # The first declared flag (#597 S2): the happy paths the
+  # mechanism-first ignores guarded are real and covered now.
+  describe "enabled?/2 with :pocketid_sso_wiring (#597's flag)" do
+    test "missing row = disabled — fail-closed is the shipped default" do
+      refute FeatureFlags.enabled?(:pocketid_sso_wiring)
+      refute FeatureFlags.enabled?(:pocketid_sso_wiring, for: nil)
+    end
 
+    test "an enabled row means on — everyone, anonymous included", %{user: user} do
+      FeatureFlag.create!("pocketid_sso_wiring", %{enabled: true}, authorize?: false)
+
+      assert FeatureFlags.enabled?(:pocketid_sso_wiring)
+      assert FeatureFlags.enabled?(:pocketid_sso_wiring, for: user)
+      assert FeatureFlags.enabled?(:pocketid_sso_wiring, for: nil)
+    end
+
+    test "a disabled row means off", %{user: user} do
+      FeatureFlag.create!("pocketid_sso_wiring", %{enabled: false}, authorize?: false)
+
+      refute FeatureFlags.enabled?(:pocketid_sso_wiring, for: user)
+    end
+  end
+
+  describe "enable/2 disable/2 (FunWithFlags-style verbs, Am. 4)" do
     test "refuse undeclared keys — never mint a row no read can reach" do
       assert_raise ArgumentError, ~r/undeclared feature flag :no_such_flag/, fn ->
         FeatureFlags.enable(:no_such_flag, actor: nil)
@@ -64,6 +80,58 @@ defmodule FluxVale.Ops.FeatureFlagsTest do
       assert_raise ArgumentError, ~r/undeclared feature flag :no_such_flag/, fn ->
         FeatureFlags.disable(:no_such_flag, actor: nil)
       end
+    end
+  end
+
+  describe "enable/2 with the declared flag" do
+    test "a platform admin creates the row on", %{user: user} do
+      admin =
+        User.create!(
+          "admin-#{System.unique_integer()}@fluxvale.com",
+          %{platform_role: :admin},
+          authorize?: false
+        )
+
+      assert :ok = FeatureFlags.enable(:pocketid_sso_wiring, actor: admin)
+      assert FeatureFlags.enabled?(:pocketid_sso_wiring, for: user)
+
+      # Enable again on the existing row: idempotent, percentage kept.
+      assert :ok = FeatureFlags.enable(:pocketid_sso_wiring, actor: admin, percentage: 50)
+
+      assert {:ok, %FeatureFlag{enabled: true, rollout_percentage: 50}} =
+               FeatureFlag.by_key("pocketid_sso_wiring", authorize?: false)
+    end
+
+    test "a non-admin actor is Forbidden — the verbs are operator-only", %{user: user} do
+      assert {:error, %Ash.Error.Forbidden{}} =
+               FeatureFlags.enable(:pocketid_sso_wiring, actor: user)
+    end
+  end
+
+  describe "disable/2 with the declared flag" do
+    test "an admin turns a row off; the rollout percentage survives for a later enable",
+         %{user: user} do
+      admin =
+        User.create!(
+          "admin-#{System.unique_integer()}@fluxvale.com",
+          %{platform_role: :admin},
+          authorize?: false
+        )
+
+      :ok = FeatureFlags.enable(:pocketid_sso_wiring, actor: admin, percentage: 25)
+      assert :ok = FeatureFlags.disable(:pocketid_sso_wiring, actor: admin)
+
+      refute FeatureFlags.enabled?(:pocketid_sso_wiring, for: user)
+
+      assert {:ok, %FeatureFlag{enabled: false, rollout_percentage: 25}} =
+               FeatureFlag.by_key("pocketid_sso_wiring", authorize?: false)
+    end
+
+    test "no row = already disabled by absence — :ok, nothing materialized" do
+      assert :ok = FeatureFlags.disable(:pocketid_sso_wiring, actor: nil)
+
+      assert {:error, _missing} =
+               FeatureFlag.by_key("pocketid_sso_wiring", authorize?: false)
     end
   end
 
