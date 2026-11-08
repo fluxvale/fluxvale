@@ -43,9 +43,19 @@ defmodule FluxVale.Pricing.SizeVersionCoherenceConcurrencyTest do
   @poll_interval_ms 50
   @park_budget_polls 200
 
+  # This module is the only suite writer that commits catalog/pricing
+  # rows outside the sandbox, and a crash-era run once stranded some:
+  # `System.unique_integer` restarts per BEAM, so a strand can collide
+  # with a later run's fixture slugs. Sweep before/after (#241's
+  # concurrency posture — strands self-heal instead of flaking the
+  # next run).
+  setup do
+    sweep!()
+    :ok
+  end
+
   test "a size reallocation and a version re-point cannot fork the pair" do
     %{version: version, from_id: from_id, target: target} = seeded!()
-    parent = self()
 
     t1 =
       spawn_worker(:t1, fn ->
@@ -534,6 +544,25 @@ defmodule FluxVale.Pricing.SizeVersionCoherenceConcurrencyTest do
     case result.rows do
       [[value]] -> value
       _gone -> nil
+    end
+  end
+
+  # The fixture-slug prefixes this module's committed rows carry (and
+  # nothing else in the suite commits to these tables) — on a
+  # committed connection, in FK order.
+  defp sweep! do
+    conn = Sandbox.checkout(Repo, sandbox: false)
+
+    try do
+      Repo.query!(
+        "DELETE FROM app_versions WHERE app_id IN (SELECT id FROM apps WHERE slug LIKE 'app-%')"
+      )
+
+      Repo.query!("DELETE FROM apps WHERE slug LIKE 'app-%'")
+      Repo.query!("DELETE FROM categories WHERE slug LIKE 'tools-%'")
+      Repo.query!("DELETE FROM pricing_sizes WHERE slug LIKE 'test-%'")
+    after
+      Sandbox.checkin(Repo, conn)
     end
   end
 end
