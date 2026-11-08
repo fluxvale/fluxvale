@@ -176,7 +176,8 @@ only `access-dns`.
   screenshot;
 - sleep timestamp, waking-page screenshot, app screenshot, and
   seconds-to-app;
-- cleanup quota output showing numerator 0;
+- cleanup quota output showing 1/17 and the access-namespace listing with
+  only `access-dns`;
 - any failure log, with the exact command that produced it.
 
 **Do not paste the key**, a screenshot of it, or the BWS token into the
