@@ -4,9 +4,13 @@
 # rollout percentage against unset, both purposes, and a mixed-case
 # email so the ci_string rendering shows its original case. Runs
 # through the resource actions with the seeded admin as actor — the
-# same policy path the console rides. Idempotent: existing keys and
-# addresses are skipped, so a re-run only tops up what a capture
-# deleted.
+# same policy path the console rides. Idempotent: existing flags are
+# skipped and duplicate rules are refused by their own identity, so a
+# re-run only tops up what a capture deleted.
+#
+# AccessRule's moduledoc says rows are never seeded — that rule is
+# about environment bring-up (operator-entered, #26). This is the
+# dev-only capture exception: rows for screenshots on a local DB.
 #
 # Run from apps/platform: mix run ../e2e/fv595_seed.exs
 
@@ -63,9 +67,21 @@ for attrs <- rules do
     |> Ash.create()
 
   case result do
-    {:ok, _rule} -> IO.puts("rule #{inspect(attrs)} created")
-    # The per-(purpose, shape) identity refusing a re-run's duplicate.
-    {:error, _already_taken} -> IO.puts("rule #{inspect(attrs)} already present, skipped")
+    {:ok, _rule} ->
+      IO.puts("rule #{inspect(attrs)} created")
+
+    # Only the per-(purpose, shape) identity refusing a re-run's
+    # duplicate reads as "skipped" — anything else (a policy refusal,
+    # a bad value) fails the seed loudly instead of masquerading.
+    {:error, %Ash.Error.Invalid{} = error} ->
+      if Enum.any?(error.errors, &match?(%Ash.Error.Changes.InvalidAttribute{}, &1)) do
+        IO.puts("rule #{inspect(attrs)} already present, skipped")
+      else
+        raise error
+      end
+
+    {:error, error} ->
+      raise error
   end
 end
 

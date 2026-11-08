@@ -32,13 +32,20 @@ const browser = await chromium.launch();
 const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
 const page = await ctx.newPage();
 
-// One session POST mints the cookie the admin gate reads.
+// One session POST mints the cookie the admin gate reads. The
+// controller answers a rejected token with a redirect, not a status —
+// check where the POST landed and fail fast instead of timing out on
+// the first selector.
 await page.goto(`${BASE}/sign-in`, { waitUntil: "networkidle" });
 const csrf = await page.locator('meta[name="csrf-token"]').getAttribute("content");
-await page.request.post(`${BASE}/auth/session`, {
+const signIn = await page.request.post(`${BASE}/auth/session`, {
   form: { token: TOKEN },
   headers: { "x-csrf-token": csrf },
 });
+if (signIn.url().includes("/sign-in")) {
+  console.error("sign-in failed — check FV_TOKEN_ADMIN");
+  process.exit(1);
+}
 
 async function setTheme(mode) {
   await page.evaluate((m) => {
@@ -62,15 +69,18 @@ for (const mode of ["light", "dark"]) {
     "[data-testid='admin-resources-domains']");
   await shot(`resources-ops-domain-${mode}`, "/admin/resources/ops", mode,
     "[data-testid='admin-resources-domain']");
+  // The index container always renders (the table itself only with
+  // rows) — waiting on it lets the row check below give its real
+  // message instead of a selector timeout.
   await shot(`resources-flags-${mode}`, "/admin/resources/ops/feature_flag", mode,
-    "[data-testid='admin-resource-table']");
+    "[data-testid='admin-resource-index']");
   await shot(`resources-rules-${mode}`, "/admin/resources/ops/access_rule", mode,
-    "[data-testid='admin-resource-table']");
+    "[data-testid='admin-resource-index']");
 }
 
 // The show page: the first flag row's View link, read from the DOM.
 await page.goto(`${BASE}/admin/resources/ops/feature_flag`, { waitUntil: "networkidle" });
-await page.waitForSelector("[data-testid='admin-resource-table']");
+await page.waitForSelector("[data-testid='admin-resource-index']");
 const href = await page.evaluate(() => {
   const row = document.querySelector("[data-testid^='admin-resource-view-']");
   return row ? row.getAttribute("href") : null;
