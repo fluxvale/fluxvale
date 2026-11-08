@@ -17,7 +17,8 @@ the decision.
    catalog, billing essentials, verified backups/restore, private
    beta) needs a v2 restatement. Which items make the v2 gate? One
    settled input: the cross-border VAT gates of Am. 3 dissolved when
-   Polar became the merchant of record (Am. 6) — registrations,
+   Polar became the merchant of record
+   ([ADR-0029](adr/00029-payments-adapter-selfmor.md) Am. 6) — registrations,
    checkout tax evidence, and return data are Polar's obligations,
    not our launch gates.
 3. **Catalog lineup** — Forgejo #1 ([ADR-0031](adr/0031-build-order.md)
@@ -42,7 +43,8 @@ the decision.
     second implementation. The Am. 3 advisor items (OSS member state,
     voucher classification, PH zero-rating documentation, DIY vs
     agent filings) moved to Polar with the MoR switch and gate
-    nothing on our side.
+    nothing on our side while Polar is the provider. They revive only
+    if HitPay is ever reactivated in production.
 5. **Welcome credits anti-abuse** — mostly resolved by passwordless
    email-code auth (login proves inbox ownership by construction,
    [ADR-0003](adr/00003-ashauthentication-drop-authentik.md));
