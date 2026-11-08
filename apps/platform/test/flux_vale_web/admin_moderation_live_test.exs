@@ -1377,8 +1377,11 @@ defmodule FluxValeWeb.AdminModerationLiveTest do
       assert has_element?(view, "[data-testid='admin-nav-feedback'][aria-current='page']")
       assert has_element?(view, "[data-testid='admin-nav-feedback']", "Feedback moderation")
       refute has_element?(view, "[data-testid='admin-coming-feedback']")
-      # The wallets slot stays honest until #571 lands.
-      assert has_element?(view, "[data-testid='admin-coming-wallets']")
+      # Wallets flipped live with #571: both sections link, orgs and
+      # gateways stay honest placeholders.
+      assert has_element?(view, "[data-testid='admin-nav-wallets'][href]")
+      assert has_element?(view, "[data-testid='admin-coming-orgs']")
+      assert has_element?(view, "[data-testid='admin-coming-gateways']")
     end
 
     test "anonymous bounces to /sign-in", %{bare_conn: conn} do
