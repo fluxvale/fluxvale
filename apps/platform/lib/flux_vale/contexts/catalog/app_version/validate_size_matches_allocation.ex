@@ -13,11 +13,23 @@ defmodule FluxVale.Catalog.AppVersion.ValidateSizeMatchesAllocation do
   authorize?: false on the size lookup: this is a data-integrity check,
   not an authorization decision — the caller's write was already gated
   by policy; the validation only needs the referenced row.
+
+  ## Concurrency posture (#543)
+
+  The size row is read FOR UPDATE inside the action's transaction
+  (`before_action?` on create/update — at changeset time the lock
+  would evaporate at statement end). The size-side half locks the same
+  row before its freeze probe, so a reallocation in flight when this
+  write starts holds the lock through its commit: this read waits, then
+  sees the committed envelope and compares against that — never a
+  stale one. Both halves take exactly one lock (the shared size row),
+  so there is no lock ordering to get wrong and no deadlock to court.
   """
 
   use Ash.Resource.Validation
 
   alias Ash.Resource.Validation
+  alias FluxVale.Pricing.Size
 
   @impl Validation
   def init(opts), do: {:ok, opts}
@@ -28,13 +40,20 @@ defmodule FluxVale.Catalog.AppVersion.ValidateSizeMatchesAllocation do
 
     # present/1 owns requiredness; an unknown id is the FK's error.
     if size_id do
-      case Ash.get(FluxVale.Pricing.Size, size_id, authorize?: false) do
-        {:ok, size} -> validate_match(changeset, size)
-        {:error, _not_found} -> :ok
+      case locked_size(size_id) do
+        [size] -> validate_match(changeset, size)
+        [] -> :ok
       end
     else
       :ok
     end
+  end
+
+  defp locked_size(size_id) do
+    Size
+    |> Ash.Query.filter(id == ^size_id)
+    |> Ash.Query.lock(:for_update)
+    |> Ash.read!(authorize?: false)
   end
 
   defp validate_match(changeset, size) do

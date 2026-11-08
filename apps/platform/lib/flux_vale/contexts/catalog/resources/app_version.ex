@@ -289,7 +289,11 @@ defmodule FluxVale.Catalog.AppVersion do
       ])
 
       validate(present(:recommended_size_id))
-      validate(FluxVale.Catalog.AppVersion.ValidateSizeMatchesAllocation)
+
+      # before_action?: the locked size read must run inside the
+      # transaction or its FOR UPDATE evaporates at statement end
+      # (#543).
+      validate(FluxVale.Catalog.AppVersion.ValidateSizeMatchesAllocation, before_action?: true)
       validate(FluxVale.Catalog.AppVersion.ValidateFirstRunEnv)
       validate(FluxVale.Catalog.AppVersion.ValidateOidcWiringEnv)
     end
@@ -325,7 +329,10 @@ defmodule FluxVale.Catalog.AppVersion do
       require_atomic?(false)
 
       validate(present(:recommended_size_id))
-      validate(FluxVale.Catalog.AppVersion.ValidateSizeMatchesAllocation)
+
+      # before_action?: same as create — the locked size read must
+      # hold to commit (#543).
+      validate(FluxVale.Catalog.AppVersion.ValidateSizeMatchesAllocation, before_action?: true)
       validate(FluxVale.Catalog.AppVersion.ValidateFirstRunEnv)
       validate(FluxVale.Catalog.AppVersion.ValidateOidcWiringEnv)
     end

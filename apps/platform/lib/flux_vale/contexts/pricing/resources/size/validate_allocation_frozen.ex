@@ -18,12 +18,24 @@ defmodule FluxVale.Pricing.Size.ValidateAllocationFrozen do
 
   authorize?: false on the reference probe: a data-integrity check, not
   an authorization decision (see the version-side validation).
+
+  ## Concurrency posture (#543)
+
+  The probe locks the size row FOR UPDATE *before* reading referencing
+  versions, inside the action's transaction (`before_action?` on the
+  update action — at changeset time the lock would evaporate at
+  statement end). The version-side half locks the same row, so a
+  re-point in flight when this write starts holds the lock through its
+  commit: this probe waits, then sees the committed reference and
+  rejects. Both halves take exactly one lock (the shared size row), so
+  there is no lock ordering to get wrong and no deadlock to court.
   """
 
   use Ash.Resource.Validation
 
   alias Ash.Resource.Validation
   alias FluxVale.Catalog.AppVersion
+  alias FluxVale.Pricing.Size
 
   @impl Validation
   def init(opts), do: {:ok, opts}
@@ -50,6 +62,13 @@ defmodule FluxVale.Pricing.Size.ValidateAllocationFrozen do
   defp get(changeset, field), do: Ash.Changeset.get_argument_or_attribute(changeset, field)
 
   defp referenced?(size_id) do
+    # Lock first, probe second: the lock is what makes the probe's
+    # verdict true at commit time, not just at read time (#543).
+    Size
+    |> Ash.Query.filter(id == ^size_id)
+    |> Ash.Query.lock(:for_update)
+    |> Ash.read!(authorize?: false)
+
     AppVersion
     |> Ash.Query.filter(recommended_size_id == ^size_id)
     |> Ash.Query.limit(1)
