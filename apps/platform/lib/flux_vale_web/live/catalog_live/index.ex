@@ -28,27 +28,11 @@ defmodule FluxValeWeb.CatalogLive.Index do
        # computed once per mount — every card carries the same number,
        # and the copy adds storage separately (per GB, its own axis).
        from_price_cents: Pricing.from_price_cents(),
-       wake_estimates: safe_wake_estimates()
+       # The badge must never take the catalog down: the safe wrapper
+       # (the quiet card is the honest degradation) — see
+       # WakeStats.median_total_by_app_safe/0.
+       wake_estimates: WakeStats.median_total_by_app_safe()
      )}
-  end
-
-  # The badge must never take the catalog down: the named WakeStats
-  # server rides the app tree, and a crash-restart gap (or an
-  # over-slow scrape walk) would otherwise exit this mount — the
-  # quiet card is the honest degradation.
-  defp safe_wake_estimates do
-    WakeStats.median_total_by_app()
-  rescue
-    # coveralls-ignore-start - both arms answer {} so the badge can't
-    # take the catalog down; the named server is alive under the app
-    # tree for the whole suite (a call exits only in the supervisor's
-    # restart gap, which no test can hold open).
-    _exception ->
-      %{}
-  catch
-    :exit, _reason ->
-      %{}
-      # coveralls-ignore-stop
   end
 
   @impl Phoenix.LiveView

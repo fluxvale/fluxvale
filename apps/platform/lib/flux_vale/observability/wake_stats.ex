@@ -62,6 +62,28 @@ defmodule FluxVale.Observability.WakeStats do
     GenServer.call(__MODULE__, :medians)
   end
 
+  @doc """
+  `median_total_by_app/0` behind the badges' safety wrapper: any crash
+  or exit answers `%{}` — a derived badge must never take its page
+  down. Shared by the catalog index and the public app page (#611 S2,
+  extracted from the index's private twin).
+  """
+  @spec median_total_by_app_safe() :: %{optional(String.t()) => float()}
+  def median_total_by_app_safe do
+    median_total_by_app()
+  rescue
+    # coveralls-ignore-start - both arms answer {} so the badge can't
+    # take the catalog down; the named server is alive under the app
+    # tree for the whole suite (a call exits only in the supervisor's
+    # restart gap, which no test can hold open).
+    _exception ->
+      %{}
+  catch
+    :exit, _reason ->
+      %{}
+      # coveralls-ignore-stop
+  end
+
   defp fresh?(%{computed_at: nil}), do: false
 
   defp fresh?(%{computed_at: computed_at}) do

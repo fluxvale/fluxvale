@@ -30,6 +30,14 @@ defmodule FluxVale.Observability.WakeStatsTest do
     assert WakeStats.median_total_by_app() == %{}
   end
 
+  # #611 S2: the public app page reads the same safe wrapper the
+  # catalog index mounts through. The happy path answers the plain
+  # call's map; the rescue/catch arms carry their coveralls
+  # justification in the source.
+  test "the safe wrapper answers the plain call's posture" do
+    assert WakeStats.median_total_by_app_safe() == %{}
+  end
+
   test "an app with enough samples gets the interpolated median" do
     start_supervised!(FluxVale.PromEx)
 

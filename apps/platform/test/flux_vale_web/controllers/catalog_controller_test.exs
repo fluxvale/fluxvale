@@ -3,10 +3,13 @@ defmodule FluxValeWeb.CatalogControllerTest do
 
   use FluxValeWeb.ConnCase, async: true
 
+  alias FluxVale.Accounts
   alias FluxVale.Catalog.App
   alias FluxVale.Catalog.Category
   alias FluxVale.Pricing
   alias FluxVale.Pricing.Size
+  alias FluxVale.Seeds
+  alias FluxVale.Seeds.CatalogData
   alias FluxVale.TestSupport.AccountsFixtures
   alias FluxVale.TestSupport.InstanceFixtures
   alias FluxVale.TestSupport.PricingFixtures
@@ -189,81 +192,350 @@ defmodule FluxValeWeb.CatalogControllerTest do
   end
 
   describe "GET /catalog/:slug" do
-    test "renders the app page: header, description, versions, price, deploy CTA", %{conn: conn} do
+    # The S2 hero's happy path (#611 plan §6.3): every curated slot
+    # filled, so the present-arm of each conditional is asserted once
+    # here and the absent-arms get their own tests below.
+    test "renders the hero: eyebrow, title, lead, curated prose, link row, both cards", %{
+      conn: conn
+    } do
       version =
         InstanceFixtures.app_version!(
-          published_at: DateTime.utc_now(),
-          release_notes: "First FluxVale catalog release."
+          published_at: DateTime.add(DateTime.utc_now(), -3, :day),
+          default_cpu_cores: Decimal.new("0.5"),
+          default_memory_mb: 512,
+          default_storage_gb: 10
         )
 
       app_row = Ash.load!(version, [app: :category], authorize?: false).app
-      category_name = app_row.category.name
+
+      Category.update!(
+        app_row.category,
+        %{audience: "A fit for teams that want their own source control."},
+        authorize?: false
+      )
 
       app =
         App.update!(
           app_row,
           %{
             icon_url: "https://example.com/icon.png",
+            description: "A git forge with issues and pull requests.\nSecond authored paragraph.",
             source_url: "https://example.com/src",
-            docs_url: "https://example.com/docs"
+            docs_url: "https://example.com/docs",
+            community_url: "https://example.com/community",
+            caveats: [
+              "Git works over HTTPS only. SSH pushes and pulls are disabled on every instance.",
+              "Email sending is off until you enable it with SMTP settings at deploy."
+            ],
+            alternatives: ["GitHub", "GitLab"]
           },
           authorize?: false
         )
 
-      conn = get(conn, ~p"/catalog/#{app.slug}")
-      html = html_response(conn, 200)
+      html = html_response(get(conn, ~p"/catalog/#{app.slug}"), 200)
 
-      assert html =~ app.name
-      assert html =~ app.tagline
-      assert html =~ category_name
-      assert html =~ ~s(src="https://example.com/icon.png")
+      # Hero shape: back link, category eyebrow, display title, lead.
+      assert html =~ ~s(href="/catalog")
+      assert html =~ app_row.category.name
+      assert html =~ "#{app.name} hosting"
+
+      # The icon-led title row (plan §3, review ruling): the tile
+      # renders the icon decoratively — the h1 names the app.
+      assert html =~ ~s(data-testid="app-icon")
+
+      assert [_tile_with_img] =
+               Regex.run(
+                 ~r{data-testid="app-icon"[^>]*>\s*<img[^>]*src="https://example\.com/icon\.png"[^>]*alt=""},
+                 html
+               )
+
+      assert html =~ "Managed #{app.name}, ready in minutes."
+      assert html =~ "A git forge with issues and pull requests."
+
+      # Curated slots (S1 metadata): audience, caveats, alternatives.
+      assert html =~ "A fit for teams that want their own source control."
+      assert html =~ "Worth knowing"
+
+      for caveat <- app.caveats, do: assert(html =~ caveat)
+
+      assert html =~ "An alternative to GitHub and GitLab."
+
+      # Link row: every exit with its URL. No FAQ anchor until S3.
       assert html =~ ~s(href="https://example.com/src")
+      assert html =~ "Source"
       assert html =~ ~s(href="https://example.com/docs")
-      assert html =~ ~s(href="/apps/#{app.slug}/deploy")
-      assert html =~ ~s(data-testid="price-#{version.version}")
-      assert html =~ "$1.00/mo · billed hourly"
+      assert html =~ "Docs"
+      assert html =~ ~s(href="https://example.com/community")
+      assert html =~ "Community"
+      refute html =~ ~s(href="#faq")
 
-      # #558: the badges price through Pricing.version_rates/1 — the
-      # recommended compute class's rate plus the storage axis at the
-      # version's own default GB (stopped is the storage alone). The
-      # pinned figure stays "$1.00" because the fixture's storage
-      # default is 0 GB; the expectation comes from the seam.
+      # Pricing card: the rate and specs from the same seams the deploy
+      # stepper prices through (the S2 done-when), never literals.
       loaded = Ash.load!(version, :recommended_size, authorize?: false)
       rates = Pricing.version_rates(loaded)
 
-      assert rates.monthly_cents == 100
-      assert html =~ Pricing.format_monthly_rate(rates.monthly_cents)
-      assert html =~ "#{Pricing.format_usd(rates.stopped_monthly_cents)}/mo while stopped"
-      assert html =~ ~s(data-testid="stopped-price-#{version.version}")
+      assert html =~ "Starts at"
+      assert html =~ "#{Pricing.format_usd(rates.monthly_cents)}/mo"
+      assert html =~ "billed hourly from your wallet"
+      assert html =~ "Recommended size"
+      assert html =~ "0.5 CPU"
+      assert html =~ "512 MB RAM"
+      assert html =~ "10 GB storage"
 
-      # #558: /pricing carries no sizes table — the link is the plain
-      # page, and the testid keeps its see-all-sizes name (stable hook).
-      assert html =~ ~s(href="/pricing")
-      assert html =~ "See pricing"
+      amount = Pricing.format_usd(Accounts.welcome_grant_cents())
+      assert html =~ "Start with #{amount} in welcome credit"
+      assert html =~ "Free HTTPS on a fluxvale.app address"
+      assert html =~ "Sleeps when idle, wakes on the next visit"
+      assert html =~ "Nightly backups to your own S3 bucket"
 
-      assert html =~ "Published"
-      assert html =~ "First FluxVale catalog release."
+      assert html =~ ~s(href="/apps/#{app.slug}/deploy")
+      assert html =~ "Deploy #{app.name}"
+      assert html =~ "Monthly equivalent, billed hourly."
+
+      # Facts card: version, relative age, the constants.
+      assert html =~ ~s(data-testid="fact-version")
+      assert html =~ "v#{version.version}"
+      assert html =~ ~s(data-testid="fact-updated")
+      assert html =~ "3d ago"
+      assert html =~ "Nuremberg, EU"
+      assert html =~ "Your S3 bucket"
     end
 
-    # A sizeless version (the pre-#125 shape) shows neither price line;
-    # the ladder link stays — the table exists regardless.
-    test "a version without a recommended size shows no price lines", %{conn: conn} do
+    # Omission is a designed state (plan §5): each curated slot
+    # disappears without a layout hole.
+    test "omits caveats, alternatives, and the community link when absent", %{conn: conn} do
+      version = InstanceFixtures.app_version!()
+      app = Ash.load!(version, [app: :category], authorize?: false).app
+
+      html = html_response(get(conn, ~p"/catalog/#{app.slug}"), 200)
+
+      assert html =~ "#{app.name} hosting"
+      refute html =~ "Worth knowing"
+      refute html =~ "An alternative to"
+      refute html =~ "Community"
+    end
+
+    # The tile's fallback (the catalog's icon-less idiom): the app's
+    # initial rides where the img would.
+    test "an icon-less app renders the initial in the hero tile", %{conn: conn} do
+      version = InstanceFixtures.app_version!()
+      app = Ash.load!(version, :app, authorize?: false).app
+
+      refute app.icon_url
+
+      html = html_response(get(conn, ~p"/catalog/#{app.slug}"), 200)
+
+      assert html =~ "#{app.name} hosting"
+
+      assert [_tile_with_initial] =
+               Regex.run(
+                 ~r{data-testid="app-icon"[^>]*>\s*<span[^>]*>#{String.first(app.name)}</span>},
+                 html
+               )
+
+      refute html =~ "https://example.com/icon.png"
+    end
+
+    # The nil fields are the sanctioned nullable shape (the OpenAPI
+    # stance): a YAML `caveats:` null seeds nil through update, and
+    # `nil != []` would let the for crash the public page — the hero
+    # must treat nil exactly like the absent state (hostile-pass F1).
+    test "nil caveats and alternatives render as absent, not a 500", %{conn: conn} do
+      version = InstanceFixtures.app_version!()
+      app_row = Ash.load!(version, [app: :category], authorize?: false).app
+
+      app =
+        App.update!(app_row, %{caveats: nil, alternatives: nil}, authorize?: false)
+
+      assert is_nil(app.caveats)
+      assert is_nil(app.alternatives)
+
+      html = html_response(get(conn, ~p"/catalog/#{app.slug}"), 200)
+
+      assert html =~ "#{app.name} hosting"
+      assert html =~ ~s(id="facts-card")
+      refute html =~ "Worth knowing"
+      refute html =~ "An alternative to"
+    end
+
+    # The audience line is category-owned: present and cleared on the
+    # same app, so the absent-arm refutes a sentence the page carried.
+    test "the category's audience line drops when cleared", %{conn: conn} do
+      version = InstanceFixtures.app_version!()
+      app_row = Ash.load!(version, [app: :category], authorize?: false).app
+
+      # Hold the updated record: the clear must run against it, or the
+      # nil-to-nil diff on the stale record is a no-op.
+      category =
+        Category.update!(app_row.category, %{audience: "A fit for note takers."},
+          authorize?: false
+        )
+
+      assert html_response(get(conn, ~p"/catalog/#{app_row.slug}"), 200) =~
+               "A fit for note takers."
+
+      Category.update!(category, %{audience: nil}, authorize?: false)
+
+      refute html_response(get(conn, ~p"/catalog/#{app_row.slug}"), 200) =~
+               "A fit for note takers."
+    end
+
+    # The OIDC declaration is per-version: either surface counts (the
+    # oidc_callback_path stance), Pocket ID itself declares neither.
+    test "the Pocket ID checklist row and SSO fact ride the version's OIDC declaration", %{
+      conn: conn
+    } do
+      wired = InstanceFixtures.app_version!(oidc_callback_path: "/signin-oidc")
+      wired_app = Ash.load!(wired, :app, authorize?: false).app
+
+      html = html_response(get(conn, ~p"/catalog/#{wired_app.slug}"), 200)
+
+      assert html =~ "Sign in with your Pocket ID"
+      assert html =~ ~s(data-testid="fact-sso")
+
+      bare = InstanceFixtures.app_version!()
+      bare_app = Ash.load!(bare, :app, authorize?: false).app
+
+      bare_html = html_response(get(conn, ~p"/catalog/#{bare_app.slug}"), 200)
+
+      refute bare_html =~ "Sign in with your Pocket ID"
+      refute bare_html =~ ~s(data-testid="fact-sso")
+    end
+
+    test "the WebDAV checklist row and File access fact ride app.file_access", %{conn: conn} do
+      version = InstanceFixtures.app_version!(file_access: true)
+      app = Ash.load!(version, :app, authorize?: false).app
+
+      html = html_response(get(conn, ~p"/catalog/#{app.slug}"), 200)
+
+      assert html =~ "Move files in over WebDAV"
+      assert html =~ ~s(data-testid="fact-file-access")
+
+      plain = InstanceFixtures.app_version!()
+      plain_app = Ash.load!(plain, :app, authorize?: false).app
+
+      plain_html = html_response(get(conn, ~p"/catalog/#{plain_app.slug}"), 200)
+
+      refute plain_html =~ "Move files in over WebDAV"
+      refute plain_html =~ ~s(data-testid="fact-file-access")
+    end
+
+    # The pre-#125 shape (nil recommended_size) hides the whole rate
+    # group — "Starts at" without a figure is meaningless — while the
+    # specs and CTA stay (the price_badge rule, never a crash).
+    test "a sizeless newest version hides the rate, keeps specs and CTA", %{conn: conn} do
       version = InstanceFixtures.app_version!()
       app = Ash.load!(version, :app, authorize?: false).app
 
       # States actions can't produce: the pre-#125 shape — nil size.
       Ash.Seed.seed!(FluxVale.Catalog.AppVersion, %{
-        version: "0.9.0",
-        image: "test/image:0.9",
+        version: "9.9.9",
+        image: "test/image:9.9",
         port: 3000,
         app_id: app.id
       })
 
       html = html_response(get(conn, ~p"/catalog/#{app.slug}"), 200)
 
-      refute html =~ ~s(data-testid="price-0.9.0")
-      refute html =~ ~s(data-testid="stopped-price-0.9.0")
-      assert html =~ ~s(href="/pricing")
+      refute html =~ "Starts at"
+      assert html =~ "Recommended size"
+      assert html =~ "v9.9.9"
+      assert html =~ ~s(data-testid="deploy-cta")
+    end
+
+    # No versions: the pricing card and CTA hide (the authenticated
+    # page's rule), the facts card stays with its constant rows.
+    test "an app with no versions hides the pricing card and CTA, keeps the facts card", %{
+      conn: conn
+    } do
+      app = catalog_app!()
+
+      html = html_response(get(conn, ~p"/catalog/#{app.slug}"), 200)
+
+      assert html =~ "#{app.name} hosting"
+      refute html =~ ~s(id="pricing-card")
+      refute html =~ ~s(data-testid="deploy-cta")
+      refute html =~ "Recommended size"
+      assert html =~ ~s(id="facts-card")
+      assert html =~ "Nuremberg, EU"
+      assert html =~ "Your S3 bucket"
+      refute html =~ ~s(data-testid="fact-version")
+      refute html =~ ~s(data-testid="fact-updated")
+    end
+
+    test "a version without published_at hides the Updated row", %{conn: conn} do
+      version = InstanceFixtures.app_version!()
+      app = Ash.load!(version, :app, authorize?: false).app
+
+      html = html_response(get(conn, ~p"/catalog/#{app.slug}"), 200)
+
+      assert html =~ ~s(data-testid="fact-version")
+      refute html =~ ~s(data-testid="fact-updated")
+    end
+
+    # PromEx is down in the test env, so the safe wrapper answers %{}
+    # — no Wakes in row, never a crash (the catalog index's posture).
+    test "absent wake data hides the Wakes in row", %{conn: conn} do
+      version = InstanceFixtures.app_version!()
+      app = Ash.load!(version, :app, authorize?: false).app
+
+      html = html_response(get(conn, ~p"/catalog/#{app.slug}"), 200)
+
+      refute html =~ ~s(data-testid="fact-wakes")
+    end
+
+    # #611 S1+S2 (joined by #587's Umami entry): every seeded app
+    # renders the hero off the real seed YAML, whatever the catalog
+    # grows to — the app list is derived, never a literal. Curated
+    # depth stays per-app honest: the retro-filled apps carry caveats
+    # and alternatives; the absent-arms are pinned by the fixture
+    # tests above, so no app's curation state is frozen here.
+    test "every seeded app renders the hero", %{conn: conn} do
+      assert :ok == Seeds.seed_pricing!()
+      assert :ok == Seeds.seed_catalog!()
+
+      seeded =
+        for entry <- CatalogData.entries(),
+            app <- entry.apps do
+          app.slug
+        end
+
+      assert "forgejo" in seeded
+      assert "umami" in seeded
+
+      for slug <- seeded do
+        html = html_response(get(conn, ~p"/catalog/#{slug}"), 200)
+
+        assert html =~ "hosting"
+        assert html =~ ~s(id="pricing-card")
+        assert html =~ ~s(data-testid="deploy-cta")
+      end
+
+      # The retro-filled six: the honest hero renders their curated
+      # slots.
+      for slug <- ~w(forgejo kavita memos vaultwarden pocket-id actualbudget) do
+        html = html_response(get(conn, ~p"/catalog/#{slug}"), 200)
+
+        assert html =~ "Worth knowing"
+        assert html =~ "An alternative to"
+      end
+
+      # Umami (#587) rounds out the loop on the minimum contract — its
+      # curation depth is #620's concern, not pinned here.
+
+      # Kavita is the file-access flagship; Pocket ID declares no OIDC
+      # consumer surface of its own (it is the provider).
+      kavita = html_response(get(conn, ~p"/catalog/kavita"), 200)
+      assert kavita =~ "Move files in over WebDAV"
+      assert kavita =~ ~s(data-testid="fact-file-access")
+
+      pocket_id = html_response(get(conn, ~p"/catalog/pocket-id"), 200)
+      refute pocket_id =~ ~s(data-testid="check-sso")
+      refute pocket_id =~ ~s(data-testid="fact-sso")
+
+      # Vaultwarden wires SSO through the #597 recipe.
+      vaultwarden = html_response(get(conn, ~p"/catalog/vaultwarden"), 200)
+      assert vaultwarden =~ "Sign in with your Pocket ID"
     end
 
     test "meta: branded title, description, canonical, and the JSON-LD payload", %{conn: conn} do
@@ -274,8 +546,9 @@ defmodule FluxValeWeb.CatalogControllerTest do
         |> get(~p"/catalog/#{app.slug}")
         |> html_response(200)
 
+      # #611 plan §9: the title matches the H1 and the search intent.
       assert [_match, title] = Regex.run(~r{<title[^>]*>(.*)</title>}s, html)
-      assert title == "#{app.name} · FluxVale"
+      assert title == "#{app.name} hosting · FluxVale"
       refute title =~ "Phoenix"
       assert html =~ ~s(name="description" content="#{app.tagline}")
       assert html =~ ~s(rel="canonical" href="https://fluxvale.com/catalog/#{app.slug}")
