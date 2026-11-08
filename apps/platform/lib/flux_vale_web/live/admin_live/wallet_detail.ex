@@ -20,16 +20,17 @@ defmodule FluxValeWeb.AdminLive.WalletDetail do
     wire at both clicks (`phx-disable-with`) and the posted row
     renders at the top of the ledger with a reversal affordance — the
     operator review of the posted row is the guard the domain names;
-  - the reversal (`Billing.reverse_entry/2`, the compensating
+  - the reversal (`LedgerEntry :reverse`, #577, the compensating
     unwind): confirmed under its row, the original stays.
 
   Every write re-resolves the actor from the session first
   (`UserAuth.resolve_user/1`, which also re-checks token revocation)
   and requires the platform-admin role on the fresh struct: AdminChrome
   resolves `current_user` once, at mount, and a socket outlives a
-  demotion. The reversal rides the system seam (no actor-facing
-  reversal action exists — the flagged gap, reported on the lane), so
-  this per-event gate is what the seam cannot do for itself.
+  demotion. Every write is policy-gated at the domain; the reversal
+  rides the `LedgerEntry :reverse` action (#577), under the same admin
+  policy as the goodwill credit. This per-event re-resolve is the
+  demotion window's defense, not the authorization decision.
 
   Reads ride the billing domain with the authorization on. No
   `authorize?: false` anywhere on this surface.
@@ -303,12 +304,12 @@ defmodule FluxValeWeb.AdminLive.WalletDetail do
     end
   end
 
-  # The compensating unwind. The seam is system-level (no actor-facing
-  # reversal action exists — the flagged gap), so the admin gate is
-  # enforced here per event: the actor re-resolves from the session
-  # (a mount-resolved admin survives a demotion; this re-read does
-  # not), then the fresh actor-authorized read, then the seam. The
-  # domain's own guard refuses a double reversal.
+  # The compensating unwind: the `LedgerEntry :reverse` action, gated
+  # by the same platform-admin policy as the goodwill credit. The
+  # actor re-resolves from the session first (a mount-resolved admin
+  # survives a demotion; this re-read does not), then the fresh
+  # actor-authorized read, then the action. The domain's own guard
+  # refuses a double reversal.
   def handle_event("confirm-reverse", _params, socket) do
     case socket.assigns.confirm do
       {:reverse, entry} ->
@@ -446,7 +447,7 @@ defmodule FluxValeWeb.AdminLive.WalletDetail do
     case Ash.get(LedgerEntry, entry.id, actor: admin) do
       {:ok, fresh} ->
         if fresh.wallet_id == socket.assigns.wallet.id do
-          do_reverse(socket, fresh)
+          do_reverse(socket, fresh, admin)
         else
           # Defense at the write too: @confirm is only set by
           # open-reverse, which already refuses cross-wallet ids, so
@@ -473,12 +474,19 @@ defmodule FluxValeWeb.AdminLive.WalletDetail do
     end
   end
 
-  defp do_reverse(socket, fresh) do
-    case Billing.reverse_entry(fresh) do
+  defp do_reverse(socket, fresh, admin) do
+    case LedgerEntry.reverse(fresh.id, actor: admin) do
       {:ok, reversal} ->
         {:noreply, reversed(socket, fresh, reversal)}
 
-      {:error, :already_reversed} ->
+      # ReverseEntry's double-reversal refusal rides through the action
+      # as an Ash unknown error (Splode normalizes the bare atom into
+      # the wrapped UnknownError shape); the surface answers the same
+      # copy.
+      {:error,
+       %Ash.Error.Unknown{
+         errors: [%Ash.Error.Unknown.UnknownError{error: "unknown error: :already_reversed"}]
+       }} ->
         {:noreply,
          socket
          |> put_flash(
@@ -489,7 +497,9 @@ defmodule FluxValeWeb.AdminLive.WalletDetail do
 
       # defensive: the posting only fails on a DB failure (the
       # double-reversal guard ran; the unique index backstops the
-      # race) — not simulatable under the sandbox
+      # race) — not simulatable under the sandbox. Forbidden lands here
+      # too if the per-event gate above is ever removed: it would then
+      # need the revoked copy, not the generic one.
       # coveralls-ignore-start
       {:error, _refused} ->
         {:noreply, reverse_refused(socket)}
