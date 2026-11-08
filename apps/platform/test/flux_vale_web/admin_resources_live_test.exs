@@ -1097,7 +1097,7 @@ defmodule FluxValeWeb.AdminResourcesLiveTest do
     end
 
     test "a bearer-only socket bounces at mount on the write routes too", %{admin: admin} do
-      pat = ApiPat.mint!(admin.email, ["instances:read"])
+      pat = ApiPat.mint!(admin, ["instances:read"])
       conn = put_req_header(build_conn(), "authorization", "Bearer " <> pat)
 
       assert {:error, {:redirect, %{to: "/sign-in"}}} =
