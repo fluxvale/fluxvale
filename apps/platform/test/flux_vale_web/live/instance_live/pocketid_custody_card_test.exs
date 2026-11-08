@@ -24,6 +24,9 @@ defmodule FluxValeWeb.InstanceLive.PocketIdCustodyCardTest do
   alias FluxVale.TestSupport.InstanceFixtures
   alias FluxVale.TestSupport.SessionHelpers
 
+  # The demoted-owner test's membership lookup uses the query DSL.
+  require Ash.Query
+
   @key "test-key-not-a-real-credential"
 
   setup %{conn: conn} do
@@ -93,6 +96,32 @@ defmodule FluxValeWeb.InstanceLive.PocketIdCustodyCardTest do
     refute has_element?(view, "#pocketid-custody-card")
   end
 
+  # The lever's teeth (CodeRabbit, #607): with the flag off, a
+  # crafted or stale client firing the events must not reach the
+  # operations — the card's gate fences the write path, not just the
+  # render.
+  test "with the flag off, crafted submits and revokes are refused before any op call", %{
+    conn: conn,
+    instance: instance
+  } do
+    # No flag row — fail-closed.
+    {:ok, view, _html} = live_show(conn, instance)
+
+    stub(ApiClient, :verify_admin_key, fn _url, _key -> flunk("the lever is off") end)
+
+    html =
+      render_submit(view, "save-pocketid-key", %{
+        "pocketid_key" => %{"api_key" => @key}
+      })
+
+    assert html =~ "Sign-in management isn&#39;t available right now."
+
+    revoked = render_click(view, "revoke-pocketid-key")
+    assert revoked =~ "Sign-in management isn&#39;t available right now."
+
+    assert {:error, _none} = PocketIdCustody.get_by_instance(instance.id, authorize?: false)
+  end
+
   # A plain member sees nothing (§4.3): the crown is the owner's to paste.
   test "a plain member sees nothing", %{conn: conn, org: org, instance: instance} do
     flag_on!()
@@ -110,8 +139,8 @@ defmodule FluxValeWeb.InstanceLive.PocketIdCustodyCardTest do
   end
 
   # The op's fence, not the card's: a member firing the event anyway
-  # (a crafted or stale client) is refused by the operation itself.
-  test "a member's submit is refused by the op's owner gate", %{
+  # (a crafted or stale client) is stopped by the card gate first.
+  test "a member's crafted submit is stopped by the card gate", %{
     conn: conn,
     org: org,
     instance: instance
@@ -129,8 +158,47 @@ defmodule FluxValeWeb.InstanceLive.PocketIdCustodyCardTest do
 
     stub(ApiClient, :verify_admin_key, fn _url, _key -> flunk("the crown is the owner's") end)
 
-    # By event name, not selector: the card (and its form) is not in a
-    # member's DOM — the point is that the op's fence holds regardless.
+    html =
+      render_submit(view, "save-pocketid-key", %{
+        "pocketid_key" => %{"api_key" => @key}
+      })
+
+    assert html =~ "Sign-in management isn&#39;t available right now."
+  end
+
+  # The race the guard cannot see: an OWNER whose ownership went away
+  # after mount — the card was rendered, the op still refuses.
+  test "a demoted owner's submit reaches the op's owner gate", %{
+    conn: conn,
+    org: org,
+    owner: owner,
+    instance: instance
+  } do
+    flag_on!()
+    {:ok, view, _html} = live_show(conn, instance)
+
+    # The last-owner guard refuses the downgrade — seed a second
+    # owner first, then demote the mounted one.
+    second = AccountsFixtures.user!()
+
+    Membership.create!(%{organization_id: org.id, user_id: second.id, role: :owner},
+      authorize?: false
+    )
+
+    membership =
+      Membership
+      |> Ash.Query.filter(organization_id == ^org.id and user_id == ^owner.id)
+      |> Ash.read_one!(authorize?: false)
+
+    # Downgrade, not removal: a REMOVED owner loses the instance read
+    # (Forbidden before the gate); a downgraded one still reads it —
+    # the exact race where the card rendered but the op refuses.
+    membership
+    |> Ash.Changeset.for_update(:set_role, %{role: :member}, authorize?: false)
+    |> Ash.update!()
+
+    stub(ApiClient, :verify_admin_key, fn _url, _key -> flunk("no longer the owner") end)
+
     html =
       render_submit(view, "save-pocketid-key", %{
         "pocketid_key" => %{"api_key" => @key}

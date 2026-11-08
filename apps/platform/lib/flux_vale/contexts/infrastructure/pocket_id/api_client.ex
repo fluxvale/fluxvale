@@ -102,7 +102,11 @@ defmodule FluxVale.Infrastructure.PocketId.ApiClient do
   # ------------------------------------------------------------------
 
   defp new_req(base_url, api_key) do
-    Req.new(base_url: base_url, headers: [{"x-api-key", api_key}])
+    # retry: false — Req's default (:safe_transient) would retry a
+    # waking PocketID's 503s/transient errors with backoff, so one
+    # "3s" probe could block the paste submit for ~20s. The probe
+    # budget is the contract (CodeRabbit, #607).
+    Req.new(base_url: base_url, headers: [{"x-api-key", api_key}], retry: false)
   end
 
   defp keys_list(body) when is_list(body), do: Enum.filter(body, &is_map/1)

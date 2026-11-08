@@ -96,6 +96,10 @@ version =
   FluxVale.Catalog.AppVersion
   |> Ash.Query.filter(app_id == ^app.id)
   |> Ash.Query.sort(created_at: :desc)
+  # read_one! raises on multiple matches — the sort alone doesn't
+  # narrow; a second seeded PocketID version would crash the capture
+  # (CodeRabbit, #607).
+  |> Ash.Query.limit(1)
   |> Ash.read_one!(authorize?: false)
 
 mk_instance = fn name ->

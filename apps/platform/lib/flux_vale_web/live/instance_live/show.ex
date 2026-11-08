@@ -1147,24 +1147,19 @@ defmodule FluxValeWeb.InstanceLive.Show do
 
   # #597 §4.3 (S2): the custody card's three verbs. The paste is
   # verified live inside the op (3s budget) — the flash answers with
-  # the op's verdict, never the key. A member without the owner gate
-  # cannot reach these (the card is owner-only), and the op re-checks
-  # regardless — the LiveView's gate is presentation, the op's is the
-  # fence.
+  # the op's verdict, never the key. The card's gate (flag + app +
+  # owner) is the HANDLER's fence too, not just the render's: a
+  # crafted or stale client firing these events with the flag off (or
+  # on a non-PocketID instance) must not reach the ops — that is what
+  # makes :pocketid_sso_wiring an instant shutdown lever for the
+  # whole write path (CodeRabbit, #607). The op still re-fences the
+  # owner gate regardless.
   def handle_event("save-pocketid-key", %{"pocketid_key" => %{"api_key" => api_key}}, socket)
       when is_binary(api_key) and api_key != "" do
-    user = socket.assigns.current_user
-
-    case Infrastructure.set_pocket_id_key(socket.assigns.instance, api_key, actor: user) do
-      {:ok, _custody} ->
-        {:noreply,
-         socket
-         |> put_flash(:info, "Admin key verified and stored.")
-         |> reload_pocketid_custody()
-         |> assign(pocketid_replace_open?: false, pocketid_key_form: fresh_key_form())}
-
-      {:error, reason} ->
-        {:noreply, put_flash(socket, :error, pocketid_key_error(reason))}
+    if socket.assigns.pocketid_custody_card? do
+      save_pocketid_key(api_key, socket)
+    else
+      {:noreply, put_flash(socket, :error, pocketid_card_unavailable())}
     end
   end
 
@@ -1179,18 +1174,10 @@ defmodule FluxValeWeb.InstanceLive.Show do
   end
 
   def handle_event("revoke-pocketid-key", _params, socket) do
-    user = socket.assigns.current_user
-
-    case Infrastructure.revoke_pocket_id_key(socket.assigns.instance, actor: user) do
-      :ok ->
-        {:noreply,
-         socket
-         |> put_flash(:info, "Key custody revoked.")
-         |> reload_pocketid_custody()
-         |> assign(pocketid_replace_open?: false)}
-
-      {:error, reason} ->
-        {:noreply, put_flash(socket, :error, pocketid_key_error(reason))}
+    if socket.assigns.pocketid_custody_card? do
+      revoke_pocketid_key(socket)
+    else
+      {:noreply, put_flash(socket, :error, pocketid_card_unavailable())}
     end
   end
 
@@ -1573,10 +1560,13 @@ defmodule FluxValeWeb.InstanceLive.Show do
   # staleness otherwise. The card is PocketID + owner + flag: members
   # see nothing (the crown is the owner's to paste — the op re-fences
   # regardless), non-PocketIDs see nothing, and fail-closed means no
-  # flag row renders nothing anywhere.
+  # flag row renders nothing anywhere. The flag evaluates FOR THE
+  # USER: a partial rollout buckets real actors (anonymous evaluation
+  # fails closed on percentages by design), so the lever works as
+  # full-off, full-on, or a gradual rollout (CodeRabbit, #607).
   defp assign_pocketid_custody(socket, instance, user) do
     card? =
-      FeatureFlags.enabled?(:pocketid_sso_wiring) and
+      FeatureFlags.enabled?(:pocketid_sso_wiring, for: user) and
         instance.app_version.app.slug == "pocket-id" and
         ActorIsOrganizationOwner.owner?(user, %Organization{id: instance.organization_id})
 
@@ -1609,6 +1599,44 @@ defmodule FluxValeWeb.InstanceLive.Show do
   end
 
   defp fresh_key_form, do: to_form(%{"api_key" => ""}, as: :pocketid_key)
+
+  # The guarded verbs' bodies (the guards above fence the write path
+  # on the card gate; the op still re-fences ownership).
+  defp save_pocketid_key(api_key, socket) do
+    user = socket.assigns.current_user
+
+    case Infrastructure.set_pocket_id_key(socket.assigns.instance, api_key, actor: user) do
+      {:ok, _custody} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, "Admin key verified and stored.")
+         |> reload_pocketid_custody()
+         |> assign(pocketid_replace_open?: false, pocketid_key_form: fresh_key_form())}
+
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, pocketid_key_error(reason))}
+    end
+  end
+
+  defp revoke_pocketid_key(socket) do
+    user = socket.assigns.current_user
+
+    case Infrastructure.revoke_pocket_id_key(socket.assigns.instance, actor: user) do
+      :ok ->
+        {:noreply,
+         socket
+         |> put_flash(:info, "Key custody revoked.")
+         |> reload_pocketid_custody()
+         |> assign(pocketid_replace_open?: false)}
+
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, pocketid_key_error(reason))}
+    end
+  end
+
+  # Honest and lever-shaped: the surface is off — nothing about the
+  # why leaks platform internals.
+  defp pocketid_card_unavailable, do: "Sign-in management isn't available right now."
 
   # The expiry line is a nicety (the store op's correlation): show the
   # date when Pocket ID answered unambiguously, else hand the owner to

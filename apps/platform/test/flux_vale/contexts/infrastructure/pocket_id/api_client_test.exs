@@ -17,14 +17,15 @@ defmodule FluxVale.Infrastructure.PocketId.ApiClientTest do
   @key "test-key-not-a-real-credential"
 
   # Every request rides the X-API-KEY header on the caller's base URL
-  # with the 3s probe budget — the contract every function shares,
-  # pinned once here.
+  # with the 3s probe budget and no retries — the contract every
+  # function shares, pinned once here.
   defp expect_request(method, path, respond) do
     expect(Req, method, fn req, opts ->
       assert req.options[:base_url] == @base_url
       assert Req.Request.get_header(req, "x-api-key") == [@key]
       assert opts[:url] == path
       assert opts[:receive_timeout] == 3_000
+      assert req.options[:retry] == false
 
       respond.(opts)
     end)
