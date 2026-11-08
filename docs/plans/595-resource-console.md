@@ -184,6 +184,14 @@ gettext; NO em-dashes or semicolons in any user-facing string):
 Index table: the console's existing table grammar (grid or table rows,
 `overflow-x-auto` with a measured `min-w`, header row uppercase xs,
 rows hover-tinted — match the people/billing surfaces exactly).
+
+**2026-11-09 (Terence, PA relay): admin tables converge on
+data-tables** — the sort/search/pagination pattern, native LiveView.
+The 501 lane is building a shared `DataTable` component in the shared
+web area; the console's engine index adopts it in this lane once it
+lands. No hard dependency: slices proceed on the current table
+grammar, and the adopting slice is a pure swap at the index seam (the
+registry and cell renderers do not change shape).
 Record show: definition list of ALL public attributes in declaration
 order, actions bar (per-action buttons per visibility), destructive
 actions behind `confirm_block` (the shared `destructive-confirm`
