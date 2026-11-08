@@ -113,7 +113,7 @@ never re-wires older instances):
 ```yaml
 backing_services:            # [] = none (every existing entry)
   - kind: postgres           # closed set: postgres | redis
-    version: "16"            # major only; exact pin is platform-side
+    version: "18"            # major only; exact pin is platform-side
     url_env: DATABASE_URL    # the env the app expects; platform-owned
   - kind: redis
     version: "8"
@@ -141,7 +141,7 @@ version row:
 
 Public JSON:API routes gain the field (names + majors only, never
 values — the `oidc_callback_path` stance). The catalog detail page can
-render "Bundled: PostgreSQL 16 · Redis 8" from it (S4 polish).
+render "Bundled: PostgreSQL 18 · Redis 8" from it (S4 polish).
 
 ### 4.2 Image governance — platform registry, entry-declared major
 
@@ -150,7 +150,7 @@ A config key (the `:file_access` shape) maps kind + major → the
 
 ```elixir
 config :flux_vale, :backing_services,
-  postgres: %{"16" => %{image: "postgres:16.x…", port: 5432,
+  postgres: %{"18" => %{image: "postgres:18.x…", port: 5432,
                         cpu: "0.10", memory_mb: 256}},
   redis:    %{"8"  => %{image: "redis:8.x…",    port: 6379,
                         cpu: "0.05", memory_mb: 64}}
@@ -160,10 +160,13 @@ config :flux_vale, :backing_services,
   place to bump a CVE patch for every entry, no catalog edits. Exact
   tags + digest verification at seed time (the #587 upstream-facts
   discipline); the concrete versions are chosen in S1, not here.
-- **The Instance snapshots the resolved image ref at create**
-  ("the Instance is the snapshot"): a registry bump can never shift a
-  live instance's DB version under it — not on redeploy, not on
-  resize. New instances of a bumped entry get the new pin.
+- **The Instance snapshots the digest-resolved ref at create**
+  ("the Instance is the snapshot"): the create path resolves the
+  registry's tag to its digest and pins THAT onto the instance, and
+  the Deployment renders the digest-pinned ref — a registry bump (or
+  a re-pushed tag) can never shift a live instance's DB version under
+  it, not on redeploy, not on resize. New instances of a bumped entry
+  get the new pin.
 - New engines (valkey, mariadb) join by growing this registry + the
   kind set — a deliberate diff, never a side effect.
 
@@ -186,14 +189,21 @@ containers:
 - **Native sidecar semantics do the ordering**: each init container
   with `restartPolicy: Always` must pass its startup probe before the
   next init container starts, and regular containers start only after
-  all inits. The DBs' startup probes are `pg_isready` /
+  all inits. The DBs' startup probes are `pg_isready -h 127.0.0.1` /
   `redis-cli ping` — **the app cannot start until both services accept
-  connections**. No wait-loops, no command overrides (per-app command
-  overrides are still open, OQ #3 — and stay untouched). Cluster
-  floor: k8s ≥ 1.29 (local k3d probed v1.37; prod Talos is current).
-  Fallback if probe semantics prove subtle in practice: explicit
-  `wait-for-postgres`/`wait-redis` plain inits after the sidecars —
-  same guarantee, one more moving part.
+  TCP connections**. The `-h 127.0.0.1` is load-bearing: on first
+  initialization the postgres image runs a temporary socket-only
+  server, and a bare `pg_isready` would pass against it over the
+  unix socket before TCP 5432 listens. No wait-loops, no command
+  overrides (per-app command overrides are still open, OQ #3 — and
+  stay untouched). Cluster floor: k8s ≥ 1.29 (local k3d probed
+  v1.37; prod Talos is current). Fallback if probe semantics prove
+  subtle in practice: explicit `wait-for-postgres`/`wait-redis` plain
+  inits after the sidecars — same guarantee, one more moving part.
+- **Listeners bind to loopback** (`listen_addresses=127.0.0.1` for
+  postgres, `--bind 127.0.0.1 --protected-mode yes` for redis): the
+  URL is `localhost` by design, so "nothing is exposed outside the
+  pod" holds at the listener, not just at the network layer.
 - **No new k8s Services.** Same-pod reachability is `localhost`:
   `postgres://…@localhost:5432/app`, `redis://:…@localhost:6379/0`.
   Nothing is exposed outside the pod, so NetworkPolicy and the
@@ -257,16 +267,20 @@ One new K8s Secret per instance, name `backing-services`, the
   backing services ship **bigger defaults** (Docmost-class entries
   land at `medium`/`standard`, probed at implementation per the #609
   ~1 GB observation), and the stepper discloses the share in plain
-  copy ("includes PostgreSQL 16 and Redis 8").
+  copy ("includes PostgreSQL 18 and Redis 8").
 - **Floors close the under-provisioning paths for DB entries**:
-  compute and storage cannot go below the version's defaults
-  (`memory_mb ≥ default_memory_mb`, `storage_gb ≥ default_storage_gb`)
-  — the below-recommendation ack path is closed for DB entries
-  because under-sizing starves the DB, and the DB's failure mode is
-  the app's data integrity, not the app's latency. Enforced at
-  instance create (validation) and reflected in the wizard (sliders
-  floored; the 0-GB rung hidden — a DB entry at 0 GB has nowhere to
-  put its data dir).
+  compute and storage cannot go below the version's defaults —
+  `cpu_cores ≥ default_cpu_cores`, `memory_mb ≥ default_memory_mb`,
+  `storage_gb ≥ default_storage_gb` — and the cpu floor is what keeps
+  the carve non-negative: the defaults already INCLUDE the service
+  shares (D1's honest-sizing stance), so flooring at the default
+  guarantees the app request (allocation − shares) stays positive at
+  create and at resize — the below-recommendation ack path is closed
+  for DB entries because under-sizing starves the DB, and the DB's
+  failure mode is the app's data integrity, not the app's latency.
+  Enforced at instance create (validation) and reflected in the
+  wizard (sliders floored; the 0-GB rung hidden — a DB entry at 0 GB
+  has nowhere to put its data dir).
 - Storage is one claim: DB data lives under `backing/` subPaths of
   `app-data` (below), inside the volume the user already pays for.
 
@@ -299,7 +313,7 @@ in the deployer (the app's own mount stays at the volume root):
 | Resize | Re-apply: app request recomputed (new allocation − DB shares), PVC widens, DB requests constant. The live-`app-env` witness keeps `DATABASE_URL`. |
 | Redeploy / retry | SSA converges; get-or-create never rotates; snapshot pins the DB image. |
 | Teardown | Namespace delete removes everything including DB data — destroy = data gone (existing posture, unchanged, stated in the ADR). |
-| Backups | Posture unchanged: user-owned BYO S3 (ADR-0037). PVC-level backup of a **stopped** instance is a clean file copy; of a **running** one is crash-consistent (PG WAL replays). Logical dumps remain the owner's tool; a PG-native backup integration is a recorded later trigger. |
+| Backups | Posture unchanged: user-owned BYO S3 (ADR-0037 — un-quiesced copies, caveat scoped to the SQLite/git apps). For a bundled DB the honest tools are a **stopped-instance** backup or `pg_dump`: a file-level copy of a running PG data dir is not guaranteed restorable (the S3 backup copy says so for DB entries). A PG-native backup integration is a recorded later trigger. |
 
 ## 5. Edge cases, concretely
 
@@ -307,7 +321,7 @@ in the deployer (the app's own mount stays at the volume root):
 |---|---|
 | **BYO takeover** — entry declares both a BYO input and a backing service for the same env | The backing service owns the key: wizard hides the input, deploy composes the platform value, a user value naming it is rejected at create (loud, the first-run stance). Existing instances are **never retconned** — they pin their version row; migration = a new version row + an owner-chosen move (new instance + data import). Umami's later takeover (OQ #3) reuses exactly this semantics as a deliberate per-instance op. |
 | **DB major upgrade across app versions** | Snapshot pins the resolved image at create. A newer version row may declare a newer major; existing instances keep theirs. In-place PG major upgrade is a deferred trigger (documented in the ADR), not a shipped path. |
-| Registry minor bump (16.x → 16.y) | Snapshot unaffected; only new instances pick it up. |
+| Registry minor bump (18.x → 18.y) | Snapshot unaffected; only new instances pick it up. |
 | App crash-loops | DBs keep running (native sidecars survive app restarts). |
 | DB container crash / OOM | Restarts in place; app sees connection-refused until back (remote-DB blip posture); PVC data intact. |
 | Node reboot / eviction | Pod re-created; ordering re-runs; data persists. |
@@ -315,7 +329,7 @@ in the deployer (the app's own mount stays at the volume root):
 | 0 GB or undersized compute craft | Rejected at create (floors at version defaults); wizard hides the 0 rung and floors sliders. |
 | `file_access` + backing services together | Compose: app request = allocation − DB shares; DAV sidecar stays additive overhead (quota: allocation + sidecar + backup margins). |
 | Private instance | `localhost` URLs are exposure-agnostic; no new ports, Services, or policy entries. |
-| Backups of a live DB | Crash-consistent PVC copy (WAL replays); honest note in the ADR; owner tooling (pg_dump) unaffected. |
+| Backups of a live DB | File-level copy, not a guaranteed-restorable image (ADR-0045 names it plainly); stopped-instance backup or `pg_dump` are the honest tools. |
 | Version row edited after instances exist | Nothing — instances are snapshots; the doctrine holds for the new field. |
 
 ## 6. ADR sketch — `00045-bundled-backing-services.md`

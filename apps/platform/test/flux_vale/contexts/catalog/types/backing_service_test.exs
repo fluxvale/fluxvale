@@ -184,4 +184,22 @@ defmodule FluxVale.Catalog.Types.BackingServiceTest do
              }
     end
   end
+
+  # The OpenAPI artifact's item schema (#616 review): the rendered
+  # `items` entry for the array attribute, pinned here so the artifact
+  # describes kind/version/url_env instead of accepting any JSON.
+  describe "json_schema/1" do
+    test "describes the wire shape: closed kind, digit major, url_env" do
+      assert BackingService.json_schema([]) == %{
+               "type" => "object",
+               "properties" => %{
+                 "kind" => %{"type" => "string", "enum" => ["postgres", "redis"]},
+                 "version" => %{"type" => "string", "pattern" => "^\\d+$"},
+                 "url_env" => %{"type" => "string"}
+               },
+               "required" => ["kind", "version", "url_env"],
+               "additionalProperties" => false
+             }
+    end
+  end
 end

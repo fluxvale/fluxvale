@@ -98,11 +98,13 @@ as recommended, Terence Nov 8 2026):
 **Posture statements** (recorded, not new):
 
 - **Backups stay user-owned** (BYO S3,
-  [ADR-0037](00037-instance-backups-s3.md)). A PVC-level backup of a
-  stopped instance is a clean file copy; of a running one is
-  crash-consistent (PG WAL replays). Logical dumps (`pg_dump`) remain
-  the owner's tool; a PG-native backup integration is a recorded
-  later trigger.
+  [ADR-0037](00037-instance-backups-s3.md) — un-quiesced PVC copies,
+  a caveat scoped when it settled to the SQLite/git apps). For a
+  bundled DB the honest owner tools are a **stopped-instance** backup
+  or a logical dump (`pg_dump`): a file-level copy of a *running*
+  Postgres data dir is not guaranteed restorable, so the backup
+  surface's plain-words caveat must name DB-backed entries (S3).
+  A PG-native backup integration is the recorded later trigger.
 - **Destroy = data gone** — the existing teardown posture, unchanged;
   the DB data rides the instance PVC.
 - **In-place DB major upgrades are deferred** with their trigger: the

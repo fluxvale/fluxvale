@@ -20,6 +20,9 @@ defmodule FluxVale.Catalog.Types.BackingService do
   """
 
   use Ash.Type
+  # The json_schema/1 callback below rides this behaviour — it shapes
+  # the rendered OpenAPI artifact's `items` entry for this type.
+  use AshJsonApi.Type
 
   alias FluxVale.Catalog.Types.EnvVarSpec
   alias FluxVale.Catalog.Types.KnownFields
@@ -106,6 +109,27 @@ defmodule FluxVale.Catalog.Types.BackingService do
     |> Map.put("kind", Atom.to_string(service.kind))
     |> Map.put("version", service.version)
     |> Map.put("url_env", service.url_env)
+  end
+
+  # The OpenAPI artifact's item schema (#616 review): without this the
+  # rendered array attribute carries `items: {}` — any JSON. The wire
+  # shape is dump/1's: three fields, kind from the closed set, version
+  # digits-only, exactly the fields the type enforces.
+  @impl AshJsonApi.Type
+  def json_schema(_constraints) do
+    %{
+      "type" => "object",
+      "properties" => %{
+        "kind" => %{
+          "type" => "string",
+          "enum" => Enum.map(@known_kinds, &Atom.to_string/1)
+        },
+        "version" => %{"type" => "string", "pattern" => "^\\d+$"},
+        "url_env" => %{"type" => "string"}
+      },
+      "required" => ["kind", "version", "url_env"],
+      "additionalProperties" => false
+    }
   end
 
   # String → atom for known field names only; unknown names pass

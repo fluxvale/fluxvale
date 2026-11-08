@@ -80,7 +80,7 @@ the decision.
     ([ADR-0045](adr/00045-bundled-backing-services.md), #612): app
     versions bundle Postgres/Redis containers in the instance's own
     pod from catalog metadata — no provisioning layer, no
-    [ADR-0009](adr/0009-single-cnpg-cluster.md) amendment. The
+    [ADR-0009](adr/00009-single-cnpg-cluster.md) amendment. The
     managed-DB product shapes above stay deferred with their triggers.
 17. **Custom-allocation pricing semantics** (#180) — resolved (#186,
     2026-10-21): Terence chose **(a), the continuous anchor formula**.

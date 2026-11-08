@@ -1918,7 +1918,31 @@
               },
               "backing_services": {
                 "description": "Field included by default.",
-                "items": {},
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "kind": {
+                      "enum": [
+                        "postgres",
+                        "redis"
+                      ],
+                      "type": "string"
+                    },
+                    "url_env": {
+                      "type": "string"
+                    },
+                    "version": {
+                      "pattern": "^\\d+$",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "version",
+                    "url_env"
+                  ],
+                  "type": "object"
+                },
                 "type": "array"
               },
               "configurable_env_vars": {
@@ -9599,7 +9623,31 @@
                             },
                             "backing_services": {
                               "description": "Field included by default.",
-                              "items": {},
+                              "items": {
+                                "additionalProperties": false,
+                                "properties": {
+                                  "kind": {
+                                    "enum": [
+                                      "postgres",
+                                      "redis"
+                                    ],
+                                    "type": "string"
+                                  },
+                                  "url_env": {
+                                    "type": "string"
+                                  },
+                                  "version": {
+                                    "pattern": "^\\d+$",
+                                    "type": "string"
+                                  }
+                                },
+                                "required": [
+                                  "kind",
+                                  "version",
+                                  "url_env"
+                                ],
+                                "type": "object"
+                              },
                               "type": "array"
                             },
                             "configurable_env_vars": {
@@ -10155,7 +10203,31 @@
                               },
                               "backing_services": {
                                 "description": "Field included by default.",
-                                "items": {},
+                                "items": {
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "kind": {
+                                      "enum": [
+                                        "postgres",
+                                        "redis"
+                                      ],
+                                      "type": "string"
+                                    },
+                                    "url_env": {
+                                      "type": "string"
+                                    },
+                                    "version": {
+                                      "pattern": "^\\d+$",
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "kind",
+                                    "version",
+                                    "url_env"
+                                  ],
+                                  "type": "object"
+                                },
                                 "type": "array"
                               },
                               "configurable_env_vars": {
