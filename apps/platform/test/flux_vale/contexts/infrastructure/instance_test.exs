@@ -541,6 +541,135 @@ defmodule FluxVale.Infrastructure.InstanceTest do
       refute Map.has_key?(instance.env_vars, "REDIS_URL")
     end
 
+    # D4/D5: the create-time floors — a declaring version is never
+    # created under its defaults, and the refusal says why in plain
+    # words (per dimension, field-attributed).
+    test "rejects an undersized allocation per dimension with honest messages" do
+      version = InstanceFixtures.backing_version!()
+      InstanceFixtures.local_cluster!()
+
+      assert {:error, %Ash.Error.Invalid{errors: errors}} =
+               Instance.create(
+                 %{
+                   name: "Undersized",
+                   app_version_id: version.id,
+                   cpu_cores: Decimal.new("0.25"),
+                   memory_mb: 512,
+                   storage_gb: 0,
+                   env_vars: %{}
+                 },
+                 actor: user()
+               )
+
+      # The fixture's honest defaults (1 CPU / 1024 MB / 10 GB) name
+      # the floor; the bundle names the reason.
+      assert Enum.any?(
+               errors,
+               &(&1.message =~ "at least 1 CPU" and &1.message =~ "PostgreSQL and Redis")
+             )
+
+      assert Enum.any?(
+               errors,
+               &(&1.message =~ "at least 1024 MB" and &1.message =~ "share it")
+             )
+
+      assert Enum.any?(
+               errors,
+               &(&1.message =~ "at least 10 GB" and &1.message =~ "keep their data")
+             )
+    end
+
+    test "floors are minimums — at the defaults and above, create passes" do
+      version = InstanceFixtures.backing_version!()
+      InstanceFixtures.local_cluster!()
+
+      instance =
+        Instance.create!(
+          %{
+            name: "At the floor",
+            app_version_id: version.id,
+            cpu_cores: Decimal.new("1"),
+            memory_mb: 1024,
+            storage_gb: 10,
+            env_vars: %{}
+          },
+          actor: user()
+        )
+
+      assert instance.backing_services != []
+
+      bigger =
+        Instance.create!(
+          %{
+            name: "Above the floor",
+            app_version_id: version.id,
+            cpu_cores: Decimal.new("2"),
+            memory_mb: 4096,
+            storage_gb: 50,
+            env_vars: %{}
+          },
+          actor: user()
+        )
+
+      assert bigger.storage_gb == 50
+    end
+
+    test "a single-service bundle conjugates its floor message honestly" do
+      version =
+        InstanceFixtures.backing_version!(
+          backing_services: [
+            %{"kind" => "postgres", "version" => "18", "url_env" => "DATABASE_URL"}
+          ]
+        )
+
+      InstanceFixtures.local_cluster!()
+
+      assert {:error, %Ash.Error.Invalid{errors: errors}} =
+               Instance.create(
+                 %{
+                   name: "PG only, undersized",
+                   app_version_id: version.id,
+                   memory_mb: 512,
+                   env_vars: %{}
+                 },
+                 actor: user()
+               )
+
+      assert Enum.any?(
+               errors,
+               &(&1.message =~ "the bundled PostgreSQL runs inside this instance and shares it")
+             )
+    end
+
+    test "a non-declaring version keeps the below-recommendation path open" do
+      # The floors are DB-entry behavior (D4/D5); every existing entry
+      # under-allocates exactly as before — the ack-gated wizard path
+      # stays honest for them.
+      version =
+        InstanceFixtures.app_version!(
+          default_cpu_cores: Decimal.new("1"),
+          default_memory_mb: 1024,
+          default_storage_gb: 10
+        )
+
+      InstanceFixtures.local_cluster!()
+
+      instance =
+        Instance.create!(
+          %{
+            name: "Small and fine",
+            app_version_id: version.id,
+            cpu_cores: Decimal.new("0.25"),
+            memory_mb: 256,
+            storage_gb: 0,
+            env_vars: %{}
+          },
+          actor: user()
+        )
+
+      assert instance.memory_mb == 256
+    end
+
     test "generates a haikunate slug unique per cluster" do
       attrs = build_attrs()
 

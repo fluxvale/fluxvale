@@ -23,6 +23,10 @@ defmodule FluxVale.Infrastructure.Instance.DeriveFromAppVersion do
   A user-chosen allocation (above or below the recommendation, floor-
   bounded by the attribute constraints) wins unchanged; the wizard owns
   the below-recommendation warning + acknowledgment, not the derive.
+  One carve-out (#612, ADR-0045 D4/D5): a version bundling backing
+  services floors at its defaults — an under-floor allocation is
+  rejected loudly (the services share the envelope; under-sizing them
+  risks the app's data, so the ack-gated path is closed for them).
 
   The Instance is the snapshot, not the live version: editing an
   AppVersion later never mutates a running Instance's spec (same stance
@@ -40,6 +44,7 @@ defmodule FluxVale.Infrastructure.Instance.DeriveFromAppVersion do
   use Ash.Resource.Change
 
   alias FluxVale.Catalog.AppVersion
+  alias FluxVale.Catalog.Types.BackingService
   alias FluxVale.Infrastructure.Instance.PricingSnapshot
   alias FluxVale.Infrastructure.InstanceAllocationSnapshot
   alias FluxVale.Infrastructure.Types.BackingServiceSnapshot
@@ -80,6 +85,7 @@ defmodule FluxVale.Infrastructure.Instance.DeriveFromAppVersion do
             :storage_gb,
             chosen(changeset, :storage_gb, version.default_storage_gb)
           )
+          |> enforce_backing_floors(version)
           |> snapshot_price(version)
           |> snapshot_backing_services(version)
           |> merge_env_defaults(version)
@@ -238,6 +244,92 @@ defmodule FluxVale.Infrastructure.Instance.DeriveFromAppVersion do
         {:error, "registry entry for #{service.kind} #{service.version} is invalid: #{message}"}
     end
   end
+
+  # #612 (ADR-0045, D4/D5): honest-sizing floors at create. A version
+  # that bundles backing services is never created under its defaults
+  # — the services run inside the pod and share the purchased
+  # envelope, and under-sizing them fails as data loss, not latency.
+  # Refuse, don't sell broken: the wizard hides the under-floor rungs,
+  # and this is the authoritative gate every crafted payload hits
+  # (allocation ≥ version defaults, per dimension, exactly-at passes).
+  defp enforce_backing_floors(changeset, %{backing_services: []}), do: changeset
+
+  defp enforce_backing_floors(changeset, version) do
+    copy = floor_copy(version.backing_services)
+
+    errors =
+      Enum.reject(
+        [
+          cpu_floor(changeset, version, copy),
+          memory_floor(changeset, version, copy),
+          storage_floor(changeset, version, copy)
+        ],
+        &is_nil/1
+      )
+
+    Enum.reduce(errors, changeset, fn {field, message}, acc ->
+      Ash.Changeset.add_error(acc, field: field, message: message)
+    end)
+  end
+
+  # The floor copy, conjugated for the bundle's size — the same
+  # honesty the wizard's disclosure copy carries.
+  defp floor_copy([only]),
+    do: %{
+      bundled: bundled_names([only]),
+      share: "runs inside this instance and shares",
+      keep: "keeps its data on"
+    }
+
+  defp floor_copy(services),
+    do: %{
+      bundled: bundled_names(services),
+      share: "run inside this instance and share",
+      keep: "keep their data on"
+    }
+
+  defp cpu_floor(changeset, version, copy) do
+    chosen = Ash.Changeset.get_attribute(changeset, :cpu_cores)
+
+    if Decimal.compare(chosen, version.default_cpu_cores) == :lt do
+      {:cpu_cores,
+       "must be at least #{Decimal.to_string(version.default_cpu_cores)} CPU — " <>
+         "the bundled #{copy.bundled} #{copy.share} it"}
+    end
+  end
+
+  defp memory_floor(changeset, version, copy) do
+    chosen = Ash.Changeset.get_attribute(changeset, :memory_mb)
+
+    if chosen < version.default_memory_mb do
+      {:memory_mb,
+       "must be at least #{version.default_memory_mb} MB — " <>
+         "the bundled #{copy.bundled} #{copy.share} it"}
+    end
+  end
+
+  defp storage_floor(changeset, version, copy) do
+    chosen = Ash.Changeset.get_attribute(changeset, :storage_gb)
+
+    if chosen < version.default_storage_gb do
+      {:storage_gb,
+       "must be at least #{version.default_storage_gb} GB — " <>
+         "the bundled #{copy.bundled} #{copy.keep} this instance's storage"}
+    end
+  end
+
+  # "PostgreSQL", "PostgreSQL and Redis" — one spelling per kind
+  # (BackingService.display_name/1), composed for the floor messages.
+  # Two services max today (one per kind, the closed set); the join
+  # reads fine for any future third.
+  defp bundled_names([only]),
+    do: BackingService.display_name(only.kind)
+
+  defp bundled_names(services),
+    do:
+      Enum.map_join(services, " and ", fn service ->
+        BackingService.display_name(service.kind)
+      end)
 
   # user values > operator default_env_vars > configurable schema
   # defaults — operator-explicit beats the catalog's form-suggested

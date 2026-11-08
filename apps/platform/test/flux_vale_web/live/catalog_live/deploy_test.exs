@@ -1295,6 +1295,198 @@ defmodule FluxValeWeb.CatalogLive.DeployTest do
     end
   end
 
+  # #612 S3 (ADR-0045 D4/D5/D6): the wizard's DB-entry behavior — the
+  # platform-owned env inputs never render, every slider floors at the
+  # version's defaults (the 0-GB rung hides with them), the under-floor
+  # quick picks are not offered, and plain copy discloses the share.
+  # The fixture's honest defaults (1 CPU / 1024 MB / 10 GB) sit on the
+  # ladders, so the floors are exactly those rungs.
+  describe "bundled backing services (#612 S3)" do
+    setup %{conn: conn} do
+      version =
+        InstanceFixtures.backing_version!(
+          published_at: DateTime.utc_now(),
+          configurable_env_vars: %{
+            "APP_TOKEN" => %{label: "App token", type: :string, required: false, secret: true}
+          }
+        )
+
+      app = Ash.load!(version, :app, authorize?: false).app
+
+      {:ok, conn: conn, app: app, version: version}
+    end
+
+    test "the env step never renders the platform-owned url inputs and says why", %{
+      conn: conn,
+      app: app,
+      version: version
+    } do
+      {:ok, view, _html} = live(conn, ~p"/apps/#{app.slug}/deploy")
+      to_step_2(view, version)
+
+      # D6: the wizard hides what the deploy composes — a typed value
+      # would be refused at create, so the input never renders. Every
+      # OTHER input stays.
+      refute has_element?(view, "#env-DATABASE_URL")
+      refute has_element?(view, "#env-REDIS_URL")
+      assert has_element?(view, "#env-APP_TOKEN")
+
+      note = render(element(view, "[data-testid='bundled-env-note']"))
+
+      assert note =~ "PostgreSQL 18 and Redis 8 run bundled with this app"
+      assert note =~ "FluxVale fills in DATABASE_URL and REDIS_URL automatically at deploy"
+    end
+
+    test "every slider floors at the version's defaults — the 0-GB rung hides", %{
+      conn: conn,
+      app: app,
+      version: version
+    } do
+      {:ok, view, _html} = live(conn, ~p"/apps/#{app.slug}/deploy")
+      to_step_2(view, version)
+      to_step_3(view, %{"APP_TOKEN" => "tok"})
+
+      # The offered rungs start at the floors: the storage ladder loses
+      # its 0 and 5 rungs, the compute ladders everything under 1 CPU
+      # and 1024 MB.
+      assert tick_rungs(view, "resource-cpu-cores") == ~w(1 2 4)
+      assert tick_rungs(view, "resource-memory-mb") == ~w(1024 2048 4096 8192)
+      assert tick_rungs(view, "resource-storage-gb") == ~w(10 20 50 100)
+
+      # Re-indexed ladders: the inputs' top index shrank with them,
+      # and the entry allocation sits on the floor rungs (index 0).
+      assert has_element?(view, "#resource-cpu-cores[max='2']")
+      assert has_element?(view, "#resource-storage-gb[max='3']")
+      assert has_element?(view, "#resource-cpu-cores[value='0']")
+      assert has_element?(view, "#resource-memory-mb[value='0']")
+      assert has_element?(view, "#resource-storage-gb[value='0']")
+
+      # The below-recommendation ack path is closed for DB entries:
+      # the state can't go under the defaults, so the warning never
+      # mounts on entry.
+      refute has_element?(view, "#below-recommendation-warning")
+    end
+
+    test "the resources step discloses the bundled share in plain copy", %{
+      conn: conn,
+      app: app,
+      version: version
+    } do
+      {:ok, view, _html} = live(conn, ~p"/apps/#{app.slug}/deploy")
+      to_step_2(view, version)
+      to_step_3(view)
+
+      note = render(element(view, "[data-testid='bundled-services-note']"))
+
+      assert note =~ "Includes PostgreSQL 18 and Redis 8"
+      assert note =~ "They run inside the instance and share its CPU, memory, and storage."
+
+      # The DB-entry intro drops "less at your own risk" — less isn't
+      # offered; the note carries the why instead.
+      refute render(view) =~ "or less at your own risk"
+    end
+
+    test "a crafted under-floor index lands on the floor, never below it", %{
+      conn: conn,
+      app: app,
+      version: version
+    } do
+      {:ok, view, _html} = live(conn, ~p"/apps/#{app.slug}/deploy")
+      to_step_2(view, version)
+      to_step_3(view)
+
+      # Index 0 would name 0.25 CPU / 512 MB / 0 GB on the FULL
+      # ladders — decoded against the floored ones it names the floor
+      # rungs themselves. The hostile client gets the floor, not a
+      # smuggled under-allocation (the create's floors are the
+      # authoritative gate either way).
+      view
+      |> form("#resources-form", resources: %{cpu_cores: "0", memory_mb: "0", storage_gb: "0"})
+      |> render_change()
+
+      html = render(view)
+      assert html =~ ~s(aria-valuetext="1 core")
+      assert html =~ ~s(aria-valuetext="1024 MB")
+      assert html =~ ~s(aria-valuetext="10 GB")
+      refute has_element?(view, "#below-recommendation-warning")
+    end
+
+    test "under-floor quick picks are not offered; crafted picks of them change nothing", %{
+      conn: conn,
+      app: app,
+      version: version
+    } do
+      {:ok, view, _html} = live(conn, ~p"/apps/#{app.slug}/deploy")
+      to_step_2(view, version)
+      to_step_3(view)
+
+      # Floors 1 CPU / 1024 MB hide micro, small, and medium (their
+      # compute is under 1 CPU); standard and up stay — a pick the
+      # create would refuse is worse than no pick at all.
+      for slug <- ~w(micro small medium) do
+        refute has_element?(view, "[data-testid='preset-#{slug}']")
+      end
+
+      assert has_element?(view, "[data-testid='preset-standard']")
+      assert has_element?(view, "[data-testid='preset-plus']")
+      assert has_element?(view, "[data-testid='preset-pro']")
+
+      # A crafted pick of a hidden size is silence (the unknown-slug
+      # posture): the allocation stays on the floor rungs.
+      render_click(view, "pick-size", %{"slug" => "micro"})
+
+      assert has_element?(view, "#resource-cpu-cores[value='0']")
+      assert has_element?(view, "#resource-memory-mb[value='0']")
+    end
+
+    test "the full flow deploys at the floors with the env keys hidden", %{
+      conn: conn,
+      user: user,
+      app: app,
+      version: version
+    } do
+      stub_k8s()
+
+      # The inline deploy's get-or-create reads the backing Secret
+      # first (never rotate): absent → not_found → create (stubbed).
+      stub(Secret, :get_data, fn _kc, _ns, _name ->
+        {:error, %K8s.Error{reason: :not_found}}
+      end)
+
+      {:ok, view, _html} = live(conn, ~p"/apps/#{app.slug}/deploy")
+
+      to_step_2(view, version)
+      to_step_3(view, %{"APP_TOKEN" => "tok"})
+      to_step_4(view)
+
+      view
+      |> form("#deploy-form", instance: %{name: "Bundled"})
+      |> render_submit()
+
+      assert_redirect(view)
+
+      [instance] = Instance.list_for_actor!(actor: user)
+
+      # The wizard only ever offered the floors; the row lands on them
+      # with the snapshot and none of the platform-owned env keys.
+      assert instance.cpu_cores == Decimal.new("1")
+      assert instance.memory_mb == 1024
+      assert instance.storage_gb == 10
+      assert instance.backing_services != []
+      assert instance.env_vars["APP_TOKEN"] == "tok"
+      refute Map.has_key?(instance.env_vars, "DATABASE_URL")
+      refute Map.has_key?(instance.env_vars, "REDIS_URL")
+    end
+  end
+
+  defp tick_rungs(view, id) do
+    view
+    |> element("##{id}-ticks")
+    |> render()
+    |> then(&Regex.scan(~r/data-value="([^"]+)"/, &1))
+    |> Enum.map(&Enum.at(&1, 1))
+  end
+
   # Oct 20's silent failure (#175, landed as #177): ResolveCluster
   # rejects the create on :cluster_id — a field no step renders an
   # input for and no bounce-back exists — so the submit left only a

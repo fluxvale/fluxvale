@@ -15,8 +15,11 @@ defmodule FluxValeWeb.AllocationSliders do
   Events belong to the form that embeds the block: the wizard's
   `resources-form` keeps its `phx-change` / `phx-submit`, unchanged.
   On the wire each slider emits `resources[KEY]` holding its rung's
-  index, and `resource_strings/1` decodes a payload back to rungs — a
-  crafted index that names no rung is silence.
+  index, and `resource_strings/2` decodes a payload back to rungs — a
+  crafted index that names no rung is silence. Callers may floor the
+  ladders (#612 S3: a DB-backed version never offers a rung below its
+  defaults) — floors shape the rendered rungs AND the decode, from
+  `offered_values/2`, so the two can't disagree.
 
   The DOM ids and testids (`resource-cpu-cores`, `resource-memory-mb`,
   `resource-storage-gb`, `resource-cpu`/`-memory`/`-storage`) are
@@ -191,6 +194,12 @@ defmodule FluxValeWeb.AllocationSliders do
     doc: "one plain line under the block when a dimension is locked"
   )
 
+  attr(:floors, :map,
+    default: %{},
+    doc:
+      "per-dimension minimum rung (#612 S3) — rungs below each floor never render (a DB-backed version floors every slider at its defaults, hiding the 0-GB storage rung with them). Values may sit between rungs; the floor itself floors onto the ladder first"
+  )
+
   @spec sliders(map()) :: Phoenix.LiveView.Rendered.t()
   def sliders(assigns) do
     ~H"""
@@ -209,7 +218,7 @@ defmodule FluxValeWeb.AllocationSliders do
           name={"#{@name}[#{dimension.key}]"}
           label={dimension.label}
           value={@resources[dimension.key]}
-          values={dimension.values}
+          values={offered_values(dimension, @floors)}
           unit={dimension.unit}
           disabled={dimension.key in @locked}
           data-testid={dimension.testid}
@@ -227,7 +236,7 @@ defmodule FluxValeWeb.AllocationSliders do
           name={"#{@name}[#{storage_dimension().key}]"}
           label={storage_dimension().label}
           value={@resources[storage_dimension().key]}
-          values={storage_dimension().values}
+          values={offered_values(storage_dimension(), @floors)}
           unit={storage_dimension().unit}
           disabled={storage_dimension().key in @locked}
           data-testid={storage_dimension().testid}
@@ -254,6 +263,24 @@ defmodule FluxValeWeb.AllocationSliders do
 
   defp storage_offered?(hidden), do: "storage_gb" not in hidden
 
+  # The floored ladder (#612 S3): rungs below the floor never render.
+  # The floor itself floors onto the ladder first (floor_rung/2) — a
+  # floor past the top rung keeps the top rather than emptying the
+  # ladder, so the slider always renders and never offers less than
+  # the caller's minimum unless the ladder itself can't express it
+  # (the caller's copy owns that honesty). Render and decode share
+  # this one function, so an index can never name a hidden rung.
+  defp offered_values(dimension, floors) do
+    case Map.get(floors, dimension.key) do
+      nil ->
+        dimension.values
+
+      floor ->
+        min_rung = floor_rung(dimension.key, floor)
+        Enum.drop_while(dimension.values, &(&1 != min_rung))
+    end
+  end
+
   # The sliders' wire format (#221): indices into the dimension's
   # rungs, translated here — only a well-formed index of the
   # dimension's own ladder becomes state, and every other index VALUE
@@ -267,22 +294,26 @@ defmodule FluxValeWeb.AllocationSliders do
   @doc """
   A change payload's slider indices decoded to rungs. Absent keys
   carry no opinion and a crafted index that names no rung is dropped,
-  so the caller merges the result over its current state.
+  so the caller merges the result over its current state. `floors`
+  (#612 S3) decodes against the floored ladders — the same
+  `offered_values/2` the sliders render — so an index can never name a
+  rung the caller hid.
   """
-  @spec resource_strings(map()) :: map()
-  def resource_strings(params) do
+  @spec resource_strings(map(), map()) :: map()
+  def resource_strings(params, floors \\ %{}) do
     resource_dimensions()
     |> Map.new(fn dimension ->
-      {dimension.key, rung_at(dimension, Map.get(params, dimension.key))}
+      values = offered_values(dimension, floors)
+      {dimension.key, rung_at(values, Map.get(params, dimension.key))}
     end)
     |> Map.reject(fn {_key, value} -> is_nil(value) end)
   end
 
-  defp rung_at(_dimension, index) when not is_binary(index), do: nil
+  defp rung_at(_values, index) when not is_binary(index), do: nil
 
-  defp rung_at(dimension, index) do
+  defp rung_at(values, index) do
     case Integer.parse(index) do
-      {i, ""} when i >= 0 -> Enum.at(dimension.values, i)
+      {i, ""} when i >= 0 -> Enum.at(values, i)
       _crafted_or_malformed -> nil
     end
   end
