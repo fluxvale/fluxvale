@@ -726,6 +726,11 @@
     slug: analytics
     description: >-
       Web analytics and visitor insight apps for the sites you run.
+    # #611 D5, the wave-5 category's line (same "who it suits" voice
+    # as the siblings above).
+    audience: >-
+      A fit for anyone who wants honest visitor numbers on the sites
+      they run, without cookies or a third party holding the data.
   apps:
     - name: Umami
       slug: umami
@@ -747,6 +752,17 @@
       icon_url: https://raw.githubusercontent.com/umami-software/umami/v3.4.1/public/apple-touch-icon.png
       source_url: https://github.com/umami-software/umami
       docs_url: https://umami.is/docs
+      # #611's recommended tier for the wave-5 entry (#576), same rule
+      # as the S1 retro-fill: facts promoted from the description and
+      # the packaging decisions below — nothing invented. Alternatives
+      # are names only.
+      caveats:
+        - All data lives in a PostgreSQL database you connect at deploy time. That database stays yours to run and back up.
+        - A fresh install signs in with a default admin account. Change its password right after deploying.
+        - Two-factor sign-in stays off unless its encryption key is set at deploy time.
+      alternatives:
+        - Plausible
+        - Matomo
       versions:
         - version: "3.4.1"          # upstream stable, 2026-10-23
           # The canonical image (upstream's own release pipeline pushes

@@ -370,7 +370,9 @@ defmodule FluxVale.Seeds.CatalogDataTest do
       assert entry.category == %{
                name: "Analytics",
                slug: "analytics",
-               description: "Web analytics and visitor insight apps for the sites you run."
+               description: "Web analytics and visitor insight apps for the sites you run.",
+               audience:
+                 "A fit for anyone who wants honest visitor numbers on the sites they run, without cookies or a third party holding the data."
              }
 
       assert [%{slug: "umami"} = app] = entry.apps
@@ -457,7 +459,9 @@ defmodule FluxVale.Seeds.CatalogDataTest do
                  "A fit for anyone who would rather hold their own passwords and keys.",
                "identity" => "A fit for households and teams that want one sign-in they control.",
                "finance" =>
-                 "A fit for households that want their budget data under their own roof."
+                 "A fit for households that want their budget data under their own roof.",
+               "analytics" =>
+                 "A fit for anyone who wants honest visitor numbers on the sites they run, without cookies or a third party holding the data."
              }
 
       for entry <- entries, app <- entry.apps do
