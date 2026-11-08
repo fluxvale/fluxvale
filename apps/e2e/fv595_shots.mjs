@@ -151,14 +151,23 @@ if (part === "stills") {
 } else {
   // The confirm-then-destroy motion on the sacrificial row. Crop to
   // the content column right of the sidebar: the panel reveals there,
-  // the flash and the index navigation land there.
+  // the flash and the index navigation land there. The sign-in rides a
+  // separate plain context first and its cookies carry over via
+  // storageState, so the recording starts on the record's own page —
+  // a sign-in flash at the head of the GIF is capture noise.
   const mode = part === "gif-dark" ? "dark" : "light";
+  const authCtx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  const authPage = await authCtx.newPage();
+  await signIn(authPage);
+  const state = await authCtx.storageState();
+  await authCtx.close();
+
   const ctx = await browser.newContext({
     viewport: { width: 1440, height: 900 },
     recordVideo: { dir: outdir, size: { width: 1440, height: 900 } },
+    storageState: state,
   });
   const page = await ctx.newPage();
-  await signIn(page);
   await page.addInitScript(
     (m) => localStorage.setItem("phx:theme", m),
     mode,
@@ -191,11 +200,15 @@ if (part === "stills") {
 
   const x = Math.min(1439, sidebar + 16);
   const w = 1440 - x;
+  // The crop runs AFTER scale=720, so the offset rides in the scaled
+  // frame's coordinates: drop the sidebar, keep the content column.
+  const cropX = Math.round((x * 720) / 1440);
+  const cropW = Math.round((w * 720) / 1440);
   const out = `${outdir}/resources-destroy-motion-${mode}.gif`;
   execFileSync("ffmpeg", [
     "-y",
     "-i", webm,
-    "-vf", `fps=12,scale=720:-1:flags=lanczos,crop=${Math.round((w * 720) / 1440)}:ih:${0}:0`,
+    "-vf", `fps=12,scale=720:-1:flags=lanczos,crop=${cropW}:ih:${cropX}:0`,
     out,
   ]);
   unlinkSync(webm);

@@ -129,7 +129,7 @@ defmodule FluxValeWeb.AdminShell do
             class="group"
             data-testid={"admin-sidebar-domain-#{domain.key}"}
           >
-            <summary class="cursor-pointer list-none rounded-control border-l-2 border-transparent py-0.5 pl-3 pr-1 text-sm text-ink-muted transition-colors hover:border-line hover:text-ink [&::-webkit-details-marker]:hidden">
+            <summary class="cursor-pointer list-none rounded-control border-l-2 border-transparent py-0.5 pl-3 pr-1 text-sm text-ink-muted outline-offset-2 outline-focus transition-colors hover:border-line hover:text-ink focus-visible:outline-2 [&::-webkit-details-marker]:hidden">
               <span class="inline-flex items-center gap-1">
                 <.icon
                   name="hero-chevron-right"

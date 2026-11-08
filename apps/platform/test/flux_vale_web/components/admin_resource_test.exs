@@ -340,12 +340,13 @@ defmodule FluxValeWeb.Components.AdminResourceTest do
       edit = text_of(html, "a[data-testid='admin-resource-edit-update']")
       assert edit == "Edit"
 
-      delete =
+      delete_nodes =
         html
         |> LazyHTML.from_fragment()
         |> LazyHTML.query("[data-testid='admin-resource-destroy-destroy']")
+        |> Enum.to_list()
 
-      assert delete != []
+      assert delete_nodes != []
       assert html =~ ~s(phx-click="open-destroy")
       assert html =~ ~s(phx-value-action="destroy")
       assert html =~ ~s(phx-disable-with)
