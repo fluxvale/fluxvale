@@ -16,7 +16,16 @@ defmodule FluxValeWeb.CatalogLive.ShowTest do
     {:ok, conn: conn}
   end
 
-  test "shows the app, its category, versions, and the deploy entry", %{conn: conn} do
+  # The DOM index of a testid — #611 S6 asserts the plan's section order
+  # the same way the public page's controller test does.
+  defp index_of(html, marker) do
+    case :binary.match(html, marker) do
+      {index, _length} -> index
+      :nomatch -> flunk("expected #{marker} on the page")
+    end
+  end
+
+  test "shows the marketing page and the version cards below it", %{conn: conn} do
     version =
       InstanceFixtures.app_version!(
         published_at: DateTime.utc_now(),
@@ -38,17 +47,58 @@ defmodule FluxValeWeb.CatalogLive.ShowTest do
 
     {:ok, view, html} = live(conn, ~p"/apps/#{linked_app.slug}")
 
-    assert has_element?(view, "h1", app.name)
-    # The band tile renders the app icon (#277 icon-in-tile).
-    assert has_element?(view, "img[src='https://example.com/forgejo.png']")
-    # The category is the band's mono eyebrow (S7 — was a badge).
-    assert has_element?(view, "p.eyebrow", app.category.name)
-    assert has_element?(view, "#version-#{version.id}", "v#{version.version}")
-    assert has_element?(view, "#deploy-#{version.id}")
+    # The hero, at parity with the public page (#611 S2): the display
+    # H1, the icon-led row, the mono category eyebrow, and the back
+    # link targeting the authenticated catalog.
+    assert has_element?(view, "h1", "#{linked_app.name} hosting")
 
-    assert has_element?(view, "#deploy-#{version.id}[href='/apps/#{linked_app.slug}/deploy']")
+    assert has_element?(
+             view,
+             "[data-testid='app-icon'] img[src='https://example.com/forgejo.png']"
+           )
+
+    assert has_element?(view, "p.eyebrow", app.category.name)
+    # Scoped to the page's own container: the chrome's nav already links
+    # /apps, so an unscoped selector would pass without the hero link.
+    assert has_element?(view, ".catalog-page a[href='/apps']", "Catalog")
+    refute has_element?(view, ".catalog-page a[href='/catalog']")
+
+    # The hero's aside: the pricing card prices the newest version and
+    # its CTA is the same stepper entry the version cards use.
+    assert has_element?(view, "#pricing-card")
+
+    assert has_element?(
+             view,
+             "[data-testid='deploy-cta'][href='/apps/#{linked_app.slug}/deploy']"
+           )
+
+    # The reader's exits ride the hero's link row.
     assert has_element?(view, "a[href='https://example.com/src']", "Source")
     assert has_element?(view, "a[href='https://example.com/docs']", "Docs")
+
+    # The generated sections (S3) — the curated two self-omit on an
+    # unauthored app (S4, plan §5).
+    assert has_element?(view, "[data-testid='benefits-section']")
+    assert has_element?(view, "[data-testid='faq-section']")
+    assert has_element?(view, "[data-testid='similar-section']")
+    assert has_element?(view, "[data-testid='cta-section']")
+
+    # The console's own catalog, not the public surface: the browse
+    # fallback and the closing CTA's ghost button both stay in /apps.
+    assert has_element?(view, "[data-testid='browse-card'][href='/apps']")
+    assert has_element?(view, "[data-testid='cta-browse'][href='/apps']")
+    refute has_element?(view, "[data-testid='in-action-section']")
+    refute has_element?(view, "[data-testid='features-section']")
+
+    # D12: the version cards keep their content, below the marketing
+    # page's closing CTA.
+    assert has_element?(view, "[data-testid='versions-heading']", "Versions")
+    assert has_element?(view, "#version-#{version.id}", "v#{version.version}")
+    assert has_element?(view, "#deploy-#{version.id}")
+    assert has_element?(view, "#deploy-#{version.id}[href='/apps/#{linked_app.slug}/deploy']")
+
+    assert index_of(html, "data-testid=\"cta-section\"") <
+             index_of(html, "data-testid=\"versions-heading\"")
 
     assert has_element?(
              view,
@@ -72,6 +122,16 @@ defmodule FluxValeWeb.CatalogLive.ShowTest do
              Pricing.format_monthly_rate(rates.monthly_cents)
            )
 
+    # The pricing card states the same figure off the same seam.
+    assert has_element?(
+             view,
+             "#pricing-card",
+             Pricing.format_usd(rates.monthly_cents)
+           )
+
+    # An already-signed-in reader is not sold the signup grant.
+    refute has_element?(view, "#pricing-card", "welcome credit")
+
     assert has_element?(
              view,
              "[data-testid='stopped-price-#{version.version}']",
@@ -88,6 +148,47 @@ defmodule FluxValeWeb.CatalogLive.ShowTest do
 
     assert html =~ "First FluxVale catalog release."
     assert html =~ "Published"
+  end
+
+  # S4's curated sections are data-driven; the LiveView must pass the
+  # loaded app through unchanged, so authored screenshots and features
+  # render here exactly as on the public page.
+  test "an authored app renders the in-action and features sections", %{conn: conn} do
+    version = InstanceFixtures.app_version!()
+    app = Ash.load!(version, [app: :category], authorize?: false).app
+
+    authored =
+      App.update!(
+        app,
+        %{
+          in_action_intro: "The real interface, captured from a running instance.",
+          screenshots: [
+            %{
+              src: "/images/catalog/screenshots/authored-1440.png",
+              alt: "The dashboard",
+              caption: "Tasks in one view"
+            }
+          ],
+          features: [
+            %{icon: "hero-bolt", title: "Fast", body: "Every list loads in a single request."},
+            %{
+              icon: "hero-key",
+              title: "Private",
+              body: "Sign in with your own Pocket ID account."
+            }
+          ]
+        },
+        authorize?: false
+      )
+
+    {:ok, view, _html} = live(conn, ~p"/apps/#{authored.slug}")
+
+    assert has_element?(view, "[data-testid='in-action-section']", "Tasks in one view")
+    assert has_element?(view, "[data-testid='features-section']", "Fast")
+    assert has_element?(view, "[data-testid='features-section']", "Private")
+
+    assert index_of(render(view), "data-testid=\"features-section\"") <
+             index_of(render(view), "data-testid=\"benefits-section\"")
   end
 
   test "a version without a recommended size shows no price (pre-#125 row)", %{conn: conn} do
@@ -122,9 +223,10 @@ defmodule FluxValeWeb.CatalogLive.ShowTest do
     end
   end
 
-  # An app can exist before its first version — the band Deploy would
-  # open a stepper with nothing to pick (#341 review).
-  test "an app with no versions hides the band Deploy", %{conn: conn} do
+  # An app can exist before its first version — the pricing card and its
+  # Deploy CTA would open a stepper with nothing to pick (#341 review,
+  # the public page's no-versions rule in S2).
+  test "an app with no versions renders without a deploy CTA", %{conn: conn} do
     n = System.unique_integer()
 
     category =
@@ -132,7 +234,7 @@ defmodule FluxValeWeb.CatalogLive.ShowTest do
         %{
           name: "Empty #{n}",
           slug: "empty-#{n}",
-          description: "Test category #{n} — covers the band's category line."
+          description: "Test category #{n} — the index's category line."
         },
         authorize?: false
       )
@@ -145,31 +247,34 @@ defmodule FluxValeWeb.CatalogLive.ShowTest do
 
     {:ok, view, html} = live(conn, ~p"/apps/bare-#{n}")
 
-    assert has_element?(view, "h1", "Bare #{n}")
-    # The category description lands in the band under the eyebrow
-    # (hostile-341 F4) — the field stays readable by the authed app.
-    assert has_element?(view, "p", "Test category #{n} — covers the band's category line.")
+    assert has_element?(view, "h1", "Bare #{n} hosting")
+    # The hero still renders, and the facts card drops its version rows.
+    refute has_element?(view, "#pricing-card")
+    refute has_element?(view, "[data-testid='deploy-cta']")
+    refute has_element?(view, "[data-testid='cta-deploy']")
     # The gate's companion (#341 hostile F7): the Versions heading isn't
     # a dead end — the empty state carries the next step's absence.
+    assert has_element?(view, "[data-testid='versions-heading']", "Versions")
     assert html =~ "No versions published yet."
     refute has_element?(view, "a[href='/apps/bare-#{n}/deploy']")
   end
 
-  # #190: the catalog-declared file-access flag surfaces as a badge —
-  # the deploy-time surface for "this app's instances carry WebDAV".
-  test "a file-access app shows the badge; others don't", %{conn: conn} do
+  # #190: the catalog-declared file-access flag surfaces as a pricing
+  # card row — the deploy-time surface for "this app's instances carry
+  # WebDAV" (the public page's S2 idiom).
+  test "a file-access app shows the WebDAV row; others don't", %{conn: conn} do
     version = InstanceFixtures.app_version!(file_access: true)
     app = Ash.load!(version, :app, authorize?: false).app
 
     {:ok, view, _html} = live(conn, ~p"/apps/#{app.slug}")
 
-    assert has_element?(view, "[data-testid='file-access-badge']", "File access")
+    assert has_element?(view, "[data-testid='check-webdav']", "Move files in over WebDAV")
 
     plain = InstanceFixtures.app_version!()
     plain_app = Ash.load!(plain, :app, authorize?: false).app
 
     {:ok, plain_view, _html} = live(conn, ~p"/apps/#{plain_app.slug}")
 
-    refute has_element?(plain_view, "[data-testid='file-access-badge']")
+    refute has_element?(plain_view, "[data-testid='check-webdav']")
   end
 end

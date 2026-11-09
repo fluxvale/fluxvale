@@ -170,7 +170,7 @@ test(
       await expect(page.getByRole("heading", { name: "Catalog" })).toBeVisible();
       await page.getByTestId("app-docmost").click();
       await expect(
-        page.getByRole("heading", { name: "Docmost", exact: true }),
+        page.getByRole("heading", { name: "Docmost hosting", exact: true }),
       ).toBeVisible();
       await waitForLiveViewJoin(page);
       await expect(page.locator("[data-testid^='price-']").first()).toContainText(

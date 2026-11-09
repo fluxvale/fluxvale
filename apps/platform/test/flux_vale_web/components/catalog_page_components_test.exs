@@ -259,4 +259,113 @@ defmodule FluxValeWeb.Components.CatalogPageComponentsTest do
       refute html =~ "<a"
     end
   end
+
+  # #611 S6: the same components serve both surfaces, so every internal
+  # link is caller-scoped. These pin the defaults (the public page) and
+  # the authenticated overrides; the LiveView test pins the wiring.
+  describe "caller-scoped navigation (S6)" do
+    defp hero_app do
+      %{
+        slug: "forgejo",
+        name: "Forgejo",
+        description: nil,
+        tagline: nil,
+        caveats: nil,
+        alternatives: nil,
+        source_url: nil,
+        docs_url: nil,
+        community_url: nil,
+        icon_url: nil,
+        file_access: false,
+        category: %{name: "Developer Tools", audience: nil}
+      }
+    end
+
+    defp render_hero(overrides) do
+      assigns =
+        Map.merge(
+          %{app: hero_app(), newest_version: nil, wake_estimates: %{}},
+          Map.new(overrides)
+        )
+
+      render_component(&CatalogPageComponents.hero/1, assigns)
+    end
+
+    test "the hero's back link defaults to the public catalog" do
+      html = render_hero([])
+
+      assert html =~ ~s(href="/catalog")
+      refute html =~ ~s(href="/apps")
+    end
+
+    test "the hero's back link follows back_path" do
+      html = render_hero(back_path: "/apps")
+
+      assert html =~ ~s(href="/apps")
+      refute html =~ ~s(href="/catalog")
+    end
+
+    defp peers do
+      [
+        %{slug: "gitea", name: "Gitea", tagline: nil, icon_url: nil},
+        %{slug: "gitlab", name: "GitLab", tagline: nil, icon_url: nil}
+      ]
+    end
+
+    test "similar apps and the browse fallback default to the public detail path" do
+      html =
+        render_component(&CatalogPageComponents.similar_apps/1, %{
+          peers: peers(),
+          from_price_cents: nil
+        })
+
+      assert html =~ ~s(href="/catalog/gitea")
+      assert html =~ ~s(href="/catalog/gitlab")
+
+      fallback =
+        render_component(&CatalogPageComponents.similar_apps/1, %{
+          peers: [List.first(peers())],
+          from_price_cents: nil
+        })
+
+      assert fallback =~ ~s(href="/catalog")
+    end
+
+    test "similar apps follow catalog_path on the authenticated surface" do
+      html =
+        render_component(&CatalogPageComponents.similar_apps/1, %{
+          peers: peers(),
+          from_price_cents: nil,
+          catalog_path: "/apps"
+        })
+
+      assert html =~ ~s(href="/apps/gitea")
+      assert html =~ ~s(href="/apps/gitlab")
+      refute html =~ ~s(href="/catalog")
+
+      fallback =
+        render_component(&CatalogPageComponents.similar_apps/1, %{
+          peers: [List.first(peers())],
+          from_price_cents: nil,
+          catalog_path: "/apps"
+        })
+
+      assert fallback =~ ~s(href="/apps")
+    end
+
+    test "the closing CTA's ghost button follows catalog_path" do
+      public = render_component(&CatalogPageComponents.closing_cta/1, %{app: %{name: "Forgejo"}})
+      assert public =~ ~s(href="/catalog")
+      refute public =~ ~s(href="/apps")
+
+      authed =
+        render_component(&CatalogPageComponents.closing_cta/1, %{
+          app: %{name: "Forgejo"},
+          catalog_path: "/apps"
+        })
+
+      assert authed =~ ~s(href="/apps")
+      refute authed =~ ~s(href="/catalog")
+    end
+  end
 end

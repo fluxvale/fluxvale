@@ -61,7 +61,7 @@ test(
     await expect(page.getByRole("heading", { name: "Catalog" })).toBeVisible();
     await page.getByTestId("app-memos").click();
     await expect(
-      page.getByRole("heading", { name: "Memos", exact: true }),
+      page.getByRole("heading", { name: "Memos hosting", exact: true }),
     ).toBeVisible();
     await waitForLiveViewJoin(page);
     await expect(page.locator("[data-testid^='price-']").first()).toContainText(

@@ -50,7 +50,7 @@ test("forgejo: catalog → deploy → running → open → stop → destroy", as
   await waitForLiveViewJoin(page);
   await expect(page.getByRole("heading", { name: "Catalog" })).toBeVisible();
   await page.getByTestId("app-forgejo").click();
-  await expect(page.getByRole("heading", { name: "Forgejo", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Forgejo hosting", exact: true })).toBeVisible();
   await waitForLiveViewJoin(page);
   await expect(page.locator("[data-testid^='price-']").first()).toContainText(
     "$3.35/mo · billed hourly",
