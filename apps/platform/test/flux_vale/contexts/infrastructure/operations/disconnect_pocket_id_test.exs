@@ -235,6 +235,78 @@ defmodule FluxVale.Infrastructure.Operations.DisconnectPocketIdTest do
       assert {:error, _none} = PocketIdWiring.get_by_instance(pending.id, authorize?: false)
     end
 
+    test "revoked custody is the honest no_custody refusal", %{
+      app: app,
+      pocket_id: pocket_id,
+      owner: owner
+    } do
+      row = PocketIdCustody.get_by_instance!(pocket_id.id, authorize?: false)
+      PocketIdCustody.revoke!(row, authorize?: false)
+
+      assert {:error, :no_custody} = Infrastructure.disconnect_pocket_id(app, actor: owner)
+      assert {:ok, _stands} = PocketIdWiring.get_by_instance(app.id, authorize?: false)
+    end
+
+    test "a version that lost its recipe refuses — nothing names the strip", %{
+      app: app,
+      owner: owner
+    } do
+      stub(ApiClient, :delete_client, fn _u, _k, _c -> :ok end)
+
+      version = Ash.load!(app, :app_version, authorize?: false).app_version
+
+      version
+      |> Ash.Changeset.for_update(:update, %{oidc_wiring: nil}, authorize?: false)
+      |> Ash.update!()
+
+      assert {:error, :recipe_missing} = Infrastructure.disconnect_pocket_id(app, actor: owner)
+    end
+
+    # A recipe without the optional enabled_env strips only its three
+    # named keys (the maybe_prepend nil arm).
+    test "a recipe without enabled_env strips its three keys only", %{
+      owner: owner,
+      pocket_id: pocket_id
+    } do
+      stub(ApiClient, :delete_client, fn _u, _k, _c -> :ok end)
+
+      version =
+        InstanceFixtures.app_version!(
+          configurable_env_vars: Map.delete(@schema, "SSO_ENABLED"),
+          oidc_wiring: Map.delete(@recipe, "enabled_env"),
+          oidc_callback_path: "/cb"
+        )
+
+      enabledless =
+        Instance.create!(
+          %{
+            name: "No Toggle #{System.unique_integer()}",
+            app_version_id: version.id,
+            env_vars: %{"SSO_ENABLED" => "true", "SSO_AUTHORITY" => "x", "SMTP_HOST" => "z"}
+          },
+          actor: owner
+        )
+        |> InstanceFixtures.walk_to!(:running)
+        |> InstanceFixtures.pin!(namespace: "ns-notoggle")
+
+      PocketIdWiring.record!(
+        %{
+          instance_id: enabledless.id,
+          pocket_id_instance_id: pocket_id.id,
+          pocket_id_client_id: "client-ne",
+          pocket_id_secret_id: "secret-ne"
+        },
+        authorize?: false
+      )
+
+      assert {:ok, _} = Infrastructure.disconnect_pocket_id(enabledless, actor: owner)
+
+      # The three named keys are stripped; the toggle the recipe never
+      # named rides through untouched.
+      env = Instance.get_by_id!(enabledless.id, actor: owner).env_vars
+      assert env == %{"SSO_ENABLED" => "true", "SMTP_HOST" => "z"}
+    end
+
     # The §6 gone shape: the PocketID row is gone, so no client is
     # reachable — the strip + clear still happen (the card's Clear
     # wiring verb).

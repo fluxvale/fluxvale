@@ -176,8 +176,12 @@ defmodule FluxVale.Infrastructure.Operations.DisconnectPocketId do
             PocketIdWiring.replace(wiring, authorize?: false)
             notifications
 
+          # coveralls-ignore-start - the DB-outage class: the row
+          # writes' failure modes are unstagedable under the sandbox
+          # (#86); the rollback keeps strip+clear atomic.
           {:error, reason} ->
             Repo.rollback(reason)
+            # coveralls-ignore-stop
         end
       end)
 
@@ -186,8 +190,11 @@ defmodule FluxVale.Infrastructure.Operations.DisconnectPocketId do
         Ash.Notifier.notify(notifications)
         {:ok, %{client_deleted: client_deleted}}
 
+      # coveralls-ignore-start - the rollback's passthrough (the arm
+      # above is its only producer).
       {:error, _reason} = error ->
         error
+        # coveralls-ignore-stop
     end
   end
 

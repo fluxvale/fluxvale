@@ -418,6 +418,50 @@ defmodule FluxValeWeb.InstanceLive.PocketIdSsoCardTest do
     assert has_element?(view2, "[data-testid=pocketid-sso-connect-copy]")
   end
 
+  test "a connect whose custody vanished mid-flight renders the paste-first copy", %{
+    conn: conn,
+    owner: owner
+  } do
+    flag_on!()
+    pid_version = pocket_id_version!()
+    pocket_id = pocket_id!(pid_version, owner, "pid")
+    app = app!(owner)
+
+    {:ok, view, _html} = live(conn, ~p"/instances/#{app.id}")
+
+    # The window: custody revoked after the offer rendered.
+    row = PocketIdCustody.get_by_instance!(pocket_id.id, authorize?: false)
+    PocketIdCustody.revoke!(row, authorize?: false)
+
+    clicked =
+      view
+      |> form("#pocketid-connect-form")
+      |> render_submit()
+
+    assert clicked =~ "holds no key"
+  end
+
+  test "a rotate whose PocketID died renders the gone copy", %{conn: conn, owner: owner} do
+    flag_on!()
+    pid_version = pocket_id_version!()
+    pocket_id = pocket_id!(pid_version, owner, "pid")
+    app = app!(owner)
+    wire!(app, pocket_id)
+
+    {:ok, view, _html} = live(conn, ~p"/instances/#{app.id}")
+
+    row = PocketIdCustody.get_by_instance!(pocket_id.id, authorize?: false)
+    PocketIdCustody.revoke!(row, authorize?: false)
+    Ash.destroy!(pocket_id, actor: owner)
+
+    clicked =
+      view
+      |> element("[data-testid=pocketid-rotate]")
+      |> render_click()
+
+    assert clicked =~ "no longer exists"
+  end
+
   test "connect without custody renders the paste-first copy", %{conn: conn, owner: owner} do
     flag_on!()
     pid_version = pocket_id_version!()

@@ -74,13 +74,19 @@ defmodule FluxVale.Infrastructure.Operations.ApplyPocketIdEnv do
   # manager immunity SSA implies).
   defp read_env(kubeconfig, namespace) do
     case Secret.get_data(kubeconfig, namespace, @env_secret) do
-      {:ok, data} when is_map(data) -> {:ok, data}
-      {:error, %K8s.Error{reason: :not_found}} -> {:ok, %{}}
-      # coveralls-ignore-next-line - a non-not_found Secret read error
-      # other than the upsert's own (staged) — the K8s-client error
-      # surface this seam passes through verbatim; the upsert arm
-      # pins the failure shape for the primitive.
-      {:error, _other} = error -> error
+      {:ok, data} when is_map(data) ->
+        {:ok, data}
+
+      {:error, %K8s.Error{reason: :not_found}} ->
+        {:ok, %{}}
+
+      # coveralls-ignore-start - a non-not_found read error other
+      # than the upsert's own (staged): the K8s-client error surface
+      # this seam passes through verbatim.
+      {:error, _other} = error ->
+        error
+
+        # coveralls-ignore-stop
     end
   end
 

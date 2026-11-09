@@ -87,9 +87,18 @@ defmodule FluxVale.Infrastructure.Operations.RotatePocketIdSecret do
 
   defp load_instance(wiring) do
     case Ash.get(Instance, wiring.instance_id, authorize?: false) do
-      {:ok, %Instance{namespace: ns} = instance} when is_binary(ns) -> {:ok, instance}
-      {:ok, _undeployed} -> {:error, :not_deployed}
-      {:error, _gone} -> {:error, :not_wired}
+      {:ok, %Instance{namespace: ns} = instance} when is_binary(ns) ->
+        {:ok, instance}
+
+      {:ok, _undeployed} ->
+        {:error, :not_deployed}
+
+      # coveralls-ignore-start - the FK-race arm: the instance row is
+      # destroyed between the wiring read and this load — the window
+      # the sandbox cannot stage (#86).
+      {:error, _gone} ->
+        {:error, :not_wired}
+        # coveralls-ignore-stop
     end
   end
 
