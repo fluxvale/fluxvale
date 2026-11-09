@@ -246,7 +246,7 @@ async function loginAdmin(
 async function fluxvaleAppNamespaces(): Promise<Set<string>> {
   const list = await kubectl(["get", "ns", "-o", "jsonpath={.items[*].metadata.name}"]);
   return new Set(
-    list.stdout.split(/\s+/).filter((name) => name.startsWith("fluxvale-app-")),
+    list.split(/\s+/).filter((name) => name.startsWith("fluxvale-app-")),
   );
 }
 
@@ -268,8 +268,8 @@ async function ourNamespace(before: Set<string>): Promise<string> {
     "-o",
     "jsonpath={.spec.template.spec.containers[0].image} {.spec.template.spec.initContainers[*].image}",
   ]);
-  expect(images.stdout).toContain("umami-software/umami");
-  expect(images.stdout).toContain("postgres");
+  expect(images).toContain("umami-software/umami");
+  expect(images).toContain("postgres");
 
   return namespace;
 }
@@ -295,7 +295,7 @@ async function waitPodReady(namespace: string, timeoutMs: number) {
       { bestEffort: true },
     );
 
-    if (ready.stdout.trim() === "1") return;
+    if (ready.trim() === "1") return;
     await new Promise((resolve) => setTimeout(resolve, 5_000));
   }
 
