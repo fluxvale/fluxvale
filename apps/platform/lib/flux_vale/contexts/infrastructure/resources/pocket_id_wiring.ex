@@ -64,7 +64,7 @@ defmodule FluxVale.Infrastructure.PocketIdWiring do
     # System-only funnels (the PocketIdCustody stance): the wiring
     # operation owns the writes; callers run authorize?: false with
     # that comment in place.
-    policy action_type([:create, :destroy]) do
+    policy action_type([:create, :update, :destroy]) do
       description("System-only: the wiring operation owns the writes (authorize?: false)")
       forbid_if(always())
     end
@@ -176,6 +176,14 @@ defmodule FluxVale.Infrastructure.PocketIdWiring do
     create :record do
       description("System-only: record a completed wiring.")
       accept([:instance_id, :pocket_id_instance_id, :pocket_id_client_id, :pocket_id_secret_id])
+    end
+
+    # Rotation's durable record (#597 S5): the row's secret_id moves
+    # to the new secret AFTER the workload carries it. System-only —
+    # the rotation operation is the only caller.
+    update :rotate_secret do
+      description("System-only: the rotation's new secret id.")
+      accept([:pocket_id_secret_id])
     end
 
     # The re-wire's funnel: the old row goes before the new one lands
