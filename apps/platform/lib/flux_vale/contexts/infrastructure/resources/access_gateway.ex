@@ -35,7 +35,7 @@ defmodule FluxVale.Infrastructure.AccessGateway do
     otp_app: :flux_vale,
     domain: FluxVale.Infrastructure,
     data_layer: AshPostgres.DataLayer,
-    extensions: [AshOban, AshAdmin.Resource, AshJsonApi.Resource],
+    extensions: [AshOban, AshAdmin.Resource, AshJsonApi.Resource, AshPaperTrail.Resource],
     authorizers: [Ash.Policy.Authorizer],
     notifiers: [Ash.Notifier.PubSub]
 
@@ -193,6 +193,36 @@ defmodule FluxVale.Infrastructure.AccessGateway do
     references do
       reference(:organization, on_delete: :restrict)
     end
+  end
+
+  # The audit trail (#645, ADR-0048): the plan's one complete config
+  # posture — the mixin line is mandatory (it carries the read policy,
+  # the indexes, the actor label). version_extensions attaches the
+  # Policy authorizer that policy rides on. Rationale lives in the
+  # ADR, not here.
+  paper_trail do
+    primary_key_type(:uuid_v7)
+    change_tracking_mode(:changes_only)
+    store_action_name?(true)
+    store_action_inputs?(true)
+    sensitive_attributes(:redact)
+    # Decision two (ADR-0048), the instance stance: the settle tick's
+    # metering cursor (:settle_anchors, every 15 min) is
+    # machine-cadence bookkeeping, not an audit fact — silenced by
+    # attribute and by action (0.8.1's write trigger is the
+    # changeset's changed? flag).
+    ignore_attributes([:created_at, :updated_at, :metering_since])
+    ignore_actions([:settle_anchors])
+    reference_source?(false)
+    create_version_on_destroy?(true)
+    operation_id_field(:operation_id)
+    mixin({FluxVale.PaperTrail.VersionMixin, :version_resource, []})
+    version_extensions(authorizers: [Ash.Policy.Authorizer])
+
+    belongs_to_actor(:user, FluxVale.Identity.User,
+      domain: FluxVale.Identity,
+      on_delete: :nilify
+    )
   end
 
   policies do

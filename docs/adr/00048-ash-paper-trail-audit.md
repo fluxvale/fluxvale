@@ -162,6 +162,24 @@ janitor bookkeeping, each named with its reason there).
   `ignore_actions`. `updated_at` still moves on vote/comment activity
   (any update touches the timestamp), so the sitemap's re-crawl
   semantics are unchanged.
+- **The redaction `changed?`-guard was evaluated and declined at
+  A2-S3.** 0.8.1 lands every sensitive attribute as REDACTED in every
+  version row's `changes` (and inputs) whether or not it moved. Kept:
+  the marker is honest — it says the attribute exists and is
+  protected, not that it changed — and a write-side guard would fork
+  the dep's serialization. Pinned per sensitive-bearing resource in
+  the proof tests (User, MembershipInvite, PersonalAccessToken).
+- **Machine-cadence stamps ride the ignore lists.** The PAT auth
+  path's `last_used_at` (per request), the Instance edge beacon's
+  `:touch` bookmark and settle tick's metering cursors, and the
+  gateway settle tick's `metering_since` (per 15-min tick) are
+  machine cadence, not audit facts — the Post counters stance:
+  `ignore_attributes` plus `ignore_actions` by name (0.8.1's write
+  trigger is the changeset's `changed?` flag, so attribute-level
+  ignoring alone cannot stop the row). State-machine fields and the
+  wake clocks stay versioned; `version_action_inputs` on the silenced
+  actions never materialize.
+
 
 ## Notes from the A2-S1 probes (ash_paper_trail 0.8.1)
 

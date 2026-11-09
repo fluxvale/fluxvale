@@ -115,31 +115,46 @@ defmodule FluxVale.AdminAuthorityTest do
     FluxVale.Ops.FeatureFlag.Version =>
       "generated version resource (ADR-0048): the audit surface itself, never audited or blanket-governed",
     FluxVale.Ops.AccessRule.Version =>
+      "generated version resource (ADR-0048): the audit surface itself, never audited or blanket-governed",
+    FluxVale.Infrastructure.Cluster.Version =>
+      "generated version resource (ADR-0048): the audit surface itself, never audited or blanket-governed",
+    FluxVale.Infrastructure.Instance.Version =>
+      "generated version resource (ADR-0048): the audit surface itself, never audited or blanket-governed",
+    FluxVale.Infrastructure.BackupSetting.Version =>
+      "generated version resource (ADR-0048): the audit surface itself, never audited or blanket-governed",
+    FluxVale.Infrastructure.BackupRun.Version =>
+      "generated version resource (ADR-0048): the audit surface itself, never audited or blanket-governed",
+    FluxVale.Infrastructure.AccessGateway.Version =>
+      "generated version resource (ADR-0048): the audit surface itself, never audited or blanket-governed",
+    FluxVale.Infrastructure.AccessRoute.Version =>
+      "generated version resource (ADR-0048): the audit surface itself, never audited or blanket-governed",
+    FluxVale.Infrastructure.AccessDomain.Version =>
+      "generated version resource (ADR-0048): the audit surface itself, never audited or blanket-governed",
+    FluxVale.Infrastructure.InstanceHostname.Version =>
+      "generated version resource (ADR-0048): the audit surface itself, never audited or blanket-governed",
+    FluxVale.Infrastructure.PocketIdCustody.Version =>
+      "generated version resource (ADR-0048): the audit surface itself, never audited or blanket-governed",
+    FluxVale.Infrastructure.StorageRequest.Version =>
+      "generated version resource (ADR-0048): the audit surface itself, never audited or blanket-governed",
+    FluxVale.Identity.User.Version =>
+      "generated version resource (ADR-0048): the audit surface itself, never audited or blanket-governed",
+    FluxVale.Identity.UserEmail.Version =>
+      "generated version resource (ADR-0048): the audit surface itself, never audited or blanket-governed",
+    FluxVale.Identity.PersonalAccessToken.Version =>
+      "generated version resource (ADR-0048): the audit surface itself, never audited or blanket-governed",
+    FluxVale.Accounts.Organization.Version =>
+      "generated version resource (ADR-0048): the audit surface itself, never audited or blanket-governed",
+    FluxVale.Accounts.Membership.Version =>
+      "generated version resource (ADR-0048): the audit surface itself, never audited or blanket-governed",
+    FluxVale.Accounts.MembershipInvite.Version =>
       "generated version resource (ADR-0048): the audit surface itself, never audited or blanket-governed"
   }
 
   # Trail pendings: the bypass is live, the paper trail arrives with
-  # the named A2 rollout slice (the plan's phasing — the closing slice
-  # demands ZERO pendings remain).
-  @pending %{
-    # A2-S3 — Infrastructure, Identity, Accounts
-    FluxVale.Infrastructure.Cluster => "A2-S3",
-    FluxVale.Infrastructure.Instance => "A2-S3",
-    FluxVale.Infrastructure.BackupSetting => "A2-S3",
-    FluxVale.Infrastructure.BackupRun => "A2-S3",
-    FluxVale.Infrastructure.AccessGateway => "A2-S3",
-    FluxVale.Infrastructure.AccessRoute => "A2-S3",
-    FluxVale.Infrastructure.AccessDomain => "A2-S3",
-    FluxVale.Infrastructure.InstanceHostname => "A2-S3",
-    FluxVale.Infrastructure.PocketIdCustody => "A2-S3",
-    FluxVale.Infrastructure.StorageRequest => "A2-S3",
-    FluxVale.Identity.User => "A2-S3",
-    FluxVale.Identity.UserEmail => "A2-S3",
-    FluxVale.Identity.PersonalAccessToken => "A2-S3",
-    FluxVale.Accounts.Organization => "A2-S3",
-    FluxVale.Accounts.Membership => "A2-S3",
-    FluxVale.Accounts.MembershipInvite => "A2-S3"
-  }
+  # the named A2 rollout slice. A2-S3 emptied this map — the business
+  # set is fully trailed (the doctrine's zero-pendings state, ahead of
+  # the A2-S4 console slice).
+  @pending %{}
 
   describe "the states account for every configured resource" do
     test "every walked resource is business-set or exempt — and every entry is real" do
@@ -191,8 +206,10 @@ defmodule FluxVale.AdminAuthorityTest do
 
     # The phasing's printed partition (the rollout slices flip it slice
     # by slice): a moved count is a deliberate diff to this line, the
-    # same forcing function as the sets themselves.
-    test "the partition counts: full 15, exempt 22, pending 16" do
+    # same forcing function as the sets themselves. A2-S3's landing
+    # state: full 31, exempt 38 (7 machinery + 31 version resources),
+    # pending 0 — the business set is fully trailed.
+    test "the partition counts: full 31, exempt 38, pending 0" do
       pending =
         @pending
         |> Map.keys()
@@ -200,14 +217,14 @@ defmodule FluxVale.AdminAuthorityTest do
 
       full = MapSet.difference(@business_set, pending)
 
-      assert MapSet.size(full) == 15,
-             "the full set moved to #{MapSet.size(full)} — a rollout slice landed, update this count"
+      assert MapSet.size(full) == 31,
+             "the full set moved to #{MapSet.size(full)} — expected 31: a rollout slice landed, update this count"
 
-      assert map_size(@exempt) == 22,
-             "the exempt set moved to #{map_size(@exempt)} — 7 machinery rows plus every generated version resource"
+      assert map_size(@exempt) == 38,
+             "the exempt set moved to #{map_size(@exempt)} — expected 38: 7 machinery rows plus 31 generated version resources"
 
-      assert MapSet.size(pending) == 16,
-             "the pending set moved to #{MapSet.size(pending)} — the A2-S3 slice's set"
+      assert MapSet.size(pending) == 0,
+             "the pending set moved to #{MapSet.size(pending)} — expected 0: the business set is fully trailed, a new resource joins a set deliberately"
     end
   end
 
@@ -241,8 +258,8 @@ defmodule FluxVale.AdminAuthorityTest do
     test "every full resource's Version module is registered in its domain" do
       full = full_resources()
 
-      assert length(full) == 15,
-             "the full set moved to #{length(full)} — a rollout slice landed, update the phasing counts"
+      assert length(full) == 31,
+             "the full set moved to #{length(full)} — expected 31: a rollout slice landed, update the phasing counts"
 
       for resource <- full do
         domain = domain_of(resource)

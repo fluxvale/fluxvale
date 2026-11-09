@@ -164,6 +164,44 @@ defmodule FluxValeWeb.AdminConsole do
         "the paper-trail version table: the Audit section surfaces it, not the generic console (#645)",
       FluxVale.Ops.AccessRule.Version =>
         "the paper-trail version table: the Audit section surfaces it, not the generic console (#645)"
+    },
+    FluxVale.Infrastructure => %{
+      FluxVale.Infrastructure.Cluster.Version =>
+        "the paper-trail version table: the Audit section surfaces it, not the generic console (#645)",
+      FluxVale.Infrastructure.Instance.Version =>
+        "the paper-trail version table: the Audit section surfaces it, not the generic console (#645)",
+      FluxVale.Infrastructure.BackupSetting.Version =>
+        "the paper-trail version table: the Audit section surfaces it, not the generic console (#645)",
+      FluxVale.Infrastructure.BackupRun.Version =>
+        "the paper-trail version table: the Audit section surfaces it, not the generic console (#645)",
+      FluxVale.Infrastructure.AccessGateway.Version =>
+        "the paper-trail version table: the Audit section surfaces it, not the generic console (#645)",
+      FluxVale.Infrastructure.AccessRoute.Version =>
+        "the paper-trail version table: the Audit section surfaces it, not the generic console (#645)",
+      FluxVale.Infrastructure.AccessDomain.Version =>
+        "the paper-trail version table: the Audit section surfaces it, not the generic console (#645)",
+      FluxVale.Infrastructure.InstanceHostname.Version =>
+        "the paper-trail version table: the Audit section surfaces it, not the generic console (#645)",
+      FluxVale.Infrastructure.PocketIdCustody.Version =>
+        "the paper-trail version table: the Audit section surfaces it, not the generic console (#645)",
+      FluxVale.Infrastructure.StorageRequest.Version =>
+        "the paper-trail version table: the Audit section surfaces it, not the generic console (#645)"
+    },
+    FluxVale.Identity => %{
+      FluxVale.Identity.User.Version =>
+        "the paper-trail version table: the Audit section surfaces it, not the generic console (#645)",
+      FluxVale.Identity.UserEmail.Version =>
+        "the paper-trail version table: the Audit section surfaces it, not the generic console (#645)",
+      FluxVale.Identity.PersonalAccessToken.Version =>
+        "the paper-trail version table: the Audit section surfaces it, not the generic console (#645)"
+    },
+    FluxVale.Accounts => %{
+      FluxVale.Accounts.Organization.Version =>
+        "the paper-trail version table: the Audit section surfaces it, not the generic console (#645)",
+      FluxVale.Accounts.Membership.Version =>
+        "the paper-trail version table: the Audit section surfaces it, not the generic console (#645)",
+      FluxVale.Accounts.MembershipInvite.Version =>
+        "the paper-trail version table: the Audit section surfaces it, not the generic console (#645)"
     }
   }
 
