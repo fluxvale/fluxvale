@@ -208,6 +208,41 @@ defmodule FluxVale.Infrastructure.Operations.RotatePocketIdSecretTest do
 
       :ok = FeatureFlags.enable(:pocketid_sso_wiring, actor: AccountsFixtures.platform_admin!())
 
+      # No custody (revoked mid-life): the rotation cannot use a key.
+      row = PocketIdCustody.get_by_instance!(pocket_id.id, authorize?: false)
+      PocketIdCustody.revoke!(row, authorize?: false)
+
+      assert {:error, :no_custody} =
+               Infrastructure.rotate_pocket_id_secret(wiring, actor: owner)
+
+      wiring_row = PocketIdWiring.get_by_instance!(app.id, authorize?: false)
+      assert wiring_row.pocket_id_secret_id == "secret-old"
+    end
+
+    test "a version that lost its recipe refuses — nothing names the env", %{
+      app: app,
+      pocket_id: pocket_id,
+      wiring: wiring,
+      owner: owner
+    } do
+      # The recipe rides the version; a drifted row (no wiring recipe)
+      # cannot say WHERE the new secret lands.
+      version = Ash.load!(app, :app_version, authorize?: false).app_version
+
+      version
+      |> Ash.Changeset.for_update(:update, %{oidc_wiring: nil}, authorize?: false)
+      |> Ash.update!()
+
+      assert {:error, :recipe_missing} =
+               Infrastructure.rotate_pocket_id_secret(wiring, actor: owner)
+    end
+
+    test "the guards: gone PocketID, undeployed", %{
+      app: app,
+      pocket_id: pocket_id,
+      wiring: wiring,
+      owner: owner
+    } do
       # Gone PocketID (the app still deployed — the op reads the app
       # instance first): the wiring outlives its IdP row.
       Ash.destroy!(pocket_id, authorize?: false)
@@ -215,8 +250,8 @@ defmodule FluxVale.Infrastructure.Operations.RotatePocketIdSecretTest do
       assert {:error, :pocket_id_gone} =
                Infrastructure.rotate_pocket_id_secret(wiring, actor: owner)
 
-      # Undeployed (the LAST arm — the app stays undeployed after):
-      # the row's wiring re-ships at the next deploy.
+      # Undeployed (the app still deployed here): the row's wiring
+      # re-ships at the next deploy.
       app
       |> Ash.Changeset.for_update(:update_status, %{}, authorize?: false)
       |> Ash.Changeset.force_change_attribute(:namespace, nil)

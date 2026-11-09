@@ -171,6 +171,34 @@ defmodule FluxVale.Infrastructure.Operations.DisconnectPocketIdTest do
       assert {:error, :not_wired} = Infrastructure.disconnect_pocket_id(app, actor: owner)
     end
 
+    test "flag-off is the honest refusal", %{app: app, owner: owner} do
+      :ok = FeatureFlags.disable(:pocketid_sso_wiring, actor: AccountsFixtures.platform_admin!())
+
+      assert {:error, :flag_disabled} = Infrastructure.disconnect_pocket_id(app, actor: owner)
+    end
+
+    test "a failed workload apply fails the disconnect — the row strip stands, nothing clears", %{
+      app: app,
+      pocket_id: pocket_id,
+      owner: owner
+    } do
+      stub(ApiClient, :delete_client, fn _u, _k, _c -> :ok end)
+
+      stub(Secret, :upsert, fn _kc, _ns, _n, _d ->
+        {:error, %K8s.Error{status_code: 500, reason: :unknown, message: "no"}}
+      end)
+
+      assert {:error, %K8s.Error{}} =
+               Infrastructure.disconnect_pocket_id(app, actor: owner)
+
+      # The row strip happened (the transaction committed); the wiring
+      # STANDS — the retry converges the cluster side.
+      assert {:ok, _wiring_still_stands} =
+               PocketIdWiring.get_by_instance(app.id, authorize?: false)
+
+      _unused_pocket_id = pocket_id
+    end
+
     # The pre-deploy disconnect: the row is the whole truth — no
     # cluster calls (Mimic would reject any), the strip lands on the
     # row alone, the wiring clears.

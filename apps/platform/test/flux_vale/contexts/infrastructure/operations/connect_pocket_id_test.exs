@@ -331,6 +331,21 @@ defmodule FluxVale.Infrastructure.Operations.ConnectPocketIdTest do
       assert applied["SSO_ENABLED"] == "true"
     end
 
+    test "a deleting instance refuses honestly — nothing to wire on the way out", %{
+      owner: owner,
+      pocket_id: pocket_id
+    } do
+      app = sso_instance!(owner)
+      green_stubs!(pocket_id, app)
+
+      app
+      |> Ash.Changeset.for_update(:update_status, %{status: :deleting}, authorize?: false)
+      |> Ash.update!()
+
+      assert {:error, :instance_deleting} =
+               Infrastructure.retrofit_pocket_id(app, pocket_id.id, actor: owner)
+    end
+
     test "a pre-deploy instance refuses — that's call/3's lane", %{
       owner: owner,
       pocket_id: pocket_id

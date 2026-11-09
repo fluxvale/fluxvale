@@ -123,6 +123,26 @@ defmodule FluxVale.Infrastructure.Operations.ApplyPocketIdEnvTest do
                Infrastructure.apply_pocket_id_env(instance, %{"SSO_AUTHORITY" => "https://id"})
     end
 
+    test "a missing Secret reads as empty — the merge carries only the given keys", %{
+      instance: instance
+    } do
+      stub(Secret, :get_data, fn _kc, _ns, _n ->
+        {:error, %K8s.Error{status_code: 404, reason: :not_found, message: "no secret"}}
+      end)
+
+      expect(Secret, :upsert, fn _kc, _ns, _n, data ->
+        send(self(), {:upsert, data})
+        {:ok, %{}}
+      end)
+
+      stub(Deployment, :restart, fn _kc, _ns, _n -> {:ok, %{}} end)
+
+      :ok = Infrastructure.apply_pocket_id_env(instance, %{"SSO_AUTHORITY" => "https://id"})
+
+      assert_received {:upsert, data}
+      assert data == %{"SSO_AUTHORITY" => "https://id"}
+    end
+
     test "an undeployed instance refuses honestly (the row is the whole truth)", %{
       instance: instance
     } do
