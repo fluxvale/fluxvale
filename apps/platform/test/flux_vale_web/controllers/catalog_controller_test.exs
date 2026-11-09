@@ -40,6 +40,30 @@ defmodule FluxValeWeb.CatalogControllerTest do
     |> App.create!(authorize?: false)
   end
 
+  # HEEx text nodes escape & < > (and ") — the same escape the summary
+  # rows got, so the FAQPage-vs-visible comparison is entity-safe.
+  defp html_escape(text) do
+    {:safe, iodata} = Phoenix.HTML.html_escape(text)
+    IO.iodata_to_binary(iodata)
+  end
+
+  # The page's FAQ questions and answers, scanned in document order from
+  # the rendered HTML. The rows are the page's only <summary> spans and
+  # its only `[overflow-wrap:anywhere]` paragraphs (caveats are list
+  # items), so this is exactly what a reader sees — the markup the
+  # FAQPage must mirror.
+  defp visible_faq_questions(html) do
+    ~r{<summary[^>]*>\s*<span[^>]*>(.*?)</span>}s
+    |> Regex.scan(html)
+    |> Enum.map(fn [_full, question] -> question end)
+  end
+
+  defp visible_faq_answers(html) do
+    ~r{<p class="\[overflow-wrap:anywhere\]">(.*?)</p>}s
+    |> Regex.scan(html)
+    |> Enum.map(fn [_full, answer] -> answer end)
+  end
+
   describe "GET /catalog" do
     test "renders category-grouped app cards for anonymous visitors", %{conn: conn} do
       # icon_url exercises the SSR tile's img arm — the LiveView twin
@@ -448,6 +472,12 @@ defmodule FluxValeWeb.CatalogControllerTest do
       assert html =~ "Recommended size"
       assert html =~ "v9.9.9"
       assert html =~ ~s(data-testid="deploy-cta")
+
+      # S5: the sizeless shape omits the offer too — the same rate seam
+      # prices the card and the markup, and there is no figure to ground.
+      assert [_match, encoded] = Regex.run(~r/id="ld-json-app">(.*?)<\/script>/s, html)
+      data = Jason.decode!(encoded)
+      refute Map.has_key?(data, "offers")
     end
 
     # No versions: the pricing card and CTA hide (the authenticated
@@ -684,7 +714,11 @@ defmodule FluxValeWeb.CatalogControllerTest do
 
       assert html =~ "What does #{app.name} replace?"
       assert html =~ "An alternative to GitHub and GitLab."
-      assert length(Regex.scan(~r/Does SSH work\?/, html)) == 1
+
+      # S5 note: the question's text also rides the FAQPage JSON-LD, so
+      # count the rendered rows — exactly one summary carries it.
+      assert length(Regex.scan(~r/<summary[^>]*>.*?Does SSH work\?/s, html)) == 1
+
       assert html =~ "No. Git runs over HTTPS only on every instance."
     end
 
@@ -918,6 +952,48 @@ defmodule FluxValeWeb.CatalogControllerTest do
       assert forgejo =~ "An alternative to GitHub and GitLab."
     end
 
+    # #611 S5: the structured data is derived per seeded app too. Both
+    # payloads decode on every catalog page, and the FAQPage mirrors the
+    # rendered questions AND answers in order — Docmost and Umami
+    # included by derivation, never a hardcoded list.
+    test "every seeded app emits decodable app and FAQ JSON-LD", %{conn: conn} do
+      assert :ok == Seeds.seed_pricing!()
+      assert :ok == Seeds.seed_catalog!()
+
+      seeded =
+        for entry <- CatalogData.entries(),
+            app <- entry.apps do
+          app.slug
+        end
+
+      assert "docmost" in seeded
+      assert "umami" in seeded
+
+      for slug <- seeded do
+        html = html_response(get(conn, ~p"/catalog/#{slug}"), 200)
+
+        assert [_app_match, app_encoded] = Regex.run(~r/id="ld-json-app">(.*?)<\/script>/s, html)
+        assert [_faq_match, faq_encoded] = Regex.run(~r/id="ld-json-faq">(.*?)<\/script>/s, html)
+
+        app_data = Jason.decode!(app_encoded)
+        assert app_data["@type"] == "SoftwareApplication"
+        assert app_data["url"] == "https://fluxvale.com/catalog/#{slug}"
+
+        faq_data = Jason.decode!(faq_encoded)
+        assert faq_data["@type"] == "FAQPage"
+        assert is_list(faq_data["mainEntity"])
+        assert faq_data["mainEntity"] != []
+
+        # The mirror, not just non-emptiness: the JSON names and answers
+        # are the rendered rows, same order, escaped the same way.
+        names = Enum.map(faq_data["mainEntity"], & &1["name"])
+        answers = Enum.map(faq_data["mainEntity"], & &1["acceptedAnswer"]["text"])
+
+        assert Enum.map(names, &html_escape/1) == visible_faq_questions(html)
+        assert Enum.map(answers, &html_escape/1) == visible_faq_answers(html)
+      end
+    end
+
     test "meta: branded title, description, canonical, and the JSON-LD payload", %{conn: conn} do
       app = catalog_app!()
 
@@ -939,9 +1015,327 @@ defmodule FluxValeWeb.CatalogControllerTest do
       assert data["@context"] == "https://schema.org"
       assert data["@type"] == "SoftwareApplication"
       assert data["name"] == app.name
+      # No authored description, so the ladder falls to the tagline.
       assert data["description"] == app.tagline
       assert data["url"] == "https://fluxvale.com/catalog/#{app.slug}"
       assert data["operatingSystem"] == "Web"
+
+      # S5: the versionless, curation-less app omits every optional key
+      # outright — a null or empty value would be an ungrounded claim.
+      refute Map.has_key?(data, "offers")
+      refute Map.has_key?(data, "screenshot")
+      refute Map.has_key?(data, "featureList")
+    end
+
+    # #611 S5 (plan §9): the optional keys appear only when the page
+    # grounds them — the offer off the pricing card's rate seam, the
+    # screenshots as absolute URLs, the features as titles.
+    test "the SoftwareApplication JSON-LD carries the offer, screenshots, and feature list", %{
+      conn: conn
+    } do
+      version = InstanceFixtures.app_version!(monthly_cents: 335)
+      app_row = Ash.load!(version, [app: :category], authorize?: false).app
+
+      app =
+        App.update!(
+          app_row,
+          %{
+            description:
+              "A git forge with issues and pull requests.\n\nSecond paragraph, not for the snippet.",
+            screenshots: [
+              %{
+                src: "/images/catalog/#{app_row.slug}/repository-list.webp",
+                alt: "The repository list inside a running instance"
+              },
+              %{src: "/images/catalog/#{app_row.slug}/settings.webp", alt: "The settings page"}
+            ],
+            features: [
+              %{
+                icon: "hero-archive-box",
+                title: "Repositories",
+                body: "Host your git repositories with mirrors and protected tags."
+              },
+              %{
+                icon: "hero-arrow-path",
+                title: "Pull requests",
+                body: "Review changes line by line and merge them when ready."
+              }
+            ]
+          },
+          authorize?: false
+        )
+
+      html = html_response(get(conn, ~p"/catalog/#{app.slug}"), 200)
+
+      assert [_match, encoded] = Regex.run(~r/id="ld-json-app">(.*?)<\/script>/s, html)
+      data = Jason.decode!(encoded)
+
+      # First paragraph only (blank-line split, trimmed): the snippet a
+      # crawler quotes is the hero's lead prose.
+      assert data["description"] == "A git forge with issues and pull requests."
+
+      # The offer equals the pricing card's figure: version_rates on the
+      # newest version, priced once. The card's mono rate is the figure
+      # alone inside its own element — scoped so the FAQ cost answer
+      # (the same figure mid-sentence) cannot satisfy the tie.
+      loaded = Ash.load!(version, :recommended_size, authorize?: false)
+      rates = Pricing.version_rates(loaded)
+      assert rates.monthly_cents == 335
+
+      card_rate = "#{Pricing.format_usd(rates.monthly_cents)}/mo"
+
+      # Uniqueness, not just presence: the pricing card's rate <p> is
+      # the one and only element whose whole text is the bare figure.
+      assert length(Regex.scan(~r{>\s*#{Regex.escape(card_rate)}\s*<}, html)) == 1
+
+      assert data["offers"]["@type"] == "Offer"
+      assert data["offers"]["price"] == "3.35"
+      assert data["offers"]["priceCurrency"] == "USD"
+
+      # Absolute canonical URLs — the page-relative src is page-only.
+      assert data["screenshot"] == [
+               "https://fluxvale.com/images/catalog/#{app.slug}/repository-list.webp",
+               "https://fluxvale.com/images/catalog/#{app.slug}/settings.webp"
+             ]
+
+      # Titles only: icons and bodies are page furniture.
+      assert data["featureList"] == ["Repositories", "Pull requests"]
+    end
+
+    # The ladder's last rung: no description AND no tagline still ships
+    # a string — the catalog default — never a JSON null.
+    test "a description-less, tagline-less app falls back to the catalog description", %{
+      conn: conn
+    } do
+      app_row = catalog_app!()
+
+      app = App.update!(app_row, %{description: nil, tagline: nil}, authorize?: false)
+
+      assert is_nil(app.description)
+      assert is_nil(app.tagline)
+
+      html = html_response(get(conn, ~p"/catalog/#{app.slug}"), 200)
+
+      assert [_match, encoded] = Regex.run(~r/id="ld-json-app">(.*?)<\/script>/s, html)
+      data = Jason.decode!(encoded)
+
+      assert data["description"] ==
+               "A curated catalog of open source apps, ready to run in minutes."
+    end
+
+    # A whitespace-only description is the nil rung, not a paragraph:
+    # the ladder falls to the tagline instead of shipping "".
+    test "a whitespace-only description falls back to the tagline", %{conn: conn} do
+      app_row = catalog_app!()
+
+      App.update!(app_row, %{description: "  \n\n  "}, authorize?: false)
+
+      html = html_response(get(conn, ~p"/catalog/#{app_row.slug}"), 200)
+
+      assert [_match, encoded] = Regex.run(~r/id="ld-json-app">(.*?)<\/script>/s, html)
+      data = Jason.decode!(encoded)
+
+      assert data["description"] == app_row.tagline
+    end
+
+    # CRLF-authored descriptions (textarea input normalizes to \r\n)
+    # split on their blank lines the same way LF seed YAML does — the
+    # markup quotes the first paragraph, not the whole text with CRs
+    # riding along.
+    test "a CRLF description still yields its first paragraph", %{conn: conn} do
+      version = InstanceFixtures.app_version!()
+      app_row = Ash.load!(version, :app, authorize?: false).app
+
+      App.update!(
+        app_row,
+        %{description: "First paragraph.\r\n\r\nSecond paragraph, CRLF."},
+        authorize?: false
+      )
+
+      html = html_response(get(conn, ~p"/catalog/#{app_row.slug}"), 200)
+
+      assert [_match, encoded] = Regex.run(~r/id="ld-json-app">(.*?)<\/script>/s, html)
+      data = Jason.decode!(encoded)
+
+      assert data["description"] == "First paragraph."
+    end
+
+    # The over-split hazard the blank-line split invites: a wrapped
+    # single paragraph (one newline, no blank line) stays whole — the
+    # description is not line-split.
+    test "a wrapped single paragraph stays whole", %{conn: conn} do
+      version = InstanceFixtures.app_version!()
+      app_row = Ash.load!(version, :app, authorize?: false).app
+
+      App.update!(
+        app_row,
+        %{description: "First line of one paragraph.\nSecond line of the same paragraph."},
+        authorize?: false
+      )
+
+      html = html_response(get(conn, ~p"/catalog/#{app_row.slug}"), 200)
+
+      assert [_match, encoded] = Regex.run(~r/id="ld-json-app">(.*?)<\/script>/s, html)
+      data = Jason.decode!(encoded)
+
+      assert data["description"] ==
+               "First line of one paragraph.\nSecond line of the same paragraph."
+    end
+
+    # #611 S5 (plan §9): the FAQPage mirrors the FAQ the page renders —
+    # same items, same order, links and open-state left out. The
+    # comparison runs against the visible <summary> text extracted from
+    # the HTML, so markup and page cannot drift apart silently.
+    test "the FAQPage JSON-LD equals the visible FAQ questions in order", %{conn: conn} do
+      version =
+        InstanceFixtures.app_version!(
+          first_run: %{
+            pattern: :first_registered_user_admin,
+            env: %{},
+            forbidden_env: [],
+            guidance: "Open the URL and register the first account."
+          },
+          oidc_callback_path: "/signin-oidc"
+        )
+
+      app_row = Ash.load!(version, [app: :category], authorize?: false).app
+
+      app =
+        App.update!(
+          app_row,
+          %{
+            alternatives: ["GitHub", "GitLab"],
+            faq: [
+              %{
+                # The & exercises the entity arm: HEEx escapes the
+                # question text, so the comparison must escape the same
+                # way or equality fails on correct output.
+                question: "Does SSO & WebDAV work together?",
+                answer: "Yes. Both ride the instance page after deploy."
+              }
+            ]
+          },
+          authorize?: false
+        )
+
+      html = html_response(get(conn, ~p"/catalog/#{app.slug}"), 200)
+
+      assert [_match, encoded] = Regex.run(~r/id="ld-json-faq">(.*?)<\/script>/s, html)
+      data = Jason.decode!(encoded)
+
+      assert data["@context"] == "https://schema.org"
+      assert data["@type"] == "FAQPage"
+
+      # The FAQ rows are the page's only <summary> elements — scan them
+      # in document order and demand the markup matches exactly, with
+      # the JSON names escaped the same way the page escaped them. The
+      # /s keeps a newline inside an authored question capturable.
+      visible = visible_faq_questions(html)
+
+      names = Enum.map(data["mainEntity"], & &1["name"])
+      escaped_names = Enum.map(names, &html_escape/1)
+      assert escaped_names == visible
+
+      # The pairing too: each question's answer is the row under it, so
+      # a mispaired map cannot pass on names alone.
+      answers = Enum.map(data["mainEntity"], & &1["acceptedAnswer"]["text"])
+
+      assert Enum.map(answers, &html_escape/1) == visible_faq_answers(html)
+
+      # The rendered shape: setup column (guidance + the OIDC row), about
+      # column with the replace row, the app FAQ appended exactly once.
+      assert List.first(names) == "How do I set up #{app.name}?"
+      assert "Can I sign in with my Pocket ID?" in names
+
+      # D11's open answer is markup, not a page-only fact.
+      assert "Who owns the data I keep on FluxVale?" in names
+
+      assert Enum.count(names, &(&1 == "Does SSO & WebDAV work together?")) == 1
+
+      # Every question carries its answer as text.
+      for entity <- data["mainEntity"] do
+        assert entity["@type"] == "Question"
+        assert entity["acceptedAnswer"]["@type"] == "Answer"
+        assert is_binary(entity["acceptedAnswer"]["text"])
+        assert entity["acceptedAnswer"]["text"] != ""
+      end
+
+      ownership =
+        Enum.find(data["mainEntity"], &(&1["name"] == "Who owns the data I keep on FluxVale?"))
+
+      assert ownership["acceptedAnswer"]["text"] =~ "The platform takes no copies."
+    end
+
+    # A bare app (no versions, no curated content, no declarations)
+    # still ships the full platform FAQ set — the generated floor
+    # renders, so the markup never goes empty. Eight questions: five
+    # setup rows plus the three always-present about rows.
+    test "a bare app ships a non-empty FAQPage from the platform constants", %{conn: conn} do
+      app = catalog_app!()
+
+      html = html_response(get(conn, ~p"/catalog/#{app.slug}"), 200)
+
+      assert [_match, encoded] = Regex.run(~r/id="ld-json-faq">(.*?)<\/script>/s, html)
+      data = Jason.decode!(encoded)
+
+      assert data["@type"] == "FAQPage"
+      assert length(data["mainEntity"]) == 8
+
+      assert Enum.map(data["mainEntity"], & &1["name"]) == [
+               "How do I set up #{app.name}?",
+               "Do I need my own server or Docker?",
+               "What does #{app.name} cost?",
+               "Does it stop when nobody uses it?",
+               "How do I back it up?",
+               "Who owns the data I keep on FluxVale?",
+               "Can I export my data and leave?",
+               "Which region does it run in?"
+             ]
+    end
+
+    # The S5 breakout guard, both blocks: app-authored text (the
+    # description, FAQ answers) lands in JSON-LD — :html_safe encoding
+    # must keep a hostile </script> inside the JSON string, so neither
+    # script block ends early and both payloads still decode.
+    test "a </script> in app data cannot break out of either JSON-LD block", %{conn: conn} do
+      version = InstanceFixtures.app_version!()
+      app_row = Ash.load!(version, [app: :category], authorize?: false).app
+
+      hostile = "</script><script>alert(1)</script>"
+
+      App.update!(
+        app_row,
+        %{
+          description: "First paragraph #{hostile} inside.\n\nSecond paragraph.",
+          faq: [
+            %{
+              question: "Is the markup safe?",
+              answer: "Yes. The answer text #{hostile} stays inside the block."
+            }
+          ]
+        },
+        authorize?: false
+      )
+
+      html = html_response(get(conn, ~p"/catalog/#{app_row.slug}"), 200)
+
+      assert [_app_match, app_encoded] = Regex.run(~r/id="ld-json-app">(.*?)<\/script>/s, html)
+      assert [_faq_match, faq_encoded] = Regex.run(~r/id="ld-json-faq">(.*?)<\/script>/s, html)
+
+      # The invariant, not Jason's spelling: no literal "<" rides inside
+      # either payload, so no tag — let alone </script> — can start. The
+      # decode assertions below prove the text still round-trips as data.
+      refute app_encoded =~ "<"
+      refute faq_encoded =~ "<"
+
+      # Both payloads decode, and the hostile text round-trips as data.
+      app_data = Jason.decode!(app_encoded)
+      faq_data = Jason.decode!(faq_encoded)
+
+      assert app_data["description"] == "First paragraph #{hostile} inside."
+
+      safe = Enum.find(faq_data["mainEntity"], &(&1["name"] == "Is the markup safe?"))
+      assert safe["acceptedAnswer"]["text"] =~ hostile
     end
 
     test "an unknown slug is a real 404 — crawlers get the truth", %{conn: conn} do
