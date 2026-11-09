@@ -52,14 +52,7 @@ defmodule FluxVale.Infrastructure.Operations.DisconnectPocketId do
          {:ok, key} <- UsePocketIdKey.call(custody, "client_delete", actor: actor) do
       client_deleted = client_delete(pocket_id, key, wiring)
 
-      case strip_env(app_instance, recipe) do
-        :ok ->
-          clear_wiring(wiring)
-          {:ok, %{client_deleted: client_deleted}}
-
-        {:error, _reason} = error ->
-          error
-      end
+      strip_and_clear(app_instance, recipe, wiring, client_deleted)
     end
     |> maybe_clear_gone_wiring(instance_id)
   end
@@ -71,10 +64,8 @@ defmodule FluxVale.Infrastructure.Operations.DisconnectPocketId do
   # PocketID ever returns, is PocketID-admin-visible and deletable.
   defp maybe_clear_gone_wiring({:error, :pocket_id_gone}, instance_id) do
     with {:ok, wiring} <- wiring(instance_id),
-         {:ok, recipe, app_instance} <- recipe_for(instance_id),
-         :ok <- strip_env(app_instance, recipe) do
-      clear_wiring(wiring)
-      {:ok, %{client_deleted: false}}
+         {:ok, recipe, app_instance} <- recipe_for(instance_id) do
+      strip_and_clear(app_instance, recipe, wiring, false)
     end
   end
 
@@ -144,10 +135,13 @@ defmodule FluxVale.Infrastructure.Operations.DisconnectPocketId do
     end
   end
 
-  # The strip, both surfaces: the ROW's env (the merge funnel, given
-  # the dropped map — only the recipe's keys move) and the RUNNING
-  # workload (the apply primitive carrying the removal).
-  defp strip_env(app_instance, recipe) do
+  # The strip + clear, atomically on the row: the instance row is
+  # locked, the env stripped, and the wiring row destroyed INSIDE one
+  # transaction — a concurrent retrofit (whose record takes the same
+  # instance-row lock) serializes against this, so the clear can
+  # never destroy a stale row under a fresh wiring (record/6's
+  # guard-under-lock discipline, applied to the teardown side).
+  defp strip_and_clear(app_instance, recipe, wiring, client_deleted) do
     recipe_keys =
       maybe_prepend(
         [recipe.issuer_env, recipe.client_id_env, recipe.client_secret_env],
@@ -165,15 +159,23 @@ defmodule FluxVale.Infrastructure.Operations.DisconnectPocketId do
           |> Ash.update(return_notifications?: true)
 
         case write do
-          {:ok, _env, notifications} -> notifications
-          {:error, reason} -> Repo.rollback(reason)
+          {:ok, _env, notifications} ->
+            PocketIdWiring.replace(wiring, authorize?: false)
+            notifications
+
+          {:error, reason} ->
+            Repo.rollback(reason)
         end
       end)
 
     case result do
       {:ok, notifications} ->
         Ash.Notifier.notify(notifications)
-        apply_strip(app_instance, recipe_keys)
+
+        case apply_strip(app_instance, recipe_keys) do
+          :ok -> {:ok, %{client_deleted: client_deleted}}
+          {:error, _reason} = error -> error
+        end
 
       {:error, _reason} = error ->
         error
@@ -198,10 +200,6 @@ defmodule FluxVale.Infrastructure.Operations.DisconnectPocketId do
     |> Ash.Query.filter(id == ^instance_id)
     |> Ash.Query.lock(:for_update)
     |> Ash.read_one!(authorize?: false)
-  end
-
-  defp clear_wiring(wiring) do
-    PocketIdWiring.replace(wiring, authorize?: false)
   end
 
   defp base_url(%Instance{slug: slug}) do

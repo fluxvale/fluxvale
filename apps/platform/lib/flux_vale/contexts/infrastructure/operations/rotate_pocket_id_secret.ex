@@ -14,6 +14,15 @@ defmodule FluxVale.Infrastructure.Operations.RotatePocketIdSecret do
   secret in PocketID (visible, deletable there) and the rotation
   still COMPLETE — logged, answered `:ok`.
 
+  Honest limit on "zero-downtime": it holds for the SECRET PAIR
+  (PocketID never sees both sides invalid) and for every pod that has
+  cycled onto the new value. The rolling restart returns on patch
+  acceptance, not rollout completion — pods still serving on the old
+  value 401 their OIDC exchanges after the old secret dies, until the
+  rollout cycles them (a stalled rollout leaves that window open; the
+  re-deploy/retry converges). A rollout-readiness gate before step 3
+  is the follow-up if the window bites in practice.
+
   Failure posture mirrors the wiring op (D3-adjacent): every refusal
   is a visible, retryable answer; a failed apply (step 2) leaves the
   OLD secret fully live — the rotation simply hasn't happened.

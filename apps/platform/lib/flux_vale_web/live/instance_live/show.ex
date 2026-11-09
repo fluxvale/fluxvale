@@ -646,6 +646,7 @@ defmodule FluxValeWeb.InstanceLive.Show do
                       size="sm"
                       variant="ghost"
                       phx-click="pocketid-disconnect"
+                      phx-disable-with="Disconnecting…"
                       data-confirm="Disconnect Pocket ID sign-in? This app keeps its own login; the Pocket ID client is deleted. Redoing the wiring later creates a fresh client."
                       data-testid="pocketid-disconnect"
                     >
@@ -678,7 +679,12 @@ defmodule FluxValeWeb.InstanceLive.Show do
                           options={pocketid_options(@pocketid_choices)}
                         />
                       </div>
-                      <input type="hidden" name="pocket_id_instance_id" value={@pocketid_pick} />
+                      <input
+                        :if={length(@pocketid_choices) < 2}
+                        type="hidden"
+                        name="pocket_id_instance_id"
+                        value={@pocketid_pick}
+                      />
                       <.button size="sm" phx-disable-with="Wiring…" data-testid="pocketid-connect">
                         Connect Pocket ID
                       </.button>
@@ -694,6 +700,7 @@ defmodule FluxValeWeb.InstanceLive.Show do
                       size="sm"
                       variant="ghost"
                       phx-click="pocketid-disconnect"
+                      phx-disable-with="Clearing…"
                       data-testid="pocketid-clear-wiring"
                     >
                       Clear wiring
@@ -1907,15 +1914,23 @@ defmodule FluxValeWeb.InstanceLive.Show do
   end
 
   def handle_event("pocketid-disconnect", _params, socket) do
+    gone_before? = socket.assigns.pocketid_sso_state == :pocket_id_gone
+
     case Infrastructure.disconnect_pocket_id(socket.assigns.instance,
            actor: socket.assigns.current_user
          ) do
       {:ok, %{client_deleted: deleted?}} ->
         flash =
-          if deleted?,
-            do: "Pocket ID sign-in disconnected.",
-            else:
+          cond do
+            gone_before? ->
+              "Wiring cleared."
+
+            deleted? ->
+              "Pocket ID sign-in disconnected."
+
+            true ->
               "Pocket ID sign-in disconnected. The client remains in your Pocket ID — delete it there."
+          end
 
         {:noreply,
          socket
@@ -2129,21 +2144,15 @@ defmodule FluxValeWeb.InstanceLive.Show do
   end
 
   # Post-action ground truth: the wiring, the choices, the state — the
-  # same reads the mount assign rides, against the CURRENT row.
+  # SAME derivation the mount assign rides (sso_card_state; the
+  # duplication that diverged once already).
   defp reload_sso_card(socket) do
     instance = socket.assigns.instance
     user = socket.assigns.current_user
 
     wiring = find_pocketid_wiring(instance.id, user)
     pocket_ids = ready_pocket_ids(instance.organization_id, user)
-
-    state =
-      cond do
-        is_map(wiring) and pocket_id_gone?(wiring, pocket_ids) -> :pocket_id_gone
-        is_map(wiring) -> :wired
-        pocket_ids != [] -> :connect
-        true -> :hidden
-      end
+    state = sso_card_state(wiring, pocket_ids, not is_nil(instance.namespace))
 
     assign(socket,
       pocketid_sso_state: state,
@@ -2516,8 +2525,8 @@ defmodule FluxValeWeb.InstanceLive.Show do
     if deployed? and pocket_ids != [], do: :connect, else: :hidden
   end
 
-  defp sso_card_state(wiring, pocket_ids, _deployed?) do
-    if pocket_id_gone?(wiring, pocket_ids), do: :pocket_id_gone, else: :wired
+  defp sso_card_state(wiring, _pocket_ids, _deployed?) do
+    if pocket_id_gone?(wiring), do: :pocket_id_gone, else: :wired
   end
 
   defp find_pocketid_wiring(instance_id, user) do
@@ -2528,7 +2537,8 @@ defmodule FluxValeWeb.InstanceLive.Show do
   end
 
   # The org's ACTIVE PocketIDs (S3's detection read) that also hold
-  # custody — the same readiness the wizard's offer demands.
+  # custody — the same readiness the wizard's offer demands. The
+  # CONNECT offer's candidate set only.
   defp ready_pocket_ids(organization_id, user) do
     active = Instance.list_active_pocket_ids_for_organization!(organization_id, actor: user)
 
@@ -2540,10 +2550,13 @@ defmodule FluxValeWeb.InstanceLive.Show do
   defp pick_id([%Instance{} = newest | _rest]), do: newest.id
   defp pick_id([]), do: nil
 
-  # The wiring's PocketID row is gone (destroyed while wirings live —
-  # §6's row): the card's clear-wiring shape, not the confirmation.
-  defp pocket_id_gone?(wiring, pocket_ids) do
-    not Enum.any?(pocket_ids, &(&1.id == wiring.pocket_id_instance_id))
+  # §6's question is EXISTENCE, not offer-readiness: a wiring whose
+  # PocketID row still stands is live sign-in even when custody was
+  # revoked or the PocketID went private — those affect the NEXT
+  # connect, not the standing wiring (the ops keep the same split:
+  # :no_custody vs :pocket_id_gone).
+  defp pocket_id_gone?(wiring) do
+    match?({:error, _gone}, Ash.get(Instance, wiring.pocket_id_instance_id, authorize?: false))
   end
 
   defp fresh_key_form, do: to_form(%{"api_key" => ""}, as: :pocketid_key)

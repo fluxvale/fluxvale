@@ -154,11 +154,18 @@ defmodule FluxVale.Infrastructure.Operations.ConnectPocketId do
   # lag on failure — the card's retry converges (idempotent upsert +
   # re-roll).
   defp apply_after_record({:ok, wiring}, app_instance, recipe, issuer, client) do
-    fresh = Ash.reload!(app_instance, authorize?: false)
+    # Non-bang: the row can die between commit and here (teardown
+    # serialized past the txn's lock and destroyed it) — an error
+    # tuple, never a crash in the caller's LiveView.
+    case Ash.reload(app_instance, authorize?: false) do
+      {:ok, fresh} ->
+        case ApplyPocketIdEnv.apply_to_running(fresh, sso_env(recipe, issuer, client)) do
+          :ok -> {:ok, wiring}
+          {:error, _apply_reason} = error -> error
+        end
 
-    case ApplyPocketIdEnv.apply_to_running(fresh, sso_env(recipe, issuer, client)) do
-      :ok -> {:ok, wiring}
-      {:error, _apply_reason} = error -> error
+      {:error, _gone} ->
+        {:error, :instance_gone}
     end
   end
 
