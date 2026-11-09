@@ -81,6 +81,7 @@ defmodule FluxValeWeb.PolicyControllerTest do
       assert flat =~ "You may sign in with a Google account"
       assert flat =~ "Keeping that Google account secure is your responsibility"
       assert flat =~ "email-code sign-in remains available"
+      assert flat =~ "to the email addresses you have verified with us"
 
       # Post-termination data stays non-committal — no committed window.
       assert html =~ "We may delete your data after termination"
@@ -191,8 +192,10 @@ defmodule FluxValeWeb.PolicyControllerTest do
       assert flat =~ "confirms that Google has verified it"
       assert flat =~ "We ask for nothing else"
       assert flat =~ "we do not send Google any data about you"
-      assert flat =~ "store no Google profile"
+      assert flat =~ "Nothing from your Google account is stored here"
+      assert flat =~ "No profile, no name, no picture"
       assert flat =~ "Google is an identity provider for sign-in"
+      assert flat =~ "Google's privacy policy"
       assert flat =~ "email-code sign-in keeps working"
 
       # Email is transactional only; codes are hashed, single use, and
