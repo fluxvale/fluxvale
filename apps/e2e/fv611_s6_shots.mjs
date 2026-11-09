@@ -57,6 +57,16 @@ for (const vp of viewports) {
     }, scheme);
     await page.waitForTimeout(400);
 
+    // The session POST leaves a "Signed in" flash on the first render —
+    // the page, not the toast, is the capture.
+    for (const kind of ["info", "error"]) {
+      const close = page.locator(`#flash-${kind} button[aria-label='close']`);
+      if (await close.count()) {
+        await close.click();
+        await page.locator(`#flash-${kind}`).waitFor({ state: "detached" });
+      }
+    }
+
     const h1 = await page.locator("h1").first().innerText();
     if (!/hosting$/.test(h1)) {
       console.error(`unexpected H1 on /apps/forgejo: ${h1}`);
