@@ -209,6 +209,35 @@ defmodule FluxValeWeb.InstanceLive.PocketIdSsoCardTest do
     assert wiring.pocket_id_client_id == "pid-1"
   end
 
+  # The select's pick must win over the hidden default (Plug takes the
+  # LAST duplicate param) — the multi-PocketID regression pin.
+  test "connect with several PocketIDs wires the SELECTED one, not the default", %{
+    conn: conn,
+    owner: owner
+  } do
+    flag_on!()
+    pid_version = pocket_id_version!()
+    # Created in order: the SECOND is the newest-deployed = the default
+    # pick; the user selects the FIRST.
+    first = pocket_id!(pid_version, owner, "pid-first")
+    _second = pocket_id!(pid_version, owner, "pid-second")
+    green_wiring!(first)
+    app = app!(owner)
+
+    {:ok, view, _html} = live(conn, ~p"/instances/#{app.id}")
+
+    assert has_element?(view, "select")
+
+    view
+    |> form("#pocketid-connect-form",
+      pocket_id_instance_id: first.id
+    )
+    |> render_submit()
+
+    assert {:ok, wiring} = PocketIdWiring.get_by_instance(app.id, actor: owner)
+    assert wiring.pocket_id_instance_id == first.id
+  end
+
   test "a refused connect renders in place, never a crash", %{conn: conn, owner: owner} do
     flag_on!()
     pid_version = pocket_id_version!()
@@ -318,6 +347,28 @@ defmodule FluxValeWeb.InstanceLive.PocketIdSsoCardTest do
     assert html =~ "gone"
   end
 
+  # Existence vs offer-readiness (§6's question is the ROW): revoking
+  # custody makes the PocketID non-OFFERABLE but does not unwire the
+  # standing wiring — the card stays truthful (WIRED), not gone.
+  test "revoked custody keeps a live wiring WIRED — gone means the row died", %{
+    conn: conn,
+    owner: owner
+  } do
+    flag_on!()
+    pid_version = pocket_id_version!()
+    pocket_id = pocket_id!(pid_version, owner, "pid")
+    app = app!(owner)
+    wire!(app, pocket_id)
+
+    row = PocketIdCustody.get_by_instance!(pocket_id.id, authorize?: false)
+    PocketIdCustody.revoke!(row, authorize?: false)
+
+    {:ok, view, _html} = live(conn, ~p"/instances/#{app.id}")
+
+    assert has_element?(view, "[data-testid=pocketid-sso-wired]")
+    refute has_element?(view, "[data-testid=pocketid-sso-gone]")
+  end
+
   test "clearing a gone wiring restores the connect shape", %{conn: conn, owner: owner} do
     flag_on!()
     pid_version = pocket_id_version!()
@@ -335,10 +386,13 @@ defmodule FluxValeWeb.InstanceLive.PocketIdSsoCardTest do
 
     {:ok, view, _html} = live(conn, ~p"/instances/#{app.id}")
 
-    view
-    |> element("[data-testid=pocketid-clear-wiring]")
-    |> render_click()
+    html =
+      view
+      |> element("[data-testid=pocketid-clear-wiring]")
+      |> render_click()
 
+    # The gone-arm flash words ITS verb, not the client-delete notice.
+    assert html =~ "Wiring cleared"
     assert has_element?(view, "[data-testid=pocketid-sso-connect-copy]")
     assert {:error, _none} = PocketIdWiring.get_by_instance(app.id, actor: owner)
   end

@@ -25,9 +25,12 @@ defmodule FluxVale.Infrastructure.PocketIdWiring do
   Posture follows PocketIdCustody exactly: members read (the S5
   card), the system operation funnels every write (`authorize?:
   false` — the op's own authorization already decided). Immutable by
-  construction: no update action, `wired_at` is the create timestamp
-  (a re-wire writes a fresh row), no `update_timestamp` — history
-  with an edit button is not history.
+  construction except ONE carve-out: `rotate_secret` (S5) moves
+  `pocket_id_secret_id` to the new secret after the workload carries
+  it — a field describing the live secret, not the wiring's history
+  (which PocketID, which client, when — those stay write-once).
+  `wired_at` is the create timestamp (a re-wire writes a fresh row),
+  no `update_timestamp` — history with an edit button is not history.
   """
 
   use Ash.Resource,

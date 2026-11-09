@@ -65,9 +65,13 @@ defmodule FluxVale.Infrastructure.Operations.ApplyPocketIdEnv do
 
   defp deployed_namespace(%Instance{}), do: {:error, :not_deployed}
 
-  # The Secret the deployer wrote: read-merge-write so ONLY the recipe's
-  # keys move (the map merge above) — concurrent unrelated keys ride
-  # through SSA's field-level ownership untouched.
+  # The Secret the deployer wrote: read-merge-write so ONLY the given
+  # keys move IN THIS CALL'S MAP. Honest limit: every writer here uses
+  # the same SSA field manager, so a re-deploy writing the Secret
+  # between the read and the upsert has its keys reverted to this
+  # call's snapshot until its next write — the same stale-but-working,
+  # converge-on-retry posture a failed roll leaves (not the cross-
+  # manager immunity SSA implies).
   defp read_env(kubeconfig, namespace) do
     case Secret.get_data(kubeconfig, namespace, @env_secret) do
       {:ok, data} when is_map(data) -> {:ok, data}
