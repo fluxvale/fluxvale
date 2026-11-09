@@ -393,6 +393,112 @@ defmodule FluxVale.Seeds.CatalogSeedTest do
       assert contract.guidance =~ "first account becomes the host"
     end
 
+    test "seeds the shipped Vikunja entry and its no-contract posture (#610)" do
+      assert :ok == Seeds.seed_pricing!()
+      assert :ok == Seeds.seed_catalog!()
+
+      app = App.get_by_slug!("vikunja", authorize?: false)
+      assert app.category_id == Category.get_by_slug!("productivity", authorize?: false).id
+      assert app.source_url == "https://github.com/go-vikunja/vikunja"
+      # Attachments ride the app's own API — no file-access sidecar.
+      assert app.file_access == false
+
+      version =
+        "vikunja"
+        |> App.get_by_slug!(authorize?: false)
+        |> Ash.load!([app_versions: :recommended_size], authorize?: false)
+        |> Map.fetch!(:app_versions)
+        |> hd()
+
+      assert version.version == "2.8.0"
+      # The canonical upstream image (its own release pipeline pushes
+      # GHCR), not a mirror.
+      assert version.image == "ghcr.io/go-vikunja/vikunja:2.8.0"
+      assert version.port == 3456
+      # `GET /health` answers 200 "OK" unauthenticated (verified from
+      # the running 2.8.0 image).
+      assert version.healthcheck_path == "/health"
+      # Single-volume shape: the image presets /db/vikunja.db, so the
+      # PVC lands at /db with attachments redirected under it.
+      assert version.storage_mount_path == "/db"
+      assert version.default_env_vars == %{"VIKUNJA_FILES_BASEPATH" => "/db/files"}
+      # CORS requires service.publicurl (the ROOT_URL pattern).
+      assert version.instance_url_env == "VIKUNJA_SERVICE_PUBLICURL"
+      assert version.oidc_callback_path == "/auth/openid/pocketid"
+      # The compute class kept equal to `micro` by
+      # ValidateSizeMatchesAllocation (the seed would refuse a drift).
+      assert Decimal.equal?(version.default_cpu_cores, Decimal.new("0.25"))
+      assert version.default_memory_mb == 512
+      assert version.default_storage_gb == 5
+      assert version.recommended_size.slug == "micro"
+
+      # #610: NO first-run contract — the first registrant is not the
+      # admin and every admin-grant path is Pro-gated (verified from
+      # the running image: JWT is_admin false), so none of the three
+      # known patterns names it. The registration-open posture rides
+      # the caveats copy.
+      assert version.first_run == nil
+
+      # #610 gate, from DB rows: the registration toggle must not
+      # appear in any shipped layer, any casing (downcase-compared) —
+      # setting it false bricks a fresh instance with no admin to
+      # undo it.
+      layer_keys =
+        Map.keys(version.default_env_vars) ++
+          Map.keys(version.configurable_env_vars)
+
+      refute Enum.any?(
+               layer_keys,
+               &(String.downcase(&1) == "vikunja_service_enableregistration")
+             )
+
+      # The session secret casts through the typed schema (optional,
+      # secret-shaped — upstream mints a fresh one per boot when
+      # unset, which signs everyone out on every restart).
+      secret = version.configurable_env_vars["VIKUNJA_SERVICE_SECRET"]
+      assert %EnvVarSpec{} = secret
+      assert secret.type == :string
+      assert secret.secret == true
+      assert secret.required == false
+
+      # #511: the discrete Pocket ID provider envs cast through the
+      # typed schema — the toggle defaults off, the display name
+      # carries its default, the client secret rides as a secret.
+      enabled = version.configurable_env_vars["VIKUNJA_AUTH_OPENID_ENABLED"]
+      assert %EnvVarSpec{} = enabled
+      assert enabled.type == :boolean
+      assert enabled.default == false
+
+      name = version.configurable_env_vars["VIKUNJA_AUTH_OPENID_PROVIDERS_POCKETID_NAME"]
+      assert %EnvVarSpec{} = name
+      assert name.default == "Pocket ID"
+
+      client_secret =
+        version.configurable_env_vars["VIKUNJA_AUTH_OPENID_PROVIDERS_POCKETID_CLIENTSECRET"]
+
+      assert %EnvVarSpec{} = client_secret
+      assert client_secret.secret == true
+
+      # #597: the recipe lands typed on the row — presence = this
+      # version offers automatic Pocket ID wiring, names ⊆ the inputs
+      # above (ValidateOidcWiringEnv enforced it). pkce false, unlike
+      # Vaultwarden: the minted Pocket ID client must be created with
+      # PKCE off (verified at v2.8.0 — no code_challenge in Vikunja's
+      # OpenID client).
+      assert %OidcWiring{} = version.oidc_wiring
+      assert version.oidc_wiring.kind == :env
+      assert version.oidc_wiring.issuer_env == "VIKUNJA_AUTH_OPENID_PROVIDERS_POCKETID_AUTHURL"
+
+      assert version.oidc_wiring.client_id_env ==
+               "VIKUNJA_AUTH_OPENID_PROVIDERS_POCKETID_CLIENTID"
+
+      assert version.oidc_wiring.client_secret_env ==
+               "VIKUNJA_AUTH_OPENID_PROVIDERS_POCKETID_CLIENTSECRET"
+
+      assert version.oidc_wiring.enabled_env == "VIKUNJA_AUTH_OPENID_ENABLED"
+      assert version.oidc_wiring.pkce == false
+    end
+
     test "seeds the shipped Umami entry and its first-run contract (#576)" do
       assert :ok == Seeds.seed_pricing!()
       assert :ok == Seeds.seed_catalog!()
@@ -456,7 +562,7 @@ defmodule FluxVale.Seeds.CatalogSeedTest do
       assert contract.guidance =~ "username admin and password umami"
     end
 
-    test "seeds the OIDC callback paths for the five consumers (#511)" do
+    test "seeds the OIDC callback paths for the six consumers (#511)" do
       assert :ok == Seeds.seed_pricing!()
       assert :ok == Seeds.seed_catalog!()
 
@@ -468,6 +574,7 @@ defmodule FluxVale.Seeds.CatalogSeedTest do
         "vaultwarden" => "/identity/connect/oidc-signin",
         "actualbudget" => "/openid/callback",
         "memos" => "/auth/callback",
+        "vikunja" => "/auth/openid/pocketid",
         "pocket-id" => nil
       }
 
@@ -476,14 +583,17 @@ defmodule FluxVale.Seeds.CatalogSeedTest do
       end
     end
 
-    test "seeds the OIDC wiring recipe for Vaultwarden only (#597)" do
+    test "seeds the OIDC wiring recipe for Vaultwarden and Vikunja (#597)" do
       assert :ok == Seeds.seed_pricing!()
       assert :ok == Seeds.seed_catalog!()
 
-      # D4: v1 wires Vaultwarden end to end; every other app — Pocket
-      # ID included — carries no recipe (nil = no automatic wiring).
+      # D4: v1 wires Vaultwarden end to end; Vikunja joined as the
+      # second declared consumer (#610, pkce off — its OpenID client
+      # sends no code_challenge). Every other app — Pocket ID included
+      # — carries no recipe (nil = no automatic wiring).
       expected = %{
         "vaultwarden" => %{kind: :env, pkce: true},
+        "vikunja" => %{kind: :env, pkce: false},
         "forgejo" => nil,
         "kavita" => nil,
         "actualbudget" => nil,
@@ -557,11 +667,11 @@ defmodule FluxVale.Seeds.CatalogSeedTest do
 
     # #611 S1 retro-fill: every shipped app lands its curated fields,
     # and every category its audience line (plan §7.3, verbatim).
-    test "seeds the marketing retro-fill for all six apps (#611)" do
+    test "seeds the marketing retro-fill for all eight apps (#611)" do
       assert :ok == Seeds.seed_pricing!()
       assert :ok == Seeds.seed_catalog!()
 
-      for slug <- ~w(forgejo kavita memos vaultwarden pocket-id actualbudget) do
+      for slug <- ~w(forgejo kavita memos vaultwarden pocket-id actualbudget umami vikunja) do
         app = App.get_by_slug!(slug, authorize?: false)
         assert app.caveats != [], "#{slug} carries no caveats"
         assert length(app.caveats) <= 6
@@ -579,7 +689,7 @@ defmodule FluxVale.Seeds.CatalogSeedTest do
                "A fit for personal libraries and households that want their own media server."
 
       assert Category.get_by_slug!("productivity", authorize?: false).audience ==
-               "A fit for people who want their notes in one place, on their own terms."
+               "A fit for people who want their notes and tasks in one place, on their own terms."
 
       assert Category.get_by_slug!("security", authorize?: false).audience ==
                "A fit for anyone who would rather hold their own passwords and keys."

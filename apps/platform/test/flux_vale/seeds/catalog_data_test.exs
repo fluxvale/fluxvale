@@ -322,14 +322,16 @@ defmodule FluxVale.Seeds.CatalogDataTest do
     test "shipped catalog_data.yaml normalizes the Memos entry (#492)" do
       entry = entry_by_slug("productivity")
 
+      # #610 widened the category copy when Vikunja joined.
       assert entry.category == %{
                name: "Productivity",
                slug: "productivity",
-               description: "Notes and personal knowledge apps.",
-               audience: "A fit for people who want their notes in one place, on their own terms."
+               description: "Notes, tasks, and personal knowledge apps.",
+               audience:
+                 "A fit for people who want their notes and tasks in one place, on their own terms."
              }
 
-      assert [%{slug: "memos"} = app] = entry.apps
+      app = app_by_slug!([entry], "memos")
       assert app.name == "Memos"
       assert app.source_url == "https://github.com/usememos/memos"
       # A note stream ingests nothing from outside — the toggle ships off
@@ -362,6 +364,99 @@ defmodule FluxVale.Seeds.CatalogDataTest do
       assert version.first_run["env"] == %{}
       assert version.first_run["forbidden_env"] == []
       assert version.first_run["guidance"] =~ "first account becomes the host"
+    end
+
+    # #610 gate: registration must stay open on a fresh instance, and
+    # the registration toggle is the lockout footgun — setting it false
+    # at deploy bricks a fresh install with no admin to undo it (no
+    # OSS admin-grant path exists). The key must not appear in ANY env
+    # layer. Compared downcased, so any casing fails the pin.
+    test "Vikunja ships no ENABLEREGISTRATION in any packaging layer (#610)" do
+      version = vikunja_version()
+
+      assert version.first_run == nil
+
+      layer_keys =
+        Map.keys(version.default_env_vars) ++
+          Map.keys(version.configurable_env_vars)
+
+      refute Enum.any?(layer_keys, &enableregistration_key?/1)
+    end
+
+    test "shipped catalog_data.yaml normalizes the Vikunja entry (#610)" do
+      entry = entry_by_slug("productivity")
+
+      app = app_by_slug!([entry], "vikunja")
+      assert app.name == "Vikunja"
+      assert app.source_url == "https://github.com/go-vikunja/vikunja"
+      # Tasks and attachments move through the app's own API — no
+      # file-library use case, so the toggle ships off.
+      assert app.file_access == false
+
+      version = vikunja_version()
+      assert version.version == "2.8.0"
+      # The canonical upstream image (its own release pipeline pushes
+      # GHCR); ghcr and Docker Hub publish the same build (identical
+      # amd64 digest, verified 2026-11-08).
+      assert version.image == "ghcr.io/go-vikunja/vikunja:2.8.0"
+      assert version.port == 3456
+      # `GET /health` answers 200 "OK" unauthenticated (verified from
+      # the running 2.8.0 image).
+      assert version.healthcheck_path == "/health"
+      # The image presets the SQLite path /db/vikunja.db, so the PVC
+      # lands at /db with files redirected under it.
+      assert version.storage_mount_path == "/db"
+      assert version.default_env_vars == %{"VIKUNJA_FILES_BASEPATH" => "/db/files"}
+      # CORS builds its allowlist from service.publicurl — the deploy
+      # op fills the instance's public URL (the ROOT_URL pattern).
+      assert version.instance_url_env == "VIKUNJA_SERVICE_PUBLICURL"
+      # #511: the OIDC callback path — the provider key `pocketid` is
+      # pinned by the discrete env names, not the display-name input.
+      assert version.oidc_callback_path == "/auth/openid/pocketid"
+      assert Decimal.equal?(version.default_cpu_cores, Decimal.new("0.25"))
+      assert version.default_memory_mb == 512
+      assert version.default_storage_gb == 5
+      assert version.recommended_size == "micro"
+      assert version.published_at == ~U[2026-11-05 20:44:21Z]
+
+      # The session secret preserves sign-ins across restarts (the one
+      # non-SSO input, optional and secret-shaped).
+      secret = version.configurable_env_vars["VIKUNJA_SERVICE_SECRET"]
+      assert %{"type" => "string", "secret" => true} = secret
+      refute Map.has_key?(secret, "required")
+
+      # #511: the discrete Pocket ID provider envs, inert while the
+      # toggle stays false.
+      assert %{"type" => "boolean", "default" => false} =
+               version.configurable_env_vars["VIKUNJA_AUTH_OPENID_ENABLED"]
+
+      assert %{"type" => "string", "default" => "Pocket ID"} =
+               version.configurable_env_vars["VIKUNJA_AUTH_OPENID_PROVIDERS_POCKETID_NAME"]
+
+      assert %{"type" => "string", "secret" => true} =
+               version.configurable_env_vars[
+                 "VIKUNJA_AUTH_OPENID_PROVIDERS_POCKETID_CLIENTSECRET"
+               ]
+
+      # #597: the second declared wiring recipe — pkce FALSE, unlike
+      # Vaultwarden (Vikunja's OpenID client sends no code_challenge,
+      # verified at v2.8.0). Raw pass-through here; the seed test
+      # asserts the typed struct this becomes.
+      assert version.oidc_wiring == %{
+               "kind" => "env",
+               "issuer_env" => "VIKUNJA_AUTH_OPENID_PROVIDERS_POCKETID_AUTHURL",
+               "client_id_env" => "VIKUNJA_AUTH_OPENID_PROVIDERS_POCKETID_CLIENTID",
+               "client_secret_env" => "VIKUNJA_AUTH_OPENID_PROVIDERS_POCKETID_CLIENTSECRET",
+               "enabled_env" => "VIKUNJA_AUTH_OPENID_ENABLED",
+               "pkce" => false
+             }
+
+      # The honest copy: registration open, first registrant not
+      # admin, SQLite serialization — pinned so the facts can't drift.
+      caveats = Enum.join(app.caveats, " ")
+      assert caveats =~ "Sign-ups stay open"
+      assert caveats =~ "not the admin"
+      assert caveats =~ "SQLite"
     end
 
     test "shipped catalog_data.yaml normalizes the Umami entry (#576)" do
@@ -454,7 +549,7 @@ defmodule FluxVale.Seeds.CatalogDataTest do
                "media" =>
                  "A fit for personal libraries and households that want their own media server.",
                "productivity" =>
-                 "A fit for people who want their notes in one place, on their own terms.",
+                 "A fit for people who want their notes and tasks in one place, on their own terms.",
                "security" =>
                  "A fit for anyone who would rather hold their own passwords and keys.",
                "identity" => "A fit for households and teams that want one sign-in they control.",
@@ -482,6 +577,7 @@ defmodule FluxVale.Seeds.CatalogDataTest do
       assert app_by_slug!(entries, "vaultwarden").alternatives == ["Bitwarden", "1Password"]
       assert app_by_slug!(entries, "pocket-id").alternatives == ["Keycloak", "Auth0"]
       assert app_by_slug!(entries, "actualbudget").alternatives == ["YNAB", "Firefly III"]
+      assert app_by_slug!(entries, "vikunja").alternatives == ["Todoist", "Trello"]
 
       # S7 content, not S1: the typed lists stay absent on the shipped
       # entries ([]), the intros and community links nil.
@@ -820,6 +916,20 @@ defmodule FluxVale.Seeds.CatalogDataTest do
   # and friends all fail the pin (String.equivalent?/2 would not — it is
   # canonical equivalence, not case-folding).
   defp admin_token_key?(key), do: String.downcase(key) == "admin_token"
+
+  # The #610 gate check: downcase-compared, so
+  # `vikunja_service_enableregistration` in any casing fails the pin
+  # (String.equivalent?/2 would not — it is canonical equivalence, not
+  # case-folding).
+  defp enableregistration_key?(key) do
+    String.downcase(key) == "vikunja_service_enableregistration"
+  end
+
+  defp vikunja_version do
+    entry = entry_by_slug("productivity")
+    app = app_by_slug!([entry], "vikunja")
+    hd(app.versions)
+  end
 
   defp first_version([entry | _rest]) do
     entry

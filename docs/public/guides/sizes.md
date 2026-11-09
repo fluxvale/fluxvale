@@ -30,7 +30,7 @@ Resizing an app later happens on its instance page. CPU and memory go both up an
 
 Storage does not come bundled with a compute class. It is its own axis, priced per gigabyte per month, and every app version carries a default:
 
-- Small apps such as Vaultwarden, Pocket ID, and Memos default to 5 GB.
+- Small apps such as Vaultwarden, Pocket ID, Memos, and Vikunja default to 5 GB.
 - Larger apps such as Forgejo, Kavita, and ActualBudget default to 10 GB.
 
 Media libraries grow. If your Kavita collection is big, give the instance more storage at deploy time or resize up later. Storage can only grow.

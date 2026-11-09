@@ -760,9 +760,11 @@ defmodule FluxValeWeb.CatalogControllerTest do
         assert html =~ ~s(data-testid="deploy-cta")
       end
 
-      # S3: every seeded app also renders the four generated sections,
-      # and every seed category holds one app, so every page shows the
-      # browse card — the honest result, not a bug.
+      # S3: every seeded app also renders the four generated sections.
+      # The browse card is the under-two-peers fallback, and #610 put a
+      # second app in Productivity (its pairs reach one peer each),
+      # so every page still shows the card — the honest result, not a
+      # bug.
       for slug <- seeded do
         html = html_response(get(conn, ~p"/catalog/#{slug}"), 200)
 
@@ -773,9 +775,9 @@ defmodule FluxValeWeb.CatalogControllerTest do
         assert html =~ ~s(data-testid="browse-card")
       end
 
-      # The retro-filled six: the honest hero renders their curated
+      # The retro-filled apps: the honest hero renders their curated
       # slots.
-      for slug <- ~w(forgejo kavita memos vaultwarden pocket-id actualbudget) do
+      for slug <- ~w(forgejo kavita memos vaultwarden pocket-id actualbudget vikunja) do
         html = html_response(get(conn, ~p"/catalog/#{slug}"), 200)
 
         assert html =~ "Worth knowing"
@@ -802,6 +804,14 @@ defmodule FluxValeWeb.CatalogControllerTest do
       assert vaultwarden =~ "Sign in with your Pocket ID"
       assert vaultwarden =~ "Can I sign in with my Pocket ID?"
       assert vaultwarden =~ ~s(href="/docs/guides/sso")
+
+      # Vikunja (#610): the second recipe consumer — the badge reads
+      # the recipe's presence, pkce off or on.
+      vikunja = html_response(get(conn, ~p"/catalog/vikunja"), 200)
+      assert vikunja =~ "Sign in with your Pocket ID"
+      assert vikunja =~ "Can I sign in with my Pocket ID?"
+      assert vikunja =~ ~s(data-testid="check-sso")
+      assert vikunja =~ ~s(data-testid="fact-sso")
 
       # Forgejo's setup answer is its first-run guidance, and its
       # replace row carries the seeded alternatives.

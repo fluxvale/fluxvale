@@ -11,7 +11,7 @@ Pocket ID is the identity app in the catalog. Deploy it, claim it, add a passkey
 
 One identity, one passkey, across your apps. No password reuse, no per-app credential sprawl. Pocket ID speaks OpenID Connect, which most self-hosted apps understand natively.
 
-Five catalog apps consume it today: Forgejo, Kavita, Vaultwarden, ActualBudget, and Memos.
+Six catalog apps consume it today: Forgejo, Kavita, Vaultwarden, ActualBudget, Memos, and Vikunja.
 
 ## Deploy it first
 
@@ -23,7 +23,7 @@ Run it always-on. If the identity instance sleeps, the first sign-in after a wak
 
 Create one OIDC client per app in Pocket ID, then wire each app with its client ID and secret:
 
-- Some apps, such as Vaultwarden and ActualBudget, take the provider settings on the deploy form.
+- Some apps, such as Vaultwarden, ActualBudget, and Vikunja, take the provider settings on the deploy form.
 - Others, such as Forgejo, Kavita, and Memos, are configured inside the app after deploy.
 
 The full wiring walkthrough, with every app's callback path and the exact fields, lives in the [sign-in with Pocket ID guide](https://fluxvale.com/guides/sign-in-with-pocket-id).

@@ -65,14 +65,14 @@ defmodule FluxVale.Catalog.LintTest do
   end
 
   describe "report/1 (shipped seed data)" do
-    test "every shipped app sits at recommended (#611's tier, umami joined at #587)" do
+    test "every shipped app sits at recommended (#611's tier, umami joined at #587, vikunja at #610)" do
       lines = Lint.report(CatalogData.entries())
 
-      for slug <- ~w(forgejo kavita memos pocket-id vaultwarden actualbudget umami) do
+      for slug <- ~w(forgejo kavita memos pocket-id vaultwarden actualbudget umami vikunja) do
         assert "#{slug}: recommended (missing for full parity: community_url, faq, features, in_action_intro, screenshots)" in lines
       end
 
-      assert List.last(lines) == "7 apps: 0 minimum, 7 recommended, 0 full parity"
+      assert List.last(lines) == "8 apps: 0 minimum, 8 recommended, 0 full parity"
     end
   end
 

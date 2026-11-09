@@ -17,23 +17,24 @@
         to it.
       </p>
       <p class="text-sm text-ink-muted">
-        Five catalog apps consume it today: Forgejo, Kavita,
-        Vaultwarden, ActualBudget, and Memos. The first four speak
-        OpenID Connect natively. Memos connects through its Custom SSO
-        template with the endpoints entered by hand.
+        Six catalog apps consume it today: Forgejo, Kavita,
+        Vaultwarden, ActualBudget, Memos, and Vikunja. Five of them
+        speak OpenID Connect natively. Memos connects through its
+        Custom SSO template with the endpoints entered by hand.
       </p>
     </.card>
 
     <.card class="space-y-4">
       <h2 class="text-base font-medium text-ink">Deploy Pocket ID first</h2>
       <p class="text-sm text-ink-muted">
-        The order matters for two of the five. Vaultwarden and
-        ActualBudget read their provider settings from environment
-        inputs that the deploy form collects, so their Pocket ID
-        clients must exist before those apps deploy. An app that is
-        already running is wired by redeploying it with the values.
-        Forgejo, Kavita, and Memos are configured inside the app after
-        deploy, so their order is loose.
+        The order matters for three of the six. Vaultwarden,
+        ActualBudget, and Vikunja read their provider settings from
+        environment inputs that the deploy form collects, so their
+        Pocket ID clients must exist before those apps deploy. An app
+        that is already running is wired by
+        redeploying it with the values. Forgejo, Kavita, and Memos are
+        configured inside the app after deploy, so their order is
+        loose.
       </p>
       <p class="text-sm text-ink-muted">
         Keep the Pocket ID instance public. An app's server fetches
@@ -90,13 +91,17 @@
           <span class="font-medium text-ink">Memos</span>
           <span class="font-mono text-xs text-ink-muted">/auth/callback</span>
         </div>
+        <div class="flex flex-wrap items-baseline justify-between gap-x-4 rounded-lg bg-panel-raised px-3 py-2">
+          <span class="font-medium text-ink">Vikunja</span>
+          <span class="font-mono text-xs text-ink-muted">/auth/openid/pocketid</span>
+        </div>
       </div>
       <p class="text-sm text-ink-muted">
         Choose who may sign in under Allowed User Groups, or pick All
         Users. The client's page shows the client ID, the client
         secret, and the discovery URL. The secret is shown once, so
-        copy it when you create the client. For the Vaultwarden client,
-        turn on PKCE.
+        copy it when you create the client. For the Vaultwarden
+        client, turn on PKCE. For the Vikunja client, leave PKCE off.
       </p>
     </.card>
 
@@ -177,6 +182,26 @@
     </.card>
 
     <.card class="space-y-4">
+      <h2 class="text-base font-medium text-ink">Wire Vikunja</h2>
+      <p class="text-sm text-ink-muted">
+        Set the five Pocket ID inputs on the deploy form: enable Pocket ID
+        sign-in, the issuer URL, the client ID, the client secret, and
+        the provider display name if you want a different label. The
+        issuer URL is your Pocket ID instance's public URL with no
+        trailing slash. It must match exactly, because Vikunja fetches
+        its discovery document from that address.
+      </p>
+      <p class="text-sm text-ink-muted">
+        Vikunja sends no PKCE challenge, so the client you created with
+        PKCE off is the matching shape. The callback path stays
+        /auth/openid/pocketid whatever the display name says, because
+        the path comes from the settings the platform fills, not the
+        label. Username and password sign-in keeps working alongside
+        Pocket ID.
+      </p>
+    </.card>
+
+    <.card class="space-y-4">
       <h2 class="text-base font-medium text-ink">If Pocket ID goes down or away</h2>
       <p class="text-sm text-ink-muted">
         Connected apps degrade. They do not die. Already-signed-in
@@ -196,8 +221,9 @@
         local logins. Kavita's recovery is documented upstream. Remove
         the OIDC block and password login returns. Vaultwarden always
         keeps the master password. ActualBudget keeps the server
-        password unless you enforced OpenID. The platform's own sign-in
-        never depends on Pocket ID.
+        password unless you enforced OpenID. Vikunja keeps username and
+        password sign-in. The platform's own sign-in never depends on
+        Pocket ID.
       </p>
     </.card>
   </div>

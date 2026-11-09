@@ -756,8 +756,10 @@ jobs:
     # the new worst already carries congestion padding the old one
     # didn't. The waits themselves are unchanged. #587 added
     # umami-lifecycle (20m bounded) as the lifecycle leg's seventh
-    # spec: the leg's observed worst is 17.1m at #587's head (its
-    # cold pulls ride the warm-up), ≈ 30m under the ceiling.
+    # spec (the leg's observed worst is 17.1m at #587's head, its
+    # cold pulls ride the warm-up), and #610 added vikunja-lifecycle
+    # (20m bounded) as the eighth — a memos-shape SQLite-PVC deploy,
+    // ≈ 30m under the ceiling with one more spec of that shape.
     timeout-minutes: 60
     strategy:
       # A red leg must not cancel the others — its report is triage
@@ -779,9 +781,10 @@ jobs:
             # #556. apps/e2e/README.md warns exactly about this gap).
             # umami joined at birth (#576) — it deploys an instance
             # like its siblings and provisions a per-run CNPG database
-            # the way the backups leg reads MinIO.
-            specs: tests/forgejo-lifecycle.spec.ts tests/actual-lifecycle.spec.ts tests/vaultwarden-lifecycle.spec.ts tests/memos-lifecycle.spec.ts tests/pocket-id-lifecycle.spec.ts tests/umami-lifecycle.spec.ts tests/file-access.spec.ts tests/backups.spec.ts
-            warm_apps: forgejo actualbudget vaultwarden memos pocket-id kavita umami
+            # the way the backups leg reads MinIO. vikunja joined at
+            # birth too (#610) — a memos-shape SQLite deploy.
+            specs: tests/forgejo-lifecycle.spec.ts tests/actual-lifecycle.spec.ts tests/vaultwarden-lifecycle.spec.ts tests/memos-lifecycle.spec.ts tests/vikunja-lifecycle.spec.ts tests/pocket-id-lifecycle.spec.ts tests/umami-lifecycle.spec.ts tests/file-access.spec.ts tests/backups.spec.ts
+            warm_apps: forgejo actualbudget vaultwarden memos vikunja pocket-id kavita umami
           # #210 part 3: threshold 45s + probe window 150s are safe
           # HERE only — this leg's instance gets no traffic, so the
           # 30s beacon staleness that guards the other legs' 180s

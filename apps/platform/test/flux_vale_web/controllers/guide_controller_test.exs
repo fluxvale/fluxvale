@@ -20,8 +20,8 @@ defmodule FluxValeWeb.GuideControllerTest do
 
       # Deploy order: the env-configured apps need the client first.
       assert html =~ "Deploy Pocket ID first"
-      assert html =~ "Vaultwarden and"
-      assert html =~ "ActualBudget read their provider settings"
+      assert html =~ "Vaultwarden,"
+      assert html =~ "ActualBudget, and Vikunja read their provider settings"
       assert html =~ "redeploying it with the values"
 
       # The issuer must be reachable from app containers — keep it
@@ -53,7 +53,7 @@ defmodule FluxValeWeb.GuideControllerTest do
       assert flat =~ "the encryption key you chose at deploy"
     end
 
-    test "carries the five apps and their pinned callback paths", %{conn: conn} do
+    test "carries the six apps and their pinned callback paths", %{conn: conn} do
       conn = get(conn, ~p"/guides/sign-in-with-pocket-id")
       html = html_response(conn, 200)
 
@@ -62,6 +62,7 @@ defmodule FluxValeWeb.GuideControllerTest do
       assert html =~ "Vaultwarden"
       assert html =~ "ActualBudget"
       assert html =~ "Memos"
+      assert html =~ "Vikunja"
 
       # The same values the catalog seed pins (catalog_seed_test's
       # #511 test) — a doc that drifts from the data is a lie.
@@ -70,6 +71,7 @@ defmodule FluxValeWeb.GuideControllerTest do
       assert html =~ "/identity/connect/oidc-signin"
       assert html =~ "/openid/callback"
       assert html =~ "/auth/callback"
+      assert html =~ "/auth/openid/pocketid"
     end
 
     test "carries the honest per-app notes", %{conn: conn} do
@@ -94,6 +96,11 @@ defmodule FluxValeWeb.GuideControllerTest do
       assert flat =~ "becomes the server owner"
       # Memos: keep one admin password as the recovery path.
       assert flat =~ "Keep one admin password login as your recovery path"
+      # Vikunja: PKCE off (its client sends no challenge), the issuer
+      # with no trailing slash, and the display name is label-only.
+      assert flat =~ "For the Vikunja client, leave PKCE off"
+      assert flat =~ "public URL with no trailing slash. It must match exactly"
+      assert flat =~ "whatever the display name says"
       # The suite-wide posture: one local way in, platform sign-in
       # independent.
       assert flat =~ "Keep one local way in per app"
