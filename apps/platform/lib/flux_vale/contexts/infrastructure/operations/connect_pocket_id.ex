@@ -164,8 +164,14 @@ defmodule FluxVale.Infrastructure.Operations.ConnectPocketId do
           {:error, _apply_reason} = error -> error
         end
 
+      # coveralls-ignore-start - the teardown-race arm: the instance
+      # row died between the wiring transaction's commit and this
+      # read (teardown serialized past the lock and destroyed it) —
+      # the window ExUnit cannot stage deterministically (#86).
       {:error, _gone} ->
         {:error, :instance_gone}
+
+        # coveralls-ignore-stop
     end
   end
 

@@ -237,6 +237,33 @@ defmodule FluxVale.Infrastructure.Operations.RotatePocketIdSecretTest do
                Infrastructure.rotate_pocket_id_secret(wiring, actor: owner)
     end
 
+    test "a 403 at the secret create is the key_forbidden verdict", %{
+      wiring: wiring,
+      owner: owner
+    } do
+      stub(ApiClient, :create_secret, fn _u, _k, _c, _s -> {:error, :forbidden} end)
+
+      assert {:error, :key_forbidden} =
+               Infrastructure.rotate_pocket_id_secret(wiring, actor: owner)
+    end
+
+    test "a wiring whose app instance died is not_wired", %{
+      app: app,
+      pocket_id: pocket_id,
+      wiring: wiring,
+      owner: owner
+    } do
+      # The app row gone (the wiring would cascade in prod shape; here
+      # the harness row outlives for a beat): the rotation's honest
+      # refusal — nothing to rotate onto.
+      Ash.destroy!(app, authorize?: false)
+
+      assert {:error, :not_wired} =
+               Infrastructure.rotate_pocket_id_secret(wiring, actor: owner)
+
+      _ = pocket_id
+    end
+
     test "the guards: gone PocketID, undeployed", %{
       app: app,
       pocket_id: pocket_id,
