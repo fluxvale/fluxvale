@@ -493,6 +493,16 @@ metadata.
   and a 0.2.14 fix rides a normal pin bump. A 0.3.x-only fix
   revisits the pin with an AA upgrade. Exact-pin discipline makes
   that a deliberate diff.
+- **EEF-CVE-2026-117656 (assent, CRITICAL — evaluated and held Nov 9
+  2026):** the flaw is `Assent.Strategy.Apple` merging Apple's
+  unverified form_post `user` param over verified ID-token claims.
+  Not reachable in this app: the Google arm calls
+  `Assent.Strategy.OIDC` directly, and ash_authentication's Apple
+  strategy activates only via a declared `apple do` block no resource
+  declares. The 0.3.2 fix is outside AA 4.15.1's `< 0.3.0` constraint
+  — held at 0.2.13 with the evaluation recorded at the pin
+  (mix.exs); revisit trigger: an AA bump permitting assent ≥ 0.3.2,
+  or any Apple strategy adoption.
 - **Invitation-wall lift at public launch** — when the wall lifts,
   BOTH arms' admission must lift together (they mirror the
   `VerifyAuthCode` ladder — duplicated semantics, so the drift risk

@@ -3,7 +3,8 @@ defmodule FluxVale.Identity do
   Identity: users, platform roles, personal access tokens, and the
   revocable token store.
 
-  Passwordless email-code sign-in (#21) and PATs (#360 — mint via
+  Passwordless email-code sign-in (#21), Google sign-in on the same
+  admission ladder (#642), and PATs (#360 — mint via
   `mint_pat/3` with scopes, revoke via `revoke_pat/3`; the token
   store below backs sessions, `prune_expired_tokens/1` its janitor)
   build on this domain. Deliberately **not** exposed through AshAdmin
@@ -40,6 +41,12 @@ defmodule FluxVale.Identity do
     to: FluxVale.Identity.Operations.VerifyAuthCode,
     as: :call
 
+  # Google sign-in (#642): assent-verified claims in, the same
+  # admission ladder as the email arm — see the op for the failure atoms.
+  defdelegate sign_in_with_google(claims),
+    to: FluxVale.Identity.Operations.SignInWithGoogle,
+    as: :call
+
   # Invites (#502): inviting IS creating the User — a pre-provisioned
   # inert account plus a one-time accept link (the raw token exists
   # exactly once, in the {:ok, user, raw} return). See the ops for the
@@ -74,6 +81,12 @@ defmodule FluxVale.Identity do
   @doc "The signup-success telemetry event — VerifyAuthCode and AcceptInvitation fire it"
   @spec signup_event() :: [atom(), ...]
   def signup_event, do: [:flux_vale, :identity, :signup]
+
+  # The Google sign-in outcome counter (#642): the operation fires it
+  # on every return path, outcome-tagged (the signup_event posture).
+  @doc "The Google sign-in telemetry event — SignInWithGoogle fires it on every return path"
+  @spec google_sign_in_event() :: [atom(), ...]
+  def google_sign_in_event, do: [:flux_vale, :identity, :google_sign_in]
 
   defdelegate prune_expired_tokens(opts \\ []),
     to: FluxVale.Identity.Operations.PruneExpiredTokens,

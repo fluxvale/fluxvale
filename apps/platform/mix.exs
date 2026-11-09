@@ -121,6 +121,17 @@ defmodule FluxVale.MixProject do
       # direct exact pin makes our own use explicit (the ash/decimal/
       # yaml_elixir precedent). ID-token verification rides jose above.
       # HTTP rides the app's existing Req (Assent.HTTPAdapter.Req).
+      #
+      # EEF-CVE-2026-117656 (CRITICAL, evaluated Nov 9 2026): the flaw
+      # lives in Assent.Strategy.Apple's form_post `user` param merging
+      # over verified claims — NOT reachable here: our arm calls
+      # Assent.Strategy.OIDC directly, and ash_authentication's Apple
+      # strategy only activates via a declared `apple do` block, which
+      # no resource in this app declares. Held at 0.2.13 also because
+      # the 0.3.2 fix is outside AA 4.15.1's `> 0.2.0 and < 0.3.0`.
+      # Revisit trigger: an AA bump that permits assent >= 0.3.2, or
+      # any Apple strategy adoption (which is the only way the
+      # vulnerable path could become live).
       {:assent, "0.2.13"},
       # Dev/test-only analysis tools (exact pins, same rule)
       {:dialyxir, "1.4.7", only: [:dev, :test], runtime: false},
