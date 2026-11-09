@@ -277,7 +277,7 @@ defmodule FluxVale.Infrastructure.Operations.DisconnectPocketIdTest do
           oidc_callback_path: "/cb"
         )
 
-      enabledless =
+      created =
         Instance.create!(
           %{
             name: "No Toggle #{System.unique_integer()}",
@@ -286,6 +286,9 @@ defmodule FluxVale.Infrastructure.Operations.DisconnectPocketIdTest do
           },
           actor: owner
         )
+
+      enabledless =
+        created
         |> InstanceFixtures.walk_to!(:running)
         |> InstanceFixtures.pin!(namespace: "ns-notoggle")
 
@@ -299,7 +302,7 @@ defmodule FluxVale.Infrastructure.Operations.DisconnectPocketIdTest do
         authorize?: false
       )
 
-      assert {:ok, _} = Infrastructure.disconnect_pocket_id(enabledless, actor: owner)
+      assert {:ok, _disconnected} = Infrastructure.disconnect_pocket_id(enabledless, actor: owner)
 
       # The three named keys are stripped; the toggle the recipe never
       # named rides through untouched.
