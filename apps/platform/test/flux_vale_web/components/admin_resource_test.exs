@@ -265,4 +265,98 @@ defmodule FluxValeWeb.Components.AdminResourceTest do
       assert html =~ "…"
     end
   end
+
+  describe "the input mapping (the plan's form contracts table)" do
+    test "string, ci_string, and uuid shape to text" do
+      key = attr(FeatureFlag, :key)
+      domain = attr(AccessRule, :domain)
+
+      assert AdminResource.input_type(key) == "text"
+      assert AdminResource.input_type(domain) == "text"
+      assert AdminResource.input_type(%{type: Ash.Type.UUID}) == "text"
+    end
+
+    test "integer shapes to number, boolean to checkbox" do
+      rollout = attr(FeatureFlag, :rollout_percentage)
+      enabled = attr(FeatureFlag, :enabled)
+
+      assert AdminResource.input_type(rollout) == "number"
+      assert AdminResource.input_type(%{type: Ash.Type.Decimal}) == "number"
+      assert AdminResource.input_type(enabled) == "checkbox"
+    end
+
+    test "a one_of atom shapes to select and builds its options from the constraint" do
+      purpose = attr(AccessRule, :purpose)
+
+      assert AdminResource.input_type(purpose) == "select"
+      assert AdminResource.enum_options(purpose) == [{"Auth", "auth"}, {"Feedback", "feedback"}]
+    end
+
+    test "anything the engine cannot map answers nil — skipped, never guessed at" do
+      assert AdminResource.input_type(%{type: Ash.Type.Map}) == nil
+      assert AdminResource.input_type(%{type: Ash.Type.Atom, constraints: []}) == nil
+      assert AdminResource.input_type(%{type: SomeUnmappedInputType}) == nil
+    end
+
+    test "required-ness follows allow_nil?, except checkboxes" do
+      key = attr(FeatureFlag, :key)
+      rollout = attr(FeatureFlag, :rollout_percentage)
+      enabled = attr(FeatureFlag, :enabled)
+
+      assert AdminResource.input_required?(key, "text")
+      assert not AdminResource.input_required?(rollout, "number")
+
+      # enabled is allow_nil? false, but a checkbox always submits a
+      # real value — required would force every boolean on.
+      assert not AdminResource.input_required?(enabled, "checkbox")
+    end
+  end
+
+  describe "the write affordances (visible?-gated)" do
+    test "the create affordance renders the New link to the :new route" do
+      html =
+        render_component(&AdminResource.new_button/1,
+          path: "/admin/resources/ops/feature_flag/new"
+        )
+
+      assert html =~ ~s(data-testid="admin-resource-new")
+      assert html =~ ~s(href="/admin/resources/ops/feature_flag/new")
+      assert text_of(html, "a") == "New"
+    end
+
+    test "no permitted create action renders nothing at all" do
+      assert render_component(&AdminResource.new_button/1, path: nil) == ""
+    end
+
+    test "the actions bar carries one Edit link and one Delete button per permitted action" do
+      html =
+        render_component(&AdminResource.actions_bar/1,
+          update_actions: [
+            %{name: :update, path: "/x/edit?action=update", label: "Edit"}
+          ],
+          destroy_actions: [%{name: :destroy, label: "Delete"}]
+        )
+
+      edit = text_of(html, "a[data-testid='admin-resource-edit-update']")
+      assert edit == "Edit"
+
+      delete_nodes =
+        html
+        |> LazyHTML.from_fragment()
+        |> LazyHTML.query("[data-testid='admin-resource-destroy-destroy']")
+        |> Enum.to_list()
+
+      assert delete_nodes != []
+      assert html =~ ~s(phx-click="open-destroy")
+      assert html =~ ~s(phx-value-action="destroy")
+      assert html =~ ~s(phx-disable-with)
+    end
+
+    test "no permitted action renders no bar — not an empty box" do
+      assert render_component(&AdminResource.actions_bar/1,
+               update_actions: [],
+               destroy_actions: []
+             ) == ""
+    end
+  end
 end

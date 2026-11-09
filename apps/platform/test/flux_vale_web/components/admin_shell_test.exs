@@ -14,14 +14,21 @@ defmodule FluxValeWeb.Components.AdminShellTest do
   import Phoenix.LiveViewTest, only: [render_component: 2]
 
   alias FluxValeWeb.AccountSettings
+  alias FluxValeWeb.AdminConsole
   alias FluxValeWeb.AdminShell
 
   # The sidebar's entries, in document order: key, href (nil for a
-  # coming entry), aria-current (nil when quiet).
+  # coming entry), aria-current (nil when quiet). The console's
+  # resource LEAVES (admin-nav-resource-*) are a separate grammar and
+  # are excluded here — their own tests walk them.
   defp entries(html) do
     html
     |> LazyHTML.from_fragment()
-    |> LazyHTML.query("[data-testid='admin-sidebar'] [data-testid^='admin-nav-']")
+    |> LazyHTML.query("[data-testid^='admin-nav-']")
+    |> Enum.reject(fn node ->
+      [testid] = LazyHTML.attribute(node, "data-testid")
+      String.starts_with?(testid, "admin-nav-resource-")
+    end)
     |> Enum.map(fn node ->
       [testid] = LazyHTML.attribute(node, "data-testid")
       key = String.replace_prefix(testid, "admin-nav-", "")
@@ -272,5 +279,182 @@ defmodule FluxValeWeb.Components.AdminShellTest do
 
     assert link_class.(admin_doc, "admin-nav-catalog") ==
              link_class.(account_doc, "account-settings-nav-access")
+  end
+
+  # -- D3 revised: the domain-divided Resources navigation ---------------
+
+  # The console leaves, in registry order: {domain, resource, href}.
+  defp leaves(html) do
+    html
+    |> LazyHTML.from_fragment()
+    |> LazyHTML.query("[data-testid^='admin-nav-resource-']")
+    |> Enum.map(fn node ->
+      [testid] = LazyHTML.attribute(node, "data-testid")
+      leaf = String.trim_leading(testid, "admin-nav-resource-")
+      [domain, resource] = String.split(leaf, "-", parts: 2)
+
+      href =
+        node
+        |> LazyHTML.attribute("href")
+        |> List.first()
+
+      {domain, resource, href}
+    end)
+  end
+
+  test "every live registry resource renders as a leaf linking its index" do
+    html = render_component(&AdminShell.sidebar/1, current: "people")
+
+    # The registry drives the nav: the leaf set IS the live registry's
+    # (domain, resource) set, each leaf at its index href. Slices that
+    # flip a domain live change the registry, and this walks with it.
+    registry =
+      for domain <- AdminConsole.domains(),
+          resource <- domain.resources do
+        {Atom.to_string(domain.key), Atom.to_string(resource.key),
+         "/admin/resources/#{domain.key}/#{resource.key}"}
+      end
+
+    assert leaves(html) == registry
+  end
+
+  test "one collapsible group per live domain; pending domains render nothing" do
+    html = render_component(&AdminShell.sidebar/1, current: "people")
+    doc = LazyHTML.from_fragment(html)
+
+    for domain <- AdminConsole.domains() do
+      groups = LazyHTML.query(doc, "[data-testid='admin-sidebar-domain-#{domain.key}']")
+      assert Enum.to_list(groups) != []
+    end
+
+    # The pending domains are not the nav's business until their slice:
+    # no group, no leaves, nothing between them.
+    for module <- AdminConsole.pending_domains() do
+      split = Module.split(module)
+      last = List.last(split)
+      key = Macro.underscore(last)
+
+      group_nodes = LazyHTML.query(doc, "[data-testid='admin-sidebar-domain-#{key}']")
+      assert Enum.to_list(group_nodes) == []
+
+      leaf_nodes = LazyHTML.query(doc, "[data-testid^='admin-nav-resource-#{key}-']")
+      assert Enum.to_list(leaf_nodes) == []
+    end
+  end
+
+  test "domain groups render collapsed everywhere except the active domain" do
+    # No console state (every non-console surface, and the landing):
+    # all groups collapsed — the plain <details>, no open attribute.
+    collapsed = render_component(&AdminShell.sidebar/1, current: "people")
+    collapsed_doc = LazyHTML.from_fragment(collapsed)
+    collapsed_groups = LazyHTML.query(collapsed_doc, "details[open]")
+    assert Enum.to_list(collapsed_groups) == []
+
+    # A console surface names its active domain: that group renders
+    # open (the `open` attribute alone — reloads and deep links render
+    # the same shape), the others stay closed.
+    open =
+      render_component(&AdminShell.sidebar/1,
+        current: "resources",
+        exact: false,
+        console: %{domain: :ops, resource: :feature_flag, exact: true}
+      )
+
+    open_doc = LazyHTML.from_fragment(open)
+
+    opened =
+      open_doc
+      |> LazyHTML.query("details[open]")
+      |> LazyHTML.attribute("data-testid")
+
+    assert opened == ["admin-sidebar-domain-ops"]
+  end
+
+  test "the active leaf marks page or location; the landing entry stays quiet beneath it" do
+    html =
+      render_component(&AdminShell.sidebar/1,
+        current: "resources",
+        exact: false,
+        console: %{domain: :ops, resource: :feature_flag, exact: true}
+      )
+
+    doc = LazyHTML.from_fragment(html)
+
+    leaf_current =
+      doc
+      |> LazyHTML.query("[data-testid='admin-nav-resource-ops-feature_flag']")
+      |> LazyHTML.attribute("aria-current")
+      |> List.first()
+
+    assert leaf_current == "page"
+
+    landing_current =
+      doc
+      |> LazyHTML.query("[data-testid='admin-nav-resources']")
+      |> LazyHTML.attribute("aria-current")
+      |> List.first()
+
+    # One marked entry per surface: the leaf is the position, the open
+    # domain group is the ancestor signal — the landing entry goes
+    # quiet beneath it.
+    assert landing_current == nil
+
+    sub_route =
+      render_component(&AdminShell.sidebar/1,
+        current: "resources",
+        exact: false,
+        console: %{domain: :ops, resource: :feature_flag, exact: false}
+      )
+
+    sub_doc = LazyHTML.from_fragment(sub_route)
+
+    sub_current =
+      sub_doc
+      |> LazyHTML.query("[data-testid='admin-nav-resource-ops-feature_flag']")
+      |> LazyHTML.attribute("aria-current")
+      |> List.first()
+
+    assert sub_current == "location"
+
+    # A sibling leaf stays quiet.
+    sibling =
+      doc
+      |> LazyHTML.query("[data-testid='admin-nav-resource-ops-access_rule']")
+      |> LazyHTML.attribute("aria-current")
+      |> List.first()
+
+    assert sibling == nil
+  end
+
+  test "above the leaf level the landing entry keeps its own page/location grammar" do
+    # The landing itself: no console state, the entry is the page.
+    landing =
+      render_component(&AdminShell.sidebar/1, current: "resources", exact: true)
+
+    landing_current =
+      landing
+      |> LazyHTML.from_fragment()
+      |> LazyHTML.query("[data-testid='admin-nav-resources']")
+      |> LazyHTML.attribute("aria-current")
+      |> List.first()
+
+    assert landing_current == "page"
+
+    # The domain page: no leaf yet, the landing entry is the ancestor.
+    domain_page =
+      render_component(&AdminShell.sidebar/1,
+        current: "resources",
+        exact: false,
+        console: %{domain: :ops, resource: nil, exact: false}
+      )
+
+    domain_current =
+      domain_page
+      |> LazyHTML.from_fragment()
+      |> LazyHTML.query("[data-testid='admin-nav-resources']")
+      |> LazyHTML.attribute("aria-current")
+      |> List.first()
+
+    assert domain_current == "location"
   end
 end

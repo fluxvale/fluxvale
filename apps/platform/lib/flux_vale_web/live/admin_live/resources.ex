@@ -1,17 +1,30 @@
 defmodule FluxValeWeb.AdminLive.Resources do
   @moduledoc """
-  The generic resource console (#595, slice 1: the engine read path
-  proven on Ops). Four read mounts over the exposure registry
-  (`FluxValeWeb.AdminConsole` — the security boundary): the domain
-  picker, the domain page, the paginated index, and the record show
-  page. The write mounts (new/edit/destroy) are slice 2.
+  The generic resource console (#595, slice 1: the read path, slice 2:
+  the write path — both proven on Ops). Six mounts over the exposure
+  registry (`FluxValeWeb.AdminConsole` — the security boundary): the
+  domain picker, the domain page, the paginated index, the record show
+  page, and the :new/:edit form mounts over `AshPhoenix.Form`.
 
-  Every read runs with the operator as actor (the AdminChrome assign)
-  and repo-default authorization ON — the deliberate contrast with
-  AshAdmin's effective `authorize?: false` (ADR-0027 Am. 1). No
-  `authorize?: false` anywhere on this surface. Reads ride the primary
-  read action with offset pagination (25 to a page, count-aware) and
-  newest-first order where the resource carries `created_at`.
+  Every read and write runs with the operator as actor and repo-default
+  authorization ON — the deliberate contrast with AshAdmin's effective
+  `authorize?: false` (ADR-0027 Am. 1). No `authorize?: false`
+  anywhere on this surface. Reads ride the primary read action with
+  offset pagination (25 to a page, count-aware) and newest-first order
+  where the resource carries `created_at`.
+
+  Writes: `?action=` selects among the registry's allowed actions of
+  the mount's type (default: the primary); a name the registry does
+  not permit bounces honestly. Forms are generated per the action's
+  accept list over public attributes (the plan's typed input mapping);
+  per-field errors ride AshPhoenix's form data protocol into
+  `<.input>`, and success navigates to the record's show page. Every
+  button gates on `AdminConsole.visible?/3` — the bar shows nothing
+  when nothing is permitted. Every write event re-resolves the actor
+  from the session and requires the platform-admin role on the FRESH
+  struct (the #571 demotion-window ruling) — the mount-resolved struct
+  is never trusted for writes, and the submit carries the fresh actor
+  so the policy reads the fresh role, not the stale one.
 
   Unknown domain/resource URL segments can never exist: they resolve
   against the registry's atoms and bounce to the landing with an honest
@@ -31,9 +44,12 @@ defmodule FluxValeWeb.AdminLive.Resources do
   use FluxValeWeb, :live_view
 
   alias Ash.Resource.Info
+  alias FluxVale.Checks.ActorIsPlatformAdmin
+  alias FluxVale.Identity.User
   alias FluxValeWeb.AdminConsole
   alias FluxValeWeb.AdminResource
   alias FluxValeWeb.AdminShell
+  alias FluxValeWeb.UserAuth
 
   @page_size 25
 
@@ -82,11 +98,33 @@ defmodule FluxValeWeb.AdminLive.Resources do
 
   def mount(
         %{"domain" => domain_segment, "resource" => resource_segment, "id" => id},
-        _session,
+        session,
         %{assigns: %{live_action: :show}} = socket
       ) do
     case AdminConsole.fetch(domain_segment, resource_segment) do
-      {:ok, entry} -> mount_show(entry, id, socket)
+      {:ok, entry} -> mount_show(entry, id, session, socket)
+      :error -> bounce_unknown(socket)
+    end
+  end
+
+  def mount(
+        %{"domain" => domain_segment, "resource" => resource_segment} = params,
+        session,
+        %{assigns: %{live_action: :new}} = socket
+      ) do
+    case AdminConsole.fetch(domain_segment, resource_segment) do
+      {:ok, entry} -> mount_new(entry, params, session, socket)
+      :error -> bounce_unknown(socket)
+    end
+  end
+
+  def mount(
+        %{"domain" => domain_segment, "resource" => resource_segment, "id" => id} = params,
+        session,
+        %{assigns: %{live_action: :edit}} = socket
+      ) do
+    case AdminConsole.fetch(domain_segment, resource_segment) do
+      {:ok, entry} -> mount_edit(entry, id, params, session, socket)
       :error -> bounce_unknown(socket)
     end
   end
@@ -129,13 +167,17 @@ defmodule FluxValeWeb.AdminLive.Resources do
           </div>
         </section>
 
-        <%!-- The section sidebar (Am. 4, the #568 idiom); the domain,
-        index, and record pages are sub-routes of the one Resources
-        entry, so they mark the entry as an ancestor (location) and the
-        landing marks it as the page. --%>
+        <%!-- The section sidebar (Am. 4, the #568 idiom); the console
+        surfaces pass their nav state so the Resources group renders
+        the active domain open and marks the active resource leaf (the
+        landing passes none — every group renders collapsed). --%>
         <section class="wrap pt-8 pb-16">
           <div class="rise flex flex-col gap-8 md:flex-row md:gap-12">
-            <AdminShell.sidebar current="resources" exact={@live_action == :domains} />
+            <AdminShell.sidebar
+              current="resources"
+              exact={@live_action == :domains}
+              console={console_nav(assigns)}
+            />
 
             <div class="min-w-0 flex-1 space-y-6">
               <%= case @live_action do %>
@@ -159,7 +201,7 @@ defmodule FluxValeWeb.AdminLive.Resources do
                   </div>
                   <p class="text-sm text-ink-subtle" data-testid="admin-resources-pending">
                     {gettext(
-                      "Not every domain is on this console yet. The ones here are fully supported."
+                      "The sidebar groups every live domain here under Resources, collapsed to start. Not every domain is live yet. The ones here are fully supported."
                     )}
                   </p>
                 <% :domain -> %>
@@ -184,9 +226,12 @@ defmodule FluxValeWeb.AdminLive.Resources do
                     </.callout>
 
                     <div class="flex flex-wrap items-center justify-between gap-3">
-                      <p class="text-sm text-ink-muted" data-testid="admin-resource-count">
-                        {ngettext("1 row", "%{count} rows", @count)}
-                      </p>
+                      <div class="flex items-center gap-3">
+                        <p class="text-sm text-ink-muted" data-testid="admin-resource-count">
+                          {ngettext("1 row", "%{count} rows", @count)}
+                        </p>
+                        <AdminResource.new_button path={@new_path} />
+                      </div>
                       <AdminResource.pagination
                         current={@page_number}
                         total={@total_pages}
@@ -288,6 +333,50 @@ defmodule FluxValeWeb.AdminLive.Resources do
                         </dd>
                       </div>
                     </dl>
+
+                    <div class="mt-4">
+                      <AdminResource.actions_bar
+                        update_actions={@update_actions}
+                        destroy_actions={@destroy_actions}
+                      />
+                    </div>
+                  </div>
+
+                  <div :if={@confirm} class="rise">
+                    <.confirm_block
+                      title={gettext("Delete %{record}?", record: @confirm.label)}
+                      body={
+                        gettext(
+                          "This permanently deletes the record and everything it owns. This cannot be undone."
+                        )
+                      }
+                      action={gettext("Yes, delete this record")}
+                      event="confirm-destroy"
+                      action_testid="admin-resource-destroy-confirm"
+                      cancel_testid="admin-resource-destroy-cancel"
+                      myself={nil}
+                    />
+                  </div>
+                <% :new -> %>
+                  <div class="space-y-4" data-testid="admin-resource-form">
+                    <.callout :if={@note} tone="info" data-testid="admin-resource-note">
+                      {@note}
+                    </.callout>
+
+                    <div class="rounded-panel border border-line-strong bg-panel p-5 shadow-sm">
+                      <.record_form
+                        form={@form}
+                        fields={@fields}
+                        submit={gettext("Create %{name}", name: @resource_label)}
+                      />
+                    </div>
+                  </div>
+                <% :edit -> %>
+                  <div
+                    class="rounded-panel border border-line-strong bg-panel p-5 shadow-sm"
+                    data-testid="admin-resource-form"
+                  >
+                    <.record_form form={@form} fields={@fields} submit={gettext("Save changes")} />
                   </div>
               <% end %>
             </div>
@@ -326,7 +415,10 @@ defmodule FluxValeWeb.AdminLive.Resources do
           page_number: page_number,
           total_pages: total_pages,
           rows_empty?: page.results == [],
-          index_path: index_path(entry)
+          index_path: index_path(entry),
+          # The create affordance: only when the actor may run at
+          # least one allowed create action (nil renders nothing).
+          new_path: new_path(entry, admin)
         )
         |> stream(:records, page.results, reset: true)
 
@@ -334,19 +426,27 @@ defmodule FluxValeWeb.AdminLive.Resources do
     end
   end
 
-  defp mount_show(entry, id, socket) do
-    case Ash.get(entry.module, id, actor: socket.assigns.current_user) do
+  defp mount_show(entry, id, session, socket) do
+    admin = socket.assigns.current_user
+
+    case Ash.get(entry.module, id, actor: admin) do
       {:ok, record} ->
         {:ok,
          assign(socket,
+           admin_session: session,
+           resource_module: entry.module,
            domain_key: entry.domain.key,
            domain_label: entry.domain.label,
            resource_key: entry.key,
            resource_label: resource_label(entry),
+           label_name: label_attr(entry),
            record: record,
            record_label: record_label(record, label_attr(entry)),
            fields: fields(entry.module),
-           index_path: index_path(entry)
+           index_path: index_path(entry),
+           update_actions: update_actions(entry, record.id, admin),
+           destroy_actions: destroy_actions(entry, admin),
+           confirm: nil
          )}
 
       {:error, _unknown_or_refused} ->
@@ -357,6 +457,152 @@ defmodule FluxValeWeb.AdminLive.Resources do
          |> put_flash(:error, gettext("That record is not available here."))
          |> push_navigate(to: index_path(entry))}
     end
+  end
+
+  defp mount_new(entry, params, session, socket) do
+    admin = socket.assigns.current_user
+
+    case form_action(entry, :create, params["action"]) do
+      {:ok, action} ->
+        {:ok,
+         assign(socket,
+           admin_session: session,
+           domain_key: entry.domain.key,
+           domain_label: entry.domain.label,
+           resource_key: entry.key,
+           resource_label: resource_label(entry),
+           note: entry.config[:note],
+           index_path: index_path(entry),
+           form:
+             entry.module
+             |> AshPhoenix.Form.for_create(action.name, form_opts(admin))
+             |> to_form(),
+           fields: form_fields(entry.module, action)
+         )}
+
+      :error ->
+        # A read-only resource has no :new, and a crafted ?action=
+        # naming anything the registry does not permit here reads the
+        # same: bounce to the index honestly.
+        {:ok,
+         socket
+         |> put_flash(:error, gettext("That action is not available here."))
+         |> push_navigate(to: index_path(entry))}
+    end
+  end
+
+  defp mount_edit(entry, id, params, session, socket) do
+    admin = socket.assigns.current_user
+
+    with {:ok, record} <- Ash.get(entry.module, id, actor: admin),
+         {:ok, action} <- form_action(entry, :update, params["action"]) do
+      {:ok,
+       assign(socket,
+         admin_session: session,
+         domain_key: entry.domain.key,
+         domain_label: entry.domain.label,
+         resource_key: entry.key,
+         resource_label: resource_label(entry),
+         index_path: index_path(entry),
+         form:
+           record
+           |> AshPhoenix.Form.for_update(action.name, form_opts(admin))
+           |> to_form(),
+         fields: form_fields(entry.module, action)
+       )}
+    else
+      {:error, _unknown_or_refused} ->
+        # The record read refused or missed: the same bounce mount_show
+        # answers (the size-edit posture).
+        {:ok,
+         socket
+         |> put_flash(:error, gettext("That record is not available here."))
+         |> push_navigate(to: index_path(entry))}
+
+      :error ->
+        # ?action= naming an update action the registry does not permit
+        # here: bounce to the record's page — the record exists.
+        {:ok,
+         socket
+         |> put_flash(:error, gettext("That action is not available here."))
+         |> push_navigate(to: show_path(entry.domain.key, entry.key, id))}
+    end
+  end
+
+  # -- events ---------------------------------------------------------------
+
+  # The form's live validation: per-field errors ride AshPhoenix's form
+  # data protocol into <.input> as the operator types.
+  @impl Phoenix.LiveView
+  def handle_event("validate", %{"record" => params}, socket) do
+    form = AshPhoenix.Form.validate(socket.assigns.form, params)
+
+    {:noreply, assign(socket, form: form)}
+  end
+
+  def handle_event("validate", _params, socket), do: {:noreply, socket}
+
+  # Every save re-resolves the actor first (the #571 demotion-window
+  # gate) and the submit carries the FRESH actor, so the policy reads
+  # the fresh role — the form's mount-time actor struct is never the
+  # authorization answer.
+  def handle_event("save", %{"record" => params}, socket) do
+    case reauthorized_actor(socket) do
+      {:ok, admin} -> attempt_save(socket, params, admin)
+      :revoked -> {:noreply, refused(socket)}
+    end
+  end
+
+  def handle_event("save", _params, socket), do: {:noreply, socket}
+
+  # The delete lever's click. The reveal rides a fresh domain read (the
+  # people surface's open-withdraw posture): a record that vanished
+  # between the show render and the click never opens a confirm.
+  def handle_event("open-destroy", %{"action" => name}, socket) do
+    case find_destroy_action(socket.assigns.destroy_actions, name) do
+      nil ->
+        # A crafted action value: no button ever rendered it.
+        {:noreply, socket}
+
+      action ->
+        admin = socket.assigns.current_user
+
+        case Ash.get(socket.assigns.resource_module, socket.assigns.record.id, actor: admin) do
+          {:ok, fresh} ->
+            {:noreply,
+             assign(socket,
+               confirm: %{
+                 action: action.name,
+                 label: record_label(fresh, socket.assigns.label_name)
+               }
+             )}
+
+          {:error, _vanished} ->
+            {:noreply, bounce_record_gone(socket)}
+        end
+    end
+  end
+
+  def handle_event("open-destroy", _params, socket), do: {:noreply, socket}
+
+  # The destructive click. The quiet expired arm is the double-click
+  # guard: the confirm already closed (or never opened), so there is
+  # nothing to say and nothing to run.
+  def handle_event("confirm-destroy", _params, socket) do
+    case socket.assigns.confirm do
+      %{action: action_name} ->
+        case reauthorized_actor(socket) do
+          {:ok, admin} -> attempt_destroy(socket, action_name, admin)
+          :revoked -> {:noreply, refused(socket, confirm: nil)}
+        end
+
+      _expired ->
+        {:noreply, socket}
+    end
+  end
+
+  def handle_event("cancel-confirm", _params, socket) do
+    {:noreply, assign(socket, confirm: nil)}
   end
 
   # -- reads ---------------------------------------------------------------
@@ -372,6 +618,171 @@ defmodule FluxValeWeb.AdminLive.Resources do
 
   defp primary_read(module) do
     Info.primary_action(module, :read).name
+  end
+
+  # -- writes ----------------------------------------------------------------
+
+  # The save itself: validate, then submit with the FRESH actor riding
+  # action_opts (the probe-verified shape — the form's stored mount-time
+  # actor is replaced at the action call, so the policy reads the fresh
+  # role). Field errors re-render inline; success navigates to the
+  # record's show page.
+  defp attempt_save(socket, params, admin) do
+    form = AshPhoenix.Form.validate(socket.assigns.form, params)
+
+    case AshPhoenix.Form.submit(form, params: params, action_opts: [actor: admin]) do
+      {:ok, record} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, save_flash(socket.assigns.live_action))
+         |> push_navigate(
+           to: show_path(socket.assigns.domain_key, socket.assigns.resource_key, record.id)
+         )}
+
+      {:error, error_form} ->
+        {:noreply,
+         socket
+         |> put_flash(:error, gettext("Could not save. Check the errors below."))
+         |> assign(form: to_form(error_form))}
+    end
+  end
+
+  # The destroy dispatch: re-read the record through the domain first
+  # (the wallet reversal's posture — @confirm is only set by a fresh
+  # read, but the click can land after the row moved), then destroy
+  # through the confirmed action.
+  defp attempt_destroy(socket, action_name, admin) do
+    case Ash.get(socket.assigns.resource_module, socket.assigns.record.id, actor: admin) do
+      {:ok, fresh} ->
+        result =
+          fresh
+          |> Ash.Changeset.for_destroy(action_name, %{}, actor: admin, authorize?: true)
+          |> Ash.destroy()
+
+        case result do
+          :ok ->
+            {:noreply,
+             socket
+             |> put_flash(:info, gettext("The record was deleted."))
+             |> push_navigate(to: socket.assigns.index_path)}
+
+          # The policy admits this actor (re-resolved above) and Ops
+          # destroys carry no further guard, so the residual error
+          # class is DB-down — not simulatable under the sandbox.
+          # coveralls-ignore-start
+          {:error, _refused} ->
+            {:noreply,
+             socket
+             |> put_flash(:error, gettext("The record could not be deleted. Try again."))
+             |> assign(confirm: nil)}
+
+            # coveralls-ignore-stop
+        end
+
+      {:error, _vanished} ->
+        {:noreply, bounce_record_gone(socket)}
+    end
+  end
+
+  # The demotion-window gate behind every write (the #571 ruling,
+  # wallet-detail's shape): AdminChrome resolves the actor ONCE, at
+  # mount, and a socket outlives a demotion — so the write handlers
+  # re-resolve from the session (which also re-checks token revocation)
+  # and require the platform-admin role on the FRESH struct. Reads keep
+  # the mount-resolved actor: the route pipeline and the AdminGate
+  # mount check own that window; the writes own this one.
+  defp reauthorized_actor(socket) do
+    case UserAuth.resolve_user(socket.assigns.admin_session) do
+      %User{} = actor ->
+        if ActorIsPlatformAdmin.platform_admin?(actor), do: {:ok, actor}, else: :revoked
+
+      # The revoked-token arm: same refusal as the demoted actor. The
+      # demoted-actor tests carry the gate's behavior; this arm needs
+      # minting and revoking the live session's jti out-of-band, which
+      # the suite has no helper for.
+      # coveralls-ignore-start
+      _not_signed_in ->
+        :revoked
+
+        # coveralls-ignore-stop
+    end
+  end
+
+  # The refusal every write answers a demoted or revoked actor with:
+  # honest copy naming what to do, never a crash.
+  defp refused(socket, extra \\ []) do
+    socket
+    |> put_flash(:error, revoked_copy())
+    |> assign(Keyword.put(extra, :confirm, nil))
+  end
+
+  defp revoked_copy do
+    gettext("Your admin access ended. Sign out and sign back in.")
+  end
+
+  defp bounce_record_gone(socket) do
+    socket
+    |> put_flash(:error, gettext("That record is not available here."))
+    |> push_navigate(to: socket.assigns.index_path)
+  end
+
+  defp find_destroy_action(actions, name) do
+    Enum.find(actions, &(Atom.to_string(&1.name) == name))
+  end
+
+  # The form build opts shared by both write mounts. The actor here is
+  # the mount-resolved admin for form setup only (defaults, validation)
+  # — the submit replaces it with the fresh actor (see attempt_save).
+  defp form_opts(admin) do
+    [as: "record", actor: admin, authorize?: true]
+  end
+
+  # The show page's Edit items: the registry's allowed update actions
+  # the actor may run (intent AND truth at render — the plan's two
+  # gates), one link each. Every link carries its ?action= so two
+  # update actions never read as the same button.
+  defp update_actions(entry, record_id, admin) do
+    entry.module
+    |> AdminConsole.allowed_actions(:update, entry.config)
+    |> Enum.filter(&AdminConsole.visible?(admin, entry.module, &1.name))
+    |> Enum.map(fn action ->
+      base = ~p"/admin/resources/#{entry.domain.key}/#{entry.key}/#{record_id}/edit"
+
+      %{
+        name: action.name,
+        path: "#{base}?action=#{action.name}",
+        label: action_label(gettext("Edit"), action)
+      }
+    end)
+  end
+
+  # The show page's Delete items: same two gates over the destroy
+  # actions; the button carries the action name to the confirm.
+  defp destroy_actions(entry, admin) do
+    entry.module
+    |> AdminConsole.allowed_actions(:destroy, entry.config)
+    |> Enum.filter(&AdminConsole.visible?(admin, entry.module, &1.name))
+    |> Enum.map(fn action ->
+      %{name: action.name, label: action_label(gettext("Delete"), action)}
+    end)
+  end
+
+  # A non-primary action names itself in its label (derived like column
+  # labels — see AdminResource's copy line); the primary keeps the
+  # plain verb.
+  defp action_label(base, action) do
+    if action.primary?, do: base, else: "#{base}: #{AdminResource.label(action.name)}"
+  end
+
+  # The index's create affordance: the :new route when the actor may
+  # run at least one allowed create action, nil to render nothing.
+  defp new_path(entry, admin) do
+    createable =
+      entry.module
+      |> AdminConsole.allowed_actions(:create, entry.config)
+      |> Enum.any?(&AdminConsole.visible?(admin, entry.module, &1.name))
+
+    if createable, do: ~p"/admin/resources/#{entry.domain.key}/#{entry.key}/new", else: nil
   end
 
   # Newest first where the resource declares a created_at timestamp.
@@ -447,6 +858,79 @@ defmodule FluxValeWeb.AdminLive.Resources do
   def declared_timestamp_names(module) do
     declared = declared_timestamps(module)
     Enum.map(declared, &Atom.to_string(&1.name))
+  end
+
+  # -- write-action resolution (the ?action= selector) ------------------------
+
+  @doc """
+  The action a write mount builds its form over: `?action=` picks among
+  the registry's allowed actions of that type (the plan's selector
+  machinery), defaulting to the primary. `:error` answers a name the
+  registry does not permit here — a machinery action, a mismatched
+  type, or a read-only resource's empty set — and the caller bounces
+  honestly. Public seam: the selector tests drive fabricated entries
+  without a live registry config.
+  """
+  @spec form_action(map(), :create | :update, String.t() | nil) :: {:ok, map()} | :error
+  def form_action(entry, type, nil) do
+    allowed = AdminConsole.allowed_actions(entry.module, type, entry.config)
+    pick = Enum.find(allowed, & &1.primary?) || List.first(allowed)
+    if pick, do: {:ok, pick}, else: :error
+  end
+
+  def form_action(entry, type, requested) when is_binary(requested) do
+    allowed = AdminConsole.allowed_actions(entry.module, type, entry.config)
+
+    # String compare against the allowed set's existing atoms — a URL
+    # string is never made into an atom (the registry's own rule).
+    case Enum.find(allowed, &(Atom.to_string(&1.name) == requested)) do
+      nil -> :error
+      action -> {:ok, action}
+    end
+  end
+
+  @doc """
+  The form's field list for one write action: its accept list resolved
+  against PUBLIC attributes (the actor-safety ceiling), each mapped to
+  its `<.input>` type per the plan's contracts table. An accept name
+  that is not a public attribute, or a shape the engine cannot map yet
+  (maps and composites — slice 4 owns the JSON-textarea decision), is
+  SKIPPED, never guessed at. Public seam: the field-mapping tests drive
+  fabricated accept lists without mounting.
+  """
+  @spec form_fields(module(), map()) :: [map()]
+  def form_fields(module, action) do
+    attrs = Info.public_attributes(module)
+    by_name = Map.new(attrs, &{&1.name, &1})
+    accept = action.accept || []
+
+    Enum.flat_map(accept, fn name -> resolve_form_field(by_name, name) end)
+  end
+
+  defp resolve_form_field(by_name, name) do
+    case Map.fetch(by_name, name) do
+      {:ok, attr} -> mapped_field(attr)
+      :error -> []
+    end
+  end
+
+  defp mapped_field(attr) do
+    case AdminResource.input_type(attr) do
+      nil -> []
+      type -> [field_entry(attr, type)]
+    end
+  end
+
+  defp field_entry(attr, type) do
+    options = if(type == "select", do: AdminResource.enum_options(attr), else: nil)
+
+    %{
+      name: attr.name,
+      label: AdminResource.label(attr.name),
+      type: type,
+      options: options,
+      required: AdminResource.input_required?(attr, type)
+    }
   end
 
   defp auto_columns(entry) do
@@ -574,6 +1058,27 @@ defmodule FluxValeWeb.AdminLive.Resources do
 
   defp index_path(entry), do: ~p"/admin/resources/#{entry.domain.key}/#{entry.key}"
 
+  defp show_path(domain_key, resource_key, id),
+    do: ~p"/admin/resources/#{domain_key}/#{resource_key}/#{id}"
+
+  # The sidebar's console nav state (D3 revised): the active domain
+  # whose group renders open, and the active resource leaf with its
+  # page/location truth. The landing passes nil — every group renders
+  # collapsed, no leaf marked.
+  defp console_nav(%{live_action: :domains}), do: nil
+
+  defp console_nav(%{live_action: :domain, domain: domain}),
+    do: %{domain: domain.key, resource: nil, exact: false}
+
+  defp console_nav(%{live_action: :index, domain_key: domain, resource_key: resource}),
+    do: %{domain: domain, resource: resource, exact: true}
+
+  defp console_nav(%{domain_key: domain, resource_key: resource}),
+    do: %{domain: domain, resource: resource, exact: false}
+
+  defp save_flash(:new), do: gettext("The record was created.")
+  defp save_flash(:edit), do: gettext("The record was updated.")
+
   # ?page=N — anything but a positive integer reads as page one, and a
   # parsed integer is capped before the offset math: a crafted 19-digit
   # page must not reach arithmetic as a bignum.
@@ -608,6 +1113,12 @@ defmodule FluxValeWeb.AdminLive.Resources do
   defp page_title(%{live_action: :index, resource_label: label}), do: label
   defp page_title(%{live_action: :show, record_label: label}), do: label
 
+  defp page_title(%{live_action: :new, resource_label: label}),
+    do: gettext("New %{name}", name: label)
+
+  defp page_title(%{live_action: :edit, resource_label: label}),
+    do: gettext("Edit %{name}", name: label)
+
   defp page_intro(%{live_action: :domains}) do
     gettext(
       "Every domain the console exposes, with its resources and every public field. The raw tables behind the curated sections."
@@ -632,15 +1143,77 @@ defmodule FluxValeWeb.AdminLive.Resources do
     )
   end
 
+  defp page_intro(%{live_action: :new}) do
+    gettext(
+      "Every write runs through the resource policies with your account as the actor. Invalid fields say so beside themselves."
+    )
+  end
+
+  defp page_intro(%{live_action: :edit}) do
+    gettext(
+      "Every write runs through the resource policies with your account as the actor. Invalid fields say so beside themselves."
+    )
+  end
+
   defp parent_path(%{live_action: :domain}), do: ~p"/admin/resources"
   defp parent_path(%{live_action: :index, domain_key: key}), do: ~p"/admin/resources/#{key}"
+
   defp parent_path(%{live_action: :show, index_path: path}), do: path
+
+  defp parent_path(%{live_action: :new, index_path: path}), do: path
+  defp parent_path(%{live_action: :edit, index_path: path}), do: path
 
   defp parent_copy(%{live_action: :domain}), do: gettext("Back to the domains")
 
   defp parent_copy(%{live_action: :index, domain_label: label}),
     do: gettext("Back to %{name}", name: label)
 
-  defp parent_copy(%{live_action: :show, resource_label: label}),
+  defp parent_copy(%{live_action: :show, resource_label: label}) do
+    gettext("Back to %{name}", name: label)
+  end
+
+  defp parent_copy(%{live_action: :new, resource_label: label}),
     do: gettext("Back to %{name}", name: label)
+
+  defp parent_copy(%{live_action: :edit, resource_label: label}),
+    do: gettext("Back to %{name}", name: label)
+
+  # -- the shared form (both write mounts) ------------------------------------
+
+  # One form component for :new and :edit: identical machinery, only
+  # the submit label differs. Per-field errors ride the form data
+  # protocol through <.input>; the disable fence stops a double submit
+  # at the wire.
+  attr(:form, :any, required: true)
+  attr(:fields, :list, required: true)
+  attr(:submit, :string, required: true)
+
+  defp record_form(assigns) do
+    ~H"""
+    <.form
+      for={@form}
+      id="admin-resource-record-form"
+      phx-change="validate"
+      phx-submit="save"
+      class="space-y-4"
+    >
+      <div :for={field <- @fields} data-testid={"admin-resource-input-#{field.name}"}>
+        <.input
+          field={@form[field.name]}
+          type={field.type}
+          options={field.options}
+          label={field.label}
+          required={field.required}
+        />
+      </div>
+      <.button
+        type="submit"
+        phx-disable-with={gettext("Saving...")}
+        data-testid="admin-resource-save"
+      >
+        {@submit}
+      </.button>
+    </.form>
+    """
+  end
 end

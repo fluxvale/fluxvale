@@ -51,9 +51,17 @@ AshAdmin itself. Three properties, in priority order:
   the registry once slice 5 lands. Any future member-scoped resource
   added to the registry carries its arm decision at intake (the
   registry parity test forces the intake).
-- **D3 — SETTLED: one "Resources" sidebar entry.** The landing page at
-  `/admin/resources` is the domain picker (domain cards linking to
-  domain pages); no per-domain sidebar entries.
+- **D3 — REVISED 2026-11-08 (Terence): domain-divided navigation.**
+  The console does not navigate through one flat everything-page: the
+  MAIN sidebar rail carries a "Resources" group whose collapsible
+  domain sub-groups (plain `<details>/<summary>`, collapsed by
+  default, the active domain's group open) hold every live registry
+  resource as a leaf link — the registry drives the nav, pending
+  domains render nothing until their slice. The `/admin/resources`
+  landing stays as the group's link target and the honest bounce
+  destination: an overview, never the only path. (Supersedes the
+  original one-entry ruling; the architect's call within Terence's
+  latitude put the grouping in the main rail, not an in-section one.)
 - **D4 — SETTLED: clean removal, no flag.** Slice 8 deletes route,
   dep, and `admin do` blocks in one PR. That PR keeps Terence's
   explicit sign-off gate: it is prepared, shown to him, and merged
@@ -176,6 +184,14 @@ gettext; NO em-dashes or semicolons in any user-facing string):
 Index table: the console's existing table grammar (grid or table rows,
 `overflow-x-auto` with a measured `min-w`, header row uppercase xs,
 rows hover-tinted — match the people/billing surfaces exactly).
+
+**2026-11-09 (Terence, PA relay): admin tables converge on
+data-tables** — the sort/search/pagination pattern, native LiveView.
+The 501 lane is building a shared `DataTable` component in the shared
+web area; the console's engine index adopts it in this lane once it
+lands. No hard dependency: slices proceed on the current table
+grammar, and the adopting slice is a pure swap at the index seam (the
+registry and cell renderers do not change shape).
 Record show: definition list of ALL public attributes in declaration
 order, actions bar (per-action buttons per visibility), destructive
 actions behind `confirm_block` (the shared `destructive-confirm`
@@ -230,7 +246,12 @@ AND dark, from the seeded local stack, under
 before PR when `main` moved. Hostile fresh-context review on Synthetic
 `syn:large:text` per the standard arc. Copy: no em-dashes, no
 semicolons, no ops-ticket/agent/automation mentions anywhere public.
-Read the platform AGENTS.md toolchain recipes before scaffolding.
+PR bodies carry NO hard wordwrap: each paragraph is ONE unbroken line
+(GitHub wraps it; 80-column prose renders as ragged blocks), tables
+and code blocks excepted. A body that embeds screenshots opens with a
+table indexing them (capture name, what it shows), the embeds directly
+beneath. Read the platform AGENTS.md toolchain recipes before
+scaffolding.
 
 ### Slice 1 — engine read path, proven on Ops
 

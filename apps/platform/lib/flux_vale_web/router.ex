@@ -574,15 +574,17 @@ defmodule FluxValeWeb.Router do
       # true — the domain policies decide, never the UI.
       live("/moderation", FluxValeWeb.AdminLive.Moderation)
 
-      # The generic resource console (#595, slice 1: reads only, proven
-      # on Ops). Segments resolve against the exposure registry
+      # The generic resource console (#595, slice 1: reads; slice 2: the
+      # write mounts). Segments resolve against the exposure registry
       # (FluxValeWeb.AdminConsole — the security boundary); unknown
-      # segments bounce with an honest flash. The write mounts
-      # (:new/:edit) arrive in slice 2 — "new" goes BEFORE this :show
-      # clause when it does (the /organizations/new idiom).
+      # segments bounce with an honest flash. "new" is literal BEFORE
+      # the :id clause — the /organizations/new idiom; ids are UUIDs
+      # and can never be "new".
       live("/resources", FluxValeWeb.AdminLive.Resources, :domains)
       live("/resources/:domain", FluxValeWeb.AdminLive.Resources, :domain)
+      live("/resources/:domain/:resource/new", FluxValeWeb.AdminLive.Resources, :new)
       live("/resources/:domain/:resource", FluxValeWeb.AdminLive.Resources, :index)
+      live("/resources/:domain/:resource/:id/edit", FluxValeWeb.AdminLive.Resources, :edit)
       live("/resources/:domain/:resource/:id", FluxValeWeb.AdminLive.Resources, :show)
 
       # The orgs + instances overview surface (#501): read-only by

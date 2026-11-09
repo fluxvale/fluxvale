@@ -12,9 +12,22 @@ defmodule FluxValeWeb.AdminShell do
   without a path has no way to render, and a section that is not built
   yet simply has no entry. The deep debugging group keeps the generated
   tools on their demoted subpaths, with copy that says what they are.
+
+  The resource console's navigation is domain-divided (D3 revised,
+  2026-11-08): under the Resources group, one collapsible
+  `<details>/<summary>` per live registry domain, every registry
+  resource a leaf link. The registry drives the nav — pending domains
+  render nothing until their slice flips them live. Groups render
+  collapsed everywhere except the console surface's own active domain
+  (the `open` attribute, so deep links and reloads render right with
+  no collapse state to manage). The leaf's aria-current follows the
+  page/location grammar; while a leaf is marked, the group's landing
+  entry stays quiet — one marked entry per surface.
   """
 
   use FluxValeWeb, :html
+
+  alias FluxValeWeb.AdminConsole
 
   attr(:current, :string, required: true, doc: "the active entry's key (see groups/0)")
 
@@ -22,6 +35,12 @@ defmodule FluxValeWeb.AdminShell do
     default: true,
     doc:
       "false when the mounted page is a sub-route of the current section, so the entry marks an ancestor, not the page itself"
+  )
+
+  attr(:console, :map,
+    default: nil,
+    doc:
+      "the console surface's nav state, %{domain: key | nil, resource: key | nil, exact: boolean}: the domain whose group renders open, the marked leaf, and whether the leaf's href IS the page. nil (every non-console surface, and the landing) renders all groups collapsed and no leaf marked"
   )
 
   @doc """
@@ -40,7 +59,17 @@ defmodule FluxValeWeb.AdminShell do
               "the valid keys are the entries of AdminShell.groups/0: #{inspect(keys())}"
     end
 
-    assigns = assign(assigns, groups: groups(), exact: assigns.exact)
+    # The normalized console nav state: nil on every non-console
+    # surface (and the landing), so the template never nil-matches.
+    console = assigns[:console] || %{domain: nil, resource: nil, exact: false}
+
+    assigns =
+      assign(assigns,
+        groups: groups(),
+        exact: assigns.exact,
+        console: console,
+        domains: AdminConsole.domains()
+      )
 
     ~H"""
     <nav
@@ -70,10 +99,11 @@ defmodule FluxValeWeb.AdminShell do
             <%!-- The Coming badge grammar retired at the v1 console's
             completion (#501): every entry carries a path. A path-less
             entry fails the render loudly rather than promising quietly.
-            --%>
+            The mark rides entry_mark/4 so a console leaf can hand its
+            mark to the group's landing entry (D3 revised). --%>
             <.link
               navigate={entry.path}
-              aria-current={aria_current(entry.key, @current, @exact)}
+              aria-current={entry_mark(entry, @current, @exact, @console)}
               class={[
                 "border-l-2 py-0.5 pl-3 pr-1 text-sm outline-offset-2 outline-focus focus-visible:outline-2 motion-safe:transition-colors motion-safe:duration-(--motion-fast)",
                 entry.key == @current && "border-focus font-medium text-ink",
@@ -86,6 +116,46 @@ defmodule FluxValeWeb.AdminShell do
             </.link>
           <% end %>
         </div>
+        <%!-- D3 revised: the Resources group's domain sub-groups, the
+        registry-driven nav. One disclosure per live domain, every
+        registry resource a leaf; the summary is the domain's own
+        accessible label. The active domain's group renders open —
+        `open` alone (no toggle state), so a deep link or reload
+        renders the right shape. --%>
+        <div :if={group.key == "resources"} class="mt-2 flex flex-col gap-0.5">
+          <details
+            :for={domain <- @domains}
+            open={@console[:domain] == domain.key}
+            class="group"
+            data-testid={"admin-sidebar-domain-#{domain.key}"}
+          >
+            <summary class="cursor-pointer list-none rounded-control border-l-2 border-transparent py-0.5 pl-3 pr-1 text-sm text-ink-muted outline-offset-2 outline-focus transition-colors hover:border-line hover:text-ink focus-visible:outline-2 [&::-webkit-details-marker]:hidden">
+              <span class="inline-flex items-center gap-1">
+                <.icon
+                  name="hero-chevron-right"
+                  class="size-3 text-ink-subtle transition-transform group-open:rotate-90"
+                />
+                {domain.label}
+              </span>
+            </summary>
+            <div class="mt-0.5 flex flex-col items-stretch gap-0.5 pl-3">
+              <.link
+                :for={resource <- domain.resources}
+                navigate={~p"/admin/resources/#{domain.key}/#{resource.key}"}
+                aria-current={leaf_mark(resource.key, @console)}
+                class={[
+                  "border-l-2 py-0.5 pl-3 pr-1 text-sm outline-offset-2 outline-focus focus-visible:outline-2 motion-safe:transition-colors motion-safe:duration-(--motion-fast)",
+                  resource.key == @console[:resource] && "border-focus font-medium text-ink",
+                  resource.key != @console[:resource] &&
+                    "border-transparent text-ink-muted hover:border-line hover:text-ink"
+                ]}
+                data-testid={"admin-nav-resource-#{domain.key}-#{resource.key}"}
+              >
+                {leaf_label(resource)}
+              </.link>
+            </div>
+          </details>
+        </div>
       </div>
     </nav>
     """
@@ -97,6 +167,30 @@ defmodule FluxValeWeb.AdminShell do
   defp aria_current(key, key, true), do: "page"
   defp aria_current(key, key, false), do: "location"
   defp aria_current(_entry_key, _current, _exact), do: nil
+
+  # A console leaf is active when the console nav state names it: its
+  # href IS the index page (exact) or the surface is one of its
+  # sub-routes (show/new/edit) and it marks the ancestor, per the
+  # grammar above.
+  defp leaf_mark(key, %{resource: key, exact: true}), do: "page"
+  defp leaf_mark(key, %{resource: key, exact: false}), do: "location"
+  defp leaf_mark(_key, _not_this_surface), do: nil
+
+  # While a leaf is marked, the Resources group's landing entry stays
+  # quiet — one marked entry per surface (the open domain group is the
+  # ancestor signal, the leaf is the position). Below the leaf level
+  # (the landing, the domain page) the landing entry keeps its
+  # page/location mark.
+  defp entry_mark(_entry, _current, _exact, %{resource: resource}) when not is_nil(resource),
+    do: nil
+
+  defp entry_mark(entry, current, exact, _console), do: aria_current(entry.key, current, exact)
+
+  # The leaf label: the registry's config label or the key's own
+  # humanized form — the same derivation the domain cards ride.
+  defp leaf_label(resource) do
+    resource.config[:label] || FluxValeWeb.AdminResource.label(resource.key)
+  end
 
   # The console's groups, in the order the lane ships them. Everything
   # with a path exists; everything without is badged Coming.
@@ -137,8 +231,10 @@ defmodule FluxValeWeb.AdminShell do
         ]
       },
       %{
-        # The generic resource console (#595, D3: one group, one entry
-        # — the landing is the domain picker, never per-domain entries).
+        # The generic resource console (#595, D3 revised 2026-11-08:
+        # domain-divided navigation — the landing link below plus the
+        # registry-driven domain groups above, never a flat
+        # everything-page).
         key: "resources",
         label: gettext("Resources"),
         copy: nil,

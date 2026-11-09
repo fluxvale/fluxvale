@@ -15,6 +15,8 @@ defmodule FluxValeWeb.AdminConsole do
   resources force a decision here, never a silent surface.
   """
 
+  alias Ash.Resource.Info
+
   @type domain :: %{
           key: atom(),
           label: String.t(),
@@ -135,12 +137,34 @@ defmodule FluxValeWeb.AdminConsole do
   May this actor run this action on this resource? `Ash.can?` with
   `maybe_is: true` — filter-shaped policies answer true and the
   dispatch stays honest, `:maybe` never hides a control the actor
-  might run. The write surfaces (slice 2) gate every button on this.
+  might run. The write surfaces gate every button on this.
   """
   @spec visible?(term(), module(), atom()) :: boolean()
   def visible?(actor, resource_module, action_name) do
     Ash.can?({resource_module, action_name}, actor, maybe_is: true)
   end
+
+  @doc """
+  The resource's actions of one write type the registry permits: the
+  resource's own actions minus the config's exclusion list (the plan's
+  registry-intent gate — machinery actions like Instance's `perform_*`
+  never render, no matter what the policy would say). `?action=` and
+  every button resolve against this list and nothing else.
+  """
+  @spec allowed_actions(module(), :create | :update | :destroy, map()) :: [map()]
+  def allowed_actions(resource_module, type, config) do
+    excluded = config[exclusion_key(type)] || []
+
+    resource_module
+    |> Info.actions()
+    |> Enum.filter(&(&1.type == type and &1.name not in excluded))
+  end
+
+  # The write-type config keys, one per type (the plan's exclusion
+  # lists: create_actions / update_actions / destroy_actions).
+  defp exclusion_key(:create), do: :create_actions
+  defp exclusion_key(:update), do: :update_actions
+  defp exclusion_key(:destroy), do: :destroy_actions
 
   # Lookup over existing registry atoms: atoms pass through, URL
   # strings compare against each entry's key spelled out. No atom is

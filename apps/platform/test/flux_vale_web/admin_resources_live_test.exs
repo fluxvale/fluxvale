@@ -9,14 +9,17 @@ defmodule FluxValeWeb.AdminResourcesLiveTest do
 
   use FluxValeWeb.ConnCase, async: false
 
+  import Ecto.Query, only: [from: 2]
   import Phoenix.LiveViewTest
 
   alias Ash.Resource.Info
   alias FluxVale.Identity.User
+  alias FluxVale.Infrastructure.Instance
   alias FluxVale.Ops.AccessRule
   alias FluxVale.Ops.FeatureFlag
   alias FluxVale.TestSupport.ApiPat
   alias FluxVale.TestSupport.SessionHelpers
+  alias FluxValeWeb.AdminConsole
   alias FluxValeWeb.AdminLive.Resources
 
   @n :erlang.unique_integer([:positive])
@@ -121,6 +124,64 @@ defmodule FluxValeWeb.AdminResourcesLiveTest do
       entry = render(element(view, "[data-testid='admin-nav-resources']"))
       assert entry =~ ~s(aria-current="location")
       refute entry =~ ~s(aria-current="page")
+    end
+  end
+
+  describe "the domain-divided sidebar navigation (D3 revised)" do
+    test "the landing renders every domain group collapsed and says what the sidebar shows", %{
+      conn: conn
+    } do
+      {:ok, view, _html} = live(conn, "/admin/resources")
+
+      assert has_element?(view, "[data-testid='admin-sidebar-domain-ops']")
+      refute has_element?(view, "[data-testid='admin-sidebar-domain-ops'][open]")
+      refute has_element?(view, "details[open]")
+
+      assert has_element?(
+               view,
+               "[data-testid='admin-resources-pending']",
+               "The sidebar groups every live domain here under Resources, collapsed to start."
+             )
+    end
+
+    test "a resource index opens its domain's group and marks its leaf as the page", %{
+      conn: conn,
+      admin: admin
+    } do
+      flag!(admin)
+
+      {:ok, view, _html} = live(conn, "/admin/resources/ops/feature_flag")
+
+      assert has_element?(view, "[data-testid='admin-sidebar-domain-ops'][open]")
+
+      leaf = render(element(view, "[data-testid='admin-nav-resource-ops-feature_flag']"))
+      assert leaf =~ ~s(aria-current="page")
+
+      # One marked entry per surface: the landing entry goes quiet.
+      landing = render(element(view, "[data-testid='admin-nav-resources']"))
+      refute landing =~ "aria-current"
+    end
+
+    test "a record's sub-route marks its leaf as an ancestor, not the page", %{
+      conn: conn,
+      admin: admin
+    } do
+      flag = flag!(admin)
+
+      {:ok, view, _html} = live(conn, "/admin/resources/ops/feature_flag/#{flag.id}")
+
+      assert has_element?(view, "[data-testid='admin-sidebar-domain-ops'][open]")
+
+      leaf = render(element(view, "[data-testid='admin-nav-resource-ops-feature_flag']"))
+      assert leaf =~ ~s(aria-current="location")
+      refute leaf =~ ~s(aria-current="page")
+    end
+
+    test "a non-console surface renders every domain group collapsed", %{conn: conn} do
+      {:ok, view, _html} = live(conn, "/admin/people")
+
+      assert has_element?(view, "[data-testid='admin-sidebar-domain-ops']")
+      refute has_element?(view, "details[open]")
     end
   end
 
@@ -534,5 +595,614 @@ defmodule FluxValeWeb.AdminResourcesLiveTest do
       assert hd(stale).name == :key
       assert hd(unknown).name == :key
     end
+  end
+
+  # -- slice 2: the write path ------------------------------------------------
+
+  # The fabricated-entry seam for the selector tests (the
+  # configured-columns idiom above): config drives resolution without
+  # touching the live registry.
+  defp write_entry(config) do
+    %{
+      domain: %{key: :ops, label: "Ops", module: FluxVale.Ops},
+      key: :feature_flag,
+      module: FeatureFlag,
+      config: config
+    }
+  end
+
+  describe "the create mount (:new)" do
+    test "renders the typed input mapping over the accept list", %{conn: conn} do
+      {:ok, view, _html} = live(conn, "/admin/resources/ops/feature_flag/new")
+
+      assert has_element?(view, "#admin-resource-record-form")
+
+      assert has_element?(
+               view,
+               "[data-testid='admin-resource-input-key'] input[type='text'][required]"
+             )
+
+      assert has_element?(
+               view,
+               "[data-testid='admin-resource-input-enabled'] input[type='checkbox']"
+             )
+
+      assert has_element?(
+               view,
+               "[data-testid='admin-resource-input-enabled'] input[type='checkbox']"
+             )
+
+      refute has_element?(view, "[data-testid='admin-resource-input-enabled'] input[required]")
+
+      assert has_element?(
+               view,
+               "[data-testid='admin-resource-input-rollout_percentage'] input[type='number']"
+             )
+
+      refute has_element?(
+               view,
+               "[data-testid='admin-resource-input-rollout_percentage'] input[required]"
+             )
+
+      assert has_element?(
+               view,
+               "[data-testid='admin-resource-input-description'] input[type='text']"
+             )
+
+      assert has_element?(view, "[data-testid='admin-resource-save']", "Create Feature flag")
+    end
+
+    test "the enum select carries the declared atoms as its options", %{conn: conn} do
+      {:ok, view, _html} = live(conn, "/admin/resources/ops/access_rule/new")
+
+      assert has_element?(
+               view,
+               "[data-testid='admin-resource-input-purpose'] select option[value='auth']",
+               "Auth"
+             )
+
+      assert has_element?(
+               view,
+               "[data-testid='admin-resource-input-purpose'] select option[value='feedback']",
+               "Feedback"
+             )
+
+      # The attribute's declared default preselects — no blank option
+      # on a required select.
+      assert has_element?(
+               view,
+               "[data-testid='admin-resource-input-purpose'] select option[value='auth'][selected]"
+             )
+    end
+
+    test "the note banner rides the form when the registry sets one", %{conn: conn} do
+      {:ok, view, _html} = live(conn, "/admin/resources/ops/access_rule/new")
+
+      assert has_element?(view, "[data-testid='admin-resource-note']")
+    end
+
+    test "creates through the form and lands on the record's show page", %{
+      conn: conn,
+      admin: admin
+    } do
+      {:ok, view, _html} = live(conn, "/admin/resources/ops/feature_flag/new")
+
+      redirect =
+        view
+        |> form("#admin-resource-record-form",
+          record: %{
+            "key" => "created_by_console",
+            "enabled" => "true",
+            "rollout_percentage" => "40",
+            "description" => "the write path works"
+          }
+        )
+        |> render_submit()
+
+      assert {:error, {:live_redirect, %{to: to}}} = redirect
+      assert to =~ "/admin/resources/ops/feature_flag/"
+      assert to =~ ~r/[0-9a-f-]{36}$/
+
+      {:ok, flag} = FeatureFlag.by_key("created_by_console", actor: admin)
+      assert flag.enabled == true
+      assert flag.rollout_percentage == 40
+    end
+
+    test "constraint failures render inline beside their field — no navigation", %{
+      conn: conn,
+      admin: admin
+    } do
+      {:ok, view, _html} = live(conn, "/admin/resources/ops/feature_flag/new")
+
+      html =
+        view
+        |> form("#admin-resource-record-form",
+          record: %{"key" => "Bad Key!", "rollout_percentage" => "150"}
+        )
+        |> render_submit()
+
+      # Both constraints at once: the key regex and the rollout bounds,
+      # each beside its own field (the <.input> error slot).
+      assert html =~ "must match the pattern"
+      assert html =~ "must be less than or equal to"
+
+      assert has_element?(view, "[data-testid='admin-resource-form']")
+      assert {:error, _not_created} = FeatureFlag.by_key("Bad Key!", actor: admin)
+    end
+
+    test "the AccessRule one-of rule lands on both shape fields", %{conn: conn} do
+      {:ok, view, _html} = live(conn, "/admin/resources/ops/access_rule/new")
+
+      html =
+        view
+        |> form("#admin-resource-record-form", record: %{"purpose" => "feedback"})
+        |> render_submit()
+
+      assert html =~ "exactly 1 of domain,email must be present"
+      assert has_element?(view, "[data-testid='admin-resource-form']")
+    end
+
+    test "?action= picks among the allowed create actions and anything else bounces honestly",
+         %{conn: conn} do
+      {:ok, view, _html} = live(conn, "/admin/resources/ops/feature_flag/new?action=create")
+      assert has_element?(view, "#admin-resource-record-form")
+
+      for crafted <- ["destroy", "by_key", "update", "nope"] do
+        assert {:error,
+                {:live_redirect, %{to: "/admin/resources/ops/feature_flag", flash: flash}}} =
+                 live(conn, "/admin/resources/ops/feature_flag/new?action=#{crafted}")
+
+        assert flash["error"] == "That action is not available here."
+      end
+    end
+
+    test "an unknown resource segment bounces the same way the read mounts do", %{conn: conn} do
+      assert {:error, {:live_redirect, %{to: "/admin/resources", flash: flash}}} =
+               live(conn, "/admin/resources/ops/nope/new")
+
+      assert flash["error"] == "That page does not exist here."
+
+      assert {:error, {:live_redirect, %{to: "/admin/resources"}}} =
+               live(
+                 conn,
+                 "/admin/resources/ops/nope/ffffffff-ffff-7fff-8fff-ffffffffffff/edit"
+               )
+    end
+
+    test "the live validate path renders inline errors while typing", %{conn: conn} do
+      {:ok, view, _html} = live(conn, "/admin/resources/ops/feature_flag/new")
+
+      html = render_change(view, "validate", %{"record" => %{"key" => "Bad Key!"}})
+
+      assert html =~ "must match the pattern"
+      assert has_element?(view, "[data-testid='admin-resource-form']")
+    end
+
+    test "crafted event payloads are quiet no-ops, never crashes", %{conn: conn} do
+      {:ok, view, _html} = live(conn, "/admin/resources/ops/feature_flag/new")
+
+      # A validate or save with no record params under the form's name.
+      render_change(view, "validate", %{"nonsense" => "true"})
+      html = render_submit(view, "save", %{"nonsense" => "true"})
+
+      assert has_element?(view, "[data-testid='admin-resource-form']")
+      assert html =~ "Create Feature flag"
+
+      # An open-destroy with no action value never opens a confirm.
+      render_click(view, "open-destroy", %{})
+      refute has_element?(view, "[data-testid='destructive-confirm']")
+    end
+  end
+
+  describe "the edit mount (:edit)" do
+    test "renders the record's current values prefilled", %{conn: conn, admin: admin} do
+      flag = flag!(admin, %{enabled: true, rollout_percentage: 30, description: "prefill me"})
+
+      {:ok, view, _html} = live(conn, "/admin/resources/ops/feature_flag/#{flag.id}/edit")
+
+      assert has_element?(view, "#admin-resource-record-form")
+      assert render(element(view, "[data-testid='admin-resource-input-key'] input")) =~ flag.key
+
+      assert render(
+               element(view, "[data-testid='admin-resource-input-rollout_percentage'] input")
+             ) =~
+               "30"
+
+      assert has_element?(
+               view,
+               "[data-testid='admin-resource-input-enabled'] input[type='checkbox'][checked]"
+             )
+    end
+
+    test "updates through the form and lands on the record's show page", %{
+      conn: conn,
+      admin: admin
+    } do
+      flag = flag!(admin, %{rollout_percentage: 10})
+
+      {:ok, view, _html} = live(conn, "/admin/resources/ops/feature_flag/#{flag.id}/edit")
+
+      view
+      |> form("#admin-resource-record-form", record: %{"rollout_percentage" => "75"})
+      |> render_submit()
+
+      assert_redirect(view, "/admin/resources/ops/feature_flag/#{flag.id}")
+
+      {:ok, fresh} = Ash.get(FeatureFlag, flag.id, actor: admin)
+      assert fresh.rollout_percentage == 75
+    end
+
+    test "an invalid update renders inline and keeps the record unchanged", %{
+      conn: conn,
+      admin: admin
+    } do
+      flag = flag!(admin, %{rollout_percentage: 10})
+
+      {:ok, view, _html} = live(conn, "/admin/resources/ops/feature_flag/#{flag.id}/edit")
+
+      html =
+        view
+        |> form("#admin-resource-record-form", record: %{"rollout_percentage" => "101"})
+        |> render_submit()
+
+      assert html =~ "must be less than or equal to"
+
+      {:ok, fresh} = Ash.get(FeatureFlag, flag.id, actor: admin)
+      assert fresh.rollout_percentage == 10
+    end
+
+    test "an unknown record id bounces to the index (the size-edit posture)", %{conn: conn} do
+      assert {:error, {:live_redirect, %{to: "/admin/resources/ops/feature_flag"}}} =
+               live(
+                 conn,
+                 "/admin/resources/ops/feature_flag/ffffffff-ffff-7fff-8fff-ffffffffffff/edit"
+               )
+    end
+
+    test "?action= resolves update actions and wrong-type names bounce to the record's page", %{
+      conn: conn,
+      admin: admin
+    } do
+      flag = flag!(admin)
+
+      {:ok, view, _html} =
+        live(conn, "/admin/resources/ops/feature_flag/#{flag.id}/edit?action=update")
+
+      assert has_element?(view, "#admin-resource-record-form")
+
+      assert {:error, {:live_redirect, %{to: to, flash: flash}}} =
+               live(conn, "/admin/resources/ops/feature_flag/#{flag.id}/edit?action=create")
+
+      assert to == "/admin/resources/ops/feature_flag/#{flag.id}"
+      assert flash["error"] == "That action is not available here."
+    end
+  end
+
+  describe "destroy (the confirm-gated write)" do
+    test "the show page's actions bar carries the gated Edit link and Delete button", %{
+      conn: conn,
+      admin: admin
+    } do
+      flag = flag!(admin)
+
+      {:ok, view, _html} = live(conn, "/admin/resources/ops/feature_flag/#{flag.id}")
+
+      assert has_element?(view, "[data-testid='admin-resource-actions']")
+      assert has_element?(view, "a[data-testid='admin-resource-edit-update']", "Edit")
+      assert has_element?(view, "[data-testid='admin-resource-destroy-destroy']", "Delete")
+    end
+
+    test "the confirm names the record by its label and states irreversibility", %{
+      conn: conn,
+      admin: admin
+    } do
+      flag = flag!(admin)
+
+      {:ok, view, _html} = live(conn, "/admin/resources/ops/feature_flag/#{flag.id}")
+
+      render_click(view, "open-destroy", %{"action" => "destroy"})
+
+      assert has_element?(
+               view,
+               "[data-testid='destructive-confirm']",
+               "Delete #{flag.key}?"
+             )
+
+      assert has_element?(
+               view,
+               "[data-testid='destructive-confirm']",
+               "This permanently deletes the record"
+             )
+    end
+
+    test "cancel closes the confirm without running anything", %{
+      conn: conn,
+      admin: admin
+    } do
+      flag = flag!(admin)
+
+      {:ok, view, _html} = live(conn, "/admin/resources/ops/feature_flag/#{flag.id}")
+
+      render_click(view, "open-destroy", %{"action" => "destroy"})
+      render_click(view, "cancel-confirm", %{})
+
+      refute has_element?(view, "[data-testid='destructive-confirm']")
+
+      assert {:ok, _still_there} = Ash.get(FeatureFlag, flag.id, actor: admin)
+    end
+
+    test "confirm deletes the record and returns to the index with the flash", %{
+      conn: conn,
+      admin: admin
+    } do
+      flag = flag!(admin)
+
+      {:ok, view, _html} = live(conn, "/admin/resources/ops/feature_flag/#{flag.id}")
+
+      render_click(view, "open-destroy", %{"action" => "destroy"})
+
+      confirm = element(view, "[data-testid='admin-resource-destroy-confirm']")
+      render_click(confirm)
+
+      assert_redirect(view, "/admin/resources/ops/feature_flag")
+
+      assert {:error, _gone} = Ash.get(FeatureFlag, flag.id, actor: admin)
+    end
+
+    test "the quiet expired arm: a confirm with the panel closed is a no-op", %{
+      conn: conn,
+      admin: admin
+    } do
+      flag = flag!(admin)
+
+      {:ok, view, _html} = live(conn, "/admin/resources/ops/feature_flag/#{flag.id}")
+
+      # The double-click shape: the first click navigated away, the
+      # second lands on a closed panel (also the crafted-event shape).
+      render_click(view, "confirm-destroy", %{})
+
+      assert has_element?(view, "[data-testid='admin-resource-show']")
+      assert {:ok, _still_there} = Ash.get(FeatureFlag, flag.id, actor: admin)
+    end
+
+    test "a crafted action value never opens a confirm", %{conn: conn, admin: admin} do
+      flag = flag!(admin)
+
+      {:ok, view, _html} = live(conn, "/admin/resources/ops/feature_flag/#{flag.id}")
+
+      render_click(view, "open-destroy", %{"action" => "nope"})
+
+      refute has_element?(view, "[data-testid='destructive-confirm']")
+    end
+
+    test "a record deleted out-of-band answers both the open and the confirm honestly",
+         %{conn: conn, admin: admin} do
+      flag = flag!(admin)
+
+      {:ok, view, _html} = live(conn, "/admin/resources/ops/feature_flag/#{flag.id}")
+
+      render_click(view, "open-destroy", %{"action" => "destroy"})
+      assert has_element?(view, "[data-testid='destructive-confirm']")
+
+      # Out-of-band delete between the open and the confirm: the
+      # dispatch re-reads through the domain before destroying.
+      changeset = Ash.Changeset.for_destroy(flag, :destroy, %{}, actor: admin)
+      Ash.destroy!(changeset)
+
+      confirm = element(view, "[data-testid='admin-resource-destroy-confirm']")
+      render_click(confirm)
+
+      assert_redirect(view, "/admin/resources/ops/feature_flag")
+
+      # And the open arm reads the same honesty.
+      flag2 = flag!(admin)
+      {:ok, view2, _html} = live(conn, "/admin/resources/ops/feature_flag/#{flag2.id}")
+
+      changeset2 = Ash.Changeset.for_destroy(flag2, :destroy, %{}, actor: admin)
+      Ash.destroy!(changeset2)
+
+      render_click(view2, "open-destroy", %{"action" => "destroy"})
+
+      assert_redirect(view2, "/admin/resources/ops/feature_flag")
+    end
+  end
+
+  describe "the index's create affordance" do
+    test "the New link points at the :new route when policy permits", %{conn: conn} do
+      {:ok, view, _html} = live(conn, "/admin/resources/ops/feature_flag")
+
+      assert has_element?(view, "a[data-testid='admin-resource-new']", "New")
+    end
+  end
+
+  describe "the demotion window (every write re-resolves the actor)" do
+    test "a mid-session demotion cannot create: the submit is refused with honest copy", %{
+      conn: conn,
+      admin: admin
+    } do
+      {:ok, view, _html} = live(conn, "/admin/resources/ops/feature_flag/new")
+
+      demote!(admin)
+
+      html =
+        view
+        |> form("#admin-resource-record-form",
+          record: %{"key" => "demoted_create", "enabled" => "true"}
+        )
+        |> render_submit()
+
+      assert html =~ "Your admin access ended. Sign out and sign back in."
+      assert {:error, _refused} = FeatureFlag.by_key("demoted_create", actor: admin)
+    end
+
+    test "a mid-session demotion cannot update: the record keeps its values", %{
+      conn: conn,
+      admin: admin
+    } do
+      flag = flag!(admin, %{rollout_percentage: 10})
+
+      {:ok, view, _html} = live(conn, "/admin/resources/ops/feature_flag/#{flag.id}/edit")
+
+      demote!(admin)
+
+      html =
+        view
+        |> form("#admin-resource-record-form", record: %{"rollout_percentage" => "99"})
+        |> render_submit()
+
+      assert html =~ "Your admin access ended. Sign out and sign back in."
+
+      {:ok, fresh} = Ash.get(FeatureFlag, flag.id, actor: admin)
+      assert fresh.rollout_percentage == 10
+    end
+
+    test "a mid-session demotion cannot destroy: the confirm is refused", %{
+      conn: conn,
+      admin: admin
+    } do
+      flag = flag!(admin)
+
+      {:ok, view, _html} = live(conn, "/admin/resources/ops/feature_flag/#{flag.id}")
+
+      render_click(view, "open-destroy", %{"action" => "destroy"})
+      assert has_element?(view, "[data-testid='destructive-confirm']")
+
+      demote!(admin)
+
+      confirm = element(view, "[data-testid='admin-resource-destroy-confirm']")
+      render_click(confirm)
+
+      assert has_element?(view, "#flash-error", "Your admin access ended")
+      assert {:ok, _still_there} = Ash.get(FeatureFlag, flag.id, actor: admin)
+    end
+  end
+
+  describe "policy enforcement (the demanded non-admin proof)" do
+    test "a signed-in non-admin bounces at the route gate on every write route", %{
+      bare_conn: conn
+    } do
+      user = User.create!("admin-resources-writer-#{@n}@fluxvale.com", %{}, authorize?: false)
+
+      for path <- [
+            "/admin/resources/ops/feature_flag/new",
+            "/admin/resources/ops/feature_flag"
+          ] do
+        request =
+          conn
+          |> SessionHelpers.sign_in(user)
+          |> get(path)
+
+        assert request.status == 403
+      end
+    end
+
+    test "a bearer-only socket bounces at mount on the write routes too", %{admin: admin} do
+      pat = ApiPat.mint!(admin, ["instances:read"])
+      conn = put_req_header(build_conn(), "authorization", "Bearer " <> pat)
+
+      assert {:error, {:redirect, %{to: "/sign-in"}}} =
+               live(conn, "/admin/resources/ops/feature_flag/new")
+    end
+
+    test "visible? hides every write action for a non-admin actor" do
+      user = User.create!("admin-resources-probe-#{@n}@fluxvale.com", %{}, authorize?: false)
+
+      for resource <- [FeatureFlag, AccessRule],
+          action <- [:create, :update, :destroy] do
+        refute AdminConsole.visible?(user, resource, action)
+      end
+    end
+
+    test "non-admin actors are Forbidden on the write paths themselves", %{
+      admin: admin
+    } do
+      non_admin = SessionHelpers.user!()
+
+      assert {:error, %Ash.Error.Forbidden{}} =
+               FeatureFlag
+               |> Ash.Changeset.for_create(:create, %{key: "forbidden_create"}, actor: non_admin)
+               |> Ash.create()
+
+      flag = flag!(admin)
+
+      assert {:error, %Ash.Error.Forbidden{}} =
+               flag
+               |> Ash.Changeset.for_update(:update, %{enabled: true}, actor: non_admin)
+               |> Ash.update()
+
+      assert {:error, %Ash.Error.Forbidden{}} =
+               flag
+               |> Ash.Changeset.for_destroy(:destroy, %{}, actor: non_admin)
+               |> Ash.destroy()
+    end
+  end
+
+  describe "the ?action= selector and field mapping (fabricated entries)" do
+    test "the default is the primary action of the type" do
+      entry = write_entry(%{})
+
+      assert {:ok, action} = Resources.form_action(entry, :create, nil)
+      assert action.name == :create
+
+      assert {:ok, update} = Resources.form_action(entry, :update, nil)
+      assert update.name == :update
+    end
+
+    test "a registry exclusion empties the set and the mount bounces" do
+      read_only = write_entry(%{create_actions: [:create]})
+
+      assert Resources.form_action(read_only, :create, nil) == :error
+      assert Resources.form_action(read_only, :create, "create") == :error
+    end
+
+    test "the field list maps the accept list to typed inputs" do
+      action = Info.action(FeatureFlag, :create)
+      fields = Resources.form_fields(FeatureFlag, action)
+
+      assert Enum.map(fields, & &1.name) == [:key, :enabled, :rollout_percentage, :description]
+
+      by_name = Map.new(fields, &{&1.name, &1})
+
+      assert by_name[:key].type == "text"
+      assert by_name[:key].required
+      assert by_name[:enabled].type == "checkbox"
+      assert by_name[:enabled].required == false
+      assert by_name[:rollout_percentage].type == "number"
+      assert by_name[:rollout_percentage].required == false
+
+      rule_action = Info.action(AccessRule, :create)
+      rule_fields = Resources.form_fields(AccessRule, rule_action)
+      purpose = Enum.find(rule_fields, &(&1.name == :purpose))
+
+      assert purpose.type == "select"
+      assert purpose.options == [{"Auth", "auth"}, {"Feedback", "feedback"}]
+      assert purpose.required
+    end
+
+    test "an accept name that is not a public attribute is skipped, never guessed at" do
+      fields = Resources.form_fields(FeatureFlag, %{accept: [:key, :nope]})
+
+      assert Enum.map(fields, & &1.name) == [:key]
+    end
+
+    test "a shape the engine cannot map yet is skipped — maps wait for their slice" do
+      # Instance.env_vars is the registry's first map-typed attr (slice
+      # 5's resource, slice 4's JSON-textarea decision): the engine
+      # skips what it cannot map instead of guessing an encoding.
+      fields =
+        Resources.form_fields(Instance, %{accept: [:name, :env_vars]})
+
+      assert Enum.map(fields, & &1.name) == [:name]
+    end
+  end
+
+  # Demote out-of-band (the wallet test's posture): User carries no
+  # role-write action and Ash.Seed is create-only, so this one
+  # precondition rides the data layer directly — tests own their
+  # preconditions; the write gate is what the tests pin.
+  defp demote!(admin) do
+    query = from(u in "users", where: u.id == ^Ecto.UUID.dump!(admin.id))
+    {updated, nil} = FluxVale.Repo.update_all(query, set: [platform_role: "user"])
+    assert updated == 1
   end
 end
