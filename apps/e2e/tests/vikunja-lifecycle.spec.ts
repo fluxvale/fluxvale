@@ -117,8 +117,12 @@ test(
     // at the config level) and serves the actual Vikunja app.
     // Vikunja's frontend is a client-rendered Vue SPA: the served
     // HTML is an empty shell, so the identity proof is upstream's own
-    // public /api/v1/info and the render proof is a hydrated heading
-    // in a real browser (the raw shell matches nothing).
+    // public /api/v1/info and the render proof is the hydrated login
+    // form in a real browser — its fields, not a heading: the login
+    // screen renders "Welcome Back!" as an h2 and no h1 at all (the
+    // Umami username-field pattern). The SPA reads its API base from
+    // the injected public URL, which on FluxVale is the instance's
+    // own origin — same-origin, so hydration needs no CORS escape.
     const url = (await page.getByTestId("instance-url").textContent())?.trim();
     expect(url).toMatch(/^https:\/\//);
     const opened = await request.get(url!);
@@ -146,8 +150,16 @@ test(
     expect(instanceInfo.auth.openid_connect.enabled).toBe(false);
 
     const ui = await page.context().newPage();
-    await ui.goto(url!, { waitUntil: "networkidle", timeout: 60_000 });
-    await expect(ui.locator("h1").first()).toBeVisible({ timeout: 30_000 });
+    // domcontentloaded, not networkidle: the SPA's own asset fetching
+    // (fonts, a service worker) has no fixed end state worth gating
+    // on — the field assertions below carry the wait.
+    await ui.goto(url!, { waitUntil: "domcontentloaded", timeout: 60_000 });
+    await expect(ui.locator("input[name='username']")).toBeVisible({
+      timeout: 30_000,
+    });
+    await expect(ui.locator("input[type='password']")).toBeVisible({
+      timeout: 10_000,
+    });
     await ui.close();
 
     // Upstream's own liveness endpoint — an unauthenticated 200 whose
