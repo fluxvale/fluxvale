@@ -93,7 +93,15 @@ defmodule FluxVale.Feedback.Post do
     store_action_name?(true)
     store_action_inputs?(true)
     sensitive_attributes(:redact)
-    ignore_attributes([:created_at, :updated_at])
+    # The cached counters ride the ignore list too (ADR-0048): they are
+    # derivative data, recomputed from the Vote and Comment rows, so a
+    # cast or comment can never put counter values in a version's diff.
+    # The row itself is silenced by name via ignore_actions below —
+    # 0.8.1's ignore_attributes filters the recorded diff, but the
+    # write trigger is the changeset's changed? flag, which the bumps'
+    # atomic updates set.
+    ignore_attributes([:created_at, :updated_at, :vote_count, :comment_count])
+    ignore_actions([:bump_vote_count, :bump_comment_count])
     reference_source?(false)
     create_version_on_destroy?(true)
     operation_id_field(:operation_id)
@@ -287,6 +295,29 @@ defmodule FluxVale.Feedback.Post do
       # The author notification (T7) rides after the write: a FRESH
       # status move mails the author (the change owns the gates).
       change(AuthorStatusMail)
+    end
+
+    # The counters' maintenance writes (BumpPostVoteCount and
+    # BumpPostCounter): dedicated actions so the paper trail can ignore
+    # them by name (ignore_actions above) — the counters are derivative
+    # data (ADR-0048). updated_at still moves on vote/comment activity
+    # (any update touches the timestamp), so the sitemap's
+    # re-crawl semantics are unchanged (the pinned test in
+    # comment_test).
+    update :bump_vote_count do
+      description("Atomic vote-counter maintenance for Vote cast/retract — never versioned")
+
+      accept([])
+      require_atomic?(false)
+    end
+
+    update :bump_comment_count do
+      description(
+        "Atomic comment-counter maintenance for Comment create/destroy — never versioned"
+      )
+
+      accept([])
+      require_atomic?(false)
     end
 
     update :set_tags do

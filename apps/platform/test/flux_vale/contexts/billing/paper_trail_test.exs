@@ -103,5 +103,52 @@ defmodule FluxVale.Billing.PaperTrailTest do
       assert is_nil(version.actor_label)
       assert version.version_action_inputs["amount_cents"] == 1000
     end
+
+    test "buyer evidence redacts in BOTH changes and version_action_inputs (ADR-0048)" do
+      # The buyer-evidence attributes carry sensitive?(true) (ADR-0048's
+      # recorded truth), so the blanket sensitive_attributes :redact
+      # keeps their values out of the trail — every flagged key reads
+      # REDACTED, the amounts stay plaintext.
+      {org, _user} = BillingFixtures.grant_free_org!()
+
+      topup =
+        Topup
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            organization_id: org.id,
+            amount_cents: 1000,
+            tax_cents: 190,
+            buyer_email: "buyer@example.com",
+            buyer_name: "Buyer Name",
+            billing_country: "DE",
+            billing_state: nil,
+            customer_type: :business,
+            vat_number: "DE123456789",
+            ip_country: "DE",
+            reverse_charge?: true,
+            ip_matches_billing?: true
+          },
+          authorize?: false
+        )
+        |> Ash.create!()
+
+      [version] = versions!(Topup.Version, topup.id)
+
+      redacted =
+        ~w(buyer_email buyer_name billing_country billing_state customer_type vat_number ip_country reverse_charge? ip_matches_billing?)
+
+      for key <- redacted do
+        assert version.changes[key] == "REDACTED",
+               "#{key} leaked into changes — the flag is not covering it"
+
+        assert version.version_action_inputs[key] == "REDACTED",
+               "#{key} leaked into version_action_inputs — the flag is not covering it"
+      end
+
+      assert version.changes["amount_cents"] == 1000
+      assert version.changes["tax_cents"] == 190
+      assert version.version_action_inputs["amount_cents"] == 1000
+    end
   end
 end

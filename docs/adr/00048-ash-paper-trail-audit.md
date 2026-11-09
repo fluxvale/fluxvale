@@ -135,6 +135,33 @@ janitor bookkeeping, each named with its reason there).
   doctrine attributes mutations, it does not tamper-proof against the
   operator's own debug mount — the same superuser trust class ADR-0027
   Am. 1 already records. Deliberately not excluded in this slice.
+- **Topup buyer evidence is redacted-by-flag.** The buyer-evidence
+  attributes (`buyer_email`, `buyer_name`, `billing_country`,
+  `billing_state`, `customer_type`, `vat_number`, `ip_country`,
+  `reverse_charge?`, `ip_matches_billing?`) carry `sensitive?(true)`,
+  so the blanket `sensitive_attributes :redact` keeps their values out
+  of the trail — version rows carry REDACTED markers, amounts and
+  statuses stay plaintext. The erasure question stays OPEN: a deleted
+  user's buyer evidence surviving as REDACTED markers (the marker
+  proves a value existed, not what it was) is the data-deletion
+  policy's call, not silently settled here.
+- **Comment and Vote trails end at create.** Both resources' post FK
+  cascades at the DB (`on_delete :delete` — the dependent-records
+  posture), so a moderation delete of a Post takes its comments and
+  votes without per-row destroy versions; the parent Post's destroy
+  version row, with its actor, IS the audit record for the dependent
+  rows' deletion. Deliberate: restructuring destroy flows to per-row
+  trails would buy noise, not accountability.
+- **Counter bumps never version the post.** The cached
+  `vote_count`/`comment_count` are derivative data, recomputable from
+  the Vote and Comment rows. In ash_paper_trail 0.8.1
+  `ignore_attributes` filters the recorded DIFF but the write trigger
+  is the changeset's own `changed?` flag — which the bumps' atomic
+  updates set — so the bumps ride dedicated actions
+  (`:bump_vote_count`, `:bump_comment_count`) silenced by name via
+  `ignore_actions`. `updated_at` still moves on vote/comment activity
+  (any update touches the timestamp), so the sitemap's re-crawl
+  semantics are unchanged.
 
 ## Notes from the A2-S1 probes (ash_paper_trail 0.8.1)
 

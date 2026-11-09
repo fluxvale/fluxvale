@@ -152,6 +152,19 @@ defmodule FluxValeWeb.AdminConsoleTest do
       end
     end
 
+    test "every exclusion entry names a module its domain actually has — live domain or not" do
+      # The liveness arm walks ALL configured domains, pending included:
+      # a pending domain's exclusions (the audit lane's version tables
+      # ride the map before the domain flips live) go stale just as a
+      # live domain's do.
+      for domain <- Application.get_env(:flux_vale, :ash_domains) do
+        for {module, _reason} <- AdminConsole.excluded_resources(domain) do
+          assert module in Info.resources(domain),
+                 "#{inspect(module)} is excluded but no longer a #{inspect(domain)} resource — drop the stale exclusion"
+        end
+      end
+    end
+
     test "a live domain's URL segment is its key, and every entry carries a module" do
       for domain <- AdminConsole.domains() do
         assert is_atom(domain.key)

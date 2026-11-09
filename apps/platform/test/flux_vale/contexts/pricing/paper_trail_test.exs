@@ -65,11 +65,13 @@ defmodule FluxVale.Pricing.PaperTrailTest do
   end
 
   describe "the atomic path (the watch item)" do
-    test "a bulk update through the atomic-capable action versions each record with inputs and attribution intact" do
-      # version_action_inputs on the atomic path (#651's disclosed
-      # quirk class — nil-map vs values): OBSERVED on ash_paper_trail
-      # 0.8.1 + ash 3.37.3 the VALUES arrive, %{"rate_bp" => 2100}, not
-      # an empty map. Pinned as observed, not "fixed".
+    test "the BULK-UPDATE path versions each record with inputs and attribution intact" do
+      # version_action_inputs on the bulk path (#651's disclosed quirk
+      # class — nil-map vs values): OBSERVED on ash_paper_trail 0.8.1 +
+      # ash 3.37.3 the VALUES arrive, %{"rate_bp" => 2100} — the bulk
+      # engine reads a different attributes map than the single-row
+      # path does (see the single-row pin below and the ADR's probe
+      # notes). Pinned as observed, not "fixed".
       admin = AccountsFixtures.admin!()
 
       r1 = rate!("QZ", 2000)
@@ -88,6 +90,26 @@ defmodule FluxVale.Pricing.PaperTrailTest do
         assert update_version.user_id == admin.id
         assert update_version.actor_label == admin.username
       end
+    end
+
+    test "the SINGLE-ROW update stores inputs as keys with nil values while changes carries the real ones" do
+      # The seed/console path's observed behavior (ADR-0048's probe
+      # notes): a plain update on the atomic-capable action runs the
+      # engine's atomic handling, whose inputs map reads nil per key —
+      # the lossless record is the changes map beside it. Pinned, not
+      # wished; revisit on a deliberate dep bump.
+      admin = AccountsFixtures.admin!()
+      rate = rate!("QZ", 2000)
+
+      rate
+      |> Ash.Changeset.for_update(:update, %{rate_bp: 1800}, actor: admin)
+      |> Ash.update!()
+
+      [_create_version, update_version] = versions!(TaxRate.Version, rate.id)
+
+      assert update_version.version_action_inputs == %{"rate_bp" => nil}
+      assert update_version.changes == %{"rate_bp" => 1800}
+      assert update_version.user_id == admin.id
     end
 
     test "an identical-value resubmission still versions — the quirk rides atomic-capable actions" do
