@@ -27,6 +27,15 @@ defmodule FluxVale.Identity.GoogleOIDCTest do
       issuer: Provider.base_url(provider)
     )
 
+    # Default id_token claims for every test that reaches /token (the
+    # provider fetch!es email/email_verified — a mint without claims
+    # fails loudly there); tests override via set_claims.
+    Provider.set_claims(provider,
+      email: "ada@example.com",
+      email_verified: true,
+      sub: "mock-sub-1"
+    )
+
     on_exit(fn ->
       case original do
         nil -> Application.delete_env(:flux_vale, :google_oidc)
@@ -42,7 +51,14 @@ defmodule FluxVale.Identity.GoogleOIDCTest do
   defp with_env(env, test) do
     original = Application.get_env(:flux_vale, :google_oidc)
     Application.put_env(:flux_vale, :google_oidc, env)
-    on_exit(fn -> Application.put_env(:flux_vale, :google_oidc, original) end)
+
+    on_exit(fn ->
+      case original do
+        nil -> Application.delete_env(:flux_vale, :google_oidc)
+        value -> Application.put_env(:flux_vale, :google_oidc, value)
+      end
+    end)
+
     test.()
   end
 
@@ -144,12 +160,6 @@ defmodule FluxVale.Identity.GoogleOIDCTest do
       discovery = Provider.discovery(provider)
       refute Map.has_key?(discovery, "userinfo_endpoint")
 
-      Provider.set_claims(provider,
-        email: "ada@example.com",
-        email_verified: true,
-        sub: "mock-sub-1"
-      )
-
       grant = authorize_grant()
 
       # the mock echoed our redirect_uri and the authorize-time state
@@ -168,25 +178,53 @@ defmodule FluxVale.Identity.GoogleOIDCTest do
       refute Map.has_key?(claims, "iss")
     end
 
+    # The failure tests assert assent's own message discriminators, not
+    # just {:error, _} — any layer's failure would pass a shape assert;
+    # the discriminator pins WHICH validation refused the token.
     test "a tampered id_token signature fails", %{provider: provider} do
       Provider.set_fault(provider, :tampered_signature)
       grant = authorize_grant()
 
-      assert {:error, _invalid_signature} = exchange(grant)
+      assert {:error, reason} = exchange(grant)
+      assert reason =~ "Invalid JWT signature"
+    end
+
+    test "a wrong-issuer id_token fails", %{provider: provider} do
+      Provider.set_fault(provider, :wrong_issuer)
+      grant = authorize_grant()
+
+      assert {:error, reason} = exchange(grant)
+      assert reason =~ "Invalid issuer"
     end
 
     test "a wrong-audience id_token fails", %{provider: provider} do
       Provider.set_fault(provider, :wrong_audience)
       grant = authorize_grant()
 
-      assert {:error, _audience} = exchange(grant)
+      assert {:error, reason} = exchange(grant)
+      assert reason =~ "not in audience"
     end
 
     test "an expired id_token fails", %{provider: provider} do
       Provider.set_fault(provider, :expired)
       grant = authorize_grant()
 
-      assert {:error, _expired} = exchange(grant)
+      assert {:error, reason} = exchange(grant)
+      assert reason =~ "has expired"
+    end
+
+    test "a nonce mismatch fails — session_params are the arbiter", %{provider: provider} do
+      grant = authorize_grant()
+      forged = %{grant.session_params | nonce: "forged-nonce"}
+
+      assert {:error, reason} =
+               GoogleOIDC.callback(
+                 %{"code" => grant.code, "state" => grant.state},
+                 forged,
+                 @redirect_uri
+               )
+
+      assert reason =~ "nonce"
     end
 
     test "a state mismatch fails — the session_params are the arbiter" do

@@ -3,7 +3,8 @@ defmodule FluxVale.Identity do
   Identity: users, platform roles, personal access tokens, and the
   revocable token store.
 
-  Passwordless email-code sign-in (#21) and PATs (#360 — mint via
+  Passwordless email-code sign-in (#21), Google sign-in on the same
+  admission ladder (#642), and PATs (#360 — mint via
   `mint_pat/3` with scopes, revoke via `revoke_pat/3`; the token
   store below backs sessions, `prune_expired_tokens/1` its janitor)
   build on this domain. Deliberately **not** exposed through AshAdmin
@@ -81,10 +82,8 @@ defmodule FluxVale.Identity do
   @spec signup_event() :: [atom(), ...]
   def signup_event, do: [:flux_vale, :identity, :signup]
 
-  # The Google sign-in outcome counter (#642): one event on every
-  # return path of the operation, outcome-tagged. A shared contract,
-  # not the operation's constant (the signup_event posture); the
-  # listener is FluxValeWeb.Telemetry.
+  # The Google sign-in outcome counter (#642): the operation fires it
+  # on every return path, outcome-tagged (the signup_event posture).
   @doc "The Google sign-in telemetry event — SignInWithGoogle fires it on every return path"
   @spec google_sign_in_event() :: [atom(), ...]
   def google_sign_in_event, do: [:flux_vale, :identity, :google_sign_in]

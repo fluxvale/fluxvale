@@ -26,16 +26,18 @@ defmodule FluxVale.Identity.Operations.SignInWithGoogle do
   retired invitations answer :invitation_required like any uninvited
   address.
 
-  The user-level AccessRule gate at the mint is deliberately
-  stricter than the native email+code branch (whose re-entry
-  protection lives in SessionController, #26): one hop, both gates.
+  The user-level AccessRule gate at the mint closes the mid-request
+  rule-mutation window in the same hop as the address gate (the email
+  arm leaves that half to SessionController, #26). Sequentially it is
+  near-tautological — the address gate just passed on the same
+  address — and fires only across a rule landing between the two;
+  the one-hop-both-gates cost is accepted for it (plan §3.3 step 5).
   """
 
   alias FluxVale.Identity.User
   alias FluxVale.Identity.UserEmail
   alias FluxVale.Ops.AccessRules
 
-  # Ash.Query.filter is a macro
   # The framework's own door for auth flows — see RequestAuthCode's note
   @interaction %{private: %{ash_authentication?: true}}
 
@@ -54,9 +56,10 @@ defmodule FluxVale.Identity.Operations.SignInWithGoogle do
   residuals (`:address_unresolved` — the retryable post-supersede
   race window; `:user_lookup_failed` — the DB-read arm;
   `:provisioning_failed` — a non-uniqueness create failure in the
-  residual window). Assent-level failures (Google unreachable, code
-  refused, bad state) never reach this operation — they happen in the
-  OIDC hop before any claims exist.
+  residual window, or a token-mint failure normalized into the set).
+  Assent-level failures (Google unreachable, code refused, bad
+  state) never reach this operation — they happen in the OIDC hop
+  before any claims exist.
   """
   @spec call(map()) :: {:ok, map(), String.t()} | {:error, atom()}
   def call(claims) do
@@ -78,18 +81,26 @@ defmodule FluxVale.Identity.Operations.SignInWithGoogle do
   # The strict gate (plan §3.3 step 1, §4 guardrail 1 —
   # non-negotiable): a literal `true` and a usable email, or a refusal
   # BEFORE any lookup. The `=== true` keeps "true"-the-string and
-  # every other truthy shape out; a missing/malformed email is the
-  # same refusal (an unusable claim is an unverified claim).
+  # every other truthy shape out; a missing email, an empty one, or a
+  # malformed one (UserEmail.valid_address? — the same format rule the
+  # code-send gate runs) is the same refusal: an unusable claim is an
+  # unverified claim, and a malformed address must never reach the
+  # JIT create (where it would answer :provisioning_failed, leaking a
+  # shape difference).
   defp resolve(claims) do
     email = claims["email"]
 
-    if claims["email_verified"] === true and is_binary(email) and email != "" do
+    if claims["email_verified"] === true and usable_email?(email) do
       with :ok <- AccessRules.ensure_allowed(email) do
         resolve_email(email)
       end
     else
       {:error, :email_not_verified}
     end
+  end
+
+  defp usable_email?(email) do
+    is_binary(email) and email != "" and UserEmail.valid_address?(email)
   end
 
   defp resolve_email(email) do
@@ -122,9 +133,12 @@ defmodule FluxVale.Identity.Operations.SignInWithGoogle do
     UserEmail.supersede_pending_claims(email)
 
     case lookup_user(email) do
-      # coveralls-ignore-start - race arm: needs the concurrent
-      # VerifyEmail's flip to commit between the supersede and this
-      # read — true concurrency, not sequential
+      # coveralls-ignore-start - race arm: the re-lookup rung needs a
+      # concurrent VerifyEmail's flip to COMMIT between the supersede
+      # and this read — no sequential test can reach it (a claim
+      # flipped BEFORE the call is caught by the top-of-flow lookup in
+      # resolve_email; the flip test in the suite pins that arm
+      # instead), hence the exclusion
       {:ok, user} ->
         mint(user)
 
@@ -384,14 +398,35 @@ defmodule FluxVale.Identity.Operations.SignInWithGoogle do
     |> Ash.read_one(authorize?: false)
   end
 
-  # Plan §3.3 steps 5–6: the user-level gate at the mint (one hop,
-  # both gates — deliberately stricter than the native email+code
-  # branch), then the standard 60-day token — the same store,
-  # revocation, and TTL as every session.
+  # Plan §3.3 steps 5–6: the user-level gate at the mint (the
+  # mid-request rule-mutation window's closing half — see the
+  # moduledoc for the near-tautology), then the standard 60-day token
+  # — the same store, revocation, and TTL as every session.
   defp mint(user) do
     with :ok <- AccessRules.ensure_allowed_user(user),
-         {:ok, token, _claims} <- AshAuthentication.Jwt.token_for_user(user) do
+         {:ok, token, _claims} <- mint_token(user) do
       {:ok, user, token}
+    end
+  end
+
+  # token_for_user/1 answers a signing/store failure as bare :error
+  # (the AA 4.15 shape — see its else-arm), which would crash
+  # outcome_atom/1 ahead of the telemetry; normalized into the
+  # documented atom set so every path returns the @spec'd shape AND
+  # fires the event.
+  defp mint_token(user) do
+    case AshAuthentication.Jwt.token_for_user(user) do
+      {:ok, _token, _claims} = ok ->
+        ok
+
+      # coveralls-ignore-start - the bare :error's sources are a
+      # missing/malformed signing secret — which RAISES inside
+      # Config.token_signer before the else-arm ever runs — or a
+      # token-store write failure, the db_down class ExUnit cannot
+      # simulate (DBConnection reconnects by design)
+      :error ->
+        {:error, :provisioning_failed}
+        # coveralls-ignore-stop
     end
   end
 end

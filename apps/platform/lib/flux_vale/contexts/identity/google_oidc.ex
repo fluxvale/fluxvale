@@ -10,20 +10,23 @@ defmodule FluxVale.Identity.GoogleOIDC do
   (the ApiRateLimit posture — runtime-readable, so tests and staging
   point the issuer at a mock or a staging arm without release
   surgery): `client_id`, `client_secret`, `issuer` (default
-  `https://accounts.google.com`, the `GOOGLE_OIDC_ISSUER` override of
-  plan §6).
+  `https://accounts.google.com`). The `GOOGLE_CLIENT_ID`/`SECRET`/
+  `GOOGLE_OIDC_ISSUER` env wiring lands in S3's runtime config
+  (plan §6) — this seam reads whatever the env carries today.
 
   `redirect_uri` always arrives as an argument — FluxValeWeb is not
   reachable from this context (the secrets.ex boundary), and the
   redirect URI derives from the endpoint's own URL config in the
   controller (S3).
 
-  `callback/3` returns the strategy's normalized user map: for an
-  issuer with no userinfo endpoint (discovery omits it — Google's
-  does), assent 0.2.13 reads the ID token ALONE (`OIDC.fetch_user`
-  drops the reserved ID-token claim names — iss/aud/exp/iat/nonce/…)
-  and hands back the rest with string keys: `"email"`,
-  `"email_verified"`, `"sub"`, …
+  `callback/3` returns the strategy's normalized user map. Assent
+  0.2.13's OIDC `fetch_user` reads the ID token ALONE regardless of
+  discovery (it never consults a userinfo endpoint), dropping the
+  reserved ID-token claim names (iss/aud/exp/iat/nonce/…) and handing
+  back the rest with string keys: `"email"`, `"email_verified"`,
+  `"sub"`, … The mock provider deliberately serves NO userinfo
+  endpoint so a future switch to userinfo-backed claims fails loudly
+  at the mock instead of silently diverging between test and prod.
   """
 
   alias Assent.Strategy.OIDC
@@ -41,8 +44,8 @@ defmodule FluxVale.Identity.GoogleOIDC do
 
   @doc """
   True only when both credentials are present non-empty binaries — the
-  `GOOGLE_CLIENT_ID`/`SECRET` predicate the controller and the button
-  share (nil or `""` is the unconfigured shape, plan §6).
+  creds-present predicate the S3 controller and the button share (nil
+  or `""` is the unconfigured shape, plan §6).
   """
   @spec configured?() :: boolean()
   def configured? do
@@ -78,10 +81,15 @@ defmodule FluxVale.Identity.GoogleOIDC do
 
   @doc """
   Exchanges the callback `params` (code + state from the redirect)
-  against the `session_params` parked at authorize time. Returns the
-  verified claims map (`{:ok, claims}`) or assent's error — signature,
-  issuer, audience, expiry, nonce, and state failures all land here
-  (the controller's error set, plan §3.3).
+  against the `session_params` parked at authorize time — pass them
+  EXACTLY as `authorize_url/1` returned: atom keys (`:state`,
+  `:code_verifier`, `:nonce`, …). Assent `Map.fetch!`es the verifier
+  and pattern-matches `%{nonce: stored}` from that map, so a
+  JSON-normalized (string-keyed) copy — e.g. one that survived a
+  cookie-session round trip un-decoded — fails loudly instead of
+  being accepted. Returns the verified claims map (`{:ok, claims}`)
+  or assent's error — signature, issuer, audience, expiry, nonce, and
+  state failures all land here (the controller's error set, §3.3).
   """
   @spec callback(map(), map(), String.t()) :: {:ok, map()} | {:error, term()}
   def callback(params, session_params, redirect_uri) do

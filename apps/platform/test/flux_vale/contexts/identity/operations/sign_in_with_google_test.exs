@@ -74,6 +74,49 @@ defmodule FluxVale.Identity.Operations.SignInWithGoogleTest do
       assert_receive {:telemetry_event, [:flux_vale, :identity, :google_sign_in], %{count: 1},
                       %{outcome: :email_not_verified}}
     end
+
+    test "a malformed email is an unverified claim — never :provisioning_failed" do
+      # team-suffix malformed claims would pass a binary+non-empty-only
+      # gate, survive the lookups, and die at the JIT create's
+      # validation — leaking a shape difference. valid_address? (the
+      # code-send gate's own rule) refuses it at the gate.
+      claims = %{"email" => "a@b@fluxvale.com", "email_verified" => true}
+
+      assert {:error, :email_not_verified} = Identity.sign_in_with_google(claims)
+
+      assert [] = users_with_email("a@b@fluxvale.com")
+      assert [] = rows_for("a@b@fluxvale.com")
+    end
+
+    test "an unverified claim against an EXISTING account refuses — the takeover guard, pinned" do
+      # §4's attacker shape: an IdP account bearing the victim's
+      # address WITHOUT Google's verification. The strict gate is the
+      # only thing between that claim and the victim's session.
+      address = "guard-#{System.unique_integer()}@fluxvale.com"
+      victim = User.create!(address, %{}, authorize?: false)
+
+      claims = claims_for(address, false)
+
+      assert {:error, :email_not_verified} = Identity.sign_in_with_google(claims)
+
+      # no session, no fork, the account untouched
+      assert [%User{} = untouched] = users_with_email(address)
+      assert untouched.id == victim.id
+      assert [%{user_id: owner_id, verified_at: verified}] = rows_for(address)
+      assert owner_id == victim.id
+      refute is_nil(verified)
+    end
+
+    test "the strict gate runs BEFORE the AccessRules check — order pinned" do
+      # denied address + unverified claim: :email_not_verified (not
+      # :not_allowed) proves the gate is first, as its comment claims
+      AccessRule.create!(%{email: "one@fluxvale.com"}, authorize?: false)
+
+      address = "denied-#{System.unique_integer()}@example.com"
+      claims = claims_for(address, false)
+
+      assert {:error, :email_not_verified} = Identity.sign_in_with_google(claims)
+    end
   end
 
   describe "call/1 — resolution (the admission ladder, rung for rung)" do
@@ -124,7 +167,12 @@ defmodule FluxVale.Identity.Operations.SignInWithGoogleTest do
       refute is_nil(verified)
     end
 
-    test "a claim flipped verified before the call resolves to its owner (no fork)" do
+    test "auto-link on a verified claim created outside the flow — top-of-flow lookup, no fork" do
+      # The flip happened BEFORE the call, so the rung this exercises
+      # is the top-of-flow get_by_email (rung 1), not the
+      # post-supersede re-lookup — that rung needs the flip to commit
+      # between the supersede and the re-read, which no sequential
+      # test can arrange (see the exclusion in the operation).
       claimant =
         User.create!("flip-claimant-#{System.unique_integer()}@fluxvale.com", %{},
           authorize?: false

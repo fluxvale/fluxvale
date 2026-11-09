@@ -25,7 +25,8 @@ defmodule FluxVale.TestSupport.OIDC.Provider do
     single-use). Responds with an RS256-signed `id_token` (JOSE, the
     server's own RSA key; iss = base URL, aud = client_id, sub
     configurable, exp/iat now, nonce = the one remembered at
-    /authorize) plus an `access_token`.
+    /authorize — the fault knobs below poison exactly these) plus an
+    `access_token`.
   - `GET /jwks.json` — the RSA public key as JWKS.
 
   Test-facing API (pass the pid/struct `start_supervised!` returned):
@@ -33,12 +34,15 @@ defmodule FluxVale.TestSupport.OIDC.Provider do
       provider = start_supervised!({FluxVale.TestSupport.OIDC.Provider, client_id: "id", client_secret: "secret"})
       Provider.base_url(provider)      # point :google_oidc's issuer here
       Provider.set_claims(provider, email: "ada@example.com", email_verified: true, sub: "sub-1")
-      Provider.set_fault(provider, :wrong_audience)   # or :expired | :tampered_signature | nil
+      Provider.set_fault(provider, :wrong_audience)   # or :wrong_issuer | :expired | :tampered_signature | nil
 
-  Faults poison the NEXT `id_token` mint (wrong audience / expired
-  window / broken signature) so assent's validator is what fails. A
-  state-mismatch callback needs no knob — pass the wrong
-  `session_params` from the test.
+  A fault poisons exactly ONE `id_token` mint and auto-clears (the
+  next mint is clean — no test surprise); `set_fault(provider, nil)`
+  clears it outright. Faults: wrong audience, wrong issuer (an `iss`
+  that is not the base URL — assent's issuer check holds only by
+  construction otherwise), expired window, corrupted signature —
+  assent's validator is what fails. A state-mismatch or nonce-mismatch
+  callback needs no knob — pass forged `session_params` from the test.
   """
 
   use GenServer
@@ -57,7 +61,7 @@ defmodule FluxVale.TestSupport.OIDC.Provider do
     grants: %{}
   ]
 
-  @type fault :: :wrong_audience | :expired | :tampered_signature | nil
+  @type fault :: :wrong_audience | :wrong_issuer | :expired | :tampered_signature | nil
 
   def start_link(opts \\ []) do
     GenServer.start_link(__MODULE__, opts)
@@ -67,13 +71,16 @@ defmodule FluxVale.TestSupport.OIDC.Provider do
 
   def base_url(provider), do: GenServer.call(provider, :base_url)
 
-  @doc "The JWKS document assent fetches (one RSA key, kid-tagged)."
+  @doc """
+  The JWKS document assent fetches: one RSA key (kty/n/e — JOSE emits
+  no kid, so assent's single-key fallback resolves it).
+  """
   def jwks(provider), do: GenServer.call(provider, :jwks)
 
   @doc "Configures the claims the next /token issuance carries in its id_token."
   def set_claims(provider, claims), do: GenServer.call(provider, {:set_claims, claims})
 
-  @doc "Poisons the next id_token mint (see the moduledoc); `nil` clears."
+  @doc "Poisons one id_token mint, then auto-clears (see the moduledoc)."
   @spec set_fault(pid() | atom(), fault()) :: :ok
   def set_fault(provider, fault), do: GenServer.call(provider, {:set_fault, fault})
 
@@ -180,7 +187,9 @@ defmodule FluxVale.TestSupport.OIDC.Provider do
 
         case validate_and_issue(params, basic, grant, burned) do
           {:ok, token} ->
-            {:reply, {:ok, token}, burned}
+            # One mint per fault, then auto-clear — the next issuance
+            # is clean unless the test re-arms the knob.
+            {:reply, {:ok, token}, %{burned | fault: nil}}
 
           {:error, status, error, description} ->
             {:reply, {:error, status, error, description}, burned}
@@ -253,15 +262,19 @@ defmodule FluxVale.TestSupport.OIDC.Provider do
   defp issue_token(state, grant) do
     now = System.system_time(:second)
 
+    # fetch! on the claims a test MUST set (email/email_verified): a
+    # forgotten set_claims rots HERE, loudly, instead of minting an
+    # id_token whose silent nils surface as a confusing downstream
+    # failure. :sub stays optional with a default.
     claims = %{
-      "iss" => state.base_url,
+      "iss" => issuer(state),
       "sub" => Keyword.get(state.claims, :sub, "mock-sub"),
       "aud" => audience(state),
       "exp" => expiry(state, now),
       "iat" => now,
       "nonce" => grant.nonce,
-      "email" => Keyword.get(state.claims, :email),
-      "email_verified" => Keyword.get(state.claims, :email_verified)
+      "email" => Keyword.fetch!(state.claims, :email),
+      "email_verified" => Keyword.fetch!(state.claims, :email_verified)
     }
 
     payload = Jason.encode!(claims)
@@ -282,17 +295,30 @@ defmodule FluxVale.TestSupport.OIDC.Provider do
   defp audience(%{fault: :wrong_audience}), do: "some-other-client"
   defp audience(%{client_id: client_id}), do: client_id
 
+  # The issuer fault: an iss that is NOT the discovery's issuer —
+  # without the knob, assent's issuer check holds only by construction.
+  defp issuer(%{fault: :wrong_issuer}), do: "https://evil.example"
+  defp issuer(%{base_url: base_url}), do: base_url
+
   defp expiry(%{fault: :expired}, now), do: now - 600
   defp expiry(_no_fault, now), do: now + 3600
 
-  # Flip the signature's last base64url char: still decodable (assent
-  # decodes the signature before comparing), never valid.
+  # Corrupt one byte in the MIDDLE of the decoded signature, then
+  # re-encode. Flipping a base64url CHARACTER is not reliable: the
+  # final char may encode padding bits only (canonical A|Q|g|w) and
+  # flip as a no-op — JOSE then verifies the "tampered" token and the
+  # test flakes (~25% for a last-char flip on RSA-2048). A flipped
+  # middle byte always changes the signature bytes, so verification
+  # fails deterministically.
   defp maybe_tamper(compact, :tampered_signature) do
     [header, payload, signature] = String.split(compact, ".")
-    replacement = if String.last(signature) == "A", do: "B", else: "A"
-    tampered = String.replace_trailing(signature, String.last(signature), replacement)
+    {:ok, decoded} = Base.url_decode64(signature, padding: false)
+    at = div(byte_size(decoded), 2)
 
-    Enum.join([header, payload, tampered], ".")
+    <<head::binary-size(^at), byte::8, tail::binary>> = decoded
+    flipped = <<head::binary, 255 - byte::8, tail::binary>>
+
+    Enum.join([header, payload, Base.url_encode64(flipped, padding: false)], ".")
   end
 
   defp maybe_tamper(compact, _no_fault), do: compact
