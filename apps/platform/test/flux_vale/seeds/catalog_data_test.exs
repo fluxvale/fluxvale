@@ -527,6 +527,78 @@ defmodule FluxVale.Seeds.CatalogDataTest do
       assert guidance =~ "Change that password right away"
     end
 
+    test "shipped catalog_data.yaml normalizes the Docmost entry (#609)" do
+      entry = entry_by_slug("knowledge")
+
+      assert entry.category == %{
+               name: "Knowledge",
+               slug: "knowledge",
+               description: "Wiki and knowledge base apps for teams that document together.",
+               audience:
+                 "A fit for teams that want their shared knowledge in one place they control."
+             }
+
+      assert [%{slug: "docmost"} = app] = entry.apps
+      assert app.name == "Docmost"
+      assert app.source_url == "https://github.com/docmost/docmost"
+      # Uploads ride the app's own storage, not an owner-mounted
+      # library — the file-access sidecar ships off.
+      assert app.file_access == false
+
+      version = hd(app.versions)
+      assert version.version == "0.97.0"
+      # Docker Hub only (GHCR has no docmost repository) and pinned by
+      # tag AND the multi-arch index digest, verified against the
+      # registry and a live pull.
+      assert version.image ==
+               "docker.io/docmost/docmost:0.97.0@sha256:40c454d74ffdd9ecb15833e4d96f3a630d59aad862a1869381ae6ee086454419"
+
+      assert version.port == 3000
+      # The dependency-aware endpoint: 200 only with the database and
+      # Redis both up (verified live, including the hang-when-down
+      # failure side).
+      assert version.healthcheck_path == "/api/health"
+      # Upstream's own VOLUME and compose mount.
+      assert version.storage_mount_path == "/app/data/storage"
+      # Uploads live on the instance volume — the honest default is
+      # the small-app rung, not zero (Umami's stateless shape) and
+      # not ten.
+      assert version.default_storage_gb == 5
+      assert Decimal.equal?(version.default_cpu_cores, Decimal.new("0.5"))
+      assert version.default_memory_mb == 1024
+      assert version.recommended_size == "medium"
+      assert version.published_at == ~U[2026-11-09 02:00:00Z]
+
+      # The deployer injects the instance URL (upstream defaults it to
+      # localhost:3000, wrong for an instance).
+      assert version.instance_url_env == "APP_URL"
+      # Paid-tier SSO without a wiring recipe (#609's ruling): Docmost
+      # derives no OIDC consumer surface from catalog data.
+      assert version.oidc_callback_path == nil
+      assert version.oidc_wiring == nil
+
+      # The privacy default ships alone; everything else is the
+      # owner's to bring (both backing services plus the app secret).
+      assert version.default_env_vars == %{"DISABLE_TELEMETRY" => "true"}
+
+      for name <- ["DATABASE_URL", "REDIS_URL", "APP_SECRET"] do
+        assert %{"required" => true, "secret" => true, "type" => "string"} =
+                 version.configurable_env_vars[name]
+      end
+
+      # ADR-0034: the setup page creates the workspace and the first
+      # account (verified live: setup 200 then 403 forever); CLOUD is
+      # locked because upstream's cloud mode short-circuits the
+      # SetupGuard and would block the owner's claim (#181).
+      assert version.first_run["pattern"] == "first_registered_user_admin"
+      assert version.first_run["env"] == %{}
+      assert version.first_run["forbidden_env"] == ["CLOUD"]
+
+      guidance = version.first_run["guidance"]
+      assert guidance =~ "create your account on the setup page"
+      assert guidance =~ "becomes the workspace admin"
+    end
+
     test "comments-only and empty files parse to []" do
       comments_only = tmp_path("# comments only\n")
       assert CatalogData.entries(comments_only) == []
@@ -535,7 +607,7 @@ defmodule FluxVale.Seeds.CatalogDataTest do
       assert CatalogData.entries(empty) == []
     end
 
-    # #611 S1 retro-fill: the six shipped apps carry caveats and
+    # #611 S1 retro-fill: the eight shipped apps carry caveats and
     # alternatives promoted from facts already in the file, and every
     # category carries its audience line (plan §7.3, verbatim).
     test "shipped entries carry the marketing retro-fill (#611)" do
@@ -556,7 +628,9 @@ defmodule FluxVale.Seeds.CatalogDataTest do
                "finance" =>
                  "A fit for households that want their budget data under their own roof.",
                "analytics" =>
-                 "A fit for anyone who wants honest visitor numbers on the sites they run, without cookies or a third party holding the data."
+                 "A fit for anyone who wants honest visitor numbers on the sites they run, without cookies or a third party holding the data.",
+               "knowledge" =>
+                 "A fit for teams that want their shared knowledge in one place they control."
              }
 
       for entry <- entries, app <- entry.apps do
@@ -577,7 +651,9 @@ defmodule FluxVale.Seeds.CatalogDataTest do
       assert app_by_slug!(entries, "vaultwarden").alternatives == ["Bitwarden", "1Password"]
       assert app_by_slug!(entries, "pocket-id").alternatives == ["Keycloak", "Auth0"]
       assert app_by_slug!(entries, "actualbudget").alternatives == ["YNAB", "Firefly III"]
+      assert app_by_slug!(entries, "umami").alternatives == ["Plausible", "Matomo"]
       assert app_by_slug!(entries, "vikunja").alternatives == ["Todoist", "Trello"]
+      assert app_by_slug!(entries, "docmost").alternatives == ["Notion", "Outline"]
 
       # S7 content, not S1: the typed lists stay absent on the shipped
       # entries ([]), the intros and community links nil.

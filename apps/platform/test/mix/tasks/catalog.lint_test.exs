@@ -12,7 +12,8 @@ defmodule Mix.Tasks.Catalog.LintTest do
       output = capture_io(fn -> Lint.run([]) end)
 
       assert output =~ "forgejo: recommended"
-      assert output =~ "8 apps: 0 minimum, 8 recommended, 0 full parity"
+      assert output =~ "docmost: recommended"
+      assert output =~ "9 apps: 0 minimum, 9 recommended, 0 full parity"
     end
   end
 end

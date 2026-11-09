@@ -1045,3 +1045,179 @@
               password umami. Change that password right away, because
               every Umami install starts with the same one. Then add
               your first website in Umami to get its tracking snippet.
+
+- category:
+    name: Knowledge
+    slug: knowledge
+    description: >-
+      Wiki and knowledge base apps for teams that document together.
+    # #611 D5, the wave-6 category's line (the same "who it suits"
+    # voice as the siblings above).
+    audience: >-
+      A fit for teams that want their shared knowledge in one place
+      they control.
+  apps:
+    - name: Docmost
+      slug: docmost
+      tagline: Team wiki and docs you host yourself
+      description: |
+        A wiki and knowledge base for your team, with a real-time
+        collaborative editor. Pages organize into spaces, search covers
+        the whole workspace, and comments, mentions, and history keep
+        the discussion next to the text. Docmost's core is AGPL
+        licensed and free to host. Pages and accounts live in a
+        PostgreSQL database you connect at deploy time, and real-time
+        editing needs a Redis server you bring as well. Both stay
+        yours to run and back up. Uploaded files live on the instance
+        volume. Open the instance right after deploying to create the
+        first account, because it becomes the workspace admin.
+      # The PWA app-icon is the self-contained mark (the ActualBudget
+      # lesson): a white glyph on a fully opaque black field, so it
+      # reads on the icon tile in both themes. Pinned to the tag.
+      icon_url: https://raw.githubusercontent.com/docmost/docmost/v0.97.0/apps/client/public/icons/app-icon-512x512.png
+      source_url: https://github.com/docmost/docmost
+      docs_url: https://docmost.com/docs
+      # #611's recommended tier (#609), same rule as Umami: facts
+      # promoted from the description and the packaging decisions
+      # below, nothing invented. The paid-tier disclosure is Terence's
+      # researched call: PikaPods hosts the AGPL core commercially and
+      # states the paid add-ons plainly, and so does this.
+      caveats:
+        - Docmost needs two services you bring yourself, a PostgreSQL database and a Redis server. Both are entered at deploy time and stay yours to run and back up.
+        - Single sign-on over OIDC and SAML, Bases databases, and AI features need a paid Docmost Business license from upstream. The AGPL edition hosted here does not include them.
+        - This entry sends no email. Invite people with a copyable link from the members settings instead.
+      alternatives:
+        - Notion
+        - Outline
+      versions:
+        - version: "0.97.0"          # upstream stable, 2026-10-25
+          # The canonical image is Docker Hub only: ghcr.io/docmost
+          # has no such repository (NAME_UNKNOWN from the GHCR v2
+          # API, checked 2026-11-09). Pinned by tag AND digest — the
+          # digest is the multi-arch INDEX docker.io reports for the
+          # 0.97.0 tag (never a per-arch manifest, the Umami lesson)
+          # and it matched the imageID a live pod resolved and pulled
+          # in the verification run. Tag plus digest keeps the ref
+          # readable and immutable; a re-pushed tag cannot shift it.
+          image: docker.io/docmost/docmost:0.97.0@sha256:40c454d74ffdd9ecb15833e4d96f3a630d59aad862a1869381ae6ee086454419
+          port: 3000
+          # The dependency-aware endpoint (NestJS terminus at
+          # /api/health): 200 only when the app answers AND both the
+          # PostgreSQL and Redis connections ping up — verified live,
+          # including the honest failure side (Redis scaled to zero
+          # makes the probe hang, so readiness fails rather than
+          # lying green). /api/health/live exists too but is
+          # dependency-blind; Running must mean usable, so the
+          # readiness path is the deep one.
+          healthcheck_path: /api/health
+          # Upstream's own volume (Dockerfile VOLUME + the compose
+          # mount): uploaded files land here with the local storage
+          # driver, the image default. The image runs as UID 1000
+          # (node) and pre-creates the directory — which the PVC
+          # mount shadows, so writability rides the pod-level fsGroup
+          # the deployer grants on every volume-mounting pod (#609's
+          # fix; the image's own mkdir never sees the mounted path).
+          storage_mount_path: /app/data/storage
+          # Docmost derives its own links and websocket origin from
+          # APP_URL (optional upstream, defaults to localhost:3000 —
+          # wrong for an instance URL), so the deployer injects the
+          # instance URL into it, the Pocket ID APP_URL shape.
+          instance_url_env: APP_URL
+          # The BYO-interim shape (#609's interim pattern, Umami
+          # #587's precedent): upstream's own compose ships app +
+          # postgres:18 + redis:8 as one unit, and the app's boot
+          # validation exits without DATABASE_URL (postgres scheme),
+          # REDIS_URL (redis scheme), and APP_SECRET (32+ chars).
+          # The bundled-services engine (ADR-0045, #612) exists but
+          # no shipped entry declares it yet — its consumer slice
+          # owns the migration: a version declaring postgres + redis
+          # gets both url_envs composed at deploy and these two
+          # required inputs disappear (the takeover #612 records).
+          # Until then both connection strings are the owner's
+          # inputs; instance egress is open (the NetworkPolicy
+          # denies ingress only), so the services may live anywhere
+          # the instance can reach.
+          default_storage_gb: 5
+          # Live-measured on the real image (ephemeral k3d pods at
+          # medium's exact allocation): ~26s cold boot to a green
+          # /api/health including first-run migrations, 139-165 MB
+          # anonymous RSS at idle, 427-445 Mi pod working set. It
+          # survives micro's 512 Mi through boot, but that is idle
+          # with zero content — a real team's wiki grows past it, and
+          # the issue's own research floor is ~1 GB. medium (0.5 CPU
+          # / 1 GB, $3.69) is the honest recommendation; the wizard
+          # warns below it and owners can resize later.
+          default_cpu_cores: "0.5"
+          default_memory_mb: 1024
+          recommended_size: medium
+          # Privacy-honest default (the platform's stance, disclosed
+          # in the PR): upstream phones home anonymous telemetry
+          # unless DISABLE_TELEMETRY is set, and env is a deploy-time
+          # snapshot — a host platform should not ship customer
+          # instances that report to upstream by default. Owners who
+          # want it back can flip the default_env_vars row.
+          default_env_vars:
+            DISABLE_TELEMETRY: "true"
+          release_notes: |
+            First FluxVale catalog release, tracking upstream v0.97.0.
+            One Node server for the wiki. Pages and accounts live in
+            the PostgreSQL database connected at deploy time,
+            real-time editing uses the Redis server connected at
+            deploy time, and uploaded files stay on the instance
+            volume. The first account created on the setup page
+            becomes the workspace admin.
+          published_at: "2026-11-09T02:00:00Z"
+          configurable_env_vars:
+            DATABASE_URL:
+              label: PostgreSQL connection string
+              description: >-
+                Docmost keeps every page and account in PostgreSQL.
+                Paste a connection string this instance can reach over
+                the network, like
+                postgresql://user:password@host:5432/docmost. The
+                database is yours to run, back up, and restore.
+              type: string
+              required: true
+              secret: true
+            REDIS_URL:
+              label: Redis connection string
+              description: >-
+                Real-time editing and background jobs need Redis.
+                Paste a connection string this instance can reach over
+                the network, like redis://user:password@host:6379.
+                The Redis server stays yours to run.
+              type: string
+              required: true
+              secret: true
+            APP_SECRET:
+              label: App secret
+              description: >-
+                A random string of at least 32 characters that secures
+                sign-in tokens. Generate one with openssl rand -hex 32
+                and keep the same value on every restart.
+              type: string
+              required: true
+              secret: true
+          # First-run contract (ADR-0034): the setup page creates the
+          # workspace and the first account in one step, then answers
+          # 403 forever (SetupGuard counts workspaces — verified live:
+          # first POST /api/auth/setup 200, second 403, login 200,
+          # wrong password 401). The Pocket ID setup-page shape, so
+          # the pattern is the same atom and `env` has nothing to pin.
+          # forbidden_env locks CLOUD: upstream's cloud mode short-
+          # circuits the SetupGuard (isCloud returns false from
+          # canActivate, the setup page never shows), so a user-set
+          # CLOUD=true would block the owner's claim exactly the way
+          # ActualBudget's OIDC bootstrap could (#181's failure mode;
+          # the free-form user-env path #482 can carry it).
+          first_run:
+            pattern: first_registered_user_admin
+            env: {}
+            forbidden_env:
+              - CLOUD
+            guidance: >-
+              Open the instance URL and create your account on the
+              setup page. That first account becomes the workspace
+              admin, and the setup page disappears once it exists, so
+              claim the instance promptly. Then invite your team from
+              the members settings with an invite link.

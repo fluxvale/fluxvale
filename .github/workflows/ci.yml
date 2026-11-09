@@ -755,9 +755,14 @@ jobs:
     # leaves ~11.5m hang slack. Tighter than the old slack on purpose:
     # the new worst already carries congestion padding the old one
     # didn't. The waits themselves are unchanged. #587 added
-    # umami-lifecycle (20m bounded), and #610 added vikunja-lifecycle
-    # (20m bounded) — a memos-shape SQLite-PVC deploy, ≈ 30m under
-    # the ceiling with one more spec of that shape.
+    # umami-lifecycle (20m bounded) as the lifecycle leg's seventh
+    # spec. #610 added vikunja-lifecycle (20m bounded, a memos-shape
+    # SQLite-PVC deploy). #609 added docmost-lifecycle (also 20m
+    # bounded — the retry math: playwright retries once in CI, so the
+    # leg worst is the observed 17.1m plus two bounded runs per new
+    # spec, and 20m bounds keep the sum inside the 60m ceiling with
+    # the report intact on a retry). The docmost spec's per-run Redis
+    # pod is warmed below with the config pins.
     timeout-minutes: 60
     strategy:
       # A red leg must not cancel the others — its report is triage
@@ -780,9 +785,11 @@ jobs:
             # umami joined at birth (#576) — it deploys an instance
             # like its siblings and provisions a per-run CNPG database
             # the way the backups leg reads MinIO. vikunja joined at
-            # birth too (#610) — a memos-shape SQLite deploy.
-            specs: tests/forgejo-lifecycle.spec.ts tests/actual-lifecycle.spec.ts tests/vaultwarden-lifecycle.spec.ts tests/memos-lifecycle.spec.ts tests/vikunja-lifecycle.spec.ts tests/pocket-id-lifecycle.spec.ts tests/umami-lifecycle.spec.ts tests/file-access.spec.ts tests/backups.spec.ts
-            warm_apps: forgejo actualbudget vaultwarden memos vikunja pocket-id kavita umami
+            # birth too (#610) — a memos-shape SQLite deploy. docmost
+            # joined at birth (#609) — its per-run Redis pod's pin is
+            # pre-pulled by the warm-up below.
+            specs: tests/forgejo-lifecycle.spec.ts tests/actual-lifecycle.spec.ts tests/vaultwarden-lifecycle.spec.ts tests/memos-lifecycle.spec.ts tests/vikunja-lifecycle.spec.ts tests/pocket-id-lifecycle.spec.ts tests/umami-lifecycle.spec.ts tests/docmost-lifecycle.spec.ts tests/file-access.spec.ts tests/backups.spec.ts
+            warm_apps: forgejo actualbudget vaultwarden memos vikunja pocket-id kavita umami docmost
           # #210 part 3: threshold 45s + probe window 150s are safe
           # HERE only — this leg's instance gets no traffic, so the
           # 30s beacon staleness that guards the other legs' 180s
@@ -926,6 +933,18 @@ jobs:
             exit 1
           fi
           refs="$refs $sidecar"
+          # docmost-lifecycle provisions its per-run Redis from the
+          # backing-services registry's pin (the same config.exs
+          # block, the sidecar precedent one layer in — the registry
+          # keys image mid-line, so the match is unanchored): a cold
+          # Docker Hub pull inside the spec is exactly the congestion
+          # class the warm-up exists to defuse (#578's banked failure).
+          redis_pin="$(sed -n 's/.*image: "\(redis:[^"]*\)".*/\1/p' "$config" | head -1)"
+          if [ -z "$redis_pin" ]; then
+            echo "::error::no redis image pin found in $config — did the backing_services registry change shape?"
+            exit 1
+          fi
+          refs="$refs $redis_pin"
           # 0 = pulled, 1 = budget-exhausted (timeout's 124), 2 = outright
           pull_one() {
             if timeout "$1" docker pull -q "$2"; then return 0; fi

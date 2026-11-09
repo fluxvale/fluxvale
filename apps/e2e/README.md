@@ -101,6 +101,24 @@ BASE_URL=https://staging.fluxvale.com E2E_TESTINBOX_TOKEN=<pat> npx playwright t
   destroy, and the per-run database and role are dropped. Local only,
   like backups.spec.ts (the kubectl provisioning names the local
   stack's CNPG); production stays read-only.
+- `docmost-lifecycle.spec.ts` — Docmost's lifecycle (#609): deploy
+  through the stepper filling the three required inputs (DATABASE_URL,
+  REDIS_URL, and APP_SECRET — the BYO-interim shape: the database is
+  played by the stack's own CNPG the umami-lifecycle way, and Redis by
+  a per-run pod + service in a per-run namespace the spec creates,
+  since no bundled consumer exists yet) → running → HTTPS UI (the SPA
+  login form renders and signs the admin in, the umami render-proof
+  shape) + `/api/health` with database and redis both up → the setup
+  page's first account becomes the workspace admin and the page closes
+  ([ADR-0034](../../docs/adr/00034-first-run-contract.md)) → a file
+  uploads through the app's own multipart endpoint and reads back (the
+  volume proof: UID 1000 writes the PVC through the pod's fsGroup
+  grant) → stop ($0.24 stopped — the 5 GB upload volume) → start →
+  the admin still signs in and the uploaded file still reads (the
+  external database held the rows, the volume held the bytes) →
+  destroy, and the per-run database, role, and Redis namespace all go
+  away. Local only, like backups.spec.ts (same reason); production
+  stays read-only.
 
 CI: the `e2e` job (`.github/workflows/ci.yml`) bootstraps the same
 script on an ephemeral k3d — sharded by file (#210): a `lifecycle`

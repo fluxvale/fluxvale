@@ -562,6 +562,70 @@ defmodule FluxVale.Seeds.CatalogSeedTest do
       assert contract.guidance =~ "username admin and password umami"
     end
 
+    test "seeds the shipped Docmost entry and its first-run contract (#609)" do
+      assert :ok == Seeds.seed_pricing!()
+      assert :ok == Seeds.seed_catalog!()
+
+      category = Category.get_by_slug!("knowledge", authorize?: false)
+      assert category.name == "Knowledge"
+
+      app = App.get_by_slug!("docmost", authorize?: false)
+      assert app.category_id == category.id
+      assert app.source_url == "https://github.com/docmost/docmost"
+      # Uploads ride the app's own volume — no file-access sidecar.
+      assert app.file_access == false
+
+      version =
+        "docmost"
+        |> App.get_by_slug!(authorize?: false)
+        |> Ash.load!([app_versions: :recommended_size], authorize?: false)
+        |> Map.fetch!(:app_versions)
+        |> hd()
+
+      assert version.version == "0.97.0"
+
+      assert version.image ==
+               "docker.io/docmost/docmost:0.97.0@sha256:40c454d74ffdd9ecb15833e4d96f3a630d59aad862a1869381ae6ee086454419"
+
+      assert version.port == 3000
+      # The dependency-aware health path (both backing services must
+      # answer for a 200).
+      assert version.healthcheck_path == "/api/health"
+      assert version.storage_mount_path == "/app/data/storage"
+      assert version.default_storage_gb == 5
+      # Kept equal to `medium` by ValidateSizeMatchesAllocation.
+      assert Decimal.equal?(version.default_cpu_cores, Decimal.new("0.5"))
+      assert version.default_memory_mb == 1024
+      assert version.recommended_size.slug == "medium"
+
+      # The privacy default ships alone; both backing services and the
+      # app secret are the owner's deploy-time inputs (Umami's BYO
+      # shape, twice over).
+      assert version.default_env_vars == %{"DISABLE_TELEMETRY" => "true"}
+
+      for name <- ["DATABASE_URL", "REDIS_URL", "APP_SECRET"] do
+        spec = version.configurable_env_vars[name]
+        assert %EnvVarSpec{} = spec
+        assert spec.required == true
+        assert spec.secret == true
+      end
+
+      # The deployer injects the instance URL; no OIDC surface ships.
+      assert version.instance_url_env == "APP_URL"
+      assert version.oidc_callback_path == nil
+      assert version.oidc_wiring == nil
+
+      contract = version.first_run
+      assert %FirstRunContract{} = contract
+      assert contract.pattern == :first_registered_user_admin
+      # Nothing to pin; the lock keeps user env from flipping upstream
+      # into cloud mode, which would hide the setup page and block
+      # the owner's claim (ADR-0034, #181's failure mode).
+      assert contract.env == %{}
+      assert contract.forbidden_env == ["CLOUD"]
+      assert contract.guidance =~ "becomes the workspace admin"
+    end
+
     test "seeds the OIDC callback paths for the six consumers (#511)" do
       assert :ok == Seeds.seed_pricing!()
       assert :ok == Seeds.seed_catalog!()
@@ -667,11 +731,15 @@ defmodule FluxVale.Seeds.CatalogSeedTest do
 
     # #611 S1 retro-fill: every shipped app lands its curated fields,
     # and every category its audience line (plan §7.3, verbatim).
-    test "seeds the marketing retro-fill for all eight apps (#611)" do
+    # umami joined at #587, vikunja at #610, docmost at #609 — the
+    # DB-level loop covers every shipped app, not just the
+    # retro-fill six.
+    test "seeds the marketing retro-fill for every shipped app (#611)" do
       assert :ok == Seeds.seed_pricing!()
       assert :ok == Seeds.seed_catalog!()
 
-      for slug <- ~w(forgejo kavita memos vaultwarden pocket-id actualbudget umami vikunja) do
+      for slug <-
+            ~w(forgejo kavita memos vaultwarden pocket-id actualbudget umami vikunja docmost) do
         app = App.get_by_slug!(slug, authorize?: false)
         assert app.caveats != [], "#{slug} carries no caveats"
         assert length(app.caveats) <= 6
@@ -699,6 +767,12 @@ defmodule FluxVale.Seeds.CatalogSeedTest do
 
       assert Category.get_by_slug!("finance", authorize?: false).audience ==
                "A fit for households that want their budget data under their own roof."
+
+      assert Category.get_by_slug!("analytics", authorize?: false).audience ==
+               "A fit for anyone who wants honest visitor numbers on the sites they run, without cookies or a third party holding the data."
+
+      assert Category.get_by_slug!("knowledge", authorize?: false).audience ==
+               "A fit for teams that want their shared knowledge in one place they control."
     end
   end
 
