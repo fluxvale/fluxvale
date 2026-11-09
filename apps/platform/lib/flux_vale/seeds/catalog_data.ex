@@ -17,6 +17,11 @@ defmodule FluxVale.Seeds.CatalogData do
   databases (OQ #14 unsettled), so the PostgreSQL connection string
   rides deploy-time required inputs, and its default-admin first run
   added the `default_admin_credentials` pattern (ADR-0034 Am. 2).
+  Docmost (#609) joined it: the first entry needing TWO owner-run
+  services (Postgres and Redis, both hard-required at boot) — the
+  bundled-services engine (ADR-0045) had not shipped a consumer yet,
+  so both connection strings ride deploy-time required inputs, the
+  Umami BYO shape extended, until its consumer slice takes them over.
 
   Adding a catalog app is purely additive: append a YAML entry. The seed
   runner (`FluxVale.Seeds.seed_catalog!/0`) looks each record up by its
