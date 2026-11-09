@@ -731,6 +731,13 @@ defmodule FluxValeWeb.CatalogControllerTest do
 
       # Inserted shuffled; Zebra sits past the cap. One peer has no
       # icon (the initial arm) and one has no tagline (the row drops).
+      # Names carry the test's unique suffix: app names are globally
+      # unique (apps_unique_name_index) and four of these are real
+      # seeded app names, so a bare name races any concurrent catalog
+      # seed (#667 — a duplicate key, or 40P01 when both inserts are
+      # still in flight).
+      n = System.unique_integer([:positive])
+
       peer_specs = [
         {"Umami", [tagline: "A peer app", icon_url: "https://example.com/icon.png"]},
         {"Memos", [tagline: nil, icon_url: "https://example.com/icon.png"]},
@@ -739,13 +746,11 @@ defmodule FluxValeWeb.CatalogControllerTest do
         {"Zebra", [tagline: "A peer app", icon_url: "https://example.com/icon.png"]}
       ]
 
-      for {name, overrides} <- peer_specs do
-        n = System.unique_integer([:positive])
-
+      for {prefix, overrides} <- peer_specs do
         App.create!(
           %{
-            name: name,
-            slug: "#{String.downcase(name)}-#{n}",
+            name: "#{prefix} #{n}",
+            slug: "#{String.downcase(prefix)}-#{n}",
             tagline: Keyword.get(overrides, :tagline),
             icon_url: Keyword.get(overrides, :icon_url),
             category_id: app.category.id
