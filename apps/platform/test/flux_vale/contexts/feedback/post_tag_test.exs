@@ -61,7 +61,7 @@ defmodule FluxVale.Feedback.PostTagTest do
   describe "set_tags semantics" do
     test "the list is the whole truth — replace, not append" do
       n = System.unique_integer([:positive])
-      platform = tag!(%{name: "Platform", slug: "platform"})
+      platform = tag!(%{name: "Platform #{n}", slug: "platform-#{n}"})
       kavita = tag!(%{name: "Kavita #{n}", slug: "kavita-#{n}"})
       forgejo = tag!(%{name: "Forgejo #{n}", slug: "forgejo-#{n}"})
       post = post!()
@@ -83,7 +83,8 @@ defmodule FluxVale.Feedback.PostTagTest do
     end
 
     test "an empty list removes every tag" do
-      platform = tag!(%{name: "Platform", slug: "platform"})
+      n = System.unique_integer([:positive])
+      platform = tag!(%{name: "Platform #{n}", slug: "platform-#{n}"})
       post = post!()
       tag_post!(post, [platform])
 
@@ -121,7 +122,7 @@ defmodule FluxVale.Feedback.PostTagTest do
       # action is the whole-truth replace, so the caller re-sends the
       # deduped list.
       n = System.unique_integer([:positive])
-      platform = tag!(%{name: "Platform", slug: "platform"})
+      platform = tag!(%{name: "Platform #{n}", slug: "platform-#{n}"})
       kavita = tag!(%{name: "Kavita #{n}", slug: "kavita-#{n}"})
       post = post!()
 
@@ -156,7 +157,7 @@ defmodule FluxVale.Feedback.PostTagTest do
 
     test "re-setting the same list does not duplicate the pairings" do
       n = System.unique_integer([:positive])
-      platform = tag!(%{name: "Platform", slug: "platform"})
+      platform = tag!(%{name: "Platform #{n}", slug: "platform-#{n}"})
       kavita = tag!(%{name: "Kavita #{n}", slug: "kavita-#{n}"})
       post = post!()
 
@@ -189,7 +190,7 @@ defmodule FluxVale.Feedback.PostTagTest do
     test "loading a post's tags sorts by name" do
       n = System.unique_integer([:positive])
       kavita = tag!(%{name: "Kavita #{n}", slug: "kavita-#{n}"})
-      platform = tag!(%{name: "Platform", slug: "platform"})
+      platform = tag!(%{name: "Platform #{n}", slug: "platform-#{n}"})
       post = post!()
 
       # Tag in the reverse order of the expected display.

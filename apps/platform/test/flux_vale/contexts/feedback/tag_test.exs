@@ -11,7 +11,8 @@ defmodule FluxVale.Feedback.TagTest do
 
   describe "policies (T10: curated vocabulary)" do
     test "reads are public — anonymous reads the rows" do
-      tag = Tag.create!(%{name: "Platform", slug: "platform"}, authorize?: false)
+      n = System.unique_integer([:positive])
+      tag = Tag.create!(%{name: "Platform #{n}", slug: "platform-#{n}"}, authorize?: false)
 
       assert {:ok, rows} = Ash.read(Tag)
       assert Enum.any?(rows, &(&1.id == tag.id))
@@ -30,14 +31,16 @@ defmodule FluxVale.Feedback.TagTest do
     end
 
     test "a plain user update is Forbidden" do
-      tag = Tag.create!(%{name: "Platform", slug: "platform"}, authorize?: false)
+      n = System.unique_integer([:positive])
+      tag = Tag.create!(%{name: "Platform #{n}", slug: "platform-#{n}"}, authorize?: false)
       user = AccountsFixtures.user!()
 
       assert {:error, %Ash.Error.Forbidden{}} = Ash.update(tag, %{name: "Renamed"}, actor: user)
     end
 
     test "a plain user destroy is Forbidden" do
-      tag = Tag.create!(%{name: "Platform", slug: "platform"}, authorize?: false)
+      n = System.unique_integer([:positive])
+      tag = Tag.create!(%{name: "Platform #{n}", slug: "platform-#{n}"}, authorize?: false)
       user = AccountsFixtures.user!()
 
       assert {:error, %Ash.Error.Forbidden{}} = Ash.destroy(tag, actor: user)
@@ -45,8 +48,9 @@ defmodule FluxVale.Feedback.TagTest do
 
     test "a platform admin creates, renames, and removes" do
       admin = AccountsFixtures.platform_admin!()
+      n = System.unique_integer([:positive])
 
-      assert {:ok, tag} = Tag.create(%{name: "Platform"}, actor: admin)
+      assert {:ok, tag} = Tag.create(%{name: "Platform #{n}"}, actor: admin)
       assert {:ok, renamed} = Ash.update(tag, %{name: "Platform things"}, actor: admin)
       assert renamed.name == "Platform things"
       assert :ok = Ash.destroy(renamed, actor: admin)
@@ -55,7 +59,10 @@ defmodule FluxVale.Feedback.TagTest do
 
   describe "slug derivation (authored or derived, post-slug rules)" do
     test "an absent slug derives from the name" do
-      assert %{slug: "app-request"} = Tag.create!(%{name: "App request"}, authorize?: false)
+      n = System.unique_integer([:positive])
+      slug = "app-request-#{n}"
+
+      assert %{slug: ^slug} = Tag.create!(%{name: "App request #{n}"}, authorize?: false)
     end
 
     test "an authored slug wins over the derivation" do
@@ -67,12 +74,15 @@ defmodule FluxVale.Feedback.TagTest do
     end
 
     test "a forced slug (the seed's get-or-create shape) is not clobbered" do
+      n = System.unique_integer([:positive])
+      slug = "app-request-#{n}"
+
       changeset =
         Tag
-        |> Ash.Changeset.for_create(:create, %{name: "App request"}, authorize?: false)
-        |> Ash.Changeset.force_change_attribute(:slug, "app-request")
+        |> Ash.Changeset.for_create(:create, %{name: "App request #{n}"}, authorize?: false)
+        |> Ash.Changeset.force_change_attribute(:slug, slug)
 
-      assert %{slug: "app-request"} = Ash.create!(changeset, authorize?: false)
+      assert %{slug: ^slug} = Ash.create!(changeset, authorize?: false)
     end
 
     test "long names truncate to the 50-char slug budget" do
@@ -91,17 +101,20 @@ defmodule FluxVale.Feedback.TagTest do
     end
 
     test "slug is immutable after create — renames keep the stem" do
-      tag = Tag.create!(%{name: "Platform", slug: "platform"}, authorize?: false)
+      n = System.unique_integer([:positive])
+      slug = "platform-#{n}"
+      tag = Tag.create!(%{name: "Platform #{n}", slug: slug}, authorize?: false)
       admin = AccountsFixtures.platform_admin!()
 
-      assert %{slug: "platform"} = Ash.update!(tag, %{name: "Platform requests"}, actor: admin)
+      assert %{slug: ^slug} = Ash.update!(tag, %{name: "Platform requests"}, actor: admin)
     end
 
     test "a duplicate slug is refused by the identity" do
-      Tag.create!(%{name: "Platform", slug: "platform"}, authorize?: false)
+      n = System.unique_integer([:positive])
+      Tag.create!(%{name: "Platform #{n}", slug: "platform-#{n}"}, authorize?: false)
 
       assert {:error, %Ash.Error.Invalid{errors: errors}} =
-               Tag.create(%{name: "Platform again", slug: "platform"}, authorize?: false)
+               Tag.create(%{name: "Platform again", slug: "platform-#{n}"}, authorize?: false)
 
       assert Enum.any?(
                errors,
@@ -124,9 +137,11 @@ defmodule FluxVale.Feedback.TagTest do
 
   describe "get_by_slug" do
     test "finds the tag by slug" do
-      tag = Tag.create!(%{name: "Platform", slug: "platform"}, authorize?: false)
+      n = System.unique_integer([:positive])
+      slug = "platform-#{n}"
+      tag = Tag.create!(%{name: "Platform #{n}", slug: slug}, authorize?: false)
 
-      assert {:ok, fetched} = Tag.get_by_slug("platform", authorize?: false)
+      assert {:ok, fetched} = Tag.get_by_slug(slug, authorize?: false)
       assert fetched.id == tag.id
     end
 
@@ -138,7 +153,8 @@ defmodule FluxVale.Feedback.TagTest do
   describe "deleting a tag takes its pairings" do
     test "the join rows cascade at the DB" do
       admin = AccountsFixtures.platform_admin!()
-      tag = tag!(%{name: "Platform", slug: "platform"})
+      n = System.unique_integer([:positive])
+      tag = tag!(%{name: "Platform #{n}", slug: "platform-#{n}"})
       post = post!()
       tagged = tag_post!(post, [tag])
       Ash.load!(tagged, :tags, actor: nil)

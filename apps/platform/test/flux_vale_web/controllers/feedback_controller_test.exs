@@ -593,7 +593,7 @@ defmodule FluxValeWeb.FeedbackControllerTest do
     end
 
     test "items carry their tag chips (display only, the item is one link)", %{conn: conn} do
-      platform = tag!(%{name: "Platform", slug: "platform"})
+      platform = tag!(%{name: "Platform", slug: "platform-#{System.unique_integer([:positive])}"})
       plain = post!(%{title: "Roadmap plain item", description: "x"})
       tagged = post!(%{title: "Roadmap tagged item", description: "x"})
       tag_post!(tagged, [platform])
@@ -694,13 +694,14 @@ defmodule FluxValeWeb.FeedbackControllerTest do
 
   describe "the tag filter (T10)" do
     test "the board renders the tags in use as filter chips", %{conn: conn} do
-      platform = tag!(%{name: "Platform", slug: "platform"})
+      slug = "platform-#{System.unique_integer([:positive])}"
+      platform = tag!(%{name: "Platform", slug: slug})
       post = post!(%{title: "Chip set request", description: "x"})
       tag_post!(post, [platform])
 
       html = html_response(get(conn, ~p"/feedback"), 200)
 
-      assert html =~ "data-testid=\"feedback-tag-chip-platform\""
+      assert html =~ "data-testid=\"feedback-tag-chip-#{slug}\""
       assert html =~ "Platform"
     end
 
@@ -714,12 +715,13 @@ defmodule FluxValeWeb.FeedbackControllerTest do
     end
 
     test "?tag=slug narrows the board to posts carrying the tag", %{conn: conn} do
-      platform = tag!(%{name: "Platform", slug: "platform"})
+      slug = "platform-#{System.unique_integer([:positive])}"
+      platform = tag!(%{name: "Platform", slug: slug})
       tagged = post!(%{title: "Carries the tag", description: "x"})
       tag_post!(tagged, [platform])
       post!(%{title: "Carries nothing", description: "x"})
 
-      html = html_response(get(conn, ~p"/feedback?tag=platform"), 200)
+      html = html_response(get(conn, ~p"/feedback?tag=#{slug}"), 200)
 
       assert html =~ "Carries the tag"
       refute html =~ "Carries nothing"
@@ -736,7 +738,8 @@ defmodule FluxValeWeb.FeedbackControllerTest do
     end
 
     test "the tag filter combines with the status filter", %{conn: conn} do
-      platform = tag!(%{name: "Platform", slug: "platform"})
+      slug = "platform-#{System.unique_integer([:positive])}"
+      platform = tag!(%{name: "Platform", slug: slug})
 
       planned = post!(%{title: "Planned and tagged", description: "x"})
       tag_post!(planned, [platform])
@@ -745,7 +748,7 @@ defmodule FluxValeWeb.FeedbackControllerTest do
       open = post!(%{title: "Open and tagged", description: "x"})
       tag_post!(open, [platform])
 
-      html = html_response(get(conn, ~p"/feedback?tag=platform&status=planned"), 200)
+      html = html_response(get(conn, ~p"/feedback?tag=#{slug}&status=planned"), 200)
 
       assert html =~ "Planned and tagged"
       refute html =~ "Open and tagged"
@@ -762,7 +765,7 @@ defmodule FluxValeWeb.FeedbackControllerTest do
     end
 
     test "the board rows show their tag chips", %{conn: conn} do
-      platform = tag!(%{name: "Platform", slug: "platform"})
+      platform = tag!(%{name: "Platform", slug: "platform-#{System.unique_integer([:positive])}"})
       tagged = post!(%{title: "Row chips request", description: "x"})
       tag_post!(tagged, [platform])
 
@@ -773,33 +776,36 @@ defmodule FluxValeWeb.FeedbackControllerTest do
     end
 
     test "an active tag survives a sort flip", %{conn: conn} do
-      platform = tag!(%{name: "Platform", slug: "platform"})
+      slug = "platform-#{System.unique_integer([:positive])}"
+      platform = tag!(%{name: "Platform", slug: slug})
       tagged = post!(%{title: "Sort survival request", description: "x"})
       tag_post!(tagged, [platform])
 
-      html = html_response(get(conn, ~p"/feedback?tag=platform"), 200)
+      html = html_response(get(conn, ~p"/feedback?tag=#{slug}"), 200)
 
       # The sort tabs keep the filter (sort first, then the tag, in the
       # stable param order — rendered HTML escapes the ampersand).
-      assert html =~ "href=\"/feedback?sort=new&amp;tag=platform\""
-      assert html =~ "href=\"/feedback?tag=platform\""
+      assert html =~ "href=\"/feedback?sort=new&amp;tag=#{slug}\""
+      assert html =~ "href=\"/feedback?tag=#{slug}\""
     end
 
     test "an active tag survives a status chip", %{conn: conn} do
-      platform = tag!(%{name: "Platform", slug: "platform"})
+      slug = "platform-#{System.unique_integer([:positive])}"
+      platform = tag!(%{name: "Platform", slug: slug})
       tagged = post!(%{title: "Status survival request", description: "x"})
       tag_post!(tagged, [platform])
 
-      html = html_response(get(conn, ~p"/feedback?tag=platform"), 200)
+      html = html_response(get(conn, ~p"/feedback?tag=#{slug}"), 200)
 
       # The All chip and each status chip keep the filter (the default
       # sort collapses out of the query).
-      assert html =~ "href=\"/feedback?tag=platform\""
-      assert html =~ "href=\"/feedback?status=open&amp;tag=platform\""
+      assert html =~ "href=\"/feedback?tag=#{slug}\""
+      assert html =~ "href=\"/feedback?status=open&amp;tag=#{slug}\""
     end
 
     test "an active tag survives the pager — page two stays filtered", %{conn: conn} do
-      platform = tag!(%{name: "Platform", slug: "platform"})
+      tag_slug = "platform-#{System.unique_integer([:positive])}"
+      platform = tag!(%{name: "Platform", slug: tag_slug})
 
       for n <- 1..21 do
         tagged =
@@ -810,13 +816,13 @@ defmodule FluxValeWeb.FeedbackControllerTest do
 
       untagged = post!(%{title: "Paged untagged request", description: "x"})
 
-      page_one = html_response(get(conn, ~p"/feedback?tag=platform"), 200)
+      page_one = html_response(get(conn, ~p"/feedback?tag=#{tag_slug}"), 200)
       assert page_one =~ "Page 1 of 2"
-      assert page_one =~ "href=\"/feedback?tag=platform&amp;page=2\""
+      assert page_one =~ "href=\"/feedback?tag=#{tag_slug}&amp;page=2\""
       refute page_one =~ "Paged untagged request"
 
       # And the link's destination is still the filtered view.
-      page_two = html_response(get(conn, ~p"/feedback?tag=platform&page=2"), 200)
+      page_two = html_response(get(conn, ~p"/feedback?tag=#{tag_slug}&page=2"), 200)
       assert page_two =~ "Paged tag request 001"
       refute page_two =~ "Paged untagged request"
 
@@ -825,11 +831,12 @@ defmodule FluxValeWeb.FeedbackControllerTest do
     end
 
     test "a huge page still clamps with the tag filter applied", %{conn: conn} do
-      platform = tag!(%{name: "Platform", slug: "platform"})
+      slug = "platform-#{System.unique_integer([:positive])}"
+      platform = tag!(%{name: "Platform", slug: slug})
       tagged = post!(%{title: "Clamp with tag", description: "x"})
       tag_post!(tagged, [platform])
 
-      html = html_response(get(conn, "/feedback?tag=platform&page=99999999999999999999"), 200)
+      html = html_response(get(conn, "/feedback?tag=#{slug}&page=99999999999999999999"), 200)
 
       assert html =~ "No posts with this tag yet."
       refute html =~ "Clamp with tag"
@@ -867,7 +874,7 @@ defmodule FluxValeWeb.FeedbackControllerTest do
     end
 
     test "a tag with no catalog match renders no cross-link", %{conn: conn} do
-      platform = tag!(%{name: "Platform", slug: "platform"})
+      platform = tag!(%{name: "Platform", slug: "platform-#{System.unique_integer([:positive])}"})
       post = post!(%{title: "No cross-link request", description: "x"})
       tag_post!(post, [platform])
 
