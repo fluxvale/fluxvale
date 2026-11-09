@@ -4,7 +4,9 @@ defmodule FluxVale.Seeds.TaxRateSeedTest do
   sandboxed DB — create, reprice-convergence, and idempotency (#138).
   """
 
-  use FluxVale.DataCase, async: true
+  # Sync: a seed writes shared rows, so it must not overlap another test.
+
+  use FluxVale.DataCase, async: false
 
   alias FluxVale.Pricing.TaxRate
   alias FluxVale.Seeds

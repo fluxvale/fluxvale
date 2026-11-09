@@ -253,6 +253,7 @@ custom classes must fully style the input
 
 ## Test guidelines
 
+- **A test module that calls a seed is `async: false`.** Seeds write shared rows (sizes, catalog apps, tags) with lookup-then-create, so a seeding test that runs beside any other test races that insert: a duplicate key, or 40P01 when both are in flight. ExUnit runs sync modules alone, which removes the overlap (#634, #667). A DB-side lock does not compose with the sandbox, because the rows outlive the lock's scope inside one test transaction.
 - **Always use `start_supervised!/1`** to start processes in tests as it guarantees cleanup between tests
 - **Avoid** `Process.sleep/1` and `Process.alive?/1` in tests
   - Instead of sleeping to wait for a process to finish, **always** use `Process.monitor/1` and assert on the DOWN message:

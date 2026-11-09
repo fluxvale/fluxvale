@@ -6,8 +6,9 @@ defmodule FluxVale.Infrastructure.UmamiTakeoverTest do
   # pins it against the shipped Umami pair — the bundled "3.4.1-bundled"
   # row that owns DATABASE_URL, and the pinned BYO "3.4.1" row that
   # still takes it. Never-retconned is pinned in both directions.
+  # Sync: a seed writes shared rows, so it must not overlap another test.
 
-  use FluxVale.DataCase, async: true
+  use FluxVale.DataCase, async: false
   use Mimic
 
   alias FluxVale.Catalog.App

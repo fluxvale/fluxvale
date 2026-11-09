@@ -9,8 +9,9 @@ defmodule FluxValeWeb.CatalogLive.DeployPocketIdOfferTest do
   # inputs. The probe is Mimic-stubbed (the Tailscale ApiClient
   # stance) — no test ever talks to a live Pocket ID. The submit path
   # is S3-untouched: no test here deploys.
+  # Sync: a seed writes shared rows, so it must not overlap another test.
 
-  use FluxValeWeb.ConnCase, async: true
+  use FluxValeWeb.ConnCase, async: false
   use Mimic
 
   import Phoenix.LiveViewTest
