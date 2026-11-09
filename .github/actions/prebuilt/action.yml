@@ -20,10 +20,12 @@
 # c9px7cw2ghrs): the tailwind sha256sums.txt verification fetch ran on
 # EVERY run, cache hit or not — so Platform CI and an e2e leg died on a
 # warm cache while the release CDN 504'd anonymous calls. Now the sums
-# file is fetched once per version and pinned in the tailwind cache
-# entry (the binary is still verified against it on every run), and
-# every cold fetch carries an outer exponential backoff so multi-minute
-# CDN blips ride through instead of reding the job.
+# file is fetched once per version into its OWN cache row
+# (.prebuilt/tailwind-sums/ — deliberately outside .prebuilt/tailwind/,
+# which Dockerfile COPYs into the image: the sums are CI's integrity
+# data, not an image asset), the binary is still verified against it on
+# every run, and every cold fetch carries an outer exponential backoff
+# so multi-minute CDN blips ride through instead of reding the job.
 name: "Pre-seed pre-built artifacts"
 description: >-
   Parse version pins (config.exs / mix.lock), restore each artifact
@@ -71,10 +73,19 @@ runs:
       uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: apps/platform/.prebuilt/tailwind
-        # v2: pre-v2 entries predate sha256sums.txt living in this dir —
-        # restoring one would cold-fetch the sums file every run (exact-key
-        # saves skip once the key exists, so it would never get pinned).
-        key: ${{ runner.os }}-${{ runner.arch }}-tailwind-musl-v2-${{ steps.pins.outputs.tailwind }}
+        key: ${{ runner.os }}-${{ runner.arch }}-tailwind-musl-${{ steps.pins.outputs.tailwind }}
+
+    # The sums file rides its own row, NOT the tailwind dir: that dir is
+    # COPY'd into the release image (Dockerfile) — sums are CI's
+    # integrity data, not an image asset. Exact key per version: fetched
+    # once, then warm forever (2026-11-09: the per-run fetch reded
+    # Platform CI on a warm cache when the release CDN 504'd anonymous
+    # calls).
+    - name: Restore tailwind sums cache
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: apps/platform/.prebuilt/tailwind-sums
+        key: ${{ runner.os }}-${{ runner.arch }}-tailwind-sums-${{ steps.pins.outputs.tailwind }}
 
     - name: Restore mdex_native cache
       uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -146,13 +157,13 @@ runs:
         # The musl build is dynamically linked (cannot run on the
         # glibc runner), so verify against the release's published
         # sha256sums.txt — also the cache-roundtrip integrity check.
-        # The sums file is fetched once per version and pinned inside
-        # the tailwind cache entry; every run still verifies the binary
-        # against it (2026-11-09: the per-run fetch reded Platform CI
-        # on a warm cache when the release CDN 504'd anonymous calls).
-        sums="apps/platform/.prebuilt/tailwind/sha256sums.txt"
+        # The sums file lives in its own cached dir (never the image)
+        # and is fetched once per version; every run still verifies the
+        # binary against it.
+        sums="apps/platform/.prebuilt/tailwind-sums/sha256sums.txt"
         if [ ! -f "$sums" ]; then
           echo "prebuilt tailwind: sums cold — fetching sha256sums.txt"
+          mkdir -p "apps/platform/.prebuilt/tailwind-sums"
           fetch "https://github.com/tailwindlabs/tailwindcss/releases/download/v$TW_VERSION/sha256sums.txt" "$sums"
         fi
         expected="$(awk -v t="./tailwindcss-$tw_target" '$2 == t {print $1}' "$sums")"

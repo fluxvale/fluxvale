@@ -18,28 +18,44 @@
 # save persists them — warm runs touch no release CDN at all. On cold,
 # the fetch carries an outer exponential backoff (up to ~1 min of
 # waiting on top of curl's own 3 retries per attempt) so multi-minute
-# CDN blips ride through instead of reding the job.
+# CDN blips ride through instead of reding the job. RESIDUAL: a run on
+# a cold key (first run after a mise.toml/mise.lock bump, an evicted
+# entry, a new lane, the first post-merge main run) still needs ONE
+# successful anonymous fetch — an outage in the 2026-11-09 class
+# (~30+ min) still reds those runs.
 #
-# NB the version input duplicates the mise-action pin at each call site
-# (mise itself is pinned ad-hoc in the workflows, not in mise.toml) —
-# bump the two together; the assert below reds loudly if they drift.
-name: "Stage mise (cached, outage-hardened)"
+# Integrity: the staged binary is verified against the PINNED sha256 in
+# the table below on EVERY path — cold-extracted or cache-restored. The
+# pin cannot change without a reviewed PR to this file, which for the
+# poisoned-cache/tampered-release threat is a stronger bar than
+# re-fetching the release's own (minisign-signed) SHASUMS256 at run
+# time; the pinned values' provenance is the cross-checked release
+# SHASUMS256 (tarball) → extracted binary, recorded per bump.
+#
+# NB the version pin duplicates mise-action's at each call site (mise
+# itself is pinned ad-hoc in the workflows, not in mise.toml) — bump
+# the two together; the version assert below reds loudly if they drift.
+# (If they DO drift, mise-action self-updates to its own pin — an
+# anonymous fetch outside this action's verification — so the drift is
+# a red either way, at the assert here or at mise-action's resolve.)
+name: "Stage mise (cached, verified, outage-hardened)"
 description: >-
   Restore ~/.local/share/mise from an exact-key actions/cache entry, or
   on cold download the pinned tarball with a long outer backoff and
   stage it where jdx/mise-action looks, so its fragile anonymous
-  release download never runs. Follow it with jdx/mise-action (same
-  version pin) for PATH/env wiring.
+  release download never runs. The staged binary is sha256-verified
+  against the pin below on every path. Follow it with jdx/mise-action
+  (same version pin) for PATH/env wiring.
 inputs:
   version:
     description: mise version pin — must equal the mise-action version input at the call site
     required: true
   cache-suffix:
     description: >-
-      Lane segment of the cache key (e2e / tfprovider / smoke). Jobs
-      with different tool sets must NOT share an entry: the exact key's
-      first saver wins, and a partial toolset would pin every other
-      lane to cold tool installs forever.
+      Lane segment of the cache key (e2e / tfprovider / smoke /
+      pentest). Jobs with different tool sets must NOT share an entry:
+      the exact key's first saver wins, and a partial toolset would pin
+      every other lane to cold tool installs forever.
     required: true
 runs:
   using: composite
@@ -53,18 +69,33 @@ runs:
         hash="$(sha256sum mise.toml mise.lock | sha256sum | cut -d' ' -f1)"
         echo "key=${{ runner.os }}-${{ runner.arch }}-mise-${{ inputs.cache-suffix }}-${{ inputs.version }}-$hash" >>"$GITHUB_OUTPUT"
 
+    # continue-on-error covers the post (save) phase too: a cache-service
+    # 5xx or corrupt archive degrades to the cold fetch below (restore)
+    # or to no persistence (save) — never to a red job. The cache is an
+    # optimization; the CDN fetch path is the source of truth.
     - name: Restore the mise data dir
       uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: ~/.local/share/mise
         key: ${{ steps.key.outputs.key }}
+      continue-on-error: true
 
-    - name: Stage mise on cold (hardened fetch)
+    - name: Stage mise on cold (hardened fetch), verify on every path
       shell: bash
       env:
         MISE_VERSION: ${{ inputs.version }}
         RUNNER_ARCH: ${{ runner.arch }}
       run: |
+        # Pinned sha256 of mise/bin/mise per version and arch. Provenance:
+        # the release's SHASUMS256-verified tarball, extracted; recorded
+        # here per bump. Add a row on every mise pin bump (and fail loudly
+        # on an unknown version rather than running an unverified binary).
+        pins_x64() {
+          case "$1" in
+            2026.9.14) echo "2b289d1b3074e0b1d3f95bad0bd78bbc517c1a5bcb020cbc1643d260f5d1a351" ;;
+            *) return 1 ;;
+          esac
+        }
         # Mirror mise-action's dir resolution (its miseDir()): MISE_DATA_DIR
         # → XDG_DATA_HOME/mise → ~/.local/share/mise. The cache step above
         # restores the runner-default path — GitHub runners set neither var.
@@ -76,13 +107,17 @@ runs:
           data_dir="$HOME/.local/share/mise"
         fi
         bin="$data_dir/bin/mise"
+        # Resolve the pin BEFORE anything else: an unknown version (a
+        # bump that missed this table) reds instantly with the actionable
+        # message, not after minutes of download retries.
+        expected="$(pins_x64 "$MISE_VERSION")" || {
+          echo "::error::mise $MISE_VERSION has no pinned sha256 in .github/actions/mise — add the row (provenance: SHASUMS256-verified tarball → extracted binary) before running it anywhere" >&2; exit 1; }
         if [ -x "$bin" ]; then
           echo "mise: cache hit — $bin ($("$bin" --version))"
         else
           case "$RUNNER_ARCH" in
             X64)   arch="x64" ;;
-            ARM64) arch="arm64" ;;
-            *) echo "::error::no mise linux build for runner.arch $RUNNER_ARCH" >&2; exit 1 ;;
+            *) echo "::error::no pinned mise build for runner.arch $RUNNER_ARCH — this action stages linux-x64 only (every call site runs ubuntu-24.04); extend the pin table + arch case first" >&2; exit 1 ;;
           esac
           echo "mise: cache cold — fetching v$MISE_VERSION linux-$arch (outer backoff rides release-CDN 504 blips)"
           mkdir -p "$data_dir"
@@ -102,11 +137,18 @@ runs:
           tar -x --zstd -f "$tmp/mise.tar.zst" -C "$data_dir" --strip-components=1
           rm -rf "$tmp"
         fi
-        # A wrong or corrupted staged binary must red HERE, not inside a
-        # 40-minute e2e leg: assert the pinned version before anything runs.
+        # A wrong or tampered binary must red HERE, not inside a 40-minute
+        # e2e leg: version first (catches pin drift cheaply), then the
+        # pinned sha256 — the single gate both the cold and restored paths
+        # pass through.
         got="$("$bin" --version)"
         case "$got" in
           "$MISE_VERSION"*) ;;
-          *) echo "::error::staged mise reports '$got', want $MISE_VERSION — stale cache entry or bad download; bump the key or re-run" >&2; exit 1 ;;
+          *) echo "::error::staged mise reports '$got', want $MISE_VERSION — stale cache entry, bad download, or a pin bump that missed this action's table; bump the key or add the row" >&2; exit 1 ;;
         esac
-        echo "mise: staged $got at $bin"
+        actual="$(sha256sum "$bin" | cut -d' ' -f1)"
+        if [ "$expected" != "$actual" ]; then
+          echo "::error::staged mise fails its pinned sha256 (want $expected, got $actual) — poisoned cache entry or tampered release; do not bypass this" >&2
+          exit 1
+        fi
+        echo "mise: staged $got at $bin (sha256 verified: $actual)"
