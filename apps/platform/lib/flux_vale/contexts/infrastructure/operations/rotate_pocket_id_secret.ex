@@ -19,8 +19,6 @@ defmodule FluxVale.Infrastructure.Operations.RotatePocketIdSecret do
   OLD secret fully live — the rotation simply hasn't happened.
   """
 
-  require Logger
-
   alias FluxVale.Infrastructure.Instance
   alias FluxVale.Infrastructure.Operations.ApplyPocketIdEnv
   alias FluxVale.Infrastructure.Operations.UsePocketIdKey
@@ -28,6 +26,8 @@ defmodule FluxVale.Infrastructure.Operations.RotatePocketIdSecret do
   alias FluxVale.Infrastructure.PocketIdCustody
   alias FluxVale.Infrastructure.PocketIdWiring
   alias FluxVale.Ops.FeatureFlags
+
+  require Logger
 
   # v2.19.2's floor for a caller-supplied secret: ≥16 printable ASCII.
   @secret_bytes 32
@@ -120,12 +120,13 @@ defmodule FluxVale.Infrastructure.Operations.RotatePocketIdSecret do
   # second active secret (PocketID's admin shows it); the rotation is
   # complete and the answer stays :ok.
   defp delete_old(pocket_id, key, wiring) do
-    case ApiClient.delete_secret(
-           base_url(pocket_id),
-           key,
-           wiring.pocket_id_client_id,
-           wiring.pocket_id_secret_id
-         ) do
+    url = base_url(pocket_id)
+    client_id = wiring.pocket_id_client_id
+
+    result =
+      ApiClient.delete_secret(url, key, client_id, wiring.pocket_id_secret_id)
+
+    case result do
       :ok ->
         :ok
 

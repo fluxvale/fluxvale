@@ -18,6 +18,7 @@ defmodule FluxVale.Infrastructure.Operations.ConnectPocketIdTest do
   use Mimic
 
   alias FluxVale.Clients.K8s
+  alias FluxVale.Clients.K8s.Resources.Deployment
   alias FluxVale.Clients.K8s.Resources.Secret
   alias FluxVale.Infrastructure
   alias FluxVale.Infrastructure.Instance
@@ -290,6 +291,84 @@ defmodule FluxVale.Infrastructure.Operations.ConnectPocketIdTest do
   # discovery/create call fails, wiring answers fail-soft, the
   # instance stays deployable, and a retry converges once the host
   # answers.
+  # #597 S5 (§4.6): the retrofit — the same pipeline for a DEPLOYED
+  # instance, plus the apply primitive carrying the env to the
+  # RUNNING workload. Row first (truth), then apply (converges).
+  describe "retrofit/3 (the deployed-instance wiring)" do
+    test "wires a running instance: row + wiring, then the live workload carries the env", %{
+      owner: owner,
+      pocket_id: pocket_id
+    } do
+      app =
+        owner
+        |> sso_instance!()
+        |> InstanceFixtures.walk_to!(:running)
+        |> InstanceFixtures.pin!(namespace: "ns-retro")
+
+      green_stubs!(pocket_id, app)
+
+      expect(Secret, :upsert, fn _kc, "ns-retro", "app-env", data ->
+        send(self(), {:applied, data})
+        {:ok, %{}}
+      end)
+
+      expect(Deployment, :restart, fn _kc, "ns-retro", "app" -> {:ok, %{}} end)
+
+      assert {:ok, wiring} =
+               Infrastructure.retrofit_pocket_id(app, pocket_id.id, actor: owner)
+
+      assert wiring.pocket_id_client_id == "pid-1"
+
+      # The row carries the wiring's values (the next re-deploy shape)…
+      reloaded = reloaded!(app)
+      assert reloaded.env_vars["SSO_AUTHORITY"] == @issuer
+      assert reloaded.env_vars["SSO_CLIENT_SECRET"] == @minted_secret
+
+      # …and the RUNNING workload got them through the primitive.
+      assert_received {:applied, applied}
+      assert applied["SSO_AUTHORITY"] == @issuer
+      assert applied["SSO_CLIENT_SECRET"] == @minted_secret
+      assert applied["SSO_ENABLED"] == "true"
+    end
+
+    test "a pre-deploy instance refuses — that's call/3's lane", %{
+      owner: owner,
+      pocket_id: pocket_id
+    } do
+      app = sso_instance!(owner)
+      green_stubs!(pocket_id, app)
+
+      assert {:error, {:instance_not_deployed, :pending}} =
+               Infrastructure.retrofit_pocket_id(app, pocket_id.id, actor: owner)
+
+      assert {:error, _none} = PocketIdWiring.get_by_instance(app.id, authorize?: false)
+    end
+
+    test "a failed apply keeps the recorded wiring — the retry converges (row is truth)", %{
+      owner: owner,
+      pocket_id: pocket_id
+    } do
+      app =
+        owner
+        |> sso_instance!()
+        |> InstanceFixtures.walk_to!(:running)
+        |> InstanceFixtures.pin!(namespace: "ns-retro2")
+
+      green_stubs!(pocket_id, app)
+
+      stub(Secret, :upsert, fn _kc, _ns, _n, _d ->
+        {:error, %K8s.Error{status_code: 500, reason: :unknown, message: "no"}}
+      end)
+
+      assert {:error, %K8s.Error{}} =
+               Infrastructure.retrofit_pocket_id(app, pocket_id.id, actor: owner)
+
+      # Recorded (the card retries the apply), env on the row, no half-state.
+      assert {:ok, _wiring} = PocketIdWiring.get_by_instance(app.id, authorize?: false)
+      assert reloaded!(app).env_vars["SSO_AUTHORITY"] == @issuer
+    end
+  end
+
   describe "the wake race (D3 — never blocks the deploy)" do
     test "a 503 discovery fails soft: honest reason, instance untouched, no row", %{
       owner: owner,

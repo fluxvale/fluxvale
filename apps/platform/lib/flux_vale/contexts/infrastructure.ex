@@ -288,4 +288,11 @@ defmodule FluxVale.Infrastructure do
   defdelegate disconnect_pocket_id(instance, opts \\ []),
     to: FluxVale.Infrastructure.Operations.DisconnectPocketId,
     as: :disconnect
+
+  # #597 S5 (D5): the SSO-scoped env-update + rollout primitive —
+  # rewrite ONLY the given keys in a deployed instance's Secret, then
+  # roll. The retrofit/rotation/disconnect legs ride this one seam.
+  defdelegate apply_pocket_id_env(instance, sso_env, opts \\ []),
+    to: FluxVale.Infrastructure.Operations.ApplyPocketIdEnv,
+    as: :apply_to_running
 end
