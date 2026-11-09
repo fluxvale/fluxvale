@@ -13,6 +13,8 @@ defmodule FluxValeWeb.AdminResourcesLiveTest do
   import Phoenix.LiveViewTest
 
   alias Ash.Resource.Info
+  alias FluxVale.Accounts.Membership
+  alias FluxVale.Billing
   alias FluxVale.Billing.LedgerEntry
   alias FluxVale.Billing.Wallet
   alias FluxVale.Identity.User
@@ -22,6 +24,7 @@ defmodule FluxValeWeb.AdminResourcesLiveTest do
   alias FluxVale.Pricing.Size
   alias FluxVale.Pricing.TaxRate
   alias FluxVale.TestSupport.ApiPat
+  alias FluxVale.TestSupport.BillingFixtures
   alias FluxVale.TestSupport.SessionHelpers
   alias FluxValeWeb.AdminConsole
   alias FluxValeWeb.AdminLive.Resources
@@ -98,6 +101,27 @@ defmodule FluxValeWeb.AdminResourcesLiveTest do
     |> Ash.Query.for_read(:read)
     |> Ash.read!(actor: admin)
     |> List.first()
+  end
+
+  # A stranger's org and its wallet: the org's only members are fresh
+  # accounts (never the admin), so a rendered row is a cross-org read
+  # by shape.
+  defp stranger_org_wallet! do
+    {org, _owner} = BillingFixtures.grant_free_org!()
+
+    stranger =
+      User.create!(
+        "admin-resources-stranger-#{System.unique_integer([:positive])}@fluxvale.com",
+        %{},
+        authorize?: false
+      )
+
+    Membership.create!(%{organization_id: org.id, user_id: stranger.id, role: :member},
+      authorize?: false
+    )
+
+    {:ok, wallet} = Billing.ensure_wallet(org)
+    {org, wallet}
   end
 
   # The wallet index's label column is id (no name-ish attr), so one
@@ -1299,6 +1323,28 @@ defmodule FluxValeWeb.AdminResourcesLiveTest do
       wallet_cells = wallet_index_ids(view)
       assert length(wallet_cells) >= 2
       refute has_element?(view, "[data-testid='admin-resource-new']")
+    end
+
+    test "a wallet of an org the admin is not a member of renders — the blanket widened the engine (#644)",
+         %{
+           conn: conn,
+           admin: admin
+         } do
+      # A stranger's org with a wallet: the admin is provably NOT a
+      # member (the membership-refuted shape the curated surfaces'
+      # pins use), and the engine's index read passes the blanket
+      # bypass regardless.
+      {org, wallet} = stranger_org_wallet!()
+
+      refute Membership
+             |> Ash.Query.filter(organization_id == ^org.id and user_id == ^admin.id)
+             |> Ash.exists?(actor: admin)
+
+      _own = any_wallet!(admin)
+
+      {:ok, view, _html} = live(conn, "/admin/resources/billing/wallet")
+
+      assert has_element?(view, "[data-testid='admin-resource-cell-id-#{wallet.id}']")
     end
 
     test "the wallet show carries only the waiver edit — system actions never render", %{

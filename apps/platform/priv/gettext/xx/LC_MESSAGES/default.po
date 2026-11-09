@@ -31,7 +31,7 @@ msgstr ""
 #: lib/flux_vale_web/live/admin_live/orgs.ex:314
 #: lib/flux_vale_web/live/admin_live/people.ex:541
 #: lib/flux_vale_web/live/admin_live/resources.ex:275
-#: lib/flux_vale_web/live/admin_live/storage_requests.ex:771
+#: lib/flux_vale_web/live/admin_live/storage_requests.ex:772
 #: lib/flux_vale_web/live/admin_live/wallet_detail.ex:998
 #, elixir-autogen, elixir-format
 msgid "Actions"
@@ -725,7 +725,7 @@ msgstr ""
 #: lib/flux_vale_web/live/admin_live/resources.ex:150
 #: lib/flux_vale_web/live/admin_live/size_edit.ex:262
 #: lib/flux_vale_web/live/admin_live/sizes.ex:67
-#: lib/flux_vale_web/live/admin_live/storage_requests.ex:635
+#: lib/flux_vale_web/live/admin_live/storage_requests.ex:636
 #: lib/flux_vale_web/live/admin_live/version_edit.ex:398
 #: lib/flux_vale_web/live/admin_live/wallet_detail.ex:779
 #, elixir-autogen, elixir-format
@@ -1354,14 +1354,14 @@ msgstr ""
 msgid "No invitation"
 msgstr ""
 
-#: lib/flux_vale_web/components/admin_resource.ex:476
+#: lib/flux_vale_web/components/admin_resource.ex:546
 #: lib/flux_vale_web/live/admin_live/moderation.ex:1119
 #: lib/flux_vale_web/live/admin_live/moderation.ex:1215
 #: lib/flux_vale_web/live/admin_live/moderation.ex:1268
 #: lib/flux_vale_web/live/admin_live/moderation.ex:1340
 #: lib/flux_vale_web/live/admin_live/moderation.ex:1486
 #: lib/flux_vale_web/live/admin_live/people.ex:637
-#: lib/flux_vale_web/live/admin_live/storage_requests.ex:842
+#: lib/flux_vale_web/live/admin_live/storage_requests.ex:843
 #: lib/flux_vale_web/live/admin_live/wallet_detail.ex:882
 #: lib/flux_vale_web/live/admin_live/wallet_detail.ex:1065
 #, elixir-autogen, elixir-format
@@ -1510,7 +1510,7 @@ msgstr ""
 #: lib/flux_vale_web/live/admin_live/billing.ex:282
 #: lib/flux_vale_web/live/admin_live/gateways.ex:299
 #: lib/flux_vale_web/live/admin_live/orgs.ex:310
-#: lib/flux_vale_web/live/admin_live/storage_requests.ex:938
+#: lib/flux_vale_web/live/admin_live/storage_requests.ex:939
 #, elixir-autogen, elixir-format
 msgid "Organization"
 msgstr ""
@@ -1845,13 +1845,13 @@ msgstr[0] ""
 msgstr[1] ""
 
 #: lib/flux_vale_web/live/admin_live/moderation.ex:977
-#: lib/flux_vale_web/live/admin_live/storage_requests.ex:724
+#: lib/flux_vale_web/live/admin_live/storage_requests.ex:725
 #, elixir-autogen, elixir-format
 msgid "All"
 msgstr ""
 
 #: lib/flux_vale_web/live/admin_live/moderation.ex:1123
-#: lib/flux_vale_web/live/admin_live/storage_requests.ex:846
+#: lib/flux_vale_web/live/admin_live/storage_requests.ex:847
 #, elixir-autogen, elixir-format, fuzzy
 msgid "Close"
 msgstr ""
@@ -1909,13 +1909,13 @@ msgid "Deleting..."
 msgstr ""
 
 #: lib/flux_vale_web/live/admin_live/moderation.ex:1125
-#: lib/flux_vale_web/live/admin_live/storage_requests.ex:848
+#: lib/flux_vale_web/live/admin_live/storage_requests.ex:849
 #, elixir-autogen, elixir-format
 msgid "Expand"
 msgstr ""
 
 #: lib/flux_vale_web/live/admin_live/moderation.ex:962
-#: lib/flux_vale_web/live/admin_live/storage_requests.ex:682
+#: lib/flux_vale_web/live/admin_live/storage_requests.ex:683
 #, elixir-autogen, elixir-format
 msgid "Filter by status"
 msgstr ""
@@ -2012,13 +2012,13 @@ msgid "Save"
 msgstr ""
 
 #: lib/flux_vale_web/live/admin_live/moderation.ex:1525
-#: lib/flux_vale_web/live/admin_live/resources.ex:1166
+#: lib/flux_vale_web/live/admin_live/resources.ex:1190
 #, elixir-autogen, elixir-format, fuzzy
 msgid "Saving..."
 msgstr ""
 
 #: lib/flux_vale_web/live/admin_live/moderation.ex:951
-#: lib/flux_vale_web/live/admin_live/storage_requests.ex:671
+#: lib/flux_vale_web/live/admin_live/storage_requests.ex:672
 #, elixir-autogen, elixir-format, fuzzy
 msgid "Search"
 msgstr ""
@@ -2045,7 +2045,7 @@ msgstr ""
 
 #: lib/flux_vale_web/live/admin_live/moderation.ex:1042
 #: lib/flux_vale_web/live/admin_live/org_detail.ex:453
-#: lib/flux_vale_web/live/admin_live/storage_requests.ex:770
+#: lib/flux_vale_web/live/admin_live/storage_requests.ex:771
 #, elixir-autogen, elixir-format, fuzzy
 msgid "Status"
 msgstr ""
@@ -2186,40 +2186,40 @@ msgid_plural "%{count} rows"
 msgstr[0] ""
 msgstr[1] ""
 
-#: lib/flux_vale_web/live/admin_live/resources.ex:1124
-#: lib/flux_vale_web/live/admin_live/resources.ex:1127
-#: lib/flux_vale_web/live/admin_live/resources.ex:1131
-#: lib/flux_vale_web/live/admin_live/resources.ex:1134
+#: lib/flux_vale_web/live/admin_live/resources.ex:1147
+#: lib/flux_vale_web/live/admin_live/resources.ex:1150
+#: lib/flux_vale_web/live/admin_live/resources.ex:1154
+#: lib/flux_vale_web/live/admin_live/resources.ex:1157
 #, elixir-autogen, elixir-format
 msgid "Back to %{name}"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/resources.ex:1121
+#: lib/flux_vale_web/live/admin_live/resources.ex:1144
 #, elixir-autogen, elixir-format, fuzzy
 msgid "Back to the domains"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/resources.ex:1078
+#: lib/flux_vale_web/live/admin_live/resources.ex:1101
 #, elixir-autogen, elixir-format
 msgid "Every domain the console exposes, with its resources and every public field. The raw tables behind the curated sections."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/resources.ex:1096
+#: lib/flux_vale_web/live/admin_live/resources.ex:1119
 #, elixir-autogen, elixir-format
 msgid "Every public attribute of this record. Non-public attributes never render on this surface."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/resources.ex:1090
+#: lib/flux_vale_web/live/admin_live/resources.ex:1113
 #, elixir-autogen, elixir-format
 msgid "Every row, newest first, 25 to a page. Reads run through the resource policies with your account as the actor."
 msgstr ""
 
-#: lib/flux_vale_web/components/admin_resource.ex:287
+#: lib/flux_vale_web/components/admin_resource.ex:320
 #, elixir-autogen, elixir-format
 msgid "Next"
 msgstr ""
 
-#: lib/flux_vale_web/components/admin_resource.ex:122
+#: lib/flux_vale_web/components/admin_resource.ex:155
 #, elixir-autogen, elixir-format, fuzzy
 msgid "No"
 msgstr ""
@@ -2229,23 +2229,23 @@ msgstr ""
 msgid "No rows yet."
 msgstr ""
 
-#: lib/flux_vale_web/components/admin_resource.ex:187
+#: lib/flux_vale_web/components/admin_resource.ex:220
 #, elixir-autogen, elixir-format, fuzzy
 msgid "Not set"
 msgstr ""
 
-#: lib/flux_vale_web/components/admin_resource.ex:255
+#: lib/flux_vale_web/components/admin_resource.ex:288
 #, elixir-autogen, elixir-format, fuzzy
 msgid "Pagination"
 msgstr ""
 
-#: lib/flux_vale_web/components/admin_resource.ex:262
+#: lib/flux_vale_web/components/admin_resource.ex:295
 #, elixir-autogen, elixir-format
 msgid "Previous"
 msgstr ""
 
 #: lib/flux_vale_web/components/admin_shell.ex:279
-#: lib/flux_vale_web/live/admin_live/resources.ex:1066
+#: lib/flux_vale_web/live/admin_live/resources.ex:1089
 #, elixir-autogen, elixir-format
 msgid "Resource console"
 msgstr ""
@@ -2255,7 +2255,7 @@ msgstr ""
 msgid "Resources"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/resources.ex:1060
+#: lib/flux_vale_web/live/admin_live/resources.ex:1083
 #, elixir-autogen, elixir-format, fuzzy
 msgid "That page does not exist here."
 msgstr ""
@@ -2267,7 +2267,7 @@ msgstr ""
 msgid "That record is not available here."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/resources.ex:1084
+#: lib/flux_vale_web/live/admin_live/resources.ex:1107
 #, elixir-autogen, elixir-format
 msgid "The resources this domain exposes. Reads run through the resource policies with your account as the actor."
 msgstr ""
@@ -2282,7 +2282,7 @@ msgstr ""
 msgid "View"
 msgstr ""
 
-#: lib/flux_vale_web/components/admin_resource.ex:122
+#: lib/flux_vale_web/components/admin_resource.ex:155
 #, elixir-autogen, elixir-format
 msgid "Yes"
 msgstr ""
@@ -2345,7 +2345,7 @@ msgid "Find an org"
 msgstr ""
 
 #: lib/flux_vale_web/live/admin_live/org_detail.ex:451
-#: lib/flux_vale_web/live/admin_live/storage_requests.ex:930
+#: lib/flux_vale_web/live/admin_live/storage_requests.ex:931
 #, elixir-autogen, elixir-format, fuzzy
 msgid "Instance"
 msgstr ""
@@ -2427,7 +2427,7 @@ msgid "The balance and its state. The ledger lives in Wallets and billing."
 msgstr ""
 
 #: lib/flux_vale_web/live/admin_live/org_detail.ex:291
-#: lib/flux_vale_web/live/admin_live/storage_requests.ex:1000
+#: lib/flux_vale_web/live/admin_live/storage_requests.ex:1001
 #, elixir-autogen, elixir-format
 msgid "Wallet"
 msgstr ""
@@ -2640,352 +2640,352 @@ msgid_plural "%{count} pending storage requests"
 msgstr[0] ""
 msgstr[1] ""
 
-#: lib/flux_vale_web/live/admin_live/storage_requests.ex:1058
+#: lib/flux_vale_web/live/admin_live/storage_requests.ex:1059
 #, elixir-autogen, elixir-format
 msgid "%{current} GB → %{requested} GB on %{instance}."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/storage_requests.ex:580
+#: lib/flux_vale_web/live/admin_live/storage_requests.ex:581
 #, elixir-autogen, elixir-format, fuzzy
 msgid "Applied"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/storage_requests.ex:923
+#: lib/flux_vale_web/live/admin_live/storage_requests.ex:924
 #, elixir-autogen, elixir-format
 msgid "Applied %{date}"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/storage_requests.ex:562
+#: lib/flux_vale_web/live/admin_live/storage_requests.ex:563
 #, elixir-autogen, elixir-format
 msgid "Applied — %{gb} GB on %{instance}."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/storage_requests.ex:863
+#: lib/flux_vale_web/live/admin_live/storage_requests.ex:864
 #, elixir-autogen, elixir-format
 msgid "Apply failed: %{error}"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/storage_requests.ex:1093
+#: lib/flux_vale_web/live/admin_live/storage_requests.ex:1094
 #, elixir-autogen, elixir-format
 msgid "Apply the approved growth"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/storage_requests.ex:1056
-#: lib/flux_vale_web/live/admin_live/storage_requests.ex:1075
+#: lib/flux_vale_web/live/admin_live/storage_requests.ex:1057
+#: lib/flux_vale_web/live/admin_live/storage_requests.ex:1076
 #, elixir-autogen, elixir-format
 msgid "Approve and apply"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/storage_requests.ex:579
+#: lib/flux_vale_web/live/admin_live/storage_requests.ex:580
 #, elixir-autogen, elixir-format
 msgid "Approved"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/storage_requests.ex:1072
+#: lib/flux_vale_web/live/admin_live/storage_requests.ex:1073
 #, elixir-autogen, elixir-format
 msgid "Approving..."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/storage_requests.ex:992
+#: lib/flux_vale_web/live/admin_live/storage_requests.ex:993
 #, elixir-autogen, elixir-format
 msgid "Capacity"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/storage_requests.ex:920
+#: lib/flux_vale_web/live/admin_live/storage_requests.ex:921
 #, elixir-autogen, elixir-format
 msgid "Decided %{date}"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/storage_requests.ex:596
+#: lib/flux_vale_web/live/admin_live/storage_requests.ex:597
 #, elixir-autogen, elixir-format
 msgid "Expansion available"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/storage_requests.ex:598
+#: lib/flux_vale_web/live/admin_live/storage_requests.ex:599
 #, elixir-autogen, elixir-format
 msgid "Expansion check failed"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/storage_requests.ex:597
+#: lib/flux_vale_web/live/admin_live/storage_requests.ex:598
 #, elixir-autogen, elixir-format
 msgid "Expansion unavailable"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/storage_requests.ex:1037
+#: lib/flux_vale_web/live/admin_live/storage_requests.ex:1038
 #, elixir-autogen, elixir-format
 msgid "Explain what the customer can do next"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/storage_requests.ex:1035
+#: lib/flux_vale_web/live/admin_live/storage_requests.ex:1036
 #, elixir-autogen, elixir-format, fuzzy
 msgid "Feedback"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/storage_requests.ex:137
+#: lib/flux_vale_web/live/admin_live/storage_requests.ex:138
 #, elixir-autogen, elixir-format
 msgid "Feedback is required — it goes to the customer verbatim."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/storage_requests.ex:1123
+#: lib/flux_vale_web/live/admin_live/storage_requests.ex:1124
 #, elixir-autogen, elixir-format
 msgid "Feedback shown to the customer"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/storage_requests.ex:657
+#: lib/flux_vale_web/live/admin_live/storage_requests.ex:658
 #, elixir-autogen, elixir-format, fuzzy
 msgid "Find a request"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/storage_requests.ex:971
+#: lib/flux_vale_web/live/admin_live/storage_requests.ex:972
 #, elixir-autogen, elixir-format, fuzzy
 msgid "Instance gone"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/storage_requests.ex:962
+#: lib/flux_vale_web/live/admin_live/storage_requests.ex:963
 #, elixir-autogen, elixir-format, fuzzy
 msgid "Instance status"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/storage_requests.ex:978
+#: lib/flux_vale_web/live/admin_live/storage_requests.ex:979
 #, elixir-autogen, elixir-format, fuzzy
 msgid "Live allocation"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/storage_requests.ex:751
+#: lib/flux_vale_web/live/admin_live/storage_requests.ex:752
 #, elixir-autogen, elixir-format
 msgid "New requests land here the moment a member asks."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/storage_requests.ex:595
+#: lib/flux_vale_web/live/admin_live/storage_requests.ex:596
 #, elixir-autogen, elixir-format, fuzzy
 msgid "No instance to probe"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/storage_requests.ex:756
+#: lib/flux_vale_web/live/admin_live/storage_requests.ex:757
 #, elixir-autogen, elixir-format
 msgid "No request matches that search or filter."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/storage_requests.ex:748
+#: lib/flux_vale_web/live/admin_live/storage_requests.ex:749
 #, elixir-autogen, elixir-format
 msgid "No requests waiting."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/storage_requests.ex:443
+#: lib/flux_vale_web/live/admin_live/storage_requests.ex:444
 #, elixir-autogen, elixir-format
 msgid "Only a requested request can be approved."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/storage_requests.ex:591
+#: lib/flux_vale_web/live/admin_live/storage_requests.ex:592
 #, elixir-autogen, elixir-format
 msgid "Price confirmed at approval"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/storage_requests.ex:954
+#: lib/flux_vale_web/live/admin_live/storage_requests.ex:955
 #, elixir-autogen, elixir-format
 msgid "Quoted rate"
 msgstr ""
 
 #: lib/flux_vale_web/live/admin_live/gateway_detail.ex:255
 #: lib/flux_vale_web/live/admin_live/gateways.ex:302
-#: lib/flux_vale_web/live/admin_live/storage_requests.ex:769
+#: lib/flux_vale_web/live/admin_live/storage_requests.ex:770
 #, elixir-autogen, elixir-format
 msgid "Rate"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/storage_requests.ex:672
+#: lib/flux_vale_web/live/admin_live/storage_requests.ex:673
 #, elixir-autogen, elixir-format
 msgid "Reason, request id, or instance id"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/storage_requests.ex:1042
+#: lib/flux_vale_web/live/admin_live/storage_requests.ex:1043
 #, elixir-autogen, elixir-format
 msgid "Reject request"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/storage_requests.ex:1026
+#: lib/flux_vale_web/live/admin_live/storage_requests.ex:1027
 #, elixir-autogen, elixir-format
 msgid "Reject with feedback"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/storage_requests.ex:581
+#: lib/flux_vale_web/live/admin_live/storage_requests.ex:582
 #, elixir-autogen, elixir-format
 msgid "Rejected"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/storage_requests.ex:198
+#: lib/flux_vale_web/live/admin_live/storage_requests.ex:199
 #, elixir-autogen, elixir-format
 msgid "Rejected. The customer sees that feedback verbatim."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/storage_requests.ex:766
+#: lib/flux_vale_web/live/admin_live/storage_requests.ex:767
 #, elixir-autogen, elixir-format, fuzzy
 msgid "Request"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/storage_requests.ex:578
+#: lib/flux_vale_web/live/admin_live/storage_requests.ex:579
 #, elixir-autogen, elixir-format, fuzzy
 msgid "Requested"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/storage_requests.ex:946
+#: lib/flux_vale_web/live/admin_live/storage_requests.ex:947
 #, elixir-autogen, elixir-format
 msgid "Requested by"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/storage_requests.ex:768
+#: lib/flux_vale_web/live/admin_live/storage_requests.ex:769
 #, elixir-autogen, elixir-format, fuzzy
 msgid "Requester"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/storage_requests.ex:638
+#: lib/flux_vale_web/live/admin_live/storage_requests.ex:639
 #, elixir-autogen, elixir-format
 msgid "Requests above the self-service boundary. Order and attach the capacity first, then approve; the volume grows online and the decision stands even when the patch has to be retried."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/storage_requests.ex:1111
+#: lib/flux_vale_web/live/admin_live/storage_requests.ex:1112
 #, elixir-autogen, elixir-format
 msgid "Retry apply"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/storage_requests.ex:1108
+#: lib/flux_vale_web/live/admin_live/storage_requests.ex:1109
 #, elixir-autogen, elixir-format, fuzzy
 msgid "Retrying..."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/storage_requests.ex:659
+#: lib/flux_vale_web/live/admin_live/storage_requests.ex:660
 #, elixir-autogen, elixir-format
 msgid "Search the reason text or an exact request or instance id."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/storage_requests.ex:738
+#: lib/flux_vale_web/live/admin_live/storage_requests.ex:739
 #, elixir-autogen, elixir-format, fuzzy
 msgid "Showing the latest 100 requests."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/storage_requests.ex:767
+#: lib/flux_vale_web/live/admin_live/storage_requests.ex:768
 #, elixir-autogen, elixir-format
 msgid "Storage"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/storage_requests.ex:480
+#: lib/flux_vale_web/live/admin_live/storage_requests.ex:481
 #, elixir-autogen, elixir-format
 msgid "Storage can't be expanded on this cluster yet. Attach capacity first."
 msgstr ""
 
 #: lib/flux_vale_web/components/admin_shell.ex:254
-#: lib/flux_vale_web/live/admin_live/storage_requests.ex:636
+#: lib/flux_vale_web/live/admin_live/storage_requests.ex:637
 #, elixir-autogen, elixir-format
 msgid "Storage requests"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/storage_requests.ex:918
+#: lib/flux_vale_web/live/admin_live/storage_requests.ex:919
 #, elixir-autogen, elixir-format
 msgid "Submitted %{ago}"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/storage_requests.ex:1010
+#: lib/flux_vale_web/live/admin_live/storage_requests.ex:1011
 #, elixir-autogen, elixir-format
 msgid "Target rate at approval"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/storage_requests.ex:355
+#: lib/flux_vale_web/live/admin_live/storage_requests.ex:356
 #, elixir-autogen, elixir-format
 msgid "That request is gone. The queue is refreshed."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/storage_requests.ex:179
+#: lib/flux_vale_web/live/admin_live/storage_requests.ex:180
 #, elixir-autogen, elixir-format
 msgid "The decision is recorded, but the volume patch failed: %{error}. Retry apply below."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/storage_requests.ex:1102
+#: lib/flux_vale_web/live/admin_live/storage_requests.ex:1103
 #, elixir-autogen, elixir-format
 msgid "The decision is recorded; the volume patch has not run yet."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/storage_requests.ex:463
+#: lib/flux_vale_web/live/admin_live/storage_requests.ex:464
 #, elixir-autogen, elixir-format
 msgid "The instance already has %{gb} GB. Reject this request instead."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/storage_requests.ex:458
+#: lib/flux_vale_web/live/admin_live/storage_requests.ex:459
 #, elixir-autogen, elixir-format
 msgid "The instance is %{status}; storage can't be approved in that state."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/storage_requests.ex:1065
+#: lib/flux_vale_web/live/admin_live/storage_requests.ex:1066
 #, elixir-autogen, elixir-format
 msgid "The instance keeps running; a restart may be needed to see the new space."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/storage_requests.ex:450
+#: lib/flux_vale_web/live/admin_live/storage_requests.ex:451
 #, elixir-autogen, elixir-format
 msgid "The instance no longer exists. Reject this request with feedback."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/storage_requests.ex:1099
+#: lib/flux_vale_web/live/admin_live/storage_requests.ex:1100
 #, elixir-autogen, elixir-format
 msgid "The last apply failed: %{error}"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/storage_requests.ex:476
+#: lib/flux_vale_web/live/admin_live/storage_requests.ex:477
 #, elixir-autogen, elixir-format
 msgid "The organization's wallet isn't funded. Top it up before approving."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/storage_requests.ex:262
+#: lib/flux_vale_web/live/admin_live/storage_requests.ex:263
 #, elixir-autogen, elixir-format
 msgid "The queue did not load. Try again."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/storage_requests.ex:223
+#: lib/flux_vale_web/live/admin_live/storage_requests.ex:224
 #, elixir-autogen, elixir-format
 msgid "The retry did not land: %{error}. Fix the cluster, then retry again."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/storage_requests.ex:1014
+#: lib/flux_vale_web/live/admin_live/storage_requests.ex:1015
 #, elixir-autogen, elixir-format
 msgid "The shown rate is the charged rate. The instance's clock re-anchors at approval."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/storage_requests.ex:483
+#: lib/flux_vale_web/live/admin_live/storage_requests.ex:484
 #, elixir-autogen, elixir-format
 msgid "The storage expansion check failed. Try again."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/storage_requests.ex:1028
+#: lib/flux_vale_web/live/admin_live/storage_requests.ex:1029
 #, elixir-autogen, elixir-format
 msgid "This goes to the customer verbatim."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/storage_requests.ex:556
+#: lib/flux_vale_web/live/admin_live/storage_requests.ex:557
 #, elixir-autogen, elixir-format, fuzzy
 msgid "Unknown instance"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/storage_requests.ex:538
+#: lib/flux_vale_web/live/admin_live/storage_requests.ex:539
 #, elixir-autogen, elixir-format, fuzzy
 msgid "Unknown org"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/storage_requests.ex:544
+#: lib/flux_vale_web/live/admin_live/storage_requests.ex:545
 #, elixir-autogen, elixir-format
 msgid "Unknown requester"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/storage_requests.ex:606
+#: lib/flux_vale_web/live/admin_live/storage_requests.ex:607
 #, elixir-autogen, elixir-format, fuzzy
 msgid "Wallet funded"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/storage_requests.ex:607
+#: lib/flux_vale_web/live/admin_live/storage_requests.ex:608
 #, elixir-autogen, elixir-format
 msgid "Wallet not funded"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/storage_requests.ex:588
-#: lib/flux_vale_web/live/admin_live/storage_requests.ex:985
+#: lib/flux_vale_web/live/admin_live/storage_requests.ex:589
+#: lib/flux_vale_web/live/admin_live/storage_requests.ex:986
 #, elixir-autogen, elixir-format
 msgid "—"
 msgstr ""
@@ -3505,13 +3505,13 @@ msgstr ""
 msgid "Delete %{record}?"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/resources.ex:1075
+#: lib/flux_vale_web/live/admin_live/resources.ex:1098
 #, elixir-autogen, elixir-format
 msgid "Edit %{name}"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/resources.ex:1102
-#: lib/flux_vale_web/live/admin_live/resources.ex:1108
+#: lib/flux_vale_web/live/admin_live/resources.ex:1125
+#: lib/flux_vale_web/live/admin_live/resources.ex:1131
 #, elixir-autogen, elixir-format
 msgid "Every write runs through the resource policies with your account as the actor. Invalid fields say so beside themselves."
 msgstr ""
@@ -3526,12 +3526,12 @@ msgstr ""
 msgid "In action"
 msgstr ""
 
-#: lib/flux_vale_web/components/admin_resource.ex:430
+#: lib/flux_vale_web/components/admin_resource.ex:500
 #, elixir-autogen, elixir-format
 msgid "New"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/resources.ex:1072
+#: lib/flux_vale_web/live/admin_live/resources.ex:1095
 #, elixir-autogen, elixir-format, fuzzy
 msgid "New %{name}"
 msgstr ""
@@ -3557,7 +3557,7 @@ msgstr ""
 msgid "The record could not be deleted. Try again."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/resources.ex:1034
+#: lib/flux_vale_web/live/admin_live/resources.ex:1057
 #, elixir-autogen, elixir-format
 msgid "The record was created."
 msgstr ""
@@ -3567,7 +3567,7 @@ msgstr ""
 msgid "The record was deleted."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/resources.ex:1035
+#: lib/flux_vale_web/live/admin_live/resources.ex:1058
 #, elixir-autogen, elixir-format
 msgid "The record was updated."
 msgstr ""
