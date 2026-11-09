@@ -171,6 +171,42 @@ defmodule FluxVale.Infrastructure.Operations.DisconnectPocketIdTest do
       assert {:error, :not_wired} = Infrastructure.disconnect_pocket_id(app, actor: owner)
     end
 
+    # The pre-deploy disconnect: the row is the whole truth — no
+    # cluster calls (Mimic would reject any), the strip lands on the
+    # row alone, the wiring clears.
+    test "a pending instance disconnects without touching the cluster", %{
+      owner: owner
+    } do
+      version =
+        InstanceFixtures.app_version!(
+          configurable_env_vars: @schema,
+          oidc_wiring: @recipe,
+          oidc_callback_path: "/cb"
+        )
+
+      pending =
+        Instance.create!(
+          %{name: "Pending App", app_version_id: version.id, env_vars: %{"SMTP_HOST" => "smtp"}},
+          actor: owner
+        )
+
+      PocketIdWiring.record!(
+        %{
+          instance_id: pending.id,
+          pocket_id_instance_id: Ash.UUID.generate(),
+          pocket_id_client_id: "client-p",
+          pocket_id_secret_id: "secret-p"
+        },
+        authorize?: false
+      )
+
+      assert {:ok, %{client_deleted: false}} =
+               Infrastructure.disconnect_pocket_id(pending, actor: owner)
+
+      assert Instance.get_by_id!(pending.id, actor: owner).env_vars == %{"SMTP_HOST" => "smtp"}
+      assert {:error, _none} = PocketIdWiring.get_by_instance(pending.id, authorize?: false)
+    end
+
     # The §6 gone shape: the PocketID row is gone, so no client is
     # reachable — the strip + clear still happen (the card's Clear
     # wiring verb).

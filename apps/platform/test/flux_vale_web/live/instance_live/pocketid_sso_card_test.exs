@@ -369,6 +369,31 @@ defmodule FluxValeWeb.InstanceLive.PocketIdSsoCardTest do
     refute has_element?(view, "[data-testid=pocketid-sso-gone]")
   end
 
+  # A pre-deploy wiring's rotate refuses honestly at the OP (pinned in
+  # the rotate op tests — :not_deployed); the card's error-render path
+  # itself is pinned by the refused-connect test below.
+
+  # Crafted verbs against a hidden card (nil wiring/state) are
+  # silence — the handlers' nil arms.
+  test "crafted rotate/disconnect events with no card standing are silence", %{
+    conn: conn,
+    owner: owner
+  } do
+    flag_on!()
+    pid_version = pocket_id_version!()
+    _pocket_id = pocket_id!(pid_version, owner, "pid")
+    app = app!(owner)
+
+    {:ok, view, html} = live(conn, ~p"/instances/#{app.id}")
+
+    render_click(view, "pocketid-rotate", %{})
+    render_click(view, "pocketid-disconnect", %{})
+    render_click(view, "pocketid-connect", %{})
+
+    # Still on the page, nothing created, nothing crashed.
+    assert html =~ app.name
+  end
+
   test "clearing a gone wiring restores the connect shape", %{conn: conn, owner: owner} do
     flag_on!()
     pid_version = pocket_id_version!()
