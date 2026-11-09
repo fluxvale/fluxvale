@@ -635,7 +635,13 @@ jobs:
       # root attribute and the plan-time-unknown organization seed on
       # its first runs). Same pins + install shape as the e2e job:
       # binaries verified against mise.lock; install the ONE tool this
-      # job needs, never the whole config.
+      # job needs, never the whole config. The cached pre-stage
+      # (2026-11-09) rides ahead of mise-action for the same reason as
+      # the e2e job — keep the two version pins bumped together.
+      - uses: ./.github/actions/mise
+        with:
+          version: "2026.9.14"
+          cache-suffix: tfprovider
       - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
         with:
           version: 2026.9.14
@@ -816,6 +822,16 @@ jobs:
       # compile, 15+ min — the abandoned CI path in AGENTS.md); the
       # BEAM stays on setup-beam in the platform job. rclone joined with
       # #190: the file-access E2E's client.
+      # (2026-11-09) The cached pre-stage comes FIRST: mise-action's own
+      # cache never saves under install: false, so without this every
+      # job anonymously downloaded the mise tarball on every run — the
+      # exact fetch the release-CDN 504 incident killed. mise-action
+      # finds the staged binary and skips its download; bump its version
+      # input and the one below together.
+      - uses: ./.github/actions/mise
+        with:
+          version: "2026.9.14"
+          cache-suffix: e2e
       - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
         with:
           version: 2026.9.14

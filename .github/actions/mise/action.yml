@@ -1,0 +1,112 @@
+# Stage mise itself from cache, outage-hardened on cold (2026-11-09):
+# every mise-action call site downloads the mise tarball from GitHub
+# Releases ANONYMOUSLY, and mise-action's own cache never saves for us —
+# its save is gated on install: true, which every workflow here must
+# leave off (a bare `mise install` would pull erlang = source compile,
+# the abandoned CI path in AGENTS.md). During GitHub's 2026-11-09
+# anonymous-traffic 504 incident (githubstatus incident c9px7cw2ghrs,
+# "CI jobs and release downloads may fail with a 504 … if they make
+# anonymous calls") that meant every e2e/smoke/tfprovider job died ~1
+# minute in, all retries spent.
+#
+# This action stages ~/.local/share/mise (binary + installs) from an
+# exact-key actions/cache entry; jdx/mise-action — placed AFTER this at
+# the call site with the SAME version pin — finds the binary via its
+# existsSync check and skips its download entirely (its retry budget is
+# hardcoded 5x2s and cannot ride out a blip). The tool installs the
+# caller's run step performs land in the same dir, and the cache's post
+# save persists them — warm runs touch no release CDN at all. On cold,
+# the fetch carries an outer exponential backoff (up to ~1 min of
+# waiting on top of curl's own 3 retries per attempt) so multi-minute
+# CDN blips ride through instead of reding the job.
+#
+# NB the version input duplicates the mise-action pin at each call site
+# (mise itself is pinned ad-hoc in the workflows, not in mise.toml) —
+# bump the two together; the assert below reds loudly if they drift.
+name: "Stage mise (cached, outage-hardened)"
+description: >-
+  Restore ~/.local/share/mise from an exact-key actions/cache entry, or
+  on cold download the pinned tarball with a long outer backoff and
+  stage it where jdx/mise-action looks, so its fragile anonymous
+  release download never runs. Follow it with jdx/mise-action (same
+  version pin) for PATH/env wiring.
+inputs:
+  version:
+    description: mise version pin — must equal the mise-action version input at the call site
+    required: true
+  cache-suffix:
+    description: >-
+      Lane segment of the cache key (e2e / tfprovider / smoke). Jobs
+      with different tool sets must NOT share an entry: the exact key's
+      first saver wins, and a partial toolset would pin every other
+      lane to cold tool installs forever.
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Compute the cache key
+      id: key
+      shell: bash
+      run: |
+        # mise.toml + mise.lock pin the tools that share this entry —
+        # a version bump busts the key instead of restoring stale installs.
+        hash="$(sha256sum mise.toml mise.lock | sha256sum | cut -d' ' -f1)"
+        echo "key=${{ runner.os }}-${{ runner.arch }}-mise-${{ inputs.cache-suffix }}-${{ inputs.version }}-$hash" >>"$GITHUB_OUTPUT"
+
+    - name: Restore the mise data dir
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ~/.local/share/mise
+        key: ${{ steps.key.outputs.key }}
+
+    - name: Stage mise on cold (hardened fetch)
+      shell: bash
+      env:
+        MISE_VERSION: ${{ inputs.version }}
+        RUNNER_ARCH: ${{ runner.arch }}
+      run: |
+        # Mirror mise-action's dir resolution (its miseDir()): MISE_DATA_DIR
+        # → XDG_DATA_HOME/mise → ~/.local/share/mise. The cache step above
+        # restores the runner-default path — GitHub runners set neither var.
+        if [ -n "${MISE_DATA_DIR:-}" ]; then
+          data_dir="$MISE_DATA_DIR"
+        elif [ -n "${XDG_DATA_HOME:-}" ]; then
+          data_dir="$XDG_DATA_HOME/mise"
+        else
+          data_dir="$HOME/.local/share/mise"
+        fi
+        bin="$data_dir/bin/mise"
+        if [ -x "$bin" ]; then
+          echo "mise: cache hit — $bin ($("$bin" --version))"
+        else
+          case "$RUNNER_ARCH" in
+            X64)   arch="x64" ;;
+            ARM64) arch="arm64" ;;
+            *) echo "::error::no mise linux build for runner.arch $RUNNER_ARCH" >&2; exit 1 ;;
+          esac
+          echo "mise: cache cold — fetching v$MISE_VERSION linux-$arch (outer backoff rides release-CDN 504 blips)"
+          mkdir -p "$data_dir"
+          tmp="$(mktemp -d)"
+          attempt=0; delay=4
+          until curl -fsSL --retry 3 --retry-all-errors --retry-delay 2 --max-time 120 \
+              -o "$tmp/mise.tar.zst" \
+              "https://github.com/jdx/mise/releases/download/v$MISE_VERSION/mise-v$MISE_VERSION-linux-$arch.tar.zst"; do
+            attempt=$((attempt + 1))
+            if [ "$attempt" -ge 5 ]; then
+              echo "::error::mise download failed after $attempt outer attempts (3 curl retries each) — the release CDN has been unreachable for minutes; re-run once it recovers" >&2
+              exit 1
+            fi
+            echo "mise download: attempt $attempt failed — backing off ${delay}s ($((5 - attempt)) outer attempts left)"
+            sleep "$delay"; delay=$((delay * 2))
+          done
+          tar -x --zstd -f "$tmp/mise.tar.zst" -C "$data_dir" --strip-components=1
+          rm -rf "$tmp"
+        fi
+        # A wrong or corrupted staged binary must red HERE, not inside a
+        # 40-minute e2e leg: assert the pinned version before anything runs.
+        got="$("$bin" --version)"
+        case "$got" in
+          "$MISE_VERSION"*) ;;
+          *) echo "::error::staged mise reports '$got', want $MISE_VERSION — stale cache entry or bad download; bump the key or re-run" >&2; exit 1 ;;
+        esac
+        echo "mise: staged $got at $bin"
