@@ -134,6 +134,9 @@ defmodule FluxVale.MixProject do
       {:ash_admin, "1.3.1"},
       {:ash_postgres, "2.15.2"},
       {:ash_phoenix, "2.3.25"},
+      # Version history for audited resources (#645, ADR-0048) — one
+      # row per mutation, actor-attributed. Ops first, the plan's A2-S1.
+      {:ash_paper_trail, "0.8.1"},
       {:igniter, "0.8.5", only: [:dev, :test]},
       {:phoenix, "1.8.13"},
       # Design-system workshop (#178) — mounted at /storybook, served at
