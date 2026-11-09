@@ -459,7 +459,6 @@ defmodule FluxVale.Seeds.CatalogDataTest do
       assert caveats =~ "SQLite"
     end
 
-    test "shipped catalog_data.yaml normalizes the Umami entry (#576)" do
     test "shipped catalog_data.yaml normalizes the Umami entry (#576, bundled row at #612 S4)" do
       entry = entry_by_slug("analytics")
 

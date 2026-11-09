@@ -500,7 +500,6 @@ defmodule FluxVale.Seeds.CatalogSeedTest do
       assert version.oidc_wiring.pkce == false
     end
 
-    test "seeds the shipped Umami entry and its first-run contract (#576)" do
     test "seeds the shipped Umami entry and its first-run contract (#576; bundled row at #612 S4)" do
       assert :ok == Seeds.seed_pricing!()
       assert :ok == Seeds.seed_catalog!()
