@@ -1,7 +1,9 @@
 # Plan: blanket admin authority + the paper trail (#644, #645)
 
-Status: PROPOSED — PA gate pending (architect worktree `fv-644-adminpower`,
-branch `feat/admin-authority-audit`). Two owner rulings, one doctrine (Nov 9):
+Status: ACCEPTED — PA go relayed 2026-11-09, D1-D10 as recommended (rider
+on D1: the doctrine gate in its strictest form, below; riders on D4/D6/D9
+recorded at their decisions). Architect worktree `fv-644-adminpower`,
+branch `feat/admin-authority-audit`. Two owner rulings, one doctrine (Nov 9):
 
 > "Having an admin dashboard is pointless if an admin can't see everything.
 > We can add more roles in the future that have less privileges if needed.
@@ -39,8 +41,23 @@ resources by name, each with its reason:
 
 One list, two doctrines: Arc 1's bypass lands on the 29; Arc 2's paper
 trail versions the 29. A resource moves between sets only by amending this
-table — the doctrine tests (both arcs) fail CI on any unlisted resource,
-same forcing function as the console registry's parity test.
+table — the doctrine gate (below) fails CI on any unlisted resource, same
+forcing function as the console registry's parity test.
+
+### The doctrine gate (strictest form, per the PA go)
+
+ONE test, `test/flux_vale/admin_authority_test.exs`, walking every
+resource of every configured domain and demanding one of exactly two
+states: **full** — the Arc 1 bypass AND the Arc 2 paper_trail block are
+both present — or a **named exemption entry with its reason** (the six
+machinery rows, plus interim pendings while the arcs build). A NEW
+resource joining any `ash_domains` list fails the build until it is
+deliberately added to a set: the doctrine survives resource growth, which
+is the whole point of making it a gate rather than a convention. Phasing:
+between A2-S1 and the closing slice, not-yet-rolled-out business
+resources carry explicit `pending` exemption entries naming the slice
+that resolves them (the test fails on any resource that is neither full,
+exempted, nor pending); the closing slice asserts ZERO pendings remain.
 
 ## ARC 1 — authority (#644)
 
@@ -73,14 +90,18 @@ domain-level policy layer in 3.37. A macro injecting the bypass hides the
 doctrine from grep. The bypass is the documented idiom, is greppable, and
 one doctrine test makes it complete.
 
-### The doctrine test
+### The doctrine gate
 
-`test/flux_vale/admin_authority_test.exs`, mirroring the registry parity
-test: walk `Application.get_env(:flux_vale, :ash_domains)`, assert every
+Described above ("the business resource set" → "the doctrine gate"):
+`test/flux_vale/admin_authority_test.exs` walks
+`Application.get_env(:flux_vale, :ash_domains)`, asserts every
 business-set resource's policies carry the `ActorIsConsoleAdmin` bypass
-(Ash policy introspection; probe the exact API first), and that the six
-machinery resources are excluded by name with reasons. A new resource
-fails CI until it joins a set — the decision is forced, never silent.
+AND the paper_trail block (Ash policy + extension introspection; probe
+the exact APIs first), and that every other resource holds a named
+exemption with a reason. A new resource fails CI until it joins a set —
+the decision is forced, never silent. The bypass half of the gate goes
+live in this arc; the trail half activates as A2's rollouts land (the
+pendings phasing above).
 
 ### Reads
 
@@ -206,7 +227,13 @@ it — no FK means the destroy-version insert succeeds;
 (goodwill credits, `set_tags`, bulk paths). `on_delete: :nilify` on the
 actor reference: a user deletion (the data-deletion flow) keeps the
 history and nils the attribution — the honest record, revisit when the
-data-deletion policy finalizes.
+data-deletion policy finalizes. PA rider: before settling for nil, A2-S1
+probes whether the version row can carry a cheap denormalized actor label
+(the docs confirm the actor is always set on the version changeset — a
+shared-mixin attribute + `on_create` change is the candidate shape) so
+deleted actors' versions still answer WHO. Decision rule: if it costs
+more than a line or two beyond the already-needed mixin, nil is accepted
+— the slice report says which.
 
 Migrations: `mix ash.codegen` per domain rollout — additive-only new
 tables (ADR-0013), derived names (`wallets_versions` et al; module
@@ -286,7 +313,10 @@ first audit slice.
 ## Decisions
 
 - **D1 — authority mechanism**: per-resource `bypass` with ONE shared
-  check (`ActorIsConsoleAdmin`) + a doctrine parity test. REJECTED:
+  check (`ActorIsConsoleAdmin`) + the doctrine gate in its strictest form
+  (PA rider: any new resource joining an `ash_domains` list fails the
+  build without bypass+trail or a named, reasoned exemption — the
+  doctrine survives new resources being added). REJECTED:
   per-policy admin arms (the #577/D2 pattern generalized — ceremony ×100+,
   drifts, cannot rescue `forbid_unless` gates); macro-injected bypasses
   (ungreppable); Ash domain-level policies (no such layer in 3.37).
@@ -305,7 +335,10 @@ first audit slice.
   system-only forbids; surfacing stays curated (registry intent lists,
   sections own OFFERED, policies own PERMITTED). REJECTED: bypass scoped
   to non-system actions (per-action ceremony again; unreachable paths
-  stay unreachable — the API route table has no such routes).
+  stay unreachable — the API route table has no such routes). ADR-0047
+  carries this as a FLAGGED deliberate judgment call under the owner's
+  own doctrine (PA rider: relayed to Terence; a future reader must see
+  it was a decision, not an oversight).
 - **D5 — audit sweep**: the same 29. REJECTED: all 35 (noise on ephemeral
   rows, secret-adjacent values, trails of trails); console-mutable-only
   (misses PAT/member mutations the issue explicitly wants attributed).
@@ -320,10 +353,15 @@ first audit slice.
 - **D8 — retention**: forever, revisit triggers recorded (cost/scale,
   data-deletion policy finalizing). REJECTED: time-boxed janitor now
   (premature at friends-beta volumes; weakens the audit premise).
+  ADR-0048 carries this as a FLAGGED deliberate judgment call under the
+  owner's own doctrine (PA rider: relayed to Terence, same as D4).
 - **D9 — console surfacing**: a dedicated Audit section, versions
   excluded from the generic registry by name; AshAdmin rendering them
   accepted. REJECTED: versions as generic-registry resources (the audit
-  trail is a cross-resource view, not 29 raw tables).
+  trail is a cross-resource view, not 29 raw tables). PA rider: the
+  registry-exclusion coordination is ONE heads-up prompt to the 595
+  architect in the slice that first adds version resources (A2-S1) — a
+  courtesy, no dependency either way.
 - **D10 — sequencing**: A2-S1 (dep + Ops proof) → A1 (authority, two
   slices) → A2 rollouts → A2 audit view. Rationale: the dependency and
   config are de-risked first; the authority widening then lands with the
@@ -364,20 +402,25 @@ section as the reason), the version mixin (indexes), and the proof tests:
 create/update/destroy each produce attributed version rows (admin actor
 named; member actor named; system `authorize?: false` call → nil actor);
 a destroy's version survives its record; sensitive attrs redact; inputs
-stored. ADR-0048 + this plan doc ship in this PR. OpenAPI regen no-diff
-verified. Done when: `mix ci` green and the trail is provably attributed
-on Ops.
+stored. The actor-label tombstone probe (D6 rider) runs here and its
+outcome is stated in the PR body. ADR-0048 (with D8's flagging) + this
+plan doc ship in this PR. The architect sends the 595 heads-up prompt
+(D9 rider) the moment this slice adds version resources. OpenAPI regen
+no-diff verified. Done when: `mix ci` green and the trail is provably
+attributed on Ops.
 
 ### A1-S1 — the check, the bypass, the doctrine test (the authority PR)
 
 `ActorIsConsoleAdmin` (probe ladder for the context marker FIRST; the
 boundary integration pin second), the bypass on all 29 business-set
-resources, the doctrine test, policy tests per the probe table (admin
-cross-org read/write true; member scoping byte-identical — the existing
-suites ARE the regression net), the PAT refusal pin, ADR-0047. No console
-copy changes here (surfaces follow). Done when: an admin actor passes
-cross-org in policy tests, a PAT actor does not, members are unchanged,
-and the doctrine test forces every future resource to decide.
+resources, the doctrine gate (bypass half live; trail pendings for the
+resources A2 has not reached yet — the gate's phasing per D1's rider),
+policy tests per the probe table (admin cross-org read/write true; member
+scoping byte-identical — the existing suites ARE the regression net), the
+PAT refusal pin, ADR-0047 (with D4's flagging). No console copy changes
+here (surfaces follow). Done when: an admin actor passes cross-org in
+policy tests, a PAT actor does not, members are unchanged, and the
+doctrine gate forces every future resource to decide.
 
 ### A1-S2 — the console reads cross-org (the visual PR)
 
@@ -410,8 +453,10 @@ The sidebar section, cross-resource browsing (resource + actor filters),
 per-record history from show pages, DataTable pattern, version-read
 policy verified through the real console mount (admin sees all incl.
 destroyed records' trails; a member mount attempt bounces at the gate).
-Screenshots light + dark. Done when: every mutation on the business set
-is attributable from the console — the doctrine's done-when.
+The doctrine gate drops to ZERO pendings — every business resource full
+(bypass + trail) or exempted by name, and the test refuses new pendings
+from here on. Screenshots light + dark. Done when: every mutation on the
+business set is attributable from the console — the doctrine's done-when.
 
 ## Risks
 
