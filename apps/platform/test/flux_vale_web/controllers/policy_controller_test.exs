@@ -12,7 +12,7 @@ defmodule FluxValeWeb.PolicyControllerTest do
       html = html_response(conn, 200)
 
       assert html =~ "Refund policy"
-      assert html =~ "Credits are non-refundable"
+      assert html =~ "Wallet balance is non-refundable"
       assert html =~ "balance never expires"
 
       # The goodwill exception is offered WITHOUT promising a refund
@@ -30,7 +30,7 @@ defmodule FluxValeWeb.PolicyControllerTest do
       assert conn.assigns.page_title == "Refund policy · FluxVale"
 
       assert conn.assigns.page_description ==
-               "FluxVale credits are non-refundable and never expire"
+               "FluxVale wallet balance is non-refundable and never expires"
 
       assert conn.assigns.canonical_path == "/policies/refund"
     end
@@ -38,7 +38,7 @@ defmodule FluxValeWeb.PolicyControllerTest do
 
   # #365: the legal-foundation pages — same anonymous-OK contract as the
   # refund policy. The load-bearing wording is asserted verbatim: the
-  # operating entity, the credits stance (mirroring the published refund
+  # operating entity, the wallet stance (mirroring the published refund
   # policy), the accurate networking statement, the decided parameters
   # (Philippines law and venue, the 12-month cap, the contact address),
   # and the non-committal post-termination data line.
@@ -52,9 +52,9 @@ defmodule FluxValeWeb.PolicyControllerTest do
       assert html =~ "FLUXVALE INFORMATION"
       assert html =~ "SOLUTIONS OPC"
 
-      # The credits clause mirrors the refund policy.
+      # The wallet clause mirrors the refund policy.
       assert html =~ "prepaid wallet"
-      assert html =~ "never expire"
+      assert html =~ "never expires"
       assert html =~ "non-refundable"
       assert html =~ "don't store card details on the platform"
       assert html =~ "suspends your instances instead of accruing debt"
@@ -107,11 +107,14 @@ defmodule FluxValeWeb.PolicyControllerTest do
       assert html =~ "DDoS and booter services"
       assert html =~ "Circumventing platform limits or security"
 
-      # Enforcement: investigate + suspend/terminate, credits stay
-      # non-refundable on enforcement termination.
+      # Enforcement: investigate + suspend/terminate, wallet balance
+      # stays non-refundable on enforcement termination. The clause
+      # wraps in source; assert the flattened copy (the privacy test's
+      # idiom — HTML collapses the whitespace at render anyway).
+      flat = String.replace(html, ~r/\s+/, " ")
       assert html =~ "investigate suspected violations"
       assert html =~ "suspend or terminate"
-      assert html =~ "credits"
+      assert flat =~ "wallet balance stays non-refundable"
       assert html =~ "non-refundable"
       assert html =~ "admin@fluxvale.com"
 
@@ -166,7 +169,9 @@ defmodule FluxValeWeb.PolicyControllerTest do
       assert flat =~ "do not contain your app data"
 
       # Billing collection includes the checkout's buyer and tax
-      # evidence (the topup resource's fields, verified).
+      # evidence (the topup resource's fields, verified) and the
+      # wallet-entry record (#641's wording).
+      assert flat =~ "the record of every entry that adds to or draws down that balance"
       assert flat =~ "buyer name and email"
       assert flat =~ "the country your connection came from"
 

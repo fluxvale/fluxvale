@@ -565,7 +565,7 @@ defmodule FluxValeWeb.BillingLive.TopupTest do
 
     # F1 (hostile-351): the wizard is the remedy the band offers a
     # depleted wallet — the band celebrates "-$100.00 / Depleted" with
-    # the Add-credits CTA. Driving it as that wallet used to crash the
+    # the top-up CTA (its #add-credits id predates #641's wording). Driving it as that wallet used to crash the
     # socket: the new-balance line's Pricing.format_usd(@balance +
     # subtotal) FunctionClaused on the negative (format_usd guards
     # cents >= 0), on the validate-amount patch, snapping the page back
@@ -660,10 +660,12 @@ defmodule FluxValeWeb.BillingLive.TopupTest do
     test "the never-expires/non-refundable notice is stated", %{conn: conn} do
       view = to_amount(conn)
 
+      assert render(view) =~ "How much do you want to add?"
       notice = render(element(view, "[data-testid='topup-notice']"))
       # No trailing period — the sentence now ends in the linked policy
       # tail (asserted on its own below).
-      assert notice =~ "Credits can be used for any app, never expire, and are non-refundable"
+      assert notice =~
+               "Wallet balance can be used for any app, never expires, and is non-refundable"
     end
 
     test "the notice links the refund policy — before any payment", %{conn: conn} do
@@ -1219,6 +1221,14 @@ defmodule FluxValeWeb.BillingLive.TopupTest do
       assert has_element?(view, "[data-testid='topup-confirmation-completed']")
       assert render(view) =~ "$5.00"
 
+      # The completed card's sentence wraps in source; assert the
+      # flattened copy (the policy tests' idiom). The amount rides in a
+      # font-mono span, so the tail text is asserted beside the $5.00
+      # assert above it.
+      rendered = render(view)
+      flat = String.replace(rendered, ~r/\s+/, " ")
+      assert flat =~ "was added to your wallet."
+
       # The resulting balance rides the reference path too (#377).
       assert has_element?(view, "[data-testid='topup-confirmation-balance']")
       assert render(element(view, "[data-testid='topup-confirmation-balance']")) =~ "$5.00"
@@ -1257,6 +1267,9 @@ defmodule FluxValeWeb.BillingLive.TopupTest do
       {:ok, view, _html} = live(conn, ~p"/billing/topup/return?reference=pr_1&status=pending")
 
       assert has_element?(view, "[data-testid='topup-confirmation-pending']")
+      rendered = render(view)
+      flat = String.replace(rendered, ~r/\s+/, " ")
+      assert flat =~ "The amount lands in your wallet the moment it does."
     end
 
     test "a gateway error keeps the finalizing message (webhook owns the outcome)", %{conn: conn} do
@@ -1329,7 +1342,7 @@ defmodule FluxValeWeb.BillingLive.TopupTest do
       assert render(view) =~ "This payment window expired"
 
       assert render(view) =~
-               "No credit was added. If you completed a payment, your credit will appear once the gateway confirms it."
+               "Nothing was added to your wallet. If you completed a payment, the amount will appear once the gateway confirms it."
 
       assert has_element?(view, "#topup-back-to-billing")
       assert {:ok, 0} = Billing.balance(wallet, authorize?: false)
@@ -1606,12 +1619,12 @@ defmodule FluxValeWeb.BillingLive.TopupTest do
   end
 
   describe "the billing page" do
-    test "links to the wizard with the credit terms", %{conn: conn} do
+    test "links to the wizard with the wallet terms", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/billing")
 
       assert has_element?(view, "#add-credits")
       assert render(element(view, "#add-credits")) =~ "/billing/topup"
-      assert render(view) =~ "never expire, and are non-refundable"
+      assert render(view) =~ "never expires, and is non-refundable"
     end
   end
 

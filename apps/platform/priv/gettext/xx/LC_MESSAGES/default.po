@@ -272,11 +272,6 @@ msgstr ""
 msgid "Other services"
 msgstr ""
 
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:293
-#, elixir-autogen, elixir-format
-msgid "Prices follow the resources an app gets, not the app itself. New accounts start with welcome credits. Top up when you're ready."
-msgstr ""
-
 #: lib/flux_vale_web/controllers/page_html/home.html.heex:57
 #: lib/flux_vale_web/controllers/page_html/home.html.heex:347
 #: lib/flux_vale_web/controllers/pricing_html/show.html.heex:9
@@ -3161,4 +3156,9 @@ msgstr ""
 #: lib/flux_vale_web/live/admin_live/gateway_detail.ex:271
 #, elixir-autogen, elixir-format
 msgid "per month, billed while connected. Suspended or removed, nothing accrues."
+msgstr ""
+
+#: lib/flux_vale_web/controllers/page_html/home.html.heex:293
+#, elixir-autogen, elixir-format
+msgid "Prices follow the resources an app gets, not the app itself. New accounts start with a welcome credit. Top up when you're ready."
 msgstr ""

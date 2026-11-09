@@ -1,11 +1,11 @@
 defmodule FluxValeWeb.BillingLive.Topup do
   @moduledoc """
   The top-up wizard (#137, PikaPods-shaped): a $1 credit unit bought in
-  quantity — Billing Details → Amount → Payment → Confirmation. Credits
-  can be used for any app, never expire, and are non-refundable.
+  quantity — Billing Details → Amount → Payment → Confirmation. Wallet
+  balance can be used for any app, never expires, and is non-refundable.
 
-  Credits are a single-purpose voucher: VAT is collected at top-up,
-  added on top of the credit value (#138, ADR-0029 Am. 3 gate 2). The
+  A top-up is a single-purpose purchase: VAT is collected at top-up,
+  added on top of the wallet amount (#138, ADR-0029 Am. 3 gate 2). The
   Details step captures the buyer evidence (country, US state, customer
   type, VAT number) and the IP country rides the session
   (`FluxValeWeb.Plugs.CaptureIpCountry`); the rate resolves from the
@@ -527,7 +527,7 @@ defmodule FluxValeWeb.BillingLive.Topup do
                 </.button>
 
                 <p class="eyebrow mt-4">Billing</p>
-                <h1 class="page-title mt-1">Add credits</h1>
+                <h1 class="page-title mt-1">Top up your wallet</h1>
                 <p class="mt-2 text-base text-ink-muted">
                   {@wizard_subtitle}
                 </p>
@@ -584,7 +584,7 @@ defmodule FluxValeWeb.BillingLive.Topup do
                 </.button>
 
                 <p class="eyebrow mt-4">Billing</p>
-                <h1 class="page-title mt-1">Add credits</h1>
+                <h1 class="page-title mt-1">Top up your wallet</h1>
                 <p class="mt-2 text-base text-ink-muted">
                   {@wizard_subtitle}
                 </p>
@@ -843,7 +843,7 @@ defmodule FluxValeWeb.BillingLive.Topup do
 
     ~H"""
     <.card class="space-y-4">
-      <h2 class="text-base font-medium text-ink">How much credit?</h2>
+      <h2 class="text-base font-medium text-ink">How much do you want to add?</h2>
 
       <.form
         for={@form}
@@ -882,7 +882,7 @@ defmodule FluxValeWeb.BillingLive.Topup do
           data-testid="topup-summary"
         >
           <p class="flex justify-between">
-            <span class="text-ink-muted">{@amount_dollars} × $1.00 credit</span>
+            <span class="text-ink-muted">{@amount_dollars} × $1.00</span>
             <span class="font-mono text-ink">{Pricing.format_usd(@totals.subtotal)}</span>
           </p>
           <p class="flex justify-between" data-testid="topup-taxes">
@@ -907,7 +907,7 @@ defmodule FluxValeWeb.BillingLive.Topup do
       <% end %>
 
       <p class="text-xs text-ink-subtle" data-testid="topup-notice">
-        Credits can be used for any app, never expire, and are non-refundable. See the <.link
+        Wallet balance can be used for any app, never expires, and is non-refundable. See the <.link
           navigate={~p"/policies/refund"}
           data-testid="topup-refund-policy"
           class="underline underline-offset-2 hover:text-ink"
@@ -944,7 +944,7 @@ defmodule FluxValeWeb.BillingLive.Topup do
         data-testid="topup-summary"
       >
         <p class="flex justify-between">
-          <span class="text-ink-muted">Credit</span>
+          <span class="text-ink-muted">Top-up</span>
           <span class="font-mono text-ink">{@amount_dollars} × $1.00 = {Pricing.format_usd(
             @totals.subtotal
           )}</span>
@@ -980,7 +980,7 @@ defmodule FluxValeWeb.BillingLive.Topup do
       </div>
 
       <p class="text-xs text-ink-subtle" data-testid="topup-notice">
-        Credits can be used for any app, never expire, and are non-refundable. See the <.link
+        Wallet balance can be used for any app, never expires, and is non-refundable. See the <.link
           navigate={~p"/policies/refund"}
           data-testid="topup-refund-policy"
           class="underline underline-offset-2 hover:text-ink"
@@ -1020,7 +1020,7 @@ defmodule FluxValeWeb.BillingLive.Topup do
   # source for the Amount and Payment steps.
   # The new-balance line adds the top-up to the RAW ledger sum, which
   # is negative for an overdrawn wallet — the band's celebrated
-  # Depleted state is exactly who the "Add credits" CTA invites here.
+  # Depleted state is exactly who the "Top up wallet" CTA invites here.
   # The shared formatter is non-negative by constraint; the sign is
   # this surface's business, like every other billing display seam.
   defp signed_usd(cents) when cents < 0, do: "-" <> Pricing.format_usd(-cents)
@@ -1098,8 +1098,8 @@ defmodule FluxValeWeb.BillingLive.Topup do
             <.icon name="hero-check-circle" class="size-5" /> Payment received
           </h2>
           <p class="text-sm text-ink-muted">
-            <span class="font-mono">{Pricing.format_usd(@topup.amount_cents)}</span> of credit
-            was added to your balance.
+            <span class="font-mono">{Pricing.format_usd(@topup.amount_cents)}</span> was added to
+            your wallet.
           </p>
           <%= if @confirmation_balance do %>
             <p class="text-sm text-ink-muted" data-testid="topup-confirmation-balance">
@@ -1115,7 +1115,9 @@ defmodule FluxValeWeb.BillingLive.Topup do
           >
             <.icon name="hero-x-circle" class="size-5" /> The payment didn't go through
           </h2>
-          <p class="text-sm text-ink-muted">No credit was added and nothing was charged.</p>
+          <p class="text-sm text-ink-muted">
+            Nothing was added to your wallet and nothing was charged.
+          </p>
         <% end %>
 
         <%= if @state == :expired do %>
@@ -1126,7 +1128,7 @@ defmodule FluxValeWeb.BillingLive.Topup do
             <.icon name="hero-clock" class="size-5" /> This payment window expired
           </h2>
           <p class="text-sm text-ink-muted">
-            No credit was added. If you completed a payment, your credit will appear once the gateway confirms it.
+            Nothing was added to your wallet. If you completed a payment, the amount will appear once the gateway confirms it.
           </p>
         <% end %>
 
@@ -1139,8 +1141,8 @@ defmodule FluxValeWeb.BillingLive.Topup do
             Finalizing your payment
           </h2>
           <p class="text-sm text-ink-muted">
-            The gateway is still confirming the payment. Your credit lands
-            the moment it does. Nothing more to do here.
+            The gateway is still confirming the payment. The amount lands in
+            your wallet the moment it does. Nothing more to do here.
           </p>
         <% end %>
 

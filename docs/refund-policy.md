@@ -32,6 +32,12 @@ decision record.
 This supersedes the M5 draft's "remaining credits are refundable"
 stance (drafted with the ledger, #120, before the owner decided).
 
+**Wording note (2026-11-09, #641):** member-facing copy on the page now
+says "wallet balance" where it used to say "credits" (the owner's
+wallet-vocabulary decision). The stance above is unchanged — this doc
+keeps its historical "credits" phrasing as the decision record; the
+page remains the text of record.
+
 ## Advisor review (pending)
 
 The published wording is headed for the owner's advisor review — the

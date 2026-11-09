@@ -11,7 +11,7 @@ defmodule FluxValeWeb.PolicyController do
 
   use FluxValeWeb, :controller
 
-  @refund_description "FluxVale credits are non-refundable and never expire"
+  @refund_description "FluxVale wallet balance is non-refundable and never expires"
   @terms_description "The agreement between you and FluxVale"
   @acceptable_use_description "What you may and may not run on FluxVale"
   @privacy_description "What FluxVale collects, what it never collects, and how your data is handled"

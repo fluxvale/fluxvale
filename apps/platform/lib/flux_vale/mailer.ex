@@ -78,7 +78,7 @@ defmodule FluxVale.Mailer do
     |> Swoosh.Email.text_body("""
     #{coverage}
 
-    Add credits from the Billing page to keep your instances running. At zero, running instances stop automatically. Your data stays, and they start again once the balance is positive.
+    Top up your wallet from the Billing page to keep your instances running. At zero, running instances stop automatically. Your data stays, and they start again once the balance is positive.
     """)
     |> deliver()
   end
@@ -125,7 +125,7 @@ defmodule FluxVale.Mailer do
     |> Swoosh.Email.from({"FluxVale", "no-reply@fluxvale.com"})
     |> Swoosh.Email.subject("Your FluxVale payment went through")
     |> Swoosh.Email.text_body("""
-    We received your payment of #{amount}. Your credit was added and your balance is now #{balance}.
+    We received your payment of #{amount}. Your wallet was topped up and your balance is now #{balance}.
 
     Your receipt arrives from Polar in a separate email.
     """)

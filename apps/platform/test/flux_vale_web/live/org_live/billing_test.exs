@@ -69,7 +69,7 @@ defmodule FluxValeWeb.OrganizationLive.BillingTest do
     assert has_element?(view, "[data-testid='org-switcher-button']", org.name)
   end
 
-  test "the Add credits CTA opens the org-scoped wizard", %{conn: conn, org: org} do
+  test "the Top up wallet CTA opens the org-scoped wizard", %{conn: conn, org: org} do
     {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/billing")
 
     # The wizard this CTA opens bills THIS org's wallet (#408) — the
@@ -77,7 +77,7 @@ defmodule FluxValeWeb.OrganizationLive.BillingTest do
     assert has_element?(
              view,
              "a#add-credits[href='/organizations/#{org.slug}/billing/topup']",
-             "Add credits"
+             "Top up wallet"
            )
   end
 

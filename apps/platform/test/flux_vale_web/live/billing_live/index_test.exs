@@ -147,7 +147,7 @@ defmodule FluxValeWeb.BillingLive.IndexTest do
     assert has_element?(view, "[data-testid='wallet-balance']", "$0.00")
   end
 
-  test "add credits opens the top-up wizard (#137)", %{conn: conn} do
+  test "top up wallet opens the top-up wizard (#137)", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/billing")
 
     assert render(element(view, "#add-credits")) =~ "/billing/topup"

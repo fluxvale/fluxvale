@@ -7,7 +7,7 @@ defmodule FluxValeWeb.BillingLive.Index do
   newest-first, appended into the stream by "Load more" — cursors
   survive rows landing between pages, offset windows wouldn't.
 
-  "Add credits" opens the top-up wizard (#137). No live updates:
+  "Top up wallet" opens the top-up wizard (#137). No live updates:
   facts read at mount; the wizard's confirmation refreshes on its
   own navigation. The band facts and the ledger history render
   through BillingComponents — shared with the org billing view (#276).
@@ -114,13 +114,13 @@ defmodule FluxValeWeb.BillingLive.Index do
                   <p class="eyebrow">Wallet</p>
                   <h1 class="page-title mt-1.5">Billing</h1>
                   <p class="mt-2 text-base text-ink-muted">
-                    Prepaid credits fund your instances.
+                    Your prepaid wallet funds your instances.
                   </p>
                 </div>
 
                 <div class="flex shrink-0 gap-2">
                   <.button navigate={~p"/billing/topup"} variant="secondary" id="add-credits">
-                    Add credits
+                    Top up wallet
                   </.button>
                 </div>
               </div>
@@ -130,7 +130,7 @@ defmodule FluxValeWeb.BillingLive.Index do
               </div>
 
               <p class="mt-6 text-xs text-ink-subtle" data-testid="topup-notice">
-                Credits can be used for any app, never expire, and are non-refundable. See the <.link
+                Wallet balance can be used for any app, never expires, and is non-refundable. See the <.link
                   navigate={~p"/policies/refund"}
                   data-testid="topup-refund-policy"
                   class="underline underline-offset-2 hover:text-ink"
