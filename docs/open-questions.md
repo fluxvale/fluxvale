@@ -37,6 +37,16 @@ the decision.
    question), so the PostgreSQL connection string is the owner's
    required deploy-time input; default-admin first run
    ([ADR-0034](adr/00034-first-run-contract.md) Am. 2), zero storage.
+   The #587-recorded takeover trigger ("a future DB-provisioning layer
+   would take ownership of `DATABASE_URL` the same way the deployer
+   owns `instance_url_env`") **resolved** (#612 S4, 2026-11-09):
+   bundled backing services
+   ([ADR-0045](adr/00045-bundled-backing-services.md)) ARE that layer,
+   and Umami exercises it as the proof consumer — a `3.4.1-bundled`
+   version row declares PostgreSQL 18 with `url_env: DATABASE_URL`
+   (platform-owned spec, hidden input, deploy-composed URL, user
+   values rejected at create: the D6 stance); the pinned v3.4.1 BYO
+   row ships unchanged and no existing instance is retconned.
    Remaining dogfood apps TBD (v1 queued: SilverBullet, +1). Still
    open: per-app *command* overrides in the deployer (v1 #360) — mount
    path is now catalog data, command is not.

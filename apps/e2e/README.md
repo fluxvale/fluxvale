@@ -89,18 +89,20 @@ BASE_URL=https://staging.fluxvale.com E2E_TESTINBOX_TOKEN=<pat> npx playwright t
   sweep) make each idle cycle ~105s; a local bootstrap run keeps the
   180s threshold (beacon-staleness guard) for ~4-minute cycles; the
   nightly full-cadence workflow runs the real 1h + */5 pair.
-- `umami-lifecycle.spec.ts` — Umami's lifecycle (#576): deploy through
-  the stepper filling the two required inputs (DATABASE_URL and
-  APP_SECRET — the entry's owner-supplied Postgres is played by the
-  stack's own CNPG: the spec creates a per-run role + database via
-  kubectl, since CNPG disables superuser TCP access by default, the
-  backups spec's exec pattern) → running → HTTPS UI +
-  `/api/heartbeat` → the default admin signs in over the API
-  ([ADR-0034](../../docs/adr/00034-first-run-contract.md) Am. 2) → stop ($0.00 stopped — zero storage) → start →
-  the admin still signs in (the external database held the state) →
-  destroy, and the per-run database and role are dropped. Local only,
-  like backups.spec.ts (the kubectl provisioning names the local
-  stack's CNPG); production stays read-only.
+- `umami-lifecycle.spec.ts` — Umami's lifecycle (#576; the bundled
+  row since #612 S4 — the OQ #3 takeover's proof consumer): deploy
+  through the stepper filling the ONE required input (APP_SECRET —
+  DATABASE_URL never renders: the bundled PostgreSQL 18 inside the
+  instance's pod owns it and the platform composes it at deploy) →
+  running → HTTPS UI + `/api/heartbeat` → the default admin signs in
+  over the API
+  ([ADR-0034](../../docs/adr/00034-first-run-contract.md) Am. 2 — the
+  login doubles as the bundled-database persistence witness) → pod
+  delete → the admin still signs in (the bundled DB's data rode the
+  PVC) → stop ($0.40/mo stopped — 10 GB storage now holds the data) →
+  start → the admin still signs in → destroy. Local only, like
+  backups.spec.ts (the restart leg kubectl-deletes the app pod);
+  production stays read-only.
 - `docmost-lifecycle.spec.ts` — Docmost's lifecycle (#609): deploy
   through the stepper filling the three required inputs (DATABASE_URL,
   REDIS_URL, and APP_SECRET — the BYO-interim shape: the database is

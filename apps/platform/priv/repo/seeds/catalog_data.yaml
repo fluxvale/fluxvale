@@ -913,10 +913,10 @@
         events for each site, with funnels, journeys, retention,
         revenue, session replay, and heatmaps built in. Tracking sets
         no cookies and stores nothing on your visitors' devices. Umami
-        is MIT licensed. All data lives in a PostgreSQL database you
-        connect at deploy time, and that database stays yours to run
-        and back up. Sign in soon after deploying, because a fresh
-        install answers to a default admin account.
+        is MIT licensed. All data lives in PostgreSQL. New deployments
+        bundle the database inside the instance, so it rides the
+        instance volume and its backups. Sign in soon after deploying,
+        because a fresh install answers to a default admin account.
       # The repo's apple-touch-icon is the self-contained mark (the
       # ActualBudget lesson): a black glyph on a solid white field, so
       # it reads on the icon tile in both themes. The repo's other
@@ -928,16 +928,120 @@
       # #611's recommended tier for the wave-5 entry (#576), same rule
       # as the S1 retro-fill: facts promoted from the description and
       # the packaging decisions below — nothing invented. Alternatives
-      # are names only.
+      # are names only. #612 S4: the copy covers BOTH version rows —
+      # new deployments bundle the database, the pinned 3.4.1 row
+      # connects one you run.
       caveats:
-        - All data lives in a PostgreSQL database you connect at deploy time. That database stays yours to run and back up.
+        - New deployments keep all data in a bundled PostgreSQL database on the instance volume. The older v3.4.1 packaging connects an external database you bring.
         - A fresh install signs in with a default admin account. Change its password right after deploying.
         - Two-factor sign-in stays off unless its encryption key is set at deploy time.
       alternatives:
         - Plausible
         - Matomo
       versions:
+        - version: "3.4.1-bundled"    # packaging variant, 2026-11-09
+          # The OQ #3 takeover row (#612 S4): same upstream image as
+          # 3.4.1, plus the bundled PostgreSQL. A NEW row on purpose —
+          # instances pin their version at create, so the pinned BYO
+          # row (below) is never retconned; the string sorts above
+          # "3.4.1", making the bundled shape the wizard's default for
+          # new instances. Upstream tags carry no v prefix (verified
+          # against the GHCR v2 API at #576); the suffix is ours, the
+          # only way the per-app unique-version identity allows a
+          # second row of the same release.
+          image: ghcr.io/umami-software/umami:3.4.1
+          port: 3000
+          # The image's own HEALTHCHECK probes the same path
+          # (docker-compose v3.4.1): an unauthenticated 200 {"ok":true}
+          # — re-verified from the running image on this tag.
+          healthcheck_path: /api/heartbeat
+          # Umami is stateless itself; the bundled PostgreSQL 18 is
+          # its whole storage story, so the DB's data dir under
+          # backing/ of the instance volume is what the 10 GB buys
+          # (events, sessions, accounts — years of a small site).
+          default_storage_gb: 10
+          # Honest sizing (D1/D4/D5), probed from the running image on
+          # the local cluster: the app idles at ~123 Mi (Next
+          # standalone, migrations done), PG 18 at ~29 Mi. The bundle
+          # carves 0.10 CPU / 256 MB (the registry's PG share), so
+          # `medium` leaves the app 0.40 CPU / 768 MB requested — 6x
+          # its measured idle, with the house-2x limits above that.
+          # `small` would leave 256 MB — 2x idle with no ingest
+          # headroom; the plan's bigger-defaults rule (§4.5) says no.
+          default_cpu_cores: "0.5"
+          default_memory_mb: 1024
+          # The compute class (#125, #558): `medium` is 0.5 CPU /
+          # 1024 MB — exactly this version's compute ($3.69/mo) plus
+          # 10 GB storage at $0.40/mo: $4.09/mo at the recommendation.
+          # The S3 floors keep every allocation at or above it.
+          recommended_size: medium
+          release_notes: |
+            The bundled packaging of upstream v3.4.1: PostgreSQL 18
+            runs inside the instance and shares its resources, all
+            data on the instance volume. Existing instances keep the
+            external-database packaging of the same release — their
+            pinned row is unchanged.
+          published_at: "2026-11-09T00:00:00Z"
+          # DATABASE_URL flips platform-owned on THIS row (the
+          # takeover): the spec keeps secret:true (the URL embeds the
+          # generated password) and drops required — the platform
+          # composes it at deploy from the get-or-create
+          # backing-services Secret, the wizard never renders the
+          # input, and a user value naming it is rejected at create
+          # (#612 D6). APP_SECRET stays the owner's required secret
+          # (the platform mints no app secrets); the optional 2FA key
+          # rides along unchanged.
+          configurable_env_vars:
+            DATABASE_URL:
+              label: PostgreSQL connection string
+              description: Provided by the bundled PostgreSQL. There is nothing to enter.
+              type: string
+              required: false
+              secret: true
+            APP_SECRET:
+              label: App secret
+              description: >-
+                A random string that secures the tokens Umami issues at
+                sign-in. Generate one with openssl rand -base64 32 and
+                keep the same value on every restart.
+              type: string
+              required: true
+              secret: true
+            TWO_FACTOR_ENCRYPTION_KEY:
+              label: Two-factor encryption key
+              description: >-
+                Only needed if you plan to turn on two-factor sign-in.
+                Generate one with openssl rand -hex 32. Umami cannot
+                store two-factor secrets without it.
+              type: string
+              secret: true
+          # The bundle declaration (S1's contract): one service, the
+          # registry's postgres major. No Redis — Umami uses none
+          # (upstream's own compose ships app + db only).
+          backing_services:
+            - kind: postgres
+              version: "18"
+              url_env: DATABASE_URL
+          # Same first-run contract as the BYO row: upstream's first
+          # migration seeds the default admin, and the locks keep user
+          # env from skipping it — the bundled DB changes where the
+          # migration runs, not what it does.
+          first_run:
+            pattern: default_admin_credentials
+            env: {}
+            forbidden_env:
+              - SKIP_DB_CHECK
+              - SKIP_DB_MIGRATION
+            guidance: >-
+              Open the instance URL and sign in with username admin and
+              password umami. Change that password right away, because
+              every Umami install starts with the same one. Then add
+              your first website in Umami to get its tracking snippet.
         - version: "3.4.1"          # upstream stable, 2026-10-23
+          # The BYO row — pinned by every instance created before the
+          # bundled row existed (#612 S4's never-retconned half). Kept
+          # byte-for-byte: existing instances re-render from their
+          # snapshot of it, and a new instance may still choose it.
           # The canonical image (upstream's own release pipeline pushes
           # GHCR), pinned by exact tag. Unlike Pocket ID, Umami's image
           # tags carry NO v prefix — v3.4.1 does not exist in the
@@ -974,16 +1078,16 @@
             database connected at deploy time. The first open signs in
             with the default admin account and changes its password.
           published_at: "2026-11-08T01:20:00Z"
-          # DATABASE_URL is the app's whole storage story, and the
-          # platform provisions no per-app databases (OQ #14: where
-          # customer DBs would live is deliberately unsettled — ADR-0009
-          # names only first-party tenants). So the connection string
-          # ships as the owner's one required input, the Pocket ID
+          # DATABASE_URL is the app's whole storage story on this row,
+          # and the platform provisions no per-app databases (OQ #14:
+          # where customer DBs would live is deliberately unsettled —
+          # ADR-0009 names only first-party tenants). So the connection
+          # string ships as the owner's one required input, the Pocket ID
           # ENCRYPTION_KEY precedent (the platform mints no per-instance
           # secrets or services). Egress from instance namespaces is
           # open, so the database may live anywhere the instance can
-          # reach. A future DB-provisioning layer would own this key
-          # exactly the way the deployer owns instance_url_env.
+          # reach. The bundled row above now owns this key for NEW
+          # instances (#612 S4 — the OQ #3 trigger resolved).
           #
           # APP_SECRET (still the v3 name — checked at tag v3.4.1, not
           # renamed) salts the app's signed tokens; upstream falls back

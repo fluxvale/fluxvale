@@ -18,6 +18,7 @@ defmodule FluxVale.Seeds.CatalogSeedTest do
   alias FluxVale.Catalog.App
   alias FluxVale.Catalog.AppVersion
   alias FluxVale.Catalog.Category
+  alias FluxVale.Catalog.Types.BackingService
   alias FluxVale.Catalog.Types.EnvVarSpec
   alias FluxVale.Catalog.Types.FirstRunContract
   alias FluxVale.Catalog.Types.OidcWiring
@@ -500,6 +501,7 @@ defmodule FluxVale.Seeds.CatalogSeedTest do
     end
 
     test "seeds the shipped Umami entry and its first-run contract (#576)" do
+    test "seeds the shipped Umami entry and its first-run contract (#576; bundled row at #612 S4)" do
       assert :ok == Seeds.seed_pricing!()
       assert :ok == Seeds.seed_catalog!()
 
@@ -512,47 +514,51 @@ defmodule FluxVale.Seeds.CatalogSeedTest do
       # The state is the owner's PostgreSQL — no file-access sidecar.
       assert app.file_access == false
 
-      version =
-        "umami"
-        |> App.get_by_slug!(authorize?: false)
+      versions =
+        app
         |> Ash.load!([app_versions: :recommended_size], authorize?: false)
         |> Map.fetch!(:app_versions)
-        |> hd()
 
-      assert version.version == "3.4.1"
-      assert version.image == "ghcr.io/umami-software/umami:3.4.1"
-      assert version.port == 3000
+      assert MapSet.new(versions, & &1.version) == MapSet.new(["3.4.1", "3.4.1-bundled"])
+
+      byo = Enum.find(versions, &(&1.version == "3.4.1"))
+      bundled = Enum.find(versions, &(&1.version == "3.4.1-bundled"))
+
+      # --- the pinned BYO row, exactly as it shipped at #576 ---
+      assert byo.image == "ghcr.io/umami-software/umami:3.4.1"
+      assert byo.port == 3000
       # The image's own healthcheck path (unauthenticated 200 ok).
-      assert version.healthcheck_path == "/api/heartbeat"
+      assert byo.healthcheck_path == "/api/heartbeat"
       # Stateless over an external database: zero storage, so the
       # deployer never mounts a PVC and the mount-path default is moot.
-      assert version.default_storage_gb == 0
+      assert byo.default_storage_gb == 0
       # The compute class kept equal to `micro` by
       # ValidateSizeMatchesAllocation (the seed would refuse a drift).
-      assert Decimal.equal?(version.default_cpu_cores, Decimal.new("0.25"))
-      assert version.default_memory_mb == 512
-      assert version.recommended_size.slug == "micro"
+      assert Decimal.equal?(byo.default_cpu_cores, Decimal.new("0.25"))
+      assert byo.default_memory_mb == 512
+      assert byo.recommended_size.slug == "micro"
+      assert byo.backing_services == []
 
       # Nothing ships at boot; the owner supplies the database and the
       # secret at deploy time (required inputs, Pocket ID's shape).
-      assert version.default_env_vars == %{}
+      assert byo.default_env_vars == %{}
 
-      database_url = version.configurable_env_vars["DATABASE_URL"]
+      database_url = byo.configurable_env_vars["DATABASE_URL"]
       assert %EnvVarSpec{} = database_url
       assert database_url.required == true
       assert database_url.secret == true
 
-      app_secret = version.configurable_env_vars["APP_SECRET"]
+      app_secret = byo.configurable_env_vars["APP_SECRET"]
       assert %EnvVarSpec{} = app_secret
       assert app_secret.required == true
       assert app_secret.secret == true
 
-      two_factor = version.configurable_env_vars["TWO_FACTOR_ENCRYPTION_KEY"]
+      two_factor = byo.configurable_env_vars["TWO_FACTOR_ENCRYPTION_KEY"]
       assert %EnvVarSpec{} = two_factor
       assert two_factor.required == false
       assert two_factor.secret == true
 
-      contract = version.first_run
+      contract = byo.first_run
       assert %FirstRunContract{} = contract
       assert contract.pattern == :default_admin_credentials
       # Nothing to pin; the locks keep user env from skipping the boot
@@ -560,6 +566,38 @@ defmodule FluxVale.Seeds.CatalogSeedTest do
       assert contract.env == %{}
       assert contract.forbidden_env == ["SKIP_DB_CHECK", "SKIP_DB_MIGRATION"]
       assert contract.guidance =~ "username admin and password umami"
+
+      # --- the bundled row: the OQ #3 takeover lands on the real
+      # seeds (#612 S4) — ValidateBackingServices' every arm accepts
+      # it (url_env present, secret, optional, disjoint from the
+      # contract's keys and each other, registry major, one service).
+      assert bundled.image == "ghcr.io/umami-software/umami:3.4.1"
+      assert [%BackingService{} = postgres] = bundled.backing_services
+      assert postgres.kind == :postgres
+      assert postgres.version == "18"
+      assert postgres.url_env == "DATABASE_URL"
+
+      # The takeover's own spec flip: platform-owned on this row —
+      # secret kept, required dropped (S1's contract for url_envs).
+      bundled_db = bundled.configurable_env_vars["DATABASE_URL"]
+      assert %EnvVarSpec{} = bundled_db
+      assert bundled_db.required == false
+      assert bundled_db.secret == true
+
+      # APP_SECRET stays the owner's required secret on both rows.
+      assert bundled.configurable_env_vars["APP_SECRET"].required == true
+
+      # Honest defaults at `medium` (D1/D4/D5): the carve takes
+      # 0.10 CPU / 256 MB, the app keeps 0.40 / 768 of the envelope.
+      assert Decimal.equal?(bundled.default_cpu_cores, Decimal.new("0.5"))
+      assert bundled.default_memory_mb == 1024
+      assert bundled.default_storage_gb == 10
+      assert bundled.recommended_size.slug == "medium"
+
+      # The first-run contract rides unchanged — the bundled DB moves
+      # where the migration runs, not what it does.
+      assert bundled.first_run.pattern == :default_admin_credentials
+      assert bundled.first_run.forbidden_env == ["SKIP_DB_CHECK", "SKIP_DB_MIGRATION"]
     end
 
     test "seeds the shipped Docmost entry and its first-run contract (#609)" do
