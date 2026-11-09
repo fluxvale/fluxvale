@@ -237,20 +237,24 @@ defmodule FluxVale.AdminAuthorityTest do
     end
 
     test "full resources carry both halves; pendings carry exactly the bypass" do
+      # The pending-state machinery stays despite the empty map: a
+      # future resource may arrive ahead of its trail (the A2 slices'
+      # shape), and the gate must carry that again. The map_size guard
+      # keeps the branch live-typed at zero instead of statically dead.
       for resource <- MapSet.to_list(@business_set) do
         trailed? = trailed?(resource)
 
-        case Map.fetch(@pending, resource) do
-          {:ok, slice} ->
-            refute trailed?,
-                   "#{inspect(resource)} is pending but the trail already landed — promote it to full"
+        pending_slice = map_size(@pending) > 0 && Map.get(@pending, resource)
 
-            assert slice in ~w(A2-S2 A2-S3),
-                   "#{inspect(resource)} names an unknown resolving slice"
+        if is_binary(pending_slice) do
+          refute trailed?,
+                 "#{inspect(resource)} is pending but the trail already landed — promote it to full"
 
-          :error ->
-            assert trailed?,
-                   "#{inspect(resource)} is neither full nor pending — the trail half decides which"
+          assert pending_slice in ~w(A2-S2 A2-S3),
+                 "#{inspect(resource)} names an unknown resolving slice"
+        else
+          assert trailed?,
+                 "#{inspect(resource)} is neither full nor pending — the trail half decides which"
         end
       end
     end

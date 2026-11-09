@@ -44,6 +44,11 @@ defmodule FluxVale.Identity.PaperTrailTest do
       # the changes, and no raw value rides the action inputs.
       assert version.changes["invite_token_hash"] == "REDACTED"
       assert Map.get(version.version_action_inputs, "invite_token_hash") in [nil, "REDACTED"]
+
+      # The address is PII: the :invite argument is sensitive?, so the
+      # inputs carry the marker, never the address (ADR-0048).
+      assert version.version_action_inputs["email"] == "REDACTED"
+      refute Map.has_key?(version.changes, "email")
     end
 
     test "a reinvite and a withdraw version with the admin actor, the hash redacted unchanged" do
@@ -96,6 +101,10 @@ defmodule FluxVale.Identity.PaperTrailTest do
       assert rename_version.version_action_name == :set_username
       assert rename_version.user_id == user.id
       assert rename_version.actor_label == user.username
+
+      # The signup address rides the sensitive :create argument — the
+      # create row's inputs carry the marker, never the address.
+      assert create_version.version_action_inputs["email"] == "REDACTED"
       assert create_version.changes["invite_token_hash"] == "REDACTED"
     end
   end
@@ -183,8 +192,11 @@ defmodule FluxVale.Identity.PaperTrailTest do
 
       [add_version, verify_version] = versions!(UserEmail.Version, email_row.id)
 
+      # The address is PII: the flagged attribute reads REDACTED in
+      # BOTH changes and inputs (ADR-0048).
       assert add_version.version_action_name == :add
-      assert add_version.version_action_inputs["address"]
+      assert add_version.changes["address"] == "REDACTED"
+      assert add_version.version_action_inputs["address"] == "REDACTED"
 
       # mark_verified is atomic-capable (no require_atomic? false, no
       # function changes) — the A2-S1 finding's shape on the no-input

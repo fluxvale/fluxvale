@@ -103,6 +103,11 @@ defmodule FluxVale.Accounts.PaperTrailTest do
       assert create_version.changes["token_hash"] == "REDACTED"
       assert Map.get(create_version.version_action_inputs, "token_hash") in [nil, "REDACTED"]
 
+      # The invited address is PII: the flagged attribute reads
+      # REDACTED in BOTH changes and inputs (ADR-0048).
+      assert create_version.changes["email"] == "REDACTED"
+      assert create_version.version_action_inputs["email"] == "REDACTED"
+
       assert revoke_version.version_action_name == :revoke
       assert revoke_version.user_id == owner.id
 

@@ -141,9 +141,12 @@ defmodule FluxVale.Accounts.MembershipInvite do
 
     # The invited address — compared case-folded at accept (citext
     # equality) against the invitee's VERIFIED PRIMARY email.
+    # sensitive?: the trail redacts it (#645, ADR-0048) — the address
+    # is PII; the marker says it existed, never what it was.
     attribute :email, :ci_string do
       allow_nil?(false)
       public?(true)
+      sensitive?(true)
     end
 
     # The single enum axis on grant-shaped rows (the owner ruling).

@@ -301,10 +301,13 @@ defmodule FluxVale.Identity.User do
       # user_emails is the only address storage. PUBLIC by necessity:
       # private arguments cannot ride for_create params nor the code
       # interface (the :invite token_hash lesson) — every caller passes
-      # the address by name and keeps its shape. No serialization
-      # surface: arguments never render (field lists carry attributes
-      # and calculations only), and User exposes no create route.
-      argument(:email, :ci_string, allow_nil?: false)
+      # the address by name and keeps its shape. sensitive? rides
+      # alongside: the trail redacts the address (#645, ADR-0048),
+      # without the private flag's interface restriction. No
+      # serialization surface: arguments never render (field lists
+      # carry attributes and calculations only), and User exposes no
+      # create route.
+      argument(:email, :ci_string, allow_nil?: false, sensitive?: true)
 
       # Username derivation (#285 T2, #287): reads the :email argument;
       # always producing a 2–39 [a-z0-9-] value; residual failure arms
@@ -421,8 +424,9 @@ defmodule FluxVale.Identity.User do
     # default — see the attribute comment).
     create :invite do
       # PUBLIC (the :create :email note): the admin surface and the
-      # operation pass the address by name.
-      argument(:email, :ci_string, allow_nil?: false)
+      # operation pass the address by name. sensitive? rides alongside
+      # — the trail redacts it (#645, ADR-0048).
+      argument(:email, :ci_string, allow_nil?: false, sensitive?: true)
 
       argument(:token_hash, :string, allow_nil?: false, sensitive?: true, public?: false)
       change(set_attribute(:invite_token_hash, arg(:token_hash)))

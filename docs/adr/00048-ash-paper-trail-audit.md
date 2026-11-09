@@ -177,8 +177,19 @@ janitor bookkeeping, each named with its reason there).
   `ignore_attributes` plus `ignore_actions` by name (0.8.1's write
   trigger is the changeset's `changed?` flag, so attribute-level
   ignoring alone cannot stop the row). State-machine fields and the
-  wake clocks stay versioned; `version_action_inputs` on the silenced
-  actions never materialize.
+  wake clocks stay versioned. The audit surface for metering is the
+  billing ledger (money movement) and the allocation snapshot
+  history, not the anchor fields. Operator reachability of the
+  silenced actions rides only the `/admin/ash` trusted-superuser
+  mount ([ADR-0027](00027-admin-surface-ashadmin.md) Am. 1's accepted
+  trust class, where every write is unversioned by construction).
+- **Addresses in the trail are redacted markers.** The invitee
+  address (MembershipInvite's `email`), the user_emails `address`,
+  and the User signup/invite `email` arguments all carry
+  `sensitive?`, so the trail holds REDACTED markers for every
+  address-bearing write — the marker says an address existed and is
+  protected, never what it was. The live address remains the row's
+  own data: the redaction is a trail posture, not an erasure.
 
 
 ## Notes from the A2-S1 probes (ash_paper_trail 0.8.1)

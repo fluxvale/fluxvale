@@ -767,7 +767,10 @@ defmodule FluxVale.Infrastructure.AccessGateway do
       description("Error handler for :provision — unexpected job failures land :needs_attention.")
       require_atomic?(false)
       accept([])
-      argument(:error, :map, allow_nil?: true)
+      # ErrorDetail: AshOban's on_error passes the caught Ash.Error
+      # struct, and the trail stores inputs verbatim (#645, ADR-0048),
+      # where a bare struct cannot JSON-encode.
+      argument(:error, FluxVale.Infrastructure.Types.ErrorDetail, allow_nil?: true)
 
       change(fn changeset, _context ->
         changeset
@@ -796,7 +799,9 @@ defmodule FluxVale.Infrastructure.AccessGateway do
 
       require_atomic?(false)
       accept([])
-      argument(:error, :map, allow_nil?: true)
+      # ErrorDetail, the :mark_provision_error posture — the trail
+      # stores inputs verbatim (#645, ADR-0048).
+      argument(:error, FluxVale.Infrastructure.Types.ErrorDetail, allow_nil?: true)
 
       change(fn changeset, _context ->
         changeset

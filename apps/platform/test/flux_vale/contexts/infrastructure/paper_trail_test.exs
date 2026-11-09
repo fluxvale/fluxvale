@@ -15,6 +15,7 @@ defmodule FluxVale.Infrastructure.PaperTrailTest do
   alias FluxVale.Clients.K8s
   alias FluxVale.Clients.K8s.Resources.StorageClass
   alias FluxVale.Infrastructure.AccessDomain
+  alias FluxVale.Infrastructure.AccessGateway
   alias FluxVale.Infrastructure.AccessProviders.Tailscale
   alias FluxVale.Infrastructure.AccessRoute
   alias FluxVale.Infrastructure.BackupRun
@@ -256,6 +257,125 @@ defmodule FluxVale.Infrastructure.PaperTrailTest do
       assert version.version_action_name == :mint
       assert is_nil(version.user_id)
       assert is_nil(version.actor_label)
+    end
+  end
+
+  describe "the error handlers store encodable inputs" do
+    # AshOban's on_error funnels pass the caught Ash.Error struct as
+    # the :error argument. The trail stores inputs verbatim (#645,
+    # ADR-0048), so these tests carry a REAL error struct through each
+    # action: the update must succeed (the funnel's state flip is the
+    # operator's signal) and the stored inputs must read as a
+    # string-keyed map with a "message" key, never a raw struct.
+
+    defp real_error do
+      %Ash.Error.Invalid{
+        errors: [
+          %Ash.Error.Changes.InvalidAttribute{
+            field: :state,
+            message: "the cluster call blew up",
+            path: []
+          }
+        ]
+      }
+    end
+
+    test "a gateway mark_provision_error and mark_teardown_error land their honest rows" do
+      user = AccountsFixtures.user!()
+      member_instance!(user)
+
+      stub(Tailscale, :provision_gateway, fn _gateway, _key ->
+        {:ok, %{credential_secret_ref: "credential-stub"}}
+      end)
+
+      stub(Tailscale, :scale_gateway, fn _gateway, _replicas -> :ok end)
+      stub(Tailscale, :teardown_gateway, fn _gateway -> :ok end)
+      stub(Tailscale, :update_credential, fn _gateway, _key -> :ok end)
+
+      {:ok, org} = FluxVale.Accounts.personal_org_for_user(user.id, authorize?: false)
+      BillingFixtures.mark_paid!(org)
+      BillingFixtures.funded_wallet!(org: org)
+      gateway = AccessFixtures.gateway!(org)
+
+      provisioned =
+        gateway
+        |> Ash.Changeset.for_update(:mark_provision_error, %{error: real_error()},
+          authorize?: false
+        )
+        |> Ash.update!()
+
+      # The funnel's whole point: the row reaches :needs_attention.
+      assert provisioned.state == :needs_attention
+
+      gateway_versions = versions!(AccessGateway.Version, gateway.id)
+      provision_version = List.last(gateway_versions)
+
+      assert provision_version.version_action_name == :mark_provision_error
+
+      inputs = provision_version.version_action_inputs
+      stored_error = inputs["error"]
+
+      assert is_map(inputs) and is_map(stored_error) and stored_error["message"],
+             "the error input must store a string-keyed map with a message, got: #{inspect(inputs)}"
+
+      torn_down =
+        provisioned
+        |> Ash.Changeset.for_update(:mark_teardown_error, %{error: real_error()},
+          authorize?: false
+        )
+        |> Ash.update!()
+
+      assert torn_down.state == :destroying
+
+      teardown_gateway_versions = versions!(AccessGateway.Version, gateway.id)
+      teardown_version = List.last(teardown_gateway_versions)
+
+      assert teardown_version.version_action_name == :mark_teardown_error
+
+      teardown_inputs = teardown_version.version_action_inputs
+      teardown_error = teardown_inputs["error"]
+      assert teardown_error["message"]
+    end
+
+    test "an instance mark_deploy_error and mark_teardown_error take real exception structs" do
+      user = AccountsFixtures.user!()
+      instance = member_instance!(user)
+
+      deployed =
+        instance
+        |> Ash.Changeset.for_update(:mark_deploy_error, %{error: real_error()}, authorize?: false)
+        |> Ash.update!()
+
+      assert deployed.status == :error
+
+      instance_versions = versions!(Instance.Version, instance.id)
+      deploy_version = List.last(instance_versions)
+
+      assert deploy_version.version_action_name == :mark_deploy_error
+
+      inputs = deploy_version.version_action_inputs
+      stored_error = inputs["error"]
+
+      assert is_map(inputs) and is_map(stored_error) and stored_error["message"],
+             "the error input must store a string-keyed map with a message, got: #{inspect(inputs)}"
+
+      torn_down =
+        deployed
+        |> Ash.Changeset.for_update(:mark_teardown_error, %{error: real_error()},
+          authorize?: false
+        )
+        |> Ash.update!()
+
+      assert torn_down.status == :error
+
+      teardown_instance_versions = versions!(Instance.Version, instance.id)
+      teardown_version = List.last(teardown_instance_versions)
+
+      assert teardown_version.version_action_name == :mark_teardown_error
+
+      teardown_inputs = teardown_version.version_action_inputs
+      teardown_error = teardown_inputs["error"]
+      assert teardown_error["message"]
     end
   end
 end

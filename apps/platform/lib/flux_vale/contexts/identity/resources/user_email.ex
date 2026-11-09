@@ -161,14 +161,17 @@ defmodule FluxVale.Identity.UserEmail do
     create_timestamp(:created_at)
     update_timestamp(:updated_at)
 
-    attribute :address, :ci_string do
-      allow_nil?(false)
-      public?(false)
-    end
-
     # nil = pending claim; stamped by :mark_verified (the identity
     # operation holding a verified auth code — VerifyEmail, T3)
     attribute(:verified_at, :utc_datetime)
+
+    attribute :address, :ci_string do
+      allow_nil?(false)
+      public?(false)
+      # sensitive?: the trail redacts it (#645, ADR-0048) — the address
+      # is PII; the marker says it existed, never what it was.
+      sensitive?(true)
+    end
 
     attribute :is_primary, :boolean do
       allow_nil?(false)
