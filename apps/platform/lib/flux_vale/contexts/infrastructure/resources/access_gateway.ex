@@ -203,6 +203,15 @@ defmodule FluxVale.Infrastructure.AccessGateway do
       authorize_if(always())
     end
 
+    # The blanket authority (#644, ADR-0047): platform admins see and do
+    # everything — but never through the machine API (the second
+    # condition), so PAT callers fall through to the policies below
+    # with today's semantics.
+    bypass [FluxVale.Checks.ActorIsPlatformAdmin, FluxVale.Checks.CallOutsideMachineApi] do
+      description("Platform admins see and do everything (#644)")
+      authorize_if(always())
+    end
+
     policy action_type(:read) do
       description("Members read their org's gateway (the panel's status surface)")
       authorize_if(relates_to_actor_via([:organization, :members]))
@@ -782,13 +791,18 @@ defmodule FluxVale.Infrastructure.AccessGateway do
       argument(:instance_id, :uuid, allow_nil?: false, public?: true)
       constraints(instance_of: AccessRoute)
 
-      run(fn input, %{actor: actor, authorize?: authorize?} ->
+      run(fn input, %{actor: actor, authorize?: authorize?, source_context: context} ->
         with {:ok, gateway} <-
-               get_by_id(input.arguments.gateway_id, actor: actor, authorize?: authorize?),
+               get_by_id(input.arguments.gateway_id,
+                 actor: actor,
+                 authorize?: authorize?,
+                 context: context
+               ),
              {:ok, instance} <-
                Instance.get_by_id(input.arguments.instance_id,
                  actor: actor,
-                 authorize?: authorize?
+                 authorize?: authorize?,
+                 context: context
                ) do
           case FluxVale.Infrastructure.attach_instance(gateway, instance) do
             {:ok, route} -> {:ok, route}
@@ -804,13 +818,18 @@ defmodule FluxVale.Infrastructure.AccessGateway do
       argument(:gateway_id, :uuid, allow_nil?: false, public?: true)
       argument(:instance_id, :uuid, allow_nil?: false, public?: true)
 
-      run(fn input, %{actor: actor, authorize?: authorize?} ->
+      run(fn input, %{actor: actor, authorize?: authorize?, source_context: context} ->
         with {:ok, gateway} <-
-               get_by_id(input.arguments.gateway_id, actor: actor, authorize?: authorize?),
+               get_by_id(input.arguments.gateway_id,
+                 actor: actor,
+                 authorize?: authorize?,
+                 context: context
+               ),
              {:ok, instance} <-
                Instance.get_by_id(input.arguments.instance_id,
                  actor: actor,
-                 authorize?: authorize?
+                 authorize?: authorize?,
+                 context: context
                ) do
           case FluxVale.Infrastructure.detach_instance(gateway, instance) do
             :ok -> :ok

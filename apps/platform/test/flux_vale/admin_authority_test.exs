@@ -1,0 +1,248 @@
+defmodule FluxVale.AdminAuthorityTest do
+  @moduledoc false
+
+  # The doctrine gate (#644, ADR-0047): every resource of every
+  # configured domain is in exactly ONE of three states — full (the
+  # condition-pair bypass AND the paper-trail block), machinery-exempt
+  # (by name, with a reason), or trail-pending (the bypass is live, the
+  # trail arrives with the named rollout slice). Anything else fails
+  # the build: the doctrine survives resource growth — a new resource
+  # joins a set deliberately or CI is red, never silently.
+  #
+  # The set table is the authority (the plan's shared business-set
+  # table); this gate is its forcing function, the same shape as the
+  # console registry's parity test. The arms walk compiled modules —
+  # no DB needed.
+
+  use FluxVale.DataCase, async: true
+
+  alias Ash.Domain.Info
+  alias Spark.Dsl.Extension
+
+  # The doctrine bypass's exact condition pair (ADR-0047): the existing
+  # platform-admin check AND the call-origin refusal that keeps the
+  # blanket off every PAT.
+  @pair MapSet.new([FluxVale.Checks.ActorIsPlatformAdmin, FluxVale.Checks.CallOutsideMachineApi])
+
+  # The plan's 31-resource business set — both arcs act on this list.
+  @business_set MapSet.new([
+                  # Ops
+                  FluxVale.Ops.FeatureFlag,
+                  FluxVale.Ops.AccessRule,
+                  # Catalog
+                  FluxVale.Catalog.Category,
+                  FluxVale.Catalog.App,
+                  FluxVale.Catalog.AppVersion,
+                  # Infrastructure
+                  FluxVale.Infrastructure.Cluster,
+                  FluxVale.Infrastructure.Instance,
+                  FluxVale.Infrastructure.BackupSetting,
+                  FluxVale.Infrastructure.BackupRun,
+                  FluxVale.Infrastructure.AccessGateway,
+                  FluxVale.Infrastructure.AccessRoute,
+                  FluxVale.Infrastructure.AccessDomain,
+                  FluxVale.Infrastructure.InstanceHostname,
+                  FluxVale.Infrastructure.PocketIdCustody,
+                  FluxVale.Infrastructure.StorageRequest,
+                  # Pricing
+                  FluxVale.Pricing.Size,
+                  FluxVale.Pricing.TaxRate,
+                  # Billing
+                  FluxVale.Billing.Wallet,
+                  FluxVale.Billing.LedgerEntry,
+                  FluxVale.Billing.Topup,
+                  # Feedback
+                  FluxVale.Feedback.Post,
+                  FluxVale.Feedback.Vote,
+                  FluxVale.Feedback.Comment,
+                  FluxVale.Feedback.Tag,
+                  FluxVale.Feedback.PostTag,
+                  # Identity
+                  FluxVale.Identity.User,
+                  FluxVale.Identity.UserEmail,
+                  FluxVale.Identity.PersonalAccessToken,
+                  # Accounts
+                  FluxVale.Accounts.Organization,
+                  FluxVale.Accounts.Membership,
+                  FluxVale.Accounts.MembershipInvite
+                ])
+
+  # Machinery by name, each with its reason — the plan's seven rows
+  # (the Nov 9 amendment added PocketIdCustodyEvent), plus the two
+  # generated version resources. Extending this map is the deliberate
+  # act the gate forces.
+  @exempt %{
+    FluxVale.Infrastructure.InstanceAllocationSnapshot =>
+      "append-only telemetry — the table IS its trail",
+    FluxVale.Identity.Token =>
+      "ephemeral auth machinery: secret-adjacent, AshAuthentication owns it",
+    FluxVale.Identity.AuthCode =>
+      "ephemeral auth machinery: minutes-to-days lifetime, secret-adjacent",
+    FluxVale.Identity.DeviceCode =>
+      "ephemeral auth machinery: device-flow state, AshAuthentication owns it",
+    FluxVale.Api.AuditEvent =>
+      "itself the machine-API audit — versioning it is a trail of a trail",
+    FluxVale.Api.RequestWindow => "janitor bookkeeping",
+    FluxVale.Infrastructure.PocketIdCustodyEvent =>
+      "append-only custody history — its own table IS its trail, the InstanceAllocationSnapshot stance",
+    FluxVale.Ops.FeatureFlag.Version =>
+      "generated version resource (ADR-0048): the audit surface itself, never audited or blanket-governed",
+    FluxVale.Ops.AccessRule.Version =>
+      "generated version resource (ADR-0048): the audit surface itself, never audited or blanket-governed"
+  }
+
+  # Trail pendings: the bypass is live, the paper trail arrives with
+  # the named A2 rollout slice (the plan's phasing — the closing slice
+  # demands ZERO pendings remain).
+  @pending %{
+    # A2-S2 — Billing, Pricing, Catalog, Feedback
+    FluxVale.Billing.Wallet => "A2-S2",
+    FluxVale.Billing.LedgerEntry => "A2-S2",
+    FluxVale.Billing.Topup => "A2-S2",
+    FluxVale.Pricing.Size => "A2-S2",
+    FluxVale.Pricing.TaxRate => "A2-S2",
+    FluxVale.Catalog.Category => "A2-S2",
+    FluxVale.Catalog.App => "A2-S2",
+    FluxVale.Catalog.AppVersion => "A2-S2",
+    FluxVale.Feedback.Post => "A2-S2",
+    FluxVale.Feedback.Vote => "A2-S2",
+    FluxVale.Feedback.Comment => "A2-S2",
+    FluxVale.Feedback.Tag => "A2-S2",
+    FluxVale.Feedback.PostTag => "A2-S2",
+    # A2-S3 — Infrastructure, Identity, Accounts
+    FluxVale.Infrastructure.Cluster => "A2-S3",
+    FluxVale.Infrastructure.Instance => "A2-S3",
+    FluxVale.Infrastructure.BackupSetting => "A2-S3",
+    FluxVale.Infrastructure.BackupRun => "A2-S3",
+    FluxVale.Infrastructure.AccessGateway => "A2-S3",
+    FluxVale.Infrastructure.AccessRoute => "A2-S3",
+    FluxVale.Infrastructure.AccessDomain => "A2-S3",
+    FluxVale.Infrastructure.InstanceHostname => "A2-S3",
+    FluxVale.Infrastructure.PocketIdCustody => "A2-S3",
+    FluxVale.Infrastructure.StorageRequest => "A2-S3",
+    FluxVale.Identity.User => "A2-S3",
+    FluxVale.Identity.UserEmail => "A2-S3",
+    FluxVale.Identity.PersonalAccessToken => "A2-S3",
+    FluxVale.Accounts.Organization => "A2-S3",
+    FluxVale.Accounts.Membership => "A2-S3",
+    FluxVale.Accounts.MembershipInvite => "A2-S3"
+  }
+
+  describe "the states account for every configured resource" do
+    test "every walked resource is business-set or exempt — and every entry is real" do
+      walked = walked_resources()
+
+      exempt =
+        @exempt
+        |> Map.keys()
+        |> MapSet.new()
+
+      accounted = MapSet.union(@business_set, exempt)
+
+      assert MapSet.equal?(walked, accounted),
+             "undecided resource(s): #{inspect(MapSet.to_list(MapSet.difference(walked, accounted)))} — " <>
+               "join the business set, or add a named exemption entry with its reason"
+    end
+
+    test "no stale entries — the gate narrows with the domain, never rots" do
+      walked = walked_resources()
+
+      for module <- MapSet.to_list(@business_set) do
+        assert module in walked,
+               "#{inspect(module)} left the domain — drop it from the business set"
+      end
+
+      for module <- Map.keys(@exempt) do
+        assert module in walked, "#{inspect(module)} is exempt but no longer a resource"
+      end
+
+      for module <- Map.keys(@pending) do
+        assert module in walked, "#{inspect(module)} is pending but no longer a resource"
+      end
+    end
+
+    test "pending rides inside the business set; exemptions sit outside it" do
+      exempt =
+        @exempt
+        |> Map.keys()
+        |> MapSet.new()
+
+      pending =
+        @pending
+        |> Map.keys()
+        |> MapSet.new()
+
+      assert MapSet.disjoint?(@business_set, exempt)
+      assert MapSet.subset?(pending, @business_set)
+    end
+  end
+
+  describe "full — bypass AND paper trail (the closing state)" do
+    test "every business-set resource carries the condition-pair bypass" do
+      for resource <- MapSet.to_list(@business_set) do
+        assert doctrine_bypass?(resource),
+               "#{inspect(resource)} lacks the condition-pair bypass (#644, ADR-0047)"
+      end
+    end
+
+    test "full resources carry both halves; pendings carry exactly the bypass" do
+      for resource <- MapSet.to_list(@business_set) do
+        trailed? = trailed?(resource)
+
+        case Map.fetch(@pending, resource) do
+          {:ok, slice} ->
+            refute trailed?,
+                   "#{inspect(resource)} is pending but the trail already landed — promote it to full"
+
+            assert slice in ~w(A2-S2 A2-S3),
+                   "#{inspect(resource)} names an unknown resolving slice"
+
+          :error ->
+            assert trailed?,
+                   "#{inspect(resource)} is neither full nor pending — the trail half decides which"
+        end
+      end
+    end
+  end
+
+  describe "exempt — by name, with a reason" do
+    test "every exemption names a reason" do
+      for {module, reason} <- @exempt do
+        assert is_binary(reason) and reason != "",
+               "#{inspect(module)} needs a documented exemption reason"
+      end
+    end
+  end
+
+  # The walked universe: every resource of every configured domain.
+  defp walked_resources do
+    :flux_vale
+    |> Application.get_env(:ash_domains)
+    |> Enum.flat_map(&Info.resources/1)
+    |> MapSet.new()
+  end
+
+  # Whether the paper-trail extension rides the resource at all. NOT
+  # `PaperTrailInfo.version_resource?/1`: that helper answers the MODE
+  # question and defaults to :version_resource for resources that never
+  # used the extension — every un-trailed resource would read true.
+  defp trailed?(resource) do
+    extensions = Extension.get_persisted(resource, :extensions)
+    AshPaperTrail.Resource in extensions
+  end
+
+  # A bypass policy whose condition is EXACTLY the doctrine pair — the
+  # actor check plus the call-origin refusal, nothing narrower.
+  defp doctrine_bypass?(resource) do
+    resource
+    |> Ash.Policy.Info.policies()
+    |> Enum.any?(fn policy ->
+      policy.bypass? and condition_is_pair?(policy.condition)
+    end)
+  end
+
+  defp condition_is_pair?(condition) do
+    checks = MapSet.new(condition, fn {module, _opts} -> module end)
+    MapSet.equal?(checks, @pair)
+  end
+end

@@ -41,6 +41,15 @@ defmodule FluxVale.Feedback.Vote do
   end
 
   policies do
+    # The blanket authority (#644, ADR-0047): platform admins see and do
+    # everything — but never through the machine API (the second
+    # condition), so PAT callers fall through to the policies below
+    # with today's semantics.
+    bypass [FluxVale.Checks.ActorIsPlatformAdmin, FluxVale.Checks.CallOutsideMachineApi] do
+      description("Platform admins see and do everything (#644)")
+      authorize_if(always())
+    end
+
     policy action_type(:read) do
       description("Counts are public data (ADR-0026 §2): anonymous and any actor read")
 

@@ -398,13 +398,13 @@ defmodule FluxVale.Accounts.OrganizationTest do
       assert {:error, %Ash.Error.Forbidden{}} = run_lookup([org.id], actor: nil)
     end
 
-    test "the member read policy stays untouched: a plain admin read is still member-scoped" do
+    test "the member read policy stays untouched: a non-member read is still member-scoped" do
       org = AccountsFixtures.personal_org!(AccountsFixtures.user!())
-      admin = AccountsFixtures.admin!()
+      member = AccountsFixtures.user!()
 
-      # The admin is not a member: the plain read denies them exactly
-      # as before the lookup existed.
-      assert {:error, %Invalid{}} = Organization.get_by_id(org.id, actor: admin)
+      # A plain member's read stays member-scoped exactly as before
+      # (#644's bypass only widens platform admins).
+      assert {:error, %Invalid{}} = Organization.get_by_id(org.id, actor: member)
     end
   end
 

@@ -23,15 +23,19 @@ land: ADR-0047 (authority) and ADR-0048 (audit).
 
 ## The business resource set (both arcs share ONE list)
 
-35 resources live across the 9 configured domains. Both arcs act on the
-same 29 — the business resource set — and exclude the same 6 machinery
-resources by name, each with its reason:
+The gate walks 40 configured resources: 38 authored resources across
+the 9 configured domains, plus the 2 generated version resources
+(#651's FeatureFlag.Version / AccessRule.Version, surfaced by
+`include_versions?`). Of those, both arcs act on the same 31 — the
+business resource set — and the machinery side is 9: 7 named machinery
+rows plus the 2 generated version resources' exemption, each with its
+reason:
 
 | Domain | In the set | Excluded (reason) |
 |---|---|---|
 | Ops | FeatureFlag, AccessRule | — |
 | Catalog | Category, App, AppVersion | — |
-| Infrastructure | Cluster, Instance, BackupSetting, BackupRun, AccessGateway, AccessRoute, AccessDomain, InstanceHostname | InstanceAllocationSnapshot (append-only telemetry — the table IS its trail) |
+| Infrastructure | Cluster, Instance, BackupSetting, BackupRun, AccessGateway, AccessRoute, AccessDomain, InstanceHostname, PocketIdCustody, StorageRequest | InstanceAllocationSnapshot (append-only telemetry — the table IS its trail), PocketIdCustodyEvent (append-only custody history — its own table IS its trail, the InstanceAllocationSnapshot stance) |
 | Pricing | Size, TaxRate | — |
 | Billing | Wallet, LedgerEntry, Topup | — |
 | Feedback | Post, Vote, Comment, Tag, PostTag | — |
@@ -39,25 +43,29 @@ resources by name, each with its reason:
 | Accounts | Organization, Membership, MembershipInvite | — |
 | Api | — | AuditEvent (itself the machine-API audit), RequestWindow (janitor bookkeeping) |
 
-One list, two doctrines: Arc 1's bypass lands on the 29; Arc 2's paper
-trail versions the 29. A resource moves between sets only by amending this
+PocketIdCustody carries `api_key_secret_ref` — a Secret NAME, never
+the value (AccessGateway.credential_secret_ref's posture) — so the
+blanket authority opens no secret surface on it.
+
+One list, two doctrines: Arc 1's bypass lands on the 31; Arc 2's paper
+trail versions the 31. A resource moves between sets only by amending this
 table — the doctrine gate (below) fails CI on any unlisted resource, same
 forcing function as the console registry's parity test.
 
 ### The doctrine gate (strictest form, per the PA go)
 
 ONE test, `test/flux_vale/admin_authority_test.exs`, walking every
-resource of every configured domain and demanding one of exactly two
-states: **full** — the Arc 1 bypass AND the Arc 2 paper_trail block are
-both present — or a **named exemption entry with its reason** (the six
-machinery rows, plus interim pendings while the arcs build). A NEW
-resource joining any `ash_domains` list fails the build until it is
-deliberately added to a set: the doctrine survives resource growth, which
-is the whole point of making it a gate rather than a convention. Phasing:
-between A2-S1 and the closing slice, not-yet-rolled-out business
-resources carry explicit `pending` exemption entries naming the slice
-that resolves them (the test fails on any resource that is neither full,
-exempted, nor pending); the closing slice asserts ZERO pendings remain.
+resource of every configured domain (40 today: 38 authored plus the 2
+generated version resources) and demanding one of exactly three
+states: **full** — the Arc 1 bypass AND the Arc 2 paper_trail block
+are both present — a **machinery exemption by name with its reason**
+(7 named rows, plus the 2 generated version resources' exemption —
+the audit surface itself), or an explicit **pending** entry naming the
+A2 slice that resolves it (the phasing below). A NEW resource joining
+any `ash_domains` list fails the build until it is deliberately added
+to a set: the doctrine survives resource growth, which is the whole
+point of making it a gate rather than a convention. The closing slice
+asserts ZERO pendings remain.
 
 ## ARC 1 — authority (#644)
 
@@ -93,7 +101,7 @@ doctrine is surgically scoped: existing arms keep their exact semantics
 NEW blanket is PAT-refused.
 
 Why not the alternatives (D1): per-policy admin arms (the #577/#613/D2
-pattern generalized) touch every policy on 29 resources, drift silently
+pattern generalized) touch every policy on 31 resources, drift silently
 when a new policy forgets the arm, and compose wrongly with
 `forbid_unless`-shaped gates (the arm inside one policy cannot rescue a
 `forbid_unless(member)` in it — each gate needs its own edit). Ash has no
@@ -142,7 +150,7 @@ policy applies verbatim.
 
 ### Writes
 
-The same bypass admits platform admins on every action of the 29 —
+The same bypass admits platform admins on every action of the 31 —
 including actions whose policies are `forbid_if(always())` system-only
 gates (`Wallet :create`, `LedgerEntry :create`, machinery-adjacent
 writes). This is deliberate (D4): the policy layer stops pretending an
@@ -156,10 +164,19 @@ is unaffected — its route table has no routes for system-only actions,
 PAT actors never pass the bypass (below), and scope enforcement runs
 before policies anyway.
 
-The demotion-window seam is untouched and inherited: every console write
-re-resolves the actor per event (#571/#617 ruling) and the bypass
-evaluates the FRESH struct. A demoted admin's stale socket sees the
-existing refusal copy.
+The demotion-window seam, stated honestly: READS are mount-resolved
+(the route pipeline plus the AdminGate socket re-check at every mount
+— pre-existing posture, unchanged by the doctrine but WIDER in scope
+now that admin reads are cross-org: a demoted admin's already-mounted
+live tab displays stale data until its next interaction or reconnect);
+WRITES require per-event re-resolution of the actor (#571/#617 ruling)
+— currently satisfied by the WalletDetail surface and the console
+engine's write path, which re-resolve per event and evaluate the
+bypass against the FRESH struct. A1-S2 closes the gap for every admin
+LiveView: AdminChrome gains a `handle_event` attach_hook that
+re-resolves the actor per event (the existing "Your admin access
+ended" copy path), so every surface inherits the seam without
+per-surface edits.
 
 ### The blanket never rides a PAT in v1 (no god-mode PAT)
 
@@ -217,20 +234,20 @@ slice.
 
 ## ARC 2 — audit (#645)
 
-### Sweep: the business set (29 resources)
+### Sweep: the business set (31 resources)
 
 D5. Everything the admin console can mutate, plus identity and accounts,
 plus the member/PAT-mutated surfaces the console never touches (org
 creation, invites, PAT mints, feedback writes) — because the issue's
 attribution demand covers PAT actors too, and the doctrine's premise is
-"every mutation", not "every console mutation". The six machinery
+"every mutation", not "every console mutation". The seven machinery
 resources stay out: versioning ephemeral rows (auth codes rotate in
 minutes) is noise with secret-adjacent values, and versioning append-only
-tables (snapshots, `Api.AuditEvent`) stores a trail of a trail. Uniformity
-is served by the set being ONE list with ONE config block, not by
-including everything.
+tables (snapshots, custody events, `Api.AuditEvent`) stores a trail of a
+trail. Uniformity is served by the set being ONE list with ONE config
+block, not by including everything.
 
-### One config posture, verbatim on all 29
+### One config posture, verbatim on all 31
 
 ```elixir
 paper_trail do
@@ -397,8 +414,8 @@ first audit slice.
   change nobody asked for); no refusal at all (silent god-mode PAT);
   boundary-side restrictions (would change today's member-level
   admin-PAT behavior).
-- **D3 — the authority set**: the 29-resource business set (the shared
-  table), excluded machinery named with reasons. REJECTED: all 35
+- **D3 — the authority set**: the 31-resource business set (the shared
+  table), excluded machinery named with reasons. REJECTED: all 38
   (bypasses on Token/AuthCode/DeviceCode/snapshots are ceremony with no
   surface); only-console-exposed (reads the doctrine as narrower than the
   owner wrote it — "sees everything").
@@ -410,7 +427,7 @@ first audit slice.
   carries this as a FLAGGED deliberate judgment call under the owner's
   own doctrine (PA rider: relayed to Terence; a future reader must see
   it was a decision, not an oversight).
-- **D5 — audit sweep**: the same 29. REJECTED: all 35 (noise on ephemeral
+- **D5 — audit sweep**: the same 31. REJECTED: all 38 (noise on ephemeral
   rows, secret-adjacent values, trails of trails); console-mutable-only
   (misses PAT/member mutations the issue explicitly wants attributed).
 - **D6 — version config**: one uniform block (above), `:changes_only`,
@@ -433,7 +450,7 @@ first audit slice.
 - **D9 — console surfacing**: a dedicated Audit section, versions
   excluded from the generic registry by name; AshAdmin rendering them
   accepted. REJECTED: versions as generic-registry resources (the audit
-  trail is a cross-resource view, not 29 raw tables). PA rider: the
+  trail is a cross-resource view, not 31 raw tables). PA rider: the
   registry-exclusion coordination is ONE heads-up prompt to the 595
   architect in the slice that first adds version resources (A2-S1) — a
   courtesy, no dependency either way.
@@ -488,7 +505,7 @@ attributed on Ops.
 
 `FluxVale.Checks.CallOutsideMachineApi` (probe ladder for the context
 marker FIRST; the boundary integration pin second) — `ActorIsPlatformAdmin`
-stays untouched — the condition-pair bypass on all 29 business-set
+stays untouched — the condition-pair bypass on all 31 business-set
 resources (replacing User's and Cluster's existing blanket admin
 policies, which the bypass subsumes), the doctrine gate (bypass half
 live; trail pendings for the resources A2 has not reached yet — the
@@ -506,8 +523,13 @@ The gateways section gains #613's operator-truth fields; the orgs section
 drops its scoped-stitching copy where real reads now flow; the people
 surface and the engine indexes simply BECOME cross-org (the bypass did
 it) — copy updated where it promised member scope, scope notes removed
-where they warned. Screenshots per surface, light + dark. Done when: the
-console shows every business resource cross-org with honest copy.
+where they warned. AdminChrome gains a `handle_event` attach_hook
+re-resolving the actor per event (the existing "Your admin access
+ended" copy path), so every admin LiveView inherits the per-event
+demotion seam without per-surface edits (the Writes section's honest
+posture names this the closing deliverable). Screenshots per surface,
+light + dark. Done when: the console shows every business resource
+cross-org with honest copy.
 
 ### A2-S2 — rollout: Billing, Pricing, Catalog, Feedback (13 resources)
 
@@ -516,15 +538,16 @@ goodwill/waiver/topup lifecycles attributed; catalog: composite attrs
 version as JSON in `changes`; feedback: moderation writes attributed).
 Registry parity-test arms extended as domains gain version resources.
 
-### A2-S3 — rollout: Infrastructure, Identity, Accounts (14 resources)
+### A2-S3 — rollout: Infrastructure, Identity, Accounts (16 resources)
 
 The high-churn one: instance lifecycle and gateway state machinery
 version with nil actors (system paths) — assert honest system
 attribution; org creation, invites, PAT mint/revoke attribute to their
-actors; user rename/set_username attributes. Machine-load discipline
-applies (this suite is the heavy one).
+actors; user rename/set_username attributes; custody upserts and
+storage-request decisions attribute to their operators. Machine-load
+discipline applies (this suite is the heavy one).
 
-### A2-S4 — the Audit section (closing slice, `Closes #645` with A1-S1's
+### A2-S4 — the Audit section (closing slice, `Closes #645` with A1-S2's
 `Closes #644` already landed)
 
 The sidebar section, cross-resource browsing (resource + actor filters),
@@ -560,14 +583,19 @@ business set is attributable from the console — the doctrine's done-when.
   live domains while slices 3-6 fly): the exclusion-by-name arms land in
   the SAME slice that adds the first version resources (A2-S1, Ops is
   already live); rebase discipline per the lane's own rule.
-- **Migration weight**: 29 new tables across the rollout slices, all
+- **Migration weight**: 31 new tables across the rollout slices, all
   additive; `ash.codegen --check` gates drift as always.
 - **Upgrades**: exact-pinned 0.8.1; bumps are deliberate diffs (repo
   rule).
 
 ## Appendix — evidence (2026-11-09, worktree at 8511599e)
 
-Policy census across the 35 (grep, the arms' shapes):
+Policy census across the 38 (grep, the arms' shapes). Amendment, Nov 9
+(architect, on the A1-S1 PR): the original census missed three
+#597/#250-era resources — StorageRequest and PocketIdCustody join the
+business set (pending A2-S3), PocketIdCustodyEvent joins the machinery
+exemptions (seventh row, append-only); the table above is the amended
+truth, this count the historical one.
 
 - Blanket admin policies today: User ("Platform admins manage users"),
   Cluster, FeatureFlag/AccessRule (Ops domain posture), — the bypass

@@ -248,6 +248,15 @@ defmodule FluxVale.Infrastructure.Instance do
       authorize_if(always())
     end
 
+    # The blanket authority (#644, ADR-0047): platform admins see and do
+    # everything — but never through the machine API (the second
+    # condition), so PAT callers fall through to the policies below
+    # with today's semantics.
+    bypass [FluxVale.Checks.ActorIsPlatformAdmin, FluxVale.Checks.CallOutsideMachineApi] do
+      description("Platform admins see and do everything (#644)")
+      authorize_if(always())
+    end
+
     policy action_type(:read) do
       description("Members read their org's instances")
       authorize_if(relates_to_actor_via([:organization, :members]))
@@ -1116,8 +1125,12 @@ defmodule FluxVale.Infrastructure.Instance do
       argument(:id, :uuid, allow_nil?: false, public?: true)
       constraints(instance_of: __MODULE__)
 
-      run(fn input, %{actor: actor, authorize?: authorize?} ->
-        case get_by_id(input.arguments.id, actor: actor, authorize?: authorize?) do
+      run(fn input, %{actor: actor, authorize?: authorize?, source_context: context} ->
+        case get_by_id(input.arguments.id,
+               actor: actor,
+               authorize?: authorize?,
+               context: context
+             ) do
           {:ok, instance} ->
             cond do
               instance.status == :deleting ->
@@ -1159,8 +1172,12 @@ defmodule FluxVale.Infrastructure.Instance do
       argument(:id, :uuid, allow_nil?: false, public?: true)
       constraints(instance_of: BackupRun)
 
-      run(fn input, %{actor: actor, authorize?: authorize?} ->
-        case get_by_id(input.arguments.id, actor: actor, authorize?: authorize?) do
+      run(fn input, %{actor: actor, authorize?: authorize?, source_context: context} ->
+        case get_by_id(input.arguments.id,
+               actor: actor,
+               authorize?: authorize?,
+               context: context
+             ) do
           {:ok, instance} ->
             # The domain is the public seam (never the operation direct).
             case FluxVale.Infrastructure.run_instance_backup(instance, :manual) do
@@ -1188,8 +1205,12 @@ defmodule FluxVale.Infrastructure.Instance do
       argument(:backup_run_id, :uuid, allow_nil?: false, public?: true)
       constraints(instance_of: BackupRun)
 
-      run(fn input, %{actor: actor, authorize?: authorize?} ->
-        case get_by_id(input.arguments.id, actor: actor, authorize?: authorize?) do
+      run(fn input, %{actor: actor, authorize?: authorize?, source_context: context} ->
+        case get_by_id(input.arguments.id,
+               actor: actor,
+               authorize?: authorize?,
+               context: context
+             ) do
           {:ok, instance} ->
             case FluxVale.Infrastructure.restore_instance_backup(instance,
                    actor: actor,

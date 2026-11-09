@@ -187,7 +187,7 @@ defmodule FluxValeWeb.AdminGatewaysLiveTest do
       refute has_element?(view, "[data-testid='admin-gateways-scope-note']")
     end
 
-    test "an org-less admin gets the honest scope note, and a stranger's gateway stays hidden", %{
+    test "an org-less admin sees a stranger's gateway — the blanket widened the read (#644)", %{
       conn: conn,
       admin: admin
     } do
@@ -205,15 +205,13 @@ defmodule FluxValeWeb.AdminGatewaysLiveTest do
       signed = SessionHelpers.sign_in(conn, admin)
       {:ok, view, _html} = live(signed, "/admin/gateways")
 
-      # The policy-exact rendering: the members-only read answers [],
-      # so the row is simply not there.
-      refute has_element?(view, "[data-testid='admin-gateways-host-#{hidden.id}']")
-
-      # The membership probe answers "not inside", and the honest scope
-      # note is what renders instead of the filter-scoped empty.
-      assert has_element?(view, "[data-testid='admin-gateways-scope-note']")
-      assert has_element?(view, "[data-testid='admin-gateways-scope-note']", "not a member")
+      # ADR-0047: platform-admin reads are cross-org by construction,
+      # membership or not — the row is there and no empty state
+      # renders. (The scope note itself is membership-probed copy the
+      # A1-S2 console pass rewords.)
+      assert has_element?(view, "[data-testid='admin-gateways-host-#{hidden.id}']")
       refute has_element?(view, "[data-testid='admin-gateways-empty']")
+      refute has_element?(view, "[data-testid='admin-gateways-scope-note']")
     end
 
     test "search narrows by hostname or org name, and never reaches past the list", %{

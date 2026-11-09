@@ -412,7 +412,7 @@ defmodule FluxValeWeb.AdminGatewayDetailLiveTest do
       refute Map.has_key?(flash, "info")
     end
 
-    test "a stranger org's gateway takes the same arm — the member read answers [], not Forbidden",
+    test "a stranger org's gateway detail renders — the blanket widened the read (#644)",
          %{
            conn: conn,
            admin: admin
@@ -420,16 +420,17 @@ defmodule FluxValeWeb.AdminGatewayDetailLiveTest do
       {_stranger_org, hidden} =
         member_gateway_unreachable!(admin)
 
-      assert {:error, {:live_redirect, %{to: "/admin/gateways", flash: flash}}} =
-               live(conn, "/admin/gateways/#{hidden.id}")
+      {:ok, view, _html} = live(conn, "/admin/gateways/#{hidden.id}")
 
-      assert flash["info"] =~ "That gateway is not listed"
+      # ADR-0047: platform-admin reads are cross-org by construction —
+      # the member filter no longer hides a foreign gateway's detail.
+      assert has_element?(view, "[data-testid='admin-gateways-detail']")
+      assert has_element?(view, "[data-testid='admin-gateways-detail-state']")
     end
   end
 
-  # A NON-member org's gateway: the row exists, the read policy does
-  # not admit it — the filter answers [], and the detail must not
-  # distinguish that from an unknown id.
+  # A NON-member org's gateway: unreachable for member-shaped reads —
+  # the fixture shape the widened-admin tests above read across.
   defp member_gateway_unreachable!(admin) do
     {org, _owner} = BillingFixtures.grant_free_org!()
 

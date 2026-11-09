@@ -31,6 +31,15 @@ defmodule FluxVale.Pricing.Size do
   end
 
   policies do
+    # The blanket authority (#644, ADR-0047): platform admins see and do
+    # everything — but never through the machine API (the second
+    # condition), so PAT callers fall through to the policies below
+    # with today's semantics.
+    bypass [FluxVale.Checks.ActorIsPlatformAdmin, FluxVale.Checks.CallOutsideMachineApi] do
+      description("Platform admins see and do everything (#644)")
+      authorize_if(always())
+    end
+
     policy action_type(:read) do
       # #164: the public catalog show page prices versions for anonymous
       # visitors (ADR-0028's $X.XX/mo, now on the marketing surface too).

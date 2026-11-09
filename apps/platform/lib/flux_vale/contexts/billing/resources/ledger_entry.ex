@@ -80,12 +80,22 @@ defmodule FluxVale.Billing.LedgerEntry do
   end
 
   policies do
+    # The blanket authority (#644, ADR-0047): platform admins see and do
+    # everything — but never through the machine API (the second
+    # condition), so PAT callers fall through to the policies below
+    # with today's semantics.
+    bypass [FluxVale.Checks.ActorIsPlatformAdmin, FluxVale.Checks.CallOutsideMachineApi] do
+      description("Platform admins see and do everything (#644)")
+      authorize_if(always())
+    end
+
     # Ash composes applicable policies with AND — the scopes below
     # never overlap. Reads: members OR platform admins (the AshAdmin
     # support surface, #140) inside ONE policy, or the member filter
     # would apply to admins too. Creates: the system :create (by name)
-    # is actor-forbidden; :grant_goodwill and :reverse are the admin-only
-    # exceptions.
+    # is actor-forbidden for every actor these policies see (platform
+    # admins ride the #644 bypass instead, ADR-0047's D4);
+    # :grant_goodwill and :reverse are the admin-only exceptions.
     policy [FluxVale.Checks.ActorIsPlatformAdmin, action(:grant_goodwill)] do
       description(
         "Platform admins post goodwill credits (#140) — the refund policy's only override path"
@@ -109,14 +119,18 @@ defmodule FluxVale.Billing.LedgerEntry do
     end
 
     policy action(:create) do
-      description("System-only: the posting machinery (authorize?: false)")
+      description(
+        "System-only: the posting machinery (authorize?: false; platform admins ride the #644 bypass, ADR-0047 D4)"
+      )
+
       forbid_if(always())
     end
   end
 
   # The AshAdmin surface (#140, ADR-0027 §3): the goodwill create plus
   # ledger reads. The system :create is the posting machinery's, never a
-  # form (it's actor-forbidden regardless; hiding it keeps the admin UI
+  # form (no actor the policies see may run it — platform admins ride
+  # the #644 bypass, ADR-0047's D4 — and hiding it keeps the admin UI
   # from offering a button that can only fail). :reverse is absent by
   # deliberation too: the operator path is the wallet detail LiveView,
   # not a raw entry-id form.
@@ -263,8 +277,10 @@ defmodule FluxVale.Billing.LedgerEntry do
     # posting a goodwill credit through the SAME GrantCredits seam the
     # welcome grant rides (reason :adjustment keeps the ledger
     # reconcilable). AshAdmin renders this as the ledger's create form;
-    # the system :create above stays actor-forbidden by policy and is
-    # hidden from the admin surface (`create_actions` below).
+    # the system :create above stays actor-forbidden by policy for
+    # every actor the policies see (platform admins ride the #644
+    # bypass, ADR-0047's D4) and is hidden from the admin surface
+    # (`create_actions` below).
     #
     # Keyless by deliberation: GrantCredits' contract puts once-only on
     # the caller, and an admin form submit can retry (double-click,

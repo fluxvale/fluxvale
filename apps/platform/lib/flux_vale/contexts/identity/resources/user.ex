@@ -81,12 +81,17 @@ defmodule FluxVale.Identity.User do
       authorize_if(always())
     end
 
-    policy FluxVale.Checks.ActorIsPlatformAdmin do
-      description("Platform admins manage users")
+    # The blanket authority (#644, ADR-0047): platform admins see and do
+    # everything — but never through the machine API (the second
+    # condition), so PAT callers fall through to the policies below
+    # with today's semantics. Replaces the former blanket admin policy
+    # (the bypass subsumes it for every non-PAT caller).
+    bypass [FluxVale.Checks.ActorIsPlatformAdmin, FluxVale.Checks.CallOutsideMachineApi] do
+      description("Platform admins see and do everything (#644)")
       authorize_if(always())
     end
 
-    # No policy names the invite actions (#502): the admin policy above
+    # No policy names the invite actions (#502): the admin bypass above
     # admits platform admins for :invite/:reinvite/:withdraw_invite and
     # the token-seam reads/writes (:get_by_invite_token_hash,
     # :accept_invite) run system-side with authorize?: false from the

@@ -24,16 +24,21 @@ defmodule FluxVale.Infrastructure.Cluster do
     authorizers: [Ash.Policy.Authorizer]
 
   postgres do
-    table "clusters"
-    repo FluxVale.Repo
+    table("clusters")
+    repo(FluxVale.Repo)
 
     # ADR-0032 §3: no DB-side id default — ids are Ash's job (see User).
-    migration_defaults id: "nil"
+    migration_defaults(id: "nil")
   end
 
   policies do
-    policy FluxVale.Checks.ActorIsPlatformAdmin do
-      description "Platform admins manage clusters (ADR-0027, ADR-0030)"
+    # The blanket authority (#644, ADR-0047): platform admins see and do
+    # everything — but never through the machine API (the second
+    # condition), so PAT callers fall through to the policies below
+    # with today's semantics. Replaces the former blanket admin policy
+    # (the bypass subsumes it for every non-PAT caller).
+    bypass [FluxVale.Checks.ActorIsPlatformAdmin, FluxVale.Checks.CallOutsideMachineApi] do
+      description("Platform admins see and do everything (#644)")
       authorize_if(always())
     end
 
@@ -70,18 +75,18 @@ defmodule FluxVale.Infrastructure.Cluster do
     defaults([:read, :destroy])
 
     create :create do
-      primary? true
+      primary?(true)
       accept([:name, :kubeconfig_ref])
     end
 
     update :update do
-      primary? true
+      primary?(true)
       # name is the lookup key — immutable after create.
       accept([:kubeconfig_ref])
     end
 
     read :get_by_name do
-      description "Get a cluster by its name"
+      description("Get a cluster by its name")
       get?(true)
       argument(:name, :string, allow_nil?: false)
       filter(expr(name == ^arg(:name)))
@@ -89,7 +94,7 @@ defmodule FluxVale.Infrastructure.Cluster do
   end
 
   code_interface do
-    domain FluxVale.Infrastructure
+    domain(FluxVale.Infrastructure)
 
     define(:create)
     define(:update)

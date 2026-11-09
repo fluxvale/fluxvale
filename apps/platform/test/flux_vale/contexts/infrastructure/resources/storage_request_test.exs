@@ -809,14 +809,22 @@ defmodule FluxVale.Infrastructure.StorageRequestTest do
                "only an approved storage request can record an apply failure"
     end
 
-    test "an actor is denied — the system marks have no policy arm" do
+    test "an actor is denied — the system marks have no policy arm; the admin blanket admits (#644)" do
       admin = AccountsFixtures.platform_admin!()
       user = user!()
       request = stopped_request!(user, %{requested_gb: 150})
       allow_expansion!()
       {:ok, approved} = StorageRequest.approve(request, %{}, actor: admin)
 
+      # A non-admin falls to Ash's default deny — the marks are the
+      # apply operation's private writes.
       assert {:error, %Ash.Error.Forbidden{}} =
+               StorageRequest.mark_apply_failed(approved, %{error: "no"}, actor: user)
+
+      # ADR-0047's D4: the platform-admin bypass covers system-only
+      # gates too — policy-admitted, the surfaces stay curated (the
+      # marks are reachable only through the system path).
+      assert {:ok, _failed} =
                StorageRequest.mark_apply_failed(approved, %{error: "no"}, actor: admin)
     end
   end

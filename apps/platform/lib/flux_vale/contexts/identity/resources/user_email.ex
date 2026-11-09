@@ -62,6 +62,15 @@ defmodule FluxVale.Identity.UserEmail do
     # surfaces), and the future identity operations run actions with
     # authorize?: false — never the interaction context.
 
+    # The blanket authority (#644, ADR-0047): platform admins see and do
+    # everything — but never through the machine API (the second
+    # condition), so PAT callers fall through to the policies below
+    # with today's semantics.
+    bypass [FluxVale.Checks.ActorIsPlatformAdmin, FluxVale.Checks.CallOutsideMachineApi] do
+      description("Platform admins see and do everything (#644)")
+      authorize_if(always())
+    end
+
     # Same stance as User's :me: always() is honest because the action's
     # actor filter already constrains the result to the caller's rows —
     # it cannot leak another user's addresses.

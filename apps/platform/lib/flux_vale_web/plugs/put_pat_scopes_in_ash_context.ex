@@ -11,9 +11,19 @@ defmodule FluxValeWeb.Plugs.PutPatScopesInAshContext do
   token, not the user record, so they render through request-scoped
   meta, never a User field. A session-authenticated caller has no PAT
   and gets no context entry — the honest omission, not an empty list.
+
+  The same PAT branch also marks the request PROCESS as a machine-API
+  call (#644, ADR-0047): the blanket platform-admin bypass's refusal
+  condition reads that mark, and the process is the only rung a
+  NESTED action call cannot drop (a generic action's inner get_by_id
+  re-reads with fresh options — the context does not ride it, the
+  process does). Same mechanism, same key, one owner:
+  `FluxVale.Checks.CallOutsideMachineApi.mark_process!/0` — the MCP
+  boundary's require_scope marks its handlers the same way.
   """
 
   alias FluxVale.Api.Scopes
+  alias FluxVale.Checks.CallOutsideMachineApi
 
   @doc false
   @spec init(keyword()) :: keyword()
@@ -21,10 +31,11 @@ defmodule FluxValeWeb.Plugs.PutPatScopesInAshContext do
 
   @doc """
   Sets the calling PAT's scopes into the Ash request context (under
-  `FluxVale.Api.Scopes.pat_scopes_context_key/0`); everyone else passes
-  through untouched. The callback form MERGES into any existing context —
-  the map form (`set_context/2`) replaces the whole map and would
-  silently wipe a future neighbor's entry.
+  `FluxVale.Api.Scopes.pat_scopes_context_key/0`) and marks the request
+  process as a machine-API call; everyone else passes through
+  untouched. The callback form MERGES into any existing context — the
+  map form (`set_context/2`) replaces the whole map and would silently
+  wipe a future neighbor's entry.
   """
   @spec call(Plug.Conn.t(), keyword()) :: Plug.Conn.t()
   def call(conn, _opts) do
@@ -33,6 +44,8 @@ defmodule FluxValeWeb.Plugs.PutPatScopesInAshContext do
         conn
 
       pat ->
+        CallOutsideMachineApi.mark_process!()
+
         key = Scopes.pat_scopes_context_key()
 
         Ash.PlugHelpers.update_context(conn, fn context ->
