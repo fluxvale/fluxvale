@@ -5,10 +5,7 @@ defmodule FluxValeWeb.Api.CatalogRouteTest do
   # slug-keyed detail, and the version reads. The read policy is the
   # public-browse one; the /api/v1 pipeline still requires a token.
 
-  # Sync: fabricates app rows with seeded slugs ("forgejo",
-  # "vaultwarden"), which are globally unique and shared with other
-  # modules doing the same. Sync modules run alone, so the race cannot
-  # form (#669).
+  # Sync: fabricates app rows with a seeded unique slug (#669).
   use FluxValeWeb.ConnCase, async: false
 
   alias FluxVale.TestSupport.ApiPat

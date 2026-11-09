@@ -9,9 +9,7 @@ defmodule FluxValeWeb.CatalogLive.DeployPocketIdOfferTest do
   # inputs. The probe is Mimic-stubbed (the Tailscale ApiClient
   # stance) — no test ever talks to a live Pocket ID. The submit path
   # is S3-untouched: no test here deploys.
-  # Sync: fabricates app rows with seeded slugs ("pocket-id"), which are
-  # globally unique and shared with other modules doing the same. Sync
-  # modules run alone, so the race cannot form (#669).
+  # Sync: fabricates app rows with a seeded unique slug (#669).
 
   use FluxValeWeb.ConnCase, async: false
   use Mimic

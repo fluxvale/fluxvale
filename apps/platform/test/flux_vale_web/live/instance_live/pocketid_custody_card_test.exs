@@ -7,10 +7,7 @@ defmodule FluxValeWeb.InstanceLive.PocketIdCustodyCardTest do
   # the op — these pin the card's STATES, the op tests pin the
   # discipline.
 
-  # Sync: fabricates app rows with seeded slugs ("pocket-id",
-  # "vaultwarden"), which are globally unique and shared with other
-  # modules doing the same. Sync modules run alone, so the race cannot
-  # form (#669).
+  # Sync: fabricates app rows with a seeded unique slug (#669).
   use FluxValeWeb.ConnCase, async: false
   use Mimic
 
