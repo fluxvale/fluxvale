@@ -44,7 +44,7 @@ test("resize: stop → panel reprices → confirm → resized → running again"
   await page.goto("/apps");
   await waitForLiveViewJoin(page);
   await page.getByTestId("app-forgejo").click();
-  await expect(page.getByRole("heading", { name: "Forgejo", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Forgejo hosting", exact: true })).toBeVisible();
   await waitForLiveViewJoin(page);
   await page.locator("[data-testid^='deploy-']").first().click();
   await waitForLiveViewJoin(page);

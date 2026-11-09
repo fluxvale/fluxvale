@@ -76,7 +76,7 @@ test(
     await expect(page.getByRole("heading", { name: "Catalog" })).toBeVisible();
     await page.getByTestId("app-umami").click();
     await expect(
-      page.getByRole("heading", { name: "Umami", exact: true }),
+      page.getByRole("heading", { name: "Umami hosting", exact: true }),
     ).toBeVisible();
     await waitForLiveViewJoin(page);
     await expect(page.locator("[data-testid^='price-']").first()).toContainText(

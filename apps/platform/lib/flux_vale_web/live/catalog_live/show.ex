@@ -1,12 +1,19 @@
 defmodule FluxValeWeb.CatalogLive.Show do
   @moduledoc """
-  App detail (#74): blueprint summary, versions, and the deploy stepper's
-  entry. Slug-keyed read through `Catalog.App.get_by_slug/2`.
+  App detail (#74): the public catalog page's marketing content — the
+  same `CatalogPageComponents` sections, S2-S4 — followed by the
+  version cards and the deploy stepper's entry (#611 S6, D12). The
+  page reads the catalog through `Catalog.App.get_by_slug/2`, exactly
+  like the public SSR page.
   """
 
   use FluxValeWeb, :live_view
 
   alias FluxVale.Catalog
+  alias FluxVale.Observability.WakeStats
+  alias FluxVale.Pricing
+  alias FluxValeWeb.CatalogPageComponents
+  alias FluxValeWeb.CatalogPageContent
 
   @impl Phoenix.LiveView
   def mount(%{"slug" => slug}, _session, socket) do
@@ -14,8 +21,21 @@ defmodule FluxValeWeb.CatalogLive.Show do
 
     case Catalog.App.get_by_slug(slug, actor: user) do
       {:ok, app} ->
-        app = Ash.load!(app, [:category, app_versions: :recommended_size], actor: user)
-        {:ok, assign(socket, app: app, versions: sorted_desc(app.app_versions))}
+        # The public controller's read, mirrored (#611 S6): the category
+        # rides with its apps for the similar section, versions carry
+        # the recommended size for the cards' rates and the pricing card.
+        app = Ash.load!(app, [category: :apps, app_versions: :recommended_size], actor: user)
+        versions = sorted_desc(app.app_versions)
+
+        {:ok,
+         assign(socket,
+           app: app,
+           versions: versions,
+           newest_version: List.first(versions),
+           wake_estimates: WakeStats.median_total_by_app_safe(),
+           similar_apps: CatalogPageContent.similar_apps(app, app.category.apps),
+           from_price_cents: Pricing.from_price_cents()
+         )}
 
       _error ->
         # Unknown slugs (and policy denials) read as "not here" — back to
@@ -39,154 +59,81 @@ defmodule FluxValeWeb.CatalogLive.Show do
       nav_section={@nav_section}
       bare
     >
-      <div class="appgram contents">
-        <%!-- 1. The sunken band carries the app's identity: mono category
-        eyebrow, name on the working-page scale, tagline + description.
-        The Deploy CTA rides the band header's posture (dashboard /
-        instances index) and lands on the same stepper entry the version
-        cards' buttons use. No straddle — list/detail pages stay calm. --%>
-        <section class="band">
-          <div class="wrap pt-8 pb-10">
-            <div class="rise">
-              <.button variant="ghost" size="sm" navigate={~p"/apps"} class="-ml-2">
-                &larr; Catalog
-              </.button>
+      <%!-- #611 S6 (plan §10, D12): the authenticated page is the public
+      page — the hero with its pricing and facts cards, the curated
+      sections, then the generated ones — with the version cards the
+      deploy stepper needs appended below the marketing content. The
+      chrome's measure is mirrored here because `bare` drops main's
+      container. --%>
+      <div class="catalog-page mx-auto w-full max-w-5xl px-4 py-10 sm:px-6 lg:px-8">
+        <div class="pt-6 pb-12">
+          <CatalogPageComponents.hero
+            app={@app}
+            newest_version={@newest_version}
+            wake_estimates={@wake_estimates}
+            back_path="/apps"
+          />
+        </div>
 
-              <p class="eyebrow mt-4">{@app.category.name}</p>
-              <%!-- The category's own line — the field the browse retired
-                (hostile-341 F4): editable catalog data no authed surface
-                read. It lands here, in situ under the eyebrow. --%>
-              <p
-                :if={@app.category.description}
-                class="mt-1 max-w-prose text-sm text-ink-muted"
-              >
-                {@app.category.description}
-              </p>
+        <CatalogPageComponents.in_action app={@app} />
+        <CatalogPageComponents.features app={@app} />
+        <CatalogPageComponents.benefits app={@app} newest_version={@newest_version} />
+        <CatalogPageComponents.faq app={@app} newest_version={@newest_version} />
+        <CatalogPageComponents.similar_apps
+          peers={@similar_apps}
+          from_price_cents={@from_price_cents}
+        />
+        <CatalogPageComponents.closing_cta app={@app} newest_version={@newest_version} />
 
-              <div class="mt-1.5 flex flex-wrap items-start justify-between gap-x-6 gap-y-4">
-                <div class="flex min-w-0 items-center gap-4">
-                  <div class="grid size-12 shrink-0 place-items-center rounded-control bg-primary-muted text-lg font-semibold text-link sm:size-14 sm:text-xl">
-                    <img
-                      :if={@app.icon_url}
-                      src={@app.icon_url}
-                      alt={@app.name}
-                      class="size-8 rounded-control sm:size-9"
-                    />
-                    <span :if={is_nil(@app.icon_url)}>{String.first(@app.name)}</span>
-                  </div>
-                  <div class="min-w-0">
-                    <h1 class="page-title">{@app.name}</h1>
-                    <p :if={@app.tagline} class="mt-1 text-base text-ink-muted">{@app.tagline}</p>
-                  </div>
+        <%!-- The page's existing content, unchanged: one card per
+        published version, each the deploy stepper's entry. --%>
+        <section class="border-t border-line py-14 sm:py-16" id="versions">
+          <h2 class="display-h2" data-testid="versions-heading">Versions</h2>
+
+          <.empty_state :if={@versions == []} title="No versions published yet." />
+
+          <div class="mt-8 space-y-4">
+            <.card :for={version <- @versions} id={"version-#{version.id}"} class="space-y-4">
+              <div class="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <h3 class="font-mono font-semibold text-ink">v{version.version}</h3>
+                  <p :if={version.published_at} class="mt-0.5 text-xs text-ink-subtle">
+                    Published {Calendar.strftime(version.published_at, "%b %d, %Y")}
+                  </p>
                 </div>
-
-                <div class="flex shrink-0 gap-2">
-                  <%!-- No versions, no stepper: the wizard's step 1 would
-                    list nothing (an app can exist before its first
-                    version; #341 review). Distinguishable from the
-                    version buttons for readers and tests (hostile-341
-                    F6); the duplication itself is a known decision. --%>
-                  <.button
-                    :if={@versions != []}
-                    id="deploy-app"
-                    data-testid="deploy-band"
-                    aria-label={"Deploy #{@app.name}"}
-                    navigate={~p"/apps/#{@app.slug}/deploy"}
-                  >
-                    Deploy
-                  </.button>
-                </div>
-              </div>
-
-              <p
-                :if={is_binary(@app.description) and String.trim(@app.description) != ""}
-                class="mt-4 max-w-prose leading-relaxed text-ink-muted"
-              >
-                <%!-- pre-line rides the span: the p's own whitespace is
-                normal, so the template's indentation newlines collapse
-                instead of laying out a phantom blank line (T4 review). --%>
-                <span class="whitespace-pre-line">{String.trim(@app.description)}</span>
-              </p>
-
-              <div class="mt-4 flex flex-wrap items-center gap-3 text-sm">
-                <.badge :if={@app.file_access} data-testid="file-access-badge">
-                  File access
-                </.badge>
-                <a
-                  :if={@app.source_url}
-                  href={@app.source_url}
-                  class="font-medium text-link hover:underline"
-                  target="_blank"
-                  rel="noopener"
+                <.button
+                  navigate={~p"/apps/#{@app.slug}/deploy"}
+                  size="sm"
+                  id={"deploy-#{version.id}"}
+                  data-testid={"deploy-#{version.version}"}
                 >
-                  Source
-                </a>
-                <a
-                  :if={@app.docs_url}
-                  href={@app.docs_url}
-                  class="font-medium text-link hover:underline"
-                  target="_blank"
-                  rel="noopener"
-                >
-                  Docs
-                </a>
+                  Deploy
+                </.button>
               </div>
-            </div>
-          </div>
-        </section>
-
-        <%!-- 2. Versions — the page's existing content in grammar cards
-        (the <.card> rest step IS the grammar's card: raised, line-strong,
-        shadow-sm). They host buttons, so no hover lift. --%>
-        <section class="wrap pt-14 pb-16">
-          <div class="rise space-y-4 [animation-delay:170ms]">
-            <h2 class="text-lg font-semibold tracking-tight text-ink">Versions</h2>
-
-            <.empty_state :if={@versions == []} title="No versions published yet." />
-
-            <div class="space-y-4">
-              <.card :for={version <- @versions} id={"version-#{version.id}"} class="space-y-4">
-                <div class="flex flex-wrap items-center justify-between gap-3">
-                  <div>
-                    <h3 class="font-mono font-semibold text-ink">v{version.version}</h3>
-                    <p :if={version.published_at} class="mt-0.5 text-xs text-ink-subtle">
-                      Published {Calendar.strftime(version.published_at, "%b %d, %Y")}
-                    </p>
-                  </div>
-                  <.button
-                    navigate={~p"/apps/#{@app.slug}/deploy"}
-                    size="sm"
-                    id={"deploy-#{version.id}"}
-                    data-testid={"deploy-#{version.version}"}
-                  >
-                    Deploy
-                  </.button>
-                </div>
-                <p :if={version.release_notes} class="text-sm text-ink-muted">
-                  <%!-- pre-line rides the span — same phantom-line fix as
-                  the band description above (T4 review). --%>
-                  <span class="whitespace-pre-line">{version.release_notes}</span>
-                </p>
-                <div class="flex flex-wrap gap-2">
-                  <.badge>{version.default_cpu_cores} CPU</.badge>
-                  <.badge>{version.default_memory_mb} MB RAM</.badge>
-                  <.badge>{version.default_storage_gb} GB storage</.badge>
-                  <.price_badge version={version} />
-                  <.stopped_rate version={version} />
-                  <%!-- #398: pricing is one hop away — the card shows
-                  this version's plan, /pricing prices every resource
-                  (#558: compute classes and storage price apart, so
-                  no sizes list exists to link at). --%>
-                  <.link
-                    navigate={~p"/pricing"}
-                    class="self-center text-sm font-medium text-link hover:underline"
-                    data-testid={"see-all-sizes-#{version.version}"}
-                  >
-                    {gettext("See pricing")}
-                  </.link>
-                </div>
-              </.card>
-            </div>
+              <p :if={version.release_notes} class="text-sm text-ink-muted">
+                <%!-- pre-line rides the span — same phantom-line fix as
+                the hero description (T4 review). --%>
+                <span class="whitespace-pre-line">{version.release_notes}</span>
+              </p>
+              <div class="flex flex-wrap gap-2">
+                <.badge>{version.default_cpu_cores} CPU</.badge>
+                <.badge>{version.default_memory_mb} MB RAM</.badge>
+                <.badge>{version.default_storage_gb} GB storage</.badge>
+                <.price_badge version={version} />
+                <.stopped_rate version={version} />
+                <%!-- #398: pricing is one hop away — the card shows
+                this version's plan, /pricing prices every resource
+                (#558: compute classes and storage price apart, so
+                no sizes list exists to link at). --%>
+                <.link
+                  navigate={~p"/pricing"}
+                  class="self-center text-sm font-medium text-link hover:underline"
+                  data-testid={"see-all-sizes-#{version.version}"}
+                >
+                  {gettext("See pricing")}
+                </.link>
+              </div>
+            </.card>
           </div>
         </section>
       </div>

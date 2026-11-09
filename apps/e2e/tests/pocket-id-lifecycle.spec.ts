@@ -61,7 +61,7 @@ test(
     await expect(page.getByRole("heading", { name: "Catalog" })).toBeVisible();
     await page.getByTestId("app-pocket-id").click();
     await expect(
-      page.getByRole("heading", { name: "Pocket ID", exact: true }),
+      page.getByRole("heading", { name: "Pocket ID hosting", exact: true }),
     ).toBeVisible();
     await waitForLiveViewJoin(page);
     await expect(page.locator("[data-testid^='price-']").first()).toContainText(

@@ -53,7 +53,7 @@ test("actualbudget: catalog → deploy → running → claim → stop → start 
   await expect(page.getByRole("heading", { name: "Catalog" })).toBeVisible();
   await page.getByTestId("app-actualbudget").click();
   await expect(
-    page.getByRole("heading", { name: "ActualBudget", exact: true }),
+    page.getByRole("heading", { name: "ActualBudget hosting", exact: true }),
   ).toBeVisible();
   await waitForLiveViewJoin(page);
   await expect(page.locator("[data-testid^='price-']").first()).toContainText(

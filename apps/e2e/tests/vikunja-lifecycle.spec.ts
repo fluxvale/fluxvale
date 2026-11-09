@@ -73,7 +73,7 @@ test(
     await expect(page.getByRole("heading", { name: "Catalog" })).toBeVisible();
     await page.getByTestId("app-vikunja").click();
     await expect(
-      page.getByRole("heading", { name: "Vikunja", exact: true }),
+      page.getByRole("heading", { name: "Vikunja hosting", exact: true }),
     ).toBeVisible();
     await waitForLiveViewJoin(page);
     await expect(page.locator("[data-testid^='price-']").first()).toContainText(

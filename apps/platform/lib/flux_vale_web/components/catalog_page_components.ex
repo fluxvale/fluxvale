@@ -36,12 +36,20 @@ defmodule FluxValeWeb.CatalogPageComponents do
     doc: "WakeStats.median_total_by_app_safe/0 — the facts card's Wakes in row"
   )
 
+  # #611 S6: the same hero serves both surfaces, so the back link's
+  # target is the caller's: /catalog on the public page, /apps on the
+  # authenticated one (both are labelled Catalog in the chrome).
+  attr(:back_path, :string,
+    default: "/catalog",
+    doc: "back link target: /catalog public, /apps authenticated"
+  )
+
   @spec hero(map()) :: Phoenix.LiveView.Rendered.t()
   def hero(assigns) do
     ~H"""
     <div class="grid gap-10 lg:grid-cols-[minmax(0,1fr)_22rem]">
       <div class="min-w-0 max-w-prose">
-        <.button variant="ghost" size="sm" navigate={~p"/catalog"} class="-ml-2">
+        <.button variant="ghost" size="sm" navigate={@back_path} class="-ml-2">
           &larr; {gettext("Catalog")}
         </.button>
 
