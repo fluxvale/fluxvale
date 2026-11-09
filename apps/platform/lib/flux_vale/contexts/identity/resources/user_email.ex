@@ -196,7 +196,8 @@ defmodule FluxVale.Identity.UserEmail do
       accept([:address])
       # UserRef (not bare :map): the trail stores action inputs
       # verbatim (#645, ADR-0048), so a caller-passed %User{} struct
-      # normalizes to the id-map at cast — it cannot JSON-encode.
+      # normalizes to the id-map at storage-dump — it cannot
+      # JSON-encode, and cast keeps the struct's no-lookup semantics.
       argument(:user, FluxVale.Identity.Types.UserRef, allow_nil?: false)
       change(manage_relationship(:user, type: :append_and_remove))
       change(EnforceEmailCap)
