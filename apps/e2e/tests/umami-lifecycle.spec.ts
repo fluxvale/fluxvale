@@ -62,12 +62,6 @@ test(
     // Pocket ID ENCRYPTION_KEY shape).
     const appSecret = randomBytes(24).toString("base64");
 
-    // The instance namespaces that exist before this deploy — the
-    // restart leg needs OURS, and the before/after difference over
-    // kubectl finds it (the suite is serial; ours is the new one, and
-    // the umami image double-checks the pick).
-    const beforeNamespaces = await fluxvaleAppNamespaces();
-
     // Sign in as a fresh per-run user (JIT-provisioned; nobody's data
     // gets touched, and the instances list starts empty)
     const email = `test+e2e-${runId}@fluxvale.com`;
@@ -140,6 +134,13 @@ test(
     // PostgreSQL after the sidecar's startup probe passes, so the
     // budget matches the other cold pulls (ADR-00024 §6).
     await page.waitForURL(/\/instances\//);
+    // The platform's own deterministic mapping (namespace.ex): one
+    // fluxvale-app-<id> per instance. Deriving it from the instance's
+    // URL can't be poisoned by a sibling spec's concurrent deploy —
+    // a before/after namespace diff can (workers run specs in
+    // parallel; the diff saw a neighbour's namespace land mid-test).
+    const instanceId = page.url().match(/instances\/([0-9a-f-]{36})/)![1]!;
+    const namespace = `fluxvale-app-${instanceId}`;
     await waitForLiveViewJoin(page);
     await waitForStatus(page, "Running", 12 * 60_000);
 
@@ -201,7 +202,7 @@ test(
     // reschedules; native-sidecar init ordering re-runs (the app
     // cannot start until pg_isready passes); the witness website must
     // still answer — the database rode the PVC under backing/.
-    const namespace = await ourNamespace(beforeNamespaces);
+    await assertOurWorkload(namespace);
     await kubectl(["-n", namespace, "delete", "pod", "-l", "app.kubernetes.io/name=app"]);
     // The delete returns when the pod OBJECT is gone; readyReplicas
     // can still read 1 for the dead pod on an immediate poll — wait
@@ -281,25 +282,12 @@ async function expectWebsitePresent(
   expect(JSON.stringify(await list.json())).toContain(marker);
 }
 
-// fluxvale-app-* namespaces currently on the cluster (the before/after
-// difference finds ours; the page renders the namespace to admins
-// only, #179).
-async function fluxvaleAppNamespaces(): Promise<Set<string>> {
-  const list = await kubectl(["get", "ns", "-o", "jsonpath={.items[*].metadata.name}"]);
-  return new Set(
-    list.split(/\s+/).filter((name) => name.startsWith("fluxvale-app-")),
-  );
-}
-
-// The namespace this deploy created: the before/after difference —
-// exactly one new fluxvale-app-*, double-checked by its Deployment
-// running the Umami image and its init container running PostgreSQL.
-async function ourNamespace(before: Set<string>): Promise<string> {
-  const current = await fluxvaleAppNamespaces();
-  const added = [...current].filter((name) => !before.has(name));
-  expect(added.length).toBe(1);
-  const namespace = added[0]!;
-
+// The derived namespace's shape double-check: its Deployment runs the
+// Umami image and its init container runs PostgreSQL — the bundled
+// pod this spec is about, not a neighbour's namespace (the page
+// renders the namespace to admins only, #179, so the URL-derived name
+// plus this check is the ground truth).
+async function assertOurWorkload(namespace: string) {
   const images = await kubectl([
     "-n",
     namespace,
@@ -311,16 +299,17 @@ async function ourNamespace(before: Set<string>): Promise<string> {
   ]);
   expect(images).toContain("umami-software/umami");
   expect(images).toContain("postgres");
-
-  return namespace;
 }
 
 // Poll the Deployment's readyReplicas until it reads `want`. After a
 // pod delete the old pod's status can linger briefly — waitReadyReplicas
 // (namespace, "0") closes the window where waitPodReady would return
-// against the dead pod's stale "1".
+// against the dead pod's stale "1". `want === "0"` also matches the
+// EMPTY read: readyReplicas is a *int32 the API omits when zero, so
+// zero arrives as "" from jsonpath, never as "0".
 async function waitReadyReplicas(namespace: string, want: string, timeoutMs: number) {
   const deadline = Date.now() + timeoutMs;
+  const isZero = (v: string) => v === "" || v === "0";
 
   while (Date.now() < deadline) {
     const ready = await kubectl(
@@ -336,7 +325,8 @@ async function waitReadyReplicas(namespace: string, want: string, timeoutMs: num
       { bestEffort: true },
     );
 
-    if (ready.trim() === want) return;
+    const value = ready.trim();
+    if ((want === "0" && isZero(value)) || value === want) return;
     await new Promise((resolve) => setTimeout(resolve, 5_000));
   }
 

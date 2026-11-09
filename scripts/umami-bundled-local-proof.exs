@@ -142,11 +142,14 @@ defmodule UmamiBundledLocalProof do
     create_witness_website(url, token, marker)
 
     # --- RESTART leg: destroy the pod → data persists -----------------
+    # (the pod-shape check ran at boot, line ~125; the leg re-checks
+    # nothing — the workload is the same one)
     kubectl(["-n", namespace, "delete", "pod", "-l", "app.kubernetes.io/name=app"])
-    # The delete returns when the pod object is gone; readyReplicas
-    # can still read 1 for the dead pod on an immediate poll — wait
-    # out the 0 before waiting for the replacement.
-    await_replicas(namespace, 0, 60_000)
+    # The delete returns when the pod object is gone; readyReplicas can
+    # still read 1 for the dead pod on an immediate poll — wait out the
+    # zero before waiting for the replacement (spec.replicas stays 1
+    # through a pod delete; only the READY count moves).
+    await_ready_zero(namespace, 60_000)
     await_pod_ready(namespace, 6 * 60_000)
     {restart_login, _} = login(url)
     check(restart_login == 200, "RESTART leg: the admin still signs in (got #{restart_login})")
@@ -310,6 +313,17 @@ defmodule UmamiBundledLocalProof do
       &(&1 == "#{replicas}"),
       timeout,
       "replicas never reached #{replicas} in #{namespace}"
+    )
+  end
+
+  # readyReplicas is a *int32 the API omits when zero, so zero arrives
+  # from jsonpath as "" — never "0".
+  defp await_ready_zero(namespace, timeout) do
+    await_condition(
+      ["-n", namespace, "get", "deploy", "app", "-o", "jsonpath={.status.readyReplicas}"],
+      &(&1 in ["", "0"]),
+      timeout,
+      "readyReplicas never read zero in #{namespace}"
     )
   end
 
