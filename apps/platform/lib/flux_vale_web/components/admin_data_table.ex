@@ -174,6 +174,21 @@ defmodule FluxValeWeb.Components.AdminDataTable do
 
   defp parse_query(_raw), do: ""
 
+  @doc """
+  The search term's honest cap, for the surfaces' own search
+  handlers: trimmed and bounded to the same 200 characters
+  parse_params applies, so an event-built term never rides a longer
+  pattern than a param-built one.
+  """
+  @spec cap_query(term()) :: String.t()
+  def cap_query(raw) when is_binary(raw) do
+    raw
+    |> String.trim()
+    |> String.slice(0, @query_cap)
+  end
+
+  def cap_query(_raw), do: ""
+
   # Keyset cursors are opaque strings; only their presence matters.
   defp parse_cursor(raw) when is_binary(raw) and raw != "", do: raw
   defp parse_cursor(_raw), do: nil
@@ -410,7 +425,11 @@ defmodule FluxValeWeb.Components.AdminDataTable do
               :for={col <- @columns}
               role="columnheader"
               aria-sort={aria_sort(col, @meta)}
-              class={[col[:align] == :right && "text-right", col[:sr_only] && "sr-only"]}
+              class={[
+                "truncate",
+                col[:align] == :right && "text-right",
+                col[:sr_only] && "sr-only"
+              ]}
               data-testid={"#{@id}-header-#{col[:key]}"}
             >
               <button
@@ -468,6 +487,7 @@ defmodule FluxValeWeb.Components.AdminDataTable do
         </p>
 
         <div class="flex flex-wrap items-center gap-4">
+          <span class="text-xs text-ink-muted">{gettext("Rows:")}</span>
           <div
             class="flex items-center gap-1"
             role="group"
@@ -664,29 +684,39 @@ defmodule FluxValeWeb.Components.AdminDataTable do
       else: base <> " border-line bg-panel text-ink-muted hover:text-ink"
   end
 
-  defp page_button_class(meta) do
-    base =
-      "rounded-control border border-line bg-panel px-2.5 py-1 text-sm font-medium text-ink hover:bg-panel-raised motion-safe:transition-colors motion-safe:duration-(--motion-fast) outline-offset-2 outline-focus focus-visible:outline-2 disabled:pointer-events-none"
-
-    if offset_mode?(meta), do: base <> " disabled:opacity-50", else: base
+  defp page_button_class(_meta) do
+    "rounded-control border border-line bg-panel px-2.5 py-1 text-sm font-medium text-ink hover:bg-panel-raised motion-safe:transition-colors motion-safe:duration-(--motion-fast) outline-offset-2 outline-focus focus-visible:outline-2 disabled:pointer-events-none disabled:opacity-50"
   end
 
   # The count copy. Offset mode derives the shown window from the
   # total (the last page may be short); keyset mode has no totals and
   # tells the truth about that — the surface reports how many rows
-  # this page holds.
+  # this page holds. The chrome renders only with rows present (the
+  # surfaces gate it), and the contract is enforced here too: a zero
+  # total reads the honest zero, never "Showing 1 to 25 of 0".
   defp count_copy(meta) do
-    if offset_mode?(meta) do
-      first = (meta.page - 1) * meta.size + 1
-      last = min(meta.page * meta.size, meta.total)
+    cond do
+      # The rows-present gate keeps a populated table away from this
+      # arm; it exists so a future caller cannot render "Showing 1 to
+      # 25 of 0" — the honest zero is the fence.
+      # coveralls-ignore-start - unreachable while the gate holds
+      offset_mode?(meta) and meta.total == 0 ->
+        gettext("No entries.")
 
-      gettext("Showing %{first} to %{last} of %{total}.",
-        first: first,
-        last: last,
-        total: meta.total
-      )
-    else
-      gettext("Showing %{count} entries.", count: meta[:showing] || 0)
+      # coveralls-ignore-stop
+
+      offset_mode?(meta) ->
+        first = (meta.page - 1) * meta.size + 1
+        last = min(meta.page * meta.size, meta.total)
+
+        gettext("Showing %{first} to %{last} of %{total}.",
+          first: first,
+          last: last,
+          total: meta.total
+        )
+
+      true ->
+        gettext("Showing %{count} entries.", count: meta[:showing] || 0)
     end
   end
 

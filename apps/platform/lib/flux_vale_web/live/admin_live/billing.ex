@@ -70,9 +70,8 @@ defmodule FluxValeWeb.AdminLive.Billing do
   # -- events ---------------------------------------------------------------
 
   @impl Phoenix.LiveView
-  def handle_event("search", %{"search" => %{"query" => query}}, socket) do
-    trimmed = String.trim(query)
-    state = %{socket.assigns.table | query: trimmed, page: 1}
+  def handle_event("search", %{"search" => %{"query" => query}}, socket) when is_binary(query) do
+    state = %{socket.assigns.table | query: AdminDataTable.cap_query(query), page: 1}
 
     push_view(socket, state)
   end
@@ -82,13 +81,17 @@ defmodule FluxValeWeb.AdminLive.Billing do
 
   # The header sort: whitelisted fields only, click-to-toggle. The
   # page resets with the order, so a stale deep link cannot land past
-  # the new end.
+  # the new end. A crafted field leaves the sort as it was: a true
+  # no-op, no page reset, no patch.
   @impl Phoenix.LiveView
   def handle_event("sort", %{"field" => raw_field}, socket) do
     sort = AdminDataTable.toggle_sort(socket.assigns.table.sort, raw_field, @sortable)
-    state = %{socket.assigns.table | sort: sort, page: 1}
 
-    push_view(socket, state)
+    if sort == socket.assigns.table.sort do
+      {:noreply, socket}
+    else
+      push_view(socket, %{socket.assigns.table | sort: sort, page: 1})
+    end
   end
 
   # A crafted field is not a crash: the sort stays as it was.
@@ -120,6 +123,14 @@ defmodule FluxValeWeb.AdminLive.Billing do
 
   def handle_event("size", _params, socket), do: {:noreply, socket}
 
+  # The search-empty state's clear lever: the same view, term gone.
+  @impl Phoenix.LiveView
+  def handle_event("clear-search", _params, socket) do
+    state = %{socket.assigns.table | query: "", page: 1}
+
+    push_view(socket, state)
+  end
+
   # Every table event is a patch: the URL states the view, and
   # handle_params owns the re-query. replace keeps the browser
   # history clean — a table view is a state, not a navigation.
@@ -150,18 +161,17 @@ defmodule FluxValeWeb.AdminLive.Billing do
     total = Ash.count!(filtered)
     page_count = AdminDataTable.page_count(total, state.size)
 
-    page_query =
+    # A crafted deep link clamps BEFORE the query is built: the page
+    # read runs at the honest offset, never a crafted deep scan.
+    page = min(state.page, page_count)
+
+    wallets =
       filtered
       |> apply_sort(state.sort)
       |> Ash.Query.load(:balance)
       |> Ash.Query.limit(state.size)
-      |> Ash.Query.offset((state.page - 1) * state.size)
-
-    rows = Ash.read!(page_query)
-
-    # A stale deep link (rows left the window between visits) lands
-    # past the end: clamp to the last page, once.
-    {wallets, page} = clamp_page(rows, state.page, page_count, page_query, state.size)
+      |> Ash.Query.offset((page - 1) * state.size)
+      |> Ash.read!()
 
     updated = %{state | page: page, total: total}
 
@@ -172,21 +182,6 @@ defmodule FluxValeWeb.AdminLive.Billing do
       rows_empty?: wallets == []
     )
     |> stream(:wallets, wallets, reset: true)
-  end
-
-  defp clamp_page(rows, page, page_count, _page_query, _size) when page <= page_count do
-    {rows, page}
-  end
-
-  defp clamp_page(_empty, _page, page_count, page_query, size) do
-    last_offset = (page_count - 1) * size
-
-    rows =
-      page_query
-      |> Ash.Query.offset(last_offset)
-      |> Ash.read!()
-
-    {rows, page_count}
   end
 
   # The default order is the attention-first expression sort; the id
@@ -408,10 +403,25 @@ defmodule FluxValeWeb.AdminLive.Billing do
                   )}
                 </.empty_state>
 
-                <.empty_state
+                <div
                   :if={@rows_empty? and @table.query != ""}
-                  title={gettext("No wallet matches that org.")}
-                />
+                  class="rounded-panel border border-line bg-panel px-6 py-8"
+                  data-testid="admin-billing-search-empty"
+                >
+                  <.empty_state
+                    title={gettext("No wallet matches that org.")}
+                    class="border-none bg-transparent"
+                  >
+                    <.button
+                      variant="secondary"
+                      size="sm"
+                      phx-click="clear-search"
+                      data-testid="admin-billing-clear-search"
+                    >
+                      {gettext("Clear search")}
+                    </.button>
+                  </.empty_state>
+                </div>
 
                 <%!-- The data table (#501): the shared component owns
                 the chrome, the tracks, the floor, the sort headers,

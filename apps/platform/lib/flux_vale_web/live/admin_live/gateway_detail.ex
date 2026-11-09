@@ -117,9 +117,13 @@ defmodule FluxValeWeb.AdminLive.GatewayDetail do
   @impl Phoenix.LiveView
   def handle_event("sort", %{"field" => raw_field}, socket) do
     sort = AdminDataTable.toggle_sort(socket.assigns.table.sort, raw_field, @sortable)
-    state = %{socket.assigns.table | sort: sort, page: 1}
-
-    push_view(socket, state)
+    # A crafted field leaves the sort as it was: a true no-op, no
+    # page reset, no patch.
+    if sort == socket.assigns.table.sort do
+      {:noreply, socket}
+    else
+      push_view(socket, %{socket.assigns.table | sort: sort, page: 1})
+    end
   end
 
   # A crafted field is not a crash: the sort stays as it was.
@@ -212,35 +216,22 @@ defmodule FluxValeWeb.AdminLive.GatewayDetail do
     total = Ash.count!(filtered)
     page_count = AdminDataTable.page_count(total, state.size)
 
-    page_query =
+    # A crafted deep link clamps BEFORE the query is built: the page
+    # read runs at the honest offset, never a crafted deep scan.
+    page = min(state.page, page_count)
+
+    domains =
       filtered
       |> apply_sort(state.sort)
       |> Ash.Query.limit(state.size)
-      |> Ash.Query.offset((state.page - 1) * state.size)
-
-    rows = Ash.read!(page_query)
-    {domains, page} = clamp_page(rows, state.page, page_count, page_query, state.size)
+      |> Ash.Query.offset((page - 1) * state.size)
+      |> Ash.read!()
 
     updated = %{state | page: page, total: total}
 
     socket
     |> assign(table: updated, domains_empty?: domains == [])
     |> stream(:domains, domains, reset: true)
-  end
-
-  defp clamp_page(rows, page, page_count, _page_query, _size) when page <= page_count do
-    {rows, page}
-  end
-
-  defp clamp_page(_empty, _page, page_count, page_query, size) do
-    last_offset = (page_count - 1) * size
-
-    rows =
-      page_query
-      |> Ash.Query.offset(last_offset)
-      |> Ash.read!()
-
-    {rows, page_count}
   end
 
   # Newest registered first by default; the id tiebreak rides every

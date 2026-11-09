@@ -69,17 +69,29 @@ admin =
 
 # 26 invitations through the real action (nil actor + authorize?:
 # false, the seeds posture; the deliver discards — dev-capture
-# tooling sends no mail).
+# tooling sends no mail). The invited-at stamps are backdated to
+# distinct days, so the sorted column shows visibly different values
+# and a sort's reorder reads as a reorder, not a reshuffle.
+now = DateTime.utc_now()
+
 for i <- 1..26 do
   address =
     "datatable-capture-invite-#{String.pad_leading(Integer.to_string(i), 2, "0")}-#{System.unique_integer([:positive])}@quillsystems.test"
 
-  {:ok, _user, _raw} =
+  {:ok, user, _raw} =
     Identity.invite_user(
       nil,
       address,
       fn _to, _url -> {:ok, :discarded} end,
       authorize?: false
+    )
+
+  backdated = DateTime.add(now, -i, :day)
+
+  {1, _} =
+    Repo.update_all(
+      from(u in "users", where: u.id == ^Ecto.UUID.dump!(user.id)),
+      set: [invited_at: backdated]
     )
 end
 
@@ -95,6 +107,30 @@ empty_admin =
         authorize?: false
       )
   end
+
+# FV_PHASE=empty strips every invite (the honest-empty shots need a
+# state with no invitation rows at all — the people list is
+# platform-wide, so a different admin sees the same rows); the
+# default gallery phase builds the full state. The empty phase runs
+# FIRST, the gallery phase after it re-seeds.
+phase = System.get_env("FV_PHASE", "gallery")
+
+if phase == "empty" do
+  invite_user_ids =
+    Repo.all(
+      from(u in "users",
+        join: ue in "user_emails",
+        on: ue.user_id == u.id,
+        where: like(ue.address, "datatable-capture-invite-%"),
+        select: u.id
+      )
+    )
+
+  {_, nil} = Repo.delete_all(from(ue in "user_emails", where: ue.user_id in ^invite_user_ids))
+  {_, nil} = Repo.delete_all(from(u in "users", where: u.id in ^invite_user_ids))
+
+  IO.puts("PHASE=empty: every invite stripped, the list is honestly empty")
+end
 
 {:ok, token, _} = AshAuthentication.Jwt.token_for_user(admin)
 {:ok, empty_token, _} = AshAuthentication.Jwt.token_for_user(empty_admin)

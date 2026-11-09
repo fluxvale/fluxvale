@@ -144,6 +144,75 @@ defmodule FluxValeWeb.AdminDataTableLiveTest do
       assert has_element?(view, "[data-testid='admin-people-table-page-label']", "Page 2 of 2")
       assert has_element?(view, "[data-testid='admin-people-table-count']", "of 26")
     end
+
+    test "paging away and back never re-opens a withdraw confirm", %{conn: conn, admin: admin} do
+      # The fillers come first, so the pending invite (newest first)
+      # rides page one where the confirm opens.
+      for _n <- 1..25 do
+        invites!(1, "confirm-filler")
+      end
+
+      {:ok, pending, _raw} = Identity.invite_user(admin, unique_address("confirm"))
+
+      {:ok, view, _html} = live(conn, "/admin/people")
+
+      view
+      |> element("[data-testid='admin-people-withdraw-#{pending.id}']")
+      |> render_click()
+
+      assert has_element?(view, "[data-testid='destructive-confirm']")
+
+      # Next, then Prev: the list moved under a reset both times, so
+      # the confirm stays closed — no stale struct re-renders a
+      # destructive panel.
+      view
+      |> element("[data-testid='admin-people-table-page-next']")
+      |> render_click()
+
+      view
+      |> element("[data-testid='admin-people-table-page-prev']")
+      |> render_click()
+
+      refute has_element?(view, "[data-testid='destructive-confirm']")
+
+      # A sort move closes it the same way.
+      view
+      |> element("[data-testid='admin-people-table-sort-invited_at']")
+      |> render_click()
+
+      refute has_element?(view, "[data-testid='destructive-confirm']")
+    end
+
+    test "a bare % in the search matches nothing: ILIKE wildcards are literals", %{
+      conn: conn,
+      admin: admin
+    } do
+      {:ok, _user, _raw} = Identity.invite_user(admin, unique_address("wildcard"))
+
+      {:ok, view, _html} = live(conn, "/admin/people")
+
+      render_change(view, "search", %{"search" => %{"query" => "%"}})
+
+      assert has_element?(view, "[data-testid='admin-people-search-empty']")
+    end
+
+    test "a crafted event is a no-op: the view is unmoved", %{conn: conn} do
+      invites!(2, "crafted-events")
+
+      {:ok, view, _html} = live(conn, "/admin/people")
+
+      render_click(view, "search", %{"search" => %{"query" => %{"deep" => "crafted"}}})
+      render_click(view, "sort", %{"field" => "not-a-field"})
+      render_click(view, "page", %{"nav" => "sideways"})
+      render_click(view, "sort", %{})
+      render_click(view, "page", %{})
+      render_click(view, "size", %{})
+      render_click(view, "size", %{"size" => "999"})
+
+      # The default view, untouched.
+      assert has_element?(view, "[data-testid='admin-people-table-page-label']", "Page 1 of 1")
+      assert has_element?(view, "[data-testid='admin-people-table-count']", "of 2")
+    end
   end
 
   describe "the page math at its boundaries" do
@@ -215,6 +284,26 @@ defmodule FluxValeWeb.AdminDataTableLiveTest do
                "[data-testid='admin-people-table-size-25'][aria-pressed='false']"
              )
 
+      # Every size option executes.
+      view
+      |> element("[data-testid='admin-people-table-size-100']")
+      |> render_click()
+
+      assert_patched(view, "/admin/people?size=100")
+
+      assert has_element?(
+               view,
+               "[data-testid='admin-people-table-size-100'][aria-pressed='true']"
+             )
+
+      view
+      |> element("[data-testid='admin-people-table-size-25']")
+      |> render_click()
+
+      assert_patched(view, "/admin/people")
+
+      assert has_element?(view, "[data-testid='admin-people-table-size-25'][aria-pressed='true']")
+
       assert has_element?(view, "[data-testid='admin-people-table-size-100']")
     end
   end
@@ -246,6 +335,39 @@ defmodule FluxValeWeb.AdminDataTableLiveTest do
 
       render_change(view, "search", %{"search" => %{"query" => ""}})
       assert_patched(view, "/admin/people")
+    end
+  end
+
+  describe "the track math (finding 8's regression guard)" do
+    test "the grid template and the floor come from the one column list" do
+      columns = [
+        %{key: :a, label: "A", track: "minmax(7rem,1.8fr)", floor_rem: 7},
+        %{key: :b, label: "B", track: "5.5rem"},
+        %{key: :c, label: "C", track: "6.5rem"}
+      ]
+
+      assert AdminDataTable.grid_style(columns) ==
+               "grid-template-columns: minmax(7rem,1.8fr) 5.5rem 6.5rem"
+
+      # 7 + 5.5 + 6.5 fixed-and-floored, 2 gaps of 0.75, 1.5 padding.
+      assert AdminDataTable.floor_style(columns) == "min-width: 22.00rem"
+    end
+
+    test "a dropped floor_rem still floors at the fixed tracks, and a flexible-only list floors at its declared minimums" do
+      mixed = [
+        %{key: :a, label: "A", track: "minmax(0,1fr)", floor_rem: 6},
+        %{key: :b, label: "B", track: "9.5rem"}
+      ]
+
+      # max(6, flexible-0) + 9.5 + one gap + padding.
+      assert AdminDataTable.floor_style(mixed) == "min-width: 17.75rem"
+
+      flexible = [
+        %{key: :a, label: "A", track: "minmax(0,1fr)", floor_rem: 6},
+        %{key: :b, label: "B", track: "minmax(0,1.2fr)"}
+      ]
+
+      assert AdminDataTable.floor_style(flexible) == "min-width: 8.25rem"
     end
   end
 
@@ -283,6 +405,10 @@ defmodule FluxValeWeb.AdminDataTableLiveTest do
       assert AdminDataTable.parse_size("999") == 25
       assert AdminDataTable.parse_size("abc") == 25
       assert AdminDataTable.parse_size(:crafted) == 25
+
+      # The event-path cap: a non-binary term falls to the empty term.
+      assert AdminDataTable.cap_query("  padded  ") == "padded"
+      assert AdminDataTable.cap_query(:crafted) == ""
     end
 
     test "page_count never reports fewer than one page" do

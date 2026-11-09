@@ -62,6 +62,16 @@ defmodule FluxValeWeb.AdminOrgDetailLiveTest do
     {org, instances, version}
   end
 
+  defp attribute(view, testid, name) do
+    html = render(element(view, "[data-testid='#{testid}']"))
+    document = LazyHTML.from_fragment(html)
+    matches = LazyHTML.query(document, "[data-testid='#{testid}']")
+    first = Enum.at(matches, 0)
+    values = LazyHTML.attribute(first, name) || []
+
+    Enum.join(values, "")
+  end
+
   defp text_of(view, selector) do
     view
     |> element(selector)
@@ -322,6 +332,21 @@ defmodule FluxValeWeb.AdminOrgDetailLiveTest do
              )
 
       assert_patched(view, "/admin/orgs/#{org.id}?page=2")
+
+      # The table's guard rails: a crafted event is a no-op (the view
+      # is unmoved), and a whitelisted sort rides the URL.
+      render_click(view, "sort", %{"field" => "not-a-field"})
+      render_click(view, "page", %{"nav" => "sideways"})
+      render_click(view, "sort", %{})
+      render_click(view, "page", %{})
+      render_click(view, "size", %{})
+      render_click(view, "size", %{"size" => "999"})
+
+      assert has_element?(view, "[data-testid='admin-orgs-instances-table-page-label']")
+
+      {:ok, sorted, _html} = live(conn, "/admin/orgs/#{org.id}?sort=name&dir=asc")
+
+      assert has_element?(sorted, "[data-testid='admin-orgs-instances-table-header-instance']")
     end
   end
 
@@ -401,6 +426,117 @@ defmodule FluxValeWeb.AdminOrgDetailLiveTest do
                live(conn, "/admin/orgs/not-a-uuid")
 
       assert flash["error"] == "That org does not exist."
+    end
+  end
+
+  describe "the instances controls" do
+    test "executes every control, and a page-two broadcast never lands in page one",
+         %{conn: conn, admin: admin} do
+      {org, owner} = BillingFixtures.grant_free_org!()
+      {:ok, _wallet} = Billing.ensure_wallet(org)
+      {:ok, _grant} = Billing.grant_credits(org, 10_000, reason: :adjustment)
+
+      Membership.create!(%{organization_id: org.id, user_id: admin.id, role: :member},
+        authorize?: false
+      )
+
+      version = InstanceFixtures.app_version!()
+
+      instances = for _i <- 1..26, do: InstanceFixtures.instance!(version, owner)
+      page_two_instance = List.first(instances)
+
+      {:ok, view, _html} = live(conn, "/admin/orgs/#{org.id}")
+
+      # Sort ascending, then the sorted column flips to descending.
+      view
+      |> element("[data-testid='admin-orgs-instances-table-sort-name']")
+      |> render_click()
+
+      assert attribute(view, "admin-orgs-instances-table-header-instance", "aria-sort") ==
+               "ascending"
+
+      view
+      |> element("[data-testid='admin-orgs-instances-table-sort-name']")
+      |> render_click()
+
+      assert attribute(view, "admin-orgs-instances-table-header-instance", "aria-sort") ==
+               "descending"
+
+      # Prev: page two, then back to one.
+      view
+      |> element("[data-testid='admin-orgs-instances-table-page-next']")
+      |> render_click()
+
+      assert text_of(view, "[data-testid='admin-orgs-instances-table-page-label']") =~
+               "Page 2 of"
+
+      view
+      |> element("[data-testid='admin-orgs-instances-table-page-prev']")
+      |> render_click()
+
+      # Every size option executes.
+      view
+      |> element("[data-testid='admin-orgs-instances-table-size-50']")
+      |> render_click()
+
+      assert has_element?(
+               view,
+               "[data-testid='admin-orgs-instances-table-size-50'][aria-pressed=true]"
+             )
+
+      view
+      |> element("[data-testid='admin-orgs-instances-table-size-100']")
+      |> render_click()
+
+      assert has_element?(
+               view,
+               "[data-testid='admin-orgs-instances-table-size-100'][aria-pressed=true]"
+             )
+
+      view
+      |> element("[data-testid='admin-orgs-instances-table-size-25']")
+      |> render_click()
+
+      assert has_element?(
+               view,
+               "[data-testid='admin-orgs-instances-table-size-25'][aria-pressed=true]"
+             )
+
+      # The deep-link clamp: a crafted page answers with the last one.
+      {:ok, clamped, _html} = live(conn, "/admin/orgs/#{org.id}?page=10000")
+
+      assert text_of(clamped, "[data-testid='admin-orgs-instances-table-page-label']") =~
+               "Page 2 of 2"
+
+      # The broadcast-leak probe (the reviewer's shape): back on page
+      # one, a status broadcast for a PAGE-TWO instance must not land
+      # here — the id left the page, its subscription left with it.
+      rows_before =
+        view
+        |> render()
+        |> LazyHTML.from_fragment()
+        |> LazyHTML.query("[data-testid^='admin-orgs-instance-']")
+        |> Enum.count()
+
+      Phoenix.PubSub.broadcast(
+        FluxVale.PubSub,
+        "instances:#{page_two_instance.id}",
+        %Ash.Notifier.Notification{data: struct(Instance, id: page_two_instance.id)}
+      )
+
+      # Drain the view's mailbox: a sys round-trip is processed after
+      # the pending broadcasts (the sanctioned sync, no sleeps).
+      _drained = :sys.get_state(view.pid)
+
+      rows_after =
+        view
+        |> render()
+        |> LazyHTML.from_fragment()
+        |> LazyHTML.query("[data-testid^='admin-orgs-instance-']")
+        |> Enum.count()
+
+      assert rows_before == 25
+      assert rows_after == 25
     end
   end
 

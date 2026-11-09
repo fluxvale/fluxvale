@@ -538,6 +538,25 @@ defmodule FluxValeWeb.AdminPeopleLiveTest do
     end
   end
 
+  describe "the clear lever" do
+    test "the search-empty state's clear lever hands the list back", %{conn: conn, admin: admin} do
+      {:ok, _user, _raw} = Identity.invite_user(admin, unique_address("clear"))
+
+      {:ok, view, _html} = live(conn, "/admin/people")
+
+      render_change(view, "search", %{"search" => %{"query" => "zzz-no-such-invite"}})
+
+      assert has_element?(view, "[data-testid='admin-people-search-empty']")
+
+      view
+      |> element("[data-testid='admin-people-clear-search']")
+      |> render_click()
+
+      assert has_element?(view, "[data-testid^='admin-people-email-']")
+      refute has_element?(view, "[data-testid='admin-people-search-empty']")
+    end
+  end
+
   describe "the gates" do
     test "anonymous bounces to /sign-in", %{bare_conn: conn} do
       conn = get(conn, "/admin/people")

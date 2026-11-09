@@ -68,6 +68,16 @@ defmodule FluxValeWeb.AdminWalletDetailLiveTest do
     |> Map.get(:results)
   end
 
+  defp attribute(view, testid, name) do
+    html = render(element(view, "[data-testid='#{testid}']"))
+    document = LazyHTML.from_fragment(html)
+    matches = LazyHTML.query(document, "[data-testid='#{testid}']")
+    first = Enum.at(matches, 0)
+    values = LazyHTML.attribute(first, name) || []
+
+    Enum.join(values, "")
+  end
+
   defp text_of(view, selector) do
     view
     |> element(selector)
@@ -727,6 +737,29 @@ defmodule FluxValeWeb.AdminWalletDetailLiveTest do
       assert admin
     end
 
+    test "the ledger's guard rails: a crafted event is a no-op, a whitelisted sort rides the URL",
+         %{conn: conn, admin: admin, wallet: wallet} do
+      {:ok, _entry} = Billing.grant_credits(wallet, 1, reason: :adjustment)
+
+      {:ok, view, _html} = live(conn, "/admin/billing/wallets/#{wallet.id}")
+
+      render_click(view, "sort", %{"field" => "not-a-field"})
+      render_click(view, "page", %{"nav" => "sideways"})
+      render_click(view, "size", %{"size" => "999"})
+      render_click(view, "sort", %{})
+      render_click(view, "page", %{})
+      render_click(view, "size", %{})
+
+      assert text_of(view, "[data-testid='admin-wallet-ledger-count']") =~ "Showing 2 entries."
+
+      # The whitelisted sort rides the URL: the keyset restarts under
+      # the new order (cursors drop), ascending by amount.
+      {:ok, sorted, _html} = live(conn, "/admin/billing/wallets/#{wallet.id}?sort=amount&dir=asc")
+
+      assert has_element?(sorted, "[data-testid='admin-wallet-ledger-header-amount']")
+      assert admin
+    end
+
     test "a crafted cursor is not a crash: the newest page answers", %{
       conn: conn,
       admin: admin,
@@ -977,6 +1010,68 @@ defmodule FluxValeWeb.AdminWalletDetailLiveTest do
       # The ledger holds exactly what it held before the demotion:
       # the funding grant and the pre-seeded goodwill entry.
       assert length(ledger_entries!(wallet, admin)) == 2
+    end
+  end
+
+  describe "the ledger controls" do
+    test "executes every control: sort asc then desc, prev, and every size", %{
+      conn: conn,
+      admin: admin,
+      wallet: wallet
+    } do
+      for _n <- 1..26 do
+        {:ok, _entry} = Billing.grant_credits(wallet, 1, reason: :adjustment)
+      end
+
+      {:ok, view, _html} = live(conn, "/admin/billing/wallets/#{wallet.id}")
+
+      # Sort ascending by amount, then the sorted column flips to
+      # descending: both directions pinned, the cursor dropped each
+      # time (a sort restarts the keyset at the newest page).
+      view
+      |> element("[data-testid='admin-wallet-ledger-sort-amount']")
+      |> render_click()
+
+      assert attribute(view, "admin-wallet-ledger-header-amount", "aria-sort") == "ascending"
+
+      view
+      |> element("[data-testid='admin-wallet-ledger-sort-amount']")
+      |> render_click()
+
+      assert attribute(view, "admin-wallet-ledger-header-amount", "aria-sort") == "descending"
+
+      # Prev: forward a page, then back.
+      view
+      |> element("[data-testid='admin-wallet-ledger-page-next']")
+      |> render_click()
+
+      view
+      |> element("[data-testid='admin-wallet-ledger-page-prev']")
+      |> render_click()
+
+      # Every size option executes.
+      view
+      |> element("[data-testid='admin-wallet-ledger-size-50']")
+      |> render_click()
+
+      assert has_element?(view, "[data-testid='admin-wallet-ledger-size-50'][aria-pressed=true]")
+
+      view
+      |> element("[data-testid='admin-wallet-ledger-size-100']")
+      |> render_click()
+
+      assert has_element?(
+               view,
+               "[data-testid='admin-wallet-ledger-size-100'][aria-pressed=true]"
+             )
+
+      view
+      |> element("[data-testid='admin-wallet-ledger-size-25']")
+      |> render_click()
+
+      assert has_element?(view, "[data-testid='admin-wallet-ledger-size-25'][aria-pressed=true]")
+
+      assert admin
     end
   end
 

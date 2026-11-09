@@ -1,21 +1,26 @@
-/* Admin data-table gallery captures (#501). One seeded state
- * (admin_data_tables_seed.exs resets its own rows first): 26
- * invitations, so page one is full, page two carries one row, and the
- * size switch folds the two pages into one. Light and dark shot from
- * the SAME state. The session POST is checked for a 2xx explicitly,
- * at the failure point (the pledged #608 discipline: the seed's
- * token is the first suspect named, not a mystery /sign-in redirect
- * three steps later).
+/* Admin data-table gallery captures (#501). Two phases, driven by
+ * FV_PHASE on the seed and this script:
  *
- * The gallery: the populated table under each sort state (asc and
- * desc — sorting IS motion, the GIF rides separately), a
- * query-param URL stating its view, the page controls at both
- * boundaries, the size switch, search active and search-empty, the
- * honest empty, and the narrow widths where the table scrolls
- * INTERNALLY (the width probes print scrollWidth vs clientWidth and
- * throw on page-level overflow at 1024+).
+ *   empty   — the seed strips every invite, the script shoots the
+ *             honest empty (both themes);
+ *   gallery — the seeded 26-invitation state (page one full, page
+ *             two one row), everything else.
  *
- *   node admin_data_tables_screenshot.mjs <outdir>
+ * The gallery: the populated table under each sort state, a
+ * query-param URL SHOWN IN FRAME (an injected address pill), the
+ * page controls at both boundaries, the size switch, search active
+ * and search-empty (with the clear lever), a withdraw confirm OPEN
+ * inside the row grammar, an orgs-surface pair (a second adopting
+ * surface), a keyboard-focus still, and the narrow widths where the
+ * table scrolls INTERNALLY (the probes print scrollWidth vs
+ * clientWidth and throw on page-level overflow at 1024+).
+ *
+ * The session POST is checked for a 2xx explicitly AND the session
+ * is bounce-verified: a 200 also renders for a refused token, so the
+ * admin page itself is the verifier (the failure names its cause).
+ *
+ *   FV_PHASE=empty  node admin_data_tables_screenshot.mjs <outdir>
+ *   FV_PHASE=gallery node admin_data_tables_screenshot.mjs <outdir>
  */
 import { chromium } from "@playwright/test";
 import { mkdirSync } from "node:fs";
@@ -24,6 +29,8 @@ const BASE = process.env.FV_BASE ?? "http://127.0.0.1:4000";
 const outdir = process.argv[2] ?? "/tmp/opencode/fv501-datatable-shots";
 mkdirSync(outdir, { recursive: true });
 
+const PHASE = process.env.FV_PHASE ?? "gallery";
+
 const token = process.env.FV_TOKEN ?? "";
 const tokenEmpty = process.env.FV_TOKEN_EMPTY ?? "";
 const tokenSeeded = process.env.FV_TOKEN_SEEDED ?? "";
@@ -31,7 +38,10 @@ const walletId = process.env.FV_WALLET ?? "";
 const orgId = process.env.FV_ORG ?? "";
 const gatewayId = process.env.FV_GATEWAY ?? "";
 
-const ids = { token, tokenEmpty, tokenSeeded, walletId, orgId, gatewayId };
+const ids =
+  PHASE === "empty"
+    ? { token, tokenEmpty }
+    : { token, tokenEmpty, tokenSeeded, walletId, orgId, gatewayId };
 const missing = Object.entries(ids)
   .filter(([k, v]) => !v)
   .map(([k]) => k);
@@ -82,6 +92,24 @@ async function probeWidth(page, label, gate) {
 
 const WIDTHS = [480, 768, 1024, 1280, 1440];
 
+// An in-frame URL cue (finding 13): a fixed pill styled like an
+// address bar, carrying the live href — the shareable-URL headline
+// rides on the frame, not a caption.
+async function injectUrlPill(page) {
+  await page.evaluate(() => {
+    const pill = document.createElement("div");
+    pill.textContent = window.location.href;
+    pill.setAttribute("data-capture-url", "");
+    pill.style.cssText =
+      "position:fixed;top:10px;left:50%;transform:translateX(-50%);z-index:9999;" +
+      "background:#1f2937;color:#f9fafb;font:12px/1 ui-monospace,monospace;" +
+      "padding:7px 16px;border-radius:999px;box-shadow:0 2px 10px rgba(0,0,0,.45)";
+    document.body.appendChild(pill);
+  });
+}
+
+// An in-frame URL cue (finding 13): a fixed pill styled like an
+// address bar, carrying the live href — added per shot below.
 const browser = await chromium.launch();
 
 // A signed-in context via the sanctioned session POST, then the page.
@@ -132,6 +160,8 @@ async function atWidths(page, label) {
 }
 
 for (const mode of ["light", "dark"]) {
+  if (PHASE !== "gallery") break;
+
   const { ctx, page } = await newSession(token);
 
   // The default view: bare URL, newest first, a full first page.
@@ -144,14 +174,28 @@ for (const mode of ["light", "dark"]) {
   });
   console.log(`default-${mode}`);
 
-  // The URL states the view: sorted ascending, page two, size 50 —
-  // reloading lands exactly here. (The list is 26 rows, so size 50
-  // shows all of them; the page-two boundary shots below ride the
-  // default size.)
+  if (PHASE === "gallery") {
+    // A withdraw confirm OPEN inside the component's row grammar
+    // (finding 14): the action and its consequence share one block.
+    await page.click("[data-testid^='admin-people-withdraw-']");
+    await page.waitForSelector("[data-testid='destructive-confirm']");
+    await page.screenshot({
+      path: `${outdir}/datatable-confirm-open-${mode}.png`,
+      fullPage: true,
+    });
+    console.log(`confirm-open-${mode}`);
+    await page.goto(`${BASE}/admin/people`, { waitUntil: "networkidle" });
+    await page.waitForSelector("[data-testid^='admin-people-email-']");
+  }
+
+  // The URL states the view: sorted ascending, size 50 — reloading
+  // lands exactly here, and the injected pill shows the URL in frame
+  // (finding 13).
   await page.goto(`${BASE}/admin/people?sort=invited_at&dir=asc&size=50`, {
     waitUntil: "networkidle",
   });
   await page.waitForSelector("[data-testid^='admin-people-email-']");
+  await injectUrlPill(page);
   await page.screenshot({
     path: `${outdir}/datatable-param-view-${mode}.png`,
     fullPage: true,
@@ -185,7 +229,9 @@ for (const mode of ["light", "dark"]) {
   await page.waitForTimeout(600);
 
   // Page boundary two: the last page (one row), Next retired, Prev
-  // armed. The URL is the ?page=2 form the pagination pushed.
+  // armed. The URL is the ?page=2 form the pagination pushed — the
+  // pill shows it in frame.
+  await injectUrlPill(page);
   await page.screenshot({
     path: `${outdir}/datatable-page2-${mode}.png`,
     fullPage: true,
@@ -195,6 +241,7 @@ for (const mode of ["light", "dark"]) {
   // The size switch: 50 folds the two pages into one.
   await page.click("[data-testid='admin-people-table-size-50']");
   await page.waitForTimeout(600);
+  await injectUrlPill(page);
   await page.screenshot({
     path: `${outdir}/datatable-size-50-${mode}.png`,
     fullPage: true,
@@ -206,22 +253,33 @@ for (const mode of ["light", "dark"]) {
     waitUntil: "networkidle",
   });
   await page.waitForSelector("[data-testid^='admin-people-email-']");
+  await injectUrlPill(page);
   await page.screenshot({
     path: `${outdir}/datatable-search-${mode}.png`,
     fullPage: true,
   });
   console.log(`search-${mode}`);
 
-  // Search-empty: the honest no-match state.
+  // Search-empty: the honest no-match state with its clear lever.
   await page.goto(`${BASE}/admin/people?q=zzz-no-such-invite`, {
     waitUntil: "networkidle",
   });
-  await page.waitForSelector("[data-testid='admin-people-list'] p");
+  await page.waitForSelector("[data-testid='admin-people-search-empty']");
   await page.screenshot({
     path: `${outdir}/datatable-search-empty-${mode}.png`,
     fullPage: true,
   });
   console.log(`search-empty-${mode}`);
+
+  // A second adopting surface (finding 14): the orgs table, same
+  // component, different columns and grammar.
+  await page.goto(`${BASE}/admin/orgs`, { waitUntil: "networkidle" });
+  await page.waitForSelector("[data-testid^='admin-orgs-org-']");
+  await page.screenshot({
+    path: `${outdir}/datatable-orgs-${mode}.png`,
+    fullPage: true,
+  });
+  console.log(`orgs-${mode}`);
 
   // Width probes on the populated table (the floor posture at every
   // claimed width), then the narrow pair with the internal scroll.
@@ -241,21 +299,39 @@ for (const mode of ["light", "dark"]) {
   }
   await page.setViewportSize({ width: 1440, height: 900 });
 
+  // The keyboard-focus still (finding 15): one Tab sets keyboard
+  // modality, then the programmatic focus lands the focus-visible
+  // ring on the Invited sort header.
+  await page.keyboard.press("Tab");
+  await page.evaluate(() => {
+    document.querySelector("[data-testid='admin-people-table-sort-invited_at']").focus();
+  });
+  await page.waitForTimeout(300);
+  await page.screenshot({
+    path: `${outdir}/datatable-focus-${mode}.png`,
+    fullPage: false,
+    clip: { x: 0, y: 60, width: 1440, height: 620 },
+  });
+  console.log(`focus-${mode}`);
+
   await ctx.close();
 }
 
-// The honest empty: a different admin, no invitations at all.
-for (const mode of ["light", "dark"]) {
-  const { ctx, page } = await newSession(tokenEmpty);
-  await page.goto(`${BASE}/admin/people`, { waitUntil: "networkidle" });
-  await setTheme(page, mode);
-  await page.waitForSelector("[data-testid='admin-people-list'] p");
-  await page.screenshot({
-    path: `${outdir}/datatable-empty-${mode}.png`,
-    fullPage: true,
-  });
-  console.log(`empty-${mode}`);
-  await ctx.close();
+if (PHASE === "empty") {
+  // The honest empty: the invites are stripped from the state, so
+  // EVERY admin sees the empty list.
+  for (const mode of ["light", "dark"]) {
+    const { ctx, page } = await newSession(tokenEmpty);
+    await page.goto(`${BASE}/admin/people`, { waitUntil: "networkidle" });
+    await setTheme(page, mode);
+    await page.waitForSelector("[data-testid='admin-people-list'] p");
+    await page.screenshot({
+      path: `${outdir}/datatable-empty-${mode}.png`,
+      fullPage: true,
+    });
+    console.log(`empty-${mode}`);
+    await ctx.close();
+  }
 }
 
 // The per-surface width probes (#501 adoption): every adopting
@@ -296,6 +372,8 @@ const PROBE_SURFACES = [
 ];
 
 for (const mode of ["light", "dark"]) {
+  if (PHASE !== "gallery") break;
+
   const { ctx, page } = await newSession(tokenSeeded);
 
   for (const surface of PROBE_SURFACES) {
@@ -308,38 +386,61 @@ for (const mode of ["light", "dark"]) {
   await ctx.close();
 }
 
-// The sort GIF (#554 discipline): sorting IS motion — a state change
-// with a press visible and the change held. Light theme; the clicks
-// flip Invited to ascending and back to descending, and the rows
-// reorder both times. Playwright records per-context, so the GIF
-// rides a dedicated video context.
-{
+// The sort GIF (#554 discipline): sorting IS motion. Cookie-carried
+// context (no sign-in frame — the page is the first frame), a visible
+// cursor dot riding the pointer to the header, two presses (ascending,
+// then descending held), distinct dates in the sorted column from the
+// seed, 1:1 crop keeping the H1 and the Invited column whole, and a
+// two-pass palette so the dithering stays clean.
+if (PHASE === "gallery") {
+  const carrier = await newSession(token);
+  const cookies = await carrier.ctx.cookies();
+  await carrier.ctx.close();
+
   const gifCtx = await browser.newContext({
     viewport: { width: 1440, height: 900 },
     recordVideo: { dir: outdir, size: { width: 1440, height: 900 } },
   });
+  await gifCtx.addCookies(cookies);
   const gifPage = await gifCtx.newPage();
-  await gifPage.goto(`${BASE}/sign-in`, { waitUntil: "networkidle" });
-  const csrf = await gifPage.locator('meta[name="csrf-token"]').getAttribute("content");
-  const posted = await gifPage.request.post(`${BASE}/auth/session`, {
-    form: { token },
-    headers: { "x-csrf-token": csrf },
-  });
-  if (!posted.ok()) {
-    throw new Error(`session POST failed for the GIF context: HTTP ${posted.status()}`);
-  }
-
   await gifPage.goto(`${BASE}/admin/people`, { waitUntil: "networkidle" });
   await setTheme(gifPage, "light");
   await gifPage.waitForSelector("[data-testid^='admin-people-email-']");
-  await gifPage.waitForTimeout(800);
+  await gifPage.waitForTimeout(1200);
+
+  // A cursor dot that rides the click: measured onto the header
+  // button, pressed with a scale pulse, so the press is ON FILM.
+  const box = await gifPage.locator("[data-testid='admin-people-table-sort-invited_at']").boundingBox();
+
+  await gifPage.evaluate(({ x, y }) => {
+    const dot = document.createElement("div");
+    dot.setAttribute("data-capture-cursor", "");
+    dot.style.cssText =
+      `position:fixed;left:${x + 24}px;top:${y + 12}px;width:26px;height:26px;` +
+      "border-radius:999px;background:rgba(239,68,68,.85);border:2px solid #fff;" +
+      "z-index:10000;transform:translate(-50%,-50%);transition:transform 120ms ease-out;" +
+      "box-shadow:0 1px 6px rgba(0,0,0,.4);pointer-events:none";
+    document.body.appendChild(dot);
+  }, { x: box.x, y: box.y });
+
+  const press = () =>
+    gifPage.evaluate(() => {
+      const dot = document.querySelector("[data-capture-cursor]");
+      dot.style.transform = "translate(-50%,-50%) scale(1.5)";
+      setTimeout(() => {
+        dot.style.transform = "translate(-50%,-50%) scale(1)";
+      }, 160);
+    });
 
   // The first press: Invited to ascending, held so the reorder reads.
+  await press();
   await gifPage.click("[data-testid='admin-people-table-sort-invited_at']");
-  await gifPage.waitForTimeout(1200);
+  await gifPage.waitForTimeout(1400);
+
   // The second press: descending, held.
+  await press();
   await gifPage.click("[data-testid='admin-people-table-sort-invited_at']");
-  await gifPage.waitForTimeout(1200);
+  await gifPage.waitForTimeout(1800);
 
   await gifCtx.close();
   console.log("sort-gif-webm");

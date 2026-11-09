@@ -205,6 +205,31 @@ defmodule FluxValeWeb.AdminModerationLiveTest do
              )
 
       assert_patched(view, "/admin/moderation?page=2")
+
+      # The table's guard rails: a crafted event is a no-op (the view
+      # is unmoved), and a whitelisted sort rides the URL.
+      render_click(view, "sort", %{"field" => "not-a-field"})
+      render_click(view, "page", %{"nav" => "sideways"})
+      render_click(view, "sort", %{})
+      render_click(view, "page", %{})
+      render_click(view, "size", %{})
+
+      assert text_of(view, "[data-testid='admin-moderation-posts-page-label']") =~ "Page 2 of"
+
+      # A garbage size falls back to the default and resets the page
+      # with it: the honest fallback, not a silent acceptance.
+      render_click(view, "size", %{"size" => "999"})
+
+      assert text_of(view, "[data-testid='admin-moderation-posts-page-label']") =~ "Page 1 of"
+
+      # The deep-link clamp answers page 9 with the last page.
+      {:ok, clamped, _html} = live(conn, "/admin/moderation?page=9")
+
+      assert text_of(clamped, "[data-testid='admin-moderation-posts-page-label']") =~ "Page 2 of"
+
+      {:ok, sorted, _html} = live(conn, "/admin/moderation?sort=created_at&dir=asc")
+
+      assert has_element?(sorted, "[data-testid='admin-moderation-posts-header-posted']")
     end
 
     test "the status filter narrows to the chosen status and All hands the list back", %{
@@ -806,7 +831,205 @@ defmodule FluxValeWeb.AdminModerationLiveTest do
     end
   end
 
+  describe "the posts controls" do
+    test "paging away and back never re-opens an expansion or confirm", %{conn: conn} do
+      for _n <- 1..25 do
+        FeedbackFixtures.post!()
+      end
+
+      # The probe post is the newest: it rides page one, where the
+      # expansion opens.
+      post = FeedbackFixtures.post!(%{title: "The probe post"})
+
+      {:ok, view, _html} = live(conn, "/admin/moderation")
+
+      # Open the expansion (a fresh domain read opens it).
+      view
+      |> element("[data-testid='admin-moderation-expand-#{post.id}']")
+      |> render_click()
+
+      assert has_element?(view, "[data-testid='admin-moderation-detail-#{post.id}']")
+
+      # Next, then Prev: the list moved under a reset both times, so
+      # the expansion stays closed.
+      view
+      |> element("[data-testid='admin-moderation-posts-page-next']")
+      |> render_click()
+
+      view
+      |> element("[data-testid='admin-moderation-posts-page-prev']")
+      |> render_click()
+
+      refute has_element?(view, "[data-testid='admin-moderation-detail-#{post.id}']")
+
+      # A sort move closes it the same way.
+      view
+      |> element("[data-testid='admin-moderation-posts-sort-created_at']")
+      |> render_click()
+
+      refute has_element?(view, "[data-testid='admin-moderation-detail-#{post.id}']")
+    end
+
+    test "a bare % in the search matches nothing: ILIKE wildcards are literals", %{conn: conn} do
+      FeedbackFixtures.post!()
+
+      {:ok, view, _html} = live(conn, "/admin/moderation")
+
+      render_change(view, "search", %{"search" => %{"query" => "%"}})
+
+      assert has_element?(view, "[data-testid='admin-moderation-empty']")
+    end
+  end
+
+  describe "the posts table controls" do
+    test "executes every control: sort asc then desc, prev, every size, and the deep-link clamp",
+         %{conn: conn} do
+      oldest = FeedbackFixtures.post!(%{title: "The oldest post"})
+
+      for n <- 1..25 do
+        FeedbackFixtures.post!(%{title: "Control post #{n}"})
+      end
+
+      {:ok, view, _html} = live(conn, "/admin/moderation")
+
+      # Sort ascending, then the sorted column flips to descending.
+      view
+      |> element("[data-testid='admin-moderation-posts-sort-created_at']")
+      |> render_click()
+
+      assert attribute(view, "admin-moderation-posts-header-posted", "aria-sort") == "ascending"
+
+      view
+      |> element("[data-testid='admin-moderation-posts-sort-created_at']")
+      |> render_click()
+
+      assert attribute(view, "admin-moderation-posts-header-posted", "aria-sort") == "descending"
+
+      # Prev: page two, then back to one.
+      view
+      |> element("[data-testid='admin-moderation-posts-page-next']")
+      |> render_click()
+
+      view
+      |> element("[data-testid='admin-moderation-posts-page-prev']")
+      |> render_click()
+
+      assert text_of(view, "[data-testid='admin-moderation-posts-page-label']") =~ "Page 1 of"
+
+      # Every size option executes.
+      view
+      |> element("[data-testid='admin-moderation-posts-size-50']")
+      |> render_click()
+
+      assert has_element?(
+               view,
+               "[data-testid='admin-moderation-posts-size-50'][aria-pressed=true]"
+             )
+
+      view
+      |> element("[data-testid='admin-moderation-posts-size-100']")
+      |> render_click()
+
+      assert has_element?(
+               view,
+               "[data-testid='admin-moderation-posts-size-100'][aria-pressed=true]"
+             )
+
+      view
+      |> element("[data-testid='admin-moderation-posts-size-25']")
+      |> render_click()
+
+      assert has_element?(
+               view,
+               "[data-testid='admin-moderation-posts-size-25'][aria-pressed=true]"
+             )
+
+      # The deep-link clamp: a crafted page answers with the last one,
+      # and the oldest post rides it (ascending flipped the order).
+      {:ok, clamped, _html} = live(conn, "/admin/moderation?page=10000")
+
+      assert text_of(clamped, "[data-testid='admin-moderation-posts-page-label']") =~
+               "Page 2 of 2"
+
+      assert has_element?(clamped, "[data-testid='admin-moderation-title-#{oldest.id}']")
+    end
+  end
+
   describe "the tag vocabulary" do
+    test "the tag table sorts, sizes, and pages by session state, and a crafted event is a no-op",
+         %{
+           conn: conn
+         } do
+      # Two full pages of tags, seeded (the page controls need a real
+      # page two to exercise).
+      for n <- 1..26 do
+        Tag
+        |> Ash.Changeset.for_create(
+          :create,
+          %{name: "Probe tag #{String.pad_leading(Integer.to_string(n), 2, "0")}"},
+          authorize?: false
+        )
+        |> Ash.create!()
+      end
+
+      {:ok, view, _html} = live(conn, "/admin/moderation")
+
+      # One tag through the real form (the vocabulary fixture path).
+      view
+      |> element("#admin-moderation-tag-create")
+      |> render_submit(%{"tag" => %{"name" => "Session state probe", "slug" => ""}})
+
+      assert has_element?(view, "#flash-info", "Tag created.")
+
+      # The tags table's sort: clicking the Tag header toggles the
+      # session-state sort (nil to ascending).
+      view
+      |> element("[data-testid='admin-moderation-tags-list-sort-name']")
+      |> render_click()
+
+      assert has_element?(view, "[data-testid='admin-moderation-tags-list-header-tag']")
+      assert has_element?(view, "[data-testid='admin-moderation-tags-list-count']")
+
+      # Next to page two, Prev back: both directions of the session
+      # state's page movement (at the default size, two real pages).
+      view
+      |> element("[data-testid='admin-moderation-tags-list-page-next']")
+      |> render_click()
+
+      assert text_of(view, "[data-testid='admin-moderation-tags-list-page-label']") =~
+               "Page 2 of"
+
+      view
+      |> element("[data-testid='admin-moderation-tags-list-page-prev']")
+      |> render_click()
+
+      assert text_of(view, "[data-testid='admin-moderation-tags-list-page-label']") =~
+               "Page 1 of"
+
+      # Size rides the session state too.
+      view
+      |> element("[data-testid='admin-moderation-tags-list-size-50']")
+      |> render_click()
+
+      assert has_element?(
+               view,
+               "[data-testid='admin-moderation-tags-list-size-50'][aria-pressed=true]"
+             )
+
+      # Crafted events: no-ops, not crashes. Crafted Prev never
+      # walks the page under one (no URL round-trip to rescue it).
+      render_click(view, "sort-tags", %{"field" => "not-a-field"})
+      render_click(view, "page-tags", %{"nav" => "sideways"})
+      render_click(view, "size-tags", %{"size" => "999"})
+      render_click(view, "page-tags", %{"nav" => "prev"})
+      render_click(view, "sort-tags", %{})
+      render_click(view, "page-tags", %{})
+      render_click(view, "size-tags", %{})
+
+      assert has_element?(view, "[data-testid='admin-moderation-tags-list-size-25']")
+      assert has_element?(view, "[data-testid='admin-moderation-tags-list-count']")
+    end
+
     test "the create form derives the slug from the name when the slug is blank", %{conn: conn} do
       {:ok, view, _html} = live(conn, "/admin/moderation")
 
@@ -1390,6 +1613,25 @@ defmodule FluxValeWeb.AdminModerationLiveTest do
     end
   end
 
+  describe "the clear lever" do
+    test "the empty state's clear lever hands the list back", %{conn: conn} do
+      FeedbackFixtures.post!(%{title: "Clear lever post"})
+
+      {:ok, view, _html} = live(conn, "/admin/moderation")
+
+      render_change(view, "search", %{"search" => %{"query" => "zzz-no-such-post"}})
+
+      assert has_element?(view, "[data-testid='admin-moderation-empty']")
+
+      view
+      |> element("[data-testid='admin-moderation-clear-search']")
+      |> render_click()
+
+      assert has_element?(view, "[data-testid^='admin-moderation-title-']")
+      refute has_element?(view, "[data-testid='admin-moderation-clear-search']")
+    end
+  end
+
   describe "the shell and the gates" do
     test "the sidebar marks the feedback entry live and exact", %{conn: conn} do
       {:ok, view, _html} = live(conn, "/admin/moderation")
@@ -1458,6 +1700,16 @@ defmodule FluxValeWeb.AdminModerationLiveTest do
       assert {:error, %Ash.Error.Forbidden{}} =
                Ash.destroy(tag, actor: non_admin, authorize?: true)
     end
+  end
+
+  defp attribute(view, testid, name) do
+    html = render(element(view, "[data-testid='#{testid}']"))
+    document = LazyHTML.from_fragment(html)
+    matches = LazyHTML.query(document, "[data-testid='#{testid}']")
+    first = Enum.at(matches, 0)
+    values = LazyHTML.attribute(first, name) || []
+
+    Enum.join(values, "")
   end
 
   defp text_of(view, selector) do

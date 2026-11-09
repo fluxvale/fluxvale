@@ -92,6 +92,16 @@ defmodule FluxValeWeb.AdminBillingLiveTest do
     )
   end
 
+  defp attribute(view, testid, name) do
+    html = render(element(view, "[data-testid='#{testid}']"))
+    document = LazyHTML.from_fragment(html)
+    matches = LazyHTML.query(document, "[data-testid='#{testid}']")
+    first = Enum.at(matches, 0)
+    values = LazyHTML.attribute(first, name) || []
+
+    Enum.join(values, "")
+  end
+
   defp text_of(view, selector) do
     view
     |> element(selector)
@@ -300,6 +310,108 @@ defmodule FluxValeWeb.AdminBillingLiveTest do
       assert has_element?(view, "[data-testid='admin-billing-org-#{oldest.id}']")
       assert text_of(view, "[data-testid='admin-billing-table-page-label']") =~ "Page 2 of"
       assert_patched(view, "/admin/billing?page=2")
+
+      # The table's guard rails: a whitelisted sort rides the URL, a
+      # crafted event is a no-op (the list is unmoved), and a deep
+      # link past the end clamps to the last page.
+      render_click(view, "sort", %{"field" => "not-a-field"})
+      render_click(view, "page", %{"nav" => "sideways"})
+      render_click(view, "sort", %{})
+      render_click(view, "page", %{})
+      render_click(view, "size", %{})
+      render_change(view, "search", %{"search" => %{"query" => %{"deep" => "crafted"}}})
+
+      assert text_of(view, "[data-testid='admin-billing-table-page-label']") =~ "Page 2 of"
+
+      # A garbage size falls back to the default and resets the page
+      # with it: the honest fallback, not a silent acceptance.
+      render_click(view, "size", %{"size" => "999"})
+
+      assert text_of(view, "[data-testid='admin-billing-table-page-label']") =~ "Page 1 of"
+
+      {:ok, sorted, _html} = live(conn, "/admin/billing?sort=balance&dir=asc")
+      assert text_of(sorted, "[data-testid='admin-billing-table-header-balance']") =~ "Balance"
+    end
+  end
+
+  describe "the table controls" do
+    test "the wallet table executes every control: sort asc then desc, prev, every size, and the deep-link clamp",
+         %{conn: conn} do
+      for n <- 1..26 do
+        org_wallet!(name: "control co #{n}")
+      end
+
+      {:ok, view, _html} = live(conn, "/admin/billing")
+
+      # Sort by balance ascending, then the sorted column again flips
+      # to descending: both directions pinned on the header.
+      view
+      |> element("[data-testid='admin-billing-table-sort-balance']")
+      |> render_click()
+
+      assert text_of(view, "[data-testid='admin-billing-table-header-balance']") =~ "Balance"
+
+      assert attribute(view, "admin-billing-table-header-balance", "aria-sort") == "ascending"
+
+      view
+      |> element("[data-testid='admin-billing-table-sort-balance']")
+      |> render_click()
+
+      assert attribute(view, "admin-billing-table-header-balance", "aria-sort") == "descending"
+
+      # Prev: page two then back to one.
+      view
+      |> element("[data-testid='admin-billing-table-page-next']")
+      |> render_click()
+
+      view
+      |> element("[data-testid='admin-billing-table-page-prev']")
+      |> render_click()
+
+      assert text_of(view, "[data-testid='admin-billing-table-page-label']") =~ "Page 1 of"
+
+      # Every size option executes, 50 folds the pages into one.
+      view
+      |> element("[data-testid='admin-billing-table-size-50']")
+      |> render_click()
+
+      assert has_element?(view, "[data-testid='admin-billing-table-size-50'][aria-pressed=true]")
+
+      view
+      |> element("[data-testid='admin-billing-table-size-100']")
+      |> render_click()
+
+      assert has_element?(view, "[data-testid='admin-billing-table-size-100'][aria-pressed=true]")
+
+      view
+      |> element("[data-testid='admin-billing-table-size-25']")
+      |> render_click()
+
+      assert has_element?(view, "[data-testid='admin-billing-table-size-25'][aria-pressed=true]")
+
+      # The deep-link clamp: page 10000 answers with the last page.
+      {:ok, clamped, _html} = live(conn, "/admin/billing?page=10000")
+
+      assert text_of(clamped, "[data-testid='admin-billing-table-page-label']") =~ "Page 2 of"
+    end
+  end
+
+  describe "the clear lever" do
+    test "the search-empty state's clear lever hands the list back", %{conn: conn} do
+      funded_wallet!(name: "clear lever co")
+
+      {:ok, view, _html} = live(conn, "/admin/billing")
+
+      render_change(view, "search", %{"search" => %{"query" => "zzz-no-such-org"}})
+
+      assert has_element?(view, "[data-testid='admin-billing-search-empty']")
+
+      view
+      |> element("[data-testid='admin-billing-clear-search']")
+      |> render_click()
+
+      assert has_element?(view, "[data-testid^='admin-billing-org-link-']")
+      refute has_element?(view, "[data-testid='admin-billing-search-empty']")
     end
   end
 

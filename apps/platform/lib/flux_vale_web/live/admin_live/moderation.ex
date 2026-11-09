@@ -140,9 +140,17 @@ defmodule FluxValeWeb.AdminLive.Moderation do
   @impl Phoenix.LiveView
   def handle_event("sort", %{"field" => raw_field}, socket) do
     sort = AdminDataTable.toggle_sort(socket.assigns.table.sort, raw_field, @sortable_posts)
-    state = %{socket.assigns.table | sort: sort, page: 1}
 
-    push_view(socket, state)
+    # A crafted field leaves the sort as it was: a true no-op. A real
+    # sort moves the list under a reset, so an open expansion and its
+    # confirm close with it (the people surface's rule).
+    if sort == socket.assigns.table.sort do
+      {:noreply, socket}
+    else
+      cleared = close_expansion(socket)
+
+      push_view(cleared, %{socket.assigns.table | sort: sort, page: 1})
+    end
   end
 
   # A crafted field is not a crash: the sort stays as it was.
@@ -150,15 +158,17 @@ defmodule FluxValeWeb.AdminLive.Moderation do
 
   @impl Phoenix.LiveView
   def handle_event("page", %{"nav" => "prev"}, socket) do
+    cleared = close_expansion(socket)
     state = %{socket.assigns.table | page: socket.assigns.table.page - 1}
 
-    push_view(socket, state)
+    push_view(cleared, state)
   end
 
   def handle_event("page", %{"nav" => "next"}, socket) do
+    cleared = close_expansion(socket)
     state = %{socket.assigns.table | page: socket.assigns.table.page + 1}
 
-    push_view(socket, state)
+    push_view(cleared, state)
   end
 
   # A crafted page event is a no-op.
@@ -166,10 +176,11 @@ defmodule FluxValeWeb.AdminLive.Moderation do
 
   @impl Phoenix.LiveView
   def handle_event("size", %{"size" => raw}, socket) do
+    cleared = close_expansion(socket)
     size = AdminDataTable.parse_size(raw)
     state = %{socket.assigns.table | size: size, page: 1}
 
-    push_view(socket, state)
+    push_view(cleared, state)
   end
 
   def handle_event("size", _params, socket), do: {:noreply, socket}
@@ -186,11 +197,17 @@ defmodule FluxValeWeb.AdminLive.Moderation do
 
   def handle_event("sort-tags", _params, socket), do: {:noreply, socket}
 
+  # The tag table has no URL round-trip to rescue a bad page, so the
+  # handlers guard the page themselves: prev never goes under one.
   def handle_event("page-tags", %{"nav" => "prev"}, socket) do
-    tag_state = %{socket.assigns.tag_state | page: socket.assigns.tag_state.page - 1}
-    tagged = assign(socket, tag_state: tag_state)
+    if socket.assigns.tag_state.page > 1 do
+      tag_state = %{socket.assigns.tag_state | page: socket.assigns.tag_state.page - 1}
+      tagged = assign(socket, tag_state: tag_state)
 
-    {:noreply, refresh_tags(tagged)}
+      {:noreply, refresh_tags(tagged)}
+    else
+      {:noreply, socket}
+    end
   end
 
   def handle_event("page-tags", %{"nav" => "next"}, socket) do
@@ -211,6 +228,15 @@ defmodule FluxValeWeb.AdminLive.Moderation do
   end
 
   def handle_event("size-tags", _params, socket), do: {:noreply, socket}
+
+  # The search-empty state's clear lever: the same view, term gone.
+  @impl Phoenix.LiveView
+  def handle_event("clear-search", _params, socket) do
+    cleared = close_expansion(socket)
+    state = %{socket.assigns.table | query: "", page: 1}
+
+    push_view(cleared, state)
+  end
 
   # The expansion toggle. The open is a fresh domain read (the people
   # reveal posture): a post deleted between the list render and the
@@ -784,39 +810,23 @@ defmodule FluxValeWeb.AdminLive.Moderation do
     total = Ash.count!(filtered)
     page_count = AdminDataTable.page_count(total, state.size)
 
-    page_query =
+    # A crafted deep link clamps BEFORE the query is built: the page
+    # read runs at the honest offset, never a crafted deep scan.
+    page = min(state.page, page_count)
+
+    posts =
       filtered
       |> apply_sort(state.sort)
       |> Ash.Query.load(:created_by_user)
       |> Ash.Query.limit(state.size)
-      |> Ash.Query.offset((state.page - 1) * state.size)
-
-    rows = Ash.read!(page_query)
-
-    # A stale deep link (rows left the window between visits) lands
-    # past the end: clamp to the last page, once.
-    {posts, page} = clamp_page(rows, state.page, page_count, page_query, state.size)
+      |> Ash.Query.offset((page - 1) * state.size)
+      |> Ash.read!()
 
     updated = %{state | page: page, total: total}
 
     socket
     |> assign(table: updated, rows_empty?: posts == [])
     |> stream(:posts, posts, reset: true)
-  end
-
-  defp clamp_page(rows, page, page_count, _page_query, _size) when page <= page_count do
-    {rows, page}
-  end
-
-  defp clamp_page(_empty, _page, page_count, page_query, size) do
-    last_offset = (page_count - 1) * size
-
-    rows =
-      page_query
-      |> Ash.Query.offset(last_offset)
-      |> Ash.read!()
-
-    {rows, page_count}
   end
 
   defp apply_sort(query, nil), do: Ash.Query.sort(query, created_at: :desc, id: :desc)
@@ -829,7 +839,15 @@ defmodule FluxValeWeb.AdminLive.Moderation do
   defp maybe_search(query, ""), do: query
 
   defp maybe_search(query, term) do
-    pattern = "%#{term}%"
+    # ILIKE wildcards in the term are literals: escaped before the
+    # pattern wraps both ends (the billing surface's block).
+    escaped =
+      term
+      |> String.replace("\\", "\\\\")
+      |> String.replace("%", "\\%")
+      |> String.replace("_", "\\_")
+
+    pattern = "%#{escaped}%"
 
     Ash.Query.filter(
       query,
@@ -862,15 +880,16 @@ defmodule FluxValeWeb.AdminLive.Moderation do
     total = Ash.count!(filtered)
     page_count = AdminDataTable.page_count(total, state.size)
 
-    page_query =
+    # The same pre-query clamp the posts table runs.
+    page = min(state.page, page_count)
+
+    tags =
       filtered
       |> apply_tag_sort(state.sort)
       |> Ash.Query.load(:post_tags)
       |> Ash.Query.limit(state.size)
-      |> Ash.Query.offset((state.page - 1) * state.size)
-
-    rows = Ash.read!(page_query)
-    {tags, page} = clamp_page(rows, state.page, page_count, page_query, state.size)
+      |> Ash.Query.offset((page - 1) * state.size)
+      |> Ash.read!()
 
     updated = %{state | page: page, total: total}
 
@@ -1247,7 +1266,16 @@ defmodule FluxValeWeb.AdminLive.Moderation do
                     :if={@table.query != "" or not is_nil(@status)}
                     title={gettext("No post matches that search or filter.")}
                     class="border-none bg-transparent"
-                  />
+                  >
+                    <.button
+                      variant="secondary"
+                      size="sm"
+                      phx-click="clear-search"
+                      data-testid="admin-moderation-clear-search"
+                    >
+                      {gettext("Clear search")}
+                    </.button>
+                  </.empty_state>
                 </div>
 
                 <%!-- The posts data table (#501): the shared component

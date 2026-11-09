@@ -85,9 +85,13 @@ defmodule FluxValeWeb.AdminLive.OrgDetail do
   @impl Phoenix.LiveView
   def handle_event("sort", %{"field" => raw_field}, socket) do
     sort = AdminDataTable.toggle_sort(socket.assigns.table.sort, raw_field, @sortable)
-    state = %{socket.assigns.table | sort: sort, page: 1}
-
-    push_view(socket, state)
+    # A crafted field leaves the sort as it was: a true no-op, no
+    # page reset, no patch.
+    if sort == socket.assigns.table.sort do
+      {:noreply, socket}
+    else
+      push_view(socket, %{socket.assigns.table | sort: sort, page: 1})
+    end
   end
 
   # A crafted field is not a crash: the sort stays as it was.
@@ -167,9 +171,18 @@ defmodule FluxValeWeb.AdminLive.OrgDetail do
 
   # Per-instance subscribe over the loaded page (instance_live/show's
   # pattern), tracking the subscribed ids so a table patch (a new page
-  # under the same socket) never doubles a subscription. Only the
-  # member branch calls this — the hidden state has nothing to follow.
+  # under the same socket) never doubles a subscription — and the ids
+  # that LEFT the page unsubscribe with it, so a stale page's
+  # broadcast can never land in the new page's stream. Only the member
+  # branch calls this — the hidden state has nothing to follow.
   defp subscribe_to_new(socket, instances) do
+    shown = MapSet.new(instances, & &1.id)
+    leaving = MapSet.difference(socket.assigns.subscribed_ids, shown)
+
+    Enum.each(leaving, fn id ->
+      Phoenix.PubSub.unsubscribe(FluxVale.PubSub, "instances:#{id}")
+    end)
+
     fresh =
       Enum.filter(instances, fn instance ->
         not MapSet.member?(socket.assigns.subscribed_ids, instance.id)
@@ -179,10 +192,7 @@ defmodule FluxValeWeb.AdminLive.OrgDetail do
       Phoenix.PubSub.subscribe(FluxVale.PubSub, "instances:#{instance.id}")
     end)
 
-    newly = MapSet.new(fresh, & &1.id)
-    subscribed = MapSet.union(socket.assigns.subscribed_ids, newly)
-
-    assign(socket, subscribed_ids: subscribed)
+    assign(socket, subscribed_ids: shown)
   end
 
   # One index, one recount — and the empty state follows the index:
@@ -252,15 +262,17 @@ defmodule FluxValeWeb.AdminLive.OrgDetail do
       total = Ash.count!(filtered)
       page_count = AdminDataTable.page_count(total, state.size)
 
-      page_query =
+      # A crafted deep link clamps BEFORE the query is built: the page
+      # read runs at the honest offset, never a crafted deep scan.
+      page = min(state.page, page_count)
+
+      instances =
         filtered
         |> apply_sort(state.sort)
         |> Ash.Query.load(app_version: :app)
         |> Ash.Query.limit(state.size)
-        |> Ash.Query.offset((state.page - 1) * state.size)
-
-      rows = Ash.read!(page_query)
-      {instances, page} = clamp_page(rows, state.page, page_count, page_query, state.size)
+        |> Ash.Query.offset((page - 1) * state.size)
+        |> Ash.read!()
 
       updated = %{state | page: page, total: total}
 
@@ -282,21 +294,6 @@ defmodule FluxValeWeb.AdminLive.OrgDetail do
     else
       assign(socket, instances_state: :hidden)
     end
-  end
-
-  defp clamp_page(rows, page, page_count, _page_query, _size) when page <= page_count do
-    {rows, page}
-  end
-
-  defp clamp_page(_empty, _page, page_count, page_query, size) do
-    last_offset = (page_count - 1) * size
-
-    rows =
-      page_query
-      |> Ash.Query.offset(last_offset)
-      |> Ash.read!()
-
-    {rows, page_count}
   end
 
   # Newest created first by default; the id tiebreak rides every sort
@@ -506,7 +503,9 @@ defmodule FluxValeWeb.AdminLive.OrgDetail do
                   :if={@instances_state == :ok}
                   class="text-sm text-ink-muted"
                 >
-                  {gettext("Newest first. The instances' own pages live in the product surfaces.")}
+                  {gettext(
+                    "Newest first. The strip counts the instances on this page only. The instances' own pages live in the product surfaces."
+                  )}
                 </p>
 
                 <div

@@ -2833,7 +2833,7 @@ msgstr ""
 msgid "per month, billed while connected. Suspended or removed, nothing accrues."
 msgstr ""
 
-#: lib/flux_vale_web/components/admin_data_table.ex:732
+#: lib/flux_vale_web/components/admin_data_table.ex:734
 #, elixir-autogen, elixir-format
 msgid "Default order."
 msgstr ""
@@ -2843,7 +2843,7 @@ msgstr ""
 msgid "Page %{page} of %{count}"
 msgstr ""
 
-#: lib/flux_vale_web/components/admin_data_table.ex:761
+#: lib/flux_vale_web/components/admin_data_table.ex:763
 #, elixir-autogen, elixir-format
 msgid "Page %{page} of %{count}."
 msgstr ""
@@ -2858,32 +2858,32 @@ msgstr ""
 msgid "Rows per page"
 msgstr ""
 
-#: lib/flux_vale_web/components/admin_data_table.ex:771
+#: lib/flux_vale_web/components/admin_data_table.ex:773
 #, elixir-autogen, elixir-format
 msgid "Search: %{term}."
 msgstr ""
 
-#: lib/flux_vale_web/components/admin_data_table.ex:717
+#: lib/flux_vale_web/components/admin_data_table.ex:719
 #, elixir-autogen, elixir-format
 msgid "Showing %{count} entries."
 msgstr ""
 
-#: lib/flux_vale_web/components/admin_data_table.ex:710
+#: lib/flux_vale_web/components/admin_data_table.ex:712
 #, elixir-autogen, elixir-format
 msgid "Showing %{first} to %{last} of %{total}."
 msgstr ""
 
-#: lib/flux_vale_web/components/admin_data_table.ex:738
+#: lib/flux_vale_web/components/admin_data_table.ex:740
 #, elixir-autogen, elixir-format
 msgid "Sorted by %{label}, %{order}."
 msgstr ""
 
-#: lib/flux_vale_web/components/admin_data_table.ex:736
+#: lib/flux_vale_web/components/admin_data_table.ex:738
 #, elixir-autogen, elixir-format
 msgid "ascending"
 msgstr ""
 
-#: lib/flux_vale_web/components/admin_data_table.ex:736
+#: lib/flux_vale_web/components/admin_data_table.ex:738
 #, elixir-autogen, elixir-format
 msgid "descending"
 msgstr ""

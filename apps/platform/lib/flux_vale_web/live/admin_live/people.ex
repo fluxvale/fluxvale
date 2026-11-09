@@ -84,7 +84,7 @@ defmodule FluxValeWeb.AdminLive.People do
   # -- events -------------------------------------------------------------
 
   @impl Phoenix.LiveView
-  def handle_event("search", %{"search" => %{"query" => query}}, socket) do
+  def handle_event("search", %{"search" => %{"query" => query}}, socket) when is_binary(query) do
     trimmed = String.trim(query)
     state = %{socket.assigns.table | query: trimmed, page: 1}
 
@@ -103,9 +103,17 @@ defmodule FluxValeWeb.AdminLive.People do
   @impl Phoenix.LiveView
   def handle_event("sort", %{"field" => raw_field}, socket) do
     sort = AdminDataTable.toggle_sort(socket.assigns.table.sort, raw_field, @sortable)
-    state = %{socket.assigns.table | sort: sort, page: 1}
 
-    push_view(socket, state)
+    # A crafted field leaves the sort as it was: a true no-op, no
+    # page reset, no patch. A real sort moves the list under a reset,
+    # so an open confirm closes with it.
+    if sort == socket.assigns.table.sort do
+      {:noreply, socket}
+    else
+      cleared = assign(socket, withdrawing_id: nil, withdrawing_user: nil)
+
+      push_view(cleared, %{socket.assigns.table | sort: sort, page: 1})
+    end
   end
 
   # A crafted field is not a crash: the sort stays as it was.
@@ -114,14 +122,16 @@ defmodule FluxValeWeb.AdminLive.People do
   @impl Phoenix.LiveView
   def handle_event("page", %{"nav" => "prev"}, socket) do
     state = %{socket.assigns.table | page: socket.assigns.table.page - 1}
+    cleared = assign(socket, withdrawing_id: nil, withdrawing_user: nil)
 
-    push_view(socket, state)
+    push_view(cleared, state)
   end
 
   def handle_event("page", %{"nav" => "next"}, socket) do
     state = %{socket.assigns.table | page: socket.assigns.table.page + 1}
+    cleared = assign(socket, withdrawing_id: nil, withdrawing_user: nil)
 
-    push_view(socket, state)
+    push_view(cleared, state)
   end
 
   # A crafted page event is a no-op.
@@ -131,11 +141,20 @@ defmodule FluxValeWeb.AdminLive.People do
   def handle_event("size", %{"size" => raw}, socket) do
     size = AdminDataTable.parse_size(raw)
     state = %{socket.assigns.table | size: size, page: 1}
+    cleared = assign(socket, withdrawing_id: nil, withdrawing_user: nil)
 
-    push_view(socket, state)
+    push_view(cleared, state)
   end
 
   def handle_event("size", _params, socket), do: {:noreply, socket}
+
+  # The search-empty state's clear lever: the same view, term gone.
+  @impl Phoenix.LiveView
+  def handle_event("clear-search", _params, socket) do
+    state = %{socket.assigns.table | query: "", page: 1}
+
+    push_view(socket, state)
+  end
 
   # The page's primary action: the one invite verb. The operation
   # resolves the occupant — an unoccupied address creates the inert
@@ -394,40 +413,24 @@ defmodule FluxValeWeb.AdminLive.People do
     total = Ash.count!(filtered)
     page_count = AdminDataTable.page_count(total, state.size)
 
-    page_query =
+    # A crafted deep link clamps BEFORE the query is built: the page
+    # read runs at the honest offset, never a crafted deep scan.
+    page = min(state.page, page_count)
+
+    users =
       filtered
       |> apply_sort(state.sort)
       |> Ash.Query.load(:invite_state)
       |> Ash.Query.load(:contact_email)
       |> Ash.Query.limit(state.size)
-      |> Ash.Query.offset((state.page - 1) * state.size)
-
-    rows = Ash.read!(page_query)
-
-    # A stale deep link (rows left the window between visits) lands
-    # past the end: clamp to the last page, once.
-    {users, page} = clamp_page(rows, state.page, page_count, page_query, state.size)
+      |> Ash.Query.offset((page - 1) * state.size)
+      |> Ash.read!()
 
     updated = %{state | page: page, total: total}
 
     socket
     |> assign(table: updated, rows_empty?: users == [])
     |> stream(:people, users, reset: true)
-  end
-
-  defp clamp_page(rows, page, page_count, _page_query, _size) when page <= page_count do
-    {rows, page}
-  end
-
-  defp clamp_page(_empty, _page, page_count, page_query, size) do
-    last_offset = (page_count - 1) * size
-
-    rows =
-      page_query
-      |> Ash.Query.offset(last_offset)
-      |> Ash.read!()
-
-    {rows, page_count}
   end
 
   # The id tiebreak rides every sort: the stamps carry second
@@ -445,7 +448,20 @@ defmodule FluxValeWeb.AdminLive.People do
   # Search rides the address table (#287): exists() over the emails
   # join — no row multiplication for multi-row users, ci via citext.
   defp maybe_search(query, term) do
-    Ash.Query.filter(query, exists(emails, ilike(address, ^"%#{term}%")))
+    # ILIKE wildcards in the term are literals: escaped before the
+    # pattern wraps both ends (the backslash first, or it would
+    # double-escape the ones below) — the billing surface's block.
+    escaped =
+      term
+      |> String.replace("\\", "\\\\")
+      |> String.replace("%", "\\%")
+      |> String.replace("_", "\\_")
+
+    pattern = "%#{escaped}%"
+
+    # Search rides the address table (#287): exists() over the emails
+    # join — no row multiplication for multi-row users, ci via citext.
+    Ash.Query.filter(query, exists(emails, ilike(address, ^pattern)))
   end
 
   # -- display helpers ------------------------------------------------------
@@ -489,7 +505,7 @@ defmodule FluxValeWeb.AdminLive.People do
   # once in the component).
   defp columns do
     [
-      %{key: :email, label: gettext("Email"), track: "minmax(7rem,1.8fr)", floor_rem: 7},
+      %{key: :email, label: gettext("Email"), track: "minmax(7rem,1.8fr)", floor_rem: 10},
       %{key: :state, label: gettext("State"), track: "5.5rem"},
       %{
         key: :invited,
@@ -661,10 +677,25 @@ defmodule FluxValeWeb.AdminLive.People do
                   )}
                 </.empty_state>
 
-                <.empty_state
+                <div
                   :if={@rows_empty? and @table.query != ""}
-                  title={gettext("No invitation matches that email.")}
-                />
+                  class="rounded-panel border border-line bg-panel px-6 py-8"
+                  data-testid="admin-people-search-empty"
+                >
+                  <.empty_state
+                    title={gettext("No invitation matches that email.")}
+                    class="border-none bg-transparent"
+                  >
+                    <.button
+                      variant="secondary"
+                      size="sm"
+                      phx-click="clear-search"
+                      data-testid="admin-people-clear-search"
+                    >
+                      {gettext("Clear search")}
+                    </.button>
+                  </.empty_state>
+                </div>
 
                 <%!-- The data table (#501): the shared component owns
                 the chrome, the tracks, the floor, the sort headers,

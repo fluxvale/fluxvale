@@ -138,9 +138,19 @@ defmodule FluxValeWeb.AdminLive.WalletDetail do
   @impl Phoenix.LiveView
   def handle_event("sort", %{"field" => raw_field}, socket) do
     sort = AdminDataTable.toggle_sort(socket.assigns.table.sort, raw_field, @sortable)
-    state = %{socket.assigns.table | sort: sort, after: nil, before: nil}
 
-    push_view(socket, state)
+    # A crafted field leaves the sort as it was: a true no-op, no
+    # cursor drop, no patch.
+    if sort == socket.assigns.table.sort do
+      {:noreply, socket}
+    else
+      push_view(socket, %{
+        socket.assigns.table
+        | sort: sort,
+          after: nil,
+          before: nil
+      })
+    end
   end
 
   # A crafted field is not a crash: the sort stays as it was.
@@ -413,7 +423,8 @@ defmodule FluxValeWeb.AdminLive.WalletDetail do
 
   # The keyset page under the current view state: the sort and the
   # cursor (one direction at a time — a crafted URL carrying both is
-  # an invalid page, and the error arm answers it).
+  # an invalid page: Ash refuses it and refresh_ledger's error arm
+  # falls back to the newest page).
   defp read_ledger(admin, wallet_id, state) do
     query =
       LedgerEntry

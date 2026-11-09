@@ -87,9 +87,8 @@ defmodule FluxValeWeb.AdminLive.Gateways do
   # -- events ---------------------------------------------------------------
 
   @impl Phoenix.LiveView
-  def handle_event("search", %{"search" => %{"query" => query}}, socket) do
-    trimmed = String.trim(query)
-    state = %{socket.assigns.table | query: trimmed, page: 1}
+  def handle_event("search", %{"search" => %{"query" => query}}, socket) when is_binary(query) do
+    state = %{socket.assigns.table | query: AdminDataTable.cap_query(query), page: 1}
 
     push_view(socket, state)
   end
@@ -103,9 +102,13 @@ defmodule FluxValeWeb.AdminLive.Gateways do
   @impl Phoenix.LiveView
   def handle_event("sort", %{"field" => raw_field}, socket) do
     sort = AdminDataTable.toggle_sort(socket.assigns.table.sort, raw_field, @sortable)
-    state = %{socket.assigns.table | sort: sort, page: 1}
-
-    push_view(socket, state)
+    # A crafted field leaves the sort as it was: a true no-op, no
+    # page reset, no patch.
+    if sort == socket.assigns.table.sort do
+      {:noreply, socket}
+    else
+      push_view(socket, %{socket.assigns.table | sort: sort, page: 1})
+    end
   end
 
   # A crafted field is not a crash: the sort stays as it was.
@@ -136,6 +139,14 @@ defmodule FluxValeWeb.AdminLive.Gateways do
   end
 
   def handle_event("size", _params, socket), do: {:noreply, socket}
+
+  # The search-empty state's clear lever: the same view, term gone.
+  @impl Phoenix.LiveView
+  def handle_event("clear-search", _params, socket) do
+    state = %{socket.assigns.table | query: "", page: 1}
+
+    push_view(socket, state)
+  end
 
   # Every table event is a patch: the URL states the view, and
   # handle_params owns the re-query. replace keeps the browser
@@ -168,17 +179,16 @@ defmodule FluxValeWeb.AdminLive.Gateways do
     total = Ash.count!(filtered)
     page_count = AdminDataTable.page_count(total, state.size)
 
-    page_query =
+    # A crafted deep link clamps BEFORE the query is built: the page
+    # read runs at the honest offset, never a crafted deep scan.
+    page = min(state.page, page_count)
+
+    gateways =
       filtered
       |> apply_sort(state.sort)
       |> Ash.Query.limit(state.size)
-      |> Ash.Query.offset((state.page - 1) * state.size)
-
-    rows = Ash.read!(page_query)
-
-    # A stale deep link (rows left the window between visits) lands
-    # past the end: clamp to the last page, once.
-    {gateways, page} = clamp_page(rows, state.page, page_count, page_query, state.size)
+      |> Ash.Query.offset((page - 1) * state.size)
+      |> Ash.read!()
 
     updated = %{state | page: page, total: total}
 
@@ -190,21 +200,6 @@ defmodule FluxValeWeb.AdminLive.Gateways do
       rows_empty?: gateways == []
     )
     |> stream(:gateways, gateways, reset: true)
-  end
-
-  defp clamp_page(rows, page, page_count, _page_query, _size) when page <= page_count do
-    {rows, page}
-  end
-
-  defp clamp_page(_empty, _page, page_count, page_query, size) do
-    last_offset = (page_count - 1) * size
-
-    rows =
-      page_query
-      |> Ash.Query.offset(last_offset)
-      |> Ash.read!()
-
-    {rows, page_count}
   end
 
   # The default order is the attention-pin expression sort; the id
@@ -482,6 +477,15 @@ defmodule FluxValeWeb.AdminLive.Gateways do
                   <p class="text-sm font-medium text-ink">
                     {gettext("No gateway matches that search.")}
                   </p>
+                  <.button
+                    variant="secondary"
+                    size="sm"
+                    phx-click="clear-search"
+                    class="mt-2"
+                    data-testid="admin-gateways-clear-search"
+                  >
+                    {gettext("Clear search")}
+                  </.button>
                 </div>
 
                 <%!-- The data table (#501): the shared component owns
