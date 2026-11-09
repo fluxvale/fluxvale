@@ -8,6 +8,13 @@ defmodule FluxVale.PaperTrail.VersionMixin do
   trail out over the business set.
   """
 
+  # Compile-time-only — the ash_paper_trail transformer consumes this
+  # quote while building each Version resource, so the body never runs
+  # at test time. What it shapes (the version tables, indexes, actor
+  # label) is exercised end to end in
+  # test/flux_vale/contexts/ops/paper_trail_test.exs. If the mixin ever
+  # grows runtime behavior, a real test wins and this block goes.
+  # coveralls-ignore-start
   @doc """
   The code mixed into a generated version resource (the dep's `mixin`
   MFA shape): `version_source_id` / `user_id` indexes for the audit
@@ -38,4 +45,6 @@ defmodule FluxVale.PaperTrail.VersionMixin do
       end
     end
   end
+
+  # coveralls-ignore-stop
 end
