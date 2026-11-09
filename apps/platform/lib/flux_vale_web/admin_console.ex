@@ -30,9 +30,8 @@ defmodule FluxValeWeb.AdminConsole do
   # (the plan's sanity pass 1). Later slices flip the pending domains
   # below one by one. Per-resource config (all optional): label, note,
   # columns, label_attr — the defaults introspect from the resource.
-  # A domain's `excluded` map holds resources OUT of the console by
-  # name, each with its reason — the registry-intent gate at the
-  # resource level (the plan's Billing/Topup posture).
+  # A domain's out-of-console resources live in @excluded_resources
+  # below, keyed by the domain MODULE — never a key on the domain map.
   @domains [
     %{
       key: :ops,
@@ -115,10 +114,14 @@ defmodule FluxValeWeb.AdminConsole do
     FluxVale.Api => "machine-client bookkeeping (audit, rate windows), not operator data"
   }
 
-  # Resources excluded by name from otherwise-live domains, each with
-  # its reason — the paper-trail version tables (#645): the audit
-  # trail surfaces in its own console section as a cross-resource
-  # view, not as one raw table per resource.
+  # Resources excluded by name from otherwise-live domains, keyed by
+  # the domain module, each with its reason. Two exclusion kinds ride
+  # here today: the paper-trail version tables (#645 — the audit trail
+  # surfaces in its own console section as a cross-resource view, not
+  # one raw table per resource) and operator-absent resources
+  # (Billing's Topup: gateway-driven rows, the payment gateway owns
+  # every write). Every entry needs its reason — the parity test
+  # enforces it.
   @excluded_resources %{
     FluxVale.Billing => %{
       FluxVale.Billing.Topup =>

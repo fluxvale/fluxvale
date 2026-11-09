@@ -6,11 +6,6 @@ defmodule FluxValeWeb.AdminConsoleTest do
   # What is ENFORCED, exactly: every configured domain is accounted
   # for (one of the three sets, no orphans), the six-domain target
   # matches the plan's appendix A, and every LIVE domain's resource
-  # The exposure registry's parity discipline (#595): the configured
-  # ash_domains partition into live, pending, and excluded-by-name.
-  # What is ENFORCED, exactly: every configured domain is accounted
-  # for (one of the three sets, no orphans), the six-domain target
-  # matches the plan's appendix A, and every LIVE domain's resource
   # set is its registered entries plus its named exclusions, in both
   # directions — include-or-exclude-by-name per resource (the
   # mechanism the audit lane's version tables exercised first, #645;
