@@ -18,10 +18,14 @@ const run = promisify(execFile);
 // with database and redis both up (the dependency-aware endpoint) →
 // the setup page's first account becomes the workspace admin
 // (POST /api/auth/setup 200, a second setup 403, the admin signs in)
-// → stop → start → the admin still signs in (the external PostgreSQL
-// held the state; the instance volume keeps the uploads) → destroy.
-// The restart leg is the state gate: with both services owner-run,
-// everything that matters lives past the stop/start cycle.
+// → the SPA login form renders in a real browser and the session
+// uploads a file through the app's own multipart endpoint (the volume
+// proof: UID 1000 writes the PVC through the pod's fsGroup grant,
+// read back over the app's file route) → stop → start → the admin
+// still signs in AND the uploaded file still reads (the external
+// PostgreSQL held the rows, the instance volume held the bytes) →
+// destroy. The restart leg is the state gate: with both services
+// owner-run, everything that matters lives past the stop/start cycle.
 //
 // The owner-supplied services are played by the e2e stack's own
 // cluster: the database by the stack's CNPG (a per-run role +
@@ -65,11 +69,14 @@ const CNPG_HOST = "fluxvale-cnpg-rw.fluxvale-dev.svc.cluster.local:5432";
 const PLATFORM_NAMESPACE = "fluxvale-dev";
 
 test(
-  "docmost: catalog → deploy → running → setup admin → stop → start → destroy",
+  "docmost: catalog → deploy → running → setup admin → upload → stop → start → destroy",
   async ({ page, request }) => {
-    // 25 min: the budgets below (12 + 1 + 5) plus sign-in, catalog,
-    // deploy, the service provisioning, and destroy must fit the cap.
-    test.setTimeout(25 * 60_000);
+    // 20 min, umami-lifecycle's bound: the leg ceiling math (ci.yml's
+    // comment) assumes a retry of this spec fits twice inside the 60m
+    // job — 17.1m leg worst + 2 × 20m = 57.1m. The budgets below
+    // (10 + 1 + 4) plus sign-in, catalog, deploy, the service
+    // provisioning, the upload proof, and destroy fit the same 20m.
+    test.setTimeout(20 * 60_000);
 
     const suffix = runId.replace(/[^a-z0-9]/g, "").slice(-12);
     const database = `docmost_e2e_${suffix}`;
@@ -201,7 +208,7 @@ test(
       // CI image pull.
       await page.waitForURL(/\/instances\//);
       await waitForLiveViewJoin(page);
-      await waitForStatus(page, "Running", 12 * 60_000);
+      await waitForStatus(page, "Running", 10 * 60_000);
 
       await expect(page.getByTestId("instance-price")).toContainText(
         "$3.93/mo · billed hourly",
@@ -244,6 +251,9 @@ test(
         },
       });
       expect(setup.status()).toBeLessThan(400);
+      const setupWorkspace = (await setup.json()) as {
+        data: { defaultSpaceId: string };
+      };
 
       const setupAgain = await request.post(
         new URL("api/auth/setup", url!).toString(),
@@ -263,6 +273,69 @@ test(
       });
       expect(login.status()).toBeLessThan(400);
 
+      // The browser-render proof (the umami-lifecycle shape): the SPA
+      // login form renders in a real browser, the admin signs in
+      // through it, and the same authenticated session then drives the
+      // upload below — the cookie path is the one real users ride.
+      const ui = await page.context().newPage();
+      await ui.goto(new URL("login", url!).toString(), {
+        waitUntil: "networkidle",
+        timeout: 60_000,
+      });
+      await expect(ui.getByLabel("Email", { exact: true })).toBeVisible({
+        timeout: 30_000,
+      });
+      await ui.getByLabel("Email", { exact: true }).fill(adminEmail);
+      await ui.getByLabel("Password", { exact: true }).fill(adminPassword);
+      await ui.getByRole("button", { name: "Sign in" }).click();
+      await ui.waitForURL(/home/, { timeout: 30_000 });
+
+      // The volume proof — the claim the $0.24 stopped price rests on:
+      // a page in the setup-created default space, a file uploaded
+      // through the app's own multipart endpoint (written by UID 1000
+      // onto the PVC through the pod's fsGroup grant), read back over
+      // the app's own file route, all from the authenticated session.
+      // The upload handler answers bare (@Res bypasses the response
+      // transform); the page create is wrapped ({data}). The marker
+      // rides the file's bytes so the read-back can't pass on a
+      // different file.
+      const marker = `fv609-upload-proof-${suffix}`;
+      const upload = await ui.evaluate(
+        async ({ spaceId, marker, fileBase }) => {
+          const pageRes = await fetch("/api/pages", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ spaceId, title: "E2E upload proof" }),
+            credentials: "include",
+          });
+          if (!pageRes.ok) throw new Error(`page create failed: ${pageRes.status}`);
+
+          const created = (await pageRes.json()) as { data: { id: string } };
+          const form = new FormData();
+          form.append("pageId", created.data.id);
+          form.append("file", new File([`${marker}\n`], "upload-proof.txt", {
+            type: "text/plain",
+          }));
+
+          const upRes = await fetch("/api/files/upload", {
+            method: "POST",
+            body: form,
+            credentials: "include",
+          });
+          if (!upRes.ok) throw new Error(`upload failed: ${upRes.status}`);
+
+          const up = (await upRes.json()) as { url?: string; data?: { url?: string } };
+          const fileUrl = new URL(up.url ?? up.data?.url ?? "", fileBase);
+          const path = `${fileUrl.pathname}${fileUrl.search}`;
+          const fileRes = await fetch(path, { credentials: "include" });
+
+          return { status: fileRes.status, text: await fileRes.text(), path };
+        },
+        { spaceId: setupWorkspace.defaultSpaceId, marker, fileBase: url! },
+      );
+      expect(upload.status).toBe(200);
+      expect(upload.text).toContain(marker);
+
       // Stop → Stopped (storage-only fee: the 5 GB upload volume at
       // the storage axis rate — the honest stopped rate is $0.24, not
       // Umami's $0.00, because this app keeps a volume).
@@ -278,7 +351,7 @@ test(
       // there — asserted below by the health body and a second sign-in
       // after the restart.
       await page.getByTestId("start-button").click();
-      await waitForStatus(page, "Running", 5 * 60_000);
+      await waitForStatus(page, "Running", 4 * 60_000);
       const revivedHealth = await request.get(
         new URL("api/health", url!).toString(),
       );
@@ -292,6 +365,21 @@ test(
         { data: { email: adminEmail, password: adminPassword } },
       );
       expect(revivedLogin.status()).toBeLessThan(400);
+
+      // The volume's state-survival half: the uploaded file still
+      // reads back after the stop / start cycle — the bytes lived on
+      // the instance volume the whole time (the fsGroup grant is what
+      // let UID 1000 write them, #609's deployer fix).
+      const revivedUpload = await ui.evaluate(
+        async ({ path, marker }) => {
+          const fileRes = await fetch(path, { credentials: "include" });
+          return { status: fileRes.status, text: await fileRes.text(), marker };
+        },
+        { path: upload.path, marker },
+      );
+      expect(revivedUpload.status).toBe(200);
+      expect(revivedUpload.text).toContain(marker);
+      await ui.close();
 
       // Destroy: native confirm() dialog, teardown (async Oban) exits
       // the view to /instances where the fresh user's list is empty

@@ -12,7 +12,7 @@ const OUT = process.argv[2] ?? "/tmp/opencode/fv609-shots";
 const UA = "fluxvale-capture/609";
 
 const routes = [
-  { name: "catalog", path: "/catalog" },
+  { name: "catalog", path: "/catalog", scrollTo: "[data-testid='app-docmost']" },
   { name: "detail", path: "/catalog/docmost" },
 ];
 
@@ -29,6 +29,14 @@ for (const scheme of ["light", "dark"]) {
   for (const route of routes) {
     await page.goto(`${BASE}${route.path}`, { waitUntil: "networkidle" });
     await page.waitForTimeout(400);
+    // The catalog grid renders every category in one long page; frame
+    // the Knowledge block (the new one) instead of the top-of-page
+    // default the viewport would show.
+    if (route.scrollTo) {
+      await page.locator(route.scrollTo).scrollIntoViewIfNeeded();
+      await page.mouse.wheel(0, -320);
+      await page.waitForTimeout(200);
+    }
     await page.screenshot({
       path: `${OUT}/${scheme}-${route.name}.png`,
       fullPage: route.name !== "catalog",

@@ -115,6 +115,34 @@ defmodule FluxVale.Clients.K8s.Resources.DeploymentTest do
       refute Map.has_key?(pod_spec, "volumes")
     end
 
+    test "a volume-mounting pod carries a pod-level fsGroup (#609)" do
+      # Docmost is the first non-root entry that WRITES to its volume
+      # (UID 1000, uploads under /app/data/storage): a local-path
+      # volume lands root-owned, so without a supplemental gid every
+      # upload EACCES — the local stack's MinIO manifest documents the
+      # same fix. The grant is pod-level and uid-agnostic: the kubelet
+      # gives every container the group and group-write on the volume.
+      spec =
+        base_spec()
+        |> Map.put(:storage_mount, "/app/data/storage")
+        |> Map.put(:pvc_name, "app-data")
+
+      manifest = Deployment.build_manifest("ns", "docmost", spec)
+
+      assert get_in(manifest, ["spec", "template", "spec", "securityContext"]) == %{
+               "fsGroup" => 2000
+             }
+    end
+
+    test "a volume-less pod carries no securityContext" do
+      # Nothing to grant write on — 0 GB entries (Umami's stateless
+      # shape) keep the bare pod spec.
+      manifest = Deployment.build_manifest("ns", "umami", base_spec())
+      pod_spec = get_in(manifest, ["spec", "template", "spec"])
+
+      refute Map.has_key?(pod_spec, "securityContext")
+    end
+
     test "env_from_secret rides a secretRef (user env stays out of the pod spec)" do
       manifest =
         Deployment.build_manifest("ns", "app", Map.put(base_spec(), :env_from_secret, "app-env"))

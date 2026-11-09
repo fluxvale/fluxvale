@@ -117,6 +117,10 @@ defmodule FluxVale.Clients.K8s.Resources.Deployment do
 
   @default_cpu 0.5
   @default_memory 256
+
+  # The supplemental gid every volume-mounting pod grants (see
+  # build_manifest's securityContext comment).
+  @volume_fs_group 2000
   @default_replicas 1
   @default_probe_path "/"
 
@@ -433,10 +437,27 @@ defmodule FluxVale.Clients.K8s.Resources.Deployment do
       |> Map.get(:backing_services, [])
       |> Enum.map(&build_backing_init_container/1)
 
+    # Volume writability for non-root images: the first such entry
+    # (#609's Docmost, UID 1000) writing uploads to its PVC exposed
+    # that the pod spec set no securityContext — a local-path volume
+    # lands root-owned, so the app's writes EACCES (the local stack's
+    # own MinIO manifest documents the same fix for its nonroot uid).
+    # fsGroup rides the pod only when a volume actually mounts: the
+    # kubelet grants the gid as a supplemental group with group-write
+    # on the volume to EVERY container in the pod, so any image uid —
+    # root, node, chainguard's 65532 — can write and uid-matching per
+    # app stays out of catalog data. 2000 sits clear of the common
+    # image gids (0 root, 70 postgres, 1000 node, 65532 nonroot).
+    pod_security_context =
+      if volumes == [],
+        do: nil,
+        else: %{"fsGroup" => @volume_fs_group}
+
     pod_spec =
       %{"containers" => containers}
       |> maybe_put_section("volumes", volumes)
       |> maybe_put_section("initContainers", init_containers)
+      |> maybe_put_value("securityContext", pod_security_context)
 
     %{
       "apiVersion" => "apps/v1",
@@ -469,6 +490,12 @@ defmodule FluxVale.Clients.K8s.Resources.Deployment do
 
   defp maybe_put_section(pod_spec, section, entries),
     do: Map.put(pod_spec, section, entries)
+
+  # nil drops the key entirely (the no-volume pod carries no
+  # securityContext — nothing to grant write on).
+  defp maybe_put_value(map, _key, nil), do: map
+
+  defp maybe_put_value(map, key, value), do: Map.put(map, key, value)
 
   # The app container: image/port/resources from the spec, probes from
   # the healthcheck path, env from spec.env, user env via envFrom

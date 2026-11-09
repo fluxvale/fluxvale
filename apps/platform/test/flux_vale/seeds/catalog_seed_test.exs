@@ -731,11 +731,14 @@ defmodule FluxVale.Seeds.CatalogSeedTest do
 
     # #611 S1 retro-fill: every shipped app lands its curated fields,
     # and every category its audience line (plan §7.3, verbatim).
-    test "seeds the marketing retro-fill for all eight apps (#611)" do
+    # umami joined at #587, vikunja at #610, docmost at #609 — the
+    # DB-level loop covers every shipped app, not just the
+    # retro-fill six.
+    test "seeds the marketing retro-fill for every shipped app (#611)" do
       assert :ok == Seeds.seed_pricing!()
       assert :ok == Seeds.seed_catalog!()
 
-      for slug <- ~w(forgejo kavita memos vaultwarden pocket-id actualbudget umami vikunja) do
+      for slug <- ~w(forgejo kavita memos vaultwarden pocket-id actualbudget umami vikunja docmost) do
         app = App.get_by_slug!(slug, authorize?: false)
         assert app.caveats != [], "#{slug} carries no caveats"
         assert length(app.caveats) <= 6
@@ -763,6 +766,12 @@ defmodule FluxVale.Seeds.CatalogSeedTest do
 
       assert Category.get_by_slug!("finance", authorize?: false).audience ==
                "A fit for households that want their budget data under their own roof."
+
+      assert Category.get_by_slug!("analytics", authorize?: false).audience ==
+               "A fit for anyone who wants honest visitor numbers on the sites they run, without cookies or a third party holding the data."
+
+      assert Category.get_by_slug!("knowledge", authorize?: false).audience ==
+               "A fit for teams that want their shared knowledge in one place they control."
     end
   end
 

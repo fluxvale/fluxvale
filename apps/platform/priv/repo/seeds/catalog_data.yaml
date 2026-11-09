@@ -1113,7 +1113,10 @@
           # Upstream's own volume (Dockerfile VOLUME + the compose
           # mount): uploaded files land here with the local storage
           # driver, the image default. The image runs as UID 1000
-          # (node) and pre-creates the directory.
+          # (node) and pre-creates the directory — which the PVC
+          # mount shadows, so writability rides the pod-level fsGroup
+          # the deployer grants on every volume-mounting pod (#609's
+          # fix; the image's own mkdir never sees the mounted path).
           storage_mount_path: /app/data/storage
           # Docmost derives its own links and websocket origin from
           # APP_URL (optional upstream, defaults to localhost:3000 —

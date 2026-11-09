@@ -607,7 +607,7 @@ defmodule FluxVale.Seeds.CatalogDataTest do
       assert CatalogData.entries(empty) == []
     end
 
-    # #611 S1 retro-fill: the six shipped apps carry caveats and
+    # #611 S1 retro-fill: the eight shipped apps carry caveats and
     # alternatives promoted from facts already in the file, and every
     # category carries its audience line (plan §7.3, verbatim).
     test "shipped entries carry the marketing retro-fill (#611)" do

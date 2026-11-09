@@ -755,12 +755,23 @@ jobs:
     # leaves ~11.5m hang slack. Tighter than the old slack on purpose:
     # the new worst already carries congestion padding the old one
     # didn't. The waits themselves are unchanged. #587 added
+<<<<<<< HEAD
     # umami-lifecycle (20m bounded), #610 added vikunja-lifecycle
     # (20m bounded, a memos-shape SQLite-PVC deploy), and #609 added
     # docmost-lifecycle (also 20m bounded — the retry math: playwright
     # retries once in CI, so the leg worst is the observed 17.1m plus
     # two bounded runs per new spec, and 20m bounds keep the sum
     # inside the 60m ceiling with the report intact on a retry).
+=======
+    # umami-lifecycle (20m bounded) as the lifecycle leg's seventh
+    # spec: the leg's observed worst is 17.1m at #587's head (its
+    # cold pulls ride the warm-up), ≈ 30m under the ceiling. #609
+    # added docmost-lifecycle (also 20m bounded — the retry math:
+    # playwright retries once in CI, so the leg worst is 17.1m + two
+    # bounded runs, and a 20m bound keeps 17.1 + 20 + 20 = 57.1m
+    # inside the 60m ceiling with the report intact on a retry). The
+    # spec's per-run Redis pod is warmed below with the config pins.
+>>>>>>> e2ec039 (fix(platform): hostile-review adoptions for #650 (fsGroup volume grant, upload proof, warm-up, counts))
     timeout-minutes: 60
     strategy:
       # A red leg must not cancel the others — its report is triage
@@ -931,6 +942,18 @@ jobs:
             exit 1
           fi
           refs="$refs $sidecar"
+          # docmost-lifecycle provisions its per-run Redis from the
+          # backing-services registry's pin (the same config.exs
+          # block, the sidecar precedent one layer in — the registry
+          # keys image mid-line, so the match is unanchored): a cold
+          # Docker Hub pull inside the spec is exactly the congestion
+          # class the warm-up exists to defuse (#578's banked failure).
+          redis_pin="$(sed -n 's/.*image: "\(redis:[^"]*\)".*/\1/p' "$config" | head -1)"
+          if [ -z "$redis_pin" ]; then
+            echo "::error::no redis image pin found in $config — did the backing_services registry change shape?"
+            exit 1
+          fi
+          refs="$refs $redis_pin"
           # 0 = pulled, 1 = budget-exhausted (timeout's 124), 2 = outright
           pull_one() {
             if timeout "$1" docker pull -q "$2"; then return 0; fi
