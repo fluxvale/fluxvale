@@ -1,15 +1,17 @@
 defmodule FluxValeWeb.DeviceFlowEntryController do
   @moduledoc """
   The device flow's verification_uri landing (#362 T3): `GET
-  /settings/access/device` bounces to the settings/access panel at the
-  Device sign-ins section.
+  /settings/access/device` bounces to the developer settings page at
+  the Device sign-ins section (#635 moved the section there from
+  /settings/access; the verification_uri keeps its historical path —
+  CLIs in the wild carry it — and lands here).
 
-  A controller redirect, not a LiveView — the panel (OrganizationLive
-  .Access) is the surface; this route only lands browsers on it. The
-  signed-in check reads the same session chain the live_session
-  on_mount gate does (UserAuth.resolve_user), so an anonymous visitor
-  skips a hop: sign-in first, the panel's own gate would bounce them
-  there anyway.
+  A controller redirect, not a LiveView — the panel
+  (DeveloperSettingsLive) is the surface; this route only lands
+  browsers on it. The signed-in check reads the same session chain the
+  live_session on_mount gate does (UserAuth.resolve_user), so an
+  anonymous visitor skips a hop: sign-in first, the panel's own gate
+  would bounce them there anyway.
   """
 
   use FluxValeWeb, :controller
@@ -19,7 +21,7 @@ defmodule FluxValeWeb.DeviceFlowEntryController do
   # section instead of the default landing. Fragment included: the
   # value is a local path (ReturnPath's guard), the controller
   # re-validates whatever arrives at the session write.
-  @panel_path "/settings/access#device-sign-ins"
+  @panel_path "/settings/developer#device-sign-ins"
 
   def entry(conn, _params) do
     session = get_session(conn)

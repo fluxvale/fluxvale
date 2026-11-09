@@ -297,13 +297,16 @@ defmodule FluxValeWeb.Api.DeviceFlowControllerTest do
   end
 
   describe "GET /settings/access/device — the verification_uri landing" do
-    test "a signed-in visitor redirects to the access panel at the section", %{conn: conn} do
+    test "a signed-in visitor redirects to the developer page at the section", %{conn: conn} do
       user = User.create!("entry-signed-in@fluxvale.com", %{}, authorize?: false)
       signed_in = SessionHelpers.sign_in(conn, user)
 
       conn = get(signed_in, "/settings/access/device")
 
-      assert redirected_to(conn) == "/settings/access#device-sign-ins"
+      # #635: the Device sign-ins section moved to /settings/developer;
+      # the verification_uri keeps its historical path (CLIs in the
+      # wild carry it) and bounces to the section's new home.
+      assert redirected_to(conn) == "/settings/developer#device-sign-ins"
     end
 
     test "an anonymous visitor redirects to sign-in", %{conn: conn} do
@@ -311,7 +314,7 @@ defmodule FluxValeWeb.Api.DeviceFlowControllerTest do
 
       # #462: the return path lands verification back at the section
       assert redirected_to(conn) ==
-               "/sign-in?return_to=%2Fsettings%2Faccess%23device-sign-ins"
+               "/sign-in?return_to=%2Fsettings%2Fdeveloper%23device-sign-ins"
     end
   end
 

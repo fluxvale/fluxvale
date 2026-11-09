@@ -81,7 +81,7 @@ defmodule FluxValeWeb.SettingsLiveTest do
     assert profile =~ ~s(aria-current="page")
     assert profile =~ ~s(href="/settings")
 
-    for key <- ["access", "wallet"] do
+    for key <- ["access", "developer", "wallet"] do
       quiet = render(element(view, "[data-testid='account-settings-nav-#{key}']"))
       refute quiet =~ "aria-current", "#{key} should stay quiet"
     end
@@ -102,12 +102,37 @@ defmodule FluxValeWeb.SettingsLiveTest do
     assert to == "/settings/access"
 
     # The destination is the access panel — its own markers render, the
-    # profile surface's username form does not.
+    # profile surface's username form does not, and the developer
+    # sections (#635) live on their own page now.
     {:ok, access_view, _html} = live(conn, ~p"/settings/access")
 
-    assert has_element?(access_view, "[data-testid='device-sign-ins']")
-    assert has_element?(access_view, "[data-testid='api-tokens']")
+    assert has_element?(access_view, "[data-testid='access-empty']")
+    refute has_element?(access_view, "[data-testid='device-sign-ins']")
+    refute has_element?(access_view, "[data-testid='api-tokens']")
     refute has_element?(access_view, "#username-form")
+  end
+
+  test "section navigation: the sidebar's Developer entry crosses to the developer surface", %{
+    conn: conn
+  } do
+    {:ok, view, _html} = live(conn, ~p"/settings")
+
+    assert {:error, {:live_redirect, %{to: to}}} =
+             view
+             |> element("[data-testid='account-settings-nav-developer']")
+             |> render_click()
+
+    assert to == "/settings/developer"
+
+    # The destination carries the moved sections — and not the profile
+    # or gateway surfaces.
+    {:ok, developer_view, _html} = live(conn, ~p"/settings/developer")
+
+    assert developer_view.module == FluxValeWeb.DeveloperSettingsLive
+    assert has_element?(developer_view, "[data-testid='device-sign-ins']")
+    assert has_element?(developer_view, "[data-testid='api-tokens']")
+    refute has_element?(developer_view, "#username-form")
+    refute has_element?(developer_view, "[data-testid='access-empty']")
   end
 
   # -- Username rename (the #279 confirm-step pattern) --------------------

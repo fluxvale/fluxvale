@@ -1,9 +1,10 @@
 defmodule FluxValeWeb.Components.AccountSettingsTest do
   @moduledoc """
   The account settings sidebar's contract (#551): one entry per surface,
-  grouped Account (Profile, Access) and Billing (Wallet), the active
-  entry aria-current. The Access entry rides the personal-org gate —
-  no dead entries ship.
+  grouped Account (Profile, Access, Developer) and Billing (Wallet), the
+  active entry aria-current. The Access entry rides the personal-org
+  gate — no dead entries ship. Developer (#635) is ungated: the page
+  needs no org.
   """
 
   use ExUnit.Case, async: true
@@ -41,13 +42,12 @@ defmodule FluxValeWeb.Components.AccountSettingsTest do
     assert links(html) == [
              {"Profile", "/settings", true},
              {"Access", "/settings/access", false},
+             {"Developer", "/settings/developer", false},
              {"Wallet", "/billing", false}
            ]
 
     doc = LazyHTML.from_fragment(html)
 
-    # The one net-new user-visible copy in this PR, pinned verbatim
-    # (plain words: no punctuation tricks to drift into the labels).
     for {key, label} <- [{"account", "Account"}, {"billing", "Billing"}] do
       label_text =
         doc
@@ -81,6 +81,17 @@ defmodule FluxValeWeb.Components.AccountSettingsTest do
     assert links(html) == [
              {"Profile", "/settings", false},
              {"Access", "/settings/access", true},
+             {"Developer", "/settings/developer", false},
+             {"Wallet", "/billing", false}
+           ]
+
+    developer_page =
+      render_component(&AccountSettings.sidebar/1, current: "developer", personal_org_id: "org_1")
+
+    assert links(developer_page) == [
+             {"Profile", "/settings", false},
+             {"Access", "/settings/access", false},
+             {"Developer", "/settings/developer", true},
              {"Wallet", "/billing", false}
            ]
   end
@@ -88,7 +99,12 @@ defmodule FluxValeWeb.Components.AccountSettingsTest do
   test "no personal org: the gated sections never ship (no dead entries)" do
     html = render_component(&AccountSettings.sidebar/1, current: "profile")
 
-    assert links(html) == [{"Profile", "/settings", true}]
+    # Developer stays beside Profile — its page is actor-scoped (#635),
+    # so the entry is no dead end for the no-org actor.
+    assert links(html) == [
+             {"Profile", "/settings", true},
+             {"Developer", "/settings/developer", false}
+           ]
 
     doc = LazyHTML.from_fragment(html)
 

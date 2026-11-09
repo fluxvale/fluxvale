@@ -34,7 +34,8 @@ Apps you deploy can live in your personal organization or in a separate organiza
 Open **Settings** from the user menu to manage your account:
 
 - **Profile** holds your handle. Renaming releases the old handle for anyone to claim, so choose carefully.
-- **Access** holds the private-access gateway settings, API tokens, and device sign-ins for your personal organization.
+- **Access** holds the private-access gateway settings for your personal organization.
+- **Developer** holds the developer tools for your account: approve FluxVale CLI device sign-ins, and create or revoke the API tokens your automation uses.
 - **Email addresses** lists the addresses you can sign in with. Add more, verify them, set a primary, remove old ones.
 
 Each extra email address must be verified with a sign-in code before it works.

@@ -6,7 +6,7 @@ defmodule FluxVale.Identity.Operations.MintPat do
   `{:ok, %{token: raw, pat: row}}` return — never logged, never
   stored; the row carries its SHA-256 hash alone. The create policy
   is the gate: a user mints for themselves, a platform admin for
-  anyone (the settings/access panel consumes this later).
+  anyone (the developer settings page consumes this later).
   """
 
   alias FluxVale.Api
