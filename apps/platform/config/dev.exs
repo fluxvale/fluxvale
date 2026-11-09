@@ -25,6 +25,10 @@ config :flux_vale, FluxVale.Repo,
 # watchers to your application. For example, we can use it
 # to bundle .js and .css sources.
 config :flux_vale, FluxValeWeb.Endpoint,
+  # #642 plan §6: the Google OIDC redirect URI derives from the
+  # endpoint's own :url (<origin>/auth/google/callback) — port rides
+  # PORT so concurrent dev lanes round-trip to their own origin.
+  url: [host: "localhost", port: String.to_integer(System.get_env("PORT") || "4000")],
   # Binding to loopback ipv4 address prevents access from other machines.
   # Change to `ip: {0, 0, 0, 0}` to allow access from other machines.
   # PORT override: concurrent lanes run dev servers side by side on one

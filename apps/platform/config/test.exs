@@ -34,6 +34,10 @@ config :flux_vale, FluxVale.Repo,
 # We don't run a server during test. If one is required,
 # you can enable the server option below.
 config :flux_vale, FluxValeWeb.Endpoint,
+  # #642 plan §6: the Google OIDC redirect URI derives from the
+  # endpoint's own :url (<origin>/auth/google/callback) — the http
+  # localhost:4000 shape, never prod's https host.
+  url: [host: "localhost", port: 4000],
   http: [ip: {127, 0, 0, 1}, port: 4002],
   secret_key_base: "lFp+naePZvFguRNIJ3gkEqmbbbm8si/dA5t8la7Ojp733r2Al06iwWrUv+aRrgA7",
   server: false
@@ -88,3 +92,12 @@ config :flux_vale, :access_gateway, namespace: "fluxvale-access"
 config :flux_vale, FluxValeWeb.Plugs.ApiRateLimit,
   window_seconds: 86_400,
   max_requests: 5
+
+# #642: the Google hops' per-IP throttle — the same day-long-window
+# posture as ApiRateLimit above: every suite request floors into one
+# bucket, the controller suite isolates per-test remote IPs, and the
+# throttle case overrides both knobs per-test (config
+# capture-and-restore). Defaults (60s / 10) live in the module.
+config :flux_vale, FluxValeWeb.Plugs.GoogleRateLimit,
+  window_seconds: 86_400,
+  max_requests: 50

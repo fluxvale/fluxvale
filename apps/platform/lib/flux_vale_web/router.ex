@@ -365,6 +365,16 @@ defmodule FluxValeWeb.Router do
     post("/auth/session", SessionController, :create)
     delete("/auth/session", SessionController, :delete)
 
+    # #642 (plan §3.2): the Google OIDC arm's two hops. GETs on
+    # purpose — no CSRF token is needed: the callback's defense is
+    # the OIDC state param bound to the session_params parked at
+    # authorize time (assent validates it), and the authorize hop
+    # writes nothing a forged request could aim at a victim's
+    # session. Both hops are per-IP throttled in the controller
+    # (GoogleRateLimit, the D-abuse window).
+    get("/auth/google", GoogleController, :authorize)
+    get("/auth/google/callback", GoogleController, :callback)
+
     # #74: the authenticated app surface — catalog browse, deploy stepper,
     # instance status. The on_mount gate resolves the actor from the M2
     # session and redirects to /sign-in without one. #276 rides after it:

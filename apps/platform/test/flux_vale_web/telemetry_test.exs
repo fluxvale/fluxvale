@@ -15,7 +15,8 @@ defmodule FluxValeWeb.TelemetryTest do
 
   # The metadata/measurements each business seam actually emits (the
   # marker modules' contract — WakeMarkers, StatusMarkers,
-  # StateMarkers, OutcomeMarkers, VerifyAuthCode's JIT arm).
+  # StateMarkers, OutcomeMarkers, VerifyAuthCode's JIT arm,
+  # SignInWithGoogle's outcome counter).
   @emitted %{
     [:flux_vale, :wake, :promotion] => {%{app: "kavita"}, %{duration: 1.5}},
     [:flux_vale, :wake, :boot] => {%{app: "kavita"}, %{duration: 6.0}},
@@ -25,7 +26,8 @@ defmodule FluxValeWeb.TelemetryTest do
     [:flux_vale, :gateway, :state_change] => {%{from: :active, to: :suspended}, %{count: 1}},
     [:flux_vale, :backup, :run] =>
       {%{kind: :scheduled, status: :succeeded}, %{count: 1, duration: 120.0}},
-    [:flux_vale, :identity, :signup] => {%{}, %{count: 1}}
+    [:flux_vale, :identity, :signup] => {%{}, %{count: 1}},
+    [:flux_vale, :identity, :google_sign_in] => {%{outcome: :ok}, %{count: 1}}
   }
 
   test "every business event has a definition whose tags and measurement resolve" do

@@ -56,6 +56,9 @@ defmodule FluxVale.Application do
           # Edge activity debounce (#203, ADR-0036) — the beacon's
           # in-memory last-flush markers; DB state survives restarts.
           FluxVale.Edge.Activity,
+          # Google sign-in per-IP throttle (#642, plan §3.2 D-abuse) —
+          # the fixed-window counters for the two /auth/google hops.
+          FluxValeWeb.Plugs.GoogleRateLimit,
           # Wake-time estimates for the catalog badge (#232) — reads the
           # live scrape, cached; {} while the metrics tree is down.
           FluxVale.Observability.WakeStats,

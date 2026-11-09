@@ -164,6 +164,15 @@ defmodule FluxValeWeb.Telemetry do
         event_name: [:flux_vale, :identity, :signup],
         measurement: :count,
         description: "JIT account creations — the signup rate."
+      ),
+      # Google sign-in outcomes (#642, plan §10): the operation fires
+      # one event on every return path, outcome-tagged, no PII — the
+      # signup counter's shape plus the outcome lens.
+      counter("flux_vale_identity_google_sign_in_count",
+        event_name: [:flux_vale, :identity, :google_sign_in],
+        measurement: :count,
+        description: "Google sign-in attempts, by outcome.",
+        tags: [:outcome]
       )
     ]
   end
