@@ -254,6 +254,12 @@ test(
       const setupWorkspace = (await setup.json()) as {
         data: { defaultSpaceId: string };
       };
+      // The upload below needs it — fail naming the field rather than
+      // letting a missing one surface as upstream's UUID 400.
+      expect(
+        setupWorkspace.data.defaultSpaceId,
+        "setup response carries defaultSpaceId",
+      ).toBeDefined();
 
       const setupAgain = await request.post(
         new URL("api/auth/setup", url!).toString(),
@@ -338,7 +344,7 @@ test(
 
           return { status: fileRes.status, text: await fileRes.text(), path };
         },
-        { spaceId: setupWorkspace.defaultSpaceId, marker, fileBase: url! },
+        { spaceId: setupWorkspace.data.defaultSpaceId, marker, fileBase: url! },
       );
       expect(upload.status).toBe(200);
       expect(upload.text).toContain(marker);
