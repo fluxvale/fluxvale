@@ -72,6 +72,7 @@ defmodule FluxValeWeb.CatalogLive.Show do
             newest_version={@newest_version}
             wake_estimates={@wake_estimates}
             back_path="/apps"
+            welcome_credit?={false}
           />
         </div>
 
@@ -82,8 +83,13 @@ defmodule FluxValeWeb.CatalogLive.Show do
         <CatalogPageComponents.similar_apps
           peers={@similar_apps}
           from_price_cents={@from_price_cents}
+          catalog_path="/apps"
         />
-        <CatalogPageComponents.closing_cta app={@app} newest_version={@newest_version} />
+        <CatalogPageComponents.closing_cta
+          app={@app}
+          newest_version={@newest_version}
+          catalog_path="/apps"
+        />
 
         <%!-- The page's existing content, unchanged: one card per
         published version, each the deploy stepper's entry. --%>

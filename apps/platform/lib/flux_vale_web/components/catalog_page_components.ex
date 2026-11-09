@@ -44,6 +44,14 @@ defmodule FluxValeWeb.CatalogPageComponents do
     doc: "back link target: /catalog public, /apps authenticated"
   )
 
+  # The signup-credit row is offer copy for a visitor. A signed-in
+  # reader already has their org, so the authenticated page renders
+  # the card without it (S6 review).
+  attr(:welcome_credit?, :boolean,
+    default: true,
+    doc: "the pricing card's welcome-credit row: true public, false authenticated"
+  )
+
   @spec hero(map()) :: Phoenix.LiveView.Rendered.t()
   def hero(assigns) do
     ~H"""
@@ -140,7 +148,12 @@ defmodule FluxValeWeb.CatalogPageComponents do
       </div>
 
       <aside class="space-y-4 lg:sticky lg:top-20 lg:self-start">
-        <.pricing_card :if={@newest_version} app={@app} newest_version={@newest_version} />
+        <.pricing_card
+          :if={@newest_version}
+          app={@app}
+          newest_version={@newest_version}
+          welcome_credit?={@welcome_credit?}
+        />
         <.facts_card
           app={@app}
           newest_version={@newest_version}
@@ -162,6 +175,11 @@ defmodule FluxValeWeb.CatalogPageComponents do
   attr(:newest_version, :any,
     required: true,
     doc: "the newest AppVersion, :recommended_size loaded"
+  )
+
+  attr(:welcome_credit?, :boolean,
+    default: true,
+    doc: "false hides the signup-credit row (a reader who already has an org)"
   )
 
   @spec pricing_card(map()) :: Phoenix.LiveView.Rendered.t()
@@ -203,7 +221,7 @@ defmodule FluxValeWeb.CatalogPageComponents do
       </div>
 
       <ul class="space-y-2.5 text-sm text-ink">
-        <li class="flex gap-2.5">
+        <li :if={@welcome_credit?} class="flex gap-2.5">
           <.icon name="hero-check" class="mt-0.5 size-4 shrink-0 text-success" />
           {gettext("Start with %{amount} in welcome credit", amount: @welcome_credit)}
         </li>
@@ -548,6 +566,15 @@ defmodule FluxValeWeb.CatalogPageComponents do
     doc: "Pricing.from_price_cents/0 — nil hides the footer line (the index rule)"
   )
 
+  # The peers and the fallback card point at the caller's catalog: the
+  # public index for a visitor, the console's app index for a
+  # signed-in reader (S6 review — the console must not dead-end on the
+  # public surface).
+  attr(:catalog_path, :string,
+    default: "/catalog",
+    doc: "catalog index target: /catalog public, /apps authenticated"
+  )
+
   @spec similar_apps(map()) :: Phoenix.LiveView.Rendered.t()
   def similar_apps(assigns) do
     ~H"""
@@ -561,8 +588,9 @@ defmodule FluxValeWeb.CatalogPageComponents do
           :if={length(@peers) >= 2}
           app={peer}
           from_price_cents={@from_price_cents}
+          catalog_path={@catalog_path}
         />
-        <.browse_card :if={length(@peers) < 2} />
+        <.browse_card :if={length(@peers) < 2} catalog_path={@catalog_path} />
       </div>
     </section>
     """
@@ -579,6 +607,11 @@ defmodule FluxValeWeb.CatalogPageComponents do
   attr(:newest_version, :any,
     default: nil,
     doc: "newest AppVersion — nil (no versions) hides the deploy button"
+  )
+
+  attr(:catalog_path, :string,
+    default: "/catalog",
+    doc: "the ghost button's target: /catalog public, /apps authenticated"
   )
 
   @spec closing_cta(map()) :: Phoenix.LiveView.Rendered.t()
@@ -598,7 +631,7 @@ defmodule FluxValeWeb.CatalogPageComponents do
         >
           {@copy.primary}
         </.button>
-        <.button variant="ghost" navigate={~p"/catalog"} data-testid="cta-browse">
+        <.button variant="ghost" navigate={@catalog_path} data-testid="cta-browse">
           {@copy.ghost}
         </.button>
       </div>
@@ -643,10 +676,15 @@ defmodule FluxValeWeb.CatalogPageComponents do
 
   attr(:from_price_cents, :any, default: nil, doc: "nil hides the footer line")
 
+  attr(:catalog_path, :string,
+    default: "/catalog",
+    doc: "the detail page's base path: /catalog public, /apps authenticated"
+  )
+
   defp peer_card(assigns) do
     ~H"""
     <.link
-      navigate={~p"/catalog/#{@app.slug}"}
+      navigate={@catalog_path <> "/" <> @app.slug}
       data-testid={"similar-#{@app.slug}"}
       class="group block rounded-panel border border-line-strong bg-panel p-5 shadow-sm outline-offset-2 outline-focus focus-visible:outline-2 transition-[box-shadow] duration-(--motion-base) ease-(--motion-ease-out) hover:shadow-md"
     >
@@ -682,10 +720,12 @@ defmodule FluxValeWeb.CatalogPageComponents do
 
   # The under-two-peers fallback (D6): one card out to the catalog
   # index. No invented similarity, no per-app claims.
+  attr(:catalog_path, :string, default: "/catalog", doc: "the catalog index target")
+
   defp browse_card(assigns) do
     ~H"""
     <.link
-      navigate={~p"/catalog"}
+      navigate={@catalog_path}
       data-testid="browse-card"
       class="group block rounded-panel border border-line-strong bg-panel p-5 shadow-sm outline-offset-2 outline-focus focus-visible:outline-2 transition-[box-shadow] duration-(--motion-base) ease-(--motion-ease-out) hover:shadow-md"
     >

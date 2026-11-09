@@ -58,7 +58,10 @@ defmodule FluxValeWeb.CatalogLive.ShowTest do
            )
 
     assert has_element?(view, "p.eyebrow", app.category.name)
-    assert has_element?(view, "a[href='/apps']", "Catalog")
+    # Scoped to the page's own container: the chrome's nav already links
+    # /apps, so an unscoped selector would pass without the hero link.
+    assert has_element?(view, ".catalog-page a[href='/apps']", "Catalog")
+    refute has_element?(view, ".catalog-page a[href='/catalog']")
 
     # The hero's aside: the pricing card prices the newest version and
     # its CTA is the same stepper entry the version cards use.
@@ -79,6 +82,11 @@ defmodule FluxValeWeb.CatalogLive.ShowTest do
     assert has_element?(view, "[data-testid='faq-section']")
     assert has_element?(view, "[data-testid='similar-section']")
     assert has_element?(view, "[data-testid='cta-section']")
+
+    # The console's own catalog, not the public surface: the browse
+    # fallback and the closing CTA's ghost button both stay in /apps.
+    assert has_element?(view, "[data-testid='browse-card'][href='/apps']")
+    assert has_element?(view, "[data-testid='cta-browse'][href='/apps']")
     refute has_element?(view, "[data-testid='in-action-section']")
     refute has_element?(view, "[data-testid='features-section']")
 
@@ -120,6 +128,9 @@ defmodule FluxValeWeb.CatalogLive.ShowTest do
              "#pricing-card",
              Pricing.format_usd(rates.monthly_cents)
            )
+
+    # An already-signed-in reader is not sold the signup grant.
+    refute has_element?(view, "#pricing-card", "welcome credit")
 
     assert has_element?(
              view,
