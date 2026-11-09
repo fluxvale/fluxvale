@@ -124,8 +124,40 @@ defmodule FluxValeWeb.AdminConsole do
   # enforces it.
   @excluded_resources %{
     FluxVale.Billing => %{
+      FluxVale.Billing.Wallet.Version =>
+        "the paper-trail version table: the Audit section surfaces it, not the generic console (#645)",
+      FluxVale.Billing.LedgerEntry.Version =>
+        "the paper-trail version table: the Audit section surfaces it, not the generic console (#645)",
       FluxVale.Billing.Topup =>
-        "gateway-driven rows: the payment gateway owns every write, an operator has no path here"
+        "gateway-driven rows: the payment gateway owns every write, an operator has no path here",
+      FluxVale.Billing.Topup.Version =>
+        "the paper-trail version table: the Audit section surfaces it, not the generic console (#645)"
+    },
+    FluxVale.Pricing => %{
+      FluxVale.Pricing.Size.Version =>
+        "the paper-trail version table: the Audit section surfaces it, not the generic console (#645)",
+      FluxVale.Pricing.TaxRate.Version =>
+        "the paper-trail version table: the Audit section surfaces it, not the generic console (#645)"
+    },
+    FluxVale.Catalog => %{
+      FluxVale.Catalog.Category.Version =>
+        "the paper-trail version table: the Audit section surfaces it, not the generic console (#645)",
+      FluxVale.Catalog.App.Version =>
+        "the paper-trail version table: the Audit section surfaces it, not the generic console (#645)",
+      FluxVale.Catalog.AppVersion.Version =>
+        "the paper-trail version table: the Audit section surfaces it, not the generic console (#645)"
+    },
+    FluxVale.Feedback => %{
+      FluxVale.Feedback.Post.Version =>
+        "the paper-trail version table: the Audit section surfaces it, not the generic console (#645)",
+      FluxVale.Feedback.Vote.Version =>
+        "the paper-trail version table: the Audit section surfaces it, not the generic console (#645)",
+      FluxVale.Feedback.Comment.Version =>
+        "the paper-trail version table: the Audit section surfaces it, not the generic console (#645)",
+      FluxVale.Feedback.Tag.Version =>
+        "the paper-trail version table: the Audit section surfaces it, not the generic console (#645)",
+      FluxVale.Feedback.PostTag.Version =>
+        "the paper-trail version table: the Audit section surfaces it, not the generic console (#645)"
     },
     FluxVale.Ops => %{
       FluxVale.Ops.FeatureFlag.Version =>

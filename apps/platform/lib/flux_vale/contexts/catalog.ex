@@ -13,10 +13,18 @@ defmodule FluxVale.Catalog do
   # (ADR-0019 §1).
   use Ash.Domain,
     otp_app: :flux_vale,
-    extensions: [AshAdmin.Domain, AshJsonApi.Domain]
+    extensions: [AshAdmin.Domain, AshJsonApi.Domain, AshPaperTrail.Domain]
 
   admin do
     show?(true)
+  end
+
+  # The paper-trail seam (#645, ADR-0048): versioned resources' Version
+  # modules join the domain here so codegen migrates them and reads see
+  # them. The console registry excludes them by name — the audit trail
+  # surfaces in its own section, not as raw tables.
+  paper_trail do
+    include_versions?(true)
   end
 
   resources do

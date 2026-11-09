@@ -68,9 +68,10 @@ defmodule FluxVale.AdminAuthorityTest do
                 ])
 
   # Machinery by name, each with its reason — the plan's seven rows
-  # (the Nov 9 amendment added PocketIdCustodyEvent), plus the two
-  # generated version resources. Extending this map is the deliberate
-  # act the gate forces.
+  # (the Nov 9 amendment added PocketIdCustodyEvent), plus every
+  # generated version resource (the audit surface itself: two Ops rows,
+  # then the A2-S2 domains' thirteen). Extending this map is the
+  # deliberate act the gate forces.
   @exempt %{
     FluxVale.Infrastructure.InstanceAllocationSnapshot =>
       "append-only telemetry — the table IS its trail",
@@ -85,6 +86,32 @@ defmodule FluxVale.AdminAuthorityTest do
     FluxVale.Api.RequestWindow => "janitor bookkeeping",
     FluxVale.Infrastructure.PocketIdCustodyEvent =>
       "append-only custody history — its own table IS its trail, the InstanceAllocationSnapshot stance",
+    FluxVale.Billing.Wallet.Version =>
+      "generated version resource (ADR-0048): the audit surface itself, never audited or blanket-governed",
+    FluxVale.Billing.LedgerEntry.Version =>
+      "generated version resource (ADR-0048): the audit surface itself, never audited or blanket-governed",
+    FluxVale.Billing.Topup.Version =>
+      "generated version resource (ADR-0048): the audit surface itself, never audited or blanket-governed",
+    FluxVale.Pricing.Size.Version =>
+      "generated version resource (ADR-0048): the audit surface itself, never audited or blanket-governed",
+    FluxVale.Pricing.TaxRate.Version =>
+      "generated version resource (ADR-0048): the audit surface itself, never audited or blanket-governed",
+    FluxVale.Catalog.Category.Version =>
+      "generated version resource (ADR-0048): the audit surface itself, never audited or blanket-governed",
+    FluxVale.Catalog.App.Version =>
+      "generated version resource (ADR-0048): the audit surface itself, never audited or blanket-governed",
+    FluxVale.Catalog.AppVersion.Version =>
+      "generated version resource (ADR-0048): the audit surface itself, never audited or blanket-governed",
+    FluxVale.Feedback.Post.Version =>
+      "generated version resource (ADR-0048): the audit surface itself, never audited or blanket-governed",
+    FluxVale.Feedback.Vote.Version =>
+      "generated version resource (ADR-0048): the audit surface itself, never audited or blanket-governed",
+    FluxVale.Feedback.Comment.Version =>
+      "generated version resource (ADR-0048): the audit surface itself, never audited or blanket-governed",
+    FluxVale.Feedback.Tag.Version =>
+      "generated version resource (ADR-0048): the audit surface itself, never audited or blanket-governed",
+    FluxVale.Feedback.PostTag.Version =>
+      "generated version resource (ADR-0048): the audit surface itself, never audited or blanket-governed",
     FluxVale.Ops.FeatureFlag.Version =>
       "generated version resource (ADR-0048): the audit surface itself, never audited or blanket-governed",
     FluxVale.Ops.AccessRule.Version =>
@@ -95,20 +122,6 @@ defmodule FluxVale.AdminAuthorityTest do
   # the named A2 rollout slice (the plan's phasing — the closing slice
   # demands ZERO pendings remain).
   @pending %{
-    # A2-S2 — Billing, Pricing, Catalog, Feedback
-    FluxVale.Billing.Wallet => "A2-S2",
-    FluxVale.Billing.LedgerEntry => "A2-S2",
-    FluxVale.Billing.Topup => "A2-S2",
-    FluxVale.Pricing.Size => "A2-S2",
-    FluxVale.Pricing.TaxRate => "A2-S2",
-    FluxVale.Catalog.Category => "A2-S2",
-    FluxVale.Catalog.App => "A2-S2",
-    FluxVale.Catalog.AppVersion => "A2-S2",
-    FluxVale.Feedback.Post => "A2-S2",
-    FluxVale.Feedback.Vote => "A2-S2",
-    FluxVale.Feedback.Comment => "A2-S2",
-    FluxVale.Feedback.Tag => "A2-S2",
-    FluxVale.Feedback.PostTag => "A2-S2",
     # A2-S3 — Infrastructure, Identity, Accounts
     FluxVale.Infrastructure.Cluster => "A2-S3",
     FluxVale.Infrastructure.Instance => "A2-S3",
@@ -175,6 +188,27 @@ defmodule FluxVale.AdminAuthorityTest do
       assert MapSet.disjoint?(@business_set, exempt)
       assert MapSet.subset?(pending, @business_set)
     end
+
+    # The phasing's printed partition (the rollout slices flip it slice
+    # by slice): a moved count is a deliberate diff to this line, the
+    # same forcing function as the sets themselves.
+    test "the partition counts: full 15, exempt 22, pending 16" do
+      pending =
+        @pending
+        |> Map.keys()
+        |> MapSet.new()
+
+      full = MapSet.difference(@business_set, pending)
+
+      assert MapSet.size(full) == 15,
+             "the full set moved to #{MapSet.size(full)} — a rollout slice landed, update this count"
+
+      assert map_size(@exempt) == 22,
+             "the exempt set moved to #{map_size(@exempt)} — 7 machinery rows plus every generated version resource"
+
+      assert MapSet.size(pending) == 16,
+             "the pending set moved to #{MapSet.size(pending)} — the A2-S3 slice's set"
+    end
   end
 
   describe "full — bypass AND paper trail (the closing state)" do
@@ -203,6 +237,38 @@ defmodule FluxVale.AdminAuthorityTest do
         end
       end
     end
+
+    test "every full resource's Version module is registered in its domain" do
+      full = full_resources()
+
+      assert length(full) == 15,
+             "the full set moved to #{length(full)} — a rollout slice landed, update the phasing counts"
+
+      for resource <- full do
+        domain = domain_of(resource)
+
+        assert AshPaperTrail.Resource.Info.version_resource(resource) in Info.resources(domain),
+               "#{inspect(resource)} is full but its Version module is not registered in " <>
+                 "#{inspect(domain)} — include_versions? is not riding the domain"
+      end
+    end
+
+    test "every full resource's trail options match the posture (ADR-0048)" do
+      for resource <- full_resources() do
+        assert AshPaperTrail.Resource.Info.mixin(resource) ==
+                 {FluxVale.PaperTrail.VersionMixin, :version_resource, []},
+               "#{inspect(resource)} carries the wrong mixin — one config posture, the mixin is mandatory"
+
+        refute AshPaperTrail.Resource.Info.reference_source?(resource),
+               "#{inspect(resource)} references its source — destroy evidence must outlive the record"
+
+        assert AshPaperTrail.Resource.Info.change_tracking_mode(resource) == :changes_only,
+               "#{inspect(resource)} left changes_only — the compact atomic-safe mode is doctrine"
+
+        assert AshPaperTrail.Resource.Info.sensitive_attributes(resource) == :redact,
+               "#{inspect(resource)} un-redacted — the blanket sensitive posture is doctrine"
+      end
+    end
   end
 
   describe "exempt — by name, with a reason" do
@@ -220,6 +286,30 @@ defmodule FluxVale.AdminAuthorityTest do
     |> Application.get_env(:ash_domains)
     |> Enum.flat_map(&Info.resources/1)
     |> MapSet.new()
+  end
+
+  # The full set: business-set resources whose trail has landed (the
+  # complement of the pendings).
+  defp full_resources do
+    pending =
+      @pending
+      |> Map.keys()
+      |> MapSet.new()
+
+    @business_set
+    |> MapSet.difference(pending)
+    |> MapSet.to_list()
+  end
+
+  # The configured domain carrying the resource — nil would mean the
+  # gate's walked universe and the config disagree, which the first
+  # test already refuses.
+  defp domain_of(resource) do
+    domains = Application.get_env(:flux_vale, :ash_domains)
+
+    domain = Enum.find(domains, fn domain -> resource in Info.resources(domain) end)
+
+    domain || raise("#{inspect(resource)} is in no configured domain")
   end
 
   # Whether the paper-trail extension rides the resource at all. NOT

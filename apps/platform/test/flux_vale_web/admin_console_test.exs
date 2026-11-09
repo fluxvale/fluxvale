@@ -152,6 +152,19 @@ defmodule FluxValeWeb.AdminConsoleTest do
       end
     end
 
+    test "every exclusion entry names a module its domain actually has — live domain or not" do
+      # The liveness arm walks ALL configured domains, pending included:
+      # a pending domain's exclusions (the audit lane's version tables
+      # ride the map before the domain flips live) go stale just as a
+      # live domain's do.
+      for domain <- Application.get_env(:flux_vale, :ash_domains) do
+        for {module, _reason} <- AdminConsole.excluded_resources(domain) do
+          assert module in Info.resources(domain),
+                 "#{inspect(module)} is excluded but no longer a #{inspect(domain)} resource — drop the stale exclusion"
+        end
+      end
+    end
+
     test "a live domain's URL segment is its key, and every entry carries a module" do
       for domain <- AdminConsole.domains() do
         assert is_atom(domain.key)
@@ -303,12 +316,24 @@ defmodule FluxValeWeb.AdminConsoleTest do
       assert Map.has_key?(excluded, FluxVale.Billing.Topup)
       assert excluded[FluxVale.Billing.Topup] =~ "gateway"
 
-      # Ops's exclusions are the audit lane's version tables (#645);
-      # a domain with no exclusions answers empty, unknown or not.
+      # The version tables ride the same exclusion arm on every live
+      # domain (#645): Billing, Pricing, Catalog, and Feedback join Ops
+      # as their slices land.
       ops = AdminConsole.excluded_resources(FluxVale.Ops)
       assert Map.has_key?(ops, FluxVale.Ops.FeatureFlag.Version)
-      assert AdminConsole.excluded_resources(FluxVale.Pricing) == %{}
-      assert AdminConsole.excluded_resources(FluxVale.Catalog) == %{}
+
+      pricing = AdminConsole.excluded_resources(FluxVale.Pricing)
+      assert Map.has_key?(pricing, FluxVale.Pricing.Size.Version)
+      assert Map.has_key?(pricing, FluxVale.Pricing.TaxRate.Version)
+
+      catalog = AdminConsole.excluded_resources(FluxVale.Catalog)
+      assert Map.has_key?(catalog, FluxVale.Catalog.App.Version)
+
+      feedback = AdminConsole.excluded_resources(FluxVale.Feedback)
+      assert Map.has_key?(feedback, FluxVale.Feedback.Post.Version)
+
+      # a domain with no exclusions answers empty, unknown or not.
+      assert AdminConsole.excluded_resources(FluxVale.Nowhere) == %{}
     end
   end
 

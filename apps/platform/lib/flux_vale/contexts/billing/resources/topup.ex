@@ -32,6 +32,7 @@ defmodule FluxVale.Billing.Topup do
     otp_app: :flux_vale,
     domain: FluxVale.Billing,
     data_layer: AshPostgres.DataLayer,
+    extensions: [AshPaperTrail.Resource],
     authorizers: [Ash.Policy.Authorizer]
 
   alias FluxVale.Accounts.Organization
@@ -42,6 +43,30 @@ defmodule FluxVale.Billing.Topup do
 
     # ADR-0032 §3: no DB-side id default — ids are Ash's job (see User).
     migration_defaults(id: "nil")
+  end
+
+  # The audit trail (#645, ADR-0048): the plan's one complete config
+  # posture — the mixin line is mandatory (it carries the read policy,
+  # the indexes, the actor label). version_extensions attaches the
+  # Policy authorizer that policy rides on. Rationale lives in the
+  # ADR, not here.
+  paper_trail do
+    primary_key_type(:uuid_v7)
+    change_tracking_mode(:changes_only)
+    store_action_name?(true)
+    store_action_inputs?(true)
+    sensitive_attributes(:redact)
+    ignore_attributes([:created_at, :updated_at])
+    reference_source?(false)
+    create_version_on_destroy?(true)
+    operation_id_field(:operation_id)
+    mixin({FluxVale.PaperTrail.VersionMixin, :version_resource, []})
+    version_extensions(authorizers: [Ash.Policy.Authorizer])
+
+    belongs_to_actor(:user, FluxVale.Identity.User,
+      domain: FluxVale.Identity,
+      on_delete: :nilify
+    )
   end
 
   policies do
@@ -106,47 +131,57 @@ defmodule FluxVale.Billing.Topup do
     end
 
     # Buyer details as sent to the gateway (receipt/dunning surface).
+    # sensitive?: the audit trail (#645, ADR-0048) redacts buyer
+    # evidence — the version rows carry REDACTED, never the values.
     attribute :buyer_email, :string do
       public?(true)
+      sensitive?(true)
     end
 
     attribute :buyer_name, :string do
       public?(true)
+      sensitive?(true)
     end
 
     # Gate-3 schema commitment (ADR-0029 Am. 3): persisted from day one,
     # populated by the checkout tax layer (#138).
     attribute :billing_country, :string do
       public?(true)
+      sensitive?(true)
     end
 
     # US state code; nil is country-wide (everywhere but the US).
     attribute :billing_state, :string do
       public?(true)
+      sensitive?(true)
     end
 
     attribute :customer_type, FluxVale.Billing.Types.CustomerType do
       allow_nil?(false)
       default(:consumer)
       public?(true)
+      sensitive?(true)
     end
 
     # The B2B reverse-charge proof — format-checked at capture; real
     # VIES validation is a launch-gate item (ADR-0029 Am. 3).
     attribute :vat_number, :string do
       public?(true)
+      sensitive?(true)
     end
 
     # Second location signal (record-only) — the edge geo header at
     # checkout.
     attribute :ip_country, :string do
       public?(true)
+      sensitive?(true)
     end
 
     attribute :reverse_charge?, :boolean do
       allow_nil?(false)
       default(false)
       public?(true)
+      sensitive?(true)
     end
 
     # The second location signal (record-only — the billing address is
@@ -156,6 +191,7 @@ defmodule FluxVale.Billing.Topup do
       allow_nil?(false)
       default(false)
       public?(true)
+      sensitive?(true)
     end
 
     attribute :tax_rate_bp, :integer do

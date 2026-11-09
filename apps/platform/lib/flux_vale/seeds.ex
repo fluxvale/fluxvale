@@ -306,10 +306,11 @@ defmodule FluxVale.Seeds do
   drives it with fixture YAML.
 
   Idempotent — records are looked up by (country, state, effective_from);
-  existing rows have their rate_bp updated to the seed attrs, so
-  re-running converges the rate table to tax_rates.yaml. A new effective
-  date is a new row (no `effective_to` — the next `effective_from` is
-  the boundary).
+  an existing row whose rate already matches is skipped (a converged
+  re-seed must not version, ADR-0048), a drifted row has its rate_bp
+  updated back to the seed attrs, so re-running converges the rate
+  table to tax_rates.yaml. A new effective date is a new row (no
+  `effective_to` — the next `effective_from` is the boundary).
   """
   @spec seed_tax_rates! :: :ok
   def seed_tax_rates!, do: seed_tax_rates!(TaxRateData.entries())
@@ -317,18 +318,29 @@ defmodule FluxVale.Seeds do
   @spec seed_tax_rates!([map()]) :: :ok
   def seed_tax_rates!(entries) do
     for attrs <- entries do
-      case find_tax_rate!(attrs) do
-        [rate] ->
-          # (country, state, effective_from) is the lookup key —
-          # immutable on update (see the resource).
-          TaxRate.update!(rate, %{rate_bp: attrs.rate_bp}, authorize?: false)
-
-        [] ->
-          TaxRate.create!(attrs, authorize?: false)
-      end
+      seed_or_heal_tax_rate!(attrs)
     end
 
     :ok
+  end
+
+  defp seed_or_heal_tax_rate!(attrs) do
+    case find_tax_rate!(attrs) do
+      [rate] -> heal_or_skip(rate, attrs)
+      [] -> TaxRate.create!(attrs, authorize?: false)
+    end
+  end
+
+  # (country, state, effective_from) is the lookup key — immutable on
+  # update (see the resource). A converged rate skips the write: a
+  # re-seed must not version (ADR-0048); a drifted row heals back to
+  # the shipped value.
+  defp heal_or_skip(rate, attrs) do
+    if rate.rate_bp == attrs.rate_bp do
+      rate
+    else
+      TaxRate.update!(rate, %{rate_bp: attrs.rate_bp}, authorize?: false)
+    end
   end
 
   # nil-state (country-wide) and state rows must not collide in the
