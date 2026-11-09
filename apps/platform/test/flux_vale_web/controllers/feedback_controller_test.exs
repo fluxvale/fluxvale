@@ -838,7 +838,9 @@ defmodule FluxValeWeb.FeedbackControllerTest do
 
   describe "post page tag chips and the catalog cross-link (T10)" do
     test "the post page renders its tag chips linking the filtered board", %{conn: conn} do
-      kavita = tag!(%{name: "Kavita", slug: "kavita"})
+      n = System.unique_integer([:positive])
+      slug = "kavita-#{n}"
+      kavita = tag!(%{name: "Kavita", slug: slug})
       post = post!(%{title: "Chip page request", description: "x"})
       tag_post!(post, [kavita])
 
@@ -846,19 +848,21 @@ defmodule FluxValeWeb.FeedbackControllerTest do
 
       assert html =~ "data-testid=\"post-tags\""
       assert html =~ "data-testid=\"feedback-tag-link\""
-      assert html =~ "href=\"/feedback?tag=kavita\""
+      assert html =~ "href=\"/feedback?tag=#{slug}\""
     end
 
     test "a tag whose slug matches a catalog app renders the /apps cross-link", %{conn: conn} do
-      catalog_app!("kavita")
-      kavita = tag!(%{name: "Kavita", slug: "kavita"})
+      n = System.unique_integer([:positive])
+      slug = "kavita-#{n}"
+      catalog_app!(slug)
+      kavita = tag!(%{name: "Kavita", slug: slug})
       post = post!(%{title: "Cross-link request", description: "x"})
       tag_post!(post, [kavita])
 
       html = html_response(get(conn, ~p"/feedback/#{post.slug}"), 200)
 
       assert html =~ "data-testid=\"feedback-app-link\""
-      assert html =~ "href=\"/apps/kavita\""
+      assert html =~ "href=\"/apps/#{slug}\""
       assert html =~ "Kavita in the app catalog"
     end
 

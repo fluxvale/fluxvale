@@ -59,8 +59,11 @@ defmodule FluxVale.Feedback.TagTest do
     end
 
     test "an authored slug wins over the derivation" do
-      assert %{slug: "kavita"} =
-               Tag.create!(%{name: "Kavita", slug: "kavita"}, authorize?: false)
+      n = System.unique_integer([:positive])
+      slug = "kavita-#{n}"
+
+      assert %{slug: ^slug} =
+               Tag.create!(%{name: "Kavita #{n}", slug: slug}, authorize?: false)
     end
 
     test "a forced slug (the seed's get-or-create shape) is not clobbered" do

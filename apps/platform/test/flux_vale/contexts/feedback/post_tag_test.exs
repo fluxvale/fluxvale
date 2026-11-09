@@ -60,9 +60,10 @@ defmodule FluxVale.Feedback.PostTagTest do
 
   describe "set_tags semantics" do
     test "the list is the whole truth — replace, not append" do
+      n = System.unique_integer([:positive])
       platform = tag!(%{name: "Platform", slug: "platform"})
-      kavita = tag!(%{name: "Kavita", slug: "kavita"})
-      forgejo = tag!(%{name: "Forgejo", slug: "forgejo"})
+      kavita = tag!(%{name: "Kavita #{n}", slug: "kavita-#{n}"})
+      forgejo = tag!(%{name: "Forgejo #{n}", slug: "forgejo-#{n}"})
       post = post!()
 
       tagged = tag_post!(post, [platform, kavita])
@@ -74,11 +75,11 @@ defmodule FluxVale.Feedback.PostTagTest do
         |> Enum.map(& &1.slug)
         |> Enum.sort()
 
-      assert slugs == ["kavita", "platform"]
+      assert slugs == [kavita.slug, platform.slug]
 
       replaced = tag_post!(post, [forgejo])
 
-      assert Enum.map(replaced.tags, & &1.slug) == ["forgejo"]
+      assert Enum.map(replaced.tags, & &1.slug) == [forgejo.slug]
     end
 
     test "an empty list removes every tag" do
@@ -119,8 +120,9 @@ defmodule FluxVale.Feedback.PostTagTest do
       # answers field-scoped on the pairing, with no rows written. The
       # action is the whole-truth replace, so the caller re-sends the
       # deduped list.
+      n = System.unique_integer([:positive])
       platform = tag!(%{name: "Platform", slug: "platform"})
-      kavita = tag!(%{name: "Kavita", slug: "kavita"})
+      kavita = tag!(%{name: "Kavita #{n}", slug: "kavita-#{n}"})
       post = post!()
 
       assert {:error, %Ash.Error.Invalid{errors: errors}} =
@@ -153,8 +155,9 @@ defmodule FluxVale.Feedback.PostTagTest do
     end
 
     test "re-setting the same list does not duplicate the pairings" do
+      n = System.unique_integer([:positive])
       platform = tag!(%{name: "Platform", slug: "platform"})
-      kavita = tag!(%{name: "Kavita", slug: "kavita"})
+      kavita = tag!(%{name: "Kavita #{n}", slug: "kavita-#{n}"})
       post = post!()
 
       tag_post!(post, [platform, kavita])
@@ -184,7 +187,8 @@ defmodule FluxVale.Feedback.PostTagTest do
 
   describe "reads" do
     test "loading a post's tags sorts by name" do
-      kavita = tag!(%{name: "Kavita", slug: "kavita"})
+      n = System.unique_integer([:positive])
+      kavita = tag!(%{name: "Kavita #{n}", slug: "kavita-#{n}"})
       platform = tag!(%{name: "Platform", slug: "platform"})
       post = post!()
 
@@ -193,7 +197,7 @@ defmodule FluxVale.Feedback.PostTagTest do
 
       loaded = Ash.load!(post, :tags, actor: nil)
 
-      assert Enum.map(loaded.tags, & &1.slug) == ["kavita", "platform"]
+      assert Enum.map(loaded.tags, & &1.slug) == [kavita.slug, platform.slug]
     end
   end
 end

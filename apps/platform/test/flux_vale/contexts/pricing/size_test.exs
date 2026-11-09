@@ -58,10 +58,11 @@ defmodule FluxVale.Pricing.SizeTest do
     end
 
     test "enforces unique slug — the seed's idempotency key" do
-      existing = size_attrs(%{slug: "small"})
+      n = System.unique_integer([:positive])
+      existing = size_attrs(%{slug: "small-#{n}"})
       Size.create!(existing, authorize?: false)
 
-      attrs = size_attrs(%{slug: "small", memory_mb: 1024})
+      attrs = size_attrs(%{slug: "small-#{n}", memory_mb: 1024})
 
       assert {:error, %Ash.Error.Invalid{}} = Size.create(attrs, authorize?: false)
     end
@@ -87,10 +88,11 @@ defmodule FluxVale.Pricing.SizeTest do
 
   describe "get_by_slug/1" do
     test "fetches by slug or errors" do
-      attrs = size_attrs(%{slug: "small"})
+      n = System.unique_integer([:positive])
+      attrs = size_attrs(%{slug: "small-#{n}"})
       created = Size.create!(attrs, authorize?: false)
 
-      assert {:ok, fetched} = Size.get_by_slug("small", authorize?: false)
+      assert {:ok, fetched} = Size.get_by_slug("small-#{n}", authorize?: false)
       assert fetched.id == created.id
 
       assert {:error, _not_found} = Size.get_by_slug("nope", authorize?: false)
@@ -99,7 +101,8 @@ defmodule FluxVale.Pricing.SizeTest do
 
   describe "update/2" do
     test "reprices but keeps the slug — the seed's lookup key" do
-      attrs = size_attrs(%{slug: "small"})
+      n = System.unique_integer([:positive])
+      attrs = size_attrs(%{slug: "small-#{n}"})
       size = Size.create!(attrs, authorize?: false)
 
       assert {:ok, updated} = Size.update(size, %{monthly_cents: 299}, authorize?: false)

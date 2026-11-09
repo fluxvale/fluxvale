@@ -7,7 +7,10 @@ defmodule FluxVale.Infrastructure.InstancePocketIdDetectionTest do
   # list_for_organization policy posture (member-scoped), newest
   # deployed first — the offer card's default pick and link target.
 
-  use FluxVale.DataCase, async: true
+  # Sync: fabricates app rows with seeded slugs ("pocket-id"), which are
+  # globally unique and shared with other modules doing the same. Sync
+  # modules run alone, so the race cannot form (#669).
+  use FluxVale.DataCase, async: false
 
   alias FluxVale.Accounts
   alias FluxVale.Infrastructure.Instance
