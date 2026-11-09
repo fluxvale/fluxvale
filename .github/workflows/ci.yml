@@ -755,23 +755,14 @@ jobs:
     # leaves ~11.5m hang slack. Tighter than the old slack on purpose:
     # the new worst already carries congestion padding the old one
     # didn't. The waits themselves are unchanged. #587 added
-<<<<<<< HEAD
-    # umami-lifecycle (20m bounded), #610 added vikunja-lifecycle
-    # (20m bounded, a memos-shape SQLite-PVC deploy), and #609 added
-    # docmost-lifecycle (also 20m bounded — the retry math: playwright
-    # retries once in CI, so the leg worst is the observed 17.1m plus
-    # two bounded runs per new spec, and 20m bounds keep the sum
-    # inside the 60m ceiling with the report intact on a retry).
-=======
     # umami-lifecycle (20m bounded) as the lifecycle leg's seventh
-    # spec: the leg's observed worst is 17.1m at #587's head (its
-    # cold pulls ride the warm-up), ≈ 30m under the ceiling. #609
-    # added docmost-lifecycle (also 20m bounded — the retry math:
-    # playwright retries once in CI, so the leg worst is 17.1m + two
-    # bounded runs, and a 20m bound keeps 17.1 + 20 + 20 = 57.1m
-    # inside the 60m ceiling with the report intact on a retry). The
-    # spec's per-run Redis pod is warmed below with the config pins.
->>>>>>> e2ec039 (fix(platform): hostile-review adoptions for #650 (fsGroup volume grant, upload proof, warm-up, counts))
+    # spec. #610 added vikunja-lifecycle (20m bounded, a memos-shape
+    # SQLite-PVC deploy). #609 added docmost-lifecycle (also 20m
+    # bounded — the retry math: playwright retries once in CI, so the
+    # leg worst is the observed 17.1m plus two bounded runs per new
+    # spec, and 20m bounds keep the sum inside the 60m ceiling with
+    # the report intact on a retry). The docmost spec's per-run Redis
+    # pod is warmed below with the config pins.
     timeout-minutes: 60
     strategy:
       # A red leg must not cancel the others — its report is triage

@@ -738,7 +738,8 @@ defmodule FluxVale.Seeds.CatalogSeedTest do
       assert :ok == Seeds.seed_pricing!()
       assert :ok == Seeds.seed_catalog!()
 
-      for slug <- ~w(forgejo kavita memos vaultwarden pocket-id actualbudget umami vikunja docmost) do
+      for slug <-
+            ~w(forgejo kavita memos vaultwarden pocket-id actualbudget umami vikunja docmost) do
         app = App.get_by_slug!(slug, authorize?: false)
         assert app.caveats != [], "#{slug} carries no caveats"
         assert length(app.caveats) <= 6

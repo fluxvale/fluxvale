@@ -302,13 +302,20 @@ test(
       const marker = `fv609-upload-proof-${suffix}`;
       const upload = await ui.evaluate(
         async ({ spaceId, marker, fileBase }) => {
-          const pageRes = await fetch("/api/pages", {
+          // Page creation is /api/pages/create (upstream's route table
+          // at v0.97.0 — the bare /api/posts-style guess 404s; the
+          // error now carries the body so a route drift names itself).
+          const pageRes = await fetch("/api/pages/create", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ spaceId, title: "E2E upload proof" }),
             credentials: "include",
           });
-          if (!pageRes.ok) throw new Error(`page create failed: ${pageRes.status}`);
+          if (!pageRes.ok) {
+            throw new Error(
+              `page create failed: ${pageRes.status} ${await pageRes.text()}`,
+            );
+          }
 
           const created = (await pageRes.json()) as { data: { id: string } };
           const form = new FormData();
