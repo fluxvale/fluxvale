@@ -89,12 +89,13 @@ for (const mode of ["light", "dark"]) {
   console.log(`gateways-${mode}`);
   await probeWidth(page, `gateways-${mode}`);
 
-  // The connected detail: the #613 facts (the key-age stamp with its
-  // 90-day copy, the tailnet claims) beside the credential card.
+  // The connected detail: the key-age line beside the API token entry
+  // and the per-domain claim lines under the names (#648's grammar).
   await page.goto(`${BASE}/admin/gateways/${ids.gatewayDetail}`, { waitUntil: "networkidle" });
   await setTheme(page, mode);
   await page.waitForSelector("[data-testid='admin-gateways-secret-card']");
-  await page.waitForSelector("[data-testid='admin-gateways-claims-list']");
+  await page.waitForSelector("[data-testid='admin-gateways-secret-token-set']");
+  await page.waitForSelector("[data-testid^='admin-gateways-domain-claim-']");
   await page.screenshot({ path: `${outdir}/admin-gateway-detail-${mode}.png`, fullPage: true });
   console.log(`gateway-detail-${mode}`);
   await probeWidth(page, `gateway-detail-${mode}`);
