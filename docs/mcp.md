@@ -10,7 +10,9 @@ section, #483); this doc mirrors it and carries the tool-surface
 record the app cannot: the catalog and the changelog below.
 
 Endpoints (the protocol nests at `/mcp` — `apps/mcp/src/main.rs`
-`MCP_PATH`): prod `https://mcp.fluxvale.com/mcp`, staging
+`MCP_PATH`; DNS records pending rollout — if a URL doesn't resolve
+yet, the endpoint is rolling out): prod
+`https://mcp.fluxvale.com/mcp`, staging
 `https://mcp.staging.fluxvale.com/mcp`.
 
 ## The recipe (two steps, one token)
@@ -23,21 +25,13 @@ Endpoints (the protocol nests at `/mcp` — `apps/mcp/src/main.rs`
    token into one of the configs below. `fvpat_…` marks where the
    token goes.
 
-Claude Desktop (`claude_desktop_config.json`, Settings → Developer →
-Edit Config; restart after saving):
+Claude Desktop — no config file; a remote server is a custom
+connector (`claude_desktop_config.json` is the local-stdio
+mechanism). Customize → Connectors → **Add custom connector**:
 
-```json
-{
-  "mcpServers": {
-    "fluxvale": {
-      "url": "https://mcp.fluxvale.com/mcp",
-      "headers": {
-        "Authorization": "Bearer fvpat_…"
-      }
-    }
-  }
-}
-```
+1. Name: `FluxVale`
+2. URL: `https://mcp.fluxvale.com/mcp`
+3. Request headers: `Authorization: Bearer fvpat_…`
 
 Cursor (`.cursor/mcp.json` per project, `~/.cursor/mcp.json`
 everywhere — same shape either way):
@@ -56,19 +50,26 @@ everywhere — same shape either way):
 ```
 
 opencode (`opencode.json` per project,
-`~/.config/opencode/opencode.json` everywhere; `oauth: false` because
-the server's 401 is a bearer challenge, not an OAuth dance):
+`~/.config/opencode/opencode.json` everywhere; entries nest under
+`mcp.servers` — the V2 shape, direct-under-`mcp` entries are
+silently dropped; `protocol: "auto"` because the default `legacy`
+caps at 2025-11-25 and the destructive tools' confirmations need
+the 2026-07-28 stateless revision; `oauth: false` because the
+server's 401 is a bearer challenge, not an OAuth dance):
 
 ```json
 {
   "$schema": "https://opencode.ai/config.json",
   "mcp": {
-    "fluxvale": {
-      "type": "remote",
-      "url": "https://mcp.fluxvale.com/mcp",
-      "oauth": false,
-      "headers": {
-        "Authorization": "Bearer fvpat_…"
+    "servers": {
+      "fluxvale": {
+        "type": "remote",
+        "protocol": "auto",
+        "url": "https://mcp.fluxvale.com/mcp",
+        "oauth": false,
+        "headers": {
+          "Authorization": "Bearer fvpat_…"
+        }
       }
     }
   }

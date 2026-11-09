@@ -10,12 +10,15 @@ defmodule FluxValeWeb.SettingsLive.AgentsTest do
   use FluxValeWeb.ConnCase, async: true
   import Phoenix.LiveViewTest
 
+  alias FluxVale.Accounts.Membership
   alias FluxVale.TestSupport.AccountsFixtures
   alias FluxVale.TestSupport.SessionHelpers
 
+  require Ash.Query
+
   setup %{conn: conn} do
     user = AccountsFixtures.user!()
-    {:ok, conn: SessionHelpers.sign_in(conn, user)}
+    {:ok, conn: SessionHelpers.sign_in(conn, user), user: user}
   end
 
   test "the page serves the recipe: server URL, copy, steps, both panel links", %{conn: conn} do
@@ -42,7 +45,23 @@ defmodule FluxValeWeb.SettingsLive.AgentsTest do
 
     # The two-step recipe renders both steps.
     assert has_element?(view, "[data-testid='agents-recipe']", "Mint a token")
-    assert has_element?(view, "[data-testid='agents-recipe']", "Point your client at the server")
+
+    assert has_element?(
+             view,
+             "[data-testid='agents-recipe']",
+             "Point your client at the server"
+           )
+
+    # The DNS records ride the beta rollout — the note under the URL
+    # stays evergreen (no dates, no promises).
+    assert render(element(view, "[data-testid='agents-server-dns']")) =~
+             "rolling out"
+
+    # Step 1 names the four MCP scope domains (the panel's scope
+    # catalog spans more than the server serves).
+    recipe = render(element(view, "[data-testid='agents-recipe']"))
+    assert recipe =~ "catalog, instances, backups, wallet"
+    assert recipe =~ "unlock MCP tools today"
   end
 
   test "each client config is the exact snippet, copyable, placeholder-only", %{conn: conn} do
@@ -52,16 +71,30 @@ defmodule FluxValeWeb.SettingsLive.AgentsTest do
       assert has_element?(view, "[data-testid='agents-config-#{client}']")
     end
 
-    # The snippets render verbatim in the cards' <pre> bodies and ride
-    # the copy buttons — a paste-ready config, one token swap away.
-    # Quotes escape as &quot; in the rendered HTML (Phoenix escapes
-    # them even in text nodes); the URL carries nothing escapable.
-    claude = render(element(view, "[data-testid='agents-config-claude'] pre"))
-    assert claude =~ "&quot;mcpServers&quot;"
+    # Claude Desktop is the connector FORM (no config file — that
+    # file is the local-stdio mechanism); Cursor and opencode are
+    # verbatim snippets in <pre> bodies riding copy buttons. Quotes
+    # escape as &quot; in the rendered HTML (Phoenix escapes them
+    # even in text nodes); the URL carries nothing escapable.
+    claude = render(element(view, "[data-testid='agents-config-claude']"))
+    assert claude =~ "Add custom connector"
     assert claude =~ "https://mcp.fluxvale.com/mcp"
-    assert has_element?(view, "[data-testid='agents-config-claude-copy']")
+    assert claude =~ "Bearer fvpat_…"
 
+    assert render(element(view, "[data-testid='agents-config-claude-copy']")) =~
+             "Authorization: Bearer fvpat_…"
+
+    cursor = render(element(view, "[data-testid='agents-config-cursor'] pre"))
+    assert cursor =~ "&quot;mcpServers&quot;"
+    assert cursor =~ "https://mcp.fluxvale.com/mcp"
+    assert has_element?(view, "[data-testid='agents-config-cursor-copy']")
+
+    # opencode rides the V2 shape: nested under mcp.servers with
+    # protocol auto (legacy caps at 2025-11-25; the destructive
+    # confirmations need the 2026-07-28 stateless revision).
     opencode = render(element(view, "[data-testid='agents-config-opencode'] pre"))
+    assert opencode =~ "&quot;servers&quot;"
+    assert opencode =~ "&quot;protocol&quot;: &quot;auto&quot;"
     assert opencode =~ "&quot;type&quot;: &quot;remote&quot;"
     assert opencode =~ "&quot;oauth&quot;: false"
 
@@ -98,5 +131,31 @@ defmodule FluxValeWeb.SettingsLive.AgentsTest do
       quiet = render(element(view, "[data-testid='account-settings-nav-#{key}']"))
       refute quiet =~ "aria-current", "#{key} should stay quiet"
     end
+  end
+
+  test "with no personal org, step 1 names an org instead of linking the redirecting panel", %{
+    conn: conn,
+    user: user
+  } do
+    # The seeded/legacy no-org shape (PersonalAccountTest's teardown):
+    # the panel link would flash and redirect — a dead end.
+    membership =
+      Membership
+      |> Ash.Query.for_read(:read, %{}, authorize?: false)
+      |> Ash.Query.filter(user_id == ^user.id and role == :owner)
+      |> Ash.read_one!(authorize?: false)
+
+    Ash.destroy!(membership, authorize?: false)
+
+    {:ok, view, _html} = live(conn, ~p"/settings/agents")
+
+    refute has_element?(view, "[data-testid='agents-tokens-link']")
+
+    assert render(element(view, "[data-testid='agents-tokens-norg']")) =~
+             "organization you own"
+
+    # The recipe itself still serves — static content, nothing gated.
+    assert has_element?(view, "[data-testid='agents-server-url']")
+    assert has_element?(view, "[data-testid='agents-config-claude-steps']")
   end
 end

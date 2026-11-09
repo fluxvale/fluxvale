@@ -1765,6 +1765,10 @@ defmodule FluxValeWeb.OrganizationLive.AccessTest do
       for path <- [~p"/settings/access", ~p"/organizations/#{org.slug}/settings/access"] do
         {:ok, view, _html} = live(conn, path)
 
+        # The one-click bar, literally: the link renders INSIDE the
+        # API tokens section, not merely on the same page.
+        assert has_element?(view, "#api-tokens [data-testid='api-tokens-agents-link']")
+
         link = render(element(view, "[data-testid='api-tokens-agents-link']"))
         assert link =~ ~s(href="/settings/agents")
         assert link =~ "AI agent"

@@ -2,10 +2,11 @@ defmodule FluxValeWeb.SettingsLive.Agents do
   @moduledoc """
   The agent quickstart (#484 W5): the remote MCP server's recipe at
   one click from the tokens panel — the server URL, the two-step
-  mint-and-paste, per-client config snippets, the scopes story, and
-  the destructive-action gate. The owner ruling: a beta friend with
-  zero FluxVale exposure reaches a working agent config in under two
-  minutes.
+  mint-and-paste, the per-client configs (file snippets for Cursor
+  and opencode; Claude Desktop's custom-connector form), the scopes
+  story, and the destructive-action gate. The owner ruling: a beta
+  friend with zero FluxVale exposure reaches a working agent config
+  in under two minutes.
 
   Documents the REMOTE server (`apps/mcp`, mcp.fluxvale.com) only —
   the platform's own endpoint is a different surface and is not
@@ -90,16 +91,28 @@ defmodule FluxValeWeb.SettingsLive.Agents do
                   <div class="min-w-0">
                     <p class="text-sm font-medium text-ink">Mint a token</p>
                     <p class="mt-1 text-sm text-ink-muted">
-                      In the
-                      <.link
-                        navigate={~p"/settings/access#api-tokens"}
-                        data-testid="agents-tokens-link"
-                        class="font-medium text-ink underline decoration-line underline-offset-2 transition-colors hover:decoration-line-strong"
-                      >
-                        API tokens panel
-                      </.link>
-                      — name it for the agent, pick its scopes, create it. The full
-                      token shows exactly once, there: copy it.
+                      <%= if @personal_org_id do %>
+                        In the
+                        <.link
+                          navigate={~p"/settings/access#api-tokens"}
+                          data-testid="agents-tokens-link"
+                          class="font-medium text-ink underline decoration-line underline-offset-2 transition-colors hover:decoration-line-strong"
+                        >
+                          API tokens panel
+                        </.link>
+                        — name it for the agent, pick its scopes (the MCP domains:
+                        catalog, instances, backups, wallet — gateways scopes don't
+                        unlock MCP tools today), create it.
+                      <% else %>
+                        <span data-testid="agents-tokens-norg">
+                          Mint a token from an organization you own
+                        </span>
+                        — the panel lives in its Access tab. Name it for the agent,
+                        pick its scopes (the MCP domains: catalog, instances,
+                        backups, wallet — gateways scopes don't unlock MCP tools
+                        today), create it.
+                      <% end %>
+                      The full token shows exactly once, there: copy it.
                     </p>
                   </div>
                 </div>
@@ -139,35 +152,54 @@ defmodule FluxValeWeb.SettingsLive.Agents do
                     testid="agents-server-url-copy"
                   />
                 </div>
+                <%!-- #484 W5: the DNS records ride the beta rollout —
+                evergreen wording, no dates, no promises. --%>
+                <p class="mt-2 text-xs text-ink-subtle" data-testid="agents-server-dns">
+                  If the URL doesn't resolve yet, the endpoint is rolling out — try
+                  again shortly.
+                </p>
               </div>
 
-              <%!-- The per-client configs: three cards, each a real
-              config file's exact shape. Claude Desktop and Cursor share
-              the mcpServers grammar; opencode keys under mcp with an
-              explicit remote type and oauth off (the server's 401 is a
-              bearer challenge, not an OAuth dance). --%>
+              <%!-- The per-client configs. Cursor rides the mcpServers
+              grammar in a file; opencode nests under mcp.servers (the
+              V2 shape — direct-under-mcp entries are silently dropped)
+              with protocol auto (the legacy default caps at
+              2025-11-25; the destructive tools' confirmations need
+              the 2026-07-28 stateless revision) and oauth off (the
+              server's 401 is a bearer challenge, not an OAuth dance).
+              Claude Desktop's remote path is a connector FORM, not a
+              file — claude_desktop_config.json is the local-stdio
+              mechanism. --%>
               <div class="space-y-6" data-testid="agents-clients">
                 <div class="space-y-2" data-testid="agents-config-claude">
                   <div class="flex flex-wrap items-baseline justify-between gap-2">
                     <h3 class="text-sm font-medium text-ink">Claude Desktop</h3>
-                    <code class="font-mono text-xs text-ink-subtle">claude_desktop_config.json</code>
+                    <span class="text-xs text-ink-subtle">
+                      Customize → Connectors → Add custom connector
+                    </span>
                   </div>
                   <p class="text-xs text-ink-subtle">
-                    Settings → Developer → Edit Config. Restart Claude Desktop after saving.
+                    No config file — a remote server is a custom connector
+                    (<span class="font-mono">claude_desktop_config.json</span> is the
+                    local-stdio mechanism).
                   </p>
                   <div class="mono-panel min-w-0">
-                    <div class="flex flex-wrap items-center justify-between gap-2">
-                      <span class="mono-panel-label mb-0">config</span>
-                      <.copy_button
-                        id="copy-agents-config-claude"
-                        value={claude_desktop_config()}
-                        testid="agents-config-claude-copy"
-                      />
-                    </div>
-                    <pre
-                      class="mt-3 overflow-x-auto rounded-control bg-panel-raised p-3 text-xs leading-relaxed text-ink"
-                      phx-no-curly-interpolation
-                    ><code><%= claude_desktop_config() %></code></pre>
+                    <span class="mono-panel-label mb-0">connector</span>
+                    <ol
+                      class="mt-3 list-inside list-decimal space-y-2 text-xs leading-relaxed text-ink"
+                      data-testid="agents-config-claude-steps"
+                    >
+                      <li>Name it <span class="font-medium">FluxVale</span>.</li>
+                      <li>URL: <span class="font-mono">{server_url()}</span></li>
+                      <li>
+                        Request headers: <code class="font-mono">Authorization: Bearer fvpat_…</code>
+                        <.copy_button
+                          id="copy-agents-config-claude"
+                          value={claude_header_value()}
+                          testid="agents-config-claude-copy"
+                        />
+                      </li>
+                    </ol>
                   </div>
                 </div>
 
@@ -273,20 +305,7 @@ defmodule FluxValeWeb.SettingsLive.Agents do
   # client-facing endpoint is the path, not the bare origin.
   defp server_url, do: "https://mcp.fluxvale.com/mcp"
 
-  defp claude_desktop_config do
-    """
-    {
-      "mcpServers": {
-        "fluxvale": {
-          "url": "#{server_url()}",
-          "headers": {
-            "Authorization": "Bearer fvpat_…"
-          }
-        }
-      }
-    }
-    """
-  end
+  defp claude_header_value, do: "Authorization: Bearer fvpat_…"
 
   defp cursor_config do
     """
@@ -308,12 +327,15 @@ defmodule FluxValeWeb.SettingsLive.Agents do
     {
       "$schema": "https://opencode.ai/config.json",
       "mcp": {
-        "fluxvale": {
-          "type": "remote",
-          "url": "#{server_url()}",
-          "oauth": false,
-          "headers": {
-            "Authorization": "Bearer fvpat_…"
+        "servers": {
+          "fluxvale": {
+            "type": "remote",
+            "protocol": "auto",
+            "url": "#{server_url()}",
+            "oauth": false,
+            "headers": {
+              "Authorization": "Bearer fvpat_…"
+            }
           }
         }
       }
