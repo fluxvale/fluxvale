@@ -2,13 +2,13 @@
 
 Status: **APPROVED — Terence via the PA, Nov 9 2026.** All decisions
 D-library through D-policy settled as recommended (§12). One rider on
-D-policy, which supersedes §8's original single-gate wording: S4's
-**policy file changes** — the privacy/terms templates themselves —
-are presented to the PA for Terence's sign-off BEFORE that PR merges;
-S4's code and runbook merge under standing authority, the policy text
-waits for his eye. The takeover analysis the issue demands is §4,
-written out in full. Slices S1–S4 fan out per §13; this doc rides
-S1's PR onto main (the #597 pattern).
+D-policy, which supersedes §8's original single-gate wording: S4 is
+**one PR** whose **policy file changes** — the privacy/terms
+templates themselves — are presented to the PA for Terence's
+sign-off BEFORE that PR merges; the PR waits whole, and no other gate
+applies to its code and runbook. The takeover analysis the issue
+demands is §4, written out in full. Slices S1–S4 fan out per §13;
+this doc rides S1's PR onto main (the #597 pattern).
 
 Evidence base: the auth machinery as shipped — `VerifyAuthCode` /
 `RequestAuthCode`, `User.get_by_email` / `get_by_address`, the
@@ -16,7 +16,9 @@ Evidence base: the auth machinery as shipped — `VerifyAuthCode` /
 native POST fallback (#219/#623), `SessionController`, `AuthFlow`,
 `AccessRules`, `FeatureFlags`, `ApiRateLimit` — plus assent 0.2.13's
 source at tag (the exact version in our lock, read in
-`deps/assent`), and the endpoint's session-cookie configuration.
+`deps/assent`), the endpoint's session-cookie configuration, and the
+deployment topology (`docs/architecture.md`: Cloudflare → Traefik →
+pod).
 
 ## 1. The design in one paragraph
 
@@ -33,9 +35,10 @@ JWKS, `iss`/`aud`/`exp`/`nonce`), and the operation resolves the
 verified email to a user through the SAME admission ladder the
 email-code arm runs — supersede, re-lookup, occupant, team-domain
 JIT, `AccessRules` — then mints the standard 60-day token and writes
-the session in one server-side hop. Existing users whose verified
-email matches link automatically (a one-time flash says so, §4);
-email codes stay exactly as they are.
+the session in one server-side hop, with an info flash ("Signed in
+with Google.") in place of the email arm's "Signed in.". Existing
+users whose verified email match link automatically (§4); email
+codes stay exactly as they are.
 
 ## 2. Why this is safe to bolt on: identity IS the verified email
 
@@ -56,23 +59,23 @@ strong as our burned code?" — and for launch-scope risk, it is.
 
 **assent, called directly** — `Assent.Strategy.OIDC`.
 
-- It is **already in `mix.lock`** as a hard (non-optional) dependency
-  of `ash_authentication` 4.15.1 — the pin, `jose` floor, and Req
-  adapter support are paid for. We promote it to a direct exact pin
-  (`{:assent, "0.2.13"}`) — the `ash`/`decimal`/`yaml_elixir`
-  precedent for "in the lock, now used directly."
-- Read at tag, 0.2.13 gives: `authorize_url/1` returning
-  `%{url:, session_params: %{state:, code_verifier:, nonce:}}` when
-  configured with `code_verifier: true` + a nonce; `callback/2` that
-  validates `state`, exchanges the code with the verifier, fetches
-  discovery at `base_url + /.well-known/openid-configuration`, and
-  validates the ID token per OpenID Connect Core §3.1.3.7 — RS256 via
-  the discovery's `jwks_uri`, issuer identifier vs the discovery
-  `issuer`, `aud` vs our `client_id`, `azp`, `alg`, `exp`,
-  `nonce` (constant-time), and `iat` presence. That is the entire
+- Provenance: it is **already in `mix.lock`** as a hard (non-optional)
+  dependency of `ash_authentication` 4.15.1 — the pin, `jose` floor,
+  and Req adapter support are paid for. We promote it to a direct
+  exact pin (`{:assent, "0.2.13"}`) — the `ash`/`decimal`/
+  `yaml_elixir` precedent for "in the lock, now used directly."
+  HTTP rides our existing `Req` through `Assent.HTTPAdapter.Req`.
+- What we call: `authorize_url/1`, configured with
+  `code_verifier: true` and a generated `nonce`, returns
+  `%{url:, session_params: %{state:, code_verifier:, code_challenge:,
+  code_challenge_method:, nonce:}}`. `callback/2` fetches discovery
+  first, then validates `state`, then exchanges the code with the
+  verifier. The ID token is validated per OpenID Connect Core
+  §3.1.3.7 — RS256 via the discovery's `jwks_uri`, issuer identifier
+  vs the discovery `issuer`, `aud` vs our `client_id`, `azp`, `alg`,
+  `exp`, `nonce` (constant-time), `iat` presence. That is the entire
   cryptographic surface of this feature, and none of it is ours to
   get wrong.
-- HTTP rides our existing `Req` through `Assent.HTTPAdapter.Req`.
 
 Rejected:
 
@@ -109,38 +112,48 @@ Rejected:
    out of JavaScript's reach; the `sign_in_email` precedent), and
    redirects to Google.
 2. **`GET /auth/google/callback`** — pulls `session_params` from the
-   session and hands code+params to assent. Assent fetches discovery
-   before it checks anything, then validates `state` **before the
-   token exchange** — a forged or replayed callback costs one
-   outbound discovery GET and dies without a token request (the
-   throttle of D-abuse bounds that too). On success the operation
-   (§3.3) resolves the user; the session write is
-   `store_in_session` in this one server-side hop (the token never
-   rides a URL — the code in the callback URL is single-use, bound
-   to our client id and PKCE verifier, and worthless once
+   session and hands code+params to assent, then **clears the
+   session_params from the session regardless of outcome** — the
+   authorize round trip is single-use, so a replayed callback dies
+   at state validation with no outbound token request. Assent itself
+   fetches discovery before it checks anything (one outbound GET for
+   even a forged callback; the D-abuse window bounds that). On
+   success the operation (§3.3) resolves the user; the session write
+   is `store_in_session` in this one server-side hop (the token
+   never rides a URL — the code in the callback URL is single-use,
+   bound to our client id and PKCE verifier, and worthless once
    exchanged). Failures land on `/sign-in` with `AuthFlow`-owned
    copy; a `return_to` that survived the round trip is honored,
    `ReturnPath.safe`-validated as always.
 
-**Rate limiting (D-abuse):** a per-IP fixed window (default 10/min,
-config-overridable — `ApiRateLimit`'s floor-bucketing math and
-config-! posture, in a small ETS table owned by the controller
-module) counting both hops. ETS is exact here: the platform
-Deployment is `replicas: 1`. **The per-IP key must come from
-`X-Forwarded-For`, not `conn.remote_ip`:** behind Traefik the
-endpoint's `remote_ip` is the proxy pod IP (the endpoint rewrites
-nothing), so a `remote_ip` key would be one global bucket. The app
-is reachable only through exactly one proxy hop in every deployed
-environment, so the extraction is the rightmost XFF entry — the
-address Traefik appended — and a client-forged XFF prefix cannot
-influence it; local dev (no proxy) falls back to `remote_ip`.
-Revisit trigger: a second proxy layer lands. Browser-shaped answer
-on overflow — redirect back to `/sign-in` with the same "wait a
-minute" register the email throttle uses, never a bare 429 page.
-The outbound budget this bounds: one discovery GET per authorize
-hop; a successful sign-in adds discovery + token exchange + JWKS on
-the callback (four outbound requests total, human-paced); a forged
-callback, just the one discovery GET.
+**Rate limiting (D-abuse).** The window: a per-IP fixed window
+(default 10/min, config-overridable — `ApiRateLimit`'s
+floor-bucketing math and `config!` posture) counting both hops, with
+a browser-shaped overflow answer (redirect to `/sign-in` with the
+same "wait a minute" register the email throttle uses, never a bare
+429 page). It bounds the outbound calls an anonymous visitor can
+force: one discovery GET per authorize hop, discovery + token
+exchange + JWKS on a successful callback, one discovery GET per
+forged callback.
+
+- **The per-IP key.** Behind the deployed edge, `conn.remote_ip` is
+  a proxy pod address and useless as a key. The chain is Cloudflare
+  → Traefik → pod (`docs/architecture.md`, `docs/deployment.md`), so
+  the extraction rule is: **`CF-Connecting-IP` when present** (set
+  and overwritten by Cloudflare on the proxied path; a client cannot
+  forge it through), else the **rightmost `X-Forwarded-For` entry**
+  (the address the one untrusted-hop-remaining proxy appended — the
+  local k3d + Traefik stack, which has no Cloudflare), else
+  `remote_ip` (a direct `mix phx.server`). Revisit trigger: the
+  proxy chain changes again.
+- **The store.** A named ETS table owned by a supervised process —
+  the `StorageExpansion`/`Edge.Activity` pattern (a table "owned by
+  the controller module" is not a thing: controllers die with the
+  request). Exact per-IP accounting holds while the platform runs a
+  single replica (the fleet repo's manifests govern staging/prod —
+  the local overlay's `replicas: 1` is not that authority). Revisit
+  trigger: platform replicas scale past one — then the window is
+  per-pod and the limit must move to shared storage.
 
 ### 3.3 The operation (D-admission, D-storage)
 
@@ -151,11 +164,16 @@ user claims map), one output shape the web layer maps through
 
 ```
 {:ok, user, token} | {:error, :not_allowed | :invitation_required |
- :invite_pending | :email_not_verified | :provisioning_failed}
+ :invite_pending | :email_not_verified | :address_unresolved |
+ :user_lookup_failed | :provisioning_failed}
 ```
 
-(`:unauthorized` and assent-level failures are the CONTROLLER's
-error set — they happen in the OIDC hop before any claims exist.)
+The residual atoms mirror `VerifyAuthCode` exactly (:address_unresolved
+is the retryable post-supersede race window; :user_lookup_failed the
+DB-read arm) — `AuthFlow` maps both to the same honest retry copy the
+email arm uses. (Assent-level failures — Google unreachable, code
+refused, bad state — are the CONTROLLER's error set: they happen in
+the OIDC hop before any claims exist.)
 
 1. **Strict `email_verified` gate first**: anything but literal
    `true` refuses `:email_not_verified` — no account lookup happens
@@ -202,10 +220,12 @@ flow).
 **No identity table (D-storage):** nothing records "this user has
 used Google." Every Google sign-in re-proves the address fresh; the
 linking is implicit in the shared identifier. Zero migration, zero
-new resources, and the privacy story is honest. Revisit trigger: a
-connected-accounts settings surface, or a second IdP — then a
-`user_identities` row (`provider`, `provider_uid`, `user_id`) earns
-its keep and D-linking gets re-run for multi-provider semantics.
+new resources, and the privacy story is honest. Consequences are in
+§11 (no per-user unlink lever) — accepted for v1. Revisit trigger: a
+connected-accounts settings surface, a second IdP, or the unlink
+need becoming real — then a `user_identities` row (`provider`,
+`provider_uid`, `user_id`) earns its keep and D-linking gets re-run
+for multi-provider semantics.
 
 ### 3.4 Surfaces
 
@@ -214,11 +234,13 @@ signup means `/sign-in` **is** registration (the landing CTAs and
 the catalog's gated deploy CTA all land there). So: the button lives
 on the sign-in LiveView's `:email` step, full-width below "Send
 code" — below the invitation hint too (the hint sits above the
-button in the current markup), so the pairing reads "code or Google,
-either starts your account" at the action line. The `:code` step
-stays email-only (the visitor is mid-flow). Native fallback N/A:
-the anchor is already a plain GET. Screenshots (light+dark) ride the
-surface PR per the owner convention.
+button in the current markup), so the pairing reads "either door,
+one account" at the action line (admission still decides whether a
+brand-new address gets one — §3.3 step 4 — for invited and team
+addresses only). The `:code` step stays email-only (the visitor is
+mid-flow). Native fallback N/A: the anchor is already a plain GET.
+Screenshots (light+dark) ride the surface PR per the owner
+convention.
 
 ### 3.5 Machine surfaces (D-cli)
 
@@ -231,10 +253,11 @@ Google users without any CLI change.
 
 ## 4. D-linking: the auto-link analysis, written out
 
-**Decision: auto-link on Google-verified email match at first Google
-sign-in. No confirmation interstitial, no identity row. A one-time
-flash on the first linked sign-in says what happened (adopting
-OWASP's notification recommendation — see below).**
+**Decision: auto-link on Google-verified email match at Google
+sign-in. No confirmation interstitial, no identity row, no
+notification machinery — the divergences from OWASP below are
+deliberate and rest on the guardrails, not on a softer reading of
+the guidance.**
 
 The classic danger of auto-linking federated identities into
 passwordless/email accounts is account takeover via IdP account
@@ -243,12 +266,12 @@ email address and lets auto-link graft it onto the victim's existing
 account. OWASP's [Authentication Cheat Sheet — Secure Federated
 Account Linking](https://cheatsheetseries.owasp.org/cheatsheets/Authentication_Cheat_Sheet.html#secure-federated-account-linking)
 warns exactly this: *"Do not automatically link accounts solely
-because their email, preferred_username, or other profile attributes
-match"* (because such claims "are not guaranteed to be unique or
-stable") and *"Notify the user when an identity is added."* We adopt
-the notification (the first-link flash) and deliberately diverge from
-the first clause. The divergence is defensible only on this design's
-specific legs — the guardrails below are what keeps them true:
+because their email, preferred_username, or other profile
+attributes match"* — because IdP claims are "not guaranteed to be
+unique or stable" (OIDC Core §5.7) — and recommends notifying the
+user when an identity is added. **We diverge on both points, and the
+divergence is defensible only on this design's specific legs** — the
+guardrails below are what keep them true:
 
 - **The IdP is fixed: Google.** Not user-supplied discovery, not a
   provider configured by URL an attacker can influence. The one
@@ -260,7 +283,7 @@ specific legs — the guardrails below are what keeps them true:
   never influence which IdP is consulted. Adding a second provider
   re-opens D-linking, not this section.
 - **The matched attribute is the identifier itself, strictly
-  attested.** OWASP's warning is about *profile attributes* matched
+  attested.** OWASP's warning targets *profile attributes* matched
   across arbitrary IdPs whose email claims may be unverified or
   attacker-creatable. Here the match key is the system's primary
   identifier, and the strict gate (§3.3 step 1) drops every claim
@@ -269,27 +292,33 @@ specific legs — the guardrails below are what keeps them true:
   `@gmail.com` addresses ARE the account; a non-Google address
   becomes a Google account's email only after Google's own
   verification flow. The attacker-creatable-email shape never
-  reaches resolution.
+  reaches resolution. (On the claim's uniqueness/stability: we rely
+  on Google's attestation being truthful — guardrail 4 — and on our
+  own side `user_emails.unique_address` guarantees one account per
+  address, so a truthful claim can never resolve ambiguously.)
 - **The strength equivalence holds:** our burned 6-digit code proves
   "this human received email at this address within 10 minutes";
   Google's attestation proves "this human controls the Google
   account that owns this address." For an `@gmail.com` victim
   address — the overwhelmingly common case — the Google proof is the
-  *stronger* one (session-bound, phishing-resistant vs. a code that
-  can be forwarded).
+  *stronger* one (session-bound, versus a code that can be
+  forwarded).
 - **Admission parity (§3.3 step 4) closes the creation side:**
   linking grants no account the email arm wouldn't grant. The
   invitation wall and team-domain JIT apply identically, so a Google
   account is not a side door around admission.
-- **OWASP's uniqueness/stability rationale doesn't bite here.**
-  Uniqueness: an address belongs to at most one account at a time
-  (`user_emails.unique_address`). Stability: there is no persisted
-  link to go stale — the implicit link follows the identifier, and
-  the email-change edge is documented honestly (§4 table). The sheet's
-  "require an authenticated session before adding linked identities"
-  governs explicit linking surfaces that save an identity row; this
-  design has no linking surface and saves no row — the §4
-  strength-equivalence argument is what carries the access decision.
+- **Why no notification, honestly:** OWASP's notify recommendation
+  presumes a linking surface — the account owner adding an identity
+  to an existing session, notified out-of-band so a takeover is
+  detected. This design has no linking surface and no identity row:
+  the "add" IS the sign-in, performed by whoever holds the Google
+  account, and a flash would reach the signer, not the account
+  owner — in the attack scenario, the attacker. The honest defense
+  is the three legs above, not a notification we can't aim. The
+  info flash we do show ("Signed in with Google.") is confirmation
+  copy for the legitimate user, nothing more. The out-of-band
+  notification option returns with the identity row (D-storage
+  revisit).
 
 **What would make it unsound (the guardrails, restated as failure
 conditions):**
@@ -301,25 +330,29 @@ conditions):**
 3. If our primary identifier ever stops being the verified email
    (username-first login, phone login) — then email match stops
    being identity equivalence and linking must become explicit.
-4. If Google semantics drift (e.g. permitting unverified primary
-   emails again) — the strict gate still refuses; worst case is the
-   arm degrading to refusal, never to takeover.
+4. **The trust assumption, stated plainly:** the strict gate refuses
+   claims whose `email_verified` is not `true`; it cannot detect a
+   false `true`. If Google ever attested an address it had not
+   verified, the gate would pass it — the residual risk is "we trust
+   Google's attestation to be truthful," the same trust every
+   Google-integrated RP places. Drift that *unverifies* degrades to
+   refusal; only dishonest attestation could degrade to takeover.
 
 **Edge cases:**
 
 | Case | Behavior |
 |---|---|
 | Google claim `email_verified` not `true` | `:email_not_verified` — "your Google account's email isn't verified; use email codes" + Google's own verification hint copy |
-| Address owned by a live account | Sign-in (the link), with the one-time first-link flash: "Signed in with Google — this account's email is <address>" |
+| Address owned by a live account | Sign-in (the link) — info flash "Signed in with Google." like any sign-in confirmation |
 | Address has a pending claim by another account | Claim superseded (unproven), re-lookup, then the ladder — exactly `VerifyAuthCode`; invited reservations exempt (#287) |
 | Address is an outstanding invite | `:invite_pending` — the emailed accept link is the credential, exactly like a code verify at an invited address |
 | Retired (withdrawn/expired) invite | `:invitation_required` — the wall copy |
 | Unknown address, non-team domain | `:invitation_required` — same wall, same copy |
 | Unknown address, `@fluxvale.com` | JIT create, `signup_event` fired — the team bypass, same as codes |
-| Gmail dot-variants (`a.b@` vs `ab@gmail.com`) | Distinct strings, distinct accounts. Google's ID token carries the address in the form Google stores — which may differ in dot placement from what the user typed at email signup; we do not normalize dots (documented, tiny, honest) |
+| Gmail dot-variants (`a.b@` vs `ab@gmail.com`) | Distinct strings, not normalized. If the Google account's stored form differs from the address signed up here, the lookup misses and the arm stops at the wall (`:invitation_required`) — a second account exists only if that form was separately invited or is on the team domain. Google's ID token carries the address in the form Google stores |
 | Address denied by `AccessRules` | `:not_allowed` at step 2; user-level gate again at mint |
 | User later changes their Google account's email | Next Google sign-in resolves the NEW address (other account, or the wall); email codes to the original keep working — the implicit link follows the identifier, never the person |
-| Google down / creds revoked | Controller-level `:unauthorized` copy: "Google sign-in is unavailable — use an email code" (the always-on fallback, §5) |
+| Google unreachable mid-callback / creds revoked | Controller-level copy: "Google sign-in didn't complete — use an email code" back on `/sign-in` (the always-on fallback, §5). If Google's authorize page itself is down, the user is stranded on Google's error — out of our reach; the email door is a browser-back away |
 
 ## 5. The always-on fallback guarantee
 
@@ -346,8 +379,10 @@ suite runs green with the Google arm on, off, and unconfigured.
 - `GOOGLE_OIDC_ISSUER` — optional operator override, default
   `https://accounts.google.com`. Exists so the mock provider (§7)
   and any staging experiment point elsewhere without release surgery.
-- Redirect URI derives from the endpoint (`PHX_HOST`):
-  `https://<host>/auth/google/callback`. No env var to drift.
+- Redirect URI derives from the endpoint's own `:url` configuration
+  (`PHX_HOST`, scheme and port included — dev/test differ from
+  prod's `https://<host>`): `<endpoint origin>/auth/google/callback`.
+  No env var to drift.
 
 **Owner-held final step (called out, not automatable):** Terence
 creates the OAuth client in Google Cloud Console — APIs & Services →
@@ -357,11 +392,11 @@ host), consent screen external with scope `openid email`; then parks
 the client id/secret in BWS. Until that lands, the button simply
 does not render (flag/creds predicate) — nothing half-configured
 ships. Internal runbook with the click-path:
-`docs/runbooks/google-oauth-client.md` (S4). Launch note: while the
-consent screen stays in testing, Google caps users to 100 test
-users — flipping it to production (no sensitive scopes, so no
-extended verification) is a launch-day checklist item in that
-runbook.
+`docs/runbooks/google-oauth-client.md` (S4, added to `docs/README.md`'s
+map). Launch note: while the consent screen stays in testing, Google
+caps users to 100 test users — flipping it to production (no
+sensitive scopes, so no extended verification) is a launch-day
+checklist item in that runbook.
 
 ## 7. Tests: a mock OIDC provider
 
@@ -380,20 +415,22 @@ mock. Nothing in `lib/` knows the provider is fake (no test
 backdoors; the config seam is the same `GOOGLE_OIDC_ISSUER` override
 staging would use).
 
-Matrix: every row of §4's edge table, at operation level (S2) and
-again through the controller hops — state mismatch, code replay,
-`email_verified` variants, throttle window overflow, flag/creds
-refusal, return-path round trip, and the §5 fallback pin. The
+Matrix: the operation-resolvable rows of §4's edge table run at
+operation level (S2); the controller-level rows and §7's transport
+scenarios — state mismatch, code replay after session_params
+clearing, `email_verified` variants, throttle window overflow,
+flag/creds refusal, return-path round trip — run through the
+controller hops (S3), together with the §5 fallback pin. The
 operation's seams stay out of it: assent is injected whole via
 config, the way the mailer adapter is.
 
 ## 8. Policy copy (D-policy) — drafted for the owner's review
 
 **Two gates, per the PA's Nov 9 rider:** plan approval settled the
-*decisions*; the final policy **file text** in S4 still goes to the
-PA for Terence's eye BEFORE that PR merges. The drafts below are
-what S4 lands if he approves them as-is; S4's code and runbook
-merge under standing authority either way. "Last updated" flips at
+*decisions*; S4 is **one PR** that waits whole for Terence's
+sign-off on the final policy **file text** before merging — no other
+gate applies to that PR's code and runbook. The drafts below are
+what S4 lands if he approves them as-is. "Last updated" flips at
 merge.
 
 Privacy policy, new card after "What we collect" (house copy rules —
@@ -430,11 +467,20 @@ email-flow guarantee. No DB migration at all.
 
 JIT creates fire the existing `signup_event` (same semantic, both
 arms). One new event, `[:flux_vale, :identity, :google_sign_in]`
-with `count: 1` and `%{outcome: atom}` — the abuse/health signal
-for the arm, emitted from the operation. No PII in metadata.
+with `count: 1` and `%{outcome: atom}`, emitted from the operation —
+and a counter for it in `FluxValeWeb.Telemetry.metrics/0` (tagged
+`:outcome`), else the event reaches no dashboard. No PII in
+metadata.
 
 ## 11. Risks
 
+- **No per-user "unlink Google" lever in v1** — with no identity
+  row, a user whose Google account is compromised cannot disable the
+  Google proof alone; the levers are removing the matching address
+  from the account (if it is not the only verified one), admin
+  intervention, or the global flag. Residual risk accepted with
+  D-storage; the revisit trigger (identity row) now includes this
+  need becoming real.
 - **Google consent-screen state at launch** — owner checklist item
   (§6), timing risk only.
 - **assent pin ceiling** — the 0.2.x line is ash_authentication's
@@ -443,51 +489,56 @@ for the arm, emitted from the operation. No PII in metadata.
   revisits the pin with an AA upgrade. Exact-pin discipline makes
   that a deliberate diff.
 - **Invitation-wall lift at public launch** — when the wall lifts,
-  BOTH arms' admission must lift together (they share the
-  `VerifyAuthCode` ladder; `SignInWithGoogle` mirrors it). Named
-  here so the launch owner edits both, once.
+  BOTH arms' admission must lift together (they mirror the
+  `VerifyAuthCode` ladder — duplicated semantics, so the drift risk
+  is named here: edit both, once).
 - **Gmail dot-variants** — documented (§4), not normalized.
-- **XFF-derived rate-limit key** — sound at exactly one proxy hop
-  (every deployed environment today); the §3.2 revisit trigger fires
-  if a second layer lands.
+- **XFF/CF-derived rate-limit key** — sound for the current chain
+  (Cloudflare → Traefik → pod); the §3.2 revisit trigger fires if
+  the chain changes. Platform replica count is governed by the
+  fleet repo, not this repo's local overlay — the ETS window's
+  exactness claim rides on it staying one.
 
 ## 12. Decision list (as approved by Terence via the PA, Nov 9 2026)
 
 - **D-library — assent 0.2.13, direct.** In the lock via
-  ash_authentication; full OIDC Core ID-token validation incl.
-  PKCE/nonce; zero new deps. `oidcc` = new tree for the same job;
-  the AA strategy fights the house auth shape; hand-rolled owns
-  crypto we shouldn't.
+  ash_authentication; OIDC ID-token validation plus PKCE/nonce;
+  zero new deps. `oidcc` = new tree for the same job; the AA
+  strategy fights the house auth shape; hand-rolled owns crypto we
+  shouldn't.
 - **D-linking — auto-link on verified-email match, strict
-  `email_verified == true`, no identity table, first-link flash.**
-  §4: one fixed trusted IdP, Google-attested address = our
-  identifier; unverified claims refused pre-lookup; OWASP's
-  notification recommendation adopted as the flash; admission
-  parity closes the creation side. Unsound-if list kept as
-  guardrails.
-- **D-admission — identical ladder to email codes.** Invitation
-  wall, `:invite_pending`, team-domain-only JIT, `AccessRules` at
-  request and user level. Google is never a side door.
+  `email_verified == true`, no identity table, no notification
+  machinery.** §4: one fixed trusted IdP, Google-attested address =
+  our identifier; unverified claims refused pre-lookup; the OWASP
+  divergences (link-on-match, notification) are deliberate and
+  argued, resting on the fixed-IdP/strict-attestation/strength-
+  equivalence legs; admission parity closes the creation side.
+- **D-admission — identical ladder to email codes, plus the
+  user-level gate at mint** (deliberately stricter than the native
+  code branch). Invitation wall, `:invite_pending`, team-domain-only
+  JIT, `AccessRules` at both levels. Google is never a side door.
 - **D-scopes — `openid email`, nothing else.** No profile/name/
   picture; account shape identical to email signup; privacy copy
   stays minimal because the data path is.
 - **D-storage — no `user_identities` in v1.** The verified email is
-  the identity; revisit on a connected-accounts surface or second
-  IdP.
+  the identity; the no-unlink residual is §11's first risk.
+  Revisit on a connected-accounts surface, a second IdP, or the
+  unlink need.
 - **D-flag — `:google_sign_in` feature flag (declared in
   `@known_flags`, S3) AND creds-present gate for the button.**
   Fail-closed, instant shutdown lever (`pocketid_sso_wiring`
   precedent); unconfigured = hidden.
-- **D-abuse — per-IP fixed window (10/min default, ETS,
-  ApiRateLimit's bucketing, XFF-rightmost key per §3.2) on both
-  Google hops**, browser-shaped refusal copy; bounds the outbound
-  budget §3.2 tallies; exact at `replicas: 1`.
+- **D-abuse — per-IP fixed window (10/min default, ETS behind a
+  supervised owner, ApiRateLimit's bucketing) on both Google hops**,
+  keyed by `CF-Connecting-IP` → rightmost-XFF → `remote_ip` (§3.2);
+  browser-shaped refusal copy; bounds the outbound budget §3.2
+  tallies.
 - **D-cli — no dedicated Google surface in v1.** Device flow is
   arm-agnostic; CLI untouched; no schema/CLI-type ripple.
 - **D-policy — privacy + terms paragraphs drafted in §8**, two
-  gates per the rider (plan approval settled decisions; S4's policy
-  text gets Terence's pre-merge sign-off); runbook for the Google
-  Cloud client step (§6).
+  gates per the rider (plan approval settled decisions; S4's single
+  PR waits whole for Terence's pre-merge sign-off on the policy
+  text); runbook for the Google Cloud client step (§6).
 
 ## 13. Slices
 
@@ -500,22 +551,26 @@ Each lands green (`cd apps/platform && mix ci`), one PR per slice,
   links verify, `mix ci` green with the pin.
 - **S2 Core operation** — `Operations.SignInWithGoogle` + the
   `GoogleOIDC` assent seam + domain delegates + the mock provider in
-  `test/support` + the full op matrix (§7). *Done when:* every §4
-  edge row has a green test; telemetry asserted; no `lib/` mention
-  of "google" outside Identity.
+  `test/support` + the operation-resolvable §4/§7 matrix (§7).
+  *Done when:* every operation-resolvable edge row has a green test;
+  residual atoms mapped; telemetry asserted; no `lib/` mention of
+  "google" outside Identity.
 - **S3 Web surface** — runtime config, `GoogleController` (both
-  hops, throttle with the XFF-rightmost key, flag/creds gate),
-  routes beside `/auth/session`, `:google_sign_in` declared in
+  hops, session_params clearing, throttle with the §3.2 key behind a
+  supervised ETS owner, flag/creds gate), routes beside
+  `/auth/session`, `:google_sign_in` declared in
   `FeatureFlags.@known_flags`, button on `/sign-in` `:email` step,
-  `AuthFlow`'s Google copy arm, LiveView + controller tests,
-  screenshots light+dark. *Done when:* the §5 fallback pin passes;
+  `AuthFlow`'s Google copy arm, the Telemetry counter (§10),
+  controller-level §7 scenarios + the §5 fallback pin, screenshots
+  light+dark. *Done when:* the §5 fallback pin passes;
   state-mismatch/replay/throttle tests green; PR carries
   screenshots; no API schema delta (stated).
 - **S4 Policy + runbook** — §8 copy into privacy/terms, account.md
-  section, `docs/runbooks/google-oauth-client.md` owner click-path.
-  *Done when:* policy tests pin the paragraphs; docs lint green;
-  "Last updated" flips; **the policy text has Terence's pre-merge
-  sign-off via the PA (the rider)**. Closes #642.
+  section, `docs/runbooks/google-oauth-client.md` owner click-path +
+  its `docs/README.md` map row. *Done when:* policy tests pin the
+  paragraphs; docs lint green; "Last updated" flips; **the whole PR
+  has Terence's pre-merge sign-off via the PA (the rider)**. Closes
+  #642.
 
 Order: S1 → S2 → S3 → S4; S2 and S3 parallelizable after S1 only if
 S3 takes S2's operation signature from this plan (the seam in §3.3

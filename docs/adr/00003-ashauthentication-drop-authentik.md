@@ -97,16 +97,18 @@ with PKCE (nonce, state) via **assent** — already in the lock as a
 hard dependency of AshAuthentication, promoted to a direct exact pin —
 with scope `openid email` only: nothing beyond the address is kept
 (`sub` exists in the round trip and is never stored; no profile
-claims), so the account shape and the privacy
-posture are unchanged. The ID token's `email_verified: true` claim,
+claims), so the account shape and the stored-data posture are
+unchanged (the privacy *disclosure* gains a Google card, #642 S4). The
+ID token's `email_verified: true` claim,
 strictly gated, is accepted as equivalent proof of inbox control to a
 burned 6-digit code: **sign-in auto-links on verified-email match, no
 identity table** — the `user_emails` row that every other flow
-resolves through IS the link, and a one-time flash on the first
-linked sign-in says what happened (OWASP's notification
-recommendation, adopted). Admission stays identical to the email
+resolves through IS the link. The OWASP divergences (link-on-match,
+no notification) are deliberate and argued in the plan's §4. Admission
+is at least as strict as the email
 arm (the invitation wall, `:invite_pending`, team-domain-only JIT,
-AccessRules at request and mint): Google is never a side door around
+`AccessRules` at request and — beyond the native code branch — user
+level at mint): Google is never a side door around
 admission. A `:google_sign_in` feature flag plus credentials presence
 gate the surface, fail-closed; email codes remain the always-on
 fallback in every state the Google arm can be in.
