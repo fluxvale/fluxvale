@@ -935,6 +935,40 @@ defmodule FluxValeWeb.CatalogControllerTest do
       assert forgejo =~ "An alternative to GitHub and GitLab."
     end
 
+    # #611 S5: the structured data is derived per seeded app too. Both
+    # payloads decode on every catalog page, and the FAQ mirrors the
+    # rendered items — Docmost and Umami included by derivation, never
+    # a hardcoded list.
+    test "every seeded app emits decodable app and FAQ JSON-LD", %{conn: conn} do
+      assert :ok == Seeds.seed_pricing!()
+      assert :ok == Seeds.seed_catalog!()
+
+      seeded =
+        for entry <- CatalogData.entries(),
+            app <- entry.apps do
+          app.slug
+        end
+
+      assert "docmost" in seeded
+      assert "umami" in seeded
+
+      for slug <- seeded do
+        html = html_response(get(conn, ~p"/catalog/#{slug}"), 200)
+
+        assert [_app_match, app_encoded] = Regex.run(~r/id="ld-json-app">(.*?)<\/script>/s, html)
+        assert [_faq_match, faq_encoded] = Regex.run(~r/id="ld-json-faq">(.*?)<\/script>/s, html)
+
+        app_data = Jason.decode!(app_encoded)
+        assert app_data["@type"] == "SoftwareApplication"
+        assert app_data["url"] == "https://fluxvale.com/catalog/#{slug}"
+
+        faq_data = Jason.decode!(faq_encoded)
+        assert faq_data["@type"] == "FAQPage"
+        assert is_list(faq_data["mainEntity"])
+        assert faq_data["mainEntity"] != []
+      end
+    end
+
     test "meta: branded title, description, canonical, and the JSON-LD payload", %{conn: conn} do
       app = catalog_app!()
 
