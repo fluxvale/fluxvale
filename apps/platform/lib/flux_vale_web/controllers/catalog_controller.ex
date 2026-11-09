@@ -14,6 +14,7 @@ defmodule FluxValeWeb.CatalogController do
   alias FluxVale.Catalog.Category
   alias FluxVale.Observability.WakeStats
   alias FluxVale.Pricing
+  alias FluxValeWeb.CatalogPageContent
   alias FluxValeWeb.Seo
 
   @catalog_description "A curated catalog of open source apps, ready to run in minutes."
@@ -36,7 +37,10 @@ defmodule FluxValeWeb.CatalogController do
   def show(conn, %{"slug" => slug}) do
     case App.get_by_slug(slug, actor: nil) do
       {:ok, app} ->
-        app = Ash.load!(app, [:category, app_versions: :recommended_size], actor: nil)
+        # category: :apps feeds the similar-apps section (S3): the
+        # category's apps loaded once here, shaped by the pure
+        # CatalogPageContent.similar_apps/2 in the assign below.
+        app = Ash.load!(app, [category: :apps, app_versions: :recommended_size], actor: nil)
         versions = sorted_desc(app.app_versions)
 
         conn
@@ -48,6 +52,10 @@ defmodule FluxValeWeb.CatalogController do
         |> assign(:app, app)
         |> assign(:newest_version, List.first(versions))
         |> assign(:wake_estimates, WakeStats.median_total_by_app_safe())
+        |> assign(:similar_apps, CatalogPageContent.similar_apps(app, app.category.apps))
+        # The similar-cards' from-price: the compute floor, computed
+        # once per request like the index's.
+        |> assign(:from_price_cents, Pricing.from_price_cents())
         |> render(:show)
 
       # Unknown slugs read as "not here" — a real 404, unlike the

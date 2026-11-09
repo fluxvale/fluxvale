@@ -1,16 +1,24 @@
 <Layouts.public flash={@flash} current_user={@current_user} return_to={@return_to}>
-  <%!-- #611 S2 (plan §6.4): the rebuilt hero — prose column plus the
-  transactional aside (pricing card, facts card). The version card
-  list is gone: the marketing page carries version and release facts
-  in the facts card, and the authenticated page keeps its version
-  cards (S6/D12). Sections below (benefits, FAQ, similar apps, CTA)
-  land with S3. --%>
-  <div class="catalog-page pt-6 pb-12">
-    <CatalogPageComponents.hero
-      app={@app}
-      newest_version={@newest_version}
-      wake_estimates={@wake_estimates}
+  <%!-- #611 (plan §6.3-6.4): the hero (S2) then the S3 generated
+  sections in plan order — benefits, FAQ, similar apps, closing CTA —
+  each seam a border-t with the lane's py rhythm. S4 slots in-action
+  and features between the hero and benefits. --%>
+  <div class="catalog-page">
+    <div class="pt-6 pb-12">
+      <CatalogPageComponents.hero
+        app={@app}
+        newest_version={@newest_version}
+        wake_estimates={@wake_estimates}
+      />
+    </div>
+
+    <CatalogPageComponents.benefits app={@app} newest_version={@newest_version} />
+    <CatalogPageComponents.faq app={@app} newest_version={@newest_version} />
+    <CatalogPageComponents.similar_apps
+      peers={@similar_apps}
+      from_price_cents={@from_price_cents}
     />
+    <CatalogPageComponents.closing_cta app={@app} newest_version={@newest_version} />
   </div>
 
   <%!-- Structured data for crawlers (#164, ADR-00025 §3): rendered

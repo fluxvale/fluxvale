@@ -260,14 +260,21 @@ defmodule FluxValeWeb.CatalogControllerTest do
 
       assert html =~ "An alternative to GitHub and GitLab."
 
-      # Link row: every exit with its URL. No FAQ anchor until S3.
+      # Link row: every exit with its URL. The FAQ anchor is S3's —
+      # in-page, so it must NOT open a new tab (the external rows do).
       assert html =~ ~s(href="https://example.com/src")
       assert html =~ "Source"
       assert html =~ ~s(href="https://example.com/docs")
       assert html =~ "Docs"
       assert html =~ ~s(href="https://example.com/community")
       assert html =~ "Community"
-      refute html =~ ~s(href="#faq")
+
+      assert [faq_link] = Regex.run(~r{<a[^>]*href="#faq"[^>]*>}, html)
+      refute faq_link =~ "target="
+
+      for external <- ["https://example.com/src", "https://example.com/docs"] do
+        assert [_link] = Regex.run(~r{<a[^>]*href="#{external}"[^>]*target="_blank"}, html)
+      end
 
       # Pricing card: the rate and specs from the same seams the deploy
       # stepper prices through (the S2 done-when), never literals.
@@ -461,6 +468,248 @@ defmodule FluxValeWeb.CatalogControllerTest do
       assert html =~ "Your S3 bucket"
       refute html =~ ~s(data-testid="fact-version")
       refute html =~ ~s(data-testid="fact-updated")
+
+      # S3: the closing CTA keeps its heading and the ghost browse
+      # link, drops the deploy button (the same no-versions rule).
+      assert html =~ ~s(data-testid="cta-section")
+      assert html =~ "Ready to run #{app.name}?"
+      refute html =~ ~s(data-testid="cta-deploy")
+      assert html =~ ~s(data-testid="cta-browse")
+    end
+
+    # S3's done-when (plan §10): a bare app — no curated content, no
+    # declarations, a fixture rate — renders the hero plus four
+    # complete generated sections. No empty state, nothing missing.
+    test "a bare app renders all four generated sections with no empty state", %{conn: conn} do
+      version = InstanceFixtures.app_version!(default_storage_gb: 0)
+      app = Ash.load!(version, [app: :category], authorize?: false).app
+
+      html = html_response(get(conn, ~p"/catalog/#{app.slug}"), 200)
+
+      # Benefits: the seven platform constants and the trailing link.
+      assert html =~ ~s(data-testid="benefits-section")
+      assert length(Regex.scan(~r/data-testid="benefit-row"/, html)) == 7
+      assert html =~ "Benefits of hosting #{app.name} on FluxVale"
+      assert html =~ ~s(href="/docs/getting-started/first-app")
+      assert html =~ "How FluxVale works"
+
+      # FAQ: the hero's anchor lands, both columns render their
+      # constants, and data ownership is the one open row (D11). The
+      # scroll margin clears the sticky 57px chrome (the flash band's
+      # own top-18 reasoning).
+      assert html =~ ~s(id="faq")
+      assert html =~ ~s(href="#faq")
+      assert html =~ ~s(scroll-mt-16)
+      assert html =~ "Frequently asked questions"
+      assert html =~ ~s(data-testid="faq-setup-column")
+      assert html =~ ~s(data-testid="faq-about-column")
+
+      for question <-
+            Enum.concat(
+              [
+                "How do I set up #{app.name}?",
+                "Do I need my own server or Docker?",
+                "What does #{app.name} cost?",
+                "Does it stop when nobody uses it?",
+                "How do I back it up?"
+              ],
+              [
+                "Who owns the data I keep on FluxVale?",
+                "Can I export my data and leave?",
+                "Which region does it run in?"
+              ]
+            ) do
+        assert html =~ question
+      end
+
+      # No alternatives on a bare app, so the replace row drops.
+      refute html =~ "What does #{app.name} replace?"
+
+      assert length(Regex.scan(~r/<details[^>]*\bopen\b/, html)) == 1
+      assert html =~ "The platform takes no copies."
+
+      # Similar apps: one app in the category, so the browse card —
+      # no invented similarity.
+      assert html =~ ~s(data-testid="similar-section")
+      assert html =~ ~s(data-testid="browse-card")
+      refute html =~ ~s(data-testid="similar-from-price")
+
+      # Closing CTA: the credit line from code, both buttons.
+      amount = Pricing.format_usd(Accounts.welcome_grant_cents())
+      assert html =~ "New accounts start with #{amount} in welcome credit."
+      assert html =~ ~s(data-testid="cta-deploy")
+      assert html =~ "Deploy #{app.name}"
+    end
+
+    # The setup column's first answer is the first-run guidance, and
+    # the OIDC row carries its guide link (the FAQ row's link arm).
+    test "the FAQ setup column reads first-run guidance and links the SSO guide", %{conn: conn} do
+      version =
+        InstanceFixtures.app_version!(
+          first_run: %{
+            pattern: :first_registered_user_admin,
+            env: %{},
+            forbidden_env: [],
+            guidance: "Open the URL and register the first account."
+          },
+          oidc_callback_path: "/signin-oidc"
+        )
+
+      app = Ash.load!(version, :app, authorize?: false).app
+
+      html = html_response(get(conn, ~p"/catalog/#{app.slug}"), 200)
+
+      assert html =~ "Open the URL and register the first account."
+      refute html =~ "ready to use out of the box"
+      assert html =~ "Can I sign in with my Pocket ID?"
+      assert html =~ ~s(href="/docs/guides/sso")
+      assert html =~ "Read the SSO guide"
+    end
+
+    # The about column's replace row, and App.faq appended there —
+    # once on the page, never duplicated into the setup column.
+    test "the FAQ about column carries the replace row and appends App.faq once", %{conn: conn} do
+      version = InstanceFixtures.app_version!()
+      app_row = Ash.load!(version, [app: :category], authorize?: false).app
+
+      app =
+        App.update!(
+          app_row,
+          %{
+            alternatives: ["GitHub", "GitLab"],
+            faq: [
+              %{
+                question: "Does SSH work?",
+                answer: "No. Git runs over HTTPS only on every instance."
+              }
+            ]
+          },
+          authorize?: false
+        )
+
+      html = html_response(get(conn, ~p"/catalog/#{app.slug}"), 200)
+
+      assert html =~ "What does #{app.name} replace?"
+      assert html =~ "An alternative to GitHub and GitLab."
+      assert length(Regex.scan(~r/Does SSH work\?/, html)) == 1
+      assert html =~ "No. Git runs over HTTPS only on every instance."
+    end
+
+    # Similar apps (D6): same-category peers 2-up, self excluded, name
+    # order, capped at 4 — and the peers' from-price is the computed
+    # floor, the same number on every card.
+    test "similar apps render same-category peers in name order, capped at 4", %{conn: conn} do
+      version = InstanceFixtures.app_version!()
+      app = Ash.load!(version, [app: :category], authorize?: false).app
+
+      # Inserted shuffled; Zebra sits past the cap. One peer has no
+      # icon (the initial arm) and one has no tagline (the row drops).
+      peer_specs = [
+        {"Umami", [tagline: "A peer app", icon_url: "https://example.com/icon.png"]},
+        {"Memos", [tagline: nil, icon_url: "https://example.com/icon.png"]},
+        {"Kavita", [tagline: "A peer app", icon_url: nil]},
+        {"ActualBudget", [tagline: "A peer app", icon_url: "https://example.com/icon.png"]},
+        {"Zebra", [tagline: "A peer app", icon_url: "https://example.com/icon.png"]}
+      ]
+
+      for {name, overrides} <- peer_specs do
+        n = System.unique_integer([:positive])
+
+        App.create!(
+          %{
+            name: name,
+            slug: "#{String.downcase(name)}-#{n}",
+            tagline: Keyword.get(overrides, :tagline),
+            icon_url: Keyword.get(overrides, :icon_url),
+            category_id: app.category.id
+          },
+          authorize?: false
+        )
+      end
+
+      html = html_response(get(conn, ~p"/catalog/#{app.slug}"), 200)
+
+      rendered =
+        ~r{data-testid="similar-([a-z]+)-\d+"}
+        |> Regex.scan(html)
+        |> Enum.map(fn [_full, slug] -> slug end)
+
+      assert rendered == ["actualbudget", "kavita", "memos", "umami"]
+      refute html =~ ~s(data-testid="browse-card")
+
+      floor = Pricing.from_price_cents()
+      assert html =~ "From #{Pricing.format_usd(floor)}/mo plus storage"
+      assert html =~ ~s(data-testid="similar-from-price")
+    end
+
+    # One peer is still the browse-card case (a lone card would read
+    # as a claim of similarity the catalog cannot make).
+    test "a single peer still shows the browse card", %{conn: conn} do
+      version = InstanceFixtures.app_version!()
+      app = Ash.load!(version, [app: :category], authorize?: false).app
+      n = System.unique_integer()
+
+      App.create!(
+        %{name: "Peer", slug: "peer-#{n}", tagline: "A peer app", category_id: app.category.id},
+        authorize?: false
+      )
+
+      html = html_response(get(conn, ~p"/catalog/#{app.slug}"), 200)
+
+      assert html =~ ~s(data-testid="browse-card")
+      assert html =~ ~s(href="/catalog")
+      refute html =~ ~s(data-testid="similar-peer-)
+    end
+
+    # The index rule: an unseeded pricing table hides the from-price
+    # footer (here with peers, so the peer cards render without it).
+    test "peer cards hide the from-price footer on an unseeded pricing table", %{conn: conn} do
+      n = System.unique_integer()
+
+      category =
+        Category.create!(%{name: "Peers #{n}", slug: "peers-#{n}"}, authorize?: false)
+
+      for name <- ["Beta", "Gamma"] do
+        App.create!(
+          %{
+            name: name,
+            slug: "#{String.downcase(name)}-#{n}",
+            tagline: "A peer app",
+            category_id: category.id
+          },
+          authorize?: false
+        )
+      end
+
+      app =
+        App.create!(
+          %{name: "Alpha", slug: "alpha-#{n}", tagline: "A peer app", category_id: category.id},
+          authorize?: false
+        )
+
+      html = html_response(get(conn, ~p"/catalog/#{app.slug}"), 200)
+
+      assert html =~ ~s(data-testid="similar-beta-#{n}")
+      assert html =~ ~s(data-testid="similar-gamma-#{n}")
+      refute html =~ ~s(data-testid="similar-from-price")
+    end
+
+    # The generated sections' two doc links are literal paths (content
+    # pages, not route helpers) — pin both targets resolve so a renamed
+    # guide fails here, not as a 404 on every app page.
+    test "the benefits and FAQ doc links resolve", %{conn: conn} do
+      version = InstanceFixtures.app_version!(oidc_callback_path: "/signin-oidc")
+      app = Ash.load!(version, :app, authorize?: false).app
+
+      html = html_response(get(conn, ~p"/catalog/#{app.slug}"), 200)
+
+      assert html =~ ~s(href="/docs/getting-started/first-app")
+      assert html =~ ~s(href="/docs/guides/sso")
+
+      for path <- ["/docs/getting-started/first-app", "/docs/guides/sso"] do
+        response = get(conn, path)
+        assert html_response(response, 200) =~ "<"
+      end
     end
 
     test "a version without published_at hides the Updated row", %{conn: conn} do
@@ -511,6 +760,19 @@ defmodule FluxValeWeb.CatalogControllerTest do
         assert html =~ ~s(data-testid="deploy-cta")
       end
 
+      # S3: every seeded app also renders the four generated sections,
+      # and every seed category holds one app, so every page shows the
+      # browse card — the honest result, not a bug.
+      for slug <- seeded do
+        html = html_response(get(conn, ~p"/catalog/#{slug}"), 200)
+
+        assert html =~ ~s(data-testid="benefits-section")
+        assert html =~ ~s(data-testid="faq-section")
+        assert html =~ ~s(data-testid="similar-section")
+        assert html =~ ~s(data-testid="cta-section")
+        assert html =~ ~s(data-testid="browse-card")
+      end
+
       # The retro-filled six: the honest hero renders their curated
       # slots.
       for slug <- ~w(forgejo kavita memos vaultwarden pocket-id actualbudget) do
@@ -528,14 +790,25 @@ defmodule FluxValeWeb.CatalogControllerTest do
       kavita = html_response(get(conn, ~p"/catalog/kavita"), 200)
       assert kavita =~ "Move files in over WebDAV"
       assert kavita =~ ~s(data-testid="fact-file-access")
+      assert kavita =~ "How do I move files in?"
 
       pocket_id = html_response(get(conn, ~p"/catalog/pocket-id"), 200)
       refute pocket_id =~ ~s(data-testid="check-sso")
       refute pocket_id =~ ~s(data-testid="fact-sso")
+      refute pocket_id =~ "Can I sign in with my Pocket ID?"
 
       # Vaultwarden wires SSO through the #597 recipe.
       vaultwarden = html_response(get(conn, ~p"/catalog/vaultwarden"), 200)
       assert vaultwarden =~ "Sign in with your Pocket ID"
+      assert vaultwarden =~ "Can I sign in with my Pocket ID?"
+      assert vaultwarden =~ ~s(href="/docs/guides/sso")
+
+      # Forgejo's setup answer is its first-run guidance, and its
+      # replace row carries the seeded alternatives.
+      forgejo = html_response(get(conn, ~p"/catalog/forgejo"), 200)
+      assert forgejo =~ "Open the instance URL and register."
+      assert forgejo =~ "What does Forgejo replace?"
+      assert forgejo =~ "An alternative to GitHub and GitLab."
     end
 
     test "meta: branded title, description, canonical, and the JSON-LD payload", %{conn: conn} do

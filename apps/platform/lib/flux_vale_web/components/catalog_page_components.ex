@@ -1,11 +1,13 @@
 defmodule FluxValeWeb.CatalogPageComponents do
   @moduledoc """
-  The catalog app page's sections (#611 plan §6.1, S2): the hero with
-  its transactional aside (pricing card, facts card), composed by the
-  public SSR page (`CatalogHTML.show`). Authored content comes from
-  the S1 marketing metadata (caveats, alternatives, category
-  audience); every figure renders from code — Pricing, Accounts, the
-  version defaults, WakeStats — never a literal (plan §5). The
+  The catalog app page's sections (#611 plan §6.1, S2+S3): the hero
+  with its transactional aside (pricing card, facts card) and the four
+  generated sections (benefits, FAQ, similar apps, closing CTA),
+  composed by the public SSR page (`CatalogHTML.show`). Authored
+  content comes from the S1 marketing metadata (caveats, alternatives,
+  category audience); every figure renders from code — Pricing,
+  Accounts, the version defaults, WakeStats — never a literal (plan
+  §5). Copy lives in `FluxValeWeb.CatalogPageContent`; the
   authenticated page re-renders the same components in S6.
   """
 
@@ -13,6 +15,7 @@ defmodule FluxValeWeb.CatalogPageComponents do
 
   alias FluxVale.Accounts
   alias FluxVale.Pricing
+  alias FluxValeWeb.CatalogPageContent
 
   @doc """
   The page hero (plan §6.4): prose column plus the sticky aside. The
@@ -100,8 +103,8 @@ defmodule FluxValeWeb.CatalogPageComponents do
             {alternative_to(@app.alternatives)}
           </p>
 
-          <%!-- The reader's exits. The FAQ anchor arrives with S3 —
-          no dead #faq link meanwhile. --%>
+          <%!-- The reader's exits. The FAQ link jumps the page's own
+          FAQ section (S3) — same tab, unlike the external rows. --%>
           <div class="flex flex-wrap items-center gap-x-6 gap-y-2 pt-2 text-sm">
             <.hero_link
               :if={@app.source_url}
@@ -119,6 +122,9 @@ defmodule FluxValeWeb.CatalogPageComponents do
               icon="hero-chat-bubble-left-right"
             >
               {gettext("Community")}
+            </.hero_link>
+            <.hero_link href="#faq" icon="hero-question-mark-circle" internal?>
+              {gettext("FAQ")}
             </.hero_link>
           </div>
         </div>
@@ -316,6 +322,282 @@ defmodule FluxValeWeb.CatalogPageComponents do
   end
 
   @doc """
+  The benefits section (plan §6.4, §7.4, D8): the 2-column platform
+  checklist with the conditional SSO and WebDAV rows, and the trailing
+  "How FluxVale works" link. Always renders — every row is a platform
+  constant or rides declared metadata.
+  """
+  attr(:app, :any, required: true, doc: "the Catalog.App")
+
+  attr(:newest_version, :any,
+    default: nil,
+    doc: "newest AppVersion — gates the SSO row on its OIDC declaration"
+  )
+
+  @spec benefits(map()) :: Phoenix.LiveView.Rendered.t()
+  def benefits(assigns) do
+    assigns =
+      assign(
+        assigns,
+        :rows,
+        CatalogPageContent.benefits(%{
+          oidc?: oidc?(assigns.newest_version),
+          file_access?: assigns.app.file_access
+        })
+      )
+
+    ~H"""
+    <section class="border-t border-line py-14 sm:py-16" data-testid="benefits-section">
+      <p class="eyebrow">{gettext("Why FluxVale")}</p>
+      <h2 class="display-h2">
+        {gettext("Benefits of hosting %{name} on FluxVale", name: @app.name)}
+      </h2>
+
+      <ul class="mt-10 grid gap-x-10 gap-y-6 sm:grid-cols-2">
+        <li :for={row <- @rows} class="flex gap-3" data-testid="benefit-row">
+          <.icon name="hero-check" class="mt-0.5 size-5 shrink-0 text-success" />
+          <div>
+            <p class="text-sm font-semibold text-ink">{row.title}</p>
+            <p class="mt-1 text-sm leading-relaxed text-ink-muted">{row.body}</p>
+          </div>
+        </li>
+      </ul>
+
+      <.link
+        navigate={~p"/docs/getting-started/first-app"}
+        class="mt-10 inline-flex items-center gap-1.5 text-sm font-medium text-link hover:underline"
+      >
+        {gettext("How FluxVale works")}
+        <.icon name="hero-arrow-right" class="size-4" />
+      </.link>
+    </section>
+    """
+  end
+
+  @doc """
+  The FAQ section (plan §6.4, §7.5, D11): two columns at lg, one
+  bordered panel per column, native details/summary rows — zero
+  JavaScript, keyboard native, crawlable closed. The data-ownership
+  answer carries `open`. Items come from CatalogPageContent; the
+  app's own FAQ rides the about column only.
+  """
+  attr(:app, :any, required: true, doc: "the Catalog.App")
+
+  attr(:newest_version, :any,
+    default: nil,
+    doc: "newest AppVersion — gates the Pocket ID row on its OIDC declaration"
+  )
+
+  @spec faq(map()) :: Phoenix.LiveView.Rendered.t()
+  def faq(assigns) do
+    assigns =
+      assigns
+      |> assign(
+        :setup_items,
+        CatalogPageContent.faq_setup_items(assigns.app, assigns.newest_version)
+      )
+      |> assign(:about_items, CatalogPageContent.faq_about_items(assigns.app))
+
+    ~H"""
+    <section
+      class="border-t border-line py-14 scroll-mt-16 sm:py-16"
+      id="faq"
+      data-testid="faq-section"
+    >
+      <p class="eyebrow">{gettext("FAQ")}</p>
+      <h2 class="display-h2">{gettext("Frequently asked questions")}</h2>
+
+      <div class="mt-10 grid gap-10 lg:grid-cols-2">
+        <div data-testid="faq-setup-column">
+          <p class="eyebrow">{gettext("Setting up %{name}", name: @app.name)}</p>
+          <div class="mt-4 divide-y divide-line rounded-panel border border-line">
+            <.faq_row :for={item <- @setup_items} item={item} />
+          </div>
+        </div>
+
+        <div data-testid="faq-about-column">
+          <p class="eyebrow">{gettext("About %{name} and FluxVale", name: @app.name)}</p>
+          <div class="mt-4 divide-y divide-line rounded-panel border border-line">
+            <.faq_row :for={item <- @about_items} item={item} />
+          </div>
+        </div>
+      </div>
+    </section>
+    """
+  end
+
+  @doc """
+  The similar-apps section (plan §6.4, D6): same-category peers, 2-up
+  at sm, mirroring the catalog index card. Fewer than two peers shows
+  one browse card — no invented similarity. The from-price is the
+  compute floor, computed once per request by the controller.
+  """
+  attr(:peers, :list, required: true, doc: "CatalogPageContent.similar_apps/2 — self excluded")
+
+  attr(:from_price_cents, :any,
+    default: nil,
+    doc: "Pricing.from_price_cents/0 — nil hides the footer line (the index rule)"
+  )
+
+  @spec similar_apps(map()) :: Phoenix.LiveView.Rendered.t()
+  def similar_apps(assigns) do
+    ~H"""
+    <section class="border-t border-line py-14 sm:py-16" data-testid="similar-section">
+      <p class="eyebrow">{gettext("Similar apps")}</p>
+      <h2 class="display-h2">{gettext("Similar apps on FluxVale")}</h2>
+
+      <div class="mt-10 grid gap-4 sm:grid-cols-2">
+        <.peer_card
+          :for={peer <- @peers}
+          :if={length(@peers) >= 2}
+          app={peer}
+          from_price_cents={@from_price_cents}
+        />
+        <.browse_card :if={length(@peers) < 2} />
+      </div>
+    </section>
+    """
+  end
+
+  @doc """
+  The closing CTA (plan §6.4, §7.6): centered, the welcome-credit
+  line, one primary deploy button and one ghost catalog link. The
+  primary hides when the app has no versions, matching the pricing
+  card's rule.
+  """
+  attr(:app, :any, required: true, doc: "the Catalog.App")
+
+  attr(:newest_version, :any,
+    default: nil,
+    doc: "newest AppVersion — nil (no versions) hides the deploy button"
+  )
+
+  @spec closing_cta(map()) :: Phoenix.LiveView.Rendered.t()
+  def closing_cta(assigns) do
+    assigns = assign(assigns, :copy, CatalogPageContent.closing_cta(assigns.app.name))
+
+    ~H"""
+    <section class="border-t border-line py-14 text-center sm:py-16" data-testid="cta-section">
+      <h2 class="display-h2">{@copy.heading}</h2>
+      <p class="mt-4 text-lg leading-relaxed text-ink-muted">{@copy.sub}</p>
+
+      <div class="mt-8 flex flex-wrap items-center justify-center gap-3">
+        <.button
+          :if={@newest_version}
+          navigate={~p"/apps/#{@app.slug}/deploy"}
+          data-testid="cta-deploy"
+        >
+          {@copy.primary}
+        </.button>
+        <.button variant="ghost" navigate={~p"/catalog"} data-testid="cta-browse">
+          {@copy.ghost}
+        </.button>
+      </div>
+    </section>
+    """
+  end
+
+  # One FAQ row: native details/summary, the chevron rotating on
+  # [open] via group-open. The answer stays in the DOM closed —
+  # crawlable (plan §6.4), and `open` renders only when true.
+  attr(:item, :any, required: true, doc: "a CatalogPageContent.faq_item")
+
+  defp faq_row(assigns) do
+    ~H"""
+    <details class="group" open={@item.open}>
+      <summary class="flex cursor-pointer list-none items-center justify-between gap-4 px-5 py-4 text-sm font-medium text-ink outline-offset-2 outline-focus focus-visible:outline-2 transition-colors duration-(--motion-fast) hover:text-link [&::-webkit-details-marker]:hidden">
+        <span class="min-w-0 [overflow-wrap:anywhere]">{@item.question}</span>
+        <.icon
+          name="hero-chevron-down"
+          class="size-4 shrink-0 text-ink-subtle transition-transform duration-(--motion-base) ease-(--motion-ease-out) group-open:rotate-180"
+        />
+      </summary>
+      <div class="px-5 pb-5 text-sm leading-relaxed text-ink-muted">
+        <p class="[overflow-wrap:anywhere]">{@item.answer}</p>
+        <.link
+          :if={@item.link}
+          navigate={@item.link.href}
+          class="mt-2 inline-flex items-center gap-1 font-medium text-link hover:underline"
+        >
+          {@item.link.label}
+          <.icon name="hero-arrow-right" class="size-3.5" />
+        </.link>
+      </div>
+    </details>
+    """
+  end
+
+  # A similar-app card — the catalog index card's shape: icon tile,
+  # name, two-line tagline clamp, from-price footer. A linked card, so
+  # it carries the hover lift (plan §6.5).
+  attr(:app, :any, required: true, doc: "the peer Catalog.App")
+
+  attr(:from_price_cents, :any, default: nil, doc: "nil hides the footer line")
+
+  defp peer_card(assigns) do
+    ~H"""
+    <.link
+      navigate={~p"/catalog/#{@app.slug}"}
+      data-testid={"similar-#{@app.slug}"}
+      class="group block rounded-panel border border-line-strong bg-panel p-5 shadow-sm outline-offset-2 outline-focus focus-visible:outline-2 transition-[box-shadow] duration-(--motion-base) ease-(--motion-ease-out) hover:shadow-md"
+    >
+      <div class="transition-[translate] duration-(--motion-base) ease-(--motion-ease-out) motion-safe:group-hover:-translate-y-1">
+        <div class="flex items-center gap-3">
+          <div class="grid size-9 shrink-0 place-items-center rounded-control bg-primary-muted text-sm font-semibold text-link">
+            <img
+              :if={@app.icon_url}
+              src={@app.icon_url}
+              alt={@app.name}
+              class="size-6 rounded-control"
+            />
+            <span :if={is_nil(@app.icon_url)}>{String.first(@app.name)}</span>
+          </div>
+          <h3 class="min-w-0 flex-1 text-base font-medium text-ink transition-colors duration-(--motion-fast) [overflow-wrap:anywhere] group-hover:text-link">
+            {@app.name}
+          </h3>
+        </div>
+        <p :if={@app.tagline} class="mt-2.5 line-clamp-2 min-h-10 text-sm text-ink-muted">
+          {@app.tagline}
+        </p>
+        <p
+          :if={not is_nil(@from_price_cents)}
+          class="mt-2 text-xs font-medium text-ink"
+          data-testid="similar-from-price"
+        >
+          {gettext("From %{rate}/mo plus storage", rate: Pricing.format_usd(@from_price_cents))}
+        </p>
+      </div>
+    </.link>
+    """
+  end
+
+  # The under-two-peers fallback (D6): one card out to the catalog
+  # index. No invented similarity, no per-app claims.
+  defp browse_card(assigns) do
+    ~H"""
+    <.link
+      navigate={~p"/catalog"}
+      data-testid="browse-card"
+      class="group block rounded-panel border border-line-strong bg-panel p-5 shadow-sm outline-offset-2 outline-focus focus-visible:outline-2 transition-[box-shadow] duration-(--motion-base) ease-(--motion-ease-out) hover:shadow-md"
+    >
+      <div class="transition-[translate] duration-(--motion-base) ease-(--motion-ease-out) motion-safe:group-hover:-translate-y-1">
+        <div class="flex items-center gap-3">
+          <div class="grid size-9 shrink-0 place-items-center rounded-control bg-primary-muted text-sm font-semibold text-link">
+            <.icon name="hero-squares-2x2" class="size-5" />
+          </div>
+          <h3 class="min-w-0 flex-1 text-base font-medium text-ink transition-colors duration-(--motion-fast) [overflow-wrap:anywhere] group-hover:text-link">
+            {gettext("Browse the catalog")}
+          </h3>
+        </div>
+        <p class="mt-2.5 line-clamp-2 min-h-10 text-sm text-ink-muted">
+          {gettext("The whole catalog on one page.")}
+        </p>
+      </div>
+    </.link>
+    """
+  end
+
+  @doc """
   The hero's positioning line (plan §7.1): one name "An alternative
   to X.", two "An alternative to X and Y.", three or more "An
   alternative to X, Y and Z." — no Oxford comma. nil (a nullable
@@ -359,17 +641,25 @@ defmodule FluxValeWeb.CatalogPageComponents do
     end
   end
 
-  # The link row's icon-plus-text exits (plan §6.4).
+  # The link row's icon-plus-text exits (plan §6.4). External links
+  # open a new tab; internal targets (the FAQ anchor) must not — the
+  # same page in a second tab is a dead end.
   attr(:href, :string, required: true)
   attr(:icon, :string, required: true)
+
+  attr(:internal?, :boolean,
+    default: false,
+    doc: "same-tab navigation (anchors, internal routes)"
+  )
+
   slot(:inner_block, required: true)
 
   defp hero_link(assigns) do
     ~H"""
     <a
       href={@href}
-      target="_blank"
-      rel="noopener"
+      target={if(@internal?, do: nil, else: "_blank")}
+      rel={if(@internal?, do: nil, else: "noopener")}
       class="inline-flex items-center gap-1.5 font-medium text-link hover:underline"
     >
       <.icon name={@icon} class="size-4" />
