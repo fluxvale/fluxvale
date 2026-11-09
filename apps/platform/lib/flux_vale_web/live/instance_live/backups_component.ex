@@ -562,6 +562,19 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponent do
           Snapshots are taken while the app runs. If a backup is interrupted,
           the one before it is still complete.
         </p>
+        <%!-- ADR-0045's posture, named plainly once a bundled database
+        exists on the instance: a file-level copy of a RUNNING Postgres
+        is not a guaranteed-restorable database image. The honest tools
+        are a stopped-instance snapshot or a logical dump. --%>
+        <p
+          :if={Enum.any?(@instance.backing_services, &(&1.kind == :postgres))}
+          class="text-xs text-ink-subtle"
+          data-testid="backup-db-caveat"
+        >
+          This app bundles its own database. A snapshot taken while it
+          runs is not a guaranteed database backup. Stop the app before
+          a snapshot you mean to rely on.
+        </p>
       </div>
     </div>
 

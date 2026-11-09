@@ -459,7 +459,7 @@ defmodule FluxVale.Seeds.CatalogDataTest do
       assert caveats =~ "SQLite"
     end
 
-    test "shipped catalog_data.yaml normalizes the Umami entry (#576)" do
+    test "shipped catalog_data.yaml normalizes the Umami entry (#576, bundled row at #612 S4)" do
       entry = entry_by_slug("analytics")
 
       assert entry.category == %{
@@ -477,52 +477,78 @@ defmodule FluxVale.Seeds.CatalogDataTest do
       # toggle ships off.
       assert app.file_access == false
 
-      version = hd(app.versions)
-      assert version.version == "3.4.1"
-      # The canonical upstream image; the tag carries no v prefix
-      # (unlike Pocket ID — verified against the GHCR v2 API).
-      assert version.image == "ghcr.io/umami-software/umami:3.4.1"
-      assert version.port == 3000
-      # The image's own HEALTHCHECK probes the same path.
-      assert version.healthcheck_path == "/api/heartbeat"
-      # Stateless: every row lives in the owner's PostgreSQL, so the
-      # honest storage default is none at all (#558) — no PVC mounts.
-      assert version.default_storage_gb == 0
-      assert Decimal.equal?(version.default_cpu_cores, Decimal.new("0.25"))
-      assert version.default_memory_mb == 512
-      assert version.recommended_size == "micro"
-      assert version.published_at == ~U[2026-11-08 01:20:00Z]
+      # The takeover row and the pinned BYO row, in YAML order.
+      assert [bundled, byo] = app.versions
+      assert bundled.version == "3.4.1-bundled"
+      assert byo.version == "3.4.1"
 
-      # No URL env and no OIDC consumer surface: Umami derives neither
-      # from catalog data.
-      assert version.instance_url_env == nil
-      assert version.oidc_callback_path == nil
+      # --- the bundled row: the OQ #3 takeover (#612 S4) -----------
+      # Same upstream image; the suffix is packaging-only (the
+      # per-app unique-version identity demands a distinct string).
+      assert bundled.image == "ghcr.io/umami-software/umami:3.4.1"
+      assert bundled.port == 3000
+      assert bundled.healthcheck_path == "/api/heartbeat"
+      # The DB is the whole storage story now — events, sessions, and
+      # accounts under backing/ of the instance volume.
+      assert bundled.default_storage_gb == 10
+      # Probed honest defaults (D1/D4/D5): the carve takes 0.10 CPU /
+      # 256 MB, `medium` leaves the app 0.40 / 768 against a measured
+      # ~123 Mi idle.
+      assert Decimal.equal?(bundled.default_cpu_cores, Decimal.new("0.5"))
+      assert bundled.default_memory_mb == 1024
+      assert bundled.recommended_size == "medium"
 
-      # Nothing ships at boot — DATABASE_URL and APP_SECRET are the
-      # owner's required inputs (the platform provisions no per-app
-      # databases, OQ #14), and the optional 2FA key rides along.
-      assert version.default_env_vars == %{}
+      # DATABASE_URL flips platform-owned on this row only: secret
+      # still (the URL embeds the generated password), required never.
+      assert %{"required" => false, "secret" => true} =
+               bundled.configurable_env_vars["DATABASE_URL"]
+
+      assert %{"required" => true, "secret" => true} =
+               bundled.configurable_env_vars["APP_SECRET"]
+
+      # One service, the registry's postgres major; no Redis (upstream
+      # ships app + db only).
+      assert bundled.backing_services == [
+               %{"kind" => "postgres", "version" => "18", "url_env" => "DATABASE_URL"}
+             ]
+
+      # Same first-run contract as BYO — the bundled DB changes where
+      # the migration runs, not what it does.
+      assert bundled.first_run["pattern"] == "default_admin_credentials"
+      assert bundled.first_run["forbidden_env"] == ["SKIP_DB_CHECK", "SKIP_DB_MIGRATION"]
+
+      # --- the pinned BYO row: byte-for-byte what shipped at #576 ---
+      assert byo.image == "ghcr.io/umami-software/umami:3.4.1"
+      assert byo.default_storage_gb == 0
+      assert Decimal.equal?(byo.default_cpu_cores, Decimal.new("0.25"))
+      assert byo.default_memory_mb == 512
+      assert byo.recommended_size == "micro"
+      assert byo.published_at == ~U[2026-11-08 01:20:00Z]
+      assert byo.instance_url_env == nil
+      assert byo.oidc_callback_path == nil
+      assert byo.default_env_vars == %{}
+      assert byo.backing_services == []
+
+      # The owner's required input, exactly as it shipped; the optional
+      # 2FA key still carries no `required` key (EnvVarSpec defaults
+      # it to false at write time).
+      assert %{"required" => true, "secret" => true, "type" => "string"} =
+               byo.configurable_env_vars["DATABASE_URL"]
 
       assert %{"required" => true, "secret" => true, "type" => "string"} =
-               version.configurable_env_vars["DATABASE_URL"]
+               byo.configurable_env_vars["APP_SECRET"]
 
-      assert %{"required" => true, "secret" => true, "type" => "string"} =
-               version.configurable_env_vars["APP_SECRET"]
-
-      two_factor = version.configurable_env_vars["TWO_FACTOR_ENCRYPTION_KEY"]
+      two_factor = byo.configurable_env_vars["TWO_FACTOR_ENCRYPTION_KEY"]
       assert %{"secret" => true, "type" => "string"} = two_factor
-      # Optional: no `required` key rides the raw YAML (EnvVarSpec
-      # defaults it to false at write time).
       refute Map.has_key?(two_factor, "required")
 
-      # ADR-0034 Am. 2: upstream's migrations ship the fixed default
-      # admin; the forbidden locks keep user env from skipping the
-      # seeding migration.
-      assert version.first_run["pattern"] == "default_admin_credentials"
-      assert version.first_run["env"] == %{}
-      assert version.first_run["forbidden_env"] == ["SKIP_DB_CHECK", "SKIP_DB_MIGRATION"]
+      # ADR-0034 Am. 2, unchanged: the locks keep user env from
+      # skipping the admin-seeding migration.
+      assert byo.first_run["pattern"] == "default_admin_credentials"
+      assert byo.first_run["env"] == %{}
+      assert byo.first_run["forbidden_env"] == ["SKIP_DB_CHECK", "SKIP_DB_MIGRATION"]
 
-      guidance = version.first_run["guidance"]
+      guidance = byo.first_run["guidance"]
       assert guidance =~ "username admin and password umami"
       assert guidance =~ "Change that password right away"
     end
@@ -817,7 +843,7 @@ defmodule FluxVale.Seeds.CatalogDataTest do
       assert entry.category.audience == nil
     end
 
-    test "no shipped entry declares backing services — every version normalizes to [] (#612)" do
+    test "exactly one shipped entry declares backing services — the Umami takeover row (#612 S4)" do
       versions =
         default_catalog_path()
         |> CatalogData.entries()
@@ -825,7 +851,16 @@ defmodule FluxVale.Seeds.CatalogDataTest do
         |> Enum.flat_map(fn app -> app.versions end)
 
       assert versions != []
-      assert Enum.all?(versions, &(&1.backing_services == []))
+
+      declaring = Enum.filter(versions, &(&1.backing_services != []))
+
+      assert [%{version: "3.4.1-bundled", backing_services: services}] = declaring
+      assert services == [%{"kind" => "postgres", "version" => "18", "url_env" => "DATABASE_URL"}]
+
+      # Every other version normalizes to [] — the declaration stays a
+      # per-version opt-in, and the pinned BYO row is untouched.
+      assert length(declaring) == 1
+      assert Enum.count(versions, &(&1.backing_services == [])) == length(versions) - 1
     end
 
     test "passes a backing-services declaration through raw for write-time validation (#612)" do

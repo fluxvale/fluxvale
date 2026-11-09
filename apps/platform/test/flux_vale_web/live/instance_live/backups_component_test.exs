@@ -514,6 +514,63 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponentTest do
       refute_k8s_terms(html)
     end
 
+    # ADR-0045's posture, load-bearing since the first bundled entry
+    # (#612 S4): a file-level snapshot of a running Postgres is not a
+    # guaranteed database image, and the panel says so in plain words —
+    # only where the instance actually bundles one.
+    test "a bundled-database instance names the running-snapshot caveat", %{
+      conn: conn,
+      user: user
+    } do
+      version = InstanceFixtures.backing_version!()
+      instance = instance!(version, user)
+      setting!(instance)
+
+      {:ok, view, _html} = live(conn, ~p"/instances/#{instance.id}")
+
+      assert has_element?(
+               view,
+               "[data-testid=backup-db-caveat]",
+               "not a guaranteed database backup"
+             )
+
+      assert has_element?(view, "[data-testid=backup-db-caveat]", "Stop the app")
+    end
+
+    # The copy names the database, so the guard is kind-scoped: a
+    # redis-only bundle carries no database caveat (none ships today;
+    # the S1 validator allows the shape, and its data is cache-class —
+    # the plan scopes the caveat to DB entries).
+    test "a redis-only bundle carries no database caveat", %{
+      conn: conn,
+      user: user
+    } do
+      version =
+        InstanceFixtures.backing_version!(
+          backing_services: [%{"kind" => "redis", "version" => "8", "url_env" => "REDIS_URL"}]
+        )
+
+      instance = instance!(version, user)
+      setting!(instance)
+
+      {:ok, view, _html} = live(conn, ~p"/instances/#{instance.id}")
+
+      refute has_element?(view, "[data-testid=backup-db-caveat]")
+    end
+
+    test "a non-bundling instance carries no database caveat", %{
+      conn: conn,
+      user: user,
+      version: version
+    } do
+      instance = instance!(version, user)
+      setting!(instance)
+
+      {:ok, view, _html} = live(conn, ~p"/instances/#{instance.id}")
+
+      refute has_element?(view, "[data-testid=backup-db-caveat]")
+    end
+
     test "never-run, healthy, and failing states read differently", %{
       conn: conn,
       user: user,
