@@ -29,30 +29,40 @@ defmodule FluxValeWeb.AdminLive.Moderation do
   alias FluxVale.Feedback.Post
   alias FluxVale.Feedback.Tag
   alias FluxVale.Feedback.Vote
-  alias FluxValeWeb.AdminComponents
   alias FluxValeWeb.AdminShell
+  alias FluxValeWeb.Components.AdminDataTable
   alias FluxValeWeb.FeedbackHTML
 
   require Ash.Query
 
-  # The list cap (the people surface's ruling, same shape): an
-  # unbounded read over user-generated rows is an ilike scan plus an
-  # unindexed sort waiting to grow expensive, and the operator scans
-  # for what just landed anyway. Revisit trigger: pagination once post
-  # volume approaches the cap.
-  @list_cap 100
+  # The posts table's contract (#501): pagination replaces the
+  # latest-100 cap (offset mode). The sortable fields are the columns
+  # the row prints; the vote and comment counts are aggregates,
+  # sortable at the data layer. Offset mode (no keyset action on this
+  # read).
+  @sortable_posts [:title, :status, :vote_count, :comment_count, :created_at]
+
+  # The tag vocabulary's table adopts the component too: one sortable
+  # column (the name), offset pagination.
+  @sortable_tags [:name]
+  @sizes AdminDataTable.default_sizes()
 
   @impl Phoenix.LiveView
   def mount(_params, _session, socket) do
     # The chrome assigns (current_user, username, nav_section) ride the
     # AdminChrome on_mount on the :admin live_session — this mount adds
-    # only the page's own data.
+    # only the page's own non-table data. The posts table's view state
+    # is handle_params' business (the URL is the source of truth).
     admin = socket.assigns.current_user
 
+    # The tag vocabulary rides session state, not URL params: two
+    # tables share one URL, and the shareable-view contract
+    # (sort/page/size/search as query params) belongs to the page's
+    # primary list. A curated vocabulary is a page fixture, not a
+    # shareable view. The deviation is stated on the PR.
     {:ok,
      socket
      |> assign(
-       query: "",
        status: nil,
        statuses: Post.status_values(),
        expanded_id: nil,
@@ -61,11 +71,27 @@ defmodule FluxValeWeb.AdminLive.Moderation do
        tag_rename_id: nil,
        tag_rename_form: nil,
        tag_rename_tag: nil,
-       search_form: to_form(%{"query" => ""}, as: :search),
-       tag_form: build_tag_form(admin)
+       tag_form: build_tag_form(admin),
+       tag_state: AdminDataTable.parse_params(%{}, sortable: @sortable_tags)
      )
-     |> refresh_rows()
      |> refresh_tags()}
+  end
+
+  # The URL states the posts table's view: sort, page, size, and the
+  # search term ride query params, parsed with garbage-proof fallbacks.
+  @impl Phoenix.LiveView
+  def handle_params(params, _uri, socket) do
+    state = AdminDataTable.parse_params(params, sortable: @sortable_posts)
+
+    {:noreply,
+     socket
+     |> assign(
+       table: state,
+       columns: post_columns(),
+       tag_columns: tag_columns(),
+       search_form: to_form(%{"query" => state.query}, as: :search)
+     )
+     |> refresh_rows()}
   end
 
   # -- events ---------------------------------------------------------------
@@ -74,31 +100,27 @@ defmodule FluxValeWeb.AdminLive.Moderation do
   def handle_event("search", %{"search" => %{"query" => query}}, socket)
       when is_binary(query) do
     trimmed = String.trim(query)
+    state = %{socket.assigns.table | query: trimmed, page: 1}
 
-    {:noreply,
-     socket
-     |> assign(
-       query: trimmed,
-       search_form: to_form(%{"query" => trimmed}, as: :search),
-       # The list moves under a reset, so an open expansion and confirm
-       # close with it (the people surface's rule).
-       expanded_id: nil,
-       detail: nil,
-       confirm: nil
-     )
-     |> refresh_rows()}
+    # The list moves under a reset, so an open expansion and confirm
+    # close with it (the people surface's rule).
+    closed = assign(socket, expanded_id: nil, detail: nil, confirm: nil)
+
+    push_view(closed, state)
   end
 
   # A crafted query that is not a string is a no-op, not a crash.
   def handle_event("search", _params, socket), do: {:noreply, socket}
 
   # All: the chip clears the status filter. Known statuses narrow to
-  # it. Anything else (a crafted value) leaves the filter alone.
+  # it. Anything else (a crafted value) leaves the filter alone. The
+  # page resets with the filter so a stale deep link cannot land past
+  # the narrowed end; the patch keeps the URL honest about the view.
   def handle_event("filter-status", %{"status" => ""}, socket) do
-    {:noreply,
-     socket
-     |> assign(status: nil, expanded_id: nil, detail: nil, confirm: nil)
-     |> refresh_rows()}
+    filtered = assign(socket, status: nil, expanded_id: nil, detail: nil, confirm: nil)
+    state = %{socket.assigns.table | page: 1}
+
+    push_view(filtered, state)
   end
 
   def handle_event("filter-status", %{"status" => raw}, socket) do
@@ -107,12 +129,88 @@ defmodule FluxValeWeb.AdminLive.Moderation do
         {:noreply, socket}
 
       status ->
-        {:noreply,
-         socket
-         |> assign(status: status, expanded_id: nil, detail: nil, confirm: nil)
-         |> refresh_rows()}
+        filtered = assign(socket, status: status, expanded_id: nil, detail: nil, confirm: nil)
+        state = %{socket.assigns.table | page: 1}
+
+        push_view(filtered, state)
     end
   end
+
+  # The posts header sort: whitelisted fields only, click-to-toggle.
+  @impl Phoenix.LiveView
+  def handle_event("sort", %{"field" => raw_field}, socket) do
+    sort = AdminDataTable.toggle_sort(socket.assigns.table.sort, raw_field, @sortable_posts)
+    state = %{socket.assigns.table | sort: sort, page: 1}
+
+    push_view(socket, state)
+  end
+
+  # A crafted field is not a crash: the sort stays as it was.
+  def handle_event("sort", _params, socket), do: {:noreply, socket}
+
+  @impl Phoenix.LiveView
+  def handle_event("page", %{"nav" => "prev"}, socket) do
+    state = %{socket.assigns.table | page: socket.assigns.table.page - 1}
+
+    push_view(socket, state)
+  end
+
+  def handle_event("page", %{"nav" => "next"}, socket) do
+    state = %{socket.assigns.table | page: socket.assigns.table.page + 1}
+
+    push_view(socket, state)
+  end
+
+  # A crafted page event is a no-op.
+  def handle_event("page", _params, socket), do: {:noreply, socket}
+
+  @impl Phoenix.LiveView
+  def handle_event("size", %{"size" => raw}, socket) do
+    size = AdminDataTable.parse_size(raw)
+    state = %{socket.assigns.table | size: size, page: 1}
+
+    push_view(socket, state)
+  end
+
+  def handle_event("size", _params, socket), do: {:noreply, socket}
+
+  # The tags table's events ride session state (see mount): same
+  # toggle-and-reset grammar, no URL write.
+  def handle_event("sort-tags", %{"field" => raw_field}, socket) do
+    sort = AdminDataTable.toggle_sort(socket.assigns.tag_state.sort, raw_field, @sortable_tags)
+    tag_state = %{socket.assigns.tag_state | sort: sort, page: 1}
+    tagged = assign(socket, tag_state: tag_state)
+
+    {:noreply, refresh_tags(tagged)}
+  end
+
+  def handle_event("sort-tags", _params, socket), do: {:noreply, socket}
+
+  def handle_event("page-tags", %{"nav" => "prev"}, socket) do
+    tag_state = %{socket.assigns.tag_state | page: socket.assigns.tag_state.page - 1}
+    tagged = assign(socket, tag_state: tag_state)
+
+    {:noreply, refresh_tags(tagged)}
+  end
+
+  def handle_event("page-tags", %{"nav" => "next"}, socket) do
+    tag_state = %{socket.assigns.tag_state | page: socket.assigns.tag_state.page + 1}
+    tagged = assign(socket, tag_state: tag_state)
+
+    {:noreply, refresh_tags(tagged)}
+  end
+
+  def handle_event("page-tags", _params, socket), do: {:noreply, socket}
+
+  def handle_event("size-tags", %{"size" => raw}, socket) do
+    size = AdminDataTable.parse_size(raw)
+    tag_state = %{socket.assigns.tag_state | size: size, page: 1}
+    tagged = assign(socket, tag_state: tag_state)
+
+    {:noreply, refresh_tags(tagged)}
+  end
+
+  def handle_event("size-tags", _params, socket), do: {:noreply, socket}
 
   # The expansion toggle. The open is a fresh domain read (the people
   # reveal posture): a post deleted between the list render and the
@@ -371,6 +469,14 @@ defmodule FluxValeWeb.AdminLive.Moderation do
   @impl Phoenix.LiveView
   def handle_event("cancel-confirm", _params, socket) do
     {:noreply, refresh_all(assign(socket, confirm: nil))}
+  end
+
+  # Every posts-table event is a patch: the URL states the view, and
+  # handle_params owns the re-query. replace keeps the browser
+  # history clean — a table view is a state, not a navigation.
+  defp push_view(socket, state) do
+    {:noreply,
+     push_patch(socket, to: AdminDataTable.url_for(~p"/admin/moderation", state), replace: true)}
   end
 
   # -- writes ----------------------------------------------------------------
@@ -660,28 +766,64 @@ defmodule FluxValeWeb.AdminLive.Moderation do
 
   # -- reads -----------------------------------------------------------------
 
-  # Newest first, capped one past the limit (the over-read answers the
-  # capped? question without a count), filtered by the status chips and
-  # the title-or-author search. Both scopes stay inside this list.
+  # Newest first by default, one honest count, then one server-driven
+  # page (offset mode), filtered by the status chips and the
+  # title-or-author search. Both scopes stay inside this list. The
+  # id tiebreak rides every sort so a same-second page boundary
+  # cannot shuffle rows between reads.
   defp refresh_rows(socket) do
     admin = socket.assigns.current_user
+    state = socket.assigns.table
 
-    fetched =
+    filtered =
       Post
       |> Ash.Query.for_read(:read, %{}, actor: admin)
-      |> Ash.Query.sort(created_at: :desc)
-      |> maybe_search(socket.assigns.query)
+      |> maybe_search(state.query)
       |> maybe_status(socket.assigns.status)
-      |> Ash.Query.limit(@list_cap + 1)
-      |> Ash.Query.load(:created_by_user)
-      |> Ash.read!()
 
-    capped? = length(fetched) > @list_cap
-    posts = Enum.take(fetched, @list_cap)
+    total = Ash.count!(filtered)
+    page_count = AdminDataTable.page_count(total, state.size)
+
+    page_query =
+      filtered
+      |> apply_sort(state.sort)
+      |> Ash.Query.load(:created_by_user)
+      |> Ash.Query.limit(state.size)
+      |> Ash.Query.offset((state.page - 1) * state.size)
+
+    rows = Ash.read!(page_query)
+
+    # A stale deep link (rows left the window between visits) lands
+    # past the end: clamp to the last page, once.
+    {posts, page} = clamp_page(rows, state.page, page_count, page_query, state.size)
+
+    updated = %{state | page: page, total: total}
 
     socket
-    |> assign(rows_empty?: posts == [], rows_capped?: capped?)
+    |> assign(table: updated, rows_empty?: posts == [])
     |> stream(:posts, posts, reset: true)
+  end
+
+  defp clamp_page(rows, page, page_count, _page_query, _size) when page <= page_count do
+    {rows, page}
+  end
+
+  defp clamp_page(_empty, _page, page_count, page_query, size) do
+    last_offset = (page_count - 1) * size
+
+    rows =
+      page_query
+      |> Ash.Query.offset(last_offset)
+      |> Ash.read!()
+
+    {rows, page_count}
+  end
+
+  defp apply_sort(query, nil), do: Ash.Query.sort(query, created_at: :desc, id: :desc)
+
+  # Whitelisted atoms only — the param path never builds a sort term.
+  defp apply_sort(query, {field, dir}) do
+    Ash.Query.sort(query, [{field, dir}, {:id, :desc}])
   end
 
   defp maybe_search(query, ""), do: query
@@ -709,19 +851,38 @@ defmodule FluxValeWeb.AdminLive.Moderation do
 
   defp parse_status(_other), do: nil
 
+  # The vocabulary's page: name-sorted (the toggle rides session
+  # state, see mount), one honest count, one server-driven page.
   defp refresh_tags(socket) do
     admin = socket.assigns.current_user
+    state = socket.assigns.tag_state
 
-    tags =
-      Tag
-      |> Ash.Query.for_read(:read, %{}, actor: admin)
-      |> Ash.Query.sort(name: :asc)
+    filtered = Ash.Query.for_read(Tag, :read, %{}, actor: admin)
+
+    total = Ash.count!(filtered)
+    page_count = AdminDataTable.page_count(total, state.size)
+
+    page_query =
+      filtered
+      |> apply_tag_sort(state.sort)
       |> Ash.Query.load(:post_tags)
-      |> Ash.read!()
+      |> Ash.Query.limit(state.size)
+      |> Ash.Query.offset((state.page - 1) * state.size)
+
+    rows = Ash.read!(page_query)
+    {tags, page} = clamp_page(rows, state.page, page_count, page_query, state.size)
+
+    updated = %{state | page: page, total: total}
 
     socket
-    |> assign(tags_empty?: tags == [])
+    |> assign(tag_state: updated, tags_empty?: tags == [])
     |> stream(:tags, tags, reset: true)
+  end
+
+  defp apply_tag_sort(query, nil), do: Ash.Query.sort(query, name: :asc, id: :asc)
+
+  defp apply_tag_sort(query, {field, dir}) do
+    Ash.Query.sort(query, [{field, dir}, {:id, :asc}])
   end
 
   # The expansion's whole truth, one read set: the post with its tags
@@ -879,6 +1040,78 @@ defmodule FluxValeWeb.AdminLive.Moderation do
 
   defp time_ago(datetime), do: FeedbackHTML.time_ago(datetime)
 
+  # The posts table's column declarations, built per render so the
+  # labels ride the live locale. Tracks and floors are the shared
+  # component's data.
+  defp post_columns do
+    [
+      %{key: :post, label: gettext("Post"), track: "minmax(0,1fr)", sort: :title, floor_rem: 6},
+      %{key: :status, label: gettext("Status"), track: "5rem", sort: :status},
+      %{key: :votes, label: gettext("Votes"), track: "3rem", sort: :vote_count},
+      %{key: :comments, label: gettext("Comments"), track: "4.5rem", sort: :comment_count},
+      %{
+        key: :posted,
+        label: gettext("Posted"),
+        track: "5rem",
+        sort: :created_at
+      },
+      %{
+        key: :actions,
+        label: gettext("Actions"),
+        track: "4.25rem",
+        align: :right,
+        sr_only: true
+      }
+    ]
+  end
+
+  # The tag vocabulary's columns: one sortable column (the name), the
+  # usage count, the actions.
+  defp tag_columns do
+    [
+      %{key: :tag, label: gettext("Tag"), track: "minmax(0,1fr)", sort: :name, floor_rem: 6},
+      %{key: :posts, label: gettext("Posts"), track: "4rem"},
+      %{
+        key: :actions,
+        label: gettext("Actions"),
+        track: "8rem",
+        align: :right,
+        sr_only: true
+      }
+    ]
+  end
+
+  # The view state the component renders: the parsed params plus the
+  # honest count and the surface's event names. The tags table's
+  # events are its own (session-state deviations, see mount).
+  defp posts_meta(state) do
+    %{
+      query: state.query,
+      page: state.page,
+      size: state.size,
+      sort: state.sort,
+      total: state.total,
+      sizes: @sizes,
+      sort_event: "sort",
+      page_event: "page",
+      size_event: "size"
+    }
+  end
+
+  defp tags_meta(state) do
+    %{
+      query: state.query,
+      page: state.page,
+      size: state.size,
+      sort: state.sort,
+      total: state.total,
+      sizes: @sizes,
+      sort_event: "sort-tags",
+      page_event: "page-tags",
+      size_event: "size-tags"
+    }
+  end
+
   @impl Phoenix.LiveView
   def render(assigns) do
     ~H"""
@@ -995,17 +1228,6 @@ defmodule FluxValeWeb.AdminLive.Moderation do
               </div>
 
               <div class="space-y-4" data-testid="admin-moderation-list">
-                <%!-- The count is the @list_cap above (kept literal here —
-                a module attribute reads as assigns inside HEEx); move the
-                two together. --%>
-                <p
-                  :if={@rows_capped?}
-                  class="text-sm text-ink-muted"
-                  data-testid="admin-moderation-capped"
-                >
-                  {gettext("Showing the latest 100 posts.")}
-                </p>
-
                 <%!-- The empty states ride the inset shape (571's): inside
                 the list panel, not a bare dashed box. --%>
                 <div
@@ -1014,7 +1236,7 @@ defmodule FluxValeWeb.AdminLive.Moderation do
                   data-testid="admin-moderation-empty"
                 >
                   <.empty_state
-                    :if={@query == "" and is_nil(@status)}
+                    :if={@table.query == "" and is_nil(@status)}
                     title={gettext("No posts on the board yet.")}
                     class="border-none bg-transparent"
                   >
@@ -1022,116 +1244,103 @@ defmodule FluxValeWeb.AdminLive.Moderation do
                   </.empty_state>
 
                   <.empty_state
-                    :if={@query != "" or not is_nil(@status)}
+                    :if={@table.query != "" or not is_nil(@status)}
                     title={gettext("No post matches that search or filter.")}
                     class="border-none bg-transparent"
                   />
                 </div>
 
+                <%!-- The posts data table (#501): the shared component
+                owns the chrome, the tracks, the floor, the sort
+                headers, and the pagination. The expansion (the post's
+                whole truth: body, votes, comments, the danger zone)
+                rides the expansion slot, re-rendered with its row. --%>
                 <div :if={not @rows_empty?} class="rounded-panel border border-line bg-panel text-ink">
-                  <%!-- One grid template shared by the header and every row
-                  (kept literal in both spots), so the columns can never
-                  drift. Track mins total about 24rem, so the populated
-                  list fits the band beside the sidebar at 1024+ with no
-                  horizontal scroll and no min-width floor. --%>
-                  <div class={[
-                    "grid-cols-[minmax(0,1fr)_5rem_3rem_4.5rem_5rem_4.25rem]",
-                    AdminComponents.admin_table_header_class()
-                  ]}>
-                    <div>{gettext("Post")}</div>
-                    <div>{gettext("Status")}</div>
-                    <div>{gettext("Votes")}</div>
-                    <div>{gettext("Comments")}</div>
-                    <div>{gettext("Posted")}</div>
-                    <div class="sr-only">{gettext("Actions")}</div>
-                  </div>
+                  <AdminDataTable.data_table
+                    id="admin-moderation-posts"
+                    items={@streams.posts}
+                    columns={@columns}
+                    meta={posts_meta(@table)}
+                  >
+                    <:cell :let={post} col={:post}>
+                      <p
+                        class="text-sm font-medium text-ink [overflow-wrap:anywhere]"
+                        data-testid={"admin-moderation-title-#{post.id}"}
+                      >
+                        {post.title}
+                      </p>
+                      <p
+                        class="mt-0.5 truncate text-xs text-ink-muted"
+                        data-testid={"admin-moderation-author-#{post.id}"}
+                      >
+                        {author_label(post)}
+                      </p>
+                    </:cell>
 
-                  <%!-- The separator rides this stream wrapper. The grid
-                  inside stays pure shared chrome (#602). --%>
-                  <div id="admin-moderation-posts" phx-update="stream">
-                    <div
-                      :for={{dom_id, post} <- @streams.posts}
-                      id={dom_id}
-                      class="border-b border-line last:border-0"
-                    >
-                      <div class={[
-                        "grid-cols-[minmax(0,1fr)_5rem_3rem_4.5rem_5rem_4.25rem]",
-                        AdminComponents.admin_table_row_class()
-                      ]}>
-                        <div class="min-w-0">
-                          <p
-                            class="text-sm font-medium text-ink [overflow-wrap:anywhere]"
-                            data-testid={"admin-moderation-title-#{post.id}"}
-                          >
-                            {post.title}
-                          </p>
-                          <p
-                            class="mt-0.5 truncate text-xs text-ink-muted"
-                            data-testid={"admin-moderation-author-#{post.id}"}
-                          >
-                            {author_label(post)}
-                          </p>
-                        </div>
-                        <div>
-                          <span data-testid={"admin-moderation-status-#{post.id}"}>
-                            <.badge
-                              tone={FeedbackHTML.status_tone(post.status)}
-                              class="gap-1 px-1.5! text-[11px]!"
-                            >
-                              <%= if cue = status_cue(post.status) do %>
-                                <.icon name={cue} class="size-3" />
-                              <% end %>
-                              {FeedbackHTML.status_label(post.status)}
-                            </.badge>
-                          </span>
-                        </div>
-                        <div>
-                          <span
-                            class="text-sm text-ink-muted"
-                            data-testid={"admin-moderation-votes-#{post.id}"}
-                          >
-                            {post.vote_count}
-                          </span>
-                        </div>
-                        <div>
-                          <span
-                            class="text-sm text-ink-muted"
-                            data-testid={"admin-moderation-comments-#{post.id}"}
-                          >
-                            {post.comment_count}
-                          </span>
-                        </div>
-                        <div>
-                          <span
-                            class="whitespace-nowrap text-xs text-ink-muted"
-                            data-testid={"admin-moderation-posted-#{post.id}"}
-                          >
-                            {stamp_text(post.created_at)}
-                          </span>
-                        </div>
-                        <div>
-                          <div class="flex items-center justify-end">
-                            <.button
-                              size="sm"
-                              variant="secondary"
-                              phx-click="open-post"
-                              phx-value-id={post.id}
-                              phx-disable-with={gettext("Opening...")}
-                              data-testid={"admin-moderation-expand-#{post.id}"}
-                            >
-                              <%= if @expanded_id == post.id do %>
-                                {gettext("Close")}
-                              <% else %>
-                                {gettext("Expand")}
-                              <% end %>
-                            </.button>
-                          </div>
-                        </div>
+                    <:cell :let={post} col={:status}>
+                      <span data-testid={"admin-moderation-status-#{post.id}"}>
+                        <.badge
+                          tone={FeedbackHTML.status_tone(post.status)}
+                          class="gap-1 px-1.5! text-[11px]!"
+                        >
+                          <%= if cue = status_cue(post.status) do %>
+                            <.icon name={cue} class="size-3" />
+                          <% end %>
+                          {FeedbackHTML.status_label(post.status)}
+                        </.badge>
+                      </span>
+                    </:cell>
+
+                    <:cell :let={post} col={:votes}>
+                      <span
+                        class="text-sm text-ink-muted"
+                        data-testid={"admin-moderation-votes-#{post.id}"}
+                      >
+                        {post.vote_count}
+                      </span>
+                    </:cell>
+
+                    <:cell :let={post} col={:comments}>
+                      <span
+                        class="text-sm text-ink-muted"
+                        data-testid={"admin-moderation-comments-#{post.id}"}
+                      >
+                        {post.comment_count}
+                      </span>
+                    </:cell>
+
+                    <:cell :let={post} col={:posted}>
+                      <span
+                        class="whitespace-nowrap text-xs text-ink-muted"
+                        data-testid={"admin-moderation-posted-#{post.id}"}
+                      >
+                        {stamp_text(post.created_at)}
+                      </span>
+                    </:cell>
+
+                    <:cell :let={post} col={:actions}>
+                      <div class="flex items-center justify-end">
+                        <.button
+                          size="sm"
+                          variant="secondary"
+                          phx-click="open-post"
+                          phx-value-id={post.id}
+                          phx-disable-with={gettext("Opening...")}
+                          data-testid={"admin-moderation-expand-#{post.id}"}
+                        >
+                          <%= if @expanded_id == post.id do %>
+                            {gettext("Close")}
+                          <% else %>
+                            {gettext("Expand")}
+                          <% end %>
+                        </.button>
                       </div>
+                    </:cell>
 
-                      <%!-- The expansion under its row (the people confirm's
-                      posture): one open at a time, opened through a fresh
-                      domain read, re-rendered with its row. --%>
+                    <%!-- The expansion under its row (the people confirm's
+                    posture): one open at a time, opened through a fresh
+                    domain read, re-rendered with its row. --%>
+                    <:expansion :let={post}>
                       <div
                         :if={@expanded_id == post.id && @detail}
                         id={"admin-moderation-detail-#{post.id}"}
@@ -1377,8 +1586,8 @@ defmodule FluxValeWeb.AdminLive.Moderation do
                           </div>
                         </div>
                       </div>
-                    </div>
-                  </div>
+                    </:expansion>
+                  </AdminDataTable.data_table>
                 </div>
               </div>
 
@@ -1428,81 +1637,64 @@ defmodule FluxValeWeb.AdminLive.Moderation do
                   </.button>
                 </.form>
 
-                <div class="rounded-panel border border-line">
-                  <div class={[
-                    "grid-cols-[minmax(0,1fr)_4rem_8rem]",
-                    AdminComponents.admin_table_header_class()
-                  ]}>
-                    <div>{gettext("Tag")}</div>
-                    <div>{gettext("Posts")}</div>
-                    <div class="sr-only">{gettext("Actions")}</div>
-                  </div>
-
-                  <p
-                    :if={@tags_empty?}
-                    class="px-3 py-4 text-sm text-ink-muted"
-                    data-testid="admin-moderation-tags-empty"
+                <%!-- The tags data table (#501): the shared component's
+                chrome with its own event names (session-state
+                pagination, see mount). The rename form and the delete
+                confirm ride the expansion slot. --%>
+                <div :if={not @tags_empty?} class="rounded-panel border border-line">
+                  <AdminDataTable.data_table
+                    id="admin-moderation-tags-list"
+                    items={@streams.tags}
+                    columns={@tag_columns}
+                    meta={tags_meta(@tag_state)}
                   >
-                    {gettext("No tags yet. Create the first one above.")}
-                  </p>
+                    <:cell :let={tag} col={:tag}>
+                      <p
+                        class="truncate text-sm font-medium text-ink"
+                        data-testid={"admin-moderation-tag-name-#{tag.id}"}
+                      >
+                        {tag.name}
+                      </p>
+                      <p class="truncate font-mono text-xs text-ink-muted">
+                        {tag.slug}
+                      </p>
+                    </:cell>
 
-                  <%!-- The separator rides this stream wrapper. The grid
-                  inside stays pure shared chrome (#602). --%>
-                  <div id="admin-moderation-tags-list" phx-update="stream">
-                    <div
-                      :for={{dom_id, tag} <- @streams.tags}
-                      id={dom_id}
-                      class="border-b border-line last:border-0"
-                    >
-                      <div class={[
-                        "grid-cols-[minmax(0,1fr)_4rem_8rem]",
-                        AdminComponents.admin_table_row_class()
-                      ]}>
-                        <div class="min-w-0">
-                          <p
-                            class="truncate text-sm font-medium text-ink"
-                            data-testid={"admin-moderation-tag-name-#{tag.id}"}
-                          >
-                            {tag.name}
-                          </p>
-                          <p class="truncate font-mono text-xs text-ink-muted">
-                            {tag.slug}
-                          </p>
-                        </div>
-                        <div>
-                          <span
-                            class="text-sm text-ink-muted"
-                            data-testid={"admin-moderation-tag-usage-#{tag.id}"}
-                          >
-                            {length(tag.post_tags)}
-                          </span>
-                        </div>
-                        <div>
-                          <div class="flex items-center justify-end gap-2">
-                            <button
-                              type="button"
-                              phx-click="open-rename-tag"
-                              phx-value-id={tag.id}
-                              phx-disable-with={gettext("Opening...")}
-                              class="text-sm font-medium text-link underline-offset-2 hover:underline disabled:pointer-events-none disabled:opacity-50"
-                              data-testid={"admin-moderation-tag-rename-#{tag.id}"}
-                            >
-                              {gettext("Rename")}
-                            </button>
-                            <button
-                              type="button"
-                              phx-click="open-delete-tag"
-                              phx-value-id={tag.id}
-                              phx-disable-with={gettext("Deleting...")}
-                              class="text-sm font-medium text-ink-muted underline-offset-2 hover:text-ink hover:underline disabled:pointer-events-none disabled:opacity-50"
-                              data-testid={"admin-moderation-tag-delete-#{tag.id}"}
-                            >
-                              {gettext("Delete")}
-                            </button>
-                          </div>
-                        </div>
+                    <:cell :let={tag} col={:posts}>
+                      <span
+                        class="text-sm text-ink-muted"
+                        data-testid={"admin-moderation-tag-usage-#{tag.id}"}
+                      >
+                        {length(tag.post_tags)}
+                      </span>
+                    </:cell>
+
+                    <:cell :let={tag} col={:actions}>
+                      <div class="flex items-center justify-end gap-2">
+                        <button
+                          type="button"
+                          phx-click="open-rename-tag"
+                          phx-value-id={tag.id}
+                          phx-disable-with={gettext("Opening...")}
+                          class="text-sm font-medium text-link underline-offset-2 hover:underline disabled:pointer-events-none disabled:opacity-50"
+                          data-testid={"admin-moderation-tag-rename-#{tag.id}"}
+                        >
+                          {gettext("Rename")}
+                        </button>
+                        <button
+                          type="button"
+                          phx-click="open-delete-tag"
+                          phx-value-id={tag.id}
+                          phx-disable-with={gettext("Deleting...")}
+                          class="text-sm font-medium text-ink-muted underline-offset-2 hover:text-ink hover:underline disabled:pointer-events-none disabled:opacity-50"
+                          data-testid={"admin-moderation-tag-delete-#{tag.id}"}
+                        >
+                          {gettext("Delete")}
+                        </button>
                       </div>
+                    </:cell>
 
+                    <:expansion :let={tag}>
                       <%!-- The rename form expands under its row (the same
                       posture as the confirm panels), one at a time. --%>
                       <div :if={@tag_rename_id == tag.id} class="px-4 pb-4">
@@ -1561,9 +1753,17 @@ defmodule FluxValeWeb.AdminLive.Moderation do
                           myself={nil}
                         />
                       </div>
-                    </div>
-                  </div>
+                    </:expansion>
+                  </AdminDataTable.data_table>
                 </div>
+
+                <p
+                  :if={@tags_empty?}
+                  class="px-3 py-4 text-sm text-ink-muted"
+                  data-testid="admin-moderation-tags-empty"
+                >
+                  {gettext("No tags yet. Create the first one above.")}
+                </p>
               </.card>
             </div>
           </div>

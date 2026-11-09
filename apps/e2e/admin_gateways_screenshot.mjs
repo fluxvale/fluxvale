@@ -91,15 +91,30 @@ const DETAIL_WIDTHS = [480, 768, 1024, 1280, 1440];
 const browser = await chromium.launch();
 
 // A signed-in context via the sanctioned session POST, then the page.
+// The POST is checked for a 2xx EXPLICITLY, at the failure point: an
+// expired or missing token, a CSRF mismatch, or a refused role each
+// answer non-2xx with a body that names the cause, and a silent
+// hand-wave here used to surface much later as a mystery redirect to
+// /sign-in. The check reads the status and the body, so the seed's
+// token is the first suspect named.
 async function newSession(sessionToken) {
   const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
   const page = await ctx.newPage();
   await page.goto(`${BASE}/sign-in`, { waitUntil: "networkidle" });
   const csrf = await page.locator('meta[name="csrf-token"]').getAttribute("content");
-  await page.request.post(`${BASE}/auth/session`, {
+  const posted = await page.request.post(`${BASE}/auth/session`, {
     form: { token: sessionToken },
     headers: { "x-csrf-token": csrf },
   });
+
+  if (!posted.ok()) {
+    const cause = (await posted.text()).slice(0, 400).replace(/\s+/g, " ").trim();
+    throw new Error(
+      `session POST failed: HTTP ${posted.status()} ${posted.statusText()} — ` +
+        `is the seed's session token expired, missing, or for a demoted account? Body: ${cause}`
+    );
+  }
+
   return { ctx, page };
 }
 

@@ -47,13 +47,21 @@ defmodule FluxValeWeb.AdminLive.WalletDetail do
   alias FluxValeWeb.AdminComponents
   alias FluxValeWeb.AdminShell
   alias FluxValeWeb.BillingComponents
+  alias FluxValeWeb.Components.AdminDataTable
   alias FluxValeWeb.UserAuth
 
   require Ash.Query
 
-  # Mirrors the org billing page's ledger window — the same read, the
-  # same sort, one page size for every ledger surface.
-  @page_size 25
+  # The ledger's data-table contract (#501): KEYSET pagination (this
+  # is the one read that has it — the ledger is append-only, so a
+  # cursor survives inserts landing between pages, where an offset
+  # window would skip or repeat rows). Page sizes 25/50/100; the
+  # cursor and the sort ride the URL, so a ledger view is shareable.
+  # The sortable fields are When and Amount; the cursor binds the
+  # sort it was minted under, so a sort change drops the cursors and
+  # restarts at the newest page.
+  @sortable [:created_at, :amount]
+  @sizes AdminDataTable.default_sizes()
 
   # The goodwill ceiling: the friends-beta reality is small gestures,
   # and the keyless post has no payment rail behind it to dispute — a
@@ -70,25 +78,22 @@ defmodule FluxValeWeb.AdminLive.WalletDetail do
          {:ok, [org]} <- org_lookup(admin, [wallet.organization_id]) do
       case Billing.compute_runway(wallet) do
         {:ok, runway} ->
-          page = ledger_page(wallet.id, admin)
-
           {:ok,
-           socket
-           |> assign(
+           assign(socket,
              # The session map, kept for the per-write actor re-resolve
              # (see `reauthorized_actor/1`).
              admin_session: session,
              wallet: wallet,
              org: org,
              runway: runway,
-             page: page,
-             ledger_empty?: page.results == [],
-             reversed_ids: reversed_ids(page.results),
+             # The ledger's view state is handle_params' business (the
+             # URL is the source of truth); the reversal markers start
+             # empty and grow with every visited page.
+             reversed_ids: MapSet.new(),
              confirm: nil,
              goodwill_form: to_form(%{"amount_cents" => ""}, as: :goodwill),
              goodwill_echo: nil
-           )
-           |> stream(:entries, page.results)}
+           )}
 
         # defensive: the projection fails only on a DB read failure —
         # not simulatable under the sandbox
@@ -112,7 +117,69 @@ defmodule FluxValeWeb.AdminLive.WalletDetail do
     end
   end
 
+  # The ledger's view state: sort, page size, and the keyset cursor
+  # ride query params, parsed with garbage-proof fallbacks. A bad
+  # cursor falls back to the newest page (see refresh_ledger).
+  @impl Phoenix.LiveView
+  def handle_params(params, _uri, socket) do
+    state = AdminDataTable.parse_params(params, sortable: @sortable)
+
+    {:noreply,
+     socket
+     |> assign(table: state, columns: ledger_columns())
+     |> refresh_ledger()}
+  end
+
   # -- events ---------------------------------------------------------------
+
+  # The header sort: whitelisted fields only, click-to-toggle. The
+  # cursors drop with the sort — a cursor is only valid under the sort
+  # it was minted for.
+  @impl Phoenix.LiveView
+  def handle_event("sort", %{"field" => raw_field}, socket) do
+    sort = AdminDataTable.toggle_sort(socket.assigns.table.sort, raw_field, @sortable)
+    state = %{socket.assigns.table | sort: sort, after: nil, before: nil}
+
+    push_view(socket, state)
+  end
+
+  # A crafted field is not a crash: the sort stays as it was.
+  def handle_event("sort", _params, socket), do: {:noreply, socket}
+
+  def handle_event("page", %{"nav" => "prev"}, socket) do
+    cursor = socket.assigns.ledger_meta.prev_cursor
+
+    if cursor do
+      state = %{socket.assigns.table | before: cursor, after: nil}
+      push_view(socket, state)
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_event("page", %{"nav" => "next"}, socket) do
+    cursor = socket.assigns.ledger_meta.next_cursor
+
+    if cursor do
+      state = %{socket.assigns.table | after: cursor, before: nil}
+      push_view(socket, state)
+    else
+      {:noreply, socket}
+    end
+  end
+
+  # A crafted page event is a no-op.
+  def handle_event("page", _params, socket), do: {:noreply, socket}
+
+  @impl Phoenix.LiveView
+  def handle_event("size", %{"size" => raw}, socket) do
+    size = AdminDataTable.parse_size(raw)
+    state = %{socket.assigns.table | size: size, after: nil, before: nil}
+
+    push_view(socket, state)
+  end
+
+  def handle_event("size", _params, socket), do: {:noreply, socket}
 
   # The waiver lever's click. The reveal rides a fresh domain read, so
   # the direction the confirm states is the wallet's CURRENT state, not
@@ -330,36 +397,134 @@ defmodule FluxValeWeb.AdminLive.WalletDetail do
     end
   end
 
-  @impl Phoenix.LiveView
-  # coveralls-ignore-start - the same clause-head cover artifact; the
-  # pagination test drives it and the body's lines carry counts
-  def handle_event("load-more", _params, socket) do
-    case Ash.page(socket.assigns.page, :next) do
-      # coveralls-ignore-stop
-      {:ok, page} ->
-        # Exhaustion is uniform here: an empty last page appends nothing
-        # and retires the button (more? false). The reversed-set merges
-        # each page's compensation markers: a reversal sorts ABOVE its
-        # original (newest first), so an original on a later page can
-        # carry its reversal from a page already loaded.
-        page_reversed = reversed_ids(page.results)
-        merged = MapSet.union(socket.assigns.reversed_ids, page_reversed)
+  # Every ledger event is a patch: the URL states the view, and
+  # handle_params owns the re-query. replace keeps the browser
+  # history clean — a table view is a state, not a navigation.
+  defp push_view(socket, state) do
+    {:noreply,
+     push_patch(
+       socket,
+       to: AdminDataTable.url_for(~p"/admin/billing/wallets/#{socket.assigns.wallet.id}", state),
+       replace: true
+     )}
+  end
 
-        {:noreply,
-         socket
-         |> stream(:entries, page.results, at: -1)
-         |> assign(page: page, reversed_ids: merged)}
+  # -- reads ----------------------------------------------------------------
 
-      # defensive: DB read failure between render and click — not
-      # simulatable under the sandbox; the next click retries.
-      # coveralls-ignore-start
-      {:error, reason} ->
-        require Logger
+  # The keyset page under the current view state: the sort and the
+  # cursor (one direction at a time — a crafted URL carrying both is
+  # an invalid page, and the error arm answers it).
+  defp read_ledger(admin, wallet_id, state) do
+    query =
+      LedgerEntry
+      |> Ash.Query.for_read(:list_for_wallet, %{wallet_id: wallet_id}, actor: admin)
+      |> apply_sort(state.sort)
 
-        Logger.error("Ledger page load failed: #{inspect(reason)}")
-        {:noreply, socket}
-        # coveralls-ignore-stop
+    Ash.read(query, page: [limit: state.size] ++ cursor_opts(state), actor: admin)
+  end
+
+  defp cursor_opts(state) do
+    cond do
+      state.after != nil and state.before == nil -> [after: state.after]
+      state.before != nil and state.after == nil -> [before: state.before]
+      true -> []
     end
+  end
+
+  # The ledger's page: newest first by default, one server-driven
+  # keyset window. A crafted or stale cursor is not a crash — the
+  # honest answer is the newest page under the current sort, once.
+  # The reversal markers merge across every visited page (a reversal
+  # sorts ABOVE its original, so a page can carry a compensation whose
+  # original sits on another one), and the ledger is append-only, so
+  # a merged marker is always a true fact.
+  defp refresh_ledger(socket) do
+    admin = socket.assigns.current_user
+    state = socket.assigns.table
+
+    {page, final_state} =
+      case read_ledger(admin, socket.assigns.wallet.id, state) do
+        {:ok, page} ->
+          {page, state}
+
+        {:error, _invalid_cursor} ->
+          clean = %{state | after: nil, before: nil}
+          {:ok, page} = read_ledger(admin, socket.assigns.wallet.id, clean)
+          {page, clean}
+      end
+
+    links = AdminDataTable.keyset_links(page)
+    reversed = MapSet.union(socket.assigns.reversed_ids, reversed_ids(page.results))
+
+    meta = %{
+      query: final_state.query,
+      page: 1,
+      size: final_state.size,
+      sort: final_state.sort,
+      showing: length(page.results),
+      next_cursor: links.next,
+      prev_cursor: links.prev,
+      sizes: @sizes,
+      sort_event: "sort",
+      page_event: "page",
+      size_event: "size"
+    }
+
+    socket
+    |> assign(
+      table: final_state,
+      ledger_meta: meta,
+      ledger_empty?: page.results == [],
+      # The list moved under a reset, so an open confirm closes with
+      # it (the old read-one-page contract, kept).
+      confirm: nil,
+      reversed_ids: reversed
+    )
+    |> stream(:entries, page.results, reset: true)
+  end
+
+  # Newest first by default; the id tiebreak gives the keyset the
+  # total order it requires.
+  defp apply_sort(query, nil), do: Ash.Query.sort(query, created_at: :desc, id: :desc)
+
+  # Whitelisted atoms only — the param path never builds a sort term.
+  defp apply_sort(query, {field, dir}) do
+    Ash.Query.sort(query, [{field, dir}, {:id, :desc}])
+  end
+
+  # The column declarations, built per render so the labels ride the
+  # live locale. Tracks and floors are the shared component's data.
+  defp ledger_columns do
+    [
+      %{
+        key: :when,
+        label: gettext("When"),
+        track: "minmax(8.5rem,1fr)",
+        sort: :created_at,
+        floor_rem: 8.5
+      },
+      %{key: :entry, label: gettext("Entry"), track: "minmax(8.5rem,1.2fr)", floor_rem: 8.5},
+      %{
+        key: :amount,
+        label: gettext("Amount"),
+        track: "5.5rem",
+        align: :right,
+        sort: :amount
+      },
+      %{
+        key: :reference,
+        label: gettext("Reference"),
+        track: "minmax(5.5rem,0.9fr)",
+        floor_rem: 5.5
+      },
+      %{
+        key: :actions,
+        label: gettext("Actions"),
+        track: "4.5rem",
+        align: :right,
+        sr_only: true
+      }
+    ]
   end
 
   # -- the gate -------------------------------------------------------------
@@ -509,13 +674,6 @@ defmodule FluxValeWeb.AdminLive.WalletDetail do
 
   # -- reads ----------------------------------------------------------------
 
-  defp ledger_page(wallet_id, admin) do
-    LedgerEntry
-    |> Ash.Query.for_read(:list_for_wallet, %{wallet_id: wallet_id}, actor: admin)
-    |> Ash.Query.sort(created_at: :desc, id: :desc)
-    |> Ash.read!(page: [limit: @page_size])
-  end
-
   # The flagged lookup seam (Organization :admin_lookup) — the same one
   # read the table rides; a wallet's org exists while the FK stands.
   defp org_lookup(admin, ids) do
@@ -558,21 +716,7 @@ defmodule FluxValeWeb.AdminLive.WalletDetail do
 
   # coveralls-ignore-stop
 
-  # A changed ledger re-reads page one and resets the stream: the same
-  # honest-refresh posture as the people surface.
-  defp refresh_ledger(socket) do
-    admin = socket.assigns.current_user
-    page = ledger_page(socket.assigns.wallet.id, admin)
-
-    socket
-    |> assign(
-      page: page,
-      ledger_empty?: page.results == [],
-      reversed_ids: reversed_ids(page.results),
-      confirm: nil
-    )
-    |> stream(:entries, page.results, reset: true)
-  end
+  # -- display helpers ------------------------------------------------------
 
   defp reversed(socket, original, reversal) do
     socket
@@ -1039,136 +1183,111 @@ defmodule FluxValeWeb.AdminLive.WalletDetail do
                     <.empty_state title={gettext("No activity yet.")} />
                   </div>
 
-                  <%!-- The scanning grid: date, entry, amount, reference,
-              action. One grid template shared by header and rows; the
-              amounts sit right on tabular figures so digits line up
-              down the column. Track mins total 35rem (+ gaps and
-              padding, ~38rem): the populated ledger scrolls INTERNALLY
-              below the band beside the sidebar at 1024+ (the people
-              surface's floor-and-scroll idiom), never the page. --%>
+                  <%!-- The ledger data table (#501): the shared component
+                  owns the chrome, the tracks, the floor, the sort
+                  headers, and the pagination. KEYSET mode (the one read
+                  that has it): prev/next ride URL cursors, the "Load
+                  more" button retired into them. The confirm expands
+                  under its row via the expansion slot. --%>
                   <div :if={not @ledger_empty?}>
-                    <div class="overflow-x-auto" data-noscroll>
-                      <div class="min-w-[38rem]">
-                        <div class={[
-                          "grid-cols-[minmax(8.5rem,1fr)_minmax(8.5rem,1.2fr)_5.5rem_minmax(5.5rem,0.9fr)_4.5rem]",
-                          AdminComponents.admin_table_header_class()
-                        ]}>
-                          <div>{gettext("When")}</div>
-                          <div>{gettext("Entry")}</div>
-                          <div class="text-right">{gettext("Amount")}</div>
-                          <div>{gettext("Reference")}</div>
-                          <div class="sr-only">{gettext("Actions")}</div>
-                        </div>
-
-                        <div id="admin-wallet-ledger" phx-update="stream">
-                          <%!-- The ledger's one deviation: separators run
-                          ABOVE each row (border-t, first reset) so an
-                          entry's hover tint reads as one block with its
-                          own edge. The px-4 this wrapper carried since
-                          #571 offset every cell 16px right of its
-                          header, dropped on the chrome consolidation
-                          (#602) to align rows to the shared chrome. --%>
-                          <div
-                            :for={{dom_id, entry} <- @streams.entries}
-                            id={dom_id}
-                            data-testid={"admin-wallet-entry-#{entry.id}"}
-                            class="border-t border-line py-3 first:border-t-0"
-                          >
-                            <div class={[
-                              "grid-cols-[minmax(8.5rem,1fr)_minmax(8.5rem,1.2fr)_5.5rem_minmax(5.5rem,0.9fr)_4.5rem]",
-                              AdminComponents.admin_table_row_class()
-                            ]}>
-                              <span class="whitespace-nowrap text-xs text-ink-muted">
-                                {Calendar.strftime(entry.created_at, "%b %d, %Y %H:%M UTC")}
-                              </span>
-                              <span class="flex flex-wrap items-center gap-1.5">
-                                <.badge
-                                  tone={reason_tone(entry.reason)}
-                                  class={reason_badge_class(entry.reason)}
-                                >
-                                  <.icon name={reason_icon(entry.reason)} class="size-3.5" />
-                                  {reason_label(entry.reason)}
-                                </.badge>
-                                <%!-- Reversal provenance stays neutral: danger is
-                        reserved for the destroy clock and the negative
-                        balance. --%>
-                                <.badge :if={entry.reverses_id} tone="neutral">
-                                  <.icon name="hero-arrow-uturn-left" class="size-3.5" />
-                                  {gettext("Reversal")}
-                                </.badge>
-                                <.badge :if={MapSet.member?(@reversed_ids, entry.id)} tone="neutral">
-                                  <.icon name="hero-arrow-uturn-right" class="size-3.5" />
-                                  {gettext("Reversed")}
-                                </.badge>
-                              </span>
-                              <span
-                                class={[
-                                  "justify-self-end whitespace-nowrap text-sm tabular-nums",
-                                  amount_class(entry, @reversed_ids)
-                                ]}
-                                data-testid={"admin-wallet-amount-#{entry.id}"}
-                              >
-                                {BillingComponents.format_amount(entry.amount)}
-                              </span>
-                              <span
-                                class="min-w-0 truncate font-mono text-xs text-ink-muted"
-                                title={reference_text(entry)}
-                                data-testid={"admin-wallet-reference-#{entry.id}"}
-                              >
-                                {reference_text(entry)}
-                              </span>
-                              <span class="justify-self-end">
-                                <.button
-                                  :if={reversible?(entry, @reversed_ids)}
-                                  size="sm"
-                                  variant="secondary"
-                                  phx-click="open-reverse"
-                                  phx-value-id={entry.id}
-                                  phx-disable-with={gettext("Opening...")}
-                                  data-testid={"admin-wallet-reverse-#{entry.id}"}
-                                >
-                                  {gettext("Reverse")}
-                                </.button>
-                              </span>
-                            </div>
-
-                            <%!-- The confirm expands directly under the row that
-                    opened it; one confirm per page (@confirm is the
-                    expansion key), so the shared destructive-confirm
-                    testid stays safe. --%>
-                            <div :if={reversing?(entry, @confirm)} class="pt-3">
-                              <.confirm_block
-                                title={reverse_title(entry)}
-                                body={
-                                  gettext(
-                                    "A compensating debit is posted for the same amount. The original entry stays in the ledger. Net effect on the balance: zero."
-                                  )
-                                }
-                                action={gettext("Yes, reverse this entry")}
-                                event="confirm-reverse"
-                                action_testid="admin-wallet-reverse-confirm"
-                                cancel_testid="admin-wallet-reverse-cancel"
-                                return_focus={reverse_return_focus(@confirm)}
-                                myself={nil}
-                              />
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div class="mt-4">
-                    <.button
-                      :if={@page.more?}
-                      id="admin-wallet-load-more"
-                      variant="ghost"
-                      size="sm"
-                      phx-click="load-more"
-                      data-testid="admin-wallet-load-more"
+                    <AdminDataTable.data_table
+                      id="admin-wallet-ledger"
+                      items={@streams.entries}
+                      columns={@columns}
+                      meta={@ledger_meta}
                     >
-                      {gettext("Load more")}
-                    </.button>
+                      <:cell :let={entry} col={:when}>
+                        <span class="whitespace-nowrap text-xs text-ink-muted">
+                          {Calendar.strftime(entry.created_at, "%b %d, %Y %H:%M UTC")}
+                        </span>
+                      </:cell>
+
+                      <:cell :let={entry} col={:entry}>
+                        <div data-testid={"admin-wallet-entry-#{entry.id}"}>
+                          <span class="flex flex-wrap items-center gap-1.5">
+                            <.badge
+                              tone={reason_tone(entry.reason)}
+                              class={reason_badge_class(entry.reason)}
+                            >
+                              <.icon name={reason_icon(entry.reason)} class="size-3.5" />
+                              {reason_label(entry.reason)}
+                            </.badge>
+                            <%!-- Reversal provenance stays neutral: danger is
+                            reserved for the destroy clock and the negative
+                            balance. --%>
+                            <.badge :if={entry.reverses_id} tone="neutral">
+                              <.icon name="hero-arrow-uturn-left" class="size-3.5" />
+                              {gettext("Reversal")}
+                            </.badge>
+                            <.badge :if={MapSet.member?(@reversed_ids, entry.id)} tone="neutral">
+                              <.icon name="hero-arrow-uturn-right" class="size-3.5" />
+                              {gettext("Reversed")}
+                            </.badge>
+                          </span>
+                        </div>
+                      </:cell>
+
+                      <:cell :let={entry} col={:amount}>
+                        <span
+                          class={[
+                            "whitespace-nowrap text-sm tabular-nums",
+                            amount_class(entry, @reversed_ids)
+                          ]}
+                          data-testid={"admin-wallet-amount-#{entry.id}"}
+                        >
+                          {BillingComponents.format_amount(entry.amount)}
+                        </span>
+                      </:cell>
+
+                      <:cell :let={entry} col={:reference}>
+                        <span
+                          class="block truncate font-mono text-xs text-ink-muted"
+                          title={reference_text(entry)}
+                          data-testid={"admin-wallet-reference-#{entry.id}"}
+                        >
+                          {reference_text(entry)}
+                        </span>
+                      </:cell>
+
+                      <:cell :let={entry} col={:actions}>
+                        <div class="flex items-center justify-end">
+                          <.button
+                            :if={reversible?(entry, @reversed_ids)}
+                            size="sm"
+                            variant="secondary"
+                            phx-click="open-reverse"
+                            phx-value-id={entry.id}
+                            phx-disable-with={gettext("Opening...")}
+                            data-testid={"admin-wallet-reverse-#{entry.id}"}
+                          >
+                            {gettext("Reverse")}
+                          </.button>
+                        </div>
+                      </:cell>
+
+                      <%!-- The confirm expands directly under the row that
+                      opened it; one confirm per page (@confirm is the
+                      expansion key), so the shared destructive-confirm
+                      testid stays safe. --%>
+                      <:expansion :let={entry}>
+                        <div :if={reversing?(entry, @confirm)} class="pt-3">
+                          <.confirm_block
+                            title={reverse_title(entry)}
+                            body={
+                              gettext(
+                                "A compensating debit is posted for the same amount. The original entry stays in the ledger. Net effect on the balance: zero."
+                              )
+                            }
+                            action={gettext("Yes, reverse this entry")}
+                            event="confirm-reverse"
+                            action_testid="admin-wallet-reverse-confirm"
+                            cancel_testid="admin-wallet-reverse-cancel"
+                            return_focus={reverse_return_focus(@confirm)}
+                            myself={nil}
+                          />
+                        </div>
+                      </:expansion>
+                    </AdminDataTable.data_table>
                   </div>
                 </.card>
               </div>

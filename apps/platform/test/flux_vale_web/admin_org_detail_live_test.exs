@@ -278,7 +278,10 @@ defmodule FluxValeWeb.AdminOrgDetailLiveTest do
       refute has_element?(view, "[data-testid='admin-orgs-instances-hidden']")
     end
 
-    test "the instances list caps at the latest 100 and says so", %{conn: conn, admin: admin} do
+    test "real pagination replaces the old cap: 26 instances make two honest pages", %{
+      conn: conn,
+      admin: admin
+    } do
       {org, owner} = BillingFixtures.grant_free_org!()
       {:ok, _wallet} = Billing.ensure_wallet(org)
       {:ok, _grant} = Billing.grant_credits(org, 10_000, reason: :adjustment)
@@ -289,15 +292,36 @@ defmodule FluxValeWeb.AdminOrgDetailLiveTest do
 
       version = InstanceFixtures.app_version!()
 
-      instances = for _i <- 1..101, do: InstanceFixtures.instance!(version, owner)
+      instances = for _i <- 1..26, do: InstanceFixtures.instance!(version, owner)
       oldest = List.first(instances)
       newest = List.last(instances)
 
       {:ok, view, _html} = live(conn, "/admin/orgs/#{org.id}")
 
-      assert has_element?(view, "[data-testid='admin-orgs-instances-capped']", "latest 100")
+      # Newest first: a full first page, the oldest instance waiting
+      # on page two.
+      assert has_element?(
+               view,
+               "[data-testid='admin-orgs-instances-table-count']",
+               "1 to 25 of 26"
+             )
+
       assert has_element?(view, "[data-testid='admin-orgs-instance-#{newest.id}']")
       refute has_element?(view, "[data-testid='admin-orgs-instance-#{oldest.id}']")
+
+      view
+      |> element("[data-testid='admin-orgs-instances-table-page-next']")
+      |> render_click()
+
+      assert has_element?(view, "[data-testid='admin-orgs-instance-#{oldest.id}']")
+
+      assert has_element?(
+               view,
+               "[data-testid='admin-orgs-instances-table-page-label']",
+               "Page 2 of 2"
+             )
+
+      assert_patched(view, "/admin/orgs/#{org.id}?page=2")
     end
   end
 

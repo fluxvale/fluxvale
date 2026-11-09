@@ -360,24 +360,47 @@ defmodule FluxValeWeb.AdminGatewayDetailLiveTest do
                registered
     end
 
-    test "the domains list caps at the latest 100 and says so", %{conn: conn, admin: admin} do
+    test "real pagination replaces the old cap: page two carries the oldest domain", %{
+      conn: conn,
+      admin: admin
+    } do
       {org, gateway} = member_gateway!(admin)
 
       # The platform row is minted first, so it is the oldest row the
-      # cap pushes off the page.
+      # page boundary pushes off page one.
       platform = platform_domain!(org)
 
-      for _n <- 1..100 do
+      for _n <- 1..25 do
         custom_domain!(admin, org, :pending)
       end
 
-      newest = custom_domain!(admin, org, :pending)
+      {:ok, view, _html} = live(conn, "/admin/gateways/#{gateway.id}?size=25")
 
-      {:ok, view, _html} = live(conn, "/admin/gateways/#{gateway.id}")
+      # A full first page (newest registered first), the platform row
+      # waiting on page two. The count copy carries the honest total.
+      assert has_element?(
+               view,
+               "[data-testid='admin-gateways-domains-table-count']",
+               "1 to 25 of 26"
+             )
 
-      assert has_element?(view, "[data-testid='admin-gateways-domains-capped']", "latest 100")
-      assert has_element?(view, "[data-testid='admin-gateways-domain-name-#{newest.id}']")
       refute has_element?(view, "[data-testid='admin-gateways-domain-name-#{platform.id}']")
+
+      view
+      |> element("[data-testid='admin-gateways-domains-table-page-next']")
+      |> render_click()
+
+      assert has_element?(view, "[data-testid='admin-gateways-domain-name-#{platform.id}']")
+
+      assert has_element?(
+               view,
+               "[data-testid='admin-gateways-domains-table-page-label']",
+               "Page 2 of 2"
+             )
+
+      # The canonical URL omits the default size: page 2 alone states
+      # the view.
+      assert_patched(view, "/admin/gateways/#{gateway.id}?page=2")
     end
 
     test "an org with no domains gets the honest empty state", %{conn: conn, admin: admin} do

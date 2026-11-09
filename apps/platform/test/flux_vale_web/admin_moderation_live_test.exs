@@ -171,11 +171,13 @@ defmodule FluxValeWeb.AdminModerationLiveTest do
       assert titles == [newer.title, older.title]
     end
 
-    test "the list caps at the latest 100 and says so", %{conn: conn} do
+    test "real pagination replaces the old cap: a full first page and a second page", %{
+      conn: conn
+    } do
       oldest = FeedbackFixtures.post!(%{title: "The oldest post"})
 
       posts =
-        for _n <- 1..100 do
+        for _n <- 1..25 do
           FeedbackFixtures.post!()
         end
 
@@ -183,9 +185,26 @@ defmodule FluxValeWeb.AdminModerationLiveTest do
 
       {:ok, view, _html} = live(conn, "/admin/moderation")
 
-      assert has_element?(view, "[data-testid='admin-moderation-capped']", "latest 100")
+      # A full first page (newest first), the oldest post waiting on
+      # page two. The count copy carries the honest total.
+      assert has_element?(view, "[data-testid='admin-moderation-posts-count']", "1 to 25 of 26")
+
       assert has_element?(view, "[data-testid='admin-moderation-title-#{newest.id}']")
       refute has_element?(view, "[data-testid='admin-moderation-title-#{oldest.id}']")
+
+      view
+      |> element("[data-testid='admin-moderation-posts-page-next']")
+      |> render_click()
+
+      assert has_element?(view, "[data-testid='admin-moderation-title-#{oldest.id}']")
+
+      assert has_element?(
+               view,
+               "[data-testid='admin-moderation-posts-page-label']",
+               "Page 2 of 2"
+             )
+
+      assert_patched(view, "/admin/moderation?page=2")
     end
 
     test "the status filter narrows to the chosen status and All hands the list back", %{

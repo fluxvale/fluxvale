@@ -688,7 +688,7 @@ defmodule FluxValeWeb.AdminWalletDetailLiveTest do
   end
 
   describe "the ledger pagination" do
-    test "keys keyset pages, newest first, and retires the button at exhaustion", %{
+    test "keys keyset pages, newest first, and disables next at exhaustion", %{
       conn: conn,
       admin: admin,
       wallet: wallet
@@ -713,20 +713,38 @@ defmodule FluxValeWeb.AdminWalletDetailLiveTest do
       refute Enum.member?(rows, funding.id)
 
       view
-      |> element("[data-testid='admin-wallet-load-more']")
+      |> element("[data-testid='admin-wallet-ledger-page-next']")
       |> render_click()
 
-      # The last page appended the final two rows (the oldest grant
-      # and the funding grant) and retired the button.
+      # The keyset window: page two holds only what page one did not
+      # (append-only ledger, so the cursor cannot skip or repeat rows),
+      # and Next retires at exhaustion while Prev offers the way back.
       rows_after = row_ids(view)
-      assert length(rows_after) == 27
+      assert length(rows_after) == 2
       assert List.last(rows_after) == funding.id
-      refute has_element?(view, "[data-testid='admin-wallet-load-more']")
+      assert has_element?(view, "[data-testid='admin-wallet-ledger-page-next'][disabled]")
+      assert has_element?(view, "[data-testid='admin-wallet-ledger-page-prev']")
+      assert admin
+    end
+
+    test "a crafted cursor is not a crash: the newest page answers", %{
+      conn: conn,
+      admin: admin,
+      wallet: wallet
+    } do
+      {:ok, entry} = Billing.grant_credits(wallet, 1, reason: :adjustment)
+
+      assert {:ok, view, _html} =
+               live(conn, "/admin/billing/wallets/#{wallet.id}?after=not-a-cursor")
+
+      # The honest fallback: the newest page under the current sort.
+      assert has_element?(view, "[data-testid='admin-wallet-entry-#{entry.id}']")
+      assert has_element?(view, "[data-testid='admin-wallet-ledger-count']")
 
       assert admin
     end
 
-    test "load-more merges the reversed markers: a page-2 original whose reversal rode page 1 stays netted",
+    test "next merges the reversed markers: a page-2 original whose reversal rode page 1 stays netted",
          %{
            conn: conn,
            admin: admin,
@@ -750,7 +768,7 @@ defmodule FluxValeWeb.AdminWalletDetailLiveTest do
       refute Enum.member?(rows, original.id)
 
       view
-      |> element("[data-testid='admin-wallet-load-more']")
+      |> element("[data-testid='admin-wallet-ledger-page-next']")
       |> render_click()
 
       # The original arrives already netted: the Reversed badge and no

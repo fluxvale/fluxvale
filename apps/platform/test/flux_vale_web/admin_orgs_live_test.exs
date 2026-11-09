@@ -250,11 +250,13 @@ defmodule FluxValeWeb.AdminOrgsLiveTest do
              )
     end
 
-    test "the list caps at the latest 100 and says so", %{conn: conn} do
+    test "real pagination replaces the old cap: a full first page and a second page", %{
+      conn: conn
+    } do
       {_oldest_org, oldest} = org_wallet!()
 
       newest =
-        for _n <- 1..100 do
+        for _n <- 1..25 do
           {_org, wallet} = org_wallet!()
           wallet
         end
@@ -262,9 +264,22 @@ defmodule FluxValeWeb.AdminOrgsLiveTest do
 
       {:ok, view, _html} = live(conn, "/admin/orgs")
 
-      assert has_element?(view, "[data-testid='admin-orgs-capped']", "latest 100")
+      # The admin's own JIT personal wallet is in the list too, so the
+      # assertions pin the SHAPE (a full first page, a second page),
+      # not the environment's row count.
+      assert text_of(view, "[data-testid='admin-orgs-table-count']") =~ "1 to 25 of"
+      assert text_of(view, "[data-testid='admin-orgs-table-page-label']") =~ "Page 1 of"
       assert has_element?(view, "[data-testid='admin-orgs-org-#{newest.id}']")
       refute has_element?(view, "[data-testid='admin-orgs-org-#{oldest.id}']")
+
+      view
+      |> element("[data-testid='admin-orgs-table-page-next']")
+      |> render_click()
+
+      # Provisioning order, newest first: page two carries the oldest.
+      assert has_element?(view, "[data-testid='admin-orgs-org-#{oldest.id}']")
+      assert text_of(view, "[data-testid='admin-orgs-table-page-label']") =~ "Page 2 of"
+      assert_patched(view, "/admin/orgs?page=2")
     end
 
     test "the list is the wallet seam: an org without a wallet renders nowhere", %{conn: conn} do

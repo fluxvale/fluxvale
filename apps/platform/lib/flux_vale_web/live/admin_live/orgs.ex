@@ -22,10 +22,9 @@ defmodule FluxValeWeb.AdminLive.Orgs do
     slug only (deliberately not widened); the stamp shown is the
     wallet's provisioning date, labeled as such.
 
-  The list caps at the latest 100 (the wallets surface's rationale: an
-  unbounded scan grows expensive and the operator scans for what just
-  happened anyway). Revisit trigger: pagination once org volume
-  approaches the cap. Search narrows the list by org name or slug,
+  The list is paginated by the shared data table (the latest-100 cap
+  retired into real pagination; offset mode — the wallet read has no
+  keyset action). Search narrows the list by org name or slug,
   scoped to the list — the relationship filter runs at the data layer,
   so the search never needs an org read.
   """
@@ -37,68 +36,176 @@ defmodule FluxValeWeb.AdminLive.Orgs do
   alias FluxValeWeb.AdminComponents
   alias FluxValeWeb.AdminShell
   alias FluxValeWeb.BillingComponents
+  alias FluxValeWeb.Components.AdminDataTable
 
   require Ash.Query
   require Ash.Expr
 
-  # The list cap (the moduledoc names it; move the two together): an
-  # unbounded read is an unindexed sort away from growing expensive,
-  # and the operator finds an org by search, not by paging. Revisit
-  # trigger: pagination once org volume approaches the cap.
-  @list_cap 100
+  # The data table's contract (#501): the sortable fields are the
+  # columns the row prints that the wallet read carries — the live
+  # balance (a sum aggregate, sortable at the data layer) and the
+  # wallet's provisioning date. The org name is NOT sortable: it
+  # rides the flagged :admin_lookup seam after the read, not a column
+  # of it. Offset mode (no keyset action on this read).
+  @sortable [:balance, :created_at]
+  @sizes AdminDataTable.default_sizes()
 
   @impl Phoenix.LiveView
   def mount(_params, _session, socket) do
     # The chrome assigns (current_user, username, nav_section) ride the
     # AdminChrome on_mount on the :admin live_session — this mount adds
-    # only the page's own data.
-    {:ok,
+    # only the page's own non-table data. The table's view state is
+    # handle_params' business (the URL is the source of truth).
+    {:ok, socket}
+  end
+
+  # The URL states the table's view: sort, page, size, and the search
+  # term ride query params, parsed with garbage-proof fallbacks.
+  @impl Phoenix.LiveView
+  def handle_params(params, _uri, socket) do
+    state = AdminDataTable.parse_params(params, sortable: @sortable)
+
+    {:noreply,
      socket
-     |> assign(query: "")
-     |> assign(search_form: to_form(%{"query" => ""}, as: :search))
+     |> assign(
+       table: state,
+       columns: columns(),
+       search_form: to_form(%{"query" => state.query}, as: :search)
+     )
      |> refresh_rows()}
   end
+
+  # -- events ---------------------------------------------------------------
 
   @impl Phoenix.LiveView
   def handle_event("search", %{"search" => %{"query" => query}}, socket) do
     trimmed = String.trim(query)
+    state = %{socket.assigns.table | query: trimmed, page: 1}
 
+    push_view(socket, state)
+  end
+
+  # A crafted query that is not a string is a no-op, not a crash.
+  def handle_event("search", _params, socket), do: {:noreply, socket}
+
+  # The header sort: whitelisted fields only, click-to-toggle. The
+  # page resets with the order, so a stale deep link cannot land past
+  # the new end.
+  @impl Phoenix.LiveView
+  def handle_event("sort", %{"field" => raw_field}, socket) do
+    sort = AdminDataTable.toggle_sort(socket.assigns.table.sort, raw_field, @sortable)
+    state = %{socket.assigns.table | sort: sort, page: 1}
+
+    push_view(socket, state)
+  end
+
+  # A crafted field is not a crash: the sort stays as it was.
+  def handle_event("sort", _params, socket), do: {:noreply, socket}
+
+  @impl Phoenix.LiveView
+  def handle_event("page", %{"nav" => "prev"}, socket) do
+    state = %{socket.assigns.table | page: socket.assigns.table.page - 1}
+
+    push_view(socket, state)
+  end
+
+  def handle_event("page", %{"nav" => "next"}, socket) do
+    state = %{socket.assigns.table | page: socket.assigns.table.page + 1}
+
+    push_view(socket, state)
+  end
+
+  # A crafted page event is a no-op.
+  def handle_event("page", _params, socket), do: {:noreply, socket}
+
+  @impl Phoenix.LiveView
+  def handle_event("size", %{"size" => raw}, socket) do
+    size = AdminDataTable.parse_size(raw)
+    state = %{socket.assigns.table | size: size, page: 1}
+
+    push_view(socket, state)
+  end
+
+  def handle_event("size", _params, socket), do: {:noreply, socket}
+
+  # Every table event is a patch: the URL states the view, and
+  # handle_params owns the re-query. replace keeps the browser
+  # history clean — a table view is a state, not a navigation.
+  defp push_view(socket, state) do
     {:noreply,
-     socket
-     |> assign(query: trimmed, search_form: to_form(%{"query" => trimmed}, as: :search))
-     |> refresh_rows()}
+     push_patch(socket, to: AdminDataTable.url_for(~p"/admin/orgs", state), replace: true)}
   end
 
   # -- reads ----------------------------------------------------------------
 
-  # Attention first: the destroy-clock rows pin to the top (the wallets
-  # surface's order), then newest provisioned. Capped one past the cap
-  # so the overflow question answers without a count. The org names
-  # ride the flagged lookup seam — one read for the page's ids, mapped
-  # by id; a wallet whose org vanished (the FK has no ON DELETE, so
-  # this cannot happen today) would simply render without a name.
+  # Attention first: the destroy-clock rows pin to the top (the
+  # wallets surface's order), then newest provisioned. The page rides
+  # the shared data table: an honest count, then one server-driven
+  # page. The org names ride the flagged lookup seam — one read for
+  # the page's ids, mapped by id; a wallet whose org vanished (the FK
+  # has no ON DELETE, so this cannot happen today) would simply render
+  # without a name.
   defp refresh_rows(socket) do
     admin = socket.assigns.current_user
+    state = socket.assigns.table
 
-    fetched =
+    filtered =
       Wallet
       |> Ash.Query.for_read(:read, %{}, actor: admin)
-      |> Ash.Query.sort(negative_since: :desc_nils_last, created_at: :desc, id: :desc)
-      |> maybe_search(socket.assigns.query)
-      |> Ash.Query.limit(@list_cap + 1)
-      |> Ash.Query.load(:balance)
-      |> Ash.read!()
+      |> maybe_search(state.query)
 
-    capped? = length(fetched) > @list_cap
-    wallets = Enum.take(fetched, @list_cap)
+    total = Ash.count!(filtered)
+    page_count = AdminDataTable.page_count(total, state.size)
+
+    page_query =
+      filtered
+      |> apply_sort(state.sort)
+      |> Ash.Query.load(:balance)
+      |> Ash.Query.limit(state.size)
+      |> Ash.Query.offset((state.page - 1) * state.size)
+
+    rows = Ash.read!(page_query)
+
+    # A stale deep link (rows left the window between visits) lands
+    # past the end: clamp to the last page, once.
+    {wallets, page} = clamp_page(rows, state.page, page_count, page_query, state.size)
+
+    updated = %{state | page: page, total: total}
 
     socket
     |> assign(
+      table: updated,
       orgs: org_lookup(admin, wallets),
-      rows_empty?: wallets == [],
-      rows_capped?: capped?
+      rows_empty?: wallets == []
     )
     |> stream(:wallets, wallets, reset: true)
+  end
+
+  defp clamp_page(rows, page, page_count, _page_query, _size) when page <= page_count do
+    {rows, page}
+  end
+
+  defp clamp_page(_empty, _page, page_count, page_query, size) do
+    last_offset = (page_count - 1) * size
+
+    rows =
+      page_query
+      |> Ash.Query.offset(last_offset)
+      |> Ash.read!()
+
+    {rows, page_count}
+  end
+
+  # The default order is the attention-first expression sort; the id
+  # tiebreak rides every sort so a same-second page boundary cannot
+  # shuffle rows between reads.
+  defp apply_sort(query, nil) do
+    Ash.Query.sort(query, negative_since: :desc_nils_last, created_at: :desc, id: :desc)
+  end
+
+  # Whitelisted atoms only — the param path never builds a sort term.
+  defp apply_sort(query, {field, dir}) do
+    Ash.Query.sort(query, [{field, dir}, {:id, :desc}])
   end
 
   defp maybe_search(query, ""), do: query
@@ -171,6 +278,56 @@ defmodule FluxValeWeb.AdminLive.Orgs do
 
   # Reached only under the negative_since guard in the template.
   defp stamp_text(stamp), do: Calendar.strftime(stamp, "%b %d, %Y")
+
+  # The column declarations, built per render so the labels ride the
+  # live locale. Tracks and floors are the shared component's data.
+  defp columns do
+    [
+      %{key: :org, label: gettext("Organization"), track: "minmax(0,1.8fr)", floor_rem: 7.5},
+      %{
+        key: :balance,
+        label: gettext("Balance"),
+        track: "6rem",
+        align: :right,
+        sort: :balance
+      },
+      %{key: :state, label: gettext("Balance state"), track: "8rem"},
+      %{
+        key: :since,
+        label: gettext("Wallet since"),
+        track: "6.5rem",
+        sort: :created_at
+      },
+      %{
+        key: :actions,
+        label: gettext("Actions"),
+        track: "minmax(0,6rem)",
+        align: :right,
+        sr_only: true
+      }
+    ]
+  end
+
+  # The view state the component renders: the parsed params plus the
+  # honest count and the surface's event names.
+  defp table_meta(state) do
+    %{
+      query: state.query,
+      page: state.page,
+      size: state.size,
+      sort: state.sort,
+      total: state.total,
+      sizes: @sizes,
+      sort_event: "sort",
+      page_event: "page",
+      size_event: "size"
+    }
+  end
+
+  # The countdown rows' tint rides the component's row_class fn.
+  defp row_tint(wallet) do
+    if negative?(wallet), do: "bg-danger-muted"
+  end
 
   @impl Phoenix.LiveView
   def render(assigns) do
@@ -248,17 +405,6 @@ defmodule FluxValeWeb.AdminLive.Orgs do
               </.card>
 
               <div class="space-y-4" data-testid="admin-orgs-list">
-                <%!-- The count is the @list_cap above (kept literal here —
-                a module attribute reads as assigns inside HEEx); move the
-                two together. --%>
-                <p
-                  :if={@rows_capped?}
-                  class="text-sm text-ink-muted"
-                  data-testid="admin-orgs-capped"
-                >
-                  {gettext("Showing the latest 100 orgs. Negative balances pin to the top.")}
-                </p>
-
                 <%!-- The empty states ride the moderation inset (the one
                 grammar): a solid panel wrapping a borderless empty
                 state, never a bare dashed box. --%>
@@ -268,7 +414,7 @@ defmodule FluxValeWeb.AdminLive.Orgs do
                   data-testid="admin-orgs-empty"
                 >
                   <.empty_state
-                    :if={@query == ""}
+                    :if={@table.query == ""}
                     title={gettext("No orgs yet.")}
                     class="border-none bg-transparent"
                   >
@@ -278,140 +424,117 @@ defmodule FluxValeWeb.AdminLive.Orgs do
                   </.empty_state>
 
                   <.empty_state
-                    :if={@query != ""}
+                    :if={@table.query != ""}
                     title={gettext("No org with a wallet matches that search.")}
                     class="border-none bg-transparent"
                   />
                 </div>
 
-                <%!-- The md-band posture (the people surface's idiom):
-                header and rows share one overflow-x-auto box, so a
-                narrow band scrolls INTERNALLY, never the page. The
-                floor on the inner box (the billing surface's shape) is
-                the tracks' own sum: without it the fr tracks collapse
-                to zero slivers before the scroll engages. At md+ the
-                band is wider than the floor, so nothing scrolls and
-                nothing collapses. --%>
-                <div :if={not @rows_empty?} class="overflow-x-auto" data-noscroll>
-                  <div class="min-w-[40rem]">
-                    <%!-- One grid template shared by the header and every
-                    row (kept literal in both spots), so the columns can
-                    never drift. Gated behind rows-present: a dangling
-                    header over an empty state promises columns nothing
-                    is there to fill. --%>
-                    <div
-                      class={[
-                        "grid-cols-[minmax(0,1.8fr)_6rem_8rem_6.5rem_minmax(0,6rem)]",
-                        AdminComponents.admin_table_header_class()
-                      ]}
-                      data-testid="admin-orgs-table-header"
-                    >
-                      <div class="truncate">{gettext("Organization")}</div>
-                      <div class="truncate text-right">{gettext("Balance")}</div>
-                      <div class="truncate">{gettext("Balance state")}</div>
-                      <div class="truncate">{gettext("Wallet since")}</div>
-                      <div class="sr-only">{gettext("Actions")}</div>
-                    </div>
-
-                    <div id="admin-orgs-table" phx-update="stream">
-                      <div
-                        :for={{dom_id, wallet} <- @streams.wallets}
-                        id={dom_id}
-                        class={[
-                          "grid-cols-[minmax(0,1.8fr)_6rem_8rem_6.5rem_minmax(0,6rem)]",
-                          AdminComponents.admin_table_row_class(),
-                          "border-b border-line last:border-0",
-                          negative?(wallet) && "bg-danger-muted"
-                        ]}
-                      >
-                        <div class="min-w-0" data-testid={"admin-orgs-org-#{wallet.id}"}>
-                          <%!-- The org detail is the row's PRIMARY action
+                <%!-- The data table (#501): the shared component owns
+                the chrome, the tracks, the floor, the sort headers,
+                and the pagination. The countdown tint rides the
+                row_class fn; the per-row testids survive inside the
+                cells. --%>
+                <div :if={not @rows_empty?}>
+                  <AdminDataTable.data_table
+                    id="admin-orgs-table"
+                    items={@streams.wallets}
+                    columns={@columns}
+                    meta={table_meta(@table)}
+                    row_class={&row_tint/1}
+                  >
+                    <:cell :let={wallet} col={:org}>
+                      <div data-testid={"admin-orgs-org-#{wallet.id}"}>
+                        <%!-- The org detail is the row's PRIMARY action
                         (the hero promises it): the amber link. The
                         wallet's is the secondary. --%>
-                          <.link
-                            :if={org_name(@orgs, wallet)}
-                            navigate={~p"/admin/orgs/#{wallet.organization_id}"}
-                            class="block truncate font-medium text-link underline-offset-2 hover:underline"
-                            data-testid={"admin-orgs-org-link-#{wallet.id}"}
-                          >
-                            {org_name(@orgs, wallet)}
-                          </.link>
-                          <p class="truncate font-mono text-xs text-ink-muted">
-                            {org_slug(@orgs, wallet)}
-                          </p>
-                        </div>
-                        <div class="text-right">
-                          <span
-                            class={[
-                              "whitespace-nowrap text-sm tabular-nums",
-                              wallet.balance < 0 && "font-semibold text-danger"
-                            ]}
-                            data-testid={"admin-orgs-balance-#{wallet.id}"}
-                          >
-                            {BillingComponents.format_balance(wallet.balance)}
-                          </span>
-                        </div>
-                        <%!-- The balance state at a glance: negative is the
-                      destroy clock's countdown (the tint above carries
-                      the weight, the badge names it and dates it),
-                      zero blocks the funded gates. Positive is the
-                      resting rung and takes no badge at all — the
-                      plain state. The wallets section owns the
-                      detail. --%>
-                        <div>
-                          <span
-                            class="inline-flex flex-col gap-0.5"
-                            data-testid={"admin-orgs-state-#{wallet.id}"}
-                          >
-                            <%!-- tone plus icon plus word — the state never
-                          rides color alone --%>
-                            <AdminComponents.wallet_state_badge
-                              balance_cents={wallet.balance}
-                              class="self-start"
-                            />
-                            <%!-- The whole clock object, the wallets
-                          section's grammar: the anchor AND the
-                          deadline, so the countdown reads as one. --%>
-                            <span
-                              :if={negative?(wallet) and wallet.negative_since}
-                              class="flex flex-col text-xs text-ink-muted"
-                            >
-                              <span>
-                                {gettext("since %{date}",
-                                  date: stamp_text(wallet.negative_since)
-                                )}
-                              </span>
-                              <span>
-                                {gettext("deletes %{date}",
-                                  date: AdminComponents.destroy_deadline_text(wallet.negative_since)
-                                )}
-                              </span>
-                            </span>
-                          </span>
-                        </div>
-                        <div>
-                          <span
-                            :if={wallet.created_at}
-                            class="text-sm text-ink-muted"
-                            data-testid={"admin-orgs-since-#{wallet.id}"}
-                          >
-                            {stamp_text(wallet.created_at)}
-                          </span>
-                        </div>
-                        <div class="min-w-0">
-                          <div class="flex items-center justify-end">
-                            <.link
-                              navigate={~p"/admin/billing/wallets/#{wallet.id}"}
-                              data-testid={"admin-orgs-open-wallet-#{wallet.id}"}
-                              class="truncate text-sm text-ink-muted underline-offset-2 hover:text-ink hover:underline"
-                            >
-                              {gettext("Open wallet")}
-                            </.link>
-                          </div>
-                        </div>
+                        <.link
+                          :if={org_name(@orgs, wallet)}
+                          navigate={~p"/admin/orgs/#{wallet.organization_id}"}
+                          class="block truncate font-medium text-link underline-offset-2 hover:underline"
+                          data-testid={"admin-orgs-org-link-#{wallet.id}"}
+                        >
+                          {org_name(@orgs, wallet)}
+                        </.link>
+                        <p class="truncate font-mono text-xs text-ink-muted">
+                          {org_slug(@orgs, wallet)}
+                        </p>
                       </div>
-                    </div>
-                  </div>
+                    </:cell>
+
+                    <:cell :let={wallet} col={:balance}>
+                      <span
+                        class={[
+                          "whitespace-nowrap text-sm tabular-nums",
+                          wallet.balance < 0 && "font-semibold text-danger"
+                        ]}
+                        data-testid={"admin-orgs-balance-#{wallet.id}"}
+                      >
+                        {BillingComponents.format_balance(wallet.balance)}
+                      </span>
+                    </:cell>
+
+                    <%!-- The balance state at a glance: negative is the
+                    destroy clock's countdown (the tint above carries
+                    the weight, the badge names it and dates it),
+                    zero blocks the funded gates. Positive is the
+                    resting rung and takes no badge at all — the
+                    plain state. The wallets section owns the
+                    detail. --%>
+                    <:cell :let={wallet} col={:state}>
+                      <span
+                        class="inline-flex flex-col gap-0.5"
+                        data-testid={"admin-orgs-state-#{wallet.id}"}
+                      >
+                        <%!-- tone plus icon plus word — the state never
+                        rides color alone --%>
+                        <AdminComponents.wallet_state_badge
+                          balance_cents={wallet.balance}
+                          class="self-start"
+                        />
+                        <%!-- The whole clock object, the wallets
+                        section's grammar: the anchor AND the
+                        deadline, so the countdown reads as one. --%>
+                        <span
+                          :if={negative?(wallet) and wallet.negative_since}
+                          class="flex flex-col text-xs text-ink-muted"
+                        >
+                          <span>
+                            {gettext("since %{date}",
+                              date: stamp_text(wallet.negative_since)
+                            )}
+                          </span>
+                          <span>
+                            {gettext("deletes %{date}",
+                              date: AdminComponents.destroy_deadline_text(wallet.negative_since)
+                            )}
+                          </span>
+                        </span>
+                      </span>
+                    </:cell>
+
+                    <:cell :let={wallet} col={:since}>
+                      <span
+                        :if={wallet.created_at}
+                        class="text-sm text-ink-muted"
+                        data-testid={"admin-orgs-since-#{wallet.id}"}
+                      >
+                        {stamp_text(wallet.created_at)}
+                      </span>
+                    </:cell>
+
+                    <:cell :let={wallet} col={:actions}>
+                      <div class="flex items-center justify-end">
+                        <.link
+                          navigate={~p"/admin/billing/wallets/#{wallet.id}"}
+                          data-testid={"admin-orgs-open-wallet-#{wallet.id}"}
+                          class="truncate text-sm text-ink-muted underline-offset-2 hover:text-ink hover:underline"
+                        >
+                          {gettext("Open wallet")}
+                        </.link>
+                      </div>
+                    </:cell>
+                  </AdminDataTable.data_table>
                 </div>
               </div>
             </div>

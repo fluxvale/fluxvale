@@ -270,22 +270,36 @@ defmodule FluxValeWeb.AdminBillingLiveTest do
       assert has_element?(view, "[data-testid='admin-billing-list'] p", "No wallet matches")
     end
 
-    test "the list caps at the latest 100 and says so", %{conn: conn} do
+    test "real pagination replaces the old cap: a full first page and a second page", %{
+      conn: conn
+    } do
       {_oldest_org, oldest} = org_wallet!()
 
-      newest =
-        for _n <- 1..100 do
-          {_org, wallet} = org_wallet!()
-          wallet
-        end
-        |> List.last()
+      for _n <- 1..25 do
+        {_org, _wallet} = org_wallet!()
+      end
 
       {:ok, view, _html} = live(conn, "/admin/billing")
 
-      assert has_element?(view, "[data-testid='admin-billing-capped']", "latest 100")
-      assert has_element?(view, "[data-testid='admin-billing-capped']", "pin to the top")
-      assert has_element?(view, "[data-testid='admin-billing-org-#{newest.id}']")
+      # The admin's own JIT personal wallet is in the list too, so the
+      # total rides the count copy rather than a fixed number: the
+      # assertions pin the SHAPE (a full first page, two pages), not
+      # the environment's row count.
+      assert text_of(view, "[data-testid='admin-billing-table-count']") =~
+               "1 to 25 of"
+
+      assert text_of(view, "[data-testid='admin-billing-table-page-label']") =~ "Page 1 of"
+
       refute has_element?(view, "[data-testid='admin-billing-org-#{oldest.id}']")
+
+      view
+      |> element("[data-testid='admin-billing-table-page-next']")
+      |> render_click()
+
+      # Provisioning order, newest first: page two carries the oldest.
+      assert has_element?(view, "[data-testid='admin-billing-org-#{oldest.id}']")
+      assert text_of(view, "[data-testid='admin-billing-table-page-label']") =~ "Page 2 of"
+      assert_patched(view, "/admin/billing?page=2")
     end
   end
 

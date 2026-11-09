@@ -31,9 +31,9 @@ defmodule FluxValeWeb.AdminLive.Gateways do
   the top, then newest created. The pin keys on the state, not the
   `needs_attention_since` stamp — Suspend does not clear that stamp, so
   a stamp-keyed sort would pin a suspended row indefinitely (the review
-  finding; the domain-side fix is #613, not ours). The list caps at the
-  latest 100 (the lane's cap rationale). Revisit trigger: pagination
-  once gateway volume approaches the cap. Search narrows by hostname or
+  finding; the domain-side fix is #613, not ours). The list is
+  paginated by the shared data table (the latest-100 cap retired into
+  real pagination; offset mode). Search narrows by hostname or
   org name/slug — the relationship filter runs at the data layer, so
   the search never needs an org read.
   """
@@ -46,36 +46,103 @@ defmodule FluxValeWeb.AdminLive.Gateways do
   alias FluxVale.Pricing
   alias FluxValeWeb.AdminComponents
   alias FluxValeWeb.AdminShell
+  alias FluxValeWeb.Components.AdminDataTable
 
   require Ash.Query
   require Ash.Expr
 
-  # The list cap (the moduledoc names it; move the two together): an
-  # unbounded read is an unindexed sort away from growing expensive,
-  # and the operator finds a gateway by search, not by paging. Revisit
-  # trigger: pagination once gateway volume approaches the cap.
-  @list_cap 100
+  # The data table's contract (#501): the sortable fields are the
+  # columns the row prints that the gateway read carries. Offset mode
+  # (no keyset action on this read). The org name is NOT sortable: it
+  # rides the flagged :admin_lookup seam after the read, not a column
+  # of it.
+  @sortable [:hostname, :state, :monthly_cents, :created_at]
+  @sizes AdminDataTable.default_sizes()
 
   @impl Phoenix.LiveView
   def mount(_params, _session, socket) do
     # The chrome assigns (current_user, username, nav_section) ride the
     # AdminChrome on_mount on the :admin live_session — this mount adds
-    # only the page's own data.
-    {:ok,
+    # only the page's own non-table data. The table's view state is
+    # handle_params' business (the URL is the source of truth).
+    {:ok, socket}
+  end
+
+  # The URL states the table's view: sort, page, size, and the search
+  # term ride query params, parsed with garbage-proof fallbacks.
+  @impl Phoenix.LiveView
+  def handle_params(params, _uri, socket) do
+    state = AdminDataTable.parse_params(params, sortable: @sortable)
+
+    {:noreply,
      socket
-     |> assign(query: "")
-     |> assign(search_form: to_form(%{"query" => ""}, as: :search))
+     |> assign(
+       table: state,
+       columns: columns(),
+       search_form: to_form(%{"query" => state.query}, as: :search)
+     )
      |> refresh_rows()}
   end
+
+  # -- events ---------------------------------------------------------------
 
   @impl Phoenix.LiveView
   def handle_event("search", %{"search" => %{"query" => query}}, socket) do
     trimmed = String.trim(query)
+    state = %{socket.assigns.table | query: trimmed, page: 1}
 
+    push_view(socket, state)
+  end
+
+  # A crafted query that is not a string is a no-op, not a crash.
+  def handle_event("search", _params, socket), do: {:noreply, socket}
+
+  # The header sort: whitelisted fields only, click-to-toggle. The
+  # page resets with the order, so a stale deep link cannot land past
+  # the new end.
+  @impl Phoenix.LiveView
+  def handle_event("sort", %{"field" => raw_field}, socket) do
+    sort = AdminDataTable.toggle_sort(socket.assigns.table.sort, raw_field, @sortable)
+    state = %{socket.assigns.table | sort: sort, page: 1}
+
+    push_view(socket, state)
+  end
+
+  # A crafted field is not a crash: the sort stays as it was.
+  def handle_event("sort", _params, socket), do: {:noreply, socket}
+
+  @impl Phoenix.LiveView
+  def handle_event("page", %{"nav" => "prev"}, socket) do
+    state = %{socket.assigns.table | page: socket.assigns.table.page - 1}
+
+    push_view(socket, state)
+  end
+
+  def handle_event("page", %{"nav" => "next"}, socket) do
+    state = %{socket.assigns.table | page: socket.assigns.table.page + 1}
+
+    push_view(socket, state)
+  end
+
+  # A crafted page event is a no-op.
+  def handle_event("page", _params, socket), do: {:noreply, socket}
+
+  @impl Phoenix.LiveView
+  def handle_event("size", %{"size" => raw}, socket) do
+    size = AdminDataTable.parse_size(raw)
+    state = %{socket.assigns.table | size: size, page: 1}
+
+    push_view(socket, state)
+  end
+
+  def handle_event("size", _params, socket), do: {:noreply, socket}
+
+  # Every table event is a patch: the URL states the view, and
+  # handle_params owns the re-query. replace keeps the browser
+  # history clean — a table view is a state, not a navigation.
+  defp push_view(socket, state) do
     {:noreply,
-     socket
-     |> assign(query: trimmed, search_form: to_form(%{"query" => trimmed}, as: :search))
-     |> refresh_rows()}
+     push_patch(socket, to: AdminDataTable.url_for(~p"/admin/gateways", state), replace: true)}
   end
 
   # -- reads ----------------------------------------------------------------
@@ -84,37 +151,76 @@ defmodule FluxValeWeb.AdminLive.Gateways do
   # expression sort (Ash.Expr.calc): needs_attention_since is written
   # by the state funnel but never cleared by Suspend, so a stamp-keyed
   # sort would pin a suspended row above a newer active one forever.
-  # Capped one past the cap so the overflow question answers without a
-  # count. The org names ride the flagged lookup seam — one read for
-  # the page's ids, mapped by id; a gateway whose org vanished (the FK
-  # is :restrict, so this cannot happen today) would simply render
-  # without a name.
+  # The page rides the shared data table: an honest count, then one
+  # server-driven page. The org names ride the flagged lookup seam —
+  # one read for the page's ids, mapped by id; a gateway whose org
+  # vanished (the FK is :restrict, so this cannot happen today) would
+  # simply render without a name.
   defp refresh_rows(socket) do
     admin = socket.assigns.current_user
+    state = socket.assigns.table
 
-    fetched =
+    filtered =
       AccessGateway
       |> Ash.Query.for_read(:read, %{}, actor: admin)
-      |> Ash.Query.sort([
-        {Ash.Expr.calc(state == :needs_attention), :desc},
-        {:created_at, :desc},
-        {:id, :desc}
-      ])
-      |> maybe_search(socket.assigns.query)
-      |> Ash.Query.limit(@list_cap + 1)
-      |> Ash.read!()
+      |> maybe_search(state.query)
 
-    capped? = length(fetched) > @list_cap
-    gateways = Enum.take(fetched, @list_cap)
+    total = Ash.count!(filtered)
+    page_count = AdminDataTable.page_count(total, state.size)
+
+    page_query =
+      filtered
+      |> apply_sort(state.sort)
+      |> Ash.Query.limit(state.size)
+      |> Ash.Query.offset((state.page - 1) * state.size)
+
+    rows = Ash.read!(page_query)
+
+    # A stale deep link (rows left the window between visits) lands
+    # past the end: clamp to the last page, once.
+    {gateways, page} = clamp_page(rows, state.page, page_count, page_query, state.size)
+
+    updated = %{state | page: page, total: total}
 
     socket
     |> assign(
+      table: updated,
       orgs: org_lookup(admin, gateways),
       any_membership?: any_membership?(admin),
-      rows_empty?: gateways == [],
-      rows_capped?: capped?
+      rows_empty?: gateways == []
     )
     |> stream(:gateways, gateways, reset: true)
+  end
+
+  defp clamp_page(rows, page, page_count, _page_query, _size) when page <= page_count do
+    {rows, page}
+  end
+
+  defp clamp_page(_empty, _page, page_count, page_query, size) do
+    last_offset = (page_count - 1) * size
+
+    rows =
+      page_query
+      |> Ash.Query.offset(last_offset)
+      |> Ash.read!()
+
+    {rows, page_count}
+  end
+
+  # The default order is the attention-pin expression sort; the id
+  # tiebreak rides every sort so a same-second page boundary cannot
+  # shuffle rows between reads.
+  defp apply_sort(query, nil) do
+    Ash.Query.sort(query, [
+      {Ash.Expr.calc(state == :needs_attention), :desc},
+      {:created_at, :desc},
+      {:id, :desc}
+    ])
+  end
+
+  # Whitelisted atoms only — the param path never builds a sort term.
+  defp apply_sort(query, {field, dir}) do
+    Ash.Query.sort(query, [{field, dir}, {:id, :desc}])
   end
 
   defp maybe_search(query, ""), do: query
@@ -201,6 +307,61 @@ defmodule FluxValeWeb.AdminLive.Gateways do
   # Reached only under the created_at guard in the template.
   defp stamp_text(stamp), do: Calendar.strftime(stamp, "%b %d, %Y")
 
+  # The column declarations, built per render so the labels ride the
+  # live locale. The two flexible columns declare their own floors:
+  # the pledged #608 finding was exactly this table's floor riding
+  # the fixed tracks alone, stranding the org and gateway columns —
+  # the component's computed floor now reads every column's minimum.
+  defp columns do
+    [
+      %{
+        key: :org,
+        label: gettext("Organization"),
+        track: "minmax(0,1.5fr)",
+        floor_rem: 7
+      },
+      %{
+        key: :gateway,
+        label: gettext("Gateway"),
+        track: "minmax(0,1.2fr)",
+        sort: :hostname,
+        floor_rem: 8
+      },
+      %{key: :state, label: gettext("State"), track: "9.5rem", sort: :state},
+      %{
+        key: :rate,
+        label: gettext("Rate"),
+        track: "7.5rem",
+        align: :right,
+        sort: :monthly_cents
+      },
+      %{key: :created, label: gettext("Created"), track: "6.5rem", sort: :created_at},
+      %{
+        key: :actions,
+        label: gettext("Actions"),
+        track: "3.5rem",
+        align: :right,
+        sr_only: true
+      }
+    ]
+  end
+
+  # The view state the component renders: the parsed params plus the
+  # honest count and the surface's event names.
+  defp table_meta(state) do
+    %{
+      query: state.query,
+      page: state.page,
+      size: state.size,
+      sort: state.sort,
+      total: state.total,
+      sizes: @sizes,
+      sort_event: "sort",
+      page_event: "page",
+      size_event: "size"
+    }
+  end
+
   @impl Phoenix.LiveView
   def render(assigns) do
     ~H"""
@@ -274,17 +435,6 @@ defmodule FluxValeWeb.AdminLive.Gateways do
               </.card>
 
               <div class="space-y-4" data-testid="admin-gateways-list">
-                <%!-- The count is the @list_cap above (kept literal here —
-                a module attribute reads as assigns inside HEEx); move the
-                two together. --%>
-                <p
-                  :if={@rows_capped?}
-                  class="text-sm text-ink-muted"
-                  data-testid="admin-gateways-capped"
-                >
-                  {gettext("Showing the latest 100 gateways. Attention pins to the top.")}
-                </p>
-
                 <%!-- The empty states ride the lane's panel-inset shape
                 (the scope note's card, the #571/#603 treatment) — no
                 dashed boxes on this surface, dark mode included. The
@@ -293,7 +443,7 @@ defmodule FluxValeWeb.AdminLive.Gateways do
                 orgs this admin belongs to and only the copy carries
                 the once-enabled story. --%>
                 <div
-                  :if={@rows_empty? and @query == "" and @any_membership?}
+                  :if={@rows_empty? and @table.query == "" and @any_membership?}
                   class="rounded-panel border border-line bg-panel px-4 py-3"
                   data-testid="admin-gateways-empty"
                 >
@@ -312,7 +462,7 @@ defmodule FluxValeWeb.AdminLive.Gateways do
                 the membership probe answers and the page states which
                 emptiness this is (the orgs slice's discipline). --%>
                 <div
-                  :if={@rows_empty? and @query == "" and not @any_membership?}
+                  :if={@rows_empty? and @table.query == "" and not @any_membership?}
                   class="rounded-panel border border-line bg-panel px-4 py-3"
                   data-testid="admin-gateways-scope-note"
                 >
@@ -325,7 +475,7 @@ defmodule FluxValeWeb.AdminLive.Gateways do
                 </div>
 
                 <div
-                  :if={@rows_empty? and @query != ""}
+                  :if={@rows_empty? and @table.query != ""}
                   class="rounded-panel border border-line bg-panel px-4 py-3"
                   data-testid="admin-gateways-search-empty"
                 >
@@ -334,88 +484,76 @@ defmodule FluxValeWeb.AdminLive.Gateways do
                   </p>
                 </div>
 
-                <%!-- The table chrome lives under the rows guard: an
-                empty list renders its honest empty state, never a dead
-                header (the people surface's structure). One grid
-                template shared by the header and every row (kept
-                literal in both spots), so the columns can never drift.
-                Every track shrinks (minmax(0, …)) inside the fixed
-                ones; the whole chrome rides its own scroll below the
-                fixed tracks' floor (the people surface's
-                floor-and-scroll idiom), so the page never scrolls
-                sideways. The gutter is the console's disclosed delta
-                (the review round): gap-x-3, so the right-aligned tracks
-                stop colliding with their neighbors. --%>
-                <div :if={not @rows_empty?} class="overflow-x-auto">
-                  <div class="min-w-[32.25rem]">
-                    <div class="grid grid-cols-[minmax(0,1.5fr)_minmax(0,1.2fr)_9.5rem_7.5rem_6.5rem_3.5rem] items-center gap-x-3 border-b border-line px-3 py-3 text-left text-xs font-medium tracking-wide text-ink-muted uppercase">
-                      <div>{gettext("Organization")}</div>
-                      <div>{gettext("Gateway")}</div>
-                      <div>{gettext("State")}</div>
-                      <div class="text-right">{gettext("Rate")}</div>
-                      <div>{gettext("Created")}</div>
-                      <div class="sr-only">{gettext("Actions")}</div>
-                    </div>
-
-                    <div>
-                      <div id="admin-gateways-table" phx-update="stream">
-                        <div
-                          :for={{dom_id, gateway} <- @streams.gateways}
-                          id={dom_id}
-                          class="grid grid-cols-[minmax(0,1.5fr)_minmax(0,1.2fr)_9.5rem_7.5rem_6.5rem_3.5rem] items-center gap-x-3 border-b border-line px-3 py-3 transition-colors last:border-0 hover:bg-panel-raised/60"
-                        >
-                          <div class="min-w-0" data-testid={"admin-gateways-org-#{gateway.id}"}>
-                            <p class="truncate font-medium text-ink">{org_name(@orgs, gateway)}</p>
-                            <p class="truncate font-mono text-xs text-ink-muted">
-                              {org_slug(@orgs, gateway)}
-                            </p>
-                          </div>
-                          <div class="min-w-0" data-testid={"admin-gateways-host-#{gateway.id}"}>
-                            <p class="truncate font-mono text-sm text-ink">{gateway.hostname}</p>
-                            <p class="truncate font-mono text-xs text-ink-muted">
-                              {gateway.tailnet_domain}
-                            </p>
-                          </div>
-                          <div>
-                            <span data-testid={"admin-gateways-state-#{gateway.id}"}>
-                              <AdminComponents.gateway_state_badge state={gateway.state} />
-                            </span>
-                          </div>
-                          <div class="text-right">
-                            <span
-                              class="whitespace-nowrap text-sm tabular-nums text-ink"
-                              data-testid={"admin-gateways-rate-#{gateway.id}"}
-                            >
-                              {Pricing.format_usd(gateway.monthly_cents)}
-                              <span class="text-xs font-normal text-ink-muted">
-                                {gettext("per month")}
-                              </span>
-                            </span>
-                          </div>
-                          <div>
-                            <span
-                              :if={gateway.created_at}
-                              class="text-sm text-ink-muted"
-                              data-testid={"admin-gateways-created-#{gateway.id}"}
-                            >
-                              {stamp_text(gateway.created_at)}
-                            </span>
-                          </div>
-                          <div>
-                            <div class="flex items-center justify-end">
-                              <.link
-                                navigate={~p"/admin/gateways/#{gateway.id}"}
-                                data-testid={"admin-gateways-open-#{gateway.id}"}
-                                class="text-sm font-medium text-link underline-offset-2 hover:underline"
-                              >
-                                {gettext("Open")}
-                              </.link>
-                            </div>
-                          </div>
-                        </div>
+                <%!-- The data table (#501): the shared component owns
+                the chrome, the computed floor (the pledged #608
+                finding: this list's floor now reads every column's
+                minimum, not the fixed tracks alone), the sort
+                headers, and the pagination. --%>
+                <div :if={not @rows_empty?}>
+                  <AdminDataTable.data_table
+                    id="admin-gateways-table"
+                    items={@streams.gateways}
+                    columns={@columns}
+                    meta={table_meta(@table)}
+                  >
+                    <:cell :let={gateway} col={:org}>
+                      <div data-testid={"admin-gateways-org-#{gateway.id}"}>
+                        <p class="truncate font-medium text-ink">{org_name(@orgs, gateway)}</p>
+                        <p class="truncate font-mono text-xs text-ink-muted">
+                          {org_slug(@orgs, gateway)}
+                        </p>
                       </div>
-                    </div>
-                  </div>
+                    </:cell>
+
+                    <:cell :let={gateway} col={:gateway}>
+                      <div data-testid={"admin-gateways-host-#{gateway.id}"}>
+                        <p class="truncate font-mono text-sm text-ink">{gateway.hostname}</p>
+                        <p class="truncate font-mono text-xs text-ink-muted">
+                          {gateway.tailnet_domain}
+                        </p>
+                      </div>
+                    </:cell>
+
+                    <:cell :let={gateway} col={:state}>
+                      <span data-testid={"admin-gateways-state-#{gateway.id}"}>
+                        <AdminComponents.gateway_state_badge state={gateway.state} />
+                      </span>
+                    </:cell>
+
+                    <:cell :let={gateway} col={:rate}>
+                      <span
+                        class="whitespace-nowrap text-sm tabular-nums text-ink"
+                        data-testid={"admin-gateways-rate-#{gateway.id}"}
+                      >
+                        {Pricing.format_usd(gateway.monthly_cents)}
+                        <span class="text-xs font-normal text-ink-muted">
+                          {gettext("per month")}
+                        </span>
+                      </span>
+                    </:cell>
+
+                    <:cell :let={gateway} col={:created}>
+                      <span
+                        :if={gateway.created_at}
+                        class="text-sm text-ink-muted"
+                        data-testid={"admin-gateways-created-#{gateway.id}"}
+                      >
+                        {stamp_text(gateway.created_at)}
+                      </span>
+                    </:cell>
+
+                    <:cell :let={gateway} col={:actions}>
+                      <div class="flex items-center justify-end">
+                        <.link
+                          navigate={~p"/admin/gateways/#{gateway.id}"}
+                          data-testid={"admin-gateways-open-#{gateway.id}"}
+                          class="text-sm font-medium text-link underline-offset-2 hover:underline"
+                        >
+                          {gettext("Open")}
+                        </.link>
+                      </div>
+                    </:cell>
+                  </AdminDataTable.data_table>
                 </div>
               </div>
             </div>

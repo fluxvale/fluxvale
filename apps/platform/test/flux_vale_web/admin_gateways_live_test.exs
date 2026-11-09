@@ -317,25 +317,36 @@ defmodule FluxValeWeb.AdminGatewaysLiveTest do
       assert stale_org
     end
 
-    test "the list caps at the latest 100 and says so", %{conn: conn, admin: admin} do
+    test "real pagination replaces the old cap: a full first page and a second page", %{
+      conn: conn,
+      admin: admin
+    } do
       {_oldest_org, oldest} = gateway_for_admin!(admin)
 
-      built =
-        for _n <- 1..100 do
-          gateway_for_admin!(admin)
-        end
-
       newest =
-        built
-        |> Enum.reverse()
-        |> Enum.at(0)
-        |> elem(1)
+        for _n <- 1..25 do
+          {_org, gateway} = gateway_for_admin!(admin)
+          gateway
+        end
+        |> List.last()
 
       {:ok, view, _html} = live(conn, "/admin/gateways")
 
-      assert has_element?(view, "[data-testid='admin-gateways-capped']", "latest 100")
+      # A full first page, the oldest row waiting on page two.
+      assert has_element?(view, "[data-testid='admin-gateways-table-count']", "1 to 25 of 26")
+
+      assert text_of(view, "[data-testid='admin-gateways-table-page-label']") =~ "Page 1 of 2"
       assert has_element?(view, "[data-testid='admin-gateways-host-#{newest.id}']")
       refute has_element?(view, "[data-testid='admin-gateways-host-#{oldest.id}']")
+
+      view
+      |> element("[data-testid='admin-gateways-table-page-next']")
+      |> render_click()
+
+      # Provisioning order, newest first: page two carries the oldest.
+      assert has_element?(view, "[data-testid='admin-gateways-host-#{oldest.id}']")
+      assert text_of(view, "[data-testid='admin-gateways-table-page-label']") =~ "Page 2 of 2"
+      assert_patched(view, "/admin/gateways?page=2")
     end
   end
 

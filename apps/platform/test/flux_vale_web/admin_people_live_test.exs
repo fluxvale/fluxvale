@@ -171,19 +171,11 @@ defmodule FluxValeWeb.AdminPeopleLiveTest do
       refute has_element?(view, "[data-testid='admin-people-withdraw-#{expired.id}']")
     end
 
-    test "the list caps at the latest 100 and says so", %{conn: conn} do
+    test "real pagination replaces the old cap: 26 rows make two honest pages", %{conn: conn} do
       # Precondition volume through the real action (nil actor +
       # authorize?: false, the seeds posture; the deliver discards).
-      {:ok, oldest_user, _raw} =
-        Identity.invite_user(
-          nil,
-          unique_address("oldest"),
-          fn _to, _url -> {:ok, :discarded} end,
-          authorize?: false
-        )
-
       invited =
-        for _n <- 1..100 do
+        for _n <- 1..26 do
           {:ok, user, _raw} =
             Identity.invite_user(
               nil,
@@ -196,12 +188,27 @@ defmodule FluxValeWeb.AdminPeopleLiveTest do
         end
 
       newest = List.last(invited)
+      oldest = List.first(invited)
 
       {:ok, view, _html} = live(conn, "/admin/people")
 
-      assert has_element?(view, "[data-testid='admin-people-capped']", "latest 100")
+      # Newest first: page one is a full first page carrying the
+      # newest row, and the count and page label are honest about the
+      # oldest row waiting on page two.
       assert has_element?(view, "[data-testid='admin-people-email-#{newest.id}']")
-      refute has_element?(view, "[data-testid='admin-people-email-#{oldest_user.id}']")
+      assert has_element?(view, "[data-testid='admin-people-table-count']", "1 to 25 of 26")
+      assert has_element?(view, "[data-testid='admin-people-table-page-label']", "Page 1 of 2")
+
+      view
+      |> element("[data-testid='admin-people-table-page-next']")
+      |> render_click()
+
+      assert has_element?(view, "[data-testid='admin-people-email-#{oldest.id}']")
+      refute has_element?(view, "[data-testid='admin-people-email-#{newest.id}']")
+      assert has_element?(view, "[data-testid='admin-people-table-page-label']", "Page 2 of 2")
+
+      # The URL states the view: reloading lands on the same page.
+      assert_patched(view, "/admin/people?page=2")
     end
 
     test "a live account with no invitation story never appears", %{conn: conn, admin: admin} do
