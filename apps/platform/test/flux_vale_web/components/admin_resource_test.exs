@@ -68,10 +68,29 @@ defmodule FluxValeWeb.Components.AdminResourceTest do
       assert AdminResource.shape(purpose) == :enum
     end
 
+    test "decimal is its own shape (slice 3: Size cpu_cores)" do
+      cpu = attr(FluxVale.Pricing.Size, :cpu_cores)
+      assert AdminResource.shape(cpu) == :decimal
+      assert AdminResource.shape(%{type: Ash.Type.Decimal}) == :decimal
+    end
+
+    test "a custom enum type (values/0) is an enum — EntryType and EntryReason" do
+      type = attr(FluxVale.Billing.LedgerEntry, :type)
+      reason = attr(FluxVale.Billing.LedgerEntry, :reason)
+
+      assert AdminResource.shape(type) == :enum
+      assert AdminResource.shape(reason) == :enum
+    end
+
     test "anything unrecognized is the fallback" do
+      # Atom module types reach the enum check first (the is_atom
+      # clause): an unmapped module and a map type both answer through
+      # it, while a tuple type (arrays ride {:array, _}) is the true
+      # catch-all.
       assert AdminResource.shape(%{type: Ash.Type.Date}) == :unknown
       assert AdminResource.shape(%{type: Ash.Type.Atom, constraints: []}) == :unknown
       assert AdminResource.shape(%{type: SomeUnmappedType}) == :unknown
+      assert AdminResource.shape(%{type: {:array, Ash.Type.String}}) == :unknown
     end
   end
 
@@ -140,6 +159,27 @@ defmodule FluxValeWeb.Components.AdminResourceTest do
       html = render_component(&AdminResource.value/1, shape: :enum, value: :feedback)
 
       assert text_of(html, "[data-testid='admin-resource-enum']") == "Feedback"
+    end
+
+    test "a custom enum value badges exactly like a one_of atom" do
+      html = render_component(&AdminResource.value/1, shape: :enum, value: :credit)
+
+      assert text_of(html, "[data-testid='admin-resource-enum']") == "Credit"
+    end
+
+    test "a decimal renders its raw value, mono, with no currency inference" do
+      value = Decimal.new("2.5")
+
+      index =
+        render_component(&AdminResource.value/1, shape: :decimal, value: value, variant: :index)
+
+      show =
+        render_component(&AdminResource.value/1, shape: :decimal, value: value, variant: :show)
+
+      assert text_of(index, "span") == "2.5"
+      assert text_of(show, "span") == "2.5"
+      refute index =~ "$"
+      refute show =~ "$"
     end
 
     test "a datetime index cell is the stamp shape, full value in the title" do
@@ -292,10 +332,33 @@ defmodule FluxValeWeb.Components.AdminResourceTest do
       assert AdminResource.enum_options(purpose) == [{"Auth", "auth"}, {"Feedback", "feedback"}]
     end
 
+    test "a custom enum type selects like a one_of, its options from values/0" do
+      type = attr(FluxVale.Billing.LedgerEntry, :type)
+
+      assert AdminResource.input_type(type) == "select"
+      assert AdminResource.enum_options(type) == [{"Credit", "credit"}, {"Debit", "debit"}]
+    end
+
+    test "datetime attrs shape to the datetime-local input (TaxRate effective_from)" do
+      effective = attr(FluxVale.Pricing.TaxRate, :effective_from)
+
+      assert AdminResource.input_type(effective) == "datetime-local"
+      assert AdminResource.input_type(%{type: Ash.Type.UtcDatetime}) == "datetime-local"
+    end
+
     test "anything the engine cannot map answers nil — skipped, never guessed at" do
       assert AdminResource.input_type(%{type: Ash.Type.Map}) == nil
       assert AdminResource.input_type(%{type: Ash.Type.Atom, constraints: []}) == nil
       assert AdminResource.input_type(%{type: SomeUnmappedInputType}) == nil
+      assert AdminResource.input_type(%{type: {:array, Ash.Type.String}}) == nil
+    end
+
+    test "decimal inputs step by hundredths — the browser default of 1 would reject fractions" do
+      cpu = attr(FluxVale.Pricing.Size, :cpu_cores)
+      memory = attr(FluxVale.Pricing.Size, :memory_mb)
+
+      assert AdminResource.input_step(cpu) == "0.01"
+      assert AdminResource.input_step(memory) == nil
     end
 
     test "required-ness follows allow_nil?, except checkboxes" do

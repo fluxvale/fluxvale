@@ -25,11 +25,13 @@ defmodule FluxValeWeb.AdminConsole do
         }
   @type resource :: %{key: atom(), module: module(), config: map()}
 
-  # Live domains in display order, each with its resources. Slice 1
-  # ships Ops only (the plan's build order); later slices flip the
-  # pending domains below live one by one, each with its sanity pass.
-  # Per-resource config (all optional): label, note, columns,
-  # label_attr — the defaults introspect from the resource.
+  # Live domains in display order, each with its resources. Slices 1-2
+  # proved the engine on Ops; slice 3 rolls Pricing and Billing live
+  # (the plan's sanity pass 1). Later slices flip the pending domains
+  # below one by one. Per-resource config (all optional): label, note,
+  # columns, label_attr — the defaults introspect from the resource.
+  # A domain's out-of-console resources live in @excluded_resources
+  # below, keyed by the domain MODULE — never a key on the domain map.
   @domains [
     %{
       key: :ops,
@@ -50,18 +52,55 @@ defmodule FluxValeWeb.AdminConsole do
           }
         }
       ]
+    },
+    %{
+      key: :pricing,
+      label: "Pricing",
+      module: FluxVale.Pricing,
+      resources: [
+        %{key: :size, module: FluxVale.Pricing.Size, config: %{}},
+        %{
+          key: :tax_rate,
+          module: FluxVale.Pricing.TaxRate,
+          config: %{label_attr: :country}
+        }
+      ]
+    },
+    %{
+      key: :billing,
+      label: "Billing",
+      module: FluxVale.Billing,
+      resources: [
+        %{
+          key: :wallet,
+          module: FluxVale.Billing.Wallet,
+          config: %{
+            note:
+              "Creates and ladder state are system-only. The curated wallets and billing section is the daily tool; this surface exposes the paywall waiver.",
+            create_actions: [:create],
+            update_actions: [:set_carryover, :set_ladder_state]
+          }
+        },
+        %{
+          key: :ledger_entry,
+          module: FluxVale.Billing.LedgerEntry,
+          config: %{
+            note:
+              "Append-only ledger. Goodwill credits post here; the curated billing section owns the daily view and reversals ride the curated wallet surface.",
+            create_actions: [:create, :reverse]
+          }
+        }
+      ]
     }
   ]
 
-  # The console's committed target (the plan's appendix A): the five
+  # The console's committed target (the plan's appendix A): the three
   # domains later slices roll out. Accounted for here so the parity
   # test holds the whole picture — a slice flips one live by moving it
   # into @domains above with its resource configs.
   @pending_domains [
     FluxVale.Catalog,
     FluxVale.Infrastructure,
-    FluxVale.Pricing,
-    FluxVale.Billing,
     FluxVale.Feedback
   ]
 
@@ -75,11 +114,19 @@ defmodule FluxValeWeb.AdminConsole do
     FluxVale.Api => "machine-client bookkeeping (audit, rate windows), not operator data"
   }
 
-  # Resources excluded by name from otherwise-live domains, each with
-  # its reason — the paper-trail version tables (#645): the audit
-  # trail surfaces in its own console section as a cross-resource
-  # view, not as one raw table per resource.
+  # Resources excluded by name from otherwise-live domains, keyed by
+  # the domain module, each with its reason. Two exclusion kinds ride
+  # here today: the paper-trail version tables (#645 — the audit trail
+  # surfaces in its own console section as a cross-resource view, not
+  # one raw table per resource) and operator-absent resources
+  # (Billing's Topup: gateway-driven rows, the payment gateway owns
+  # every write). Every entry needs its reason — the parity test
+  # enforces it.
   @excluded_resources %{
+    FluxVale.Billing => %{
+      FluxVale.Billing.Topup =>
+        "gateway-driven rows: the payment gateway owns every write, an operator has no path here"
+    },
     FluxVale.Ops => %{
       FluxVale.Ops.FeatureFlag.Version =>
         "the paper-trail version table: the Audit section surfaces it, not the generic console (#645)",

@@ -892,20 +892,42 @@ defmodule FluxValeWeb.AdminLive.Resources do
 
   @doc """
   The form's field list for one write action: its accept list resolved
-  against PUBLIC attributes (the actor-safety ceiling), each mapped to
-  its `<.input>` type per the plan's contracts table. An accept name
-  that is not a public attribute, or a shape the engine cannot map yet
-  (maps and composites — slice 4 owns the JSON-textarea decision), is
-  SKIPPED, never guessed at. Public seam: the field-mapping tests drive
-  fabricated accept lists without mounting.
+  against PUBLIC attributes (the actor-safety ceiling) PLUS its typed
+  arguments, each mapped to its `<.input>` type per the plan's
+  contracts table. Arguments are how named actions take input when
+  accept is empty (Billing's `grant_goodwill`: `wallet_id` and
+  `amount_cents` arrive as arguments, `accept([])`) — they ride the
+  same form data protocol, so the mapping is the same shape. An accept
+  name that is not a public attribute, or a shape the engine cannot
+  map yet (maps and composites — slice 4 owns the JSON-textarea
+  decision), is SKIPPED, never guessed at. Attributes render first,
+  arguments after (an argument is context the attrs do not carry).
+  Public seam: the field-mapping tests drive fabricated accept lists
+  without mounting.
   """
   @spec form_fields(module(), map()) :: [map()]
   def form_fields(module, action) do
     attrs = Info.public_attributes(module)
     by_name = Map.new(attrs, &{&1.name, &1})
     accept = action.accept || []
+    attr_fields = Enum.flat_map(accept, fn name -> resolve_form_field(by_name, name) end)
+    # Map.get over a bare field read: fabricated test actions carry
+    # only what they assert, not the full action struct.
+    arguments = Map.get(action, :arguments) || []
+    # Attrs win a name collision: both would write record[name] and
+    # the second render would silently shadow the first, so a colliding
+    # argument drops instead of racing. Sensitive?/public? need no
+    # equivalent today — no permitted action carries a sensitive
+    # argument; the registry parity intake (a new action forces a
+    # config decision) is the trigger that revisits this.
+    attr_names = MapSet.new(attr_fields, & &1.name)
 
-    Enum.flat_map(accept, fn name -> resolve_form_field(by_name, name) end)
+    argument_fields =
+      arguments
+      |> Enum.reject(&(&1.name in attr_names))
+      |> Enum.flat_map(&mapped_field/1)
+
+    attr_fields ++ argument_fields
   end
 
   defp resolve_form_field(by_name, name) do
@@ -930,6 +952,7 @@ defmodule FluxValeWeb.AdminLive.Resources do
       label: AdminResource.label(attr.name),
       type: type,
       options: options,
+      step: AdminResource.input_step(attr),
       required: AdminResource.input_required?(attr, type)
     }
   end
@@ -1203,6 +1226,7 @@ defmodule FluxValeWeb.AdminLive.Resources do
           field={@form[field.name]}
           type={field.type}
           options={field.options}
+          step={field.step}
           label={field.label}
           required={field.required}
         />
