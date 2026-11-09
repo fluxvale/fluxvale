@@ -30,7 +30,7 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
   rung by construction: `initial_resources/1` floors the version
   default to the next rung at or above it, `preset_sizes/1` filters
   the picks to representable sizes, and
-  `AllocationSliders.resource_strings/1` maps slider indices back to
+  `AllocationSliders.resource_strings/2` maps slider indices back to
   rungs — a crafted index that names no rung is silence, like an
   unknown preset slug. The form cast on save stays the
   authoritative say.
@@ -69,11 +69,23 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
   hides the recipe's manual env inputs (the platform writes them,
   S4) while everything else stays. The probe answer and the choice
   ride wizard state only — the submit path is untouched until S4.
+
+  Bundled backing services (#612 S3, ADR-0045): a declaring version
+  owns its `url_env` keys — those inputs never render (the deploy
+  composes the values; a typed value would be refused at create), and
+  a note says so. Its resources step is FLOORED at the version's
+  defaults (D4/D5: under-sizing starves the DBs, so the below-
+  recommendation ack path is closed for them) — the sliders and the
+  quick picks never offer less, the 0-GB storage rung hides with
+  them, and plain copy discloses the share ("includes PostgreSQL 18
+  and Redis 8"). The create's own floor validation is the
+  authoritative gate; the wizard keeps every honest click inside it.
   """
 
   use FluxValeWeb, :live_view
 
   alias FluxVale.Catalog
+  alias FluxVale.Catalog.Types.BackingService
   alias FluxVale.Infrastructure
   alias FluxVale.Infrastructure.Instance
   alias FluxVale.Infrastructure.PocketIdCustody
@@ -141,6 +153,7 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
     assigns =
       assign(assigns,
         presets: preset_options(assigns),
+        floors: resource_floors(assigns.selected),
         visible_schema: visible_schema(assigns)
       )
 
@@ -293,6 +306,25 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
 
             <.card :if={@step == 2} class="max-w-lg space-y-4">
               <h2 class="text-base font-medium text-ink">Configuration</h2>
+
+              <%!-- #612 S3: the bundled services own their url_env
+              keys, so those inputs never render — the deploy composes
+              the values, and a typed one would be refused at create
+              (D6). The note says so plainly instead of leaving a
+              silent gap in the schema. --%>
+              <div
+                :if={backing_env_names(@selected) != []}
+                id="bundled-env-note"
+                data-testid="bundled-env-note"
+                class="rounded-xl border border-line bg-panel-raised px-4 py-3 text-sm text-ink"
+              >
+                <p>
+                  {bundled_label(@selected)} run bundled with this app. FluxVale fills in {Enum.join(
+                    backing_env_names(@selected),
+                    " and "
+                  )} automatically at deploy — there's nothing to enter.
+                </p>
+              </div>
 
               <%!-- #597 S3: the Pocket ID offer, above the manual env
               form. nil = nothing renders (flag off, no recipe, or no
@@ -512,8 +544,29 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
                 >
                   {@selected.default_cpu_cores} CPU · {@selected.default_memory_mb} MB compute and {@selected.default_storage_gb} GB storage
                 </span>
-                for this version. Allocate more, or less at your own risk.
+                <%= if @selected.backing_services == [] do %>
+                  for this version. Allocate more, or less at your own risk.
+                <% else %>
+                  for this version.
+                <% end %>
               </p>
+
+              <%!-- #612 S3 (ADR-0045 D1/D4/D5): the honest-share
+              disclosure. The bundled services are purchased workload
+              carved from this allocation, not overhead on top — so
+              the same allocation carries them, and it can't go
+              lower. --%>
+              <div
+                :if={@selected.backing_services != []}
+                id="bundled-services-note"
+                data-testid="bundled-services-note"
+                class="rounded-xl border border-line bg-panel-raised px-4 py-3 text-sm text-ink"
+              >
+                <p>
+                  <span class="font-medium">Includes {bundled_label(@selected)}.</span>
+                  They run inside the instance and share its CPU, memory, and storage. That sets the smallest allocation here — smaller would starve them.
+                </p>
+              </div>
 
               <form
                 id="resources-form"
@@ -566,7 +619,7 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
                   </div>
                 </div>
 
-                <AllocationSliders.sliders resources={@resources} />
+                <AllocationSliders.sliders resources={@resources} floors={@floors} />
 
                 <.callout
                   :if={@below_recommendation?}
@@ -987,15 +1040,41 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
   end
 
   # What the env form renders: the whole schema, minus the recipe's
-  # inputs while the offer is ticked. An unticked (or absent) offer
-  # keeps every input — the manual fallback is always fully rendered.
+  # inputs while the offer is ticked, minus a declaring version's
+  # platform-owned url_envs — always, not conditionally (#612 S3,
+  # D6: the deploy composes those keys, and a typed value would be
+  # rejected at create; an unticked (or absent) offer keeps every
+  # OTHER input — the manual fallback is always fully rendered).
   defp visible_schema(%{pocketid_ticked: true} = assigns) do
-    Enum.reject(assigns.schema, fn {name, _spec} ->
-      name in recipe_env_names(assigns.selected)
-    end)
+    hidden = recipe_env_names(assigns.selected) ++ backing_env_names(assigns.selected)
+
+    Enum.reject(assigns.schema, fn {name, _spec} -> name in hidden end)
   end
 
-  defp visible_schema(assigns), do: assigns.schema
+  defp visible_schema(assigns) do
+    hidden = backing_env_names(assigns.selected)
+
+    Enum.reject(assigns.schema, fn {name, _spec} -> name in hidden end)
+  end
+
+  # The version's platform-owned env keys — the inputs the wizard
+  # never renders for a declaring version. nil selected: step 1's
+  # render resolves this before any version is picked.
+  defp backing_env_names(nil), do: []
+
+  defp backing_env_names(version), do: Enum.map(version.backing_services, & &1.url_env)
+
+  # "PostgreSQL 18 and Redis 8" — the plain-copy spelling, shared by
+  # the env note and the resources disclosure (display_name/1's one
+  # spelling per kind). Called only where a declaring version is
+  # selected (the callers' :if guards).
+  defp bundled_label(version) do
+    services = version.backing_services
+
+    Enum.map_join(services, " and ", fn service ->
+      "#{BackingService.display_name(service.kind)} #{service.version}"
+    end)
+  end
 
   # The Pocket ID instance's public URL — the same derivation the
   # deployer seeds APP_URL from (`<slug>.<instances_base_domain>`);
@@ -1051,6 +1130,7 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
       version ->
         socket =
           socket
+          |> assign(:resources, kept_resources(socket, version))
           |> assign(step: 2, schema: sorted_schema(version), selected: version)
           |> assign_pocketid_offer()
           |> validate_step(%{"app_version_id" => version.id})
@@ -1124,7 +1204,7 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
   # Live: every slider move or preset pick re-renders the
   # below-recommendation warning and keeps the ack coherent (a change
   # that leaves the recommendation band drops a stale ack). A crafted
-  # index that names no rung is dropped in AllocationSliders.resource_strings/1, so a
+  # index that names no rung is dropped in AllocationSliders.resource_strings/2, so a
   # partial or hostile payload just keeps the current allocation.
   def handle_event("resources-change", %{"resources" => params}, socket) do
     # Crafted events before a version is picked must not crash on the
@@ -1177,18 +1257,7 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
   # never mounts one.
   def handle_event("pick-size", %{"slug" => slug}, socket) do
     if socket.assigns.selected do
-      case Enum.find(socket.assigns.pricing_sizes, &(&1.slug == slug)) do
-        nil ->
-          # A crafted slug (or a size deleted mid-step): the rendered
-          # buttons can't produce one. Nothing to read, nothing changes.
-          {:noreply, socket}
-
-        size ->
-          base = socket.assigns.resources || initial_resources(socket.assigns.selected)
-          resources = Map.merge(base, size_resources(size))
-          socket = assign_resource_state(socket, resources, false)
-          {:noreply, socket}
-      end
+      apply_size_pick(socket, slug)
     else
       {:noreply, socket}
     end
@@ -1225,6 +1294,50 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
         # An env error surfacing only at submit (e.g. the schema changed
         # under the stepper) would be invisible on the name step.
         {:noreply, maybe_back_to_env(socket, form)}
+    end
+  end
+
+  # A version switch resets the allocation (CodeRabbit, #639): the
+  # picked rungs belong to the version they were picked for. Carried
+  # across a switch they can sit under the new version's floors
+  # (#612 S3: an under-floor readout no slider can index, the ack
+  # path reopened for a DB entry, a create that can only refuse).
+  # Re-entering the SAME version — the back-nav round trip — keeps
+  # the choice (the existing pin).
+  defp kept_resources(%{assigns: assigns}, %{id: version_id}) do
+    case assigns.selected do
+      %{id: ^version_id} -> assigns.resources
+      _first_pick_or_other_version -> nil
+    end
+  end
+
+  # The found-size arm, extracted for depth: a known size still has to
+  # clear the floors (#612 S3) before it can move the allocation.
+  defp apply_size_pick(socket, slug) do
+    case Enum.find(socket.assigns.pricing_sizes, &(&1.slug == slug)) do
+      nil ->
+        # A crafted slug (or a size deleted mid-step): the rendered
+        # buttons can't produce one. Nothing to read, nothing changes.
+        {:noreply, socket}
+
+      size ->
+        pick_floored_size(socket, size)
+    end
+  end
+
+  defp pick_floored_size(socket, size) do
+    floors = resource_floors(socket.assigns.selected)
+
+    if preset_meets_floors?(size, floors) do
+      base = socket.assigns.resources || initial_resources(socket.assigns.selected)
+      resources = Map.merge(base, size_resources(size))
+      {:noreply, assign_resource_state(socket, resources, false)}
+    else
+      # A crafted pick of an under-floor size (hidden from the
+      # rendered buttons, but the channel takes any slug): the create
+      # would refuse it, so the pick is silence — the unknown-slug
+      # posture.
+      {:noreply, socket}
     end
   end
 
@@ -1355,7 +1468,7 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
 
   # --- Resources step (#180) ------------------------------------------------
   # Input state is rung strings end to end (#221): the sliders emit
-  # indices, AllocationSliders.resource_strings/1 maps them back to
+  # indices, AllocationSliders.resource_strings/2 maps them back to
   # rungs, and nothing off-ladder can enter the state. The form cast
   # on save is the authoritative say.
 
@@ -1424,9 +1537,14 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
   # the allocation and price it carries, whether it is the version's
   # recommendation, and whether the current allocation IS the size
   # (`aria-pressed` — a string, not a bare boolean, so a screen reader
-  # hears the state).
+  # hears the state). DB-backed versions drop under-floor picks
+  # (#612 S3): a quick pick its own wizard would refuse (the create's
+  # floor validation) is worse than no pick at all — the
+  # representable_size?/1 stance, one more filter.
   defp preset_options(assigns) do
-    for size <- assigns.pricing_sizes do
+    floors = resource_floors(assigns.selected)
+
+    for size <- assigns.pricing_sizes, preset_meets_floors?(size, floors) do
       %{
         slug: size.slug,
         allocation: size_allocation(size),
@@ -1435,6 +1553,20 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
         pressed: to_string(preset_active?(assigns.resources, size))
       }
     end
+  end
+
+  # A pick the floors admit: compute at or above the version's RAW
+  # defaults — the same bar the create's floor validation enforces
+  # (presets are ladder-shaped, so a rung at or above the default and
+  # a rung at or above the default's floor rung are the same set).
+  # Storage never gates a pick — the user's own rung rides it (#558).
+  defp preset_meets_floors?(_size, floors) when map_size(floors) == 0, do: true
+
+  defp preset_meets_floors?(size, floors) do
+    cpu_floor = Decimal.new(floors["cpu_cores"])
+    memory_floor = String.to_integer(floors["memory_mb"])
+
+    Decimal.compare(size.cpu_cores, cpu_floor) != :lt and size.memory_mb >= memory_floor
   end
 
   defp recommended_preset?(version, size) do
@@ -1482,6 +1614,25 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
     end)
   end
 
+  # DB-entry floors (#612 S3, D4/D5): a version bundling backing
+  # services never offers a rung below its defaults — the services
+  # share the purchased envelope, and the 0-GB storage rung hides
+  # with the rest (a DB entry at 0 GB has nowhere to put its data
+  # dir). Values are raw defaults (may sit between rungs);
+  # AllocationSliders.offered_values/2 floors them onto the ladders.
+  # %{} = no floors (every existing entry — behavior unchanged).
+  defp resource_floors(nil), do: %{}
+
+  defp resource_floors(%{backing_services: []}), do: %{}
+
+  defp resource_floors(version) do
+    %{
+      "cpu_cores" => decimal_string(version.default_cpu_cores),
+      "memory_mb" => Integer.to_string(version.default_memory_mb),
+      "storage_gb" => Integer.to_string(version.default_storage_gb)
+    }
+  end
+
   defp floor_rung(dimension, default) do
     floor = Decimal.new(default)
 
@@ -1508,10 +1659,15 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
   # Partial params merge over the current state — or the
   # recommendation when no allocation state exists yet (a crafted
   # event between the version and env gates), so every consumer always
-  # sees all three rungs.
+  # sees all three rungs. Decoded against the FLOORED ladders for a
+  # DB-backed version (#612 S3): an index the rendered sliders can't
+  # emit can never name an under-floor rung.
   defp merged_resources(socket, params) do
     base = socket.assigns.resources || initial_resources(socket.assigns.selected)
-    Map.merge(base, AllocationSliders.resource_strings(params))
+
+    decoded = AllocationSliders.resource_strings(params, resource_floors(socket.assigns.selected))
+
+    Map.merge(base, decoded)
   end
 
   # The checkbox rides the form's phx-change; its presence is the state.

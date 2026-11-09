@@ -49,6 +49,16 @@ defmodule FluxVale.Catalog.Types.BackingService do
   @spec known_kinds() :: [kind()]
   def known_kinds, do: @known_kinds
 
+  @doc """
+  The human name for a kind — one spelling shared by every surface
+  that names the bundled services in copy (the wizard's disclosure,
+  the create-floor messages). Grows with the kind set, never forked
+  per caller.
+  """
+  @spec display_name(kind()) :: String.t()
+  def display_name(:postgres), do: "PostgreSQL"
+  def display_name(:redis), do: "Redis"
+
   @impl Ash.Type
   def storage_type(_constraints), do: :map
 

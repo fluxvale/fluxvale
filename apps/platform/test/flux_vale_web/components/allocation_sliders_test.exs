@@ -21,7 +21,8 @@ defmodule FluxValeWeb.AllocationSlidersTest do
       name: "resize",
       locked: locked,
       hidden: Keyword.get(opts, :hidden, []),
-      locked_note: locked_note
+      locked_note: locked_note,
+      floors: Keyword.get(opts, :floors, %{})
     }
 
     html = render_component(&AllocationSliders.sliders/1, assigns)
@@ -149,6 +150,73 @@ defmodule FluxValeWeb.AllocationSlidersTest do
       |> List.first()
 
     assert active_enabled =~ "bg-primary"
+  end
+
+  # #612 S3: the floors — a DB-backed version never offers a rung
+  # below its defaults (the 0-GB storage rung hides with the compute
+  # rungs under them). Render and decode share offered_values/2, so
+  # an index can never name a hidden rung.
+  describe "floored ladders (#612 S3)" do
+    test "rungs below the floor never render; the ladder re-indexes" do
+      doc =
+        render_sliders([], nil,
+          floors: %{"cpu_cores" => "1", "memory_mb" => "1024", "storage_gb" => "10"}
+        )
+
+      # The offered rungs start AT the floors — the hidden ones (0-GB
+      # included: a DB entry has nowhere to put its data dir) are gone
+      # from the ticks, and the input's top index shrank with them.
+      assert tick_values(doc, "resource-cpu-cores") == ~w(1 2 4)
+      assert tick_values(doc, "resource-memory-mb") == ~w(1024 2048 4096 8192)
+      assert tick_values(doc, "resource-storage-gb") == ~w(10 20 50 100)
+
+      cpu = LazyHTML.query(doc, "[data-testid='resource-cpu']")
+      assert LazyHTML.attribute(cpu, "max") == ["2"]
+
+      storage = LazyHTML.query(doc, "[data-testid='resource-storage']")
+      assert LazyHTML.attribute(storage, "max") == ["3"]
+    end
+
+    test "a floor between rungs floors onto the next rung at or above it" do
+      doc = render_sliders([], nil, floors: %{"storage_gb" => "7"})
+
+      assert tick_values(doc, "resource-storage-gb") == ~w(10 20 50 100)
+    end
+
+    test "a floor past the top rung keeps the top rung, never an empty ladder" do
+      doc = render_sliders([], nil, floors: %{"storage_gb" => "200"})
+
+      assert tick_values(doc, "resource-storage-gb") == ~w(100)
+    end
+
+    test "resource_strings/2 decodes indices against the floored ladder" do
+      floors = %{"storage_gb" => "10"}
+
+      # Index 0 is the floor rung — the same 0 that named 0 GB on the
+      # full ladder can never name it here.
+      assert AllocationSliders.resource_strings(%{"storage_gb" => "0"}, floors) == %{
+               "storage_gb" => "10"
+             }
+
+      assert AllocationSliders.resource_strings(%{"storage_gb" => "3"}, floors) == %{
+               "storage_gb" => "100"
+             }
+
+      # Past the floored top is nameless, exactly like the full ladder.
+      assert AllocationSliders.resource_strings(%{"storage_gb" => "4"}, floors) == %{}
+    end
+
+    test "the default decode keeps the full ladders (existing callers unchanged)" do
+      assert AllocationSliders.resource_strings(%{"storage_gb" => "0"}) == %{
+               "storage_gb" => "0"
+             }
+    end
+  end
+
+  defp tick_values(doc, id) do
+    doc
+    |> LazyHTML.query("##{id}-ticks [data-value]")
+    |> LazyHTML.attribute("data-value")
   end
 
   # The rung seeding math (F2) is numeric end to end — the regression
