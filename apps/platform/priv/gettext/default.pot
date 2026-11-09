@@ -759,7 +759,7 @@ msgstr ""
 msgid "%{cpu} CPU · %{memory} MB · %{storage} GB"
 msgstr ""
 
-#: lib/flux_vale_web/components/catalog_page_components.ex:168
+#: lib/flux_vale_web/components/catalog_page_components.ex:174
 #: lib/flux_vale_web/live/admin_live/catalog.ex:116
 #: lib/flux_vale_web/live/admin_live/sizes.ex:112
 #, elixir-autogen, elixir-format
@@ -1017,7 +1017,7 @@ msgstr ""
 msgid "Re-point ahead"
 msgstr ""
 
-#: lib/flux_vale_web/components/catalog_page_components.ex:174
+#: lib/flux_vale_web/components/catalog_page_components.ex:180
 #: lib/flux_vale_web/live/admin_live/version_edit.ex:455
 #, elixir-autogen, elixir-format
 msgid "Recommended size"
@@ -1079,7 +1079,7 @@ msgstr ""
 msgid "This version will point at %{slug}. Future deploys provision and bill %{slug} at %{rate}."
 msgstr ""
 
-#: lib/flux_vale_web/components/catalog_page_components.ex:261
+#: lib/flux_vale_web/components/catalog_page_components.ex:267
 #: lib/flux_vale_web/live/admin_live/catalog.ex:98
 #, elixir-autogen, elixir-format
 msgid "Version"
@@ -2371,42 +2371,42 @@ msgstr ""
 msgid "%{count} stopped"
 msgstr ""
 
-#: lib/flux_vale_web/components/catalog_page_components.ex:358
+#: lib/flux_vale_web/components/catalog_page_components.ex:640
 #, elixir-autogen, elixir-format
 msgid "%{count}d ago"
 msgstr ""
 
-#: lib/flux_vale_web/components/catalog_page_components.ex:179
+#: lib/flux_vale_web/components/catalog_page_components.ex:185
 #, elixir-autogen, elixir-format
 msgid "%{cpu} CPU"
 msgstr ""
 
-#: lib/flux_vale_web/components/catalog_page_components.ex:182
+#: lib/flux_vale_web/components/catalog_page_components.ex:188
 #, elixir-autogen, elixir-format
 msgid "%{memory} MB RAM"
 msgstr ""
 
-#: lib/flux_vale_web/components/catalog_page_components.ex:62
+#: lib/flux_vale_web/components/catalog_page_components.ex:65
 #, elixir-autogen, elixir-format
 msgid "%{name} hosting"
 msgstr ""
 
-#: lib/flux_vale_web/components/catalog_page_components.ex:185
+#: lib/flux_vale_web/components/catalog_page_components.ex:191
 #, elixir-autogen, elixir-format
 msgid "%{storage} GB storage"
 msgstr ""
 
-#: lib/flux_vale_web/components/catalog_page_components.ex:339
+#: lib/flux_vale_web/components/catalog_page_components.ex:621
 #, elixir-autogen, elixir-format
 msgid "An alternative to %{lead} and %{last}."
 msgstr ""
 
-#: lib/flux_vale_web/components/catalog_page_components.ex:330
+#: lib/flux_vale_web/components/catalog_page_components.ex:612
 #, elixir-autogen, elixir-format
 msgid "An alternative to %{name}."
 msgstr ""
 
-#: lib/flux_vale_web/components/catalog_page_components.ex:333
+#: lib/flux_vale_web/components/catalog_page_components.ex:615
 #, elixir-autogen, elixir-format
 msgid "An alternative to %{one} and %{two}."
 msgstr ""
@@ -2426,7 +2426,7 @@ msgstr ""
 msgid "Back to orgs"
 msgstr ""
 
-#: lib/flux_vale_web/components/catalog_page_components.ex:298
+#: lib/flux_vale_web/components/catalog_page_components.ex:304
 #, elixir-autogen, elixir-format
 msgid "Backups"
 msgstr ""
@@ -2436,12 +2436,12 @@ msgstr ""
 msgid "Balance state"
 msgstr ""
 
-#: lib/flux_vale_web/components/catalog_page_components.ex:41
+#: lib/flux_vale_web/components/catalog_page_components.ex:44
 #, elixir-autogen, elixir-format
 msgid "Catalog"
 msgstr ""
 
-#: lib/flux_vale_web/components/catalog_page_components.ex:121
+#: lib/flux_vale_web/components/catalog_page_components.ex:124
 #, elixir-autogen, elixir-format
 msgid "Community"
 msgstr ""
@@ -2453,12 +2453,13 @@ msgstr ""
 msgid "Created"
 msgstr ""
 
-#: lib/flux_vale_web/components/catalog_page_components.ex:223
+#: lib/flux_vale_web/components/catalog_page_components.ex:229
+#: lib/flux_vale_web/components/catalog_page_content.ex:157
 #, elixir-autogen, elixir-format
 msgid "Deploy %{name}"
 msgstr ""
 
-#: lib/flux_vale_web/components/catalog_page_components.ex:114
+#: lib/flux_vale_web/components/catalog_page_components.ex:117
 #, elixir-autogen, elixir-format
 msgid "Docs"
 msgstr ""
@@ -2468,7 +2469,7 @@ msgstr ""
 msgid "Every org with a wallet, and its wallet state. Open an org for its instances."
 msgstr ""
 
-#: lib/flux_vale_web/components/catalog_page_components.ex:310
+#: lib/flux_vale_web/components/catalog_page_components.ex:316
 #, elixir-autogen, elixir-format
 msgid "File access"
 msgstr ""
@@ -2478,7 +2479,7 @@ msgstr ""
 msgid "Find an org"
 msgstr ""
 
-#: lib/flux_vale_web/components/catalog_page_components.ex:197
+#: lib/flux_vale_web/components/catalog_page_components.ex:203
 #, elixir-autogen, elixir-format
 msgid "Free HTTPS on a fluxvale.app address"
 msgstr ""
@@ -2503,17 +2504,17 @@ msgstr ""
 msgid "It provisions at the org's first billing touch."
 msgstr ""
 
-#: lib/flux_vale_web/components/catalog_page_components.ex:66
+#: lib/flux_vale_web/components/catalog_page_components.ex:69
 #, elixir-autogen, elixir-format
 msgid "Managed %{name}, ready in minutes."
 msgstr ""
 
-#: lib/flux_vale_web/components/catalog_page_components.ex:227
+#: lib/flux_vale_web/components/catalog_page_components.ex:233
 #, elixir-autogen, elixir-format
 msgid "Monthly equivalent, billed hourly. Storage bills while stopped. VAT is added to top-ups for EU customers."
 msgstr ""
 
-#: lib/flux_vale_web/components/catalog_page_components.ex:213
+#: lib/flux_vale_web/components/catalog_page_components.ex:219
 #, elixir-autogen, elixir-format
 msgid "Move files in over WebDAV"
 msgstr ""
@@ -2528,7 +2529,7 @@ msgstr ""
 msgid "Newest first. The instances' own pages live in the product surfaces."
 msgstr ""
 
-#: lib/flux_vale_web/components/catalog_page_components.ex:205
+#: lib/flux_vale_web/components/catalog_page_components.ex:211
 #, elixir-autogen, elixir-format
 msgid "Nightly backups to your own S3 bucket"
 msgstr ""
@@ -2558,7 +2559,7 @@ msgstr ""
 msgid "Nothing has been deployed from this org."
 msgstr ""
 
-#: lib/flux_vale_web/components/catalog_page_components.ex:293
+#: lib/flux_vale_web/components/catalog_page_components.ex:299
 #, elixir-autogen, elixir-format
 msgid "Nuremberg, EU"
 msgstr ""
@@ -2569,17 +2570,17 @@ msgstr ""
 msgid "Open wallet"
 msgstr ""
 
-#: lib/flux_vale_web/components/catalog_page_components.ex:305
+#: lib/flux_vale_web/components/catalog_page_components.ex:311
 #, elixir-autogen, elixir-format
 msgid "Pocket ID"
 msgstr ""
 
-#: lib/flux_vale_web/components/catalog_page_components.ex:292
+#: lib/flux_vale_web/components/catalog_page_components.ex:298
 #, elixir-autogen, elixir-format
 msgid "Region"
 msgstr ""
 
-#: lib/flux_vale_web/components/catalog_page_components.ex:304
+#: lib/flux_vale_web/components/catalog_page_components.ex:310
 #, elixir-autogen, elixir-format
 msgid "SSO"
 msgstr ""
@@ -2599,7 +2600,7 @@ msgstr ""
 msgid "Sign in with the shipped default admin, then change the password"
 msgstr ""
 
-#: lib/flux_vale_web/components/catalog_page_components.ex:209
+#: lib/flux_vale_web/components/catalog_page_components.ex:215
 #, elixir-autogen, elixir-format
 msgid "Sign in with your Pocket ID"
 msgstr ""
@@ -2609,22 +2610,22 @@ msgstr ""
 msgid "Sleeping instances wake on the next visit and bill storage only while asleep."
 msgstr ""
 
-#: lib/flux_vale_web/components/catalog_page_components.ex:201
+#: lib/flux_vale_web/components/catalog_page_components.ex:207
 #, elixir-autogen, elixir-format
 msgid "Sleeps when idle, wakes on the next visit"
 msgstr ""
 
-#: lib/flux_vale_web/components/catalog_page_components.ex:111
+#: lib/flux_vale_web/components/catalog_page_components.ex:114
 #, elixir-autogen, elixir-format
 msgid "Source"
 msgstr ""
 
-#: lib/flux_vale_web/components/catalog_page_components.ex:193
+#: lib/flux_vale_web/components/catalog_page_components.ex:199
 #, elixir-autogen, elixir-format
 msgid "Start with %{amount} in welcome credit"
 msgstr ""
 
-#: lib/flux_vale_web/components/catalog_page_components.ex:166
+#: lib/flux_vale_web/components/catalog_page_components.ex:172
 #, elixir-autogen, elixir-format
 msgid "Starts at"
 msgstr ""
@@ -2644,12 +2645,12 @@ msgstr ""
 msgid "The org's wallet state and its instances. Instances render only as far as the read policy admits."
 msgstr ""
 
-#: lib/flux_vale_web/components/catalog_page_components.ex:273
+#: lib/flux_vale_web/components/catalog_page_components.ex:279
 #, elixir-autogen, elixir-format
 msgid "Updated"
 msgstr ""
 
-#: lib/flux_vale_web/components/catalog_page_components.ex:284
+#: lib/flux_vale_web/components/catalog_page_components.ex:290
 #, elixir-autogen, elixir-format
 msgid "Wakes in"
 msgstr ""
@@ -2669,12 +2670,12 @@ msgstr ""
 msgid "Wallet since %{date}"
 msgstr ""
 
-#: lib/flux_vale_web/components/catalog_page_components.ex:311
+#: lib/flux_vale_web/components/catalog_page_components.ex:317
 #, elixir-autogen, elixir-format
 msgid "WebDAV"
 msgstr ""
 
-#: lib/flux_vale_web/components/catalog_page_components.ex:93
+#: lib/flux_vale_web/components/catalog_page_components.ex:96
 #, elixir-autogen, elixir-format
 msgid "Worth knowing"
 msgstr ""
@@ -2684,7 +2685,7 @@ msgstr ""
 msgid "You are not a member of this org."
 msgstr ""
 
-#: lib/flux_vale_web/components/catalog_page_components.ex:299
+#: lib/flux_vale_web/components/catalog_page_components.ex:305
 #, elixir-autogen, elixir-format
 msgid "Your S3 bucket"
 msgstr ""
@@ -2694,17 +2695,17 @@ msgstr ""
 msgid "Zero"
 msgstr ""
 
-#: lib/flux_vale_web/components/catalog_page_components.ex:170
+#: lib/flux_vale_web/components/catalog_page_components.ex:176
 #, elixir-autogen, elixir-format
 msgid "billed hourly from your wallet"
 msgstr ""
 
-#: lib/flux_vale_web/components/catalog_page_components.ex:356
+#: lib/flux_vale_web/components/catalog_page_components.ex:638
 #, elixir-autogen, elixir-format
 msgid "today"
 msgstr ""
 
-#: lib/flux_vale_web/components/catalog_page_components.ex:357
+#: lib/flux_vale_web/components/catalog_page_components.ex:639
 #, elixir-autogen, elixir-format
 msgid "yesterday"
 msgstr ""
@@ -2957,4 +2958,281 @@ msgstr ""
 #: lib/flux_vale_web/live/admin_live/gateway_detail.ex:271
 #, elixir-autogen, elixir-format
 msgid "per month, billed while connected. Suspended or removed, nothing accrues."
+msgstr ""
+
+#: lib/flux_vale_web/components/catalog_page_components.ex:419
+#, elixir-autogen, elixir-format
+msgid "About %{name} and FluxVale"
+msgstr ""
+
+#: lib/flux_vale_web/components/catalog_page_content.ex:47
+#, elixir-autogen, elixir-format
+msgid "An idle app sleeps after an hour and wakes on the next visit, usually in seconds."
+msgstr ""
+
+#: lib/flux_vale_web/components/catalog_page_content.ex:219
+#, elixir-autogen, elixir-format
+msgid "An idle app sleeps after an hour and wakes on the next visit, usually in seconds. You pay only storage while it sleeps. Turn on always-on for an app that must never sleep."
+msgstr ""
+
+#: lib/flux_vale_web/components/catalog_page_content.ex:228
+#, elixir-autogen, elixir-format
+msgid "Backups go to your own S3-compatible bucket, encrypted before they leave the cluster. Snapshots run daily, and you can restore the latest one from the instance page."
+msgstr ""
+
+#: lib/flux_vale_web/components/catalog_page_content.ex:56
+#, elixir-autogen, elixir-format
+msgid "Backups to your own bucket"
+msgstr ""
+
+#: lib/flux_vale_web/components/catalog_page_components.ex:353
+#, elixir-autogen, elixir-format
+msgid "Benefits of hosting %{name} on FluxVale"
+msgstr ""
+
+#: lib/flux_vale_web/components/catalog_page_components.ex:589
+#: lib/flux_vale_web/components/catalog_page_content.ex:158
+#, elixir-autogen, elixir-format
+msgid "Browse the catalog"
+msgstr ""
+
+#: lib/flux_vale_web/components/catalog_page_content.ex:279
+#, elixir-autogen, elixir-format
+msgid "Can I export my data and leave?"
+msgstr ""
+
+#: lib/flux_vale_web/components/catalog_page_content.ex:236
+#, elixir-autogen, elixir-format
+msgid "Can I sign in with my Pocket ID?"
+msgstr ""
+
+#: lib/flux_vale_web/components/catalog_page_content.ex:80
+#, elixir-autogen, elixir-format
+msgid "Connect apps that speak OpenID Connect to your own Pocket ID."
+msgstr ""
+
+#: lib/flux_vale_web/components/catalog_page_content.ex:169
+#, elixir-autogen, elixir-format
+msgid "Deploy it and open the URL. %{name} is ready to use out of the box."
+msgstr ""
+
+#: lib/flux_vale_web/components/catalog_page_content.ex:191
+#, elixir-autogen, elixir-format
+msgid "Do I need my own server or Docker?"
+msgstr ""
+
+#: lib/flux_vale_web/components/catalog_page_content.ex:218
+#, elixir-autogen, elixir-format
+msgid "Does it stop when nobody uses it?"
+msgstr ""
+
+#: lib/flux_vale_web/components/catalog_page_content.ex:65
+#, elixir-autogen, elixir-format
+msgid "Every instance gets a fluxvale.app address and a certificate. Custom domains ride the private-access lane."
+msgstr ""
+
+#: lib/flux_vale_web/components/catalog_page_content.ex:75
+#, elixir-autogen, elixir-format
+msgid "Everything runs in Nuremberg, EU. More regions are planned."
+msgstr ""
+
+#: lib/flux_vale_web/components/catalog_page_components.ex:127
+#: lib/flux_vale_web/components/catalog_page_components.ex:407
+#, elixir-autogen, elixir-format
+msgid "FAQ"
+msgstr ""
+
+#: lib/flux_vale_web/components/catalog_page_content.ex:83
+#, elixir-autogen, elixir-format
+msgid "Files over WebDAV"
+msgstr ""
+
+#: lib/flux_vale_web/components/catalog_page_content.ex:63
+#, elixir-autogen, elixir-format
+msgid "Free HTTPS, your own domain"
+msgstr ""
+
+#: lib/flux_vale_web/components/catalog_page_components.ex:408
+#, elixir-autogen, elixir-format
+msgid "Frequently asked questions"
+msgstr ""
+
+#: lib/flux_vale_web/components/catalog_page_components.ex:567
+#, elixir-autogen, elixir-format
+msgid "From %{rate}/mo plus storage"
+msgstr ""
+
+#: lib/flux_vale_web/components/catalog_page_components.ex:370
+#, elixir-autogen, elixir-format
+msgid "How FluxVale works"
+msgstr ""
+
+#: lib/flux_vale_web/components/catalog_page_content.ex:227
+#, elixir-autogen, elixir-format
+msgid "How do I back it up?"
+msgstr ""
+
+#: lib/flux_vale_web/components/catalog_page_content.ex:248
+#, elixir-autogen, elixir-format
+msgid "How do I move files in?"
+msgstr ""
+
+#: lib/flux_vale_web/components/catalog_page_content.ex:177
+#, elixir-autogen, elixir-format
+msgid "How do I set up %{name}?"
+msgstr ""
+
+#: lib/flux_vale_web/components/catalog_page_content.ex:208
+#, elixir-autogen, elixir-format
+msgid "It depends on the resources you pick. Compute bills hourly from your wallet at one flat rate. Storage bills per GB and keeps billing while the app sleeps. The deploy step shows the exact figure before you confirm."
+msgstr ""
+
+#: lib/flux_vale_web/components/catalog_page_content.ex:84
+#, elixir-autogen, elixir-format
+msgid "Move a library in over WebDAV, no SSH needed."
+msgstr ""
+
+#: lib/flux_vale_web/components/catalog_page_content.ex:153
+#, elixir-autogen, elixir-format
+msgid "New accounts start with %{amount} in welcome credit. Deploy in minutes."
+msgstr ""
+
+#: lib/flux_vale_web/components/catalog_page_content.ex:58
+#, elixir-autogen, elixir-format
+msgid "Nightly encrypted snapshots to your S3-compatible storage, restorable in place."
+msgstr ""
+
+#: lib/flux_vale_web/components/catalog_page_content.ex:53
+#, elixir-autogen, elixir-format
+msgid "No ads, no profiling, no platform-side copies of your app data."
+msgstr ""
+
+#: lib/flux_vale_web/components/catalog_page_content.ex:192
+#, elixir-autogen, elixir-format
+msgid "No. FluxVale runs it on managed Kubernetes. You pick a name and resources, and the platform handles the rest."
+msgstr ""
+
+#: lib/flux_vale_web/components/catalog_page_content.ex:289
+#, elixir-autogen, elixir-format
+msgid "Nuremberg, in the European Union. There is one region today, and the architecture is built so more can follow."
+msgstr ""
+
+#: lib/flux_vale_web/components/catalog_page_content.ex:42
+#, elixir-autogen, elixir-format
+msgid "One rate for the resources you pick, billed hourly. No subscriptions."
+msgstr ""
+
+#: lib/flux_vale_web/components/catalog_page_content.ex:74
+#, elixir-autogen, elixir-format
+msgid "One region, honestly"
+msgstr ""
+
+#: lib/flux_vale_web/components/catalog_page_content.ex:249
+#, elixir-autogen, elixir-format
+msgid "Over WebDAV. The instance page shows the app's /dav address and its username and password. Point any WebDAV client there and copy your files in."
+msgstr ""
+
+#: lib/flux_vale_web/components/catalog_page_content.ex:70
+#, elixir-autogen, elixir-format
+msgid "Pinned, tested upstream versions"
+msgstr ""
+
+#: lib/flux_vale_web/components/catalog_page_content.ex:41
+#, elixir-autogen, elixir-format
+msgid "Predictable pricing"
+msgstr ""
+
+#: lib/flux_vale_web/components/catalog_page_content.ex:242
+#, elixir-autogen, elixir-format
+msgid "Read the SSO guide"
+msgstr ""
+
+#: lib/flux_vale_web/components/catalog_page_content.ex:151
+#, elixir-autogen, elixir-format
+msgid "Ready to run %{name}?"
+msgstr ""
+
+#: lib/flux_vale_web/components/catalog_page_content.ex:79
+#, elixir-autogen, elixir-format
+msgid "SSO with Pocket ID"
+msgstr ""
+
+#: lib/flux_vale_web/components/catalog_page_components.ex:412
+#, elixir-autogen, elixir-format
+msgid "Setting up %{name}"
+msgstr ""
+
+#: lib/flux_vale_web/components/catalog_page_components.ex:446
+#, elixir-autogen, elixir-format
+msgid "Similar apps"
+msgstr ""
+
+#: lib/flux_vale_web/components/catalog_page_components.ex:447
+#, elixir-autogen, elixir-format
+msgid "Similar apps on FluxVale"
+msgstr ""
+
+#: lib/flux_vale_web/components/catalog_page_content.ex:45
+#, elixir-autogen, elixir-format
+msgid "Sleep by default"
+msgstr ""
+
+#: lib/flux_vale_web/components/catalog_page_content.ex:202
+#, elixir-autogen, elixir-format
+msgid "Starts at %{rate}/mo at the recommended size, billed hourly from your wallet. Storage bills per GB and keeps billing while the app sleeps."
+msgstr ""
+
+#: lib/flux_vale_web/components/catalog_page_components.ex:593
+#, elixir-autogen, elixir-format
+msgid "The whole catalog on one page."
+msgstr ""
+
+#: lib/flux_vale_web/components/catalog_page_content.ex:71
+#, elixir-autogen, elixir-format
+msgid "We publish one tested version per app and track upstream releases."
+msgstr ""
+
+#: lib/flux_vale_web/components/catalog_page_content.ex:213
+#, elixir-autogen, elixir-format
+msgid "What does %{name} cost?"
+msgstr ""
+
+#: lib/flux_vale_web/components/catalog_page_content.ex:273
+#, elixir-autogen, elixir-format
+msgid "What does %{name} replace?"
+msgstr ""
+
+#: lib/flux_vale_web/components/catalog_page_content.ex:288
+#, elixir-autogen, elixir-format
+msgid "Which region does it run in?"
+msgstr ""
+
+#: lib/flux_vale_web/components/catalog_page_content.ex:259
+#, elixir-autogen, elixir-format
+msgid "Who owns the data I keep on FluxVale?"
+msgstr ""
+
+#: lib/flux_vale_web/components/catalog_page_components.ex:351
+#, elixir-autogen, elixir-format
+msgid "Why FluxVale"
+msgstr ""
+
+#: lib/flux_vale_web/components/catalog_page_content.ex:280
+#, elixir-autogen, elixir-format
+msgid "Yes. The apps are open-source and their formats are yours. Backups land in your own bucket in standard restic format, so the data leaves with you. Apps with file access also serve their files over WebDAV."
+msgstr ""
+
+#: lib/flux_vale_web/components/catalog_page_content.ex:238
+#, elixir-autogen, elixir-format
+msgid "Yes. This app speaks OpenID Connect, so it can hand its sign-in to your own Pocket ID instance. Some apps wire up at deploy time and others in their own settings. The guide covers each app."
+msgstr ""
+
+#: lib/flux_vale_web/components/catalog_page_content.ex:261
+#, elixir-autogen, elixir-format
+msgid "You do. Your app data lives on your instance's volume. Enable file access or your own backup bucket and it is there to download, migrate, edit, or delete. The platform takes no copies."
+msgstr ""
+
+#: lib/flux_vale_web/components/catalog_page_content.ex:52
+#, elixir-autogen, elixir-format
+msgid "Your data stays yours"
 msgstr ""
