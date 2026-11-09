@@ -50,6 +50,15 @@ defmodule FluxVale.Infrastructure.AccessRoute do
   end
 
   policies do
+    # The blanket authority (#644, ADR-0047): platform admins see and do
+    # everything — but never through the machine API (the second
+    # condition), so PAT callers fall through to the policies below
+    # with today's semantics.
+    bypass [FluxVale.Checks.ActorIsPlatformAdmin, FluxVale.Checks.CallOutsideMachineApi] do
+      description("Platform admins see and do everything (#644)")
+      authorize_if(always())
+    end
+
     # Reads ride the gateway's org membership — a route is part of the
     # gateway's configuration surface. Writes are the operations'
     # (AttachInstance / DetachInstance), actorless like every other

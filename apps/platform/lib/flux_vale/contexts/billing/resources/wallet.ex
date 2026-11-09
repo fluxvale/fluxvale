@@ -51,6 +51,17 @@ defmodule FluxVale.Billing.Wallet do
   end
 
   policies do
+    # The blanket authority (#644, ADR-0047): platform admins see and do
+    # everything — but never through the machine API (the second
+    # condition), so PAT callers fall through to the policies below
+    # with today's semantics. The blanket subsumes this resource's
+    # read-policy admin arm (#140) for non-PAT callers; the arm stays
+    # for PAT callers, whose behavior is byte-for-byte today's.
+    bypass [FluxVale.Checks.ActorIsPlatformAdmin, FluxVale.Checks.CallOutsideMachineApi] do
+      description("Platform admins see and do everything (#644)")
+      authorize_if(always())
+    end
+
     # One read policy, two ways in (Ash composes applicable policies
     # with AND — a separate admin policy would still leave the member
     # filter applying to admins): members via the org, platform admins
@@ -77,17 +88,25 @@ defmodule FluxVale.Billing.Wallet do
     end
 
     policy action_type(:create) do
-      description("System-only: wallet provisioning (authorize?: false)")
+      description(
+        "System-only: wallet provisioning (authorize?: false; platform admins ride the #644 bypass, ADR-0047 D4)"
+      )
+
       forbid_if(always())
     end
 
     # By action NAME, not action_type (mirrors ledger_entry's :create
     # forbid): :set_waiver is the admin exception above, and scoping
     # this forbid by name is what keeps it off that action. The
-    # wallet's only other updates are the two system writes — both stay
-    # actor-forbidden, admins included.
+    # wallet's only other updates are the two system writes — they stay
+    # actor-forbidden for every actor the policies see; a platform
+    # admin outside the machine API passes them through the #644
+    # bypass instead (ADR-0047's D4), never through this policy.
     policy action([:set_carryover, :set_ladder_state]) do
-      description("System-only: carryover + ladder writes (authorize?: false)")
+      description(
+        "System-only: carryover + ladder writes (authorize?: false; platform admins ride the #644 bypass, ADR-0047 D4)"
+      )
+
       forbid_if(always())
     end
 
@@ -111,8 +130,10 @@ defmodule FluxVale.Billing.Wallet do
   # authorizing toggle defaults OFF, so actions through the mount run
   # authorize?: false — a trusted-operator superuser surface must not
   # offer provisioning/carryover/ladder forms at all. On every direct
-  # (non-mount) path the policies below forbid those writes to any
-  # actor, admins included (pinned in WalletTest).
+  # (non-mount) path the policies below forbid those writes to every
+  # actor the policies see — a platform admin outside the machine API
+  # passes them through the #644 bypass (ADR-0047's D4), pinned in
+  # WalletTest.
   admin do
     create_actions([])
     update_actions([:set_waiver])

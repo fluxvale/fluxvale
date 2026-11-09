@@ -35,11 +35,11 @@ defmodule FluxVale.Pricing.TaxRate do
     authorizers: [Ash.Policy.Authorizer]
 
   postgres do
-    table "pricing_tax_rates"
-    repo FluxVale.Repo
+    table("pricing_tax_rates")
+    repo(FluxVale.Repo)
 
     # ADR-0032 §3: no DB-side id default — ids are Ash's job (see User).
-    migration_defaults id: "nil"
+    migration_defaults(id: "nil")
 
     custom_indexes do
       # The identity's NULL-state gap (see the moduledoc): the
@@ -53,13 +53,25 @@ defmodule FluxVale.Pricing.TaxRate do
   end
 
   policies do
+    # The blanket authority (#644, ADR-0047): platform admins see and do
+    # everything — but never through the machine API (the second
+    # condition), so PAT callers fall through to the policies below
+    # with today's semantics.
+    bypass [FluxVale.Checks.ActorIsPlatformAdmin, FluxVale.Checks.CallOutsideMachineApi] do
+      description("Platform admins see and do everything (#644)")
+      authorize_if(always())
+    end
+
     policy action_type(:read) do
-      description "Any signed-in actor sees the rate table (checkout resolves with an actor upstream)"
+      description(
+        "Any signed-in actor sees the rate table (checkout resolves with an actor upstream)"
+      )
+
       authorize_if(actor_present())
     end
 
     policy FluxVale.Checks.ActorIsPlatformAdmin do
-      description "Platform admins manage rates (ADR-0027, ADR-0030)"
+      description("Platform admins manage rates (ADR-0027, ADR-0030)")
       authorize_if(always())
     end
   end
@@ -98,12 +110,12 @@ defmodule FluxVale.Pricing.TaxRate do
     defaults([:read, :destroy])
 
     create :create do
-      primary? true
+      primary?(true)
       accept([:country, :state, :rate_bp, :effective_from])
     end
 
     update :update do
-      primary? true
+      primary?(true)
       # (country, state, effective_from) is the seed's lookup key —
       # immutable after create, like Size's slug.
       accept([:rate_bp])
@@ -111,7 +123,7 @@ defmodule FluxVale.Pricing.TaxRate do
   end
 
   code_interface do
-    domain FluxVale.Pricing
+    domain(FluxVale.Pricing)
 
     define(:create)
     define(:update)

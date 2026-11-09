@@ -41,6 +41,15 @@ defmodule FluxVale.Identity.PersonalAccessToken do
   end
 
   policies do
+    # The blanket authority (#644, ADR-0047): platform admins see and do
+    # everything — but never through the machine API (the second
+    # condition), so PAT callers fall through to the policies below
+    # with today's semantics.
+    bypass [FluxVale.Checks.ActorIsPlatformAdmin, FluxVale.Checks.CallOutsideMachineApi] do
+      description("Platform admins see and do everything (#644)")
+      authorize_if(always())
+    end
+
     # The AND-together rule (UserEmail's posture): the admin grant
     # lives INSIDE each policy — a separate admin policy would still
     # require the owner expression on someone else's row.

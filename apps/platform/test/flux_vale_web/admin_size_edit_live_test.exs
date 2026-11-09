@@ -152,7 +152,7 @@ defmodule FluxValeWeb.AdminSizeEditLiveTest do
              )
     end
 
-    test "an instance outside the actor's read scope is never claimed", %{
+    test "the reach count sees every instance — the blanket widened the read (#644)", %{
       conn: conn
     } do
       size = referenced_size!()
@@ -162,14 +162,13 @@ defmodule FluxValeWeb.AdminSizeEditLiveTest do
 
       {:ok, view, _html} = live(conn, "/admin/catalog/sizes/#{size.id}")
 
-      # The unconditional consequence line, and no count it cannot see.
+      # ADR-0047: platform-admin reads are cross-org by construction,
+      # so the reach counts another org's running instance too.
       assert has_element?(
                view,
                "[data-testid='admin-size-price-reach']",
-               "A price edit reaches running instances on this size"
+               "already settles"
              )
-
-      refute has_element?(view, "[data-testid='admin-size-price-reach']", "already settles")
     end
 
     test "the consequence line states the reach even with zero instances", %{

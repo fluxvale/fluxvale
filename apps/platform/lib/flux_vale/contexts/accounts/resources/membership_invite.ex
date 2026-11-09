@@ -72,6 +72,15 @@ defmodule FluxVale.Accounts.MembershipInvite do
   end
 
   policies do
+    # The blanket authority (#644, ADR-0047): platform admins see and do
+    # everything — but never through the machine API (the second
+    # condition), so PAT callers fall through to the policies below
+    # with today's semantics.
+    bypass [FluxVale.Checks.ActorIsPlatformAdmin, FluxVale.Checks.CallOutsideMachineApi] do
+      description("Platform admins see and do everything (#644)")
+      authorize_if(always())
+    end
+
     # Same shape as Membership's read: members of the invite's org see
     # the org's invites (the pending list rides it).
     policy action_type(:read) do

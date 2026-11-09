@@ -124,6 +124,15 @@ defmodule FluxVale.Infrastructure.StorageRequest do
   end
 
   policies do
+    # The blanket authority (#644, ADR-0047): platform admins see and do
+    # everything — but never through the machine API (the second
+    # condition), so PAT callers fall through to the policies below
+    # with today's semantics.
+    bypass [FluxVale.Checks.ActorIsPlatformAdmin, FluxVale.Checks.CallOutsideMachineApi] do
+      description("Platform admins see and do everything (#644)")
+      authorize_if(always())
+    end
+
     policy action(:request) do
       description("Members request storage for an instance in their org")
       authorize_if(relates_to_actor_via([:instance, :organization, :members]))
@@ -146,7 +155,9 @@ defmodule FluxVale.Infrastructure.StorageRequest do
 
     # The operator's decision verbs. The system mark_* actions have NO
     # policy arm — the apply operation runs them `authorize?: false`,
-    # so an actor reaching them falls to Ash's default deny.
+    # so an actor reaching them falls to Ash's default deny (a platform
+    # admin outside the machine API instead rides the #644 bypass,
+    # ADR-0047's D4 — pinned in StorageRequestTest).
     policy [FluxVale.Checks.ActorIsPlatformAdmin, action([:approve, :reject, :retry_apply])] do
       description("Platform admins decide and retry storage requests")
       authorize_if(always())
@@ -383,7 +394,9 @@ defmodule FluxVale.Infrastructure.StorageRequest do
       end)
     end
 
-    # System-only (no policy arm; the apply runs authorize?: false).
+    # System-only for every actor the policies see (no policy arm; the
+    # apply runs authorize?: false — platform admins outside the
+    # machine API ride the #644 bypass, ADR-0047's D4).
     update :mark_applied do
       description("The apply's success mark: approved → applied.")
 

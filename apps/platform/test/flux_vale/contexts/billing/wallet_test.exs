@@ -137,17 +137,36 @@ defmodule FluxVale.Billing.WalletTest do
                |> Ash.update(actor: member)
     end
 
-    test "the system writes stay forbidden — admins included" do
+    test "the system writes stay forbidden for members; the admin blanket admits them (#644)" do
       {_org, wallet} = BillingFixtures.funded_wallet!()
-      admin = admin()
+      member = AccountsFixtures.user!()
 
       assert {:error, %Ash.Error.Forbidden{}} =
                wallet
                |> Ash.Changeset.for_update(:set_carryover, %{})
                |> Ash.Changeset.force_change_attribute(:carryover, 1)
-               |> Ash.update(actor: admin)
+               |> Ash.update(actor: member)
 
       assert {:error, %Ash.Error.Forbidden{}} =
+               wallet
+               |> Ash.Changeset.for_update(:set_ladder_state, %{
+                 negative_since: DateTime.utc_now()
+               })
+               |> Ash.update(actor: member)
+
+      # ADR-0047's D4: the platform-admin bypass covers system-only
+      # gates too — the policy layer stopped pretending an operator
+      # cannot do what /admin/ash already lets them do. The write is
+      # policy-admitted; the surfaces stay curated.
+      admin = admin()
+
+      assert {:ok, _updated} =
+               wallet
+               |> Ash.Changeset.for_update(:set_carryover, %{})
+               |> Ash.Changeset.force_change_attribute(:carryover, 1)
+               |> Ash.update(actor: admin)
+
+      assert {:ok, _updated} =
                wallet
                |> Ash.Changeset.for_update(:set_ladder_state, %{
                  negative_since: DateTime.utc_now()

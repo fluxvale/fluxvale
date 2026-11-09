@@ -58,6 +58,7 @@ defmodule FluxValeWeb.MCP.Router do
   alias FluxVale.Billing.LedgerEntry
   alias FluxVale.Billing.Wallet
   alias FluxVale.Catalog.App
+  alias FluxVale.Checks.CallOutsideMachineApi
   alias FluxVale.Infrastructure.AccessGateway
   alias FluxVale.Infrastructure.BackupRun
   alias FluxVale.Infrastructure.BackupSetting
@@ -1140,9 +1141,23 @@ defmodule FluxValeWeb.MCP.Router do
   # The scope arm of the defense-in-depth dispatch check. Sessions are
   # only ever granted by connect/2 from a live PAT, so `:any` passes;
   # everything else asks the same catalog the /api/v1 boundary asks.
-  defp require_scope(_session, :any), do: :ok
+  #
+  # It is ALSO the machine-API process mark (#644, ADR-0047): phantom
+  # runs every tool handler in a worker it spawns
+  # (Phantom.Router.run_handler/5), so a mark set in connect/2 dies
+  # with the conn process — the mark belongs here, the first step of
+  # every handler, in the very process whose action calls the blanket
+  # platform-admin bypass must refuse. The /api/v1 chain's
+  # PutPatScopesInAshContext marks its request process through the
+  # same shared helper.
+  defp require_scope(_session, :any) do
+    CallOutsideMachineApi.mark_process!()
+    :ok
+  end
 
   defp require_scope(session, required) do
+    CallOutsideMachineApi.mark_process!()
+
     if scope_granted?(session.assigns.pat, required) do
       :ok
     else
