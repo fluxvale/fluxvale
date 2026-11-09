@@ -6,10 +6,12 @@
  *
  * Parts (second argv): stills (default) captures the read surfaces,
  * the write surfaces, and the sidebar with its open domain group —
- * light and dark. gif-light / gif-dark each record the
- * confirm-then-destroy motion on the seed's sacrificial write_path_demo
- * row (recordVideo -> ffmpeg, cropped to the content column right of
- * the sidebar); re-run the seed between the two.
+ * light and dark. pricing captures slice 3's Pricing and Billing
+ * surfaces (both indexes, the size create form, the waiver and
+ * goodwill forms) — light and dark. gif-light / gif-dark each record
+ * the confirm-then-destroy motion on the seed's sacrificial
+ * write_path_demo row (recordVideo -> ffmpeg, cropped to the content
+ * column right of the sidebar); re-run the seed between the two.
  *
  * Usage: FV_TOKEN_ADMIN=<jwt> node fv595_shots.mjs <outdir> [part]
  * Token: mint with a dev `mix run` one-off —
@@ -89,6 +91,71 @@ async function demoFlagHref(page) {
   });
 }
 
+// The first wallet row's View link href (wallets exist by org
+// provisioning — no wallet seeding needed).
+async function firstWalletHref(page) {
+  await page.goto(`${BASE}/admin/resources/billing/wallet`, { waitUntil: "networkidle" });
+  await page.waitForSelector("[data-testid='admin-resource-index']");
+  return page.evaluate(() => {
+    const row = document.querySelector("[data-testid^='admin-resource-view-']");
+    return row ? row.getAttribute("href") : null;
+  });
+}
+
+if (part === "pricing") {
+  // Slice 3's Pricing + Billing surfaces. Seeds first (sizes, a tax
+  // rate): mix run ../e2e/fv595_seed.exs. Wallets and ledger rows ride
+  // the canonical org provisioning.
+  const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  const page = await ctx.newPage();
+  await signIn(page);
+
+  for (const mode of ["light", "dark"]) {
+    await page.goto(`${BASE}/admin/resources/pricing/size`, { waitUntil: "networkidle" });
+    await shot(page, `pricing-size-index-${mode}`, mode, "[data-testid='admin-resource-index']");
+    await page.goto(`${BASE}/admin/resources/pricing/tax_rate`, { waitUntil: "networkidle" });
+    await shot(page, `pricing-tax-index-${mode}`, mode, "[data-testid='admin-resource-index']");
+    await page.goto(`${BASE}/admin/resources/pricing/size/new`, { waitUntil: "networkidle" });
+    await shot(page, `pricing-size-form-${mode}`, mode, "[data-testid='admin-resource-form']");
+    await page.goto(`${BASE}/admin/resources/billing/wallet`, { waitUntil: "networkidle" });
+    await shot(page, `billing-wallet-index-${mode}`, mode, "[data-testid='admin-resource-index']");
+    await page.goto(`${BASE}/admin/resources/billing/ledger_entry`, {
+      waitUntil: "networkidle",
+    });
+    await shot(
+      page,
+      `billing-ledger-index-${mode}`,
+      mode,
+      "[data-testid='admin-resource-index']",
+    );
+    await page.goto(`${BASE}/admin/resources/billing/ledger_entry/new`, {
+      waitUntil: "networkidle",
+    });
+    await shot(
+      page,
+      `billing-goodwill-form-${mode}`,
+      mode,
+      "[data-testid='admin-resource-form']",
+    );
+  }
+
+  // The waiver form on a wallet's edit mount: the registry-exposed
+  // write surface, a lone checkbox over the record's own inputs.
+  const walletHref = await firstWalletHref(page);
+  if (!walletHref) {
+    console.error("no wallet rows — the dev DB needs its canonical seeds");
+    process.exit(1);
+  }
+  for (const mode of ["light", "dark"]) {
+    await page.goto(`${BASE}${walletHref}/edit?action=set_waiver`, {
+      waitUntil: "networkidle",
+    });
+    await shot(page, `billing-waiver-form-${mode}`, mode, "[data-testid='admin-resource-form']");
+  }
+
+  await ctx.close();
+}
+
 if (part === "stills") {
   const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
   const page = await ctx.newPage();
@@ -148,7 +215,7 @@ if (part === "stills") {
   }
 
   await ctx.close();
-} else {
+} else if (part === "gif-light" || part === "gif-dark") {
   // The confirm-then-destroy motion on the sacrificial row. Crop to
   // the content column right of the sidebar: the panel reveals there,
   // the flash and the index navigation land there. The sign-in rides a

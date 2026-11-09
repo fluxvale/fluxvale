@@ -32,13 +32,18 @@ defmodule FluxValeWeb.AdminResource do
   arrives as `Ash.Type.CiString`) plus the constraints decide. Unknown
   types answer `:unknown` and ride the fallback renderer.
   """
-  @spec shape(map()) :: :uuid | :string | :integer | :boolean | :datetime | :enum | :unknown
+  @spec shape(map()) ::
+          :uuid | :string | :integer | :decimal | :boolean | :datetime | :enum | :unknown
   def shape(%{type: Ash.Type.UUIDv7}), do: :uuid
   def shape(%{type: Ash.Type.UUID}), do: :uuid
   def shape(%{type: Ash.Type.String}), do: :string
   # ci_string renders as plain text, its original case — no case games.
   def shape(%{type: Ash.Type.CiString}), do: :string
   def shape(%{type: Ash.Type.Integer}), do: :integer
+  # Decimal is its own shape, right mono like the integer — the engine
+  # renders the raw value and NOTHING else (no currency inference, no
+  # precision games; the curated billing components own money grammar).
+  def shape(%{type: Ash.Type.Decimal}), do: :decimal
   def shape(%{type: Ash.Type.Boolean}), do: :boolean
   # Ash spells them UtcDatetime/UtcDatetimeUsec (any precision → one shape).
   def shape(%{type: Ash.Type.UtcDatetime}), do: :datetime
@@ -48,7 +53,17 @@ defmodule FluxValeWeb.AdminResource do
     if Keyword.has_key?(constraints, :one_of), do: :enum, else: :unknown
   end
 
+  # A custom enum (`use Ash.Type.Enum`) declares its values through the
+  # macro's values/0 — EntryType, EntryReason, and their siblings render
+  # as badges exactly like a one_of atom. Composite types export
+  # nothing of the sort and fall through to the honest inspect.
+  def shape(%{type: type}) when is_atom(type) do
+    if enum_type?(type), do: :enum, else: :unknown
+  end
+
   def shape(_unrecognized), do: :unknown
+
+  defp enum_type?(type), do: function_exported?(type, :values, 0)
 
   # -- value rendering ---------------------------------------------------
 
@@ -61,7 +76,7 @@ defmodule FluxValeWeb.AdminResource do
 
   attr(:shape, :atom,
     required: true,
-    values: [:uuid, :string, :integer, :boolean, :datetime, :enum, :unknown]
+    values: [:uuid, :string, :integer, :decimal, :boolean, :datetime, :enum, :unknown]
   )
 
   attr(:value, :any, required: true)
@@ -115,6 +130,24 @@ defmodule FluxValeWeb.AdminResource do
   def value(%{shape: :integer, variant: :show} = assigns) do
     ~H"""
     <span class="font-mono text-sm text-ink">{@value}</span>
+    """
+  end
+
+  # Decimal rides the integer's treatments with the raw value verbatim
+  # — to_string, no formatting (the no-currency-inference rule).
+  def value(%{shape: :decimal, variant: :index} = assigns) do
+    assigns = assign(assigns, text: Decimal.to_string(assigns.value))
+
+    ~H"""
+    <span class="flex justify-end font-mono text-sm text-ink" title={@text}>{@text}</span>
+    """
+  end
+
+  def value(%{shape: :decimal, variant: :show} = assigns) do
+    assigns = assign(assigns, text: Decimal.to_string(assigns.value))
+
+    ~H"""
+    <span class="font-mono text-sm text-ink">{@text}</span>
     """
   end
 
@@ -361,7 +394,9 @@ defmodule FluxValeWeb.AdminResource do
   @doc """
   The `<.input>` type for an attribute shape (the plan's input
   mapping): string/ci_string and uuid FKs → text, integer → number,
-  decimal → number, boolean → checkbox, a one_of atom → select.
+  decimal → number (stepped, see input_step/1), boolean → checkbox,
+  a one_of atom or a custom `Ash.Type.Enum` → select, utc datetimes
+  (either precision) → datetime-local.
 
   `nil` is a shape the engine cannot map yet (maps, arrays, custom
   composites — slice 4 owns the JSON-textarea decision for those):
@@ -378,22 +413,47 @@ defmodule FluxValeWeb.AdminResource do
   def input_type(%{type: Ash.Type.Decimal}), do: "number"
   def input_type(%{type: Ash.Type.Boolean}), do: "checkbox"
 
+  # Datetime inputs (the plan's table has no row — TaxRate's
+  # effective_from is the first): datetime-local submits ISO8601 which
+  # the UtcDatetime cast accepts directly.
+  def input_type(%{type: Ash.Type.UtcDatetime}), do: "datetime-local"
+  def input_type(%{type: Ash.Type.UtcDatetimeUsec}), do: "datetime-local"
+
   def input_type(%{type: Ash.Type.Atom, constraints: constraints}) do
     if Keyword.has_key?(constraints, :one_of), do: "select", else: nil
+  end
+
+  # A custom enum type selects like a one_of atom (the same source the
+  # renderer's shape/1 reads — values/0 from `use Ash.Type.Enum`).
+  def input_type(%{type: type}) when is_atom(type) do
+    if(enum_type?(type), do: "select", else: nil)
   end
 
   def input_type(_unmapped), do: nil
 
   @doc """
-  A select's options from a one_of constraint: the declared atoms as
-  string values (the cast resolves them back through the same
-  constraint — no atom is ever built from input), labels derived like
-  column labels.
+  A select's options: a one_of constraint's declared atoms, or a custom
+  enum's `values/0` (EntryType and siblings) — string values either way
+  (the cast resolves them back through the type, no atom is ever built
+  from input), labels derived like column labels.
   """
   @spec enum_options(map()) :: [{String.t(), String.t()}]
-  def enum_options(%{constraints: constraints}) do
-    one_of = Keyword.fetch!(constraints, :one_of)
+  def enum_options(%{constraints: constraints} = field) do
+    one_of = enum_values(constraints, field)
     Enum.map(one_of, fn value -> {label(value), Atom.to_string(value)} end)
+  end
+
+  # The one_of constraint wins when present; a custom enum type
+  # (values/0 from `use Ash.Type.Enum`) is the other source. Both are
+  # guaranteed to exist wherever this runs — input_type answers
+  # "select" only for the two enum shapes, and both attribute and
+  # argument fields always carry a constraints list (Ash defaults it
+  # to []).
+  defp enum_values(constraints, %{type: type}) when is_list(constraints) do
+    case Keyword.fetch(constraints, :one_of) do
+      {:ok, one_of} -> one_of
+      :error -> type.values()
+    end
   end
 
   @doc """
@@ -404,6 +464,16 @@ defmodule FluxValeWeb.AdminResource do
   @spec input_required?(map(), String.t()) :: boolean()
   def input_required?(_attr, "checkbox"), do: false
   def input_required?(attr, _submits_a_value), do: not attr.allow_nil?
+
+  @doc """
+  An input's step for the number type: decimals submit fractions (the
+  plan's contracts table pins step 0.01 — without it the browser's
+  default step of 1 rejects a fractional cpu_cores at submit time);
+  everything else answers nil (no step attribute renders).
+  """
+  @spec input_step(map()) :: String.t() | nil
+  def input_step(%{type: Ash.Type.Decimal}), do: "0.01"
+  def input_step(_whole_numbers), do: nil
 
   # -- write affordances ---------------------------------------------------
 

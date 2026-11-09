@@ -13,14 +13,20 @@ defmodule FluxValeWeb.AdminResourcesLiveTest do
   import Phoenix.LiveViewTest
 
   alias Ash.Resource.Info
+  alias FluxVale.Billing.LedgerEntry
+  alias FluxVale.Billing.Wallet
   alias FluxVale.Identity.User
   alias FluxVale.Infrastructure.Instance
   alias FluxVale.Ops.AccessRule
   alias FluxVale.Ops.FeatureFlag
+  alias FluxVale.Pricing.Size
+  alias FluxVale.Pricing.TaxRate
   alias FluxVale.TestSupport.ApiPat
   alias FluxVale.TestSupport.SessionHelpers
   alias FluxValeWeb.AdminConsole
   alias FluxValeWeb.AdminLive.Resources
+
+  require Ash.Query
 
   @n :erlang.unique_integer([:positive])
 
@@ -56,6 +62,53 @@ defmodule FluxValeWeb.AdminResourcesLiveTest do
     AccessRule
     |> Ash.Changeset.for_create(:create, Map.merge(%{email: email}, attrs), actor: admin)
     |> Ash.create!()
+  end
+
+  # Slice 3's domains: sizes and tax rates through their own actions,
+  # and any wallet the admin's read arm reaches (the admin's org
+  # provisions one at user create — any user's wallet proves the
+  # cross-org arm).
+  defp size!(admin, attrs) do
+    slug = "res-size-#{System.unique_integer([:positive])}"
+
+    Size
+    |> Ash.Changeset.for_create(
+      :create,
+      Map.merge(
+        %{slug: slug, cpu_cores: Decimal.new("2.5"), memory_mb: 2048, monthly_cents: 1500},
+        attrs
+      ),
+      actor: admin
+    )
+    |> Ash.create!()
+  end
+
+  defp tax_rate!(admin, attrs) do
+    TaxRate
+    |> Ash.Changeset.for_create(
+      :create,
+      Map.merge(%{country: "DE", rate_bp: 1900, effective_from: DateTime.utc_now()}, attrs),
+      actor: admin
+    )
+    |> Ash.create!()
+  end
+
+  defp any_wallet!(admin) do
+    Wallet
+    |> Ash.Query.for_read(:read)
+    |> Ash.read!(actor: admin)
+    |> List.first()
+  end
+
+  # The wallet index's label column is id (no name-ish attr), so one
+  # cell testid per row carries the id column prefix.
+  defp wallet_index_ids(view) do
+    html = render(view)
+    document = LazyHTML.from_fragment(html)
+
+    matches = LazyHTML.query(document, "[data-testid^='admin-resource-cell-id-']")
+
+    Enum.to_list(matches)
   end
 
   defp text_of(view, selector) do
@@ -1134,6 +1187,282 @@ defmodule FluxValeWeb.AdminResourcesLiveTest do
                flag
                |> Ash.Changeset.for_destroy(:destroy, %{}, actor: non_admin)
                |> Ash.destroy()
+    end
+  end
+
+  describe "the Pricing rollout (slice 3: full CRUD on Size and TaxRate)" do
+    test "the size index renders rows with the decimal raw — no currency inference", %{
+      conn: conn,
+      admin: admin
+    } do
+      size = size!(admin, %{slug: "res-size-pricing-index", cpu_cores: Decimal.new("3.5")})
+
+      {:ok, view, _html} = live(conn, "/admin/resources/pricing/size")
+
+      assert has_element?(view, "[data-testid='admin-resource-cell-slug-#{size.id}']")
+      assert render(view) =~ "3.5"
+      refute render(view) =~ "3.5 €"
+    end
+
+    test "an operator creates a size through the typed form and lands on its show page", %{
+      conn: conn
+    } do
+      {:ok, view, _html} = live(conn, "/admin/resources/pricing/size/new")
+
+      assert has_element?(
+               view,
+               "[data-testid='admin-resource-input-slug'] input[type='text'][required]"
+             )
+
+      assert has_element?(
+               view,
+               "[data-testid='admin-resource-input-cpu_cores'] input[type='number'][step='0.01']"
+             )
+
+      assert has_element?(
+               view,
+               "[data-testid='admin-resource-input-memory_mb'] input[type='number']"
+             )
+
+      assert has_element?(
+               view,
+               "[data-testid='admin-resource-input-monthly_cents'] input[type='number']"
+             )
+
+      result =
+        view
+        |> form("#admin-resource-record-form",
+          record: %{
+            "slug" => "created-by-console",
+            "cpu_cores" => "2.5",
+            "memory_mb" => "2048",
+            "monthly_cents" => "1500"
+          }
+        )
+        |> render_submit()
+
+      assert {:error, {:live_redirect, %{to: to}}} = result
+      assert to =~ "/admin/resources/pricing/size/"
+    end
+
+    test "the tax rate form rides the datetime-local input and casts", %{conn: conn} do
+      {:ok, view, _html} = live(conn, "/admin/resources/pricing/tax_rate/new")
+
+      assert has_element?(
+               view,
+               "[data-testid='admin-resource-input-effective_from'] input[type='datetime-local'][required]"
+             )
+
+      redirect =
+        view
+        |> form("#admin-resource-record-form",
+          record: %{
+            "country" => "DE",
+            "rate_bp" => "1900",
+            "effective_from" => "2026-01-01T00:00"
+          }
+        )
+        |> render_submit()
+
+      assert {:error, {:live_redirect, %{to: to}}} = redirect
+      assert to =~ "/admin/resources/pricing/tax_rate/"
+    end
+
+    test "the tax rate edit form carries only its update accept list (rate_bp)", %{
+      conn: conn,
+      admin: admin
+    } do
+      rate = tax_rate!(admin, %{country: "FR"})
+
+      {:ok, view, _html} =
+        live(conn, "/admin/resources/pricing/tax_rate/#{rate.id}/edit")
+
+      assert has_element?(view, "[data-testid='admin-resource-input-rate_bp']")
+      refute has_element?(view, "[data-testid='admin-resource-input-country']")
+      refute has_element?(view, "[data-testid='admin-resource-input-effective_from']")
+    end
+  end
+
+  describe "the Billing rollout (slice 3: the constrained operator set)" do
+    test "the wallet index renders org wallets — the admin reads cross-org", %{
+      conn: conn,
+      admin: admin
+    } do
+      _own = any_wallet!(admin)
+      SessionHelpers.user!()
+
+      {:ok, view, _html} = live(conn, "/admin/resources/billing/wallet")
+
+      # Two orgs exist with a wallet each (the admin's and the fresh
+      # user's), and no create affordance renders: creates are
+      # registry-excluded for Wallet.
+      wallet_cells = wallet_index_ids(view)
+      assert length(wallet_cells) >= 2
+      refute has_element?(view, "[data-testid='admin-resource-new']")
+    end
+
+    test "the wallet show carries only the waiver edit — system actions never render", %{
+      conn: conn,
+      admin: admin
+    } do
+      wallet = any_wallet!(admin)
+
+      {:ok, view, _html} = live(conn, "/admin/resources/billing/wallet/#{wallet.id}")
+
+      assert has_element?(view, "[data-testid='admin-resource-edit-set_waiver']")
+      refute has_element?(view, "[data-testid='admin-resource-edit-set_carryover']")
+      refute has_element?(view, "[data-testid='admin-resource-edit-set_ladder_state']")
+      refute has_element?(view, "[data-testid^='admin-resource-destroy-']")
+    end
+
+    test "?action=set_waiver on :new bounces — no create action is allowed", %{conn: conn} do
+      assert {:error, {:live_redirect, %{to: "/admin/resources/billing/wallet", flash: flash}}} =
+               live(conn, "/admin/resources/billing/wallet/new?action=set_waiver")
+
+      assert flash["error"] == "That action is not available here."
+    end
+
+    test "the waiver edit saves through the checkbox", %{conn: conn, admin: admin} do
+      wallet = any_wallet!(admin)
+
+      {:ok, view, _html} =
+        live(conn, "/admin/resources/billing/wallet/#{wallet.id}/edit?action=set_waiver")
+
+      assert has_element?(
+               view,
+               "[data-testid='admin-resource-input-paywall_waived'] input[type='checkbox']"
+             )
+
+      # The flash rides the redirect token (decoded by the router on
+      # landing); the destination is the wallet's show page.
+      assert {:error, {:live_redirect, %{to: to}}} =
+               view
+               |> form("#admin-resource-record-form", record: %{"paywall_waived" => "true"})
+               |> render_submit()
+
+      assert to == "/admin/resources/billing/wallet/#{wallet.id}"
+    end
+
+    test "the ledger index renders enum badges for type and reason", %{conn: conn} do
+      {:ok, view, _html} = live(conn, "/admin/resources/billing/ledger_entry")
+
+      # Every wallet carries a welcome :credit entry (auto-provisioned).
+      assert render(view) =~ "Credit"
+      assert has_element?(view, "[data-testid='admin-resource-enum']")
+    end
+
+    test "the goodwill form takes its inputs as arguments, not accepted attrs", %{
+      conn: conn,
+      admin: admin
+    } do
+      wallet = any_wallet!(admin)
+
+      {:ok, view, _html} = live(conn, "/admin/resources/billing/ledger_entry/new")
+
+      assert has_element?(
+               view,
+               "[data-testid='admin-resource-input-wallet_id'] input[type='text'][required]"
+             )
+
+      assert has_element?(
+               view,
+               "[data-testid='admin-resource-input-amount_cents'] input[type='number'][required]"
+             )
+
+      # accept([]): no attribute field renders at all.
+      refute has_element?(view, "[data-testid='admin-resource-input-amount']")
+      refute has_element?(view, "[data-testid='admin-resource-input-reason']")
+
+      redirect =
+        view
+        |> form("#admin-resource-record-form",
+          record: %{"wallet_id" => wallet.id, "amount_cents" => "500"}
+        )
+        |> render_submit()
+
+      assert {:error, {:live_redirect, %{to: to}}} = redirect
+      assert to =~ "/admin/resources/billing/ledger_entry/"
+
+      # The entry posted through the canonical goodwill seam: an
+      # :adjustment credit of 500 cents on that wallet.
+      segments = String.split(to, "/")
+      entry_id = List.last(segments)
+
+      entry =
+        LedgerEntry
+        |> Ash.Query.for_read(:read)
+        |> Ash.Query.filter(id == ^entry_id)
+        |> Ash.read_one!(actor: admin)
+
+      assert entry.amount == 500
+      assert entry.reason == :adjustment
+      assert entry.type == :credit
+      assert entry.wallet_id == wallet.id
+    end
+
+    test "a goodwill amount below the constraint minimum renders inline", %{conn: conn} do
+      {:ok, view, _html} = live(conn, "/admin/resources/billing/ledger_entry/new")
+
+      html =
+        view
+        |> form("#admin-resource-record-form",
+          record: %{"wallet_id" => Ecto.UUID.generate(), "amount_cents" => "0"}
+        )
+        |> render_submit()
+
+      assert html =~ "must be greater than or equal to 1"
+      assert has_element?(view, "[data-testid='admin-resource-form']")
+    end
+
+    test "?action= on the ledger create mount admits only goodwill", %{conn: conn} do
+      {:ok, view, _html} = live(conn, "/admin/resources/billing/ledger_entry/new")
+
+      assert has_element?(view, "[data-testid='admin-resource-input-amount_cents']")
+
+      for crafted <- ["create", "reverse"] do
+        assert {:error, {:live_redirect, %{to: to, flash: flash}}} =
+                 live(conn, "/admin/resources/billing/ledger_entry/new?action=#{crafted}")
+
+        assert to == "/admin/resources/billing/ledger_entry"
+        assert flash["error"] == "That action is not available here."
+      end
+    end
+
+    test "a mid-session demotion cannot set a waiver", %{
+      conn: conn,
+      admin: admin
+    } do
+      wallet = any_wallet!(admin)
+
+      # Mount while the session is still admin (the open tab's
+      # posture), demote out-of-band, then submit: the write gate
+      # re-resolves and refuses.
+      {:ok, view, _html} =
+        live(conn, "/admin/resources/billing/wallet/#{wallet.id}/edit?action=set_waiver")
+
+      demote!(admin)
+
+      html =
+        view
+        |> form("#admin-resource-record-form", record: %{"paywall_waived" => "true"})
+        |> render_submit()
+
+      assert html =~ "Your admin access ended. Sign out and sign back in."
+
+      fresh = Ash.get!(Wallet, wallet.id, authorize?: false)
+      refute fresh.paywall_waived
+    end
+
+    test "non-admins bounce at the route gate on the new domains", %{bare_conn: conn} do
+      user =
+        User.create!("admin-resources-billing-gate-#{@n}@fluxvale.com", %{}, authorize?: false)
+
+      signed_in = SessionHelpers.sign_in(conn, user)
+
+      for path <- ["/admin/resources/pricing/size", "/admin/resources/billing/wallet/new"] do
+        gated = get(signed_in, path)
+        assert gated.status == 403
+      end
     end
   end
 

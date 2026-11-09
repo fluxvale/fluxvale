@@ -1,12 +1,12 @@
 # Dev-only capture seed for the resource console shots (#595): a
-# handful of feature flags and access rules so both index tables and
-# the show page carry real, varied rows — enabled/disabled booleans, a
-# rollout percentage against unset, both purposes, and a mixed-case
-# email so the ci_string rendering shows its original case. Runs
-# through the resource actions with the seeded admin as actor — the
-# same policy path the console rides. Idempotent: existing flags are
-# skipped and duplicate rules are refused by their own identity, so a
-# re-run only tops up what a capture deleted.
+# handful of feature flags and access rules (slice 1's read set), plus
+# slice 3's Pricing rows (a fractional-decimal size, a usec tax-rate
+# stamp), so the console's index tables and forms carry real, varied
+# rows. Runs through the resource actions with the seeded admin as
+# actor — the same policy path the console rides. Idempotent:
+# existing flags are skipped and duplicate rules, sizes, and tax rates
+# are refused by their own identities, so a re-run only tops up what a
+# capture deleted.
 #
 # AccessRule's moduledoc says rows are never seeded — that rule is
 # about environment bring-up (operator-entered, #26). This is the
@@ -17,6 +17,8 @@
 alias FluxVale.Identity.User
 alias FluxVale.Ops.AccessRule
 alias FluxVale.Ops.FeatureFlag
+alias FluxVale.Pricing.Size
+alias FluxVale.Pricing.TaxRate
 
 flags = [
   %{
@@ -99,3 +101,49 @@ for attrs <- rules do
 end
 
 IO.puts("seed done")
+
+# Slice 3's capture rows (Pricing): a size with a fractional cpu_cores
+# so the Decimal rendering shows its raw shape, and a tax rate whose
+# effective_from carries usec so the usec datetime rendering shows its
+# precision. Wallets and ledger rows ride the canonical org
+# provisioning — nothing to seed in Billing.
+size_attrs = %{
+  slug: "capture-mid",
+  cpu_cores: Decimal.new("2.5"),
+  memory_mb: 2048,
+  monthly_cents: 1500
+}
+
+case Size |> Ash.Changeset.for_create(:create, size_attrs, actor: admin) |> Ash.create() do
+  {:ok, size} ->
+    IO.puts("size #{size.slug} created")
+
+  {:error, %Ash.Error.Invalid{} = error} ->
+    if Enum.any?(error.errors, &match?(%Ash.Error.Changes.InvalidAttribute{}, &1)) do
+      IO.puts("size already present, skipped")
+    else
+      raise error
+    end
+
+  {:error, error} ->
+    raise error
+end
+
+tax_attrs = %{country: "DE", rate_bp: 1900, effective_from: ~U[2026-01-01 00:00:00.123456Z]}
+
+case TaxRate |> Ash.Changeset.for_create(:create, tax_attrs, actor: admin) |> Ash.create() do
+  {:ok, rate} ->
+    IO.puts("tax rate #{rate.country} created")
+
+  {:error, %Ash.Error.Invalid{} = error} ->
+    if Enum.any?(error.errors, &match?(%Ash.Error.Changes.InvalidAttribute{}, &1)) do
+      IO.puts("tax rate already present, skipped")
+    else
+      raise error
+    end
+
+  {:error, error} ->
+    raise error
+end
+
+IO.puts("pricing seed done")

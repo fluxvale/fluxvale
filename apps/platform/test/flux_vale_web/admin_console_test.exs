@@ -6,10 +6,15 @@ defmodule FluxValeWeb.AdminConsoleTest do
   # What is ENFORCED, exactly: every configured domain is accounted
   # for (one of the three sets, no orphans), the six-domain target
   # matches the plan's appendix A, and every LIVE domain's resource
-  # set equals the domain's real resources in both directions —
-  # include-or-exclude-by-name per resource (the mechanism the audit
-  # lane's version tables exercised first, #645; Billing/Topup rides
-  # it again when slice 3 flips that domain live). Plus the
+  # The exposure registry's parity discipline (#595): the configured
+  # ash_domains partition into live, pending, and excluded-by-name.
+  # What is ENFORCED, exactly: every configured domain is accounted
+  # for (one of the three sets, no orphans), the six-domain target
+  # matches the plan's appendix A, and every LIVE domain's resource
+  # set is its registered entries plus its named exclusions, in both
+  # directions — include-or-exclude-by-name per resource (the
+  # mechanism the audit lane's version tables exercised first, #645;
+  # Billing/Topup rides it again in slice 3). Plus the
   # registry's own API contract: segment resolution and the policy
   # probe.
   #
@@ -117,20 +122,24 @@ defmodule FluxValeWeb.AdminConsoleTest do
           |> Enum.map(& &1.module)
           |> MapSet.new()
 
+        actual =
+          domain.module
+          |> Info.resources()
+          |> MapSet.new()
+
         excluded =
           domain.module
           |> AdminConsole.excluded_resources()
           |> Map.keys()
           |> MapSet.new()
 
-        actual =
-          domain.module
-          |> Info.resources()
-          |> MapSet.new()
-          |> MapSet.difference(excluded)
+        accounted = MapSet.union(registered, excluded)
 
-        assert MapSet.equal?(registered, actual),
+        assert MapSet.equal?(accounted, actual),
                "#{inspect(domain.module)}: the registry and the domain disagree on resources — include the new resource or exclude it by name with a reason"
+
+        assert MapSet.disjoint?(registered, excluded),
+               "#{inspect(domain.module)}: a resource is both registered and excluded — pick one"
       end
     end
 
@@ -217,6 +226,22 @@ defmodule FluxValeWeb.AdminConsoleTest do
       refute AdminConsole.visible?(user, FluxVale.Ops.FeatureFlag, :read)
       refute AdminConsole.visible?(user, FluxVale.Ops.FeatureFlag, :create)
     end
+
+    # Slice 3's sanity evidence, pinned: the system-only writes answer
+    # false even for the admin (appendix B's probe rows), and the two
+    # operator paths answer true. When #644's blanket-authority lane
+    # lands and shifts an answer, this test moves WITH the new truth.
+    test "the Billing sanity probes: system-only writes stay false for the admin", %{admin: admin} do
+      assert AdminConsole.visible?(admin, FluxVale.Billing.Wallet, :read)
+      refute AdminConsole.visible?(admin, FluxVale.Billing.Wallet, :create)
+      refute AdminConsole.visible?(admin, FluxVale.Billing.Wallet, :set_carryover)
+      refute AdminConsole.visible?(admin, FluxVale.Billing.Wallet, :set_ladder_state)
+      assert AdminConsole.visible?(admin, FluxVale.Billing.Wallet, :set_waiver)
+
+      assert AdminConsole.visible?(admin, FluxVale.Billing.LedgerEntry, :read)
+      refute AdminConsole.visible?(admin, FluxVale.Billing.LedgerEntry, :create)
+      assert AdminConsole.visible?(admin, FluxVale.Billing.LedgerEntry, :grant_goodwill)
+    end
   end
 
   describe "the registry-intent gate (allowed_actions/3)" do
@@ -224,7 +249,6 @@ defmodule FluxValeWeb.AdminConsoleTest do
       creates = AdminConsole.allowed_actions(FluxVale.Ops.FeatureFlag, :create, %{})
       updates = AdminConsole.allowed_actions(FluxVale.Ops.FeatureFlag, :update, %{})
       destroys = AdminConsole.allowed_actions(FluxVale.Ops.AccessRule, :destroy, %{})
-
       assert Enum.map(creates, & &1.name) == [:create]
       assert Enum.map(updates, & &1.name) == [:update]
       assert Enum.map(destroys, & &1.name) == [:destroy]
@@ -237,5 +261,45 @@ defmodule FluxValeWeb.AdminConsoleTest do
 
       assert AdminConsole.allowed_actions(FluxVale.Ops.FeatureFlag, :create, config) == []
     end
+
+    test "the Billing configs curate the operator set (slice 3's registry intent)" do
+      {:ok, wallet} = AdminConsole.fetch(:billing, :wallet)
+      {:ok, ledger} = AdminConsole.fetch(:billing, :ledger_entry)
+
+      # Wallet: read plus set_waiver — creates and ladder state are
+      # system-only, excluded by name.
+      assert names(AdminConsole.allowed_actions(wallet.module, :create, wallet.config)) == []
+
+      assert names(AdminConsole.allowed_actions(wallet.module, :update, wallet.config)) == [
+               :set_waiver
+             ]
+
+      assert names(AdminConsole.allowed_actions(wallet.module, :destroy, wallet.config)) == []
+
+      # Ledger: goodwill only — the system create and the curated
+      # surface's reverse never render here.
+      assert names(AdminConsole.allowed_actions(ledger.module, :create, ledger.config)) == [
+               :grant_goodwill
+             ]
+
+      assert names(AdminConsole.allowed_actions(ledger.module, :update, ledger.config)) == []
+      assert names(AdminConsole.allowed_actions(ledger.module, :destroy, ledger.config)) == []
+    end
+
+    test "Topup is excluded by name with its documented reason" do
+      excluded = AdminConsole.excluded_resources(FluxVale.Billing)
+
+      assert Map.has_key?(excluded, FluxVale.Billing.Topup)
+      assert excluded[FluxVale.Billing.Topup] =~ "gateway"
+
+      # Ops's exclusions are the audit lane's version tables (#645);
+      # a domain with no exclusions answers empty, unknown or not.
+      ops = AdminConsole.excluded_resources(FluxVale.Ops)
+      assert Map.has_key?(ops, FluxVale.Ops.FeatureFlag.Version)
+      assert AdminConsole.excluded_resources(FluxVale.Pricing) == %{}
+      assert AdminConsole.excluded_resources(FluxVale.Catalog) == %{}
+    end
   end
+
+  defp names(actions), do: Enum.map(actions, & &1.name)
 end
