@@ -28,11 +28,11 @@ defmodule FluxVale.Ops.FeatureFlag do
     migration_defaults(id: "nil")
   end
 
-  # The audit trail (#645, ADR-0048): the plan's one config posture,
-  # uniform across the business set as later slices adopt it, plus the
-  # shared version mixin (indexes + actor label) and D7's
-  # source-read-policy posture for version reads. Rationale lives in
-  # the ADR, not here.
+  # The audit trail (#645, ADR-0048): the plan's one complete config
+  # posture — the mixin line is mandatory (it carries the read policy,
+  # the indexes, the actor label). version_extensions attaches the
+  # Policy authorizer that policy rides on. Rationale lives in the
+  # ADR, not here.
   paper_trail do
     primary_key_type(:uuid_v7)
     change_tracking_mode(:changes_only)
@@ -43,14 +43,13 @@ defmodule FluxVale.Ops.FeatureFlag do
     reference_source?(false)
     create_version_on_destroy?(true)
     operation_id_field(:operation_id)
+    mixin({FluxVale.PaperTrail.VersionMixin, :version_resource, []})
+    version_extensions(authorizers: [Ash.Policy.Authorizer])
 
     belongs_to_actor(:user, FluxVale.Identity.User,
       domain: FluxVale.Identity,
       on_delete: :nilify
     )
-
-    apply_can_read_policy?(true)
-    mixin({FluxVale.PaperTrail.VersionMixin, :version_resource, []})
   end
 
   policies do

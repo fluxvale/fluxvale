@@ -97,7 +97,7 @@ defmodule FluxVale.Ops.PaperTrailTest do
       assert update_version.user_id == admin.id
     end
 
-    test "an update that changes nothing writes no version (only_when_changed?)" do
+    test "an empty update (nothing submitted) writes no version (only_when_changed?)" do
       admin = admin()
       flag = create_flag!(%{}, actor: admin)
 
@@ -109,26 +109,62 @@ defmodule FluxVale.Ops.PaperTrailTest do
       assert length(versions!(flag.id)) == 1
     end
 
+    test "an identical-value resubmission still versions — Ash's changed? is changeset-shaped, not value-shaped" do
+      # Upstream 0.8.1 semantics, pinned: `context.changed?` means the
+      # changeset CARRIES changes, so resubmitting the same values
+      # writes a row. Disclosed in the ADR's probe notes, not doctrine.
+      admin = admin()
+      flag = create_flag!(%{}, actor: admin)
+
+      updated =
+        flag
+        |> Ash.Changeset.for_update(:update, %{enabled: false}, actor: admin)
+        |> Ash.update!()
+
+      _resubmitted =
+        updated
+        |> Ash.Changeset.for_update(:update, %{enabled: false}, actor: admin)
+        |> Ash.update!()
+
+      # create + first update + the resubmission's extra row
+      assert length(versions!(updated.id)) == 3
+    end
+
     test "a destroy's version row survives the record's own deletion" do
       # reference_source? false: no FK from the version table to the
       # source, so the destroy's evidence outlives the row it
-      # describes — the doctrine's audit-grade property (D6).
+      # describes — the doctrine's audit-grade property (D6). The
+      # destroy row itself carries no changes (:changes_only has no
+      # deltas on destroy): the final state reconstructs by replaying
+      # the record's chain; this row answers who/what/when.
       admin = admin()
       flag = create_flag!(%{}, actor: admin)
 
       Ash.destroy!(flag, actor: admin)
 
-      surviving =
-        flag.id
-        |> versions!()
-        |> MapSet.new(& &1.version_action_type)
+      survivors = versions!(flag.id)
+      surviving_types = MapSet.new(survivors, & &1.version_action_type)
 
-      assert MapSet.equal?(surviving, MapSet.new([:create, :destroy]))
+      assert MapSet.equal?(surviving_types, MapSet.new([:create, :destroy]))
+
+      destroy_version = Enum.find(survivors, &(&1.version_action_type == :destroy))
+      assert destroy_version.changes == %{}
+      assert destroy_version.user_id == admin.id
 
       # and the source row is really gone
       assert FeatureFlag
              |> Ash.Query.filter(id == ^flag.id)
              |> Ash.read!(authorize?: false) == []
+
+      # the orphaned evidence stays readable through POLICIES by an
+      # admin (the direct read policy — no exists() over a gone row)
+      admin_rows =
+        FeatureFlag.Version
+        |> Ash.Query.filter(version_source_id == ^flag.id)
+        |> Ash.read!(actor: admin)
+
+      assert MapSet.new(admin_rows, & &1.version_action_type) ==
+               MapSet.new([:create, :destroy])
     end
   end
 
@@ -157,7 +193,7 @@ defmodule FluxVale.Ops.PaperTrailTest do
     end
   end
 
-  describe "version reads (D7: the source's read policies apply)" do
+  describe "version reads (D7 revised: direct admin-only policy on the mixin)" do
     setup do
       %{flag: create_flag!(%{}, actor: admin())}
     end
@@ -178,6 +214,13 @@ defmodule FluxVale.Ops.PaperTrailTest do
 
       assert {:error, %Ash.Error.Forbidden{}} =
                Ash.read(FeatureFlag.Version, actor: member)
+    end
+
+    test "an anonymous version read is Forbidden — the trail is never public", %{flag: _flag} do
+      assert {:error, %Ash.Error.Forbidden{}} =
+               Ash.read(FeatureFlag.Version, actor: nil)
+
+      assert {:error, %Ash.Error.Forbidden{}} = Ash.read(FeatureFlag.Version)
     end
   end
 
