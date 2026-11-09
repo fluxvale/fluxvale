@@ -96,11 +96,13 @@ BASE_URL=https://staging.fluxvale.com E2E_TESTINBOX_TOKEN=<pat> npx playwright t
   instance's pod owns it and the platform composes it at deploy) →
   running → HTTPS UI + `/api/heartbeat` → the default admin signs in
   over the API
-  ([ADR-0034](../../docs/adr/00034-first-run-contract.md) Am. 2 — the
-  login doubles as the bundled-database persistence witness) → pod
-  delete → the admin still signs in (the bundled DB's data rode the
-  PVC) → stop ($0.40/mo stopped — 10 GB storage now holds the data) →
-  start → the admin still signs in → destroy. Local only, like
+  ([ADR-0034](../../docs/adr/00034-first-run-contract.md) Am. 2) → a
+  run-unique website is created through the API (the persistence
+  witness — the default admin cannot witness survival: the first
+  migration re-seeds it on an empty database) → pod delete → the
+  witness website still answers (the bundled DB's data rode the PVC) →
+  stop ($0.40/mo stopped — 10 GB storage now holds the data) → start →
+  the witness website still answers → destroy. Local only, like
   backups.spec.ts (the restart leg kubectl-deletes the app pod);
   production stays read-only.
 - `docmost-lifecycle.spec.ts` — Docmost's lifecycle (#609): deploy

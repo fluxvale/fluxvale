@@ -133,11 +133,24 @@ defmodule UmamiBundledLocalProof do
     {login_status, _} = login(url)
     check(login_status == 200, "the first-run default admin signs in (got #{login_status})")
 
+    # The persistence witness is WRITTEN state, not the admin: the
+    # first migration re-seeds admin/umami on an empty database, so a
+    # wiped volume still signs in. A website created through the
+    # public API exists only in data that survives the legs.
+    marker = "persist-#{System.unique_integer([:positive])}"
+    token = login_token(url)
+    create_witness_website(url, token, marker)
+
     # --- RESTART leg: destroy the pod → data persists -----------------
     kubectl(["-n", namespace, "delete", "pod", "-l", "app.kubernetes.io/name=app"])
+    # The delete returns when the pod object is gone; readyReplicas
+    # can still read 1 for the dead pod on an immediate poll — wait
+    # out the 0 before waiting for the replacement.
+    await_replicas(namespace, 0, 60_000)
     await_pod_ready(namespace, 6 * 60_000)
     {restart_login, _} = login(url)
     check(restart_login == 200, "RESTART leg: the admin still signs in (got #{restart_login})")
+    witness_website(url, login_token(url), marker, "RESTART leg")
 
     # --- STOP leg: the platform's own action, storage-only ------------
     Ash.get!(Instance, instance.id, authorize?: false)
@@ -160,6 +173,7 @@ defmodule UmamiBundledLocalProof do
     await_pod_ready(namespace, 6 * 60_000)
     {started_login, _} = login(url)
     check(started_login == 200, "START leg: the admin still signs in (got #{started_login})")
+    witness_website(url, login_token(url), marker, "START leg")
 
     # --- teardown ------------------------------------------------------
     # The :delete ACTION (not the raw destroy): deployed rows flip to
@@ -374,8 +388,65 @@ defmodule UmamiBundledLocalProof do
     end
   end
 
-  # The persistence witness: the default admin signs in over the
-  # public API. A lost database answers 401.
+  # login/1's body-capturing sibling: the legs need the token to write
+  # and read the witness website through the public API.
+  defp login_token(url) do
+    {body, 0} =
+      System.cmd(
+        "curl",
+        curl_args(url, [
+          "-H",
+          "Content-Type: application/json",
+          "-d",
+          @default_admin,
+          "#{url}/api/auth/login"
+        ])
+      )
+
+    case Jason.decode(body) do
+      {:ok, %{"token" => token}} -> token
+      _ -> nil
+    end
+  end
+
+  # The persistence witness, written: the marker website only exists
+  # in data that survived the legs (the default admin row is re-seeded
+  # by the first migration on an empty database and witnesses nothing).
+  defp create_witness_website(url, token, marker) do
+    {body, 0} =
+      System.cmd(
+        "curl",
+        curl_args(url, [
+          "-H",
+          "authorization: Bearer #{token}",
+          "-H",
+          "Content-Type: application/json",
+          "-d",
+          Jason.encode!(%{name: marker, domain: "#{marker}.example"}),
+          "-X",
+          "POST",
+          "#{url}/api/websites"
+        ])
+      )
+
+    check(body =~ marker, "created the witness website #{marker} via the public API")
+  end
+
+  defp witness_website(url, token, marker, leg) do
+    {body, 0} =
+      System.cmd(
+        "curl",
+        curl_args(url, ["-H", "authorization: Bearer #{token}", "#{url}/api/websites"])
+      )
+
+    check(body =~ marker, "#{leg}: the witness website still answers — data rode the PVC")
+  end
+
+  # The first-run witness: upstream's default admin (the first-run
+  # contract) signs in through the public API — it proves the auth
+  # path and the bundled DB booted, NOT data survival (the first
+  # migration re-seeds this row on an empty database; the legs'
+  # persistence witness is the run-unique website).
   defp login(url) do
     args =
       curl_args(url, [

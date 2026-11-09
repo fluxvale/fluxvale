@@ -913,9 +913,9 @@
         events for each site, with funnels, journeys, retention,
         revenue, session replay, and heatmaps built in. Tracking sets
         no cookies and stores nothing on your visitors' devices. Umami
-        is MIT licensed. All data lives in PostgreSQL. New deployments
-        bundle the database inside the instance, so it rides the
-        instance volume and its backups. Sign in soon after deploying,
+        is MIT licensed. All data lives in PostgreSQL. The bundled row
+        keeps the database inside the instance, on the instance
+        volume. Sign in soon after deploying,
         because a fresh install answers to a default admin account.
       # The repo's apple-touch-icon is the self-contained mark (the
       # ActualBudget lesson): a black glyph on a solid white field, so
@@ -929,10 +929,10 @@
       # as the S1 retro-fill: facts promoted from the description and
       # the packaging decisions below — nothing invented. Alternatives
       # are names only. #612 S4: the copy covers BOTH version rows —
-      # new deployments bundle the database, the pinned 3.4.1 row
-      # connects one you run.
+      # the bundled row ships the database, the pinned 3.4.1 row
+      # connects one you bring.
       caveats:
-        - New deployments keep all data in a bundled PostgreSQL database on the instance volume. The older v3.4.1 packaging connects an external database you bring.
+        - The bundled row keeps all data in its bundled PostgreSQL database on the instance volume. The pinned v3.4.1 row connects an external database you bring.
         - A fresh install signs in with a default admin account. Change its password right after deploying.
         - Two-factor sign-in stays off unless its encryption key is set at deploy time.
       alternatives:

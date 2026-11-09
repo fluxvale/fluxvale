@@ -537,6 +537,27 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponentTest do
       assert has_element?(view, "[data-testid=backup-db-caveat]", "Stop the app")
     end
 
+    # The copy names the database, so the guard is kind-scoped: a
+    # redis-only bundle carries no database caveat (none ships today;
+    # the S1 validator allows the shape, and its data is cache-class —
+    # the plan scopes the caveat to DB entries).
+    test "a redis-only bundle carries no database caveat", %{
+      conn: conn,
+      user: user
+    } do
+      version =
+        InstanceFixtures.backing_version!(
+          backing_services: [%{"kind" => "redis", "version" => "8", "url_env" => "REDIS_URL"}]
+        )
+
+      instance = instance!(version, user)
+      setting!(instance)
+
+      {:ok, view, _html} = live(conn, ~p"/instances/#{instance.id}")
+
+      refute has_element?(view, "[data-testid=backup-db-caveat]")
+    end
+
     test "a non-bundling instance carries no database caveat", %{
       conn: conn,
       user: user,

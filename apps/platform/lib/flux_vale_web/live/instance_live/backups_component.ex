@@ -567,7 +567,7 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponent do
         is not a guaranteed-restorable database image. The honest tools
         are a stopped-instance snapshot or a logical dump. --%>
         <p
-          :if={@instance.backing_services != []}
+          :if={Enum.any?(@instance.backing_services, &(&1.kind == :postgres))}
           class="text-xs text-ink-subtle"
           data-testid="backup-db-caveat"
         >

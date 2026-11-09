@@ -180,19 +180,36 @@ test(
     });
     expect(websites.status()).toBe(200);
 
+    // The persistence witness is WRITTEN state, not the default admin:
+    // upstream's first migration re-seeds admin/umami on an empty
+    // database, so a sign-in passes even if the PVC data were lost
+    // (initdb re-runs, migrate re-seeds). A website created through
+    // the public API exists only in data that survives the legs.
+    const marker = `persist-${Date.now()}`;
+    const created = await request.post(new URL("api/websites", url!).toString(), {
+      headers: { authorization: `Bearer ${token}` },
+      data: { name: marker, domain: `${marker}.example` },
+    });
+    expect(created.status()).toBe(200);
+
     // --- RESTART LEG (#612 S4): destroy the pod → data persists ------
     // App and bundled database die together; the Deployment
     // reschedules; native-sidecar init ordering re-runs (the app
-    // cannot start until pg_isready passes); the admin row must still
-    // answer — the database rode the PVC under backing/.
+    // cannot start until pg_isready passes); the witness website must
+    // still answer — the database rode the PVC under backing/.
     const namespace = await ourNamespace(beforeNamespaces);
     await kubectl(["-n", namespace, "delete", "pod", "-l", "app.kubernetes.io/name=app"]);
+    // The delete returns when the pod OBJECT is gone; readyReplicas
+    // can still read 1 for the dead pod on an immediate poll — wait
+    // out the 0 before waiting for the replacement, or waitPodReady
+    // can return against the stale status.
+    await waitReadyReplicas(namespace, "0", 60_000);
     await waitPodReady(namespace, 6 * 60_000);
     const revivedHeartbeat = await request.get(
       new URL("api/heartbeat", url!).toString(),
     );
     expect(revivedHeartbeat.status()).toBe(200);
-    await loginAdmin(request, url!);
+    await expectWebsitePresent(request, await loginAdmin(request, url!), url!, marker);
 
     // --- STOP/START LEG (#612 S4): storage-only interlude → data
     // persists. Scale 0 kills the whole namespace's workloads; the PVC
@@ -206,11 +223,11 @@ test(
     );
 
     // … and back up: init ordering re-runs from a cold pair, and the
-    // admin still signs in across the interlude — the data survived a
-    // stopped-instance stretch in the bundled database.
+    // witness website still answers across the interlude — the data
+    // survived a stopped-instance stretch in the bundled database.
     await page.getByTestId("start-button").click();
     await waitForStatus(page, "Running", 6 * 60_000);
-    await loginAdmin(request, url!);
+    await expectWebsitePresent(request, await loginAdmin(request, url!), url!, marker);
 
     // Destroy: native confirm() dialog, teardown (async Oban) exits
     // the view to /instances where the fresh user's list is empty
@@ -222,11 +239,12 @@ test(
   },
 );
 
-// The persistence witness: upstream's default admin (the first-run
-// contract, ADR-0034 Am. 2) signs in through the public API. A lost
-// database answers 401 — the admin row lives in the bundled
-// PostgreSQL, so every leg above re-runs this. Returns the issued
-// token for callers that read further.
+// The first-run witness: upstream's default admin (the first-run
+// contract, ADR-0034 Am. 2) signs in through the public API — it
+// proves the auth path and the bundled DB booted, NOT data survival
+// (the first migration re-seeds this row on an empty database; the
+// legs' persistence witness is the run-unique website). Returns the
+// issued token for callers that read further.
 async function loginAdmin(
   request: import("@playwright/test").APIRequestContext,
   baseUrl: string,
@@ -238,6 +256,25 @@ async function loginAdmin(
   const session = (await login.json()) as { token: string; user: { role: string } };
   expect(session.user.role).toBe("admin");
   return session.token;
+}
+
+// True persistence witness: the run-unique website created before the
+// legs. Its row only exists in data that rode the PVC — the default
+// admin cannot witness this (re-seeded by the first migration on a
+// wiped volume). Shape-agnostic on purpose: the list endpoint's
+// paging wrapper differs across API minors, and the marker string can
+// only come from survived data.
+async function expectWebsitePresent(
+  request: import("@playwright/test").APIRequestContext,
+  token: string,
+  baseUrl: string,
+  marker: string,
+) {
+  const list = await request.get(new URL("api/websites", baseUrl).toString(), {
+    headers: { authorization: `Bearer ${token}` },
+  });
+  expect(list.status()).toBe(200);
+  expect(JSON.stringify(await list.json())).toContain(marker);
 }
 
 // fluxvale-app-* namespaces currently on the cluster (the before/after
@@ -272,6 +309,34 @@ async function ourNamespace(before: Set<string>): Promise<string> {
   expect(images).toContain("postgres");
 
   return namespace;
+}
+
+// Poll the Deployment's readyReplicas until it reads `want`. After a
+// pod delete the old pod's status can linger briefly — waitReadyReplicas
+// (namespace, "0") closes the window where waitPodReady would return
+// against the dead pod's stale "1".
+async function waitReadyReplicas(namespace: string, want: string, timeoutMs: number) {
+  const deadline = Date.now() + timeoutMs;
+
+  while (Date.now() < deadline) {
+    const ready = await kubectl(
+      [
+        "-n",
+        namespace,
+        "get",
+        "deploy",
+        "app",
+        "-o",
+        "jsonpath={.status.readyReplicas}",
+      ],
+      { bestEffort: true },
+    );
+
+    if (ready.trim() === want) return;
+    await new Promise((resolve) => setTimeout(resolve, 5_000));
+  }
+
+  throw new Error(`readyReplicas never read "${want}" in ${namespace} within ${timeoutMs}ms`);
 }
 
 // The pod is Ready again (post-delete reschedule). The page badge
