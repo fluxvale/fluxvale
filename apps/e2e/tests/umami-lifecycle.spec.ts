@@ -97,9 +97,13 @@ test(
     await page.locator("[data-testid^='deploy-']").first().click();
     await waitForLiveViewJoin(page);
     await page.getByTestId("version-option").first().check();
-    await expect(page.getByTestId("version-option").first()).toContainText(
-      "3.4.1-bundled",
-    );
+    // The version text rides the wrapping <label> — an input carries
+    // no text, so toContainText on the radio itself can only read ""
+    // (found the hard way: this spec's first CI run was its first
+    // execution anywhere; every locator here is now markup-verified).
+    await expect(
+      page.locator("label:has(> input[data-testid='version-option'])").first(),
+    ).toContainText("3.4.1-bundled");
     await page.getByTestId("continue-version").click();
     await page.locator("#bundled-env-note").waitFor();
     await expect(page.getByTestId("bundled-env-note")).toContainText(
