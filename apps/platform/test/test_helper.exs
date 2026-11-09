@@ -77,6 +77,10 @@ if Mix.env() == :test do
   # The verify pass's failure tally (review round 1): a test must be able
   # to force a transition-write failure at the AccessDomain seam.
   Mimic.copy(FluxVale.Infrastructure.AccessDomain)
+  # #250 S4: the request form's unexpected-failure arm ({:error, :boom})
+  # has no real action shape a test can stage — the create seam answers
+  # it without a backdoor.
+  Mimic.copy(FluxVale.Infrastructure.StorageRequest)
   # ADR-0040 S4: the resolution plane. Flip-operation tests stub the
   # renderer's call (asserting the after-commit hook); the renderer's
   # own tests stub the cluster reads (pods) and the ConfigMap write.
