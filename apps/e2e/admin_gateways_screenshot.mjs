@@ -115,6 +115,20 @@ async function newSession(sessionToken) {
     );
   }
 
+  // The bounce check: a 200 also renders for a refused token, so the
+  // admin page itself is the verifier (the data-tables script's
+  // posture — a mystery sign-in three steps later hides the cause).
+  await page.goto(`${BASE}/admin/gateways`, { waitUntil: "networkidle" });
+
+  if (page.url().includes("/sign-in")) {
+    throw new Error(
+      "session POST answered 2xx but the session did not authenticate — " +
+        "the admin page bounced to /sign-in. Is the seed's token minted " +
+        "for an account that still exists, and did the env export reach " +
+        "this run?"
+    );
+  }
+
   return { ctx, page };
 }
 

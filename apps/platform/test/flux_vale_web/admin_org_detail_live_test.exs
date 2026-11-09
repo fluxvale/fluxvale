@@ -316,6 +316,23 @@ defmodule FluxValeWeb.AdminOrgDetailLiveTest do
                "1 to 25 of 26"
              )
 
+      # A column sort swaps the caption honestly: "Newest first" names
+      # the default ordering only, the sorted copy names the sort
+      # (CodeRabbit, #643). The status/desc pair exercises the
+      # remaining label and direction arms (codecov, #643).
+      {:ok, sorted_view, _sorted_html} = live(conn, "/admin/orgs/#{org.id}?sort=name&dir=asc")
+      sorted_html = render(sorted_view)
+      assert sorted_html =~ "Sorted by name"
+      refute sorted_html =~ "Newest first"
+
+      {:ok, status_view, _status_html} = live(conn, "/admin/orgs/#{org.id}?sort=status&dir=desc")
+      assert render(status_view) =~ "Sorted by status"
+
+      {:ok, created_view, _created_html} =
+        live(conn, "/admin/orgs/#{org.id}?sort=created_at&dir=asc")
+
+      assert render(created_view) =~ "Sorted by created date"
+
       assert has_element?(view, "[data-testid='admin-orgs-instance-#{newest.id}']")
       refute has_element?(view, "[data-testid='admin-orgs-instance-#{oldest.id}']")
 

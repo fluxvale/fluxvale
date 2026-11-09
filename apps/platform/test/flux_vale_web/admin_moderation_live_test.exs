@@ -1030,6 +1030,35 @@ defmodule FluxValeWeb.AdminModerationLiveTest do
       assert has_element?(view, "[data-testid='admin-moderation-tags-list-count']")
     end
 
+    test "a tags table move closes the open tag confirm and the rename panel", %{
+      conn: conn
+    } do
+      # The posts handlers' close_expansion rule, for the tag panels:
+      # a list move re-renders the table the panels no longer sit
+      # against, so they close rather than re-rendering stale
+      # (CodeRabbit, #643). A USED tag (a used tag confirms, an unused
+      # one deletes in a click — the surface's own rule).
+      tag =
+        Tag
+        |> Ash.Changeset.for_create(:create, %{name: "panel-close-#{@n}"}, authorize?: false)
+        |> Ash.create!()
+
+      post = FeedbackFixtures.post!()
+      FeedbackFixtures.tag_post!(post, [tag])
+
+      {:ok, view, _html} = live(conn, "/admin/moderation")
+
+      view
+      |> element("[data-testid='admin-moderation-tag-delete-#{tag.id}']")
+      |> render_click()
+
+      assert has_element?(view, "[data-testid='destructive-confirm']")
+
+      render_click(view, "sort-tags", %{"field" => "name"})
+
+      refute has_element?(view, "[data-testid='destructive-confirm']")
+    end
+
     test "the create form derives the slug from the name when the slug is blank", %{conn: conn} do
       {:ok, view, _html} = live(conn, "/admin/moderation")
 

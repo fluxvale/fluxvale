@@ -190,7 +190,11 @@ defmodule FluxValeWeb.AdminLive.Moderation do
   def handle_event("sort-tags", %{"field" => raw_field}, socket) do
     sort = AdminDataTable.toggle_sort(socket.assigns.tag_state.sort, raw_field, @sortable_tags)
     tag_state = %{socket.assigns.tag_state | sort: sort, page: 1}
-    tagged = assign(socket, tag_state: tag_state)
+
+    tagged =
+      socket
+      |> clear_tag_panels()
+      |> assign(tag_state: tag_state)
 
     {:noreply, refresh_tags(tagged)}
   end
@@ -202,7 +206,11 @@ defmodule FluxValeWeb.AdminLive.Moderation do
   def handle_event("page-tags", %{"nav" => "prev"}, socket) do
     if socket.assigns.tag_state.page > 1 do
       tag_state = %{socket.assigns.tag_state | page: socket.assigns.tag_state.page - 1}
-      tagged = assign(socket, tag_state: tag_state)
+
+      tagged =
+        socket
+        |> clear_tag_panels()
+        |> assign(tag_state: tag_state)
 
       {:noreply, refresh_tags(tagged)}
     else
@@ -212,7 +220,11 @@ defmodule FluxValeWeb.AdminLive.Moderation do
 
   def handle_event("page-tags", %{"nav" => "next"}, socket) do
     tag_state = %{socket.assigns.tag_state | page: socket.assigns.tag_state.page + 1}
-    tagged = assign(socket, tag_state: tag_state)
+
+    tagged =
+      socket
+      |> clear_tag_panels()
+      |> assign(tag_state: tag_state)
 
     {:noreply, refresh_tags(tagged)}
   end
@@ -222,7 +234,11 @@ defmodule FluxValeWeb.AdminLive.Moderation do
   def handle_event("size-tags", %{"size" => raw}, socket) do
     size = AdminDataTable.parse_size(raw)
     tag_state = %{socket.assigns.tag_state | size: size, page: 1}
-    tagged = assign(socket, tag_state: tag_state)
+
+    tagged =
+      socket
+      |> clear_tag_panels()
+      |> assign(tag_state: tag_state)
 
     {:noreply, refresh_tags(tagged)}
   end
@@ -871,6 +887,14 @@ defmodule FluxValeWeb.AdminLive.Moderation do
 
   # The vocabulary's page: name-sorted (the toggle rides session
   # state, see mount), one honest count, one server-driven page.
+  # The tags table's own stale-panel rule (the posts handlers'
+  # close_expansion, for the tag panels): a list move closes the open
+  # confirm and the rename form rather than re-rendering them against
+  # a moved table (CodeRabbit, #643).
+  defp clear_tag_panels(socket) do
+    assign(socket, confirm: nil, tag_rename_id: nil, tag_rename_form: nil, tag_rename_tag: nil)
+  end
+
   defp refresh_tags(socket) do
     admin = socket.assigns.current_user
     state = socket.assigns.tag_state

@@ -11,6 +11,8 @@ defmodule FluxValeWeb.AdminComponents do
 
   use FluxValeWeb, :html
 
+  alias FluxValeWeb.Components.AdminDataTable
+
   @doc """
   The destroy clock's deadline string: the anchor plus 30 days, the
   sweep's own constant (SweepZeroBalance's @destroy_after_days). One
@@ -209,4 +211,18 @@ defmodule FluxValeWeb.AdminComponents do
   defp domain_state_label(:needs_attention), do: gettext("Needs attention")
   defp domain_state_label(:failed), do: gettext("Failed")
   defp domain_state_label(:suspended), do: gettext("Suspended")
+
+  @doc """
+  The #606 shared table chrome seam, kept public for surfaces the
+  DataTable has not adopted yet (the resources console's surfaces and
+  storage requests ride it directly). The DataTable now OWNS the
+  strings (its header_row_class/body_row_class internals, #643);
+  these delegate so the two can never drift — the same
+  one-definition rule that birthed the seam.
+  """
+  @spec admin_table_header_class() :: String.t()
+  def admin_table_header_class, do: AdminDataTable.header_row_class()
+
+  @spec admin_table_row_class() :: String.t()
+  def admin_table_row_class, do: AdminDataTable.body_row_class()
 end

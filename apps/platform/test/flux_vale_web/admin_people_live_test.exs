@@ -221,6 +221,40 @@ defmodule FluxValeWeb.AdminPeopleLiveTest do
       refute has_element?(view, "[data-testid='admin-people-email-#{outsider.id}']")
     end
 
+    test "a descending accepted_at sort keeps the never-accepted rows last", %{
+      conn: conn,
+      admin: admin
+    } do
+      # Postgres floats NULLs FIRST on DESC: without nils_last a
+      # newest-accepted sort buries the accepted rows under every
+      # pending invitation (CodeRabbit, #643).
+      {pending, _raw} = pending_invite!(admin, "nils-last-pending-#{@n}@fluxvale.com")
+      {accepted, _accepted_raw} = accepted_invite!(admin)
+
+      {:ok, view, _html} = live(conn, "/admin/people?sort=accepted_at&dir=desc")
+      html = render(view)
+
+      {pending_at, _pending_len} = :binary.match(html, "admin-people-email-#{pending.id}")
+
+      {accepted_at, _accepted_len} = :binary.match(html, "admin-people-email-#{accepted.id}")
+
+      assert accepted_at < pending_at
+
+      # The ascending arm of the stamp map (codecov, #643): same
+      # mapping, opposite direction — the accepted row leads when the
+      # sort runs asc and the pending row's NULL sorts last either way.
+      {:ok, asc_view, _asc_html} = live(conn, "/admin/people?sort=accepted_at&dir=asc")
+      asc_html = render(asc_view)
+
+      {asc_pending_at, _asc_pending_len} =
+        :binary.match(asc_html, "admin-people-email-#{pending.id}")
+
+      {asc_accepted_at, _asc_accepted_len} =
+        :binary.match(asc_html, "admin-people-email-#{accepted.id}")
+
+      assert asc_accepted_at < asc_pending_at
+    end
+
     test "search narrows this list by email and never reaches past it", %{
       conn: conn,
       admin: admin

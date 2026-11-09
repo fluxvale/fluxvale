@@ -73,10 +73,9 @@ defmodule FluxValeWeb.AdminLive.OrgDetail do
   def handle_params(params, _uri, socket) do
     state = AdminDataTable.parse_params(params, sortable: @sortable)
 
-    {:noreply,
-     socket
-     |> assign(table: state, columns: columns())
-     |> refresh_instances()}
+    assigned = assign(socket, table: state, columns: columns())
+
+    {:noreply, refresh_instances(assigned)}
   end
 
   # -- events ---------------------------------------------------------------
@@ -367,6 +366,29 @@ defmodule FluxValeWeb.AdminLive.OrgDetail do
 
   # The view state the component renders: the parsed params plus the
   # honest count and the surface's event names.
+  # The instances caption: the unsorted list is newest-first; under a
+  # column sort the caption names the sort so it cannot contradict the
+  # ordering the operator chose (CodeRabbit, #643).
+  defp sort_copy(nil) do
+    gettext(
+      "Newest first. The strip counts the instances on this page only. The instances' own pages live in the product surfaces."
+    )
+  end
+
+  defp sort_copy({field, dir}) do
+    label = sortable_label(field)
+    direction = if dir == :asc, do: gettext("ascending"), else: gettext("descending")
+
+    gettext("Sorted by %{label}, %{direction}. The strip counts the instances on this page only.",
+      label: label,
+      direction: direction
+    )
+  end
+
+  defp sortable_label(:name), do: gettext("name")
+  defp sortable_label(:status), do: gettext("status")
+  defp sortable_label(:created_at), do: gettext("created date")
+
   defp table_meta(state) do
     %{
       query: state.query,
@@ -497,15 +519,15 @@ defmodule FluxValeWeb.AdminLive.OrgDetail do
               <div class="space-y-4" data-testid="admin-orgs-detail-instances">
                 <h2 class="text-base font-medium text-ink">{gettext("Instances")}</h2>
 
-                <%!-- "Newest first" describes a list: it says nothing in
-                the states with no list. --%>
+                <%!-- "Newest first" describes the unsorted list: under a
+                column sort the copy names the sort instead (a header
+                click re-orders, the caption must not contradict it).
+                It says nothing in the states with no list. --%>
                 <p
                   :if={@instances_state == :ok}
                   class="text-sm text-ink-muted"
                 >
-                  {gettext(
-                    "Newest first. The strip counts the instances on this page only. The instances' own pages live in the product surfaces."
-                  )}
+                  {sort_copy(@table.sort)}
                 </p>
 
                 <div

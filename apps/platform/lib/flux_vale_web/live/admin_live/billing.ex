@@ -192,6 +192,14 @@ defmodule FluxValeWeb.AdminLive.Billing do
   end
 
   # Whitelisted atoms only — the param path never builds a sort term.
+  # NULLS LAST on the descending nullable stamp: Postgres puts NULLs
+  # FIRST on DESC, which would float the never-negative rows above the
+  # destroy-clock rows the operator sorted to see (CodeRabbit, #643).
+  defp apply_sort(query, {field, dir})
+       when field == :negative_since and dir == :desc do
+    Ash.Query.sort(query, negative_since: :desc_nils_last, id: :desc)
+  end
+
   defp apply_sort(query, {field, dir}) do
     Ash.Query.sort(query, [{field, dir}, {:id, :desc}])
   end

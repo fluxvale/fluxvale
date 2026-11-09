@@ -335,6 +335,25 @@ defmodule FluxValeWeb.AdminBillingLiveTest do
   end
 
   describe "the table controls" do
+    test "a descending negative_since sort keeps the never-negative rows last, not first", %{
+      conn: conn
+    } do
+      # Postgres floats NULLs FIRST on DESC: without nils_last the
+      # destroy-clock sort buries the clocked rows under every healthy
+      # wallet — the exact rows the operator sorted to see.
+      {_plain_org, plain} = org_wallet!(name: "healthy co")
+      {_neg_org, neg} = negative_wallet!(name: "clocked co")
+
+      {:ok, view, _html} = live(conn, "/admin/billing?sort=negative_since&dir=desc")
+      html = render(view)
+
+      {plain_at, _plain_len} = :binary.match(html, "admin-billing-org-#{plain.id}")
+
+      {neg_at, _neg_len} = :binary.match(html, "admin-billing-org-#{neg.id}")
+
+      assert neg_at < plain_at
+    end
+
     test "the wallet table executes every control: sort asc then desc, prev, every size, and the deep-link clamp",
          %{conn: conn} do
       for n <- 1..26 do

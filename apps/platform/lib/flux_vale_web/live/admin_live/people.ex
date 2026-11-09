@@ -438,7 +438,28 @@ defmodule FluxValeWeb.AdminLive.People do
   # between reads without it.
   defp apply_sort(query, nil), do: Ash.Query.sort(query, invited_at: :desc, id: :desc)
 
-  # Whitelisted atoms only — the param path never builds a sort term.
+  # The column sort names map to the resource's real stamp attributes
+  # (invite_expires_at and friends — the #520 names): the sortable
+  # atoms are the table's vocabulary, the sort needs the field. NULLS
+  # LAST on the descending nullable stamps: Postgres floats NULLs
+  # first on DESC, which would bury the rows that actually carry the
+  # date the operator sorted by (CodeRabbit, #643).
+  @stamp_fields %{
+    expires_at: :invite_expires_at,
+    accepted_at: :invite_accepted_at,
+    withdrawn_at: :invite_withdrawn_at
+  }
+
+  defp apply_sort(query, {field, :desc}) when is_map_key(@stamp_fields, field) do
+    attribute = Map.fetch!(@stamp_fields, field)
+    Ash.Query.sort(query, [{attribute, :desc_nils_last}, {:id, :desc}])
+  end
+
+  defp apply_sort(query, {field, dir}) when is_map_key(@stamp_fields, field) do
+    attribute = Map.fetch!(@stamp_fields, field)
+    Ash.Query.sort(query, [{attribute, dir}, {:id, :desc}])
+  end
+
   defp apply_sort(query, {field, dir}) do
     Ash.Query.sort(query, [{field, dir}, {:id, :desc}])
   end
