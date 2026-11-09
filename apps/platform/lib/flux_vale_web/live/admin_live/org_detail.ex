@@ -1,18 +1,22 @@
 defmodule FluxValeWeb.AdminLive.OrgDetail do
   @moduledoc """
-  One org's operator view (#501): the wallet state and the org's
-  instances, each rendered exactly as far as its read policy admits.
+  One org's operator view (#501): the wallet state, the org's
+  instances, and the org's domains (#613's org-scoped read, carried by
+  ADR-0047's blanket bypass).
 
   Read-only by design (the v1 plan reserved this section's writes).
-  The org identity rides the flagged `:admin_lookup` seam (three
-  public fields — the wallets lane's read), the wallet rides the read
-  policy's platform-admin arm, and the instances ride
-  `:list_for_organization` behind a membership probe: the read
-  policies are members-only filters, so the probe (a Membership read
-  with the actor attached) is what lets the page tell "nothing
-  deployed" apart from "not yours to see". A non-member admin gets the
-  honest scope note where the instance table would be — the page
-  states what it can see, never silently less.
+  The org identity rides the shared `:admin_lookup` seam (the
+  switcher's public fields), the wallet rides the wallet read's
+  platform-admin arm, and the instances and domains ride their
+  org-scoped reads directly: the bypass admits the platform-admin
+  actor regardless of membership, so every admin reads every org —
+  the membership probe this page used to gate the instance table is
+  gone with the member-scoped honesty it carried.
+
+  The domains card closes #613's named gap: `MintDefaultHostname`
+  mints a platform domain row for every instance create, so orgs that
+  never enabled private access, and orgs past gateway teardown, hold
+  domain rows this page now shows.
 
   The instances list caps at the latest 100 (the lane's cap rationale,
   the orgs surface's trigger). No writes anywhere on the surface.
@@ -20,20 +24,17 @@ defmodule FluxValeWeb.AdminLive.OrgDetail do
 
   use FluxValeWeb, :live_view
 
-  alias FluxVale.Accounts.Membership
   alias FluxVale.Accounts.Organization
   alias FluxVale.Billing.Wallet
+  alias FluxVale.Infrastructure.AccessDomain
   alias FluxVale.Infrastructure.Instance
   alias FluxValeWeb.AdminComponents
   alias FluxValeWeb.AdminShell
   alias FluxValeWeb.BillingComponents
 
-  require Ash.Query
-  require Ash.Expr
-
-  # The instances list cap (the moduledoc names it; move the two
-  # together): the same rationale as the orgs surface's cap. Revisit
-  # trigger: pagination once a single org approaches the cap.
+  # The instances/domains list cap (the moduledoc names it; move the
+  # two together): the same rationale as the orgs surface's cap.
+  # Revisit trigger: pagination once a single org approaches the cap.
   @list_cap 100
 
   @impl Phoenix.LiveView
@@ -43,7 +44,8 @@ defmodule FluxValeWeb.AdminLive.OrgDetail do
     with {:ok, org_id} <- cast_uuid(raw_id),
          {:ok, [org]} <- org_lookup(admin, org_id) do
       wallet = wallet_read(admin, org_id)
-      {instances_state, instances, capped?} = instances_page(admin, org_id)
+      {instances, instances_capped?} = instances_page(admin, org_id)
+      {domains, domains_capped?} = domains_page(admin, org_id)
 
       # Live truth (the dashboard's posture, #74): every status-writing
       # action broadcasts on instances:<id>, and the strip and rows
@@ -52,20 +54,22 @@ defmodule FluxValeWeb.AdminLive.OrgDetail do
       # SHOWN page (the capped copy beside the strip names the cap, so
       # the numbers never read as org totals).
       instances_index = Map.new(instances, fn instance -> {instance.id, instance.status} end)
-      subscribe_to_instances(instances_state, instances)
+      subscribe_to_instances(instances)
 
       {:ok,
        socket
        |> assign(
          org: org,
          wallet: wallet,
-         instances_state: instances_state,
-         instances_capped?: capped?,
+         instances_capped?: instances_capped?,
          instances_empty?: instances == [],
          instances_index: instances_index,
-         strip: strip_counts(instances_index)
+         strip: strip_counts(instances_index),
+         domains_capped?: domains_capped?,
+         domains_empty?: domains == []
        )
-       |> stream(:instances, instances)}
+       |> stream(:instances, instances)
+       |> stream(:domains, domains)}
     else
       # A malformed param (the cast) or a lookup that answers nothing:
       # one arm, one answer — back to the list with the flash.
@@ -112,15 +116,12 @@ defmodule FluxValeWeb.AdminLive.OrgDetail do
   end
 
   # Per-instance subscribe over the loaded page (instance_live/show's
-  # pattern): only where a table exists to keep live. The hidden state
-  # has nothing to follow.
-  defp subscribe_to_instances(:ok, instances) do
+  # pattern): only where a table exists to keep live.
+  defp subscribe_to_instances(instances) do
     Enum.each(instances, fn instance ->
       Phoenix.PubSub.subscribe(FluxVale.PubSub, "instances:#{instance.id}")
     end)
   end
-
-  defp subscribe_to_instances(_hidden, _instances), do: :ok
 
   # One index, one recount — and the empty state follows the index:
   # a destroy that empties the page must land on the empty inset, not
@@ -143,7 +144,7 @@ defmodule FluxValeWeb.AdminLive.OrgDetail do
     end
   end
 
-  # The flagged seam (#501): one id in, the switcher's public fields
+  # The shared seam (#501): one id in, the switcher's public fields
   # out. An unknown org answers an empty list — the with's match arm.
   defp org_lookup(admin, org_id) do
     Organization
@@ -165,42 +166,39 @@ defmodule FluxValeWeb.AdminLive.OrgDetail do
     end
   end
 
-  # The instances ride the org-scoped read — but WHO may read them is
-  # not answerable from the read alone: the read policy's
-  # relates_to_actor_via is a filter check, so a non-member admin's
-  # read succeeds with an empty list, indistinguishable from "nothing
-  # deployed". The honest scope decision rides the membership probe
-  # (the same members-only filter, one row in or none), and only a
-  # member admin's read runs. Capped one past the cap so the overflow
-  # question answers without a count.
+  # The instances ride the org-scoped read directly: the blanket
+  # bypass (ADR-0047) admits the platform-admin actor regardless of
+  # membership, so the membership probe that used to gate this read —
+  # and the "not yours to see" note it fed — is gone. Capped one past
+  # the cap so the overflow question answers without a count.
   defp instances_page(admin, org_id) do
-    if org_member?(admin, org_id) do
-      fetched =
-        Instance
-        |> Ash.Query.for_read(:list_for_organization, %{organization_id: org_id}, actor: admin)
-        |> Ash.Query.sort(created_at: :desc, id: :desc)
-        |> Ash.Query.limit(@list_cap + 1)
-        |> Ash.Query.load(app_version: :app)
-        |> Ash.read!()
+    fetched =
+      Instance
+      |> Ash.Query.for_read(:list_for_organization, %{organization_id: org_id}, actor: admin)
+      |> Ash.Query.sort(created_at: :desc, id: :desc)
+      |> Ash.Query.limit(@list_cap + 1)
+      |> Ash.Query.load(app_version: :app)
+      |> Ash.read!()
 
-      capped? = length(fetched) > @list_cap
-      {:ok, Enum.take(fetched, @list_cap), capped?}
-    else
-      {:hidden, [], false}
-    end
+    capped? = length(fetched) > @list_cap
+    {Enum.take(fetched, @list_cap), capped?}
   end
 
-  # The membership probe: the Membership read policy is members-only
-  # with the same relates_to_actor_via filter, so a non-member admin's
-  # read answers [] — the policy's own "you are not inside" answer.
-  # No new action, no widened policy: the probe rides the member read
-  # exactly as the instance table does.
-  defp org_member?(admin, org_id) do
-    Membership
-    |> Ash.Query.for_read(:read, %{}, actor: admin)
-    |> Ash.Query.filter(organization_id == ^org_id and user_id == ^admin.id)
-    |> Ash.read!()
-    |> Enum.any?()
+  # The org's domains (#613's org-scoped read, admitted by the same
+  # bypass): the same `:list_for_org` the gateway detail rides, here
+  # on the org's own page — the platform row every instance create
+  # mints renders even for orgs that never enabled private access.
+  # Capped one past the cap, the instances' shape.
+  defp domains_page(admin, org_id) do
+    fetched =
+      AccessDomain
+      |> Ash.Query.for_read(:list_for_org, %{organization_id: org_id}, actor: admin)
+      |> Ash.Query.sort(registered_at: :desc, id: :desc)
+      |> Ash.Query.limit(@list_cap + 1)
+      |> Ash.read!()
+
+    capped? = length(fetched) > @list_cap
+    {Enum.take(fetched, @list_cap), capped?}
   end
 
   # The strip's counts read the index of the SHOWN page. "other" is
@@ -223,6 +221,12 @@ defmodule FluxValeWeb.AdminLive.OrgDetail do
       other: total - running - stopped - sleeping
     }
   end
+
+  # The domain kinds (the gateway detail's grammar): the platform row
+  # is system-minted (the instance create path, ADR-0040), the custom
+  # row is the owner's registration.
+  defp kind_label(:platform), do: gettext("Platform")
+  defp kind_label(:custom), do: gettext("Custom")
 
   # Reached only under the wallet_since guard in the template.
   defp stamp_text(stamp), do: Calendar.strftime(stamp, "%b %d, %Y")
@@ -251,7 +255,7 @@ defmodule FluxValeWeb.AdminLive.OrgDetail do
               <p class="mt-1 font-mono text-sm text-ink-muted">{@org.slug}</p>
               <p class="mt-2 max-w-prose text-base text-ink-muted">
                 {gettext(
-                  "The org's wallet state and its instances. Instances render only as far as the read policy admits."
+                  "This org's wallet state, instances, and domains. The console reads every org, so a page like this one answers for any of them."
                 )}
               </p>
               <div class="mt-4">
@@ -337,49 +341,36 @@ defmodule FluxValeWeb.AdminLive.OrgDetail do
                 </div>
               </.card>
 
-              <%!-- The instances, exactly as far as the members-only read
-              policy admits: a member admin sees the strip and the
-              table, a non-member admin sees the scope note. --%>
+              <%!-- The instances, cross-org under the blanket bypass
+              (ADR-0047): every admin reads every org's list — the
+              membership probe and its scope note are gone with the
+              member-scoped read they described. --%>
               <div class="space-y-4" data-testid="admin-orgs-detail-instances">
                 <h2 class="text-base font-medium text-ink">{gettext("Instances")}</h2>
 
                 <%!-- "Newest first" describes a list: it says nothing in
                 the states with no list. --%>
                 <p
-                  :if={@instances_state == :ok}
+                  :if={not @instances_empty?}
                   class="text-sm text-ink-muted"
                 >
                   {gettext("Newest first. The instances' own pages live in the product surfaces.")}
                 </p>
 
-                <div
-                  :if={@instances_state == :hidden}
-                  class="rounded-panel border border-line bg-panel px-6 py-8"
-                  data-testid="admin-orgs-instances-hidden"
-                >
-                  <p class="text-sm font-medium text-ink">
-                    {gettext("You are not a member of this org.")}
-                  </p>
-                  <p class="mt-1 text-sm text-ink-muted">
-                    {gettext("Instances are readable by org members only, so none are listed here.")}
-                  </p>
+                <div :if={@instances_empty?} data-testid="admin-orgs-instances-empty">
+                  <%!-- The moderation inset (the one grammar). --%>
+                  <div class="rounded-panel border border-line bg-panel px-6 py-8">
+                    <.empty_state
+                      title={gettext("No instances yet.")}
+                      class="border-none bg-transparent"
+                    >
+                      {gettext("Nothing has been deployed from this org.")}
+                    </.empty_state>
+                  </div>
                 </div>
 
-                <%= if @instances_state == :ok do %>
-                  <div :if={@instances_empty?} data-testid="admin-orgs-instances-empty">
-                    <%!-- The moderation inset (the one grammar). --%>
-                    <div class="rounded-panel border border-line bg-panel px-6 py-8">
-                      <.empty_state
-                        title={gettext("No instances yet.")}
-                        class="border-none bg-transparent"
-                      >
-                        {gettext("Nothing has been deployed from this org.")}
-                      </.empty_state>
-                    </div>
-                  </div>
-
-                  <div :if={not @instances_empty?} class="space-y-3">
-                    <%!-- The lifecycle strip: the counts read the SHOWN
+                <div :if={not @instances_empty?} class="space-y-3">
+                  <%!-- The lifecycle strip: the counts read the SHOWN
                     page (the capped copy beside them names the cap).
                     The chips carry the design system's dot cues, the
                     SAME per-state treatment the row badges use
@@ -391,56 +382,56 @@ defmodule FluxValeWeb.AdminLive.OrgDetail do
                     motion claim. Sleep is a resting state, not a
                     failure — the note says what waking costs and when
                     it happens (ADR-0036). --%>
-                    <div
-                      class="flex flex-wrap items-center gap-2"
-                      data-testid="admin-orgs-status-strip"
-                    >
-                      <span class="inline-flex items-center gap-1.5 rounded-full border border-line-success bg-success-muted px-2.5 py-0.5 text-xs font-medium text-success">
-                        <span class="size-1.5 rounded-full bg-current" />
-                        <span data-testid="admin-orgs-strip-running">
-                          {gettext("%{count} running", count: @strip.running)}
-                        </span>
+                  <div
+                    class="flex flex-wrap items-center gap-2"
+                    data-testid="admin-orgs-status-strip"
+                  >
+                    <span class="inline-flex items-center gap-1.5 rounded-full border border-line-success bg-success-muted px-2.5 py-0.5 text-xs font-medium text-success">
+                      <span class="size-1.5 rounded-full bg-current" />
+                      <span data-testid="admin-orgs-strip-running">
+                        {gettext("%{count} running", count: @strip.running)}
                       </span>
-                      <span class="inline-flex items-center gap-1.5 rounded-full border border-line bg-panel-raised px-2.5 py-0.5 text-xs font-medium text-ink-muted">
-                        <span data-testid="admin-orgs-strip-stopped">
-                          {gettext("%{count} stopped", count: @strip.stopped)}
-                        </span>
+                    </span>
+                    <span class="inline-flex items-center gap-1.5 rounded-full border border-line bg-panel-raised px-2.5 py-0.5 text-xs font-medium text-ink-muted">
+                      <span data-testid="admin-orgs-strip-stopped">
+                        {gettext("%{count} stopped", count: @strip.stopped)}
                       </span>
-                      <span class="inline-flex items-center gap-1.5 rounded-full border border-line bg-primary-muted px-2.5 py-0.5 text-xs font-medium text-link">
-                        <span data-testid="admin-orgs-strip-sleeping">
-                          {gettext("%{count} sleeping", count: @strip.sleeping)}
-                        </span>
+                    </span>
+                    <span class="inline-flex items-center gap-1.5 rounded-full border border-line bg-primary-muted px-2.5 py-0.5 text-xs font-medium text-link">
+                      <span data-testid="admin-orgs-strip-sleeping">
+                        {gettext("%{count} sleeping", count: @strip.sleeping)}
                       </span>
-                      <span class="inline-flex items-center gap-1.5 rounded-full border border-line-warning bg-warning-muted px-2.5 py-0.5 text-xs font-medium text-warning">
-                        <span class="size-1.5 rounded-full bg-current" />
-                        <span data-testid="admin-orgs-strip-other">
-                          {gettext("%{count} other", count: @strip.other)}
-                        </span>
+                    </span>
+                    <span class="inline-flex items-center gap-1.5 rounded-full border border-line-warning bg-warning-muted px-2.5 py-0.5 text-xs font-medium text-warning">
+                      <span class="size-1.5 rounded-full bg-current" />
+                      <span data-testid="admin-orgs-strip-other">
+                        {gettext("%{count} other", count: @strip.other)}
                       </span>
-                    </div>
+                    </span>
+                  </div>
 
-                    <p
-                      :if={@strip.sleeping > 0}
-                      class="text-sm text-ink-muted"
-                      data-testid="admin-orgs-sleep-note"
-                    >
-                      {gettext(
-                        "Sleeping instances wake on the next visit and bill storage only while asleep."
-                      )}
-                    </p>
+                  <p
+                    :if={@strip.sleeping > 0}
+                    class="text-sm text-ink-muted"
+                    data-testid="admin-orgs-sleep-note"
+                  >
+                    {gettext(
+                      "Sleeping instances wake on the next visit and bill storage only while asleep."
+                    )}
+                  </p>
 
-                    <%!-- The count is the @list_cap above (kept literal here —
+                  <%!-- The count is the @list_cap above (kept literal here —
                     a module attribute reads as assigns inside HEEx); move the
                     two together. --%>
-                    <p
-                      :if={@instances_capped?}
-                      class="text-sm text-ink-muted"
-                      data-testid="admin-orgs-instances-capped"
-                    >
-                      {gettext("Showing the latest 100 instances.")}
-                    </p>
+                  <p
+                    :if={@instances_capped?}
+                    class="text-sm text-ink-muted"
+                    data-testid="admin-orgs-instances-capped"
+                  >
+                    {gettext("Showing the latest 100 instances.")}
+                  </p>
 
-                    <%!-- The md-band posture (the people surface's idiom):
+                  <%!-- The md-band posture (the people surface's idiom):
                     header and rows share one overflow-x-auto box, so a
                     narrow band scrolls INTERNALLY, never the page. The
                     floor on the inner box is the tracks' own sum: it
@@ -448,78 +439,172 @@ defmodule FluxValeWeb.AdminLive.OrgDetail do
                     before the scroll engages. The chrome around the
                     tracks is the shared helper (#602); the tracks stay
                     literal so Tailwind keeps emitting them. --%>
-                    <div class="overflow-x-auto" data-noscroll>
-                      <div class="min-w-[38rem]">
-                        <%!-- One grid template shared by the header and
+                  <div class="overflow-x-auto" data-noscroll>
+                    <div class="min-w-[38rem]">
+                      <%!-- One grid template shared by the header and
                         every row (kept literal in both spots), so the
                         columns can never drift. --%>
-                        <div class={[
-                          "grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_7.5rem_9.5rem_6.5rem]",
-                          AdminComponents.admin_table_header_class()
-                        ]}>
-                          <div class="truncate">{gettext("Instance")}</div>
-                          <div class="truncate">{gettext("App")}</div>
-                          <div class="truncate">{gettext("Status")}</div>
-                          <div class="truncate">{gettext("Allocation")}</div>
-                          <div class="truncate">{gettext("Created")}</div>
-                        </div>
+                      <div class={[
+                        "grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_7.5rem_9.5rem_6.5rem]",
+                        AdminComponents.admin_table_header_class()
+                      ]}>
+                        <div class="truncate">{gettext("Instance")}</div>
+                        <div class="truncate">{gettext("App")}</div>
+                        <div class="truncate">{gettext("Status")}</div>
+                        <div class="truncate">{gettext("Allocation")}</div>
+                        <div class="truncate">{gettext("Created")}</div>
+                      </div>
 
-                        <div id="admin-orgs-instances-table" phx-update="stream">
-                          <div
-                            :for={{dom_id, instance} <- @streams.instances}
-                            id={dom_id}
-                            class={[
-                              "grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_7.5rem_9.5rem_6.5rem]",
-                              AdminComponents.admin_table_row_class(),
-                              "border-b border-line last:border-0"
-                            ]}
-                          >
-                            <div class="min-w-0" data-testid={"admin-orgs-instance-#{instance.id}"}>
-                              <p class="truncate font-medium text-ink">{instance.name}</p>
-                              <p class="truncate font-mono text-xs text-ink-muted">
-                                {instance.slug}
-                              </p>
-                            </div>
-                            <div class="min-w-0" data-testid={"admin-orgs-app-#{instance.id}"}>
-                              <p class="truncate text-sm text-ink">
-                                {instance.app_version.app.name}
-                              </p>
-                              <p class="truncate font-mono text-xs text-ink-muted">
-                                v{instance.app_version.version}
-                              </p>
-                            </div>
-                            <div>
-                              <span data-testid={"admin-orgs-status-#{instance.id}"}>
-                                <.status_badge status={instance.status} />
-                              </span>
-                            </div>
-                            <div class="min-w-0">
-                              <%!-- Truncate, but never hide: the title
+                      <div id="admin-orgs-instances-table" phx-update="stream">
+                        <div
+                          :for={{dom_id, instance} <- @streams.instances}
+                          id={dom_id}
+                          class={[
+                            "grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_7.5rem_9.5rem_6.5rem]",
+                            AdminComponents.admin_table_row_class(),
+                            "border-b border-line last:border-0"
+                          ]}
+                        >
+                          <div class="min-w-0" data-testid={"admin-orgs-instance-#{instance.id}"}>
+                            <p class="truncate font-medium text-ink">{instance.name}</p>
+                            <p class="truncate font-mono text-xs text-ink-muted">
+                              {instance.slug}
+                            </p>
+                          </div>
+                          <div class="min-w-0" data-testid={"admin-orgs-app-#{instance.id}"}>
+                            <p class="truncate text-sm text-ink">
+                              {instance.app_version.app.name}
+                            </p>
+                            <p class="truncate font-mono text-xs text-ink-muted">
+                              v{instance.app_version.version}
+                            </p>
+                          </div>
+                          <div>
+                            <span data-testid={"admin-orgs-status-#{instance.id}"}>
+                              <.status_badge status={instance.status} />
+                            </span>
+                          </div>
+                          <div class="min-w-0">
+                            <%!-- Truncate, but never hide: the title
                             carries the full allocation the ellipsis
                             clips (a shorn "8 CPU · 65536 MB · 102…"
                             reads as a different instance). --%>
-                              <span
-                                class="block truncate text-xs text-ink-muted"
-                                title={AdminComponents.instance_allocation_text(instance)}
-                                data-testid={"admin-orgs-allocation-#{instance.id}"}
-                              >
-                                {AdminComponents.instance_allocation_text(instance)}
-                              </span>
-                            </div>
-                            <div>
-                              <span
-                                class="text-sm text-ink-muted"
-                                data-testid={"admin-orgs-created-#{instance.id}"}
-                              >
-                                {stamp_text(instance.created_at)}
-                              </span>
-                            </div>
+                            <span
+                              class="block truncate text-xs text-ink-muted"
+                              title={AdminComponents.instance_allocation_text(instance)}
+                              data-testid={"admin-orgs-allocation-#{instance.id}"}
+                            >
+                              {AdminComponents.instance_allocation_text(instance)}
+                            </span>
+                          </div>
+                          <div>
+                            <span
+                              class="text-sm text-ink-muted"
+                              data-testid={"admin-orgs-created-#{instance.id}"}
+                            >
+                              {stamp_text(instance.created_at)}
+                            </span>
                           </div>
                         </div>
                       </div>
                     </div>
                   </div>
-                <% end %>
+                </div>
+              </div>
+
+              <%!-- The org's domains (#613): the org-scoped read the
+              blanket bypass admits — the platform row every instance
+              create mints renders here even for orgs that never
+              enabled private access, the exact rows the gateway
+              detail's org-scoped-through-the-gateway view could not
+              answer for. The table grammar is the gateway detail's
+              (one idiom for the section). --%>
+              <div class="space-y-4" data-testid="admin-orgs-detail-domains">
+                <div>
+                  <h2 class="text-base font-medium text-ink">{gettext("Domains")}</h2>
+                  <p class="mt-1 max-w-prose text-sm text-ink-muted">
+                    {gettext(
+                      "The names this org serves its private instances under, including the platform row every instance create mints. Registration lives on the org's own surfaces."
+                    )}
+                  </p>
+                </div>
+
+                <p
+                  :if={@domains_capped?}
+                  class="text-sm text-ink-muted"
+                  data-testid="admin-orgs-domains-capped"
+                >
+                  {gettext("Showing the latest 100 domains.")}
+                </p>
+
+                <div
+                  :if={@domains_empty?}
+                  class="rounded-panel border border-line bg-panel px-4 py-3"
+                  data-testid="admin-orgs-domains-empty"
+                >
+                  <p class="text-sm font-medium text-ink">
+                    {gettext("No domains registered for this org yet.")}
+                  </p>
+                </div>
+
+                <div :if={not @domains_empty?} class="overflow-x-auto">
+                  <div class="min-w-[30rem]">
+                    <%!-- One grid template shared by the header and every
+                    row (kept literal in both spots), so the columns can
+                    never drift. --%>
+                    <div class="grid grid-cols-[minmax(0,1.6fr)_6.5rem_10rem_6.5rem] items-center gap-x-3 border-b border-line px-3 py-3 text-left text-xs font-medium tracking-wide text-ink-muted uppercase">
+                      <div>{gettext("Domain")}</div>
+                      <div>{gettext("Kind")}</div>
+                      <div>{gettext("State")}</div>
+                      <div>{gettext("Registered")}</div>
+                    </div>
+
+                    <div>
+                      <div id="admin-orgs-domains-table" phx-update="stream">
+                        <div
+                          :for={{dom_id, domain} <- @streams.domains}
+                          id={dom_id}
+                          class="grid grid-cols-[minmax(0,1.6fr)_6.5rem_10rem_6.5rem] items-center gap-x-3 border-b border-line px-3 py-3 transition-colors last:border-0 hover:bg-panel-raised/60"
+                        >
+                          <div class="min-w-0">
+                            <p
+                              class="truncate font-mono text-sm text-ink"
+                              data-testid={"admin-orgs-domain-name-#{domain.id}"}
+                            >
+                              {domain.domain}
+                            </p>
+                          </div>
+                          <div>
+                            <span
+                              class="text-sm text-ink-muted"
+                              data-testid={"admin-orgs-domain-kind-#{domain.id}"}
+                            >
+                              {kind_label(domain.kind)}
+                            </span>
+                          </div>
+                          <div>
+                            <span data-testid={"admin-orgs-domain-state-#{domain.id}"}>
+                              <%!-- The house badge size, no overrides — these
+                              pills carry Failed and must not read
+                              dinkier than their neighbors (the review's
+                              scale note). --%>
+                              <AdminComponents.domain_state_badge state={domain.state} />
+                            </span>
+                          </div>
+                          <div>
+                            <span
+                              :if={domain.registered_at}
+                              class="text-sm text-ink-muted"
+                              data-testid={"admin-orgs-domain-registered-#{domain.id}"}
+                            >
+                              {stamp_text(domain.registered_at)}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
           </div>

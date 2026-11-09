@@ -268,9 +268,11 @@ defmodule FluxValeWeb.AdminOrgsLiveTest do
     end
 
     test "the list is the wallet seam: an org without a wallet renders nowhere", %{conn: conn} do
-      # A team org that never touched billing has no wallet, and the
-      # org read policy is members-only — so there is no legal read
-      # that surfaces it. The page says as much in its scope copy.
+      # A team org that never touched billing has no wallet — the
+      # wallet spine is the surface's meaning (wallet state per org),
+      # so the row is out of this table's scope by curation, not
+      # policy: the org read itself admits admins cross-org since
+      # ADR-0047. The page says as much in its scope copy.
       _walletless_org =
         Organization.create!(
           %{

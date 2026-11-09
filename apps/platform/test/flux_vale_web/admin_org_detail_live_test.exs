@@ -1,12 +1,13 @@
 defmodule FluxValeWeb.AdminOrgDetailLiveTest do
   @moduledoc false
 
-  # The org detail surface (#501): the wallet summary and the org's
-  # instances, rendered exactly as far as each read policy admits. The
-  # scope arm is the point: a member admin sees the strip and the
-  # table, a non-member admin sees the honest scope note. The route
-  # gates ride the shared live_session's arms (the anonymous 302 and
-  # the non-admin 403, pinned once per surface).
+  # The org detail surface (#501): the wallet summary, the org's
+  # instances, and the org's domains (#613), all cross-org under
+  # ADR-0047's blanket bypass — the membership probe and its scope
+  # note are gone, and the domains card answers for orgs no gateway
+  # row stands for. The route gates ride the shared live_session's
+  # arms (the anonymous 302 and the non-admin 403, pinned once per
+  # surface).
 
   use FluxValeWeb.ConnCase, async: false
 
@@ -15,11 +16,14 @@ defmodule FluxValeWeb.AdminOrgDetailLiveTest do
   alias FluxVale.Accounts.Membership
   alias FluxVale.Billing
   alias FluxVale.Identity.User
+  alias FluxVale.Infrastructure.AccessDomain
   alias FluxVale.Infrastructure.Instance
   alias FluxVale.Infrastructure.Operations.InstanceK8s
   alias FluxVale.TestSupport.BillingFixtures
   alias FluxVale.TestSupport.InstanceFixtures
   alias FluxVale.TestSupport.SessionHelpers
+
+  require Ash.Query
 
   @n :erlang.unique_integer([:positive])
 
@@ -69,6 +73,62 @@ defmodule FluxValeWeb.AdminOrgDetailLiveTest do
     |> LazyHTML.from_fragment()
     |> LazyHTML.text()
     |> String.trim()
+  end
+
+  # The org's platform domain, system-minted through the system action
+  # (the instance-create path's seam), born :verified.
+  defp platform_domain!(org) do
+    AccessDomain.mint_platform!(
+      %{domain: "fluxvale.lvh.me", organization_id: org.id},
+      authorize?: false
+    )
+  end
+
+  # The org's platform row as the instance create minted it — the
+  # find-or-create shape, read back for the assertions.
+  defp platform_row!(org) do
+    AccessDomain
+    |> Ash.Query.filter(organization_id == ^org.id and kind == :platform)
+    |> Ash.read!(authorize?: false)
+    |> Enum.at(0)
+  end
+
+  # The custom rows ride Ash.Seed.seed! (the documented exception): the
+  # :register action's entitlement gates need a MEMBER actor, and the
+  # card's cross-org rendering — not the registration path — is what
+  # these tests pin. Non-pending states ride the mark_* funnels (the
+  # gateway detail suite's shape).
+  defp custom_domain!(org, state) do
+    row =
+      Ash.Seed.seed!(AccessDomain, %{
+        domain: "apps.orgdetail-#{System.unique_integer([:positive])}.com",
+        kind: :custom,
+        state: :pending,
+        organization_id: org.id
+      })
+
+    case state do
+      :pending ->
+        row
+
+      :verified ->
+        Ash.update!(row, %{cert_secret_ref: "cert-secret"},
+          action: :mark_verified,
+          authorize?: false
+        )
+
+      :failed ->
+        Ash.update!(row, %{}, action: :mark_failed, authorize?: false)
+
+      :needs_attention ->
+        verified =
+          Ash.update!(row, %{cert_secret_ref: "cert-secret"},
+            action: :mark_verified,
+            authorize?: false
+          )
+
+        Ash.update!(verified, %{}, action: :mark_needs_attention, authorize?: false)
+    end
   end
 
   describe "the instances, inside the read policy" do
@@ -275,7 +335,13 @@ defmodule FluxValeWeb.AdminOrgDetailLiveTest do
 
       assert has_element?(view, "[data-testid='admin-orgs-instances-empty']")
       refute has_element?(view, "[data-testid='admin-orgs-status-strip']")
-      refute has_element?(view, "[data-testid='admin-orgs-instances-hidden']")
+
+      # The member-scoping regression guard: if the read ever narrows
+      # again, the honest scope note's copy returns in place of the
+      # empty state — refute the copy, which CAN render, not a testid
+      # no template carries anymore.
+      refute render(view) =~ "not a member of this org"
+      refute render(view) =~ "readable by org members only"
     end
 
     test "the instances list caps at the latest 100 and says so", %{conn: conn, admin: admin} do
@@ -301,23 +367,119 @@ defmodule FluxValeWeb.AdminOrgDetailLiveTest do
     end
   end
 
-  describe "the instances, outside the read policy" do
-    test "a non-member admin gets the scope note, not a table and not a crash", %{conn: conn} do
-      # A funded org whose instances the admin cannot read: the admin
-      # is deliberately NOT a member here.
+  describe "the instances, outside the org" do
+    test "a non-member admin sees the org's instances — the blanket widened the read (#644)", %{
+      conn: conn
+    } do
+      # A funded org the admin is deliberately NOT a member of: the
+      # bypass admits the read regardless, so the table and the strip
+      # render where the scope note used to.
       {org, owner} = BillingFixtures.grant_free_org!()
       {:ok, _wallet} = Billing.ensure_wallet(org)
       {:ok, _grant} = Billing.grant_credits(org, 10_000, reason: :adjustment)
 
       version = InstanceFixtures.app_version!()
-      instance = InstanceFixtures.instance!(version, owner)
+      built = InstanceFixtures.instance!(version, owner)
+      instance = InstanceFixtures.walk_to!(built, :running)
 
       {:ok, view, _html} = live(conn, "/admin/orgs/#{org.id}")
 
-      assert has_element?(view, "[data-testid='admin-orgs-instances-hidden']")
-      assert has_element?(view, "[data-testid='admin-orgs-instances-hidden']", "not a member")
-      refute has_element?(view, "[data-testid='admin-orgs-instance-#{instance.id}']")
-      refute has_element?(view, "[data-testid='admin-orgs-status-strip']")
+      # The positive pin: the foreign org's row renders and the strip
+      # counts it — and if member-scoping ever regresses, the scope
+      # note's copy comes back in the table's place. The copy refutes
+      # are the guard; the old testid no longer exists anywhere.
+      assert has_element?(view, "[data-testid='admin-orgs-instance-#{instance.id}']")
+      assert has_element?(view, "[data-testid='admin-orgs-status-strip']")
+      assert text_of(view, "[data-testid='admin-orgs-strip-running']") == "1 running"
+      refute render(view) =~ "not a member of this org"
+      refute render(view) =~ "readable by org members only"
+    end
+  end
+
+  describe "the org's domains (#613)" do
+    test "render the platform row and the custom vocabulary, cross-org", %{conn: conn} do
+      # A funded org the admin is NOT a member of, with a live instance
+      # (the MintDefaultHostname shape: every instance create mints the
+      # org's platform domain row) and a registered custom domain —
+      # the exact rows the gateway-scoped view could not answer for.
+      {org, owner} = BillingFixtures.grant_free_org!()
+      {:ok, _wallet} = Billing.ensure_wallet(org)
+      {:ok, _grant} = Billing.grant_credits(org, 10_000, reason: :adjustment)
+
+      version = InstanceFixtures.app_version!()
+      InstanceFixtures.instance!(version, owner)
+
+      # The instance create already minted the platform row (the
+      # MintDefaultHostname find-or-create — the exact shape the card
+      # exists to show), so the test reads THAT row back rather than
+      # minting a second one.
+      platform = platform_row!(org)
+      custom = custom_domain!(org, :pending)
+
+      {:ok, view, _html} = live(conn, "/admin/orgs/#{org.id}")
+
+      assert has_element?(view, "[data-testid='admin-orgs-detail-domains']")
+
+      assert text_of(view, "[data-testid='admin-orgs-domain-kind-#{platform.id}']") ==
+               "Platform"
+
+      assert text_of(view, "[data-testid='admin-orgs-domain-kind-#{custom.id}']") == "Custom"
+
+      assert text_of(view, "[data-testid='admin-orgs-domain-state-#{platform.id}']") ==
+               "Verified"
+
+      assert text_of(view, "[data-testid='admin-orgs-domain-state-#{custom.id}']") == "Pending"
+
+      registered = Calendar.strftime(custom.registered_at, "%b %d, %Y")
+
+      assert text_of(view, "[data-testid='admin-orgs-domain-registered-#{custom.id}']") ==
+               registered
+    end
+
+    test "an org whose only domain is the minted platform row shows exactly that", %{
+      conn: conn
+    } do
+      # The never-enabled-private-access shape: no gateway row exists
+      # anywhere, and the platform domain is still the org's to show.
+      {org, _owner} = BillingFixtures.grant_free_org!()
+      platform = platform_domain!(org)
+
+      {:ok, view, _html} = live(conn, "/admin/orgs/#{org.id}")
+
+      assert has_element?(view, "[data-testid='admin-orgs-domain-name-#{platform.id}']")
+
+      assert has_element?(
+               view,
+               "[data-testid='admin-orgs-detail-domains']",
+               "including the platform row every instance create mints"
+             )
+    end
+
+    test "an org with no domain rows gets the honest empty state", %{conn: conn} do
+      {org, _owner} = BillingFixtures.grant_free_org!()
+
+      {:ok, view, _html} = live(conn, "/admin/orgs/#{org.id}")
+
+      assert has_element?(view, "[data-testid='admin-orgs-domains-empty']")
+      refute has_element?(view, "[data-testid^='admin-orgs-domain-name-']")
+    end
+
+    test "the domains list caps at the latest 100 and says so", %{conn: conn} do
+      {org, _owner} = BillingFixtures.grant_free_org!()
+
+      platform = platform_domain!(org)
+
+      for _n <- 1..100 do
+        custom_domain!(org, :pending)
+      end
+
+      newest = custom_domain!(org, :pending)
+
+      {:ok, view, _html} = live(conn, "/admin/orgs/#{org.id}")
+
+      assert has_element?(view, "[data-testid='admin-orgs-domains-capped']", "latest 100")
+      assert has_element?(view, "[data-testid='admin-orgs-domain-name-#{newest.id}']")
+      refute has_element?(view, "[data-testid='admin-orgs-domain-name-#{platform.id}']")
     end
   end
 

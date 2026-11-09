@@ -12,6 +12,7 @@ defmodule FluxValeWeb.AdminGatewaysLiveTest do
   use FluxValeWeb.ConnCase, async: true
   use Mimic
 
+  import Ecto.Query, only: [from: 2]
   import Phoenix.LiveViewTest
 
   alias FluxVale.Accounts.Membership
@@ -72,6 +73,16 @@ defmodule FluxValeWeb.AdminGatewaysLiveTest do
     |> LazyHTML.from_fragment()
     |> LazyHTML.text()
     |> String.trim()
+  end
+
+  # User carries no role-write action and Ash.Seed is create-only, so
+  # the demotion rides the data layer directly (tests own their
+  # preconditions; the per-event gate is what the test pins — the
+  # wallet surface's demote shape).
+  defp demote!(admin) do
+    query = from(u in "users", where: u.id == ^Ecto.UUID.dump!(admin.id))
+    {updated, nil} = FluxVale.Repo.update_all(query, set: [platform_role: "user"])
+    assert updated == 1
   end
 
   describe "the gateway table" do
@@ -366,6 +377,32 @@ defmodule FluxValeWeb.AdminGatewaysLiveTest do
       assert has_element?(view, "[data-testid='admin-gateways-capped']", "latest 100")
       assert has_element?(view, "[data-testid='admin-gateways-host-#{newest.id}']")
       refute has_element?(view, "[data-testid='admin-gateways-host-#{oldest.id}']")
+    end
+  end
+
+  describe "the per-event demotion seam (the AdminChrome hook)" do
+    test "a demoted admin's event is refused with the wallet surface's copy", %{
+      conn: conn,
+      admin: admin
+    } do
+      {_org, gateway} = gateway_for_admin!(admin, state: :active)
+
+      {:ok, view, _html} = live(conn, "/admin/gateways")
+
+      demote!(admin)
+
+      # The READ window stays (the mounted DOM is stale until the next
+      # interaction — ADR-0047 D4), and the FIRST interaction is where
+      # the shared hook answers: every event re-resolves the actor.
+      html = render_change(view, "search", %{"search" => %{"query" => "zzz-no-such"}})
+
+      assert html =~ "Your admin access ended. Sign out and sign back in."
+
+      # The halt landed BEFORE the surface's own handler: the list
+      # keeps its mounted rows, and the search's no-match state never
+      # rendered.
+      assert has_element?(view, "[data-testid='admin-gateways-host-#{gateway.id}']")
+      refute has_element?(view, "[data-testid='admin-gateways-search-empty']")
     end
   end
 

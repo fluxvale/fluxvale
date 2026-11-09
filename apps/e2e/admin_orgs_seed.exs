@@ -4,9 +4,9 @@
 # negative org anchored on the destroy clock, a member org with three
 # instances (running / sleeping / stopped) for the detail capture, an
 # untouched member org (the instances' empty state), a non-member org
-# with an instance (the honest scope note), and a wallet-less org (the
-# no-wallet note). Prints the admin session token and every org id the
-# capture script needs.
+# with an instance (the cross-org org detail, since the #644 blanket
+# bypass), and a wallet-less org (the no-wallet note). Prints the
+# admin session token and every org id the capture script needs.
 #
 # Run from apps/platform: mix run ../e2e/admin_orgs_seed.exs
 
@@ -223,8 +223,9 @@ stopped = instance!.("Old Wiki")
 {empty_org, _empty_wallet} = org!.("Quiet Org")
 member!.(empty_org)
 
-# 5. Non-member org WITH an instance: the honest scope note. The
-# instance belongs to a stranger the admin is not.
+# 5. Non-member org WITH an instance: the cross-org org detail. The
+# instance belongs to a stranger the admin is not, and the blanket
+# bypass admits the read anyway (#644).
 {hidden_org, hidden_wallet} = org!.("Stranger Org")
 {:ok, _fund} = Billing.grant_credits(hidden_wallet, 10_000, reason: :adjustment)
 

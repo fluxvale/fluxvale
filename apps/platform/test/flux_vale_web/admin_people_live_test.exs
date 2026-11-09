@@ -17,6 +17,7 @@ defmodule FluxValeWeb.AdminPeopleLiveTest do
 
   import FluxVale.TestSupport.UserInviteHelpers
 
+  alias FluxVale.Accounts.Membership
   alias FluxVale.Identity
   alias FluxVale.Identity.User
   alias FluxVale.TestSupport.AccountsFixtures
@@ -150,6 +151,41 @@ defmodule FluxValeWeb.AdminPeopleLiveTest do
                  [AccountsFixtures.any_address!(newer), AccountsFixtures.any_address!(older)],
                  &to_string/1
                )
+    end
+
+    test "the list is cross-org: a foreign org's account renders (#644)", %{
+      conn: conn,
+      admin: admin
+    } do
+      # An accepted invitee owns exactly their JIT personal org — an
+      # org the admin does not belong to. The blanket bypass (and
+      # before it, the User read's own admin arm) admits the row
+      # regardless: the pin keeps the cross-org posture honest as the
+      # doctrine's console pass lands.
+      {accepted, _raw} = accepted_invite!(admin)
+
+      foreign_orgs =
+        Membership
+        |> Ash.Query.filter(user_id == ^accepted.id)
+        |> Ash.read!(authorize?: false)
+        |> Enum.map(& &1.organization_id)
+
+      admin_orgs =
+        Membership
+        |> Ash.Query.filter(user_id == ^admin.id)
+        |> Ash.read!(authorize?: false)
+        |> Enum.map(& &1.organization_id)
+
+      assert foreign_orgs != []
+
+      # The two accounts share no org: the row is cross-org by shape.
+      shared = Enum.filter(foreign_orgs, &(&1 in admin_orgs))
+      assert Enum.empty?(shared)
+
+      {:ok, view, _html} = live(conn, "/admin/people")
+
+      assert has_element?(view, "[data-testid='admin-people-email-#{accepted.id}']")
+      assert has_element?(view, "[data-testid='admin-people-state-#{accepted.id}']", "Accepted")
     end
 
     test "an expired invite reads honestly and still offers the reinvite lever", %{

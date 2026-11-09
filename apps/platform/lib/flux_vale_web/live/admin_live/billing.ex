@@ -10,10 +10,10 @@ defmodule FluxValeWeb.AdminLive.Billing do
   Every read rides the billing domain with the platform-admin actor and
   authorization on. Search narrows the list by org name or slug — the
   relationship filter runs at the data layer, so the search never needs
-  an org read. Rendering the org column DOES: the read policy is
-  members-only, so the names ride `Organization :admin_lookup`, the
-  flagged seam this lane added (#501 — the only admin-readable org
-  path, returning the switcher's public fields).
+  an org read. Rendering the org column DOES: the names ride
+  `Organization :admin_lookup` (the shared seam every admin surface
+  uses — kept over the now-admitted primary read for the same one-
+  grammar reason the orgs surface records).
 
   The list caps at the latest 100 (the people surface's rationale: an
   unbounded scan grows expensive and the operator scans for what just
@@ -66,7 +66,7 @@ defmodule FluxValeWeb.AdminLive.Billing do
   # recency), then newest provisioned — a long-standing org that just
   # went negative must not sink under fresh signups. Capped one past
   # the cap so the overflow question answers without a count. The org
-  # names ride the flagged lookup seam — one read for the page's ids,
+  # names ride the shared lookup seam — one read for the page's ids,
   # mapped by id; a wallet whose org vanished (the FK has no ON DELETE,
   # so this cannot happen today) would simply render without a name.
   defp refresh_rows(socket) do

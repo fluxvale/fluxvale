@@ -126,11 +126,13 @@ for (const mode of ["light", "dark"]) {
   await page.screenshot({ path: `${outdir}/admin-orgs-detail-empty-${mode}.png`, fullPage: true });
   console.log(`detail-empty-${mode}`);
 
-  // The scope note (a non-member org with an instance of its own).
+  // The cross-org org detail (a non-member org with an instance of its
+  // own — the table and strip render where the scope note used to,
+  // under the blanket bypass).
   await page.goto(`${BASE}/admin/orgs/${orgHidden}`, { waitUntil: "networkidle" });
-  await page.waitForSelector("[data-testid='admin-orgs-instances-hidden']");
-  await page.screenshot({ path: `${outdir}/admin-orgs-detail-hidden-${mode}.png`, fullPage: true });
-  console.log(`detail-hidden-${mode}`);
+  await page.waitForSelector("[data-testid^='admin-orgs-instance-']");
+  await page.screenshot({ path: `${outdir}/admin-orgs-detail-crossorg-${mode}.png`, fullPage: true });
+  console.log(`detail-crossorg-${mode}`);
 
   // The no-wallet note (a team org that never touched billing).
   await page.goto(`${BASE}/admin/orgs/${orgNoWallet}`, { waitUntil: "networkidle" });
