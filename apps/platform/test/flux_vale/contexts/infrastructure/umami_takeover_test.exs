@@ -122,7 +122,7 @@ defmodule FluxVale.Infrastructure.UmamiTakeoverTest do
             app_version_id: byo.id,
             env_vars: %{
               "DATABASE_URL" => "postgresql://owner:pw@far.example:5432/analytics",
-              "APP_SECRET" => "0123456789abcdef0123456789abcdef"
+              "APP_SECRET" => "takeover-test-app-secret-placeholder"
             }
           },
           actor: user()
@@ -167,7 +167,7 @@ defmodule FluxVale.Infrastructure.UmamiTakeoverTest do
       %{
         name: "Bundled #{System.unique_integer()}",
         app_version_id: bundled.id,
-        env_vars: %{"APP_SECRET" => "0123456789abcdef0123456789abcdef"}
+        env_vars: %{"APP_SECRET" => "takeover-test-app-secret-placeholder"}
       },
       actor: user()
     )
