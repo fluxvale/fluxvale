@@ -74,8 +74,8 @@ test("user-menu: signed-in nav shows the user menu, not Sign in", async ({
   // <details> toggle works in the SSR DOM before the LiveView joins,
   // and the join's patch swaps that pre-join element for the
   // server-rendered (closed) copy — an open set in the window is
-  // wiped. The #148 race signIn waits out; slow CI runners widen it
-  // past the click.
+  // wiped (#148's race; signIn waits it out on /sign-in, but nothing
+  // guarded this navigation).
   await waitForLiveViewJoin(page);
 
   await expect(page.getByTestId("user-menu")).toBeVisible();
