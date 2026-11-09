@@ -5,6 +5,7 @@
     :ash_admin,
     :ash_postgres,
     :ash_phoenix,
+    :ash_paper_trail,
     :ecto,
     :ecto_sql,
     :phoenix,

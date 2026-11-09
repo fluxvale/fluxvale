@@ -75,6 +75,19 @@ defmodule FluxValeWeb.AdminConsole do
     FluxVale.Api => "machine-client bookkeeping (audit, rate windows), not operator data"
   }
 
+  # Resources excluded by name from otherwise-live domains, each with
+  # its reason — the paper-trail version tables (#645): the audit
+  # trail surfaces in its own console section as a cross-resource
+  # view, not as one raw table per resource.
+  @excluded_resources %{
+    FluxVale.Ops => %{
+      FluxVale.Ops.FeatureFlag.Version =>
+        "the paper-trail version table: the Audit section surfaces it, not the generic console (#645)",
+      FluxVale.Ops.AccessRule.Version =>
+        "the paper-trail version table: the Audit section surfaces it, not the generic console (#645)"
+    }
+  }
+
   @doc """
   The live domains, in display order.
   """
@@ -93,6 +106,13 @@ defmodule FluxValeWeb.AdminConsole do
   """
   @spec excluded_domains() :: %{module() => String.t()}
   def excluded_domains, do: @excluded_domains
+
+  @doc """
+  One live domain's resources excluded by name, each with its
+  documented reason (the parity test's seam — see @excluded_resources).
+  """
+  @spec excluded_resources(module()) :: %{module() => String.t()}
+  def excluded_resources(domain), do: Map.get(@excluded_resources, domain, %{})
 
   @doc """
   One live domain's resources. An unknown key answers [] — the mounts

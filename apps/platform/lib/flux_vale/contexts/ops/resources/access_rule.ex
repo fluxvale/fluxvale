@@ -29,6 +29,7 @@ defmodule FluxVale.Ops.AccessRule do
     otp_app: :flux_vale,
     domain: FluxVale.Ops,
     data_layer: AshPostgres.DataLayer,
+    extensions: [AshPaperTrail.Resource],
     authorizers: [Ash.Policy.Authorizer]
 
   postgres do
@@ -37,6 +38,31 @@ defmodule FluxVale.Ops.AccessRule do
 
     # ADR-0032 §3: no DB-side id default — ids are Ash's job (see User).
     migration_defaults(id: "nil")
+  end
+
+  # The audit trail (#645, ADR-0048): the plan's one config posture,
+  # uniform across the business set as later slices adopt it, plus the
+  # shared version mixin (indexes + actor label) and D7's
+  # source-read-policy posture for version reads. Rationale lives in
+  # the ADR, not here.
+  paper_trail do
+    primary_key_type(:uuid_v7)
+    change_tracking_mode(:changes_only)
+    store_action_name?(true)
+    store_action_inputs?(true)
+    sensitive_attributes(:redact)
+    ignore_attributes([:created_at, :updated_at])
+    reference_source?(false)
+    create_version_on_destroy?(true)
+    operation_id_field(:operation_id)
+
+    belongs_to_actor(:user, FluxVale.Identity.User,
+      domain: FluxVale.Identity,
+      on_delete: :nilify
+    )
+
+    apply_can_read_policy?(true)
+    mixin({FluxVale.PaperTrail.VersionMixin, :version_resource, []})
   end
 
   policies do

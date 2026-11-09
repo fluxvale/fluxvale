@@ -6,11 +6,10 @@ defmodule FluxValeWeb.AdminConsoleTest do
   # What is ENFORCED, exactly: every configured domain is accounted
   # for (one of the three sets, no orphans), the six-domain target
   # matches the plan's appendix A, and every LIVE domain's resource
-  # set equals the domain's real resources in both directions.
-  # Pending domains force nothing per-resource until their slice
-  # flips them live — and the per-resource exclusion mechanism
-  # (Billing/Topup) lands with slice 3, at which point the
-  # live-domain arm becomes include-or-exclude-by-name. Plus the
+  # set equals the domain's real resources in both directions —
+  # include-or-exclude-by-name per resource (the mechanism the audit
+  # lane's version tables exercised first, #645; Billing/Topup rides
+  # it again when slice 3 flips that domain live). Plus the
   # registry's own API contract: segment resolution and the policy
   # probe.
   #
@@ -111,20 +110,41 @@ defmodule FluxValeWeb.AdminConsoleTest do
              "a configured domain is neither exposed nor excluded — decide in the registry"
     end
 
-    test "every live domain's resources are exactly its real resources — a new resource forces a decision" do
+    test "every live domain's resources are included or excluded by name — a new resource forces a decision" do
       for domain <- AdminConsole.domains() do
         registered =
           domain.resources
           |> Enum.map(& &1.module)
           |> MapSet.new()
 
+        excluded =
+          domain.module
+          |> AdminConsole.excluded_resources()
+          |> Map.keys()
+          |> MapSet.new()
+
         actual =
           domain.module
           |> Info.resources()
           |> MapSet.new()
+          |> MapSet.difference(excluded)
 
         assert MapSet.equal?(registered, actual),
                "#{inspect(domain.module)}: the registry and the domain disagree on resources — include the new resource or exclude it by name with a reason"
+      end
+    end
+
+    test "every excluded resource of a live domain carries a documented reason" do
+      for domain <- AdminConsole.domains() do
+        for {module, reason} <- AdminConsole.excluded_resources(domain.module) do
+          assert is_binary(reason) and reason != "",
+                 "#{inspect(module)} needs a documented exclusion reason"
+
+          # A stale exclusion (the resource left the domain) would
+          # silently narrow the registry — fail it loudly instead.
+          assert module in Info.resources(domain.module),
+                 "#{inspect(module)} is excluded but no longer a #{inspect(domain.module)} resource"
+        end
       end
     end
 

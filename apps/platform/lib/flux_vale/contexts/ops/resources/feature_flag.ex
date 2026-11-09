@@ -17,19 +17,45 @@ defmodule FluxVale.Ops.FeatureFlag do
     otp_app: :flux_vale,
     domain: FluxVale.Ops,
     data_layer: AshPostgres.DataLayer,
+    extensions: [AshPaperTrail.Resource],
     authorizers: [Ash.Policy.Authorizer]
 
   postgres do
-    table "feature_flags"
-    repo FluxVale.Repo
+    table("feature_flags")
+    repo(FluxVale.Repo)
 
     # ADR-0032 §3: no DB-side id default — ids are Ash's job (see User).
-    migration_defaults id: "nil"
+    migration_defaults(id: "nil")
+  end
+
+  # The audit trail (#645, ADR-0048): the plan's one config posture,
+  # uniform across the business set as later slices adopt it, plus the
+  # shared version mixin (indexes + actor label) and D7's
+  # source-read-policy posture for version reads. Rationale lives in
+  # the ADR, not here.
+  paper_trail do
+    primary_key_type(:uuid_v7)
+    change_tracking_mode(:changes_only)
+    store_action_name?(true)
+    store_action_inputs?(true)
+    sensitive_attributes(:redact)
+    ignore_attributes([:created_at, :updated_at])
+    reference_source?(false)
+    create_version_on_destroy?(true)
+    operation_id_field(:operation_id)
+
+    belongs_to_actor(:user, FluxVale.Identity.User,
+      domain: FluxVale.Identity,
+      on_delete: :nilify
+    )
+
+    apply_can_read_policy?(true)
+    mixin({FluxVale.PaperTrail.VersionMixin, :version_resource, []})
   end
 
   policies do
     policy FluxVale.Checks.ActorIsPlatformAdmin do
-      description "Platform admins manage feature flags (ADR-0027, ADR-0030)"
+      description("Platform admins manage feature flags (ADR-0027, ADR-0030)")
       authorize_if(always())
     end
 
@@ -75,19 +101,19 @@ defmodule FluxVale.Ops.FeatureFlag do
     defaults([:read, :destroy])
 
     create :create do
-      primary? true
+      primary?(true)
       accept([:key, :enabled, :rollout_percentage, :description])
     end
 
     update :update do
-      primary? true
+      primary?(true)
       accept([:key, :enabled, :rollout_percentage, :description])
     end
 
     # Evaluator lookup — runs authorize?: false from FeatureFlags, so this
     # action exists for that one call site, not for general use.
     read :by_key do
-      description "Get a flag by its key"
+      description("Get a flag by its key")
       get?(true)
       argument(:key, :string, allow_nil?: false)
       filter(expr(key == ^arg(:key)))
@@ -95,7 +121,7 @@ defmodule FluxVale.Ops.FeatureFlag do
   end
 
   code_interface do
-    domain FluxVale.Ops
+    domain(FluxVale.Ops)
 
     define(:create, args: [:key])
     define(:by_key, args: [:key])

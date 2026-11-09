@@ -55,6 +55,7 @@ already ruled out.
 | [ADR-0044](00044-public-docs-surface.md) | Content home: `docs/public` + `docs/blog` source of truth, synced gitignored priv copies, `FluxVale.Docs` mirroring the blog lane, `/docs` SSR pages, lint-enforced public/internal boundary | Accepted |
 | [ADR-0045](00045-bundled-backing-services.md) | Bundled per-instance backing services: Postgres/Redis as native-sidecar containers in the instance pod, catalog-declared majors + platform-owned exact pins, resources carved from the purchased allocation, generated credentials, loud create-time takeover rejection | Accepted |
 | [ADR-0046](0046-storage-beyond-threshold.md) | Storage beyond the self-service threshold: request → operator approval queue, online storage-only growth, configured marginal overage rate (pass-through + margin, provisional pending the owner's ratification) | Accepted |
+| [ADR-0048](00048-ash-paper-trail-audit.md) | Audit trail: AshPaperTrail over the business set — one config posture, attributed surviving versions, actor-label tombstone, retention forever (flagged deliberate) | Accepted |
 
 ## Conventions
 
