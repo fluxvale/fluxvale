@@ -677,11 +677,15 @@ defmodule FluxVale.Infrastructure.Instance do
     end
 
     # Merged env (catalog defaults under user values), string values —
-    # the k8s Secret's exact contents.
+    # the k8s Secret's exact contents. sensitive?: bundled backing
+    # services generate credentials into env vars, so the trail
+    # redacts the map (#645, ADR-0048) — the live values stay on the
+    # row, the marker says they existed.
     attribute :env_vars, :map do
       allow_nil?(false)
       default(%{})
       public?(true)
+      sensitive?(true)
     end
 
     create_timestamp(:created_at)
@@ -735,7 +739,9 @@ defmodule FluxVale.Infrastructure.Instance do
       # replaces the whole map on the attribute BEFORE
       # DeriveFromAppVersion merges the catalog defaults under it;
       # absent keeps the attribute default (%{}) as before.
-      argument(:env_vars, :map, allow_nil?: true, public?: true)
+      # sensitive?: the trail redacts the argument's value too
+      # (#645, ADR-0048) — generated credentials ride these maps.
+      argument(:env_vars, :map, allow_nil?: true, public?: true, sensitive?: true)
 
       change(fn changeset, _context ->
         case Ash.Changeset.get_argument(changeset, :env_vars) do

@@ -57,6 +57,31 @@ defmodule FluxVale.Infrastructure.PaperTrailTest do
       assert create_version.actor_label == user.username
     end
 
+    test "an instance create's env_vars redacts in BOTH changes and inputs" do
+      # Bundled backing services generate credentials into env vars,
+      # and version rows outlive the instance — the flagged attribute
+      # and argument keep the map out of the trail (ADR-0048).
+      user = AccountsFixtures.user!()
+      InstanceFixtures.local_cluster!()
+      version = InstanceFixtures.app_version!()
+
+      instance =
+        Instance.create!(
+          %{
+            name: "Env #{System.unique_integer([:positive])}",
+            app_version_id: version.id,
+            env_vars: %{"API_KEY" => "secret-value"}
+          },
+          actor: user
+        )
+
+      [create_version] = versions!(Instance.Version, instance.id)
+
+      assert create_version.changes["env_vars"] == "REDACTED"
+      assert create_version.version_action_inputs["env_vars"] == "REDACTED"
+      refute Map.get(create_version.changes, "env_vars") =~ "secret-value"
+    end
+
     test "a system status transition versions with the honest nil actor" do
       user = AccountsFixtures.user!()
       instance = member_instance!(user)
@@ -315,8 +340,12 @@ defmodule FluxVale.Infrastructure.PaperTrailTest do
       inputs = provision_version.version_action_inputs
       stored_error = inputs["error"]
 
-      assert is_map(inputs) and is_map(stored_error) and stored_error["message"],
-             "the error input must store a string-keyed map with a message, got: #{inspect(inputs)}"
+      # The stored shape: module name plus the bounded, one-line
+      # message — never the raw error text (ADR-0048).
+      assert is_map(inputs) and is_map(stored_error)
+      assert stored_error["kind"] == "Ash.Error.Invalid"
+      assert String.length(stored_error["message"]) <= 200
+      refute String.contains?(stored_error["message"], "\n")
 
       torn_down =
         provisioned
@@ -335,6 +364,7 @@ defmodule FluxVale.Infrastructure.PaperTrailTest do
       teardown_inputs = teardown_version.version_action_inputs
       teardown_error = teardown_inputs["error"]
       assert teardown_error["message"]
+      assert teardown_error["kind"] == "Ash.Error.Invalid"
     end
 
     test "an instance mark_deploy_error and mark_teardown_error take real exception structs" do
@@ -356,8 +386,10 @@ defmodule FluxVale.Infrastructure.PaperTrailTest do
       inputs = deploy_version.version_action_inputs
       stored_error = inputs["error"]
 
-      assert is_map(inputs) and is_map(stored_error) and stored_error["message"],
-             "the error input must store a string-keyed map with a message, got: #{inspect(inputs)}"
+      assert is_map(inputs) and is_map(stored_error)
+      assert stored_error["kind"] == "Ash.Error.Invalid"
+      assert String.length(stored_error["message"]) <= 200
+      refute String.contains?(stored_error["message"], "\n")
 
       torn_down =
         deployed
@@ -376,6 +408,7 @@ defmodule FluxVale.Infrastructure.PaperTrailTest do
       teardown_inputs = teardown_version.version_action_inputs
       teardown_error = teardown_inputs["error"]
       assert teardown_error["message"]
+      assert teardown_error["kind"] == "Ash.Error.Invalid"
     end
   end
 end

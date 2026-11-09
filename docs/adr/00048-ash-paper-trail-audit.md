@@ -190,6 +190,11 @@ janitor bookkeeping, each named with its reason there).
   address-bearing write — the marker says an address existed and is
   protected, never what it was. The live address remains the row's
   own data: the redaction is a trail posture, not an erasure.
+- **Exception evidence in the trail is bounded and scrubbed.** The
+  error handlers' stored inputs carry the exception module name plus
+  a one-line, 200-char-bounded message — never raw error text, which
+  can embed request bodies, secret names, connection details, or
+  unbounded output.
 
 
 ## Notes from the A2-S1 probes (ash_paper_trail 0.8.1)
