@@ -244,6 +244,18 @@ defmodule FluxVale.Infrastructure.Operations.RotatePocketIdSecretTest do
                Infrastructure.rotate_pocket_id_secret(wiring, actor: owner)
     end
 
+    test "a refused secret create (400) passes through with the status", %{
+      wiring: wiring,
+      owner: owner
+    } do
+      stub(ApiClient, :create_secret, fn _u, _k, _c, _s ->
+        {:error, %{status: 400, body: "nope"}}
+      end)
+
+      assert {:error, %{status: 400}} =
+               Infrastructure.rotate_pocket_id_secret(wiring, actor: owner)
+    end
+
     test "a 403 at the secret create is the key_forbidden verdict", %{
       wiring: wiring,
       owner: owner
