@@ -49,8 +49,11 @@ defmodule FluxVale.Infrastructure.Operations.ApplyPocketIdEnv do
     with {:ok, kubeconfig} <- InstanceK8s.kubeconfig_for(instance),
          {:ok, namespace} <- deployed_namespace(instance),
          {:ok, data} <- read_env(kubeconfig, namespace),
-         :ok <-
-           upsert_secret(kubeconfig, namespace, data |> Map.merge(sso_env) |> Map.drop(remove)) do
+         merged =
+           data
+           |> Map.merge(sso_env)
+           |> Map.drop(remove),
+         :ok <- upsert_secret(kubeconfig, namespace, merged) do
       rollout(kubeconfig, namespace, opts)
     end
   end

@@ -20,18 +20,17 @@ defmodule FluxVale.Infrastructure.Operations.DisconnectPocketId do
   Pocket ID — delete it there").
   """
 
-  require Logger
-
   alias FluxVale.Infrastructure.Instance
   alias FluxVale.Infrastructure.Operations.ApplyPocketIdEnv
   alias FluxVale.Infrastructure.Operations.UsePocketIdKey
   alias FluxVale.Infrastructure.PocketId.ApiClient
   alias FluxVale.Infrastructure.PocketIdCustody
   alias FluxVale.Infrastructure.PocketIdWiring
-  alias FluxVale.Repo
   alias FluxVale.Ops.FeatureFlags
+  alias FluxVale.Repo
 
   require Ash.Query
+  require Logger
 
   @doc """
   `{:ok, %{client_deleted: boolean()}}` or `{:error, reason}` — the
@@ -129,18 +128,21 @@ defmodule FluxVale.Infrastructure.Operations.DisconnectPocketId do
   # the dropped map — only the recipe's keys move) and the RUNNING
   # workload (the apply primitive carrying the removal).
   defp strip_env(app_instance, recipe) do
-    recipe_keys = [recipe.issuer_env, recipe.client_id_env, recipe.client_secret_env]
-    recipe_keys = maybe_prepend(recipe_keys, recipe.enabled_env)
+    recipe_keys =
+      [recipe.issuer_env, recipe.client_id_env, recipe.client_secret_env]
+      |> maybe_prepend(recipe.enabled_env)
 
     result =
       Repo.transaction(fn ->
         locked = lock_instance!(app_instance.id)
         stripped = Map.drop(locked.env_vars, recipe_keys)
 
-        locked
-        |> Ash.Changeset.for_update(:merge_pocket_id_env, %{env: stripped}, authorize?: false)
-        |> Ash.update(return_notifications?: true)
-        |> case do
+        write =
+          locked
+          |> Ash.Changeset.for_update(:merge_pocket_id_env, %{env: stripped}, authorize?: false)
+          |> Ash.update(return_notifications?: true)
+
+        case write do
           {:ok, _env, notifications} -> notifications
           {:error, reason} -> Repo.rollback(reason)
         end
