@@ -172,7 +172,12 @@ runs:
           rm -rf "$tmp"
         }
 
-        gate_staged; st="$?"
+        # NB: GitHub runs this under `bash --noprofile --norc -e -o
+        # pipefail` — a bare `gate_staged; st=$?` would ABORT at set -e on
+        # the function's non-zero return, before the capture (red on every
+        # cold path, self-heal unreachable). The `|| st=$?` form makes the
+        # failure handled, not fatal.
+        st=0; gate_staged || st="$?"
         if [ "$st" -eq 0 ]; then
           echo "mise: cache hit — $bin (hash verified before exec)"
         elif [ "$st" -eq 3 ]; then
