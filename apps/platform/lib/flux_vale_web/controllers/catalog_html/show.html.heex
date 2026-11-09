@@ -1,8 +1,9 @@
 <Layouts.public flash={@flash} current_user={@current_user} return_to={@return_to}>
-  <%!-- #611 (plan §6.3-6.4): the hero (S2) then the S3 generated
-  sections in plan order — benefits, FAQ, similar apps, closing CTA —
-  each seam a border-t with the lane's py rhythm. S4 slots in-action
-  and features between the hero and benefits. --%>
+  <%!-- #611 (plan §6.3-6.4): the hero (S2), the curated sections
+  (S4), then the S3 generated sections in plan order — benefits, FAQ,
+  similar apps, closing CTA — each seam a border-t with the lane's py
+  rhythm. The curated sections self-omit when unauthored (plan §5), so
+  an app without screenshots or features gets no gap. --%>
   <div class="catalog-page">
     <div class="pt-6 pb-12">
       <CatalogPageComponents.hero
@@ -12,6 +13,8 @@
       />
     </div>
 
+    <CatalogPageComponents.in_action app={@app} />
+    <CatalogPageComponents.features app={@app} />
     <CatalogPageComponents.benefits app={@app} newest_version={@newest_version} />
     <CatalogPageComponents.faq app={@app} newest_version={@newest_version} />
     <CatalogPageComponents.similar_apps

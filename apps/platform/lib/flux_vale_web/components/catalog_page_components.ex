@@ -1,13 +1,14 @@
 defmodule FluxValeWeb.CatalogPageComponents do
   @moduledoc """
-  The catalog app page's sections (#611 plan §6.1, S2+S3): the hero
-  with its transactional aside (pricing card, facts card) and the four
-  generated sections (benefits, FAQ, similar apps, closing CTA),
-  composed by the public SSR page (`CatalogHTML.show`). Authored
-  content comes from the S1 marketing metadata (caveats, alternatives,
-  category audience); every figure renders from code — Pricing,
-  Accounts, the version defaults, WakeStats — never a literal (plan
-  §5). Copy lives in `FluxValeWeb.CatalogPageContent`; the
+  The catalog app page's sections (#611 plan §6.1, S2-S4): the hero
+  with its transactional aside (pricing card, facts card), the two
+  curated sections (in action, features), and the four generated
+  sections (benefits, FAQ, similar apps, closing CTA), composed by the
+  public SSR page (`CatalogHTML.show`). Authored content comes from
+  the S1 marketing metadata (caveats, alternatives, category audience,
+  screenshots, feature cards); every figure renders from code —
+  Pricing, Accounts, the version defaults, WakeStats — never a literal
+  (plan §5). Copy lives in `FluxValeWeb.CatalogPageContent`; the
   authenticated page re-renders the same components in S6.
   """
 
@@ -318,6 +319,106 @@ defmodule FluxValeWeb.CatalogPageComponents do
         </div>
       </dl>
     </.card>
+    """
+  end
+
+  @doc """
+  The curated "in action" section (plan §6.4, S4): real-UI screenshots
+  in bordered frames — proof, not claims. Omission is the designed
+  absent state (plan §5): nil and [] render nothing and leave no gap,
+  and the intro line rides the authored `in_action_intro` with no
+  generated fallback. One screenshot renders as a single wide frame;
+  two or more as a 2-column grid at sm, three or four wrapping 2x2.
+  Data comes from the S1 type — src, alt, caption verbatim, never an
+  invented caption.
+  """
+  attr(:app, :any, required: true, doc: "the Catalog.App")
+
+  @spec in_action(map()) :: Phoenix.LiveView.Rendered.t()
+  def in_action(assigns) do
+    ~H"""
+    <section
+      :if={@app.screenshots not in [nil, []]}
+      class="border-t border-line py-14 sm:py-16"
+      data-testid="in-action-section"
+    >
+      <p class="eyebrow">{gettext("In action")}</p>
+      <h2 class="display-h2">{gettext("%{name} in action", name: @app.name)}</h2>
+      <%!-- Authored or absent — no generated fallback (plan §3). `not
+      in` guards nil like the hero's caveats: the field is nullable and
+      a hostile null must not crash the public page. --%>
+      <p :if={@app.in_action_intro} class="mt-4 text-lg leading-relaxed text-ink-muted">
+        {@app.in_action_intro}
+      </p>
+
+      <div class={["mt-10 grid gap-4", if(length(@app.screenshots) > 1, do: "sm:grid-cols-2")]}>
+        <figure
+          :for={shot <- @app.screenshots}
+          class="overflow-hidden rounded-panel border border-line-strong bg-panel"
+          data-testid="screenshot-frame"
+        >
+          <%!-- Fixed 16:10 aspect plus explicit dimensions: no CLS as
+          the lazy image loads (plan §6.5). alt is validation-backed
+          (10-140 chars, S1), so the frame never ships empty alt text. --%>
+          <img
+            src={shot.src}
+            alt={shot.alt}
+            loading="lazy"
+            decoding="async"
+            width="1440"
+            height="900"
+            class="aspect-[16/10] w-full object-cover"
+          />
+          <figcaption :if={shot.caption} class="px-5 py-4 text-sm text-ink-muted">
+            {shot.caption}
+          </figcaption>
+        </figure>
+      </div>
+    </section>
+    """
+  end
+
+  @doc """
+  The curated feature grid (plan §6.4, S4): 2x2 at sm, one column
+  below — the app's own capabilities as authored cards. The icon rides
+  the S1 allowlist, validated at write time by `Types.FeatureList`, so
+  a bad icon fails the seed, not the page. Cards are not links: no
+  hover lift, just the catalog card's icon-in-tile idiom. Omission is
+  the designed absent state (plan §5).
+  """
+  attr(:app, :any, required: true, doc: "the Catalog.App")
+
+  @spec features(map()) :: Phoenix.LiveView.Rendered.t()
+  def features(assigns) do
+    ~H"""
+    <section
+      :if={@app.features not in [nil, []]}
+      class="border-t border-line py-14 sm:py-16"
+      data-testid="features-section"
+    >
+      <p class="eyebrow">{gettext("Features")}</p>
+      <h2 class="display-h2">{gettext("What you can do with %{name}", name: @app.name)}</h2>
+
+      <div class="mt-10 grid gap-4 sm:grid-cols-2">
+        <div
+          :for={feature <- @app.features}
+          class="rounded-panel border border-line-strong bg-panel p-6"
+          data-testid="feature-card"
+        >
+          <div class="flex items-center gap-3">
+            <%!-- The catalog card's icon-in-tile idiom (#277 T4),
+            verbatim — one silhouette across the surface. --%>
+            <div class="grid size-9 shrink-0 place-items-center rounded-control bg-primary-muted text-sm font-semibold text-link">
+              <.icon name={feature.icon} class="size-5" />
+            </div>
+            <h3 class="min-w-0 text-base font-semibold text-ink [overflow-wrap:anywhere]">
+              {feature.title}
+            </h3>
+          </div>
+          <p class="mt-3 text-sm leading-relaxed text-ink-muted">{feature.body}</p>
+        </div>
+      </div>
+    </section>
     """
   end
 

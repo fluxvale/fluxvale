@@ -25,6 +25,12 @@
 @source "../css";
 @source "../js";
 @source "../../lib/flux_vale_web";
+/* The feature grid's icons are data-driven (Types.FeatureList's
+ * allowlist rides the DB, not a literal in a template), so Tailwind's
+ * scan never sees those names. Scan the allowlist file itself: every
+ * name it declares gets its .hero-* CSS generated, and widening the
+ * allowlist widens the bundle — the one-list promise (#611 S1/S4). */
+@source "../../lib/flux_vale/contexts/catalog/types/feature_list.ex";
 /* Required for Tailwind to automatically pick up changes in colocated CSS files in dev */
 @source "../../_build/dev/phoenix-colocated/flux_vale/*/";
 

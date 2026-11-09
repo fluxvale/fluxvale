@@ -31,6 +31,31 @@ defmodule FluxVale.Catalog.Types.FeatureListTest do
       # The full <.icon name> form, so a card's icon renders as-is.
       assert Enum.all?(FeatureList.icons(), &String.starts_with?(&1, "hero-"))
     end
+
+    # The icons are data-driven (the DB carries the name, no template
+    # literal), so Tailwind only generates a .hero-* class when the
+    # allowlist file itself is inside the @source scan. Dropping that
+    # scan line fails silently — every feature tile renders blank — so
+    # pin the wiring here (#611 S4, found in visual QA).
+    test "the allowlist file rides Tailwind's @source scan so every icon ships CSS" do
+      app_css = File.read!("assets/css/app.css")
+      assert app_css =~ "lib/flux_vale/contexts/catalog/types/feature_list.ex"
+    end
+
+    # The other leg of "never a blank tile": every allowlisted name
+    # must exist in the pinned heroicons dep, or the class generates
+    # against nothing. A typo'd widening would pass validation and
+    # render blank icons silently — the moduledoc's "every name exists
+    # in the pinned dep" claim, enforced.
+    test "every allowlisted name exists in the pinned heroicons dep" do
+      outline_dir = "deps/heroicons/optimized/24/outline"
+
+      for icon <- FeatureList.icons() do
+        svg = String.replace_prefix(icon, "hero-", "") <> ".svg"
+        path = Path.join(outline_dir, svg)
+        assert File.exists?(path), "#{icon} has no SVG at #{path}"
+      end
+    end
   end
 
   describe "new/1" do

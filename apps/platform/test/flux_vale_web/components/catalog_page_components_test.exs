@@ -1,9 +1,11 @@
 defmodule FluxValeWeb.Components.CatalogPageComponentsTest do
   @moduledoc """
-  The catalog page's pure display helpers (#611 S2): the alternatives
-  join and the relative-age phrase, plus the facts card's wake
-  formatting (controller tests cover the page composition; PromEx is
-  down there, so the "~Ns" register is pinned here instead).
+  The catalog page's pure display helpers and curated sections (#611
+  S2+S4): the alternatives join, the relative-age phrase, the facts
+  card's wake formatting (controller tests cover the page composition;
+  PromEx is down there, so the "~Ns" register is pinned here instead),
+  and the S4 in-action and features sections over plain maps — the
+  grid shapes, the image contract, and the designed absent states.
   """
 
   use ExUnit.Case, async: true
@@ -85,6 +87,176 @@ defmodule FluxValeWeb.Components.CatalogPageComponentsTest do
       html = render_component(&CatalogPageComponents.facts_card/1, assigns)
 
       assert html =~ "~2m 5s"
+    end
+  end
+
+  describe "in_action/1 (plan §6.4, S4)" do
+    # The Types.ScreenshotList item shape, straight from the S1 cast.
+    defp shot(overrides \\ []) do
+      base = %{
+        src: "/images/catalog/forgejo/repository-list.webp",
+        alt: "The repository list inside a running Forgejo instance",
+        caption: nil
+      }
+
+      Map.merge(base, Map.new(overrides))
+    end
+
+    defp render_in_action(app) do
+      render_component(&CatalogPageComponents.in_action/1, %{app: app})
+    end
+
+    test "nil and [] are the designed absent state — nothing renders, no gap" do
+      for screenshots <- [nil, []] do
+        app = %{name: "Forgejo", in_action_intro: "An intro.", screenshots: screenshots}
+        html = render_in_action(app)
+
+        assert String.trim(html) == ""
+      end
+    end
+
+    test "two screenshots: eyebrow, h2, authored intro, 2-column grid, both frames" do
+      app = %{
+        name: "Forgejo",
+        in_action_intro: "The real interface, captured from a running instance.",
+        screenshots: [
+          shot(),
+          shot(
+            src: "/images/catalog/forgejo/pull-request.webp",
+            alt: "A pull request review with inline comments",
+            caption: "Reviewing a pull request"
+          )
+        ]
+      }
+
+      html = render_in_action(app)
+
+      assert html =~ ~s(data-testid="in-action-section")
+      assert html =~ "In action"
+      assert html =~ "Forgejo in action"
+      assert html =~ "The real interface, captured from a running instance."
+      assert html =~ ~s(class="mt-10 grid gap-4 sm:grid-cols-2")
+      assert length(Regex.scan(~r/data-testid="screenshot-frame"/, html)) == 2
+    end
+
+    test "one screenshot renders a single wide frame — no 2-column grid" do
+      html = render_in_action(%{name: "Forgejo", in_action_intro: nil, screenshots: [shot()]})
+
+      # The single-column grid class renders bare — no sm:grid-cols-2.
+      assert html =~ "mt-10 grid gap-4"
+      refute html =~ "sm:grid-cols-2"
+      assert length(Regex.scan(~r/data-testid="screenshot-frame"/, html)) == 1
+    end
+
+    test "three and four screenshots keep the 2-column grid and wrap" do
+      for count <- [3, 4] do
+        screenshots =
+          Enum.map(1..count//1, fn i ->
+            shot(src: "/images/catalog/forgejo/view-#{i}.webp", alt: "Interface view #{i}")
+          end)
+
+        html =
+          render_in_action(%{name: "Forgejo", in_action_intro: nil, screenshots: screenshots})
+
+        assert html =~ ~s(class="mt-10 grid gap-4 sm:grid-cols-2")
+        assert length(Regex.scan(~r/data-testid="screenshot-frame"/, html)) == count
+      end
+    end
+
+    # Plan §6.5: fixed aspect, explicit dimensions, lazy, async — no
+    # CLS, no eager image loads on a page that may carry four frames.
+    test "images carry src and alt from the data, lazy, async, 16:10 with dimensions" do
+      html = render_in_action(%{name: "Forgejo", in_action_intro: nil, screenshots: [shot()]})
+
+      assert html =~ ~s(src="/images/catalog/forgejo/repository-list.webp")
+      assert html =~ ~s(alt="The repository list inside a running Forgejo instance")
+      assert html =~ ~s(loading="lazy")
+      assert html =~ ~s(decoding="async")
+      assert html =~ ~s(width="1440")
+      assert html =~ ~s(height="900")
+      assert html =~ ~s(class="aspect-[16/10] w-full object-cover")
+    end
+
+    test "the caption renders when authored and leaves no element when nil" do
+      with_caption =
+        render_in_action(%{
+          name: "Forgejo",
+          in_action_intro: nil,
+          screenshots: [shot(caption: "The repository list with search and filters")]
+        })
+
+      assert with_caption =~ "<figcaption"
+      assert with_caption =~ "The repository list with search and filters"
+
+      without_caption =
+        render_in_action(%{name: "Forgejo", in_action_intro: nil, screenshots: [shot()]})
+
+      refute without_caption =~ "<figcaption"
+    end
+
+    test "a nil intro omits the line — no generated fallback" do
+      html = render_in_action(%{name: "Forgejo", in_action_intro: nil, screenshots: [shot()]})
+
+      assert html =~ "Forgejo in action"
+      refute html =~ "mt-4 text-lg"
+    end
+  end
+
+  describe "features/1 (plan §6.4, S4)" do
+    defp render_features(app) do
+      render_component(&CatalogPageComponents.features/1, %{app: app})
+    end
+
+    test "nil and [] are the designed absent state — nothing renders, no gap" do
+      for features <- [nil, []] do
+        app = %{name: "Forgejo", features: features}
+        html = render_features(app)
+
+        assert String.trim(html) == ""
+      end
+    end
+
+    test "four cards: eyebrow, h2, tile icons from the allowlist, titles, bodies" do
+      features = [
+        %{
+          icon: "hero-archive-box",
+          title: "Repositories",
+          body: "Host your git repositories with mirrors and protected tags."
+        },
+        %{
+          icon: "hero-arrow-path",
+          title: "Pull requests",
+          body: "Review changes line by line and merge them when ready."
+        },
+        %{
+          icon: "hero-bolt",
+          title: "Actions CI",
+          body: "Run build workflows on every push with the built-in runner."
+        },
+        %{
+          icon: "hero-user-group",
+          title: "Issue tracking",
+          body: "Track bugs and ideas with labels, milestones and assignees."
+        }
+      ]
+
+      html = render_features(%{name: "Forgejo", features: features})
+
+      assert html =~ ~s(data-testid="features-section")
+      assert html =~ "Features"
+      assert html =~ "What you can do with Forgejo"
+      assert html =~ ~s(class="mt-10 grid gap-4 sm:grid-cols-2")
+      assert length(Regex.scan(~r/data-testid="feature-card"/, html)) == 4
+
+      # The icon rides the S1 allowlist name through <.icon>: one span
+      # per card, no card is a link (no anchor, the plan's no-lift rule).
+      for feature <- features do
+        assert html =~ feature.icon
+        assert html =~ feature.title
+        assert html =~ feature.body
+      end
+
+      refute html =~ "<a"
     end
   end
 end
