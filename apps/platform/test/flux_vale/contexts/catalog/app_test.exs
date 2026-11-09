@@ -8,9 +8,9 @@ defmodule FluxVale.Catalog.AppTest do
   alias FluxVale.Identity.User
 
   defp category do
-    Category.create!(%{name: "Media #{System.unique_integer()}", slug: "media"},
-      authorize?: false
-    )
+    n = System.unique_integer([:positive])
+
+    Category.create!(%{name: "Media #{n}", slug: "media-#{n}"}, authorize?: false)
   end
 
   defp regular_user do
@@ -20,12 +20,13 @@ defmodule FluxVale.Catalog.AppTest do
   describe "create/2" do
     test "creates linked to a category" do
       category = category()
+      n = System.unique_integer([:positive])
 
       assert {:ok, app} =
                App.create(
                  %{
-                   name: "Kavita",
-                   slug: "kavita",
+                   name: "Kavita #{n}",
+                   slug: "kavita-#{n}",
                    tagline: "Reading server",
                    category_id: category.id
                  },
@@ -49,15 +50,19 @@ defmodule FluxVale.Catalog.AppTest do
                  authorize?: false
                )
 
-      App.create!(%{name: "Kavita", slug: "kavita", category_id: category.id}, authorize?: false)
+      n = System.unique_integer([:positive])
+
+      App.create!(%{name: "Kavita #{n}", slug: "kavita-#{n}", category_id: category.id},
+        authorize?: false
+      )
 
       assert {:error, %Ash.Error.Invalid{}} =
-               App.create(%{name: "Other", slug: "kavita", category_id: category.id},
+               App.create(%{name: "Other", slug: "kavita-#{n}", category_id: category.id},
                  authorize?: false
                )
 
       assert {:error, %Ash.Error.Invalid{}} =
-               App.create(%{name: "Kavita", slug: "other", category_id: category.id},
+               App.create(%{name: "Kavita #{n}", slug: "other", category_id: category.id},
                  authorize?: false
                )
     end
@@ -81,13 +86,15 @@ defmodule FluxVale.Catalog.AppTest do
   describe "get_by_slug/1" do
     test "fetches by slug or errors" do
       category = category()
+      n = System.unique_integer([:positive])
+      slug = "kavita-#{n}"
 
       created =
-        App.create!(%{name: "Kavita", slug: "kavita", category_id: category.id},
+        App.create!(%{name: "Kavita #{n}", slug: slug, category_id: category.id},
           authorize?: false
         )
 
-      assert {:ok, fetched} = App.get_by_slug("kavita", authorize?: false)
+      assert {:ok, fetched} = App.get_by_slug(slug, authorize?: false)
       assert fetched.id == created.id
 
       assert {:error, _not_found} = App.get_by_slug("nope", authorize?: false)
@@ -97,9 +104,10 @@ defmodule FluxVale.Catalog.AppTest do
   describe "policy" do
     test "any signed-in actor reads; non-admins cannot mutate" do
       category = category()
+      n = System.unique_integer([:positive])
 
       app =
-        App.create!(%{name: "Kavita", slug: "kavita", category_id: category.id},
+        App.create!(%{name: "Kavita #{n}", slug: "kavita-#{n}", category_id: category.id},
           authorize?: false
         )
 

@@ -30,12 +30,13 @@ defmodule FluxValeWeb.CatalogLive.WakeBadgeTest do
     start_supervised!(FluxVale.PromEx)
 
     n = System.unique_integer()
+    slug = "kavita-#{n}"
 
     category =
       Category.create!(%{name: "Media #{n}", slug: "media-#{n}"}, authorize?: false)
 
     App.create!(
-      %{name: "Kavita #{n}", slug: "kavita", tagline: "Reads", category_id: category.id},
+      %{name: "Kavita #{n}", slug: slug, tagline: "Reads", category_id: category.id},
       authorize?: false
     )
 
@@ -43,13 +44,13 @@ defmodule FluxValeWeb.CatalogLive.WakeBadgeTest do
       :telemetry.execute(
         [:flux_vale, :wake, :total],
         %{duration: @kavita_wake_seconds},
-        %{app: "kavita"}
+        %{app: slug}
       )
     end
 
     {:ok, view, html} = live(conn, ~p"/apps")
 
-    assert has_element?(view, "[data-testid='wake-estimate-kavita']")
+    assert has_element?(view, "[data-testid='wake-estimate-#{slug}']")
     assert html =~ "Wakes in ~"
     NoK8sLeaks.refute_k8s_terms(html)
   end
@@ -78,11 +79,12 @@ defmodule FluxValeWeb.CatalogLive.WakeBadgeTest do
     start_supervised!(FluxVale.PromEx)
 
     n = System.unique_integer()
+    slug = "forgejo-#{n}"
 
     category =
       Category.create!(%{name: "Forge-ish #{n}", slug: "forge-ish-#{n}"}, authorize?: false)
 
-    App.create!(%{name: "Forgejo #{n}", slug: "forgejo", category_id: category.id},
+    App.create!(%{name: "Forgejo #{n}", slug: slug, category_id: category.id},
       authorize?: false
     )
 
@@ -92,13 +94,13 @@ defmodule FluxValeWeb.CatalogLive.WakeBadgeTest do
       :telemetry.execute(
         [:flux_vale, :wake, :total],
         %{duration: 90.0},
-        %{app: "forgejo"}
+        %{app: slug}
       )
     end
 
     {:ok, view, html} = live(conn, ~p"/apps")
 
-    assert has_element?(view, "[data-testid='wake-estimate-forgejo']")
+    assert has_element?(view, "[data-testid='wake-estimate-#{slug}']")
     assert html =~ "Wakes in ~1m 15s"
   end
 end
