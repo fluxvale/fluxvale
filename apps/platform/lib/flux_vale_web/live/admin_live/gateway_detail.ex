@@ -6,14 +6,19 @@ defmodule FluxValeWeb.AdminLive.GatewayDetail do
   key, resuming, removing: all of it belongs to the org's own Access
   panel (ADR-0039), and this surface builds none of it.
 
-  The read that lands here is members-only (`AccessGateway.get_by_id`
-  under the relates_to_actor_via filter), so a rendered page PROVES the
-  admin is inside the gateway's org: the org name rides the flagged
-  `:admin_lookup` seam anyway (one idiom for every admin surface), and
-  the domains ride the same member read the gateway did
-  (`:list_for_org`). An id the policy does not admit answers `[]` —
-  indistinguishable from no such row — so one honest arm covers both:
-  a flash and the list. The page never guesses which one it was.
+  The read that lands here rides the blanket platform-admin authority
+  (#644, ADR-0047): a member still sees only their org's gateway, while
+  a session platform admin — the only actor this route admits — reads
+  ANY org's row, with the operator-truth fields the member-scoped
+  posture dropped: the attention clock in the facts, the key age
+  beside the API token entry, and each domain's tailnet claim in the
+  domains table (claim state is tailnet resolution — a distinct fact
+  from the verified badge's cert issuance). The org name rides the
+  flagged `:admin_lookup` seam (one idiom for every admin surface), and
+  the domains ride `:list_for_org` — the same read, cross-org for the
+  admin under the blanket. An id the read does not admit is one the
+  row does not have: `[]` means no such gateway, and the page says
+  exactly that.
 
   The credential references are the surface's most important sentence:
   `credential_secret_ref` and `api_token_secret_ref` name entries in
@@ -22,13 +27,14 @@ defmodule FluxValeWeb.AdminLive.GatewayDetail do
   enter this app's database and never pass through this console. The
   auth key an owner pasted appears NOWHERE on this page.
 
-  Known limitation, stated: this view is org-scoped THROUGH the
-  gateway, so it shows domains only while the gateway row stands.
-  `MintDefaultHostname` mints a domain row for every instance create,
-  so orgs that never enabled private access — and orgs past teardown —
-  hold domains this page cannot show (no gateway row to mount). The
-  read arm that would lift this is the policy escalation (#613), not
-  this surface's to build.
+  Known limitation, stated: this view reaches the org's domains
+  THROUGH the gateway, so it shows them only while the gateway row
+  stands. `MintDefaultHostname` mints a domain row for every instance
+  create, so orgs that never enabled private access — and orgs past
+  teardown — hold domains this page cannot show (no gateway row to
+  mount). The org-independent domain read is still an open ruling
+  (#613's second half names the org detail as the natural home; that
+  lane shipped without it) — not this surface's to build.
 
   The domains list caps at the latest 100 (the lane's cap rationale).
   """
@@ -70,25 +76,14 @@ defmodule FluxValeWeb.AdminLive.GatewayDetail do
     else
       # Each arm carries its own honest answer, folded nowhere.
       #
-      # A malformed param is a TYPO, not an authorization outcome: the
-      # plain answer, the orgs sibling's copy.
-      :error ->
+      # With the platform-admin read (#613) the filter-less arm means
+      # an empty answer can only be "no such row" — a malformed param
+      # (a TYPO) and an unknown id get the SAME plain answer, the orgs
+      # sibling's copy: there is no member-scope verdict left to guess.
+      miss when miss in [:error, []] ->
         {:ok,
          socket
          |> put_flash(:error, gettext("That gateway does not exist."))
-         |> push_navigate(to: ~p"/admin/gateways")}
-
-      # The members-only read answers [] for a bad id AND for an id the
-      # policy does not admit — one arm, the scope named, no per-cause
-      # guessing. The flash rides the INFO posture: whatever happened,
-      # the list is the truthful answer, not an error at the operator.
-      [] ->
-        {:ok,
-         socket
-         |> put_flash(
-           :info,
-           gettext("That gateway is not listed. Gateway reads are member-scoped.")
-         )
          |> push_navigate(to: ~p"/admin/gateways")}
 
       # The lookup's error class is DB-down, not a policy answer — its
@@ -115,10 +110,9 @@ defmodule FluxValeWeb.AdminLive.GatewayDetail do
     end
   end
 
-  # The get_by_id read is members-only: `[]` covers a bad id and an id
-  # this admin may not see, and the page answers them identically (the
-  # filter-vs-forbid posture — no Forbidden to distinguish, so no
-  # guessing).
+  # The get_by_id read carries the platform-admin arm (#613): for this
+  # surface's only admitted actor it is filter-less, so `[]` means no
+  # such row — the missing arm above.
   defp gateway_read(admin, id) do
     AccessGateway
     |> Ash.Query.for_read(:get_by_id, %{id: id}, actor: admin)
@@ -133,12 +127,13 @@ defmodule FluxValeWeb.AdminLive.GatewayDetail do
     |> Ash.run_action()
   end
 
-  # The org's domains — the same member read the gateway ride proved.
-  # A rendered gateway page means the admin is inside this org, so no
-  # second probe is needed. Capped one past the cap so the overflow
-  # question answers without a count. No error arm: Ash.read! raises
-  # the DB-down class, and a caught-and-reflashed variant of that would
-  # be scope creep on a read that cannot fail for policy reasons.
+  # The org's domains — `:list_for_org`, the same read action the
+  # gateway rode, its policy now admitting the admin cross-org (#613):
+  # the gateway read that mounted this page already proved access.
+  # Capped one past the cap so the overflow question answers without a
+  # count. No error arm: Ash.read! raises the DB-down class, and a
+  # caught-and-reflashed variant of that would be scope creep on a
+  # read that cannot fail for policy reasons.
   defp domains_page(admin, org_id) do
     fetched =
       AccessDomain
@@ -159,6 +154,14 @@ defmodule FluxValeWeb.AdminLive.GatewayDetail do
   defp kind_label(:custom), do: gettext("Custom")
 
   defp provider_label(:tailscale), do: gettext("Tailscale")
+
+  # The row's tailnet claim state (#613's operator-truth column): the
+  # gateway's `dns_claims` map keys are the claimed domains, written
+  # only through the claim/unclaim funnels. Distinct from the state
+  # badge — cert issuance is not tailnet resolution, and either can
+  # move without the other.
+  defp claimed?(gateway, domain),
+    do: Map.has_key?(gateway.dns_claims || %{}, domain.domain)
 
   # Reached only under the stamp guards in the template.
   defp stamp_text(stamp), do: Calendar.strftime(stamp, "%b %d, %Y")
@@ -285,6 +288,23 @@ defmodule FluxValeWeb.AdminLive.GatewayDetail do
                     <span class="w-32 shrink-0 text-ink-muted">{gettext("Provisioned")}</span>
                     <span class="text-ink-muted">{stamp_text(@gateway.provisioned_at)}</span>
                   </p>
+                  <%!-- The attention clock (#613's operator-truth
+                  column, the wallets surface's since-date signal).
+                  Guarded on the STATE like the list's pin — Suspend
+                  never clears the stamp, so an unguarded render would
+                  show a clock under a suspended row. --%>
+                  <p
+                    :if={@gateway.state == :needs_attention and @gateway.needs_attention_since}
+                    class="flex gap-4 text-sm"
+                    data-testid="admin-gateways-detail-attention-since"
+                  >
+                    <span class="w-32 shrink-0 text-ink-muted">
+                      {gettext("Attention since")}
+                    </span>
+                    <span class="text-ink-muted">
+                      {stamp_text(@gateway.needs_attention_since)}
+                    </span>
+                  </p>
                   <p
                     :if={@gateway.created_at}
                     class="flex gap-4 text-sm"
@@ -353,19 +373,42 @@ defmodule FluxValeWeb.AdminLive.GatewayDetail do
                     <% end %>
                   </div>
                 </dl>
+
+                <%!-- The key-age signal (#613's operator-truth column,
+                ADR-0040 §5): Tailscale API keys expire within 90 days
+                by design, so when the token was last set is the
+                rotation clock. Rides the token entry it belongs to;
+                absent when no ref write ever stamped it. --%>
+                <p
+                  :if={@gateway.token_set_at}
+                  class="text-sm text-ink-muted"
+                  data-testid="admin-gateways-secret-token-set"
+                >
+                  {gettext(
+                    "Token set %{stamp}. Tailscale API keys expire within 90 days by design — age this one toward rotation.",
+                    stamp: stamp_text(@gateway.token_set_at)
+                  )}
+                </p>
               </.card>
 
               <%!-- The org's domains: the data model ties a domain to
               the ORG, not to the gateway, and the gateway is one per
-              org — so the domains live on this page rather than in a
-              separate cross-org list the member-only read could not
-              fill. --%>
+              org — so the domains live on this page. The claim line
+              under each name is the tailnet-resolution fact (#613's
+              operator-truth column): the gateway's claims map, not the
+              state badge — cert issuance and tailnet resolution are
+              separate truths. --%>
               <div class="space-y-4" data-testid="admin-gateways-detail-domains">
                 <div>
                   <h2 class="text-base font-medium text-ink">{gettext("Domains")}</h2>
                   <p class="mt-1 text-sm text-ink-muted">
                     {gettext(
                       "The names this org serves its private instances under. Registration lives on the org's own surfaces."
+                    )}
+                  </p>
+                  <p class="mt-1 text-sm text-ink-muted">
+                    {gettext(
+                      "The state badge is certificate issuance; the claim line is tailnet resolution. Either can move without the other."
                     )}
                   </p>
                 </div>
@@ -414,6 +457,24 @@ defmodule FluxValeWeb.AdminLive.GatewayDetail do
                             data-testid={"admin-gateways-domain-name-#{domain.id}"}
                           >
                             {domain.domain}
+                          </p>
+                          <%!-- The claim state: claimed on the tailnet or
+                          not — the operator-truth column the state
+                          badge cannot carry (issuance ≠ resolution).
+                          The map keys are the claimed domains. --%>
+                          <p
+                            :if={claimed?(@gateway, domain)}
+                            class="truncate text-xs text-ink-muted"
+                            data-testid={"admin-gateways-domain-claim-#{domain.id}"}
+                          >
+                            {gettext("Claimed on the tailnet")}
+                          </p>
+                          <p
+                            :if={not claimed?(@gateway, domain)}
+                            class="truncate text-xs text-ink-muted"
+                            data-testid={"admin-gateways-domain-unclaimed-#{domain.id}"}
+                          >
+                            {gettext("Not on the tailnet")}
                           </p>
                         </div>
                         <div>

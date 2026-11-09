@@ -1,22 +1,15 @@
-# Dev-only capture setup for the admin gateways surface (#501). RESETS
-# its own prior rows (slug prefix gateways-capture-), then builds one
-# SHAPE-DETERMINISTIC state (the same orgs, gateways, and states every
-# run; names carry a random suffix) — the admin is a MEMBER of five
-# gateway orgs
-# (one gateway per org — the resource's unique_organization identity),
-# covering every gateway state the product defines (provisioning /
-# active / needs_attention / suspended / destroying), a member org with
-# the detail capture's domains (platform verified + custom pending /
-# verified / failed / needs_attention / suspended), a member org whose
-# gateway runs no domains (the detail's honest empty), and a NON-member
-# org with an
-# active gateway the list must NOT render (the policy-exact shape on
-# camera). Two more admins cover the honest empties: one whose orgs run
-# no gateways (the filter-scoped empty) and one org-less admin (the
-# scope
-# note — the create action JIT-provisions a personal org, so an
-# org-less account is only producible by the sanctioned Ash.Seed.seed!
-# escape).
+# Dev-only capture setup for the admin gateways surface (#501, #613).
+# RESETS its own prior rows (slug prefix gateways-capture-), then builds
+# one SHAPE-DETERMINISTIC state (the same orgs, gateways, and states
+# every run; names carry a random suffix) — the capture admin is a
+# MEMBER of six gateway orgs (one gateway per org — the resource's
+# unique_organization identity): five covering every gateway state the
+# product defines (provisioning / active / needs_attention / suspended /
+# destroying), plus the domains-empty quiet org; a member org with the
+# detail capture's domains (platform verified + custom pending /
+# verified / failed / needs_attention / suspended, one of them CLAIMED
+# on the tailnet), and a NON-member org whose active gateway the list
+# now RENDERS — #613's cross-org arm on camera.
 #
 # The gateway rows ride Ash.Seed.seed! (not the create action): the create's
 # cluster leg provisions against Tailscale/K8s, which dev-capture
@@ -25,15 +18,14 @@
 # funnel, the platform domain rides :mint_platform, and the custom
 # domains' non-pending states ride the mark_* funnels.
 #
-# Prints the three admin session tokens and every id the capture script
-# needs.
+# Prints the capture admin's session token and every id the capture
+# script needs.
 #
 # Run from apps/platform: mix run ../e2e/admin_gateways_seed.exs
 
 alias FluxVale.Accounts.Membership
 alias FluxVale.Accounts.Organization
 alias FluxVale.Identity.User
-alias FluxVale.Identity.UserEmail
 alias FluxVale.Infrastructure.AccessDomain
 alias FluxVale.Infrastructure.AccessGateway
 alias FluxVale.Repo
@@ -67,18 +59,23 @@ wallet_ids =
 
 {_, nil} = Repo.delete_all(from(o in "organizations", where: o.id in ^org_ids))
 
-# The org-less capture admin is rebuilt every run (its mirror rows
-# first — the table-backed email, #285 T3): a partial prior run can
-# leave the user without its mirror, and both arms must be clean before
-# the get-or-create below.
+# The org-less capture admin's rows are no longer built (the scope
+# note is gone with #613's arm — an org-less admin sees the same
+# cross-org list); stale rows from a prior run are still swept here so
+# the dev DB doesn't accumulate them. The users sweep keys on username
+# — the table carries no email column since the user_emails move
+# (#285), and the mirror sweep rides the address as before.
 {_, nil} =
   Repo.delete_all(from(ue in "user_emails", where: like(ue.address, "gateways-orgless-capture%")))
 
 {_, nil} =
-  Repo.delete_all(from(u in "users", where: like(u.email, "gateways-orgless-capture%")))
+  Repo.delete_all(from(u in "users", where: u.username == "gateways-orgless-capture"))
 
 # The seed admin (seeds.exs creates it at bin/seed; get-or-create keeps
-# this script safe on a fresh dev DB).
+# this script safe on a fresh dev DB). The empty-state capture session
+# is gone: with #613's cross-org read, a populated dev DB renders every
+# seeded gateway for ANY admin, so no seeded account can produce the
+# global empty on camera (the live tests pin it).
 admin =
   case User.get_by_email("admin@fluxvale.com", authorize?: false) do
     {:ok, existing} ->
@@ -237,6 +234,31 @@ suspended_domain =
     organization_id: detail_org.id
   })
 
+# #613's operator-truth columns, through their system funnels (the only
+# writers): the API token ref (which stamps token_set_at — the 90-day
+# key-age line) and the tailnet claims map (the verified custom domain
+# and the platform row claimed; the rest unclaimed — the contrast the
+# domains table now renders). The token ref write is what stamps
+# token_set_at, so the key-age line has its fact.
+AccessGateway.set_api_token_ref!(
+  detail_gateway,
+  %{api_token_secret_ref: "gateway-api-token-#{suffix}"},
+  authorize?: false
+)
+
+detail_gateway
+|> Ash.Changeset.for_update(
+  :update_claims,
+  %{
+    dns_claims: %{
+      "apps.harborworks.com" => %{"ip" => "100.100.100.1", "tailnet" => "northwind.ts.net"},
+      "fluxvale.lvh.me" => %{"ip" => "100.100.100.1", "tailnet" => "northwind.ts.net"}
+    }
+  },
+  authorize?: false
+)
+|> Ash.update!()
+
 # The other four member orgs: one gateway per remaining state.
 provisioning_org = org!.("Beacon Works")
 member!.(provisioning_org)
@@ -266,8 +288,8 @@ quiet_org = org!.("Quiet Org")
 member!.(quiet_org)
 quiet_gateway = gateway!.(quiet_org, state: :active, status_message: "Connected")
 
-# The non-member org: its gateway exists and is healthy, and the list
-# must NOT render it — the member-scoped read is the point.
+# The non-member org: its gateway exists and is healthy, and with
+# #613's arm the list RENDERS it — the cross-org read on camera.
 stranger_org = org!.("Stranger Org")
 
 stranger =
@@ -281,57 +303,37 @@ Membership.create!(%{organization_id: stranger_org.id, user_id: stranger.id, rol
   authorize?: false
 )
 
-hidden_gateway = gateway!.(stranger_org, state: :active, status_message: "Connected")
+crossorg_gateway = gateway!.(stranger_org, state: :active, status_message: "Connected")
 
-# The empty admin: a real account (its JIT personal org runs no
-# gateway) — the filter-scoped empty's capture subject.
-empty_admin =
-  case User.get_by_email("gateways-empty-capture@fluxvale.test", authorize?: false) do
-    {:ok, existing} ->
-      existing
+# Stale rows from the pre-#613 seed (the gateway-less empty admin and
+# the org-less scope-note admin) are swept too — their capture sessions
+# no longer exist. The empty admin's membership rows go before its user
+# row (FK order); both users are found by username — the table carries
+# no email column since the user_emails move (#285), the mirrors by
+# address. The empty admin's JIT personal org stays orphaned (dev
+# capture tooling, no product path reads it).
+{_, nil} =
+  Repo.delete_all(from(ue in "user_emails", where: like(ue.address, "gateways-empty-capture%")))
 
-    {:error, _not_found} ->
-      User.create!("gateways-empty-capture@fluxvale.test", %{platform_role: :admin},
-        authorize?: false
-      )
-  end
+stale_user_ids =
+  Repo.all(from(u in "users", where: u.username == "gateways-empty-capture", select: u.id))
 
-# The org-less admin: Ash.Seed.seed! — the create action JIT-provisions
-# a personal org, so an account with no membership is only producible by
-# bypassing it (the documented seed! exception). The email mirror is
-# table-backed (#285 T3), so the row needs its backfill to sign in —
-# inlined here (the fixture module is :test-only).
-orgless_admin =
-  case User.get_by_email("gateways-orgless-capture@fluxvale.test", authorize?: false) do
-    {:ok, existing} ->
-      existing
+{_, nil} = Repo.delete_all(from(m in "memberships", where: m.user_id in ^stale_user_ids))
 
-    {:error, _not_found} ->
-      orgless =
-        Ash.Seed.seed!(User, %{
-          email: "gateways-orgless-capture@fluxvale.test",
-          username: "gateways-orgless-capture",
-          platform_role: :admin
-        })
-
-      {:ok, row} = UserEmail.add(orgless.email, %{user: orgless}, authorize?: false)
-      {:ok, verified} = UserEmail.mark_verified(row, authorize?: false)
-      {:ok, _primary} = UserEmail.set_primary(verified, actor: orgless)
-
-      orgless
-  end
+{_, nil} =
+  Repo.delete_all(
+    from(u in "users",
+      where: u.username in ^["gateways-empty-capture", "gateways-orgless-capture"]
+    )
+  )
 
 {:ok, token, _} = AshAuthentication.Jwt.token_for_user(admin)
-{:ok, empty_token, _} = AshAuthentication.Jwt.token_for_user(empty_admin)
-{:ok, orgless_token, _} = AshAuthentication.Jwt.token_for_user(orgless_admin)
 
 IO.puts("FV_TOKEN=#{token}")
-IO.puts("FV_TOKEN_EMPTY=#{empty_token}")
-IO.puts("FV_TOKEN_ORGLESS=#{orgless_token}")
 IO.puts("FV_GATEWAY_DETAIL=#{detail_gateway.id}")
 IO.puts("FV_GATEWAY_ATTENTION=#{attention_gateway.id}")
 IO.puts("FV_GATEWAY_NODOMAINS=#{quiet_gateway.id}")
-IO.puts("FV_GATEWAY_HIDDEN=#{hidden_gateway.id}")
+IO.puts("FV_GATEWAY_CROSSORG=#{crossorg_gateway.id}")
 
 IO.puts(
   "FV_DOMAINS=#{pending_domain.id},#{verified_domain.id},#{failed_domain.id},#{attention_domain.id},#{suspended_domain.id}"

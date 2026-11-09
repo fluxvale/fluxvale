@@ -5,42 +5,38 @@ defmodule FluxValeWeb.AdminLive.Gateways do
   gateways/domains oversight; registration, keys, and config belong to
   the product surfaces — the org Access panel and the provider API).
 
-  The honesty the surface can offer is bounded by its read policy:
-  `AccessGateway` reads are members-only (`relates_to_actor_via`
-  [:organization, :members]) with NO platform-admin arm — unlike the
-  wallet seam the orgs surface rides. `relates_to_actor_via` is a
-  FILTER, so a non-member admin's read answers `[]`, not Forbidden:
-  this list is exactly the gateways of orgs the admin belongs to. The
-  empty state says that in its title (filter-scoped, never a global
-  claim), and for an admin with no org memberships at all (only
-  producible by bypassing the create's JIT personal org) a scope note
-  says why the list is empty instead. Widening the read policy is a
-  policy change this lane does not make — the gap is reported, not
-  built around (#613).
+  The honesty the surface can offer rides its read policy: under the
+  blanket platform-admin authority (#644, ADR-0047), a session admin
+  reads EVERY org's gateway — the #613 ask, delivered by the bypass —
+  so the operator-truth columns the member-scoped posture dropped land
+  here: the attention clock beside the pinned row, the key age and
+  tailnet claims on the detail page. The membership probe that served
+  the old member-scoped empties is gone with them (#608's scope note
+  upgraded to the platform-wide read it now states).
 
   Columns the policies admit: the org name (the flagged `:admin_lookup`
   seam, the lane's one org path), the identifier grammar the product
   uses (`fv-<8 hex>` + the tailnet domain, ADR-0039 §1), the state (the
   product's own vocabulary, rendered through the section's shared badge
-  in AdminComponents with a shape cue per state), the rate snapshot,
-  the created stamp. The credential references stay off the list: they
-  render on the detail page, as names, with the copy that keeps them
-  honest.
+  in AdminComponents with a shape cue per state) with the attention
+  clock (`needs_attention_since`, the wallets surface's since-date
+  signal) for rows the state flags, the rate snapshot, the created
+  stamp. The credential references stay off the list: they render on
+  the detail page, as names, with the copy that keeps them honest.
 
   Attention first: a gateway whose STATE is `:needs_attention` pins to
   the top, then newest created. The pin keys on the state, not the
   `needs_attention_since` stamp — Suspend does not clear that stamp, so
   a stamp-keyed sort would pin a suspended row indefinitely (the review
-  finding; the domain-side fix is #613, not ours). The list caps at the
-  latest 100 (the lane's cap rationale). Revisit trigger: pagination
-  once gateway volume approaches the cap. Search narrows by hostname or
-  org name/slug — the relationship filter runs at the data layer, so
-  the search never needs an org read.
+  finding; the clock renders under the same state key for the same
+  reason). The list caps at the latest 100 (the lane's cap rationale).
+  Revisit trigger: pagination once gateway volume approaches the cap.
+  Search narrows by hostname or org name/slug — the relationship filter
+  runs at the data layer, so the search never needs an org read.
   """
 
   use FluxValeWeb, :live_view
 
-  alias FluxVale.Accounts.Membership
   alias FluxVale.Accounts.Organization
   alias FluxVale.Infrastructure.AccessGateway
   alias FluxVale.Pricing
@@ -80,8 +76,8 @@ defmodule FluxValeWeb.AdminLive.Gateways do
 
   # -- reads ----------------------------------------------------------------
 
-  # Attention first, then newest provisioned. The pin is a STATE-keyed
-  # expression sort (Ash.Expr.calc): needs_attention_since is written
+  # Attention first, then newest created: the pin is a STATE-keyed
+  # expression sort (Ash.Expr.calc) — needs_attention_since is written
   # by the state funnel but never cleared by Suspend, so a stamp-keyed
   # sort would pin a suspended row above a newer active one forever.
   # Capped one past the cap so the overflow question answers without a
@@ -110,7 +106,6 @@ defmodule FluxValeWeb.AdminLive.Gateways do
     socket
     |> assign(
       orgs: org_lookup(admin, gateways),
-      any_membership?: any_membership?(admin),
       rows_empty?: gateways == [],
       rows_capped?: capped?
     )
@@ -159,22 +154,6 @@ defmodule FluxValeWeb.AdminLive.Gateways do
       |> Ash.run_action()
 
     Map.new(orgs, fn org -> {org.id, org} end)
-  end
-
-  # The membership probe (the orgs slice's, generalized to "any"): the
-  # Membership read policy is members-only with the same
-  # relates_to_actor_via filter, so a non-member admin's read answers
-  # [] — the policy's own "you are not inside" answer. No new action,
-  # no widened policy. It serves ONLY the org-less shape (a seeded
-  # service account): a product-created admin always carries the JIT
-  # personal org, so the main empty state stays filter-scoped and never
-  # leans on this.
-  defp any_membership?(admin) do
-    Membership
-    |> Ash.Query.for_read(:read, %{}, actor: admin)
-    |> Ash.Query.filter(user_id == ^admin.id)
-    |> Ash.read!()
-    |> Enum.any?()
   end
 
   # -- display helpers ------------------------------------------------------
@@ -229,11 +208,10 @@ defmodule FluxValeWeb.AdminLive.Gateways do
               </p>
               <%!-- The one honesty statement the page carries: the read
               scope, stated at fact weight, not as a footnote (the orgs
-              surface's treatment). --%>
+              surface's treatment). #608's member-scope note upgraded to
+              the platform-wide read #613 landed. --%>
               <p class="mt-1 max-w-prose text-sm font-medium text-ink">
-                {gettext(
-                  "Gateway reads are member-scoped, so this list is the gateways of orgs you belong to."
-                )}
+                {gettext("Gateway reads here are platform-wide: this list is every org's gateway.")}
               </p>
             </div>
           </div>
@@ -285,42 +263,24 @@ defmodule FluxValeWeb.AdminLive.Gateways do
                   {gettext("Showing the latest 100 gateways. Attention pins to the top.")}
                 </p>
 
-                <%!-- The empty states ride the lane's panel-inset shape
-                (the scope note's card, the #571/#603 treatment) — no
-                dashed boxes on this surface, dark mode included. The
-                MAIN empty is filter-scoped: the member-scoped read
-                cannot support a global claim, so the title names the
-                orgs this admin belongs to and only the copy carries
-                the once-enabled story. --%>
+                <%!-- The empty state rides the lane's panel-inset shape
+                (the #571/#603 treatment) — no dashed boxes on this
+                surface, dark mode included. With the platform-admin
+                read (#613) the empty is a GLOBAL claim the cross-org
+                read can support — no filter-scoped hedging, no
+                membership probe. --%>
                 <div
-                  :if={@rows_empty? and @query == "" and @any_membership?}
+                  :if={@rows_empty? and @query == ""}
                   class="rounded-panel border border-line bg-panel px-4 py-3"
                   data-testid="admin-gateways-empty"
                 >
                   <p class="text-sm font-medium text-ink">
-                    {gettext("No gateways in the orgs you belong to.")}
+                    {gettext("No gateways yet.")}
                   </p>
                   <p class="mt-1 text-sm text-ink-muted">
                     {gettext(
                       "Private access is opt-in per org. An org's gateway appears here once its owner enables it."
                     )}
-                  </p>
-                </div>
-
-                <%!-- The honest scope note: a members-only read cannot
-                tell "no gateways anywhere" from "not yours to see", so
-                the membership probe answers and the page states which
-                emptiness this is (the orgs slice's discipline). --%>
-                <div
-                  :if={@rows_empty? and @query == "" and not @any_membership?}
-                  class="rounded-panel border border-line bg-panel px-4 py-3"
-                  data-testid="admin-gateways-scope-note"
-                >
-                  <p class="text-sm font-medium text-ink">
-                    {gettext("You are not a member of any org.")}
-                  </p>
-                  <p class="mt-1 text-sm text-ink-muted">
-                    {gettext("Gateways are readable by org members only, so none are listed here.")}
                   </p>
                 </div>
 
@@ -380,6 +340,24 @@ defmodule FluxValeWeb.AdminLive.Gateways do
                             <span data-testid={"admin-gateways-state-#{gateway.id}"}>
                               <AdminComponents.gateway_state_badge state={gateway.state} />
                             </span>
+                            <%!-- The attention clock (#613's operator-truth
+                            column, the wallets surface's since-date
+                            signal): how long the row has been flagged.
+                            Guarded on the STATE — Suspend never clears
+                            the stamp, so an unguarded render would show
+                            a clock under a suspended row (the pin's
+                            discipline, applied to the column). --%>
+                            <p
+                              :if={
+                                gateway.state == :needs_attention and gateway.needs_attention_since
+                              }
+                              class="mt-1 text-xs text-ink-muted"
+                              data-testid={"admin-gateways-attention-since-#{gateway.id}"}
+                            >
+                              {gettext("Since %{stamp}",
+                                stamp: stamp_text(gateway.needs_attention_since)
+                              )}
+                            </p>
                           </div>
                           <div class="text-right">
                             <span

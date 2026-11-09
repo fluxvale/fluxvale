@@ -15,10 +15,12 @@ defmodule FluxValeWeb.Api.GatewayRouteTest do
   alias FluxVale.Clients.K8s.Resources.Middleware
   alias FluxVale.Clients.K8s.Resources.NetworkPolicy
   alias FluxVale.Clients.K8s.Resources.Service
+  alias FluxVale.Infrastructure.AccessGateway
   alias FluxVale.Infrastructure.AccessProviders.Tailscale
   alias FluxVale.Infrastructure.AccessRoute
   alias FluxVale.Infrastructure.Operations.RenderAccessDNS
   alias FluxVale.TestSupport.AccessFixtures
+  alias FluxVale.TestSupport.AccountsFixtures
   alias FluxVale.TestSupport.ApiPat
   alias FluxVale.TestSupport.BillingFixtures
   alias FluxVale.TestSupport.InstanceFixtures
@@ -94,9 +96,40 @@ defmodule FluxValeWeb.Api.GatewayRouteTest do
       assert row["attributes"]["state"] == "active"
       assert row["attributes"]["monthly_cents"] == gateway.monthly_cents
 
-      # The credential refs are private by design — never on the wire.
+      # The credential refs and the #613 operator-truth columns are
+      # private by design — never on the wire, whoever the actor.
       refute Map.has_key?(row["attributes"], "credential_secret_ref")
       refute Map.has_key?(row["attributes"], "api_token_secret_ref")
+      refute Map.has_key?(row["attributes"], "needs_attention_since")
+      refute Map.has_key?(row["attributes"], "token_set_at")
+      refute Map.has_key?(row["attributes"], "dns_claims")
+    end
+
+    test "an admin PAT reads a foreign org's row member-shaped — the machine-API arm of the blanket (#644)",
+         %{conn: conn} do
+      {_member, own_org} = paid_member!()
+      {stranger_org, _owner} = BillingFixtures.grant_free_org!()
+
+      stranger_org
+      |> AccessFixtures.gateway!(state: :needs_attention)
+      |> AccessGateway.set_api_token_ref!(%{api_token_secret_ref: "tok-stub"}, authorize?: false)
+
+      # ADR-0047: PAT callers fall past the blanket bypass to the
+      # member-shaped policies — a foreign org's gateway 404s exactly
+      # as a member's would. The cross-org read the console renders
+      # rides the session, not the wire (pinned in the live suites).
+      admin_pat = ApiPat.mint!(AccountsFixtures.platform_admin!(), ["gateways:read"])
+
+      admin =
+        build_conn()
+        |> auth(admin_pat)
+        |> get("/api/v1/organizations/#{stranger_org.id}/access-gateway")
+
+      assert %{"errors" => [%{"status" => "404"}]} = json_response(admin, 404)
+
+      # Non-public columns stay off the wire whoever the actor — the
+      # refutes ride the member's own-org row below in this suite.
+      assert own_org.id != stranger_org.id
     end
   end
 
