@@ -1130,6 +1130,7 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
       version ->
         socket =
           socket
+          |> assign(:resources, kept_resources(socket, version))
           |> assign(step: 2, schema: sorted_schema(version), selected: version)
           |> assign_pocketid_offer()
           |> validate_step(%{"app_version_id" => version.id})
@@ -1293,6 +1294,20 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
         # An env error surfacing only at submit (e.g. the schema changed
         # under the stepper) would be invisible on the name step.
         {:noreply, maybe_back_to_env(socket, form)}
+    end
+  end
+
+  # A version switch resets the allocation (CodeRabbit, #639): the
+  # picked rungs belong to the version they were picked for. Carried
+  # across a switch they can sit under the new version's floors
+  # (#612 S3: an under-floor readout no slider can index, the ack
+  # path reopened for a DB entry, a create that can only refuse).
+  # Re-entering the SAME version — the back-nav round trip — keeps
+  # the choice (the existing pin).
+  defp kept_resources(%{assigns: assigns}, %{id: version_id}) do
+    case assigns.selected do
+      %{id: ^version_id} -> assigns.resources
+      _first_pick_or_other_version -> nil
     end
   end
 

@@ -1439,6 +1439,75 @@ defmodule FluxValeWeb.CatalogLive.DeployTest do
       assert has_element?(view, "#resource-memory-mb[value='0']")
     end
 
+    test "switching to a bundled version after under-allocating resets the allocation", %{
+      conn: conn
+    } do
+      # CodeRabbit (#639): picked rungs belong to the version they
+      # were picked for. A user who under-allocates on a plain
+      # version, goes back, and picks the bundled one must not carry
+      # the stale rungs in — under the bundled floors they would
+      # render as a readout no slider can index, reopen the ack path
+      # for a DB entry, and die at create.
+      plain =
+        InstanceFixtures.app_version!(
+          default_cpu_cores: Decimal.new("0.25"),
+          default_memory_mb: 512,
+          default_storage_gb: 10,
+          published_at: DateTime.utc_now(),
+          configurable_env_vars: %{
+            "SMTP_HOST" => %{label: "SMTP host", type: :string, required: false}
+          }
+        )
+
+      app = Ash.load!(plain, :app, authorize?: false).app
+
+      bundled =
+        InstanceFixtures.backing_version!(
+          app_id: app.id,
+          published_at: DateTime.utc_now(),
+          configurable_env_vars: %{
+            "APP_TOKEN" => %{label: "App token", type: :string, required: false, secret: true}
+          }
+        )
+
+      {:ok, view, _html} = live(conn, ~p"/apps/#{app.slug}/deploy")
+
+      # Under-allocate on the plain version: storage to the 0-GB
+      # rung (index 0 on the full ladder — legal there, the ack-gated
+      # path the plain entry keeps).
+      to_step_2(view, plain)
+      to_step_3(view)
+
+      view
+      |> form("#resources-form", resources: %{storage_gb: "0"})
+      |> render_change()
+
+      assert render(view) =~ ~s(aria-valuetext="0 GB")
+
+      # Back to the version step, forward again on the SAME version:
+      # the round trip keeps the choice (the existing pin).
+      render_click(element(view, "button[phx-click='back-env']"))
+      render_click(element(view, "button[phx-click='back-version']"))
+      to_step_2(view, plain)
+      to_step_3(view)
+
+      assert render(view) =~ ~s(aria-valuetext="0 GB")
+
+      # Now the switch: back, pick the BUNDLED version. The stale
+      # rungs must not ride in — the step reopens at the bundled
+      # floors, the 0-GB rung has no index to land on, and the ack
+      # path stays closed.
+      render_click(element(view, "button[phx-click='back-env']"))
+      render_click(element(view, "button[phx-click='back-version']"))
+      to_step_2(view, bundled)
+      to_step_3(view)
+
+      html = render(view)
+      assert html =~ ~s(aria-valuetext="10 GB")
+      assert has_element?(view, "#resource-storage-gb[value='0']")
+      refute has_element?(view, "#below-recommendation-warning")
+    end
+
     test "the full flow deploys at the floors with the env keys hidden", %{
       conn: conn,
       user: user,
