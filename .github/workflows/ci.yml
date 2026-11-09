@@ -1128,8 +1128,10 @@ jobs:
         if: failure() || cancelled()
         run: |
           # stderr too: a deployment with no available pod fails kubectl logs,
-          # and the reason is then the only evidence there is
-          mise x -- kubectl -n fluxvale-dev logs deployment/fluxvale-platform --tail=5000 \
+          # and the reason is then the only evidence there is. timeout 120
+          # bounds the dump: a hung kubectl must not eat the ~5 min
+          # cancellation grace window the artifact upload needs
+          timeout 120 mise x -- kubectl -n fluxvale-dev logs deployment/fluxvale-platform --tail=5000 \
             > platform-log-${{ matrix.leg.name }}.txt 2>&1 || true
       - name: Upload platform log artifact
         if: failure() || cancelled()
