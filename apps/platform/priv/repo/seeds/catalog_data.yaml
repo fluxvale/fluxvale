@@ -236,11 +236,14 @@
 - category:
     name: Productivity
     slug: productivity
+    # #610: widened from "Notes and personal knowledge apps." when
+    # Vikunja joined — tasks and projects are the category's second
+    # half now.
     description: >-
-      Notes and personal knowledge apps.
+      Notes, tasks, and personal knowledge apps.
     audience: >-
-      A fit for people who want their notes in one place, on their own
-      terms.
+      A fit for people who want their notes and tasks in one place, on
+      their own terms.
   apps:
     - name: Memos
       slug: memos
@@ -315,6 +318,176 @@
               account becomes the host (admin). Then close public
               sign-up in Memos' admin settings so no one else can
               register.
+
+    - name: Vikunja
+      slug: vikunja
+      tagline: Task lists, boards, and projects for your household or team
+      description: |
+        The to-do app from the Vikunja project. Tasks live in projects
+        with list, kanban, Gantt, and table views, plus labels,
+        filters, reminders, and repeating tasks. Share a project with
+        the household or a team, comment on tasks, and attach files.
+        Phone and desktop clients connect over CalDAV. Everything is
+        stored in a SQLite database on the instance volume and the
+        whole thing runs as one small Go binary. Sign-ups stay open on
+        the instance URL, so create your account soon after deploying.
+      # The repo's apple-touch-icon is the self-contained mark (the
+      # ActualBudget/Umami lesson): the llama glyph on a solid blue
+      # field, so it reads on the icon tile in both themes. The
+      # originalMedia logo.svg is the glyph alone on transparency.
+      icon_url: https://raw.githubusercontent.com/go-vikunja/vikunja/v2.8.0/frontend/originalMedia/icons/apple-touch-icon.png
+      source_url: https://github.com/go-vikunja/vikunja
+      docs_url: https://vikunja.io/docs
+      # #610 (D1 tier from the first commit): facts promoted from the
+      # verified packaging decisions — nothing invented. Alternatives
+      # are names only (upstream's own comparison pages).
+      caveats:
+        - Storage runs on SQLite on the instance volume and batch writes queue one at a time. There is no external database option.
+        - The first account registered is not the admin. Promoting an account to admin needs a Vikunja Pro license.
+        - Sign-ups stay open on the instance URL. Create your account soon after deploying.
+      alternatives:
+        - Todoist
+        - Trello
+      versions:
+        - version: "2.8.0"          # upstream stable, 2026-11-05
+          # The canonical image (upstream's own release pipeline pushes
+          # GHCR), pinned by exact tag. ghcr and Docker Hub publish the
+          # same build (identical amd64 digest sha256:12c860da…,
+          # verified 2026-11-08), and ghcr dodges Docker Hub's anonymous
+          # pull limits on shared CI runners — the ActualBudget
+          # convention.
+          image: ghcr.io/go-vikunja/vikunja:2.8.0
+          port: 3456
+          # `GET /health` answers 200 "OK", unauthenticated and
+          # dependency-free (verified from the running 2.8.0 image;
+          # /api/v2/health is the same probe under the v2 prefix).
+          healthcheck_path: /health
+          # #73's deploy op sets this to the instance's public URL —
+          # Vikunja's CORS middleware builds its allowlist from
+          # service.publicurl, so the frontend breaks behind the proxy
+          # without it (the Forgejo ROOT_URL pattern).
+          instance_url_env: VIKUNJA_SERVICE_PUBLICURL
+          # #511: the OIDC callback path for sign-in-with-Pocket ID.
+          # The path's third segment is the provider KEY `pocketid`,
+          # pinned by the discrete VIKUNJA_AUTH_OPENID_PROVIDERS_POCKETID_*
+          # env names below (the key lowercases from the env suffix) —
+          # the display-name input cannot change it, unlike Forgejo
+          # where the auth-source name IS the path.
+          oidc_callback_path: /auth/openid/pocketid
+          # Single-volume shape (verified from the running image): the
+          # image presets VIKUNJA_DATABASE_PATH=/db/vikunja.db, so the
+          # PVC lands at /db and everything else redirects under it —
+          # VIKUNJA_FILES_BASEPATH below puts attachments at /db/files
+          # (the image's doctor reports it created 0700). The container
+          # runs UID 1000 and /db is not in the image, so the mount is
+          # load-bearing: without it the app dies at boot with
+          # "mkdir /db: permission denied".
+          storage_mount_path: /db
+          default_cpu_cores: "0.25"
+          default_memory_mb: 512
+          default_storage_gb: 5
+          # The compute class (#125, #558): `micro` is 0.25 CPU / 512 MB
+          # — exactly this version's compute ($2.59/mo), and 5 GB is the
+          # app's own storage default ($0.24/mo per-GB — B′). A single
+          # Go binary serving API and frontend, verified booting and
+          # idling tiny on a fresh cluster. SQLite serializes writes
+          # (/api/v1/info reports concurrent_writes false), which is a
+          # non-issue at micro and friends-beta scale — the Postgres
+          # path arrives with the #612 backing-services layer, whose
+          # VIKUNJA_DATABASE_* family the research already mapped.
+          recommended_size: micro
+          release_notes: |
+            First FluxVale catalog release, tracking upstream v2.8.0.
+            SQLite on a dedicated volume mounted at /db, attachments
+            under it. Sign-ups stay open on the instance URL, so create
+            your account right after deploying.
+          published_at: "2026-11-05T20:44:21Z"
+          # Attachments under the PVC (see storage_mount_path): the
+          # image's own default is /app/vikunja/files, outside any
+          # mount.
+          default_env_vars:
+            VIKUNJA_FILES_BASEPATH: /db/files
+          # No first-run contract (ADR-0034 leaves the contract
+          # optional per app — the Vaultwarden shape): a fresh instance
+          # is usable out of the box, registration open. There is no
+          # contract to pin because Vikunja 2.x grants the first
+          # registrant nothing (verified from the running image: the
+          # first account's JWT carries is_admin false, and every
+          # admin-grant path — the `user set-admin` CLI and the admin
+          # API — is Pro/license-gated), so none of the three known
+          # patterns names it. The registration-open posture rides the
+          # caveats copy and the seed tests.
+          #
+          # VIKUNJA_SERVICE_ENABLEREGISTRATION is deliberately NOT
+          # shipped in any layer: setting it false at deploy time
+          # bricks a fresh instance (no admin exists to undo it — the
+          # Vaultwarden SIGNUPS_ALLOWED lockout reasoning). The seed
+          # tests pin its absence.
+          #
+          # The one non-SSO deploy-time input: VIKUNJA_SERVICE_SECRET
+          # (upstream defaults to a fresh random secret per boot, so
+          # every stop/start signs everyone out; a fixed value set at
+          # deploy time preserves sessions — env is a snapshot, so
+          # deploy time is the only chance).
+          configurable_env_vars:
+            VIKUNJA_SERVICE_SECRET:
+              label: Session secret
+              description: >-
+                A random string that keeps everyone signed in across
+                restarts. Vikunja makes up a new secret on every boot
+                when this is empty, which signs everyone out. Generate
+                one with openssl rand -base64 32.
+              type: string
+              secret: true
+            # #511 + #597: the SSO wiring as deploy-time inputs (the
+            # Vaultwarden SSO_* reasoning — env is a deploy-time
+            # snapshot, so an already-running instance is wired by
+            # redeploying with the values). Vikunja 1.0+ reads discrete
+            # per-provider env vars (verified from the running image:
+            # the provider registers under key `pocketid` and
+            # discovery GETs <authurl>/.well-known/openid-configuration,
+            # so AUTHURL is the issuer with no trailing slash). The
+            # inputs stay inert while the toggle above is false.
+            VIKUNJA_AUTH_OPENID_ENABLED:
+              label: Enable Pocket ID sign-in
+              description: Sign in through the OpenID Connect provider below. Username and password sign-in keeps working.
+              type: boolean
+              default: false
+            VIKUNJA_AUTH_OPENID_PROVIDERS_POCKETID_NAME:
+              label: Provider display name
+              description: The label on the sign-in button. It does not change the callback path.
+              type: string
+              default: "Pocket ID"
+            VIKUNJA_AUTH_OPENID_PROVIDERS_POCKETID_AUTHURL:
+              label: OIDC issuer URL
+              description: The Pocket ID instance's public URL with no trailing slash. It must match exactly.
+              type: string
+            VIKUNJA_AUTH_OPENID_PROVIDERS_POCKETID_CLIENTID:
+              label: OIDC client ID
+              description: The client ID from the Pocket ID OIDC client.
+              type: string
+            VIKUNJA_AUTH_OPENID_PROVIDERS_POCKETID_CLIENTSECRET:
+              label: OIDC client secret
+              description: The client secret from the Pocket ID OIDC client. Pocket ID shows it once when the client is created.
+              type: string
+              secret: true
+          # #597: the automatic-wiring recipe — presence = the deploy
+          # wizard can offer "sign in with your Pocket ID" for this
+          # version. The second declared consumer after Vaultwarden.
+          # pkce FALSE, unlike Vaultwarden: Vikunja's OpenID client
+          # sends no code_challenge anywhere in pkg/modules/auth/openid
+          # (verified at v2.8.0), so the minted Pocket ID client must
+          # be created with PKCE off. The names must exist in
+          # configurable_env_vars and the secret must be secret-typed —
+          # enforced at write time, so an upstream env rename fails the
+          # seed, not the deploy.
+          oidc_wiring:
+            kind: env
+            issuer_env: VIKUNJA_AUTH_OPENID_PROVIDERS_POCKETID_AUTHURL
+            client_id_env: VIKUNJA_AUTH_OPENID_PROVIDERS_POCKETID_CLIENTID
+            client_secret_env: VIKUNJA_AUTH_OPENID_PROVIDERS_POCKETID_CLIENTSECRET
+            enabled_env: VIKUNJA_AUTH_OPENID_ENABLED
+            pkce: false
 
 - category:
     name: Security
