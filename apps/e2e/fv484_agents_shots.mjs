@@ -1,7 +1,8 @@
 // #484 W5 capture: the agent quickstart — the new /settings/agents
-// page and the tokens panel (/settings/access) that links it one
-// click from the mint. Light + dark, authenticated session through
-// the real sign-in POST (FV_TOKEN from fv484_agents_session.exs).
+// page and the developer settings page that links it one click from
+// the mint (#638 moved the API tokens section to /settings/developer).
+// Light + dark, authenticated session through the real sign-in POST
+// (FV_TOKEN from fv484_agents_session.exs).
 // Adapted from apps/e2e/screenshot.mjs's capture pattern
 // (per-surface route list, never generic). Committed artifacts live
 // under docs/screenshots/<PR>/.
@@ -21,7 +22,7 @@ if (!token) {
 
 const shots = [
   ["agents-quickstart", "/settings/agents"],
-  ["tokens-panel", "/settings/access"],
+  ["tokens-panel", "/settings/developer"],
 ];
 
 const browser = await chromium.launch();

@@ -35,13 +35,14 @@ defmodule FluxValeWeb.SettingsLive.AgentsTest do
     assert render(element(view, "[data-testid='agents-server-url-copy']")) =~
              "https://mcp.fluxvale.com/mcp"
 
-    # Step 1 sends the visitor to the tokens panel's section anchor;
-    # the scopes callout links the same place.
+    # Step 1 sends the visitor to the tokens panel's section anchor
+    # (#638: the panel lives on the developer settings page now); the
+    # scopes callout links the same place.
     assert render(element(view, "[data-testid='agents-tokens-link']")) =~
-             ~s(href="/settings/access#api-tokens")
+             ~s(href="/settings/developer#api-tokens")
 
     assert render(element(view, "[data-testid='agents-scopes'] a")) =~
-             ~s(href="/settings/access#api-tokens")
+             ~s(href="/settings/developer#api-tokens")
 
     # The two-step recipe renders both steps.
     assert has_element?(view, "[data-testid='agents-recipe']", "Mint a token")
@@ -127,18 +128,19 @@ defmodule FluxValeWeb.SettingsLive.AgentsTest do
     assert current =~ ~s(aria-current="page")
     assert current =~ ~s(href="/settings/agents")
 
-    for key <- ["profile", "access", "wallet"] do
+    for key <- ["profile", "access", "developer", "wallet"] do
       quiet = render(element(view, "[data-testid='account-settings-nav-#{key}']"))
       refute quiet =~ "aria-current", "#{key} should stay quiet"
     end
   end
 
-  test "with no personal org, step 1 names an org instead of linking the redirecting panel", %{
+  test "with no personal org, the mint link still serves — the tokens page is actor-scoped", %{
     conn: conn,
     user: user
   } do
-    # The seeded/legacy no-org shape (PersonalAccountTest's teardown):
-    # the panel link would flash and redirect — a dead end.
+    # The seeded/legacy no-org shape (PersonalAccountTest's teardown).
+    # #638 moved the tokens panel to the actor-scoped developer page,
+    # so the quickstart's mint link is no dead end for this actor.
     membership =
       Membership
       |> Ash.Query.for_read(:read, %{}, authorize?: false)
@@ -149,10 +151,8 @@ defmodule FluxValeWeb.SettingsLive.AgentsTest do
 
     {:ok, view, _html} = live(conn, ~p"/settings/agents")
 
-    refute has_element?(view, "[data-testid='agents-tokens-link']")
-
-    assert render(element(view, "[data-testid='agents-tokens-norg']")) =~
-             "organization you own"
+    assert render(element(view, "[data-testid='agents-tokens-link']")) =~
+             ~s(href="/settings/developer#api-tokens")
 
     # The recipe itself still serves — static content, nothing gated.
     assert has_element?(view, "[data-testid='agents-server-url']")

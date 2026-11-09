@@ -25,7 +25,9 @@ defmodule FluxValeWeb.DeveloperSettingsLive do
   API tokens: the actor's own PATs — create (name + scopes off the
   existing catalog), the raw value shown once at creation, and
   revoke, effective immediately. Self-service by construction: the
-  reads and writes ride the owner-scoped policies.
+  reads and writes ride the owner-scoped policies. The section
+  links the agent quickstart (#484 W5, /settings/agents) — the MCP
+  recipe one click from the mint, wherever the mint lives.
   """
 
   use FluxValeWeb, :live_view
@@ -702,6 +704,30 @@ defmodule FluxValeWeb.DeveloperSettingsLive do
                     </li>
                   </ul>
                 </div>
+
+                <%!-- #484 W5: the quickstart is ONE click from the mint
+                  — a dedicated settings page with the server URL,
+                  per-client configs, and the destructive-gate story.
+                  The card rode the tokens section here from
+                  /settings/access (#638): wherever the mint lives, the
+                  recipe links from it. --%>
+                <.link
+                  navigate={~p"/settings/agents"}
+                  class={[
+                    "flex items-center justify-between gap-3 rounded-control border border-line bg-panel px-4 py-3",
+                    "text-sm text-ink transition-colors hover:border-line-strong hover:bg-panel-raised"
+                  ]}
+                  data-testid="api-tokens-agents-link"
+                >
+                  <span class="min-w-0">
+                    <span class="font-medium">Use FluxVale with an AI agent.</span>
+                    <span class="text-ink-muted">
+                      Claude, Cursor, and opencode connect over MCP with a token minted
+                      here.
+                    </span>
+                  </span>
+                  <span class="shrink-0 text-ink-muted" aria-hidden="true">&rarr;</span>
+                </.link>
               </div>
             </div>
           </div>

@@ -1,7 +1,7 @@
 defmodule FluxValeWeb.SettingsLive.Agents do
   @moduledoc """
   The agent quickstart (#484 W5): the remote MCP server's recipe at
-  one click from the tokens panel — the server URL, the two-step
+  one click from the tokens section — the server URL, the two-step
   mint-and-paste, the per-client configs (file snippets for Cursor
   and opencode; Claude Desktop's custom-connector form), the scopes
   story, and the destructive-action gate. The owner ruling: a beta
@@ -11,8 +11,11 @@ defmodule FluxValeWeb.SettingsLive.Agents do
   Documents the REMOTE server (`apps/mcp`, mcp.fluxvale.com) only —
   the platform's own endpoint is a different surface and is not
   referenced here. Static content, no org, no reads: a settings
-  section like Access, reachable from the tokens panel's link and
-  the account sidebar.
+  section like Developer, reachable from the developer page's tokens
+  section link and the account sidebar. The mint link points at the
+  developer settings page (#638 moved the tokens panel off
+  /settings/access; the page is actor-scoped, so the link serves
+  every signed-in actor).
 
   Tokens are placeholder-only by construction: the snippets carry
   `fvpat_…` and nothing else — the page has no token to echo (the
@@ -91,28 +94,18 @@ defmodule FluxValeWeb.SettingsLive.Agents do
                   <div class="min-w-0">
                     <p class="text-sm font-medium text-ink">Mint a token</p>
                     <p class="mt-1 text-sm text-ink-muted">
-                      <%= if @personal_org_id do %>
-                        In the
-                        <.link
-                          navigate={~p"/settings/access#api-tokens"}
-                          data-testid="agents-tokens-link"
-                          class="font-medium text-ink underline decoration-line underline-offset-2 transition-colors hover:decoration-line-strong"
-                        >
-                          API tokens panel
-                        </.link>
-                        — name it for the agent, pick its scopes (the MCP domains:
-                        catalog, instances, backups, wallet — gateways scopes don't
-                        unlock MCP tools today), create it.
-                      <% else %>
-                        <span data-testid="agents-tokens-norg">
-                          Mint a token from an organization you own
-                        </span>
-                        — the panel lives in its Access tab. Name it for the agent,
-                        pick its scopes (the MCP domains: catalog, instances,
-                        backups, wallet — gateways scopes don't unlock MCP tools
-                        today), create it.
-                      <% end %>
-                      The full token shows exactly once, there: copy it.
+                      In the
+                      <.link
+                        navigate={~p"/settings/developer#api-tokens"}
+                        data-testid="agents-tokens-link"
+                        class="font-medium text-ink underline decoration-line underline-offset-2 transition-colors hover:decoration-line-strong"
+                      >
+                        API tokens panel
+                      </.link>
+                      — name it for the agent, pick its scopes (the MCP domains:
+                      catalog, instances, backups, wallet — gateways scopes don't
+                      unlock MCP tools today), create it. The full token shows
+                      exactly once, there: copy it.
                     </p>
                   </div>
                 </div>
@@ -268,7 +261,7 @@ defmodule FluxValeWeb.SettingsLive.Agents do
                   A zero-scope token still identifies itself. The scope meanings are
                   listed where you mint,
                   <.link
-                    navigate={~p"/settings/access#api-tokens"}
+                    navigate={~p"/settings/developer#api-tokens"}
                     class="font-medium text-ink underline decoration-line underline-offset-2 transition-colors hover:decoration-line-strong"
                   >
                     in the API tokens panel

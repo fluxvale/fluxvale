@@ -5,8 +5,9 @@ the remote MCP server (the `apps/mcp` Rust crate — its
 [README](../apps/mcp/README.md) owns the server's env, auth, and deploy
 truth) serves FluxVale over MCP with a personal access token. The
 in-app quickstart lives at `/settings/agents` (#484 W5), one click
-from where the token is minted (the Access panel's API tokens
-section, #483); this doc mirrors it and carries the tool-surface
+from where the token is minted (the developer settings page's API
+tokens section, #483 — moved to `/settings/developer` by #638); this
+doc mirrors it and carries the tool-surface
 record the app cannot: the catalog and the changelog below.
 
 Endpoints (the protocol nests at `/mcp` — `apps/mcp/src/main.rs`
@@ -18,7 +19,7 @@ yet, the endpoint is rolling out): prod
 ## The recipe (two steps, one token)
 
 1. **Mint a token** in the API tokens panel
-   (`/settings/access#api-tokens`): name it for the agent, pick its
+   (`/settings/developer#api-tokens`): name it for the agent, pick its
    scopes, create it. The full token shows exactly once — copy it
    there.
 2. **Point your client at the server**: paste the server URL and the
