@@ -15,6 +15,17 @@
 #     - musl triple → .prebuilt/mdex_native/  (docker builds: e2e dev image, release)
 #     - gnu triple  → .prebuilt-glibc/         (Platform CI's setup-beam build only,
 #       via the mdex-gnu input — its cold deps cache surfaced the same httpc death)
+#
+# 2026-11-09 (GitHub anonymous-traffic 504 incident, githubstatus
+# c9px7cw2ghrs): the tailwind sha256sums.txt verification fetch ran on
+# EVERY run, cache hit or not — so Platform CI and an e2e leg died on a
+# warm cache while the release CDN 504'd anonymous calls. Now the sums
+# file is fetched once per version into its OWN cache row
+# (.prebuilt/tailwind-sums/ — deliberately outside .prebuilt/tailwind/,
+# which Dockerfile COPYs into the image: the sums are CI's integrity
+# data, not an image asset), the binary is still verified against it on
+# every run, and every cold fetch carries an outer exponential backoff
+# so multi-minute CDN blips ride through instead of reding the job.
 name: "Pre-seed pre-built artifacts"
 description: >-
   Parse version pins (config.exs / mix.lock), restore each artifact
@@ -64,6 +75,18 @@ runs:
         path: apps/platform/.prebuilt/tailwind
         key: ${{ runner.os }}-${{ runner.arch }}-tailwind-musl-${{ steps.pins.outputs.tailwind }}
 
+    # The sums file rides its own row, NOT the tailwind dir: that dir is
+    # COPY'd into the release image (Dockerfile) — sums are CI's
+    # integrity data, not an image asset. Exact key per version: fetched
+    # once, then warm forever (2026-11-09: the per-run fetch reded
+    # Platform CI on a warm cache when the release CDN 504'd anonymous
+    # calls).
+    - name: Restore tailwind sums cache
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: apps/platform/.prebuilt/tailwind-sums
+        key: ${{ runner.os }}-${{ runner.arch }}-tailwind-sums-${{ steps.pins.outputs.tailwind }}
+
     - name: Restore mdex_native cache
       uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
@@ -91,6 +114,24 @@ runs:
         MDEX_GNU: ${{ inputs.mdex-gnu }}
       run: |
         arch="$(printf '%s' "$RUNNER_ARCH" | tr '[:upper:]' '[:lower:]')"
+        # Outer exponential backoff around curl's own 3 retries — the
+        # 2026-11-09 class (CDN 504s to anonymous fetches) outlasts any
+        # single fixed-delay retry budget; ~1 min of waiting buys ride-
+        # through for multi-minute blips. Longer outages are the cache's
+        # job, not the retry's.
+        fetch() { # url dest
+          local attempt=0 delay=4
+          until curl -fsSL --retry 3 --retry-all-errors --retry-delay 2 --max-time 120 \
+              -o "$2" "$1"; do
+            attempt=$((attempt + 1))
+            if [ "$attempt" -ge 5 ]; then
+              echo "::error::download failed after $attempt outer attempts (3 curl retries each): $1" >&2
+              exit 1
+            fi
+            echo "fetch: attempt $attempt failed for $1 — backing off ${delay}s ($((5 - attempt)) outer attempts left)"
+            sleep "$delay"; delay=$((delay * 2))
+          done
+        }
         stage() { # dir name file url
           if [ -f "apps/platform/.prebuilt/$1/$2" ]; then
             size="$(stat -c%s "apps/platform/.prebuilt/$1/$2")"
@@ -98,8 +139,7 @@ runs:
           else
             echo "prebuilt $1: cache cold — curl fetching $2"
             mkdir -p "apps/platform/.prebuilt/$1"
-            curl -fsSL --retry 3 --retry-all-errors --retry-delay 2 \
-              -o "apps/platform/.prebuilt/$1/$2" "$3"
+            fetch "$3" "apps/platform/.prebuilt/$1/$2"
             chmod 644 "apps/platform/.prebuilt/$1/$2"
           fi
         }
@@ -117,9 +157,16 @@ runs:
         # The musl build is dynamically linked (cannot run on the
         # glibc runner), so verify against the release's published
         # sha256sums.txt — also the cache-roundtrip integrity check.
-        expected="$(curl -fsSL --retry 3 --retry-all-errors --retry-delay 2 \
-          "https://github.com/tailwindlabs/tailwindcss/releases/download/v$TW_VERSION/sha256sums.txt" \
-          | awk -v t="./tailwindcss-$tw_target" '$2 == t {print $1}')"
+        # The sums file lives in its own cached dir (never the image)
+        # and is fetched once per version; every run still verifies the
+        # binary against it.
+        sums="apps/platform/.prebuilt/tailwind-sums/sha256sums.txt"
+        if [ ! -f "$sums" ]; then
+          echo "prebuilt tailwind: sums cold — fetching sha256sums.txt"
+          mkdir -p "apps/platform/.prebuilt/tailwind-sums"
+          fetch "https://github.com/tailwindlabs/tailwindcss/releases/download/v$TW_VERSION/sha256sums.txt" "$sums"
+        fi
+        expected="$(awk -v t="./tailwindcss-$tw_target" '$2 == t {print $1}' "$sums")"
         actual="$(sha256sum "apps/platform/.prebuilt/tailwind/$tw_name" | cut -d" " -f1)"
         test -n "$expected" || { echo "::error::no checksum entry for tailwindcss-$tw_target" >&2; exit 1; }
         [ "$expected" = "$actual" ] || {
@@ -161,8 +208,7 @@ runs:
           else
             echo "prebuilt mdex_native (gnu): cache cold — curl fetching $mdex_gnu_name"
             mkdir -p "apps/platform/.prebuilt-glibc"
-            curl -fsSL --retry 3 --retry-all-errors --retry-delay 2 \
-              -o "apps/platform/.prebuilt-glibc/$mdex_gnu_name" \
-              "https://github.com/leandrocp/mdex_native/releases/download/v$MDEX_VERSION/$mdex_gnu_name"
+            fetch "https://github.com/leandrocp/mdex_native/releases/download/v$MDEX_VERSION/$mdex_gnu_name" \
+              "apps/platform/.prebuilt-glibc/$mdex_gnu_name"
           fi
         fi
