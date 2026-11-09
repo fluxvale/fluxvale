@@ -539,6 +539,99 @@ defmodule FluxValeWeb.CatalogControllerTest do
       assert html =~ "New accounts start with #{amount} in welcome credit."
       assert html =~ ~s(data-testid="cta-deploy")
       assert html =~ "Deploy #{app.name}"
+
+      # S4: the curated sections omit on a bare app — absent means
+      # absent, no empty state, no gap (plan §5).
+      refute html =~ ~s(data-testid="in-action-section")
+      refute html =~ ~s(data-testid="features-section")
+    end
+
+    # S4's curated sections: screenshots and feature cards from the S1
+    # metadata render between the hero and the generated benefits, in
+    # plan order (§6.3) — proof and capabilities, each self-omitting.
+    test "renders in action and features between the hero and benefits, in plan order", %{
+      conn: conn
+    } do
+      version = InstanceFixtures.app_version!()
+      app_row = Ash.load!(version, [app: :category], authorize?: false).app
+
+      app =
+        App.update!(
+          app_row,
+          %{
+            in_action_intro: "The real interface, captured from a running instance.",
+            screenshots: [
+              %{
+                src: "/images/catalog/#{app_row.slug}/repository-list.webp",
+                alt: "The repository list inside a running #{app_row.name} instance",
+                caption: "Repositories with search and filters"
+              },
+              %{
+                src: "/images/catalog/#{app_row.slug}/settings.webp",
+                alt: "The instance settings page"
+              }
+            ],
+            features: [
+              %{
+                icon: "hero-archive-box",
+                title: "Repositories",
+                body: "Host your git repositories with mirrors and protected tags."
+              },
+              %{
+                icon: "hero-arrow-path",
+                title: "Pull requests",
+                body: "Review changes line by line and merge them when ready."
+              },
+              %{
+                icon: "hero-bolt",
+                title: "Actions CI",
+                body: "Run build workflows on every push with the built-in runner."
+              },
+              %{
+                icon: "hero-user-group",
+                title: "Issue tracking",
+                body: "Track bugs and ideas with labels, milestones and assignees."
+              }
+            ]
+          },
+          authorize?: false
+        )
+
+      html = html_response(get(conn, ~p"/catalog/#{app.slug}"), 200)
+
+      # In action: heading, authored intro, the image contract, the
+      # authored caption (and none for the caption-less second shot).
+      assert html =~ ~s(data-testid="in-action-section")
+      assert html =~ "In action"
+      assert html =~ "#{app.name} in action"
+      assert html =~ "The real interface, captured from a running instance."
+      assert html =~ ~s(class="mt-10 grid gap-4 sm:grid-cols-2")
+      assert length(Regex.scan(~r/data-testid="screenshot-frame"/, html)) == 2
+      assert html =~ ~s(src="/images/catalog/#{app.slug}/repository-list.webp")
+      assert html =~ ~s(alt="The repository list inside a running #{app.name} instance")
+      assert html =~ ~s(loading="lazy")
+      assert html =~ ~s(decoding="async")
+      assert html =~ ~s(width="1440")
+      assert html =~ ~s(height="900")
+      assert html =~ "Repositories with search and filters"
+
+      # Features: four cards with their allowlisted icons.
+      assert html =~ ~s(data-testid="features-section")
+      assert html =~ "Features"
+      assert html =~ "What you can do with #{app.name}"
+      assert length(Regex.scan(~r/data-testid="feature-card"/, html)) == 4
+      assert html =~ "hero-archive-box"
+
+      # Plan order (§6.3): in action before features before benefits.
+      order =
+        for testid <- ["in-action-section", "features-section", "benefits-section"] do
+          case :binary.match(html, "data-testid=\"#{testid}\"") do
+            {index, _length} -> index
+            :nomatch -> flunk("expected the #{testid} section on the page")
+          end
+        end
+
+      assert order == Enum.sort(order)
     end
 
     # The setup column's first answer is the first-run guidance, and
@@ -764,7 +857,9 @@ defmodule FluxValeWeb.CatalogControllerTest do
       # The browse card is the under-two-peers fallback, and #610 put a
       # second app in Productivity (its pairs reach one peer each),
       # so every page still shows the card — the honest result, not a
-      # bug.
+      # bug. S4: no seeded app carries screenshots or features yet
+      # (S7 owns that content pass), so the curated sections omit
+      # everywhere.
       for slug <- seeded do
         html = html_response(get(conn, ~p"/catalog/#{slug}"), 200)
 
@@ -773,6 +868,8 @@ defmodule FluxValeWeb.CatalogControllerTest do
         assert html =~ ~s(data-testid="similar-section")
         assert html =~ ~s(data-testid="cta-section")
         assert html =~ ~s(data-testid="browse-card")
+        refute html =~ ~s(data-testid="in-action-section")
+        refute html =~ ~s(data-testid="features-section")
       end
 
       # The retro-filled apps: the honest hero renders their curated
