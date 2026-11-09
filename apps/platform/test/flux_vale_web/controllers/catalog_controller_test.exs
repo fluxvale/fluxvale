@@ -1024,7 +1024,10 @@ defmodule FluxValeWeb.CatalogControllerTest do
       assert rates.monthly_cents == 335
 
       card_rate = "#{Pricing.format_usd(rates.monthly_cents)}/mo"
-      assert [_rate_line] = Regex.run(~r{>\s*#{Regex.escape(card_rate)}\s*<}, html)
+
+      # Uniqueness, not just presence: the pricing card's rate <p> is
+      # the one and only element whose whole text is the bare figure.
+      assert length(Regex.scan(~r{>\s*#{Regex.escape(card_rate)}\s*<}, html)) == 1
 
       assert data["offers"]["@type"] == "Offer"
       assert data["offers"]["price"] == "3.35"
@@ -1098,6 +1101,28 @@ defmodule FluxValeWeb.CatalogControllerTest do
       assert data["description"] == "First paragraph."
     end
 
+    # The over-split hazard the blank-line split invites: a wrapped
+    # single paragraph (one newline, no blank line) stays whole — the
+    # description is not line-split.
+    test "a wrapped single paragraph stays whole", %{conn: conn} do
+      version = InstanceFixtures.app_version!()
+      app_row = Ash.load!(version, :app, authorize?: false).app
+
+      App.update!(
+        app_row,
+        %{description: "First line of one paragraph.\nSecond line of the same paragraph."},
+        authorize?: false
+      )
+
+      html = html_response(get(conn, ~p"/catalog/#{app_row.slug}"), 200)
+
+      assert [_match, encoded] = Regex.run(~r/id="ld-json-app">(.*?)<\/script>/s, html)
+      data = Jason.decode!(encoded)
+
+      assert data["description"] ==
+               "First line of one paragraph.\nSecond line of the same paragraph."
+    end
+
     # #611 S5 (plan §9): the FAQPage mirrors the FAQ the page renders —
     # same items, same order, links and open-state left out. The
     # comparison runs against the visible <summary> text extracted from
@@ -1144,9 +1169,10 @@ defmodule FluxValeWeb.CatalogControllerTest do
 
       # The FAQ rows are the page's only <summary> elements — scan them
       # in document order and demand the markup matches exactly, with
-      # the JSON names escaped the same way the page escaped them.
+      # the JSON names escaped the same way the page escaped them. The
+      # /s keeps a newline inside an authored question capturable.
       visible =
-        ~r{<summary[^>]*>\s*<span[^>]*>(.*?)</span>}
+        ~r{<summary[^>]*>\s*<span[^>]*>(.*?)</span>}s
         |> Regex.scan(html)
         |> Enum.map(fn [_full, question] -> question end)
 
