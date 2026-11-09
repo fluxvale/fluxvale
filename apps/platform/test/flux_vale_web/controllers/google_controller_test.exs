@@ -110,6 +110,8 @@ defmodule FluxValeWeb.GoogleControllerTest do
       assert Phoenix.Flash.get(result.assigns.flash, :info) == "Signed in with Google."
       assert %{id: id} = signed_in_user(result)
       assert id == user.id
+      # Exactly one token redemption for the whole round trip
+      assert Provider.redemptions(provider) == 1
     end
 
     test "an external return_to is dropped — the callback lands on /", %{
@@ -223,7 +225,39 @@ defmodule FluxValeWeb.GoogleControllerTest do
   end
 
   describe "transport failures (the controller's error set)" do
-    test "a state mismatch answers the fallback copy and writes no session", %{
+    test "a state mismatch answers the fallback copy and writes no session — zero outbound redemptions",
+         %{
+           conn: conn,
+           ip: ip,
+           provider: provider
+         } do
+      Provider.set_claims(provider, email: "whoever@example.com", email_verified: true)
+
+      grant =
+        conn
+        |> as_ip(ip)
+        |> authorize_hop(%{return_to: "/feedback"})
+
+      # The session rides the recycled authorize conn; the forged
+      # state dies inside assent's constant-time compare — BEFORE any
+      # outbound token request (the provider's redemption count is the
+      # outbound-budget probe)
+      result =
+        grant.conn
+        |> recycle()
+        |> as_ip(ip)
+        |> get(~p"/auth/google/callback?#{%{code: grant.code, state: "forged-state"}}")
+
+      assert redirected_to(result) == "/sign-in?return_to=%2Ffeedback"
+      assert error_flash(result) == @oidc_failed
+      assert signed_in_user(result) == nil
+      assert Provider.redemptions(provider) == 0
+    end
+
+    # MUST-FIX: repeated or indexed form keys arrive as lists/maps —
+    # assent's constant-time compare and URI encoding are binary-only,
+    # so the malformed shape must die at the honest copy, never raise.
+    test "a list-shaped state reaches no assent compare — the honest copy, not a 500", %{
       conn: conn,
       ip: ip,
       provider: provider
@@ -235,21 +269,43 @@ defmodule FluxValeWeb.GoogleControllerTest do
         |> as_ip(ip)
         |> authorize_hop()
 
-      # The session rides the recycled authorize conn; the forged
-      # state dies inside assent's constant-time compare — BEFORE any
-      # outbound token request
       result =
         grant.conn
         |> recycle()
         |> as_ip(ip)
-        |> get(~p"/auth/google/callback?#{%{code: grant.code, state: "forged-state"}}")
+        |> get("/auth/google/callback?state[]=x&code=#{grant.code}")
 
+      assert result.status == 302
       assert redirected_to(result) == ~p"/sign-in"
       assert error_flash(result) == @oidc_failed
-      assert signed_in_user(result) == nil
+      assert Provider.redemptions(provider) == 0
     end
 
-    test "a replayed callback dies on the consumed round trip — no token exchange", %{
+    test "a map-shaped code is refused the same way", %{
+      conn: conn,
+      ip: ip,
+      provider: provider
+    } do
+      Provider.set_claims(provider, email: "whoever@example.com", email_verified: true)
+
+      grant =
+        conn
+        |> as_ip(ip)
+        |> authorize_hop()
+
+      result =
+        grant.conn
+        |> recycle()
+        |> as_ip(ip)
+        |> get("/auth/google/callback?code[foo]=bar&state=#{grant.state}")
+
+      assert result.status == 302
+      assert redirected_to(result) == ~p"/sign-in"
+      assert error_flash(result) == @oidc_failed
+      assert Provider.redemptions(provider) == 0
+    end
+
+    test "a replayed callback dies on the consumed round trip — no second redemption", %{
       conn: conn,
       ip: ip,
       provider: provider
@@ -265,10 +321,11 @@ defmodule FluxValeWeb.GoogleControllerTest do
 
       first = callback_hop(grant, ip)
       assert Phoenix.Flash.get(first.assigns.flash, :info) == "Signed in with Google."
+      assert Provider.redemptions(provider) == 1
 
       # The session_params were consumed with the first hop: the
       # replay has nothing to validate against (and the code is long
-      # burned at the provider anyway).
+      # burned at the provider anyway) — no outbound call either way.
       replay =
         first
         |> recycle()
@@ -277,9 +334,13 @@ defmodule FluxValeWeb.GoogleControllerTest do
 
       assert redirected_to(replay) == ~p"/sign-in"
       assert error_flash(replay) == @oidc_failed
+      assert Provider.redemptions(provider) == 1
     end
 
-    test "a cold callback (nothing parked) answers the fallback copy", %{conn: conn, ip: ip} do
+    test "a cold callback (nothing parked) answers the fallback copy — no destination to keep", %{
+      conn: conn,
+      ip: ip
+    } do
       conn
       |> as_ip(ip)
       |> get(~p"/auth/google/callback?#{%{code: "cold", state: "cold"}}")
@@ -303,31 +364,36 @@ defmodule FluxValeWeb.GoogleControllerTest do
         with_log(fn ->
           conn
           |> as_ip(ip)
-          |> get(~p"/auth/google")
+          |> get(~p"/auth/google?#{%{return_to: "/feedback"}}")
         end)
 
-      assert redirected_to(result) == ~p"/sign-in"
+      # §5: even the transport failure keeps the destination
+      assert redirected_to(result) == "/sign-in?return_to=%2Ffeedback"
       assert error_flash(result) == @oidc_failed
-      # The reason is server-side only — PII-free by construction
+      # The reason is server-side only, bounded by the inspect limits
       assert output =~ "Google OIDC authorize hop failed"
     end
   end
 
   describe "the door-shut predicate (D-flag)" do
-    test "flag off: both hops refuse with the unavailable copy", %{conn: conn, ip: ip} do
+    test "flag off: both hops refuse with the unavailable copy, destination kept", %{
+      conn: conn,
+      ip: ip
+    } do
       row = FeatureFlag.by_key!("google_sign_in", authorize?: false, not_found_error?: false)
       Ash.update!(row, %{enabled: false}, authorize?: false)
 
       conn
       |> as_ip(ip)
-      |> get(~p"/auth/google")
+      |> get(~p"/auth/google?#{%{return_to: "/feedback"}}")
       |> then(fn result ->
-        assert redirected_to(result) == ~p"/sign-in"
+        assert redirected_to(result) == "/sign-in?return_to=%2Ffeedback"
         assert error_flash(result) == @unavailable
         assert signed_in_user(result) == nil
       end)
 
-      # The callback refuses identically — the arm is off mid-round-trip
+      # The callback refuses identically — nothing parked, so no
+      # destination to keep (bare /sign-in)
       conn
       |> as_ip(ip)
       |> get(~p"/auth/google/callback?#{%{code: "any", state: "any"}}")
@@ -337,12 +403,43 @@ defmodule FluxValeWeb.GoogleControllerTest do
       end)
     end
 
-    test "credentials absent: the same refusal", %{conn: conn, ip: ip} do
+    test "flag flipped mid-round-trip: the callback's refusal keeps the parked destination", %{
+      conn: conn,
+      ip: ip
+    } do
+      grant =
+        conn
+        |> as_ip(ip)
+        |> authorize_hop(%{return_to: "/feedback"})
+
+      row = FeatureFlag.by_key!("google_sign_in", authorize?: false, not_found_error?: false)
+      Ash.update!(row, %{enabled: false}, authorize?: false)
+
+      grant.conn
+      |> recycle()
+      |> as_ip(ip)
+      |> get(~p"/auth/google/callback?#{%{code: grant.code, state: grant.state}}")
+      |> then(fn result ->
+        assert redirected_to(result) == "/sign-in?return_to=%2Ffeedback"
+        assert error_flash(result) == @unavailable
+        assert signed_in_user(result) == nil
+      end)
+    end
+
+    test "credentials absent: both hops make the same refusal", %{conn: conn, ip: ip} do
       Application.put_env(:flux_vale, :google_oidc, client_id: nil, client_secret: nil)
 
       conn
       |> as_ip(ip)
       |> get(~p"/auth/google")
+      |> then(fn result ->
+        assert redirected_to(result) == ~p"/sign-in"
+        assert error_flash(result) == @unavailable
+      end)
+
+      conn
+      |> as_ip(ip)
+      |> get(~p"/auth/google/callback?#{%{code: "any", state: "any"}}")
       |> then(fn result ->
         assert redirected_to(result) == ~p"/sign-in"
         assert error_flash(result) == @unavailable
@@ -381,13 +478,15 @@ defmodule FluxValeWeb.GoogleControllerTest do
       result = callback_hop(grant, ip)
       assert Phoenix.Flash.get(result.assigns.flash, :info) == "Signed in with Google."
 
-      # — the third request on the same IP meets the throttle copy
+      # — the third request on the same IP meets the throttle copy,
+      # destination still attached (§5: the email fallback forgets
+      # nothing)
       conn
       |> as_ip(ip)
-      |> get(~p"/auth/google")
+      |> get(~p"/auth/google?#{%{return_to: "/feedback"}}")
       |> then(fn refused ->
         assert refused.status == 302
-        assert redirected_to(refused) == ~p"/sign-in"
+        assert redirected_to(refused) == "/sign-in?return_to=%2Ffeedback"
         assert error_flash(refused) == @throttled
       end)
 

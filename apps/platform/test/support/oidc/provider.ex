@@ -58,7 +58,8 @@ defmodule FluxVale.TestSupport.OIDC.Provider do
     :public_jwk,
     claims: [],
     fault: nil,
-    grants: %{}
+    grants: %{},
+    redemptions: 0
   ]
 
   @type fault :: :wrong_audience | :wrong_issuer | :expired | :tampered_signature | nil
@@ -83,6 +84,14 @@ defmodule FluxVale.TestSupport.OIDC.Provider do
   @doc "Poisons one id_token mint, then auto-clears (see the moduledoc)."
   @spec set_fault(pid() | atom(), fault()) :: :ok
   def set_fault(provider, fault), do: GenServer.call(provider, {:set_fault, fault})
+
+  @doc """
+  How many /token requests the provider has served (successful or
+  not) — the outbound-budget probe: a callback that dies at state
+  validation must show ZERO redemptions.
+  """
+  @spec redemptions(pid() | atom()) :: non_neg_integer()
+  def redemptions(provider), do: GenServer.call(provider, :redemptions)
 
   ## Plug-facing API (ProviderPlug forwards HTTP shapes here)
 
@@ -148,6 +157,10 @@ defmodule FluxVale.TestSupport.OIDC.Provider do
     {:reply, :ok, %{state | fault: fault}}
   end
 
+  def handle_call(:redemptions, _from, state) do
+    {:reply, state.redemptions, state}
+  end
+
   def handle_call({:authorize, params}, _from, state) do
     cond do
       params["client_id"] != state.client_id ->
@@ -178,6 +191,10 @@ defmodule FluxVale.TestSupport.OIDC.Provider do
   # a failed redemption (bad PKCE, wrong client) consumes it too, so a
   # replay probe can never hit a half-spent grant.
   def handle_call({:token, params, basic}, _from, state) do
+    # Every presentation counts — the outbound-budget probe counts
+    # failed redemptions too (the test-facing redemptions/1).
+    state = %{state | redemptions: state.redemptions + 1}
+
     case Map.pop(state.grants, params["code"]) do
       {nil, _grants} ->
         {:reply, invalid_grant("unknown or reused code"), state}

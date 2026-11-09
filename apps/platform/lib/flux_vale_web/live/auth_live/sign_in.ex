@@ -29,7 +29,6 @@ defmodule FluxValeWeb.AuthLive.SignIn do
 
   alias FluxVale.Identity
   alias FluxVale.Identity.GoogleOIDC
-  alias FluxVale.Ops.FeatureFlags
   alias FluxValeWeb.AuthFlow
   alias FluxValeWeb.ReturnPath
 
@@ -288,18 +287,27 @@ defmodule FluxValeWeb.AuthLive.SignIn do
     # The native fallback's one markup difference: an anchor instead of
     # the in-place phx-click reset (see render/1).
     |> assign(connected: connected?(socket))
-    # #642 (D-flag): the Google door renders under the same predicate
-    # the controller's two hops gate on — flag row AND credentials,
-    # computed once per mount (uncached flag read, ~1 ms). The :code
-    # step never shows it: the visitor is mid-flow.
-    |> assign(
-      google_available: FeatureFlags.enabled?(:google_sign_in) and GoogleOIDC.configured?()
-    )
+    # #642 (D-flag): the Google door renders under the ONE predicate
+    # both controller hops gate on — GoogleOIDC.arm_available?/0 (flag
+    # row AND credentials), computed once per mount. A DB blip in the
+    # flag read must not 500 a previously-static page: fail CLOSED —
+    # the button hides, the email door stays exactly as it was (plan
+    # §5's no-worse guarantee); the stub-raising test pins it.
+    |> assign(google_available: google_available())
     # An auth surface is noindex (the launch SEO audit gap): the root
     # layout's seo tags render the <meta name="robots"> from this
     # assign — the same key the SeoNoindex plug sets on non-canonical
     # hosts.
     |> assign(robots_noindex: true)
+  end
+
+  # #642: the rescue is the honest boundary — the flag read rides the
+  # DB, and an Ash read failure (a blip) hides the door instead of
+  # 500ing the page the email arm has always served.
+  defp google_available do
+    GoogleOIDC.arm_available?()
+  rescue
+    _read_failure -> false
   end
 
   # #642: the anchor carries the validated return target the same way

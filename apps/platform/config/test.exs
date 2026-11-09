@@ -35,8 +35,9 @@ config :flux_vale, FluxVale.Repo,
 # you can enable the server option below.
 config :flux_vale, FluxValeWeb.Endpoint,
   # #642 plan §6: the Google OIDC redirect URI derives from the
-  # endpoint's own :url (<origin>/auth/google/callback) — the http
-  # localhost:4000 shape, never prod's https host.
+  # endpoint's own :url — deliberately the dev-shape origin (nothing
+  # listens in test, server: false; only the round trip's
+  # consistency matters).
   url: [host: "localhost", port: 4000],
   http: [ip: {127, 0, 0, 1}, port: 4002],
   secret_key_base: "lFp+naePZvFguRNIJ3gkEqmbbbm8si/dA5t8la7Ojp733r2Al06iwWrUv+aRrgA7",

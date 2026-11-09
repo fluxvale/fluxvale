@@ -8,32 +8,51 @@ defmodule FluxValeWeb.Plugs.GoogleRateLimit do
 
   Not a pipeline plug: the controller calls `allow?/1` at the top of
   both actions, and the refusal is a browser-shaped redirect with
-  flash (the copy lives in the controller) — never a bare 429.
-  Otherwise the ApiRateLimit posture: increment first, then check, so
-  the refused request still counts.
+  flash (the copy lives in `AuthFlow`) — never a bare 429. Otherwise
+  the ApiRateLimit posture: increment first, then check, so the
+  refused request still counts.
 
-  ## The key (plan §3.2)
+  ## The key, and how honest it is (plan §3.2)
 
   Behind the deployed edge (Cloudflare → Traefik → pod,
   docs/architecture.md) `conn.remote_ip` is a proxy pod address, so
-  `client_ip/1` extracts: `CF-Connecting-IP` when present (Cloudflare
-  sets and overwrites it on the proxied path; a client cannot forge
-  it through), else the rightmost `X-Forwarded-For` entry (the
-  address the one untrusted-hop-remaining proxy appended — the local
-  k3d + Traefik stack), else `remote_ip` (a direct `mix phx.server`).
-  Revisit trigger: the proxy chain changes again.
+  `client_ip/1` extracts: `CF-Connecting-IP` when present, else the
+  rightmost `X-Forwarded-For` entry, else `remote_ip` (a direct `mix
+  phx.server`).
+
+  The trust model, stated plainly: `CF-Connecting-IP` is trusted only
+  because prod ingress is Cloudflare-only and the pod is otherwise
+  unreachable — where the app answers without Cloudflare in front
+  (the local k3d + Traefik stack, a bare load balancer), that header
+  is client-settable and the key is attacker-rotatable: a spoofer
+  mints fresh buckets at request rate and the window degrades to a
+  plain request-rate bound. The rightmost-XFF fallback has the same
+  shape — it is the one untrusted-hop-remaining proxy's append, which
+  only helps while exactly that proxy stands in front. Revisit
+  trigger (plan §3.2): the proxy chain changes again.
 
   ## The store
 
   A named ETS table owned by a supervised GenServer (the
   StorageExpansion/Edge.Activity pattern — controllers die with the
   request; the table must not). Counter writes ride caller-side
-  `:ets.update_counter` on a `{ip, window}` key (atomic, floor-bucketed
-  like ApiRateLimit, no read-first); the owner's only jobs are holding
-  the table and sweeping expired windows so it stays bounded. Exact
-  per-IP accounting holds while the platform runs a single replica;
-  revisit trigger: platform replicas scale past one — then the window
-  is per-pod and the limit must move to shared storage.
+  `:ets.update_counter` on a `{ip, window}` key (atomic,
+  floor-bucketed like ApiRateLimit, no read-first). The owner's jobs:
+  hold the table, sweep expired windows. Because a spoofed header
+  mints a fresh row per distinct value, row creation is bounded by
+  request rate, not by the throttle — `max_rows` is the backstop:
+  past it, the caller sweeps expired rows inline before inserting
+  (rows from lapsed windows only, so a live key is never reaped; a
+  current-window flood may overshoot by one window's worth before the
+  rollover sweeps it — accepted, a row costs tens of bytes).
+
+  `allow?/1` fails OPEN when the table is gone or the owner is mid
+  restart (the `whereis` pass and the write can race the owner's
+  death — ArgumentError is rescued): a throttle must not 500 the
+  sign-in door. Exact per-IP accounting holds while the platform runs
+  a single replica; revisit trigger: platform replicas scale past one
+  — then the window is per-pod and the limit must move to shared
+  storage.
 
   ## Configuration
 
@@ -42,7 +61,8 @@ defmodule FluxValeWeb.Plugs.GoogleRateLimit do
 
       config :flux_vale, FluxValeWeb.Plugs.GoogleRateLimit,
         window_seconds: 60,
-        max_requests: 10
+        max_requests: 10,
+        max_rows: 100_000
   """
 
   use GenServer
@@ -50,6 +70,7 @@ defmodule FluxValeWeb.Plugs.GoogleRateLimit do
   @table __MODULE__.Windows
   @default_window_seconds 60
   @default_max_requests 10
+  @default_max_rows 100_000
 
   @doc false
   @spec start_link(keyword()) :: GenServer.on_start()
@@ -59,59 +80,83 @@ defmodule FluxValeWeb.Plugs.GoogleRateLimit do
 
   @doc """
   Counts this request against the caller's IP window and answers
-  whether it may proceed. Fail-open when the table is gone: the
-  owner's restart window must not 500 the sign-in door.
+  whether it may proceed. Config is read OUTSIDE the fail-open arm —
+  a malformed limit must raise at the boundary, not silently pass.
   """
   @spec allow?(Plug.Conn.t()) :: boolean()
   def allow?(conn) do
-    if :ets.whereis(@table) == :undefined do
-      # coveralls-ignore-start - the supervisor's restart window races
-      # any sequential staging (a killed owner is re-spawned before a
-      # test can call through) — the same class as the concurrency
-      # windows the sandbox cannot open.
-      true
-      # coveralls-ignore-stop
-    else
-      ip = client_ip(conn)
-      window = window_start(window_seconds())
-
-      count = :ets.update_counter(@table, {ip, window}, {2, 1}, {{ip, window}, 0})
-      count <= max_requests()
-    end
+    window = window_start(System.system_time(:second), window_seconds())
+    limit = max_requests()
+    cap = max_rows()
+    bump(client_ip(conn), window, limit, cap)
   end
 
   @doc """
   The per-IP throttle key (plan §3.2), normalized to a binary so
   every source lands in one keyspace. Pure: headers and `remote_ip`
-  in, string out.
+  in, string out. The CF header is normalized BEFORE the emptiness
+  check (the CaptureIpCountry posture): whitespace-only is absent,
+  not the `""` bucket.
   """
   @spec client_ip(Plug.Conn.t()) :: String.t()
   def client_ip(conn) do
     case Plug.Conn.get_req_header(conn, "cf-connecting-ip") do
-      [ip | _rest] when is_binary(ip) and ip != "" ->
-        String.trim(ip)
-
-      _no_cf_header ->
-        case forwarded_for(conn) do
-          nil -> remote_ip_string(conn)
-          rightmost -> rightmost
+      [value | _rest] ->
+        case String.trim(value) do
+          "" -> forwarded_or_remote(conn)
+          trimmed -> trimmed
         end
+
+      [] ->
+        forwarded_or_remote(conn)
     end
   end
+
+  @doc """
+  The floor-bucketed window containing `epoch` — ApiRateLimit's
+  arithmetic verbatim: `div(epoch, window) * window`. Public pure
+  function for its test (the roll test drives it instead of sleeping
+  out a window boundary).
+  """
+  @spec window_start(integer(), pos_integer()) :: integer()
+  def window_start(epoch, window_seconds), do: div(epoch, window_seconds) * window_seconds
 
   @doc """
   Deletes rows from windows that can no longer be written (the floor
   bucketing has moved past them). Public for its test — the table is
   public, so the test stages stale rows directly; the owner schedules
-  this every window.
+  this every window and the cap path calls it inline.
   """
   @spec sweep_expired() :: :ok
   def sweep_expired do
     window = window_seconds()
-    cutoff = window_start(window) - 2 * window
+    cutoff = window_start(System.system_time(:second), window) - 2 * window
     spec = [{{{:"$1", :"$2"}, :_}, [{:<, :"$2", cutoff}], [true]}]
     :ets.select_delete(@table, spec)
     :ok
+  end
+
+  # coveralls-ignore-start - the table-gone / owner-dying window (the
+  # supervisor's restart): not sequentially stageable, the owner is
+  # re-spawned before a test can call through. Fail open — a throttle
+  # must not 500 the sign-in door; the next request counts again.
+  defp bump(ip, window, limit, cap) do
+    maybe_sweep_full_table(cap)
+
+    count = :ets.update_counter(@table, {ip, window}, {2, 1}, {{ip, window}, 0})
+    count <= limit
+  rescue
+    ArgumentError -> true
+  end
+
+  # coveralls-ignore-stop
+
+  # Past the row cap, reap the expired before inserting (the spoofed
+  # -key backstop — see the moduledoc's store section).
+  defp maybe_sweep_full_table(cap) do
+    if :ets.info(@table, :size) > cap do
+      sweep_expired()
+    end
   end
 
   # The owner's only jobs: hold the table, sweep it per window.
@@ -143,23 +188,23 @@ defmodule FluxValeWeb.Plugs.GoogleRateLimit do
     List.last(entries)
   end
 
+  defp forwarded_or_remote(conn) do
+    case forwarded_for(conn) do
+      nil -> remote_ip_string(conn)
+      rightmost -> rightmost
+    end
+  end
+
   defp remote_ip_string(conn) do
     address = :inet.ntoa(conn.remote_ip)
     to_string(address)
   end
 
-  # ApiRateLimit's floor bucketing verbatim: a request at epoch second
-  # s belongs to the window starting at div(s, window) * window —
-  # aligned to the clock, and the write needs no read first.
-  defp window_start(window_seconds) do
-    epoch = DateTime.to_unix(DateTime.utc_now())
-    bucket = div(epoch, window_seconds) * window_seconds
-    bucket
-  end
-
   defp window_seconds, do: config!(:window_seconds, @default_window_seconds)
 
   defp max_requests, do: config!(:max_requests, @default_max_requests)
+
+  defp max_rows, do: config!(:max_rows, @default_max_rows)
 
   # ApiRateLimit's config! verbatim: fail at the config boundary, not
   # mid-request — a string limit would silently disable the check, a

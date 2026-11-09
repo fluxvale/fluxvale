@@ -1,13 +1,14 @@
 defmodule FluxValeWeb.AuthLive.SignInGoogleTest do
   @moduledoc """
   The Google door on the sign-in surface (#642): the button's render
-  predicate (flag row AND credentials — the same conjunction the
+  predicate (GoogleOIDC.arm_available?/0 — the ONE conjunction the
   controller's hops gate on) and plan §5's fallback pin — the
   email-code flow completes end-to-end with the Google arm on, off,
   and unconfigured.
   """
 
   use FluxValeWeb.ConnCase, async: false
+  use Mimic
 
   import Phoenix.LiveViewTest
 
@@ -15,6 +16,10 @@ defmodule FluxValeWeb.AuthLive.SignInGoogleTest do
   alias FluxVale.Ops.FeatureFlag
 
   setup do
+    # The flag read's failure arm needs a stubbed raise — FeatureFlags
+    # is Mimic-copied per the test_helper precedent (Identity et al.)
+    Mimic.copy(FluxVale.Ops.FeatureFlags)
+
     # Credentials present through app env (the issuer override's seam):
     # configured?/0 reads the predicate — no outbound call, no provider
     # needed for rendering. async: false — the env is VM-global (the
@@ -82,10 +87,9 @@ defmodule FluxValeWeb.AuthLive.SignInGoogleTest do
     test "renders on the email step when flag AND creds are on", %{conn: conn} do
       creds_configured()
 
-      {:ok, view, html} = live(conn, ~p"/sign-in")
+      {:ok, view, _html} = live(conn, ~p"/sign-in")
 
       assert has_element?(view, ~s(a[data-testid="google-sign-in"]))
-      assert html =~ "Sign in with Google"
       assert has_element?(view, ~s([data-testid="google-divider"]), "or")
     end
 
@@ -108,17 +112,32 @@ defmodule FluxValeWeb.AuthLive.SignInGoogleTest do
       creds_configured()
       flag_off()
 
-      {:ok, view, html} = live(conn, ~p"/sign-in")
+      {:ok, view, _html} = live(conn, ~p"/sign-in")
 
-      refute html =~ "Sign in with Google"
       refute has_element?(view, ~s(a[data-testid="google-sign-in"]))
     end
 
     test "hidden when creds are absent (flag on)", %{conn: conn} do
       creds_absent()
 
-      {:ok, _view, html} = live(conn, ~p"/sign-in")
-      refute html =~ "Sign in with Google"
+      {:ok, view, _html} = live(conn, ~p"/sign-in")
+
+      refute has_element?(view, ~s(a[data-testid="google-sign-in"]))
+    end
+
+    # The flag read rides the DB: a blip must not 500 a page that was
+    # static before this arm existed — fail CLOSED (button hides), the
+    # email door untouched (plan §5's no-worse guarantee).
+    test "a failing flag read hides the button, never the page", %{conn: conn} do
+      creds_configured()
+
+      stub(FluxVale.Ops.FeatureFlags, :enabled?, fn _key -> raise "flag read failed" end)
+
+      {:ok, view, _html} = live(conn, ~p"/sign-in")
+
+      refute has_element?(view, ~s(a[data-testid="google-sign-in"]))
+      assert has_element?(view, "#email-form")
+      assert has_element?(view, "h1", "Sign in to FluxVale")
     end
 
     test "absent on the code step — the visitor is mid-flow", %{conn: conn} do

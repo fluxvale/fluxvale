@@ -23,7 +23,8 @@ defmodule FluxValeWeb.AuthFlow do
 
   # #642: shared with the email arm's strings verbatim — one home per
   # copy, two arms referencing it (the operation atoms map onto the
-  # same visitor-facing reasons).
+  # same visitor-facing reasons). The Google-only strings live here
+  # too, so the "one home" claim covers the whole arm.
   @copy_not_allowed "That address can't sign in yet. Ask an admin for access."
 
   @copy_invitation_required "FluxVale is in invitation-only early access. Creating an account needs an " <>
@@ -31,6 +32,14 @@ defmodule FluxValeWeb.AuthFlow do
 
   @copy_invite_pending "This address has an invitation waiting. Use the link in the invitation email " <>
                          "to accept it."
+
+  @copy_google_unverified "Your Google account's email isn't verified by Google. Verify it there, then try again, or use an email code."
+
+  @copy_google_residual "Google sign-in didn't work. Please try again, or use an email code."
+
+  @copy_google_unavailable "Google sign-in isn't available here. Use an email code."
+
+  @copy_google_throttled "Please wait a minute before trying again."
 
   @typedoc "`FluxVale.Identity.request_auth_code/2`'s result"
   @type request_result :: :ok | {:error, atom()}
@@ -141,15 +150,14 @@ defmodule FluxValeWeb.AuthFlow do
   # — the strict gate refused it before any lookup; the fix lives in
   # the visitor's Google account, and the email door stays open.
   def google_outcome({:error, :email_not_verified}) do
-    {:error,
-     "Your Google account's email isn't verified by Google. Verify it there, then try again, or use an email code."}
+    {:error, @copy_google_unverified}
   end
 
   # The residuals mirror VerifyAuthCode (plan §3.3): a retryable
   # post-supersede race window and DB-read arms the visitor cannot
   # act on beyond retrying — the honest register the email arm uses.
   def google_outcome({:error, _residual}) do
-    {:error, "Google sign-in didn't work. Please try again, or use an email code."}
+    {:error, @copy_google_residual}
   end
 
   @doc """
@@ -160,7 +168,7 @@ defmodule FluxValeWeb.AuthFlow do
   """
   @spec google_unavailable() :: String.t()
   def google_unavailable do
-    "Google sign-in isn't available here. Use an email code."
+    @copy_google_unavailable
   end
 
   @doc """
@@ -169,6 +177,6 @@ defmodule FluxValeWeb.AuthFlow do
   """
   @spec google_throttled() :: String.t()
   def google_throttled do
-    "Please wait a minute before trying again."
+    @copy_google_throttled
   end
 end

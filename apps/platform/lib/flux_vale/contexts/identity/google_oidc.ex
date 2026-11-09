@@ -30,6 +30,7 @@ defmodule FluxVale.Identity.GoogleOIDC do
   """
 
   alias Assent.Strategy.OIDC
+  alias FluxVale.Ops.FeatureFlags
 
   # Plan §3.1 (D-scopes): openid email, nothing else — no profile
   # claims are requested or kept. The Google-specific params are the
@@ -44,14 +45,27 @@ defmodule FluxVale.Identity.GoogleOIDC do
 
   @doc """
   True only when both credentials are present non-empty binaries — the
-  creds-present predicate the S3 controller and the button share (nil
-  or `""` is the unconfigured shape, plan §6).
+  creds-present predicate (nil or `""` is the unconfigured shape,
+  plan §6).
   """
   @spec configured?() :: boolean()
   def configured? do
     env = Application.get_env(:flux_vale, :google_oidc, [])
 
     present?(env[:client_id]) and present?(env[:client_secret])
+  end
+
+  @doc """
+  True when the Google arm is live: the `:google_sign_in` flag row on
+  AND credentials present (#642, D-flag). THE one gate the button and
+  both controller hops render under — a predicate inlined at its call
+  sites drifts (two lifetimes, the flag read and the creds read); this
+  is the notion that cannot fork, so it lives once here and both
+  surfaces ask it.
+  """
+  @spec arm_available?() :: boolean()
+  def arm_available? do
+    FeatureFlags.enabled?(:google_sign_in) and configured?()
   end
 
   @doc """

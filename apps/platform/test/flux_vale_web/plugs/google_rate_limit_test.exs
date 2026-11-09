@@ -1,10 +1,11 @@
 defmodule FluxValeWeb.Plugs.GoogleRateLimitTest do
   @moduledoc false
 
-  # Plan §3.2's key-extraction rule (the forge cases) and the window
-  # semantics against the app-supervised owner's table. async: false —
-  # the config cases mutate Application env (the ApiRateLimit
-  # config-test posture), and allow?/1 reads it live.
+  # Plan §3.2's key-extraction rule (the forge cases), the window
+  # semantics against the app-supervised owner's table, and the
+  # spoofed-key row cap. async: false — the config cases mutate
+  # Application env (the ApiRateLimit config-test posture), and
+  # allow?/1 reads it live.
 
   use ExUnit.Case, async: false
 
@@ -30,6 +31,19 @@ defmodule FluxValeWeb.Plugs.GoogleRateLimitTest do
       assert GoogleRateLimit.client_ip(c) == "203.0.113.7"
     end
 
+    test "CF is normalized BEFORE the emptiness check — whitespace is absent, not the \"\" bucket" do
+      padded = conn([{"cf-connecting-ip", " 203.0.113.9 "}])
+      assert GoogleRateLimit.client_ip(padded) == "203.0.113.9"
+
+      # Whitespace-only falls through to the next rule in the chain
+      # (the CaptureIpCountry posture)
+      blank = conn([{"cf-connecting-ip", "   "}, {"x-forwarded-for", "10.0.0.3"}])
+      assert GoogleRateLimit.client_ip(blank) == "10.0.0.3"
+
+      empty = conn([{"cf-connecting-ip", ""}], {198, 51, 100, 3})
+      assert GoogleRateLimit.client_ip(empty) == "198.51.100.3"
+    end
+
     test "a forged XFF list keys on the RIGHTMOST entry" do
       c = conn([{"x-forwarded-for", "6.6.6.6, 7.7.7.7, 8.8.8.8"}])
 
@@ -51,12 +65,6 @@ defmodule FluxValeWeb.Plugs.GoogleRateLimitTest do
       assert GoogleRateLimit.client_ip(empty) == "198.51.100.3"
     end
 
-    test "an empty CF header is absent — the next rule in the chain applies" do
-      c = conn([{"cf-connecting-ip", ""}, {"x-forwarded-for", "10.0.0.3"}])
-
-      assert GoogleRateLimit.client_ip(c) == "10.0.0.3"
-    end
-
     test "both headers absent — remote_ip, normalized to a binary" do
       four = conn([], {198, 51, 100, 4})
       six = conn([], {0, 0, 0, 0, 0, 0, 0, 1})
@@ -71,6 +79,15 @@ defmodule FluxValeWeb.Plugs.GoogleRateLimitTest do
 
       assert GoogleRateLimit.client_ip(spammer) == "6.6.6.6"
       assert GoogleRateLimit.client_ip(neighbour) == "10.253.1.2"
+    end
+  end
+
+  describe "window_start/2 — the floor bucketing" do
+    test "a request at second s belongs to div(s, window) * window" do
+      assert GoogleRateLimit.window_start(179, 60) == 120
+      assert GoogleRateLimit.window_start(120, 60) == 120
+      assert GoogleRateLimit.window_start(119, 60) == 60
+      assert GoogleRateLimit.window_start(0, 60) == 0
     end
   end
 
@@ -103,8 +120,31 @@ defmodule FluxValeWeb.Plugs.GoogleRateLimitTest do
       end)
     end
 
+    test "a saturated key rolls into a fresh window (staged rows, no sleep)" do
+      ip = {10, 249, unique_octet(), unique_octet()}
+      address = :inet.ntoa(ip)
+      key = to_string(address)
+      # The suite's configured day-long window: the boundary cannot
+      # pass mid-test (the ApiRateLimit suite accepts the same
+      # UTC-midnight millisecond straddle).
+      now = System.system_time(:second)
+      window = GoogleRateLimit.window_start(now, 86_400)
+
+      # The PAST window was saturated…
+      :ets.insert(@table, {{key, window - 86_400}, 99})
+
+      # …and the current window is fresh: the same IP is admitted
+      fresh = conn([], ip)
+      assert GoogleRateLimit.allow?(fresh)
+
+      # …while a saturated CURRENT window still refuses
+      :ets.insert(@table, {{key, window}, 99})
+      saturated = conn([], ip)
+      refute GoogleRateLimit.allow?(saturated)
+    end
+
     test "malformed config fails at the boundary, not mid-request" do
-      for bad <- [[max_requests: "3"], [window_seconds: 0]] do
+      for bad <- [[max_requests: "3"], [window_seconds: 0], [max_rows: 0]] do
         with_config(bad, fn ->
           assert_raise ArgumentError, ~r/must be a positive integer/, fn ->
             GoogleRateLimit.allow?(conn())
@@ -114,10 +154,37 @@ defmodule FluxValeWeb.Plugs.GoogleRateLimitTest do
     end
   end
 
+  describe "the row cap (the spoofed-key backstop)" do
+    test "past max_rows the caller sweeps expired rows inline before inserting" do
+      stale_one = "10.248.#{unique_octet()}.#{unique_octet()}"
+      stale_two = "10.246.#{unique_octet()}.#{unique_octet()}"
+      live = "10.247.#{unique_octet()}.#{unique_octet()}"
+      now = System.system_time(:second)
+      window = GoogleRateLimit.window_start(now, 86_400)
+
+      # Two staged stale rows: the cap is EXCEEDED (>) regardless of
+      # whatever rows other tests left behind — order-independent
+      :ets.insert(@table, {{stale_one, 0}, 99})
+      :ets.insert(@table, {{stale_two, 0}, 99})
+
+      with_config([window_seconds: 86_400, max_requests: 50, max_rows: 1], fn ->
+        # The stale rows exceed the cap of 1: the next allow? sweeps
+        # them inline (rows from lapsed windows only) and counts
+        # normally — the live window's row survives
+        from_live = conn([], ip_tuple(live))
+        assert GoogleRateLimit.allow?(from_live)
+        refute :ets.member(@table, {stale_one, 0})
+        refute :ets.member(@table, {stale_two, 0})
+        assert :ets.member(@table, {live, window})
+      end)
+    end
+  end
+
   describe "sweep_expired/0" do
     test "deletes only rows from windows that can no longer be written" do
       ip = "10.254.#{unique_octet()}.#{unique_octet()}"
-      window = floor_bucket(System.system_time(:second))
+      now = System.system_time(:second)
+      window = GoogleRateLimit.window_start(now, 86_400)
 
       :ets.insert(@table, {{ip, 0}, 99})
       :ets.insert(@table, {{ip, window}, 1})
@@ -129,11 +196,11 @@ defmodule FluxValeWeb.Plugs.GoogleRateLimitTest do
     end
   end
 
-  # The current window bucket, on the suite's configured window — the
-  # module's floor-bucketing is ApiRateLimit's arithmetic verbatim.
-  defp floor_bucket(epoch) do
-    window = Application.fetch_env!(:flux_vale, GoogleRateLimit)[:window_seconds]
-    div(epoch, window) * window
+  defp ip_tuple(ip) do
+    ip
+    |> String.split(".")
+    |> Enum.map(&String.to_integer/1)
+    |> List.to_tuple()
   end
 
   defp unique_octet, do: rem(System.unique_integer([:positive]), 250)

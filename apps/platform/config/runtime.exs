@@ -508,19 +508,24 @@ end
 # BWS-injected in the cluster (ADR-0021), never committed; nil/""
 # (the classic empty-Secret shape) = unconfigured — the button and
 # both controller hops refuse under the same predicate, so nothing
-# half-configured ships. NO Postmark-style env exclusion: GoogleOIDC
-# reads Application env at call time, so test/dev point the issuer at
-# the mock provider through app env itself; this block sets no
-# defaults, and unconfigured stays unconfigured everywhere.
-config :flux_vale, :google_oidc,
-  client_id: System.get_env("GOOGLE_CLIENT_ID"),
-  client_secret: System.get_env("GOOGLE_CLIENT_SECRET")
+# half-configured ships. Dev is deliberately NOT excluded (the
+# Postmark stance): GoogleOIDC reads Application env at call time, so
+# a local dev run drives the arm through app env. Test IS excluded —
+# a stray exported key in the suite's shell must not flip the suite's
+# arm state. This block sets no defaults: unconfigured stays
+# unconfigured everywhere.
+if config_env() != :test do
+  config :flux_vale, :google_oidc,
+    client_id: System.get_env("GOOGLE_CLIENT_ID"),
+    client_secret: System.get_env("GOOGLE_CLIENT_SECRET")
+end
 
 # GOOGLE_OIDC_ISSUER: the operator override (default
 # https://accounts.google.com lives in GoogleOIDC) — the seam the
-# mock provider and staging experiments point at. Written only when
-# non-empty: a present-but-nil key would override the module default
-# (Keyword.get sees the key, not the value).
+# mock provider and staging experiments point at, writable in :test
+# too for that reason. Written only when non-empty: a present-but-nil
+# key would override the module default (Keyword.get sees the key,
+# not the value).
 case System.get_env("GOOGLE_OIDC_ISSUER") do
   issuer when issuer in [nil, ""] -> :ok
   issuer -> config :flux_vale, :google_oidc, issuer: issuer
