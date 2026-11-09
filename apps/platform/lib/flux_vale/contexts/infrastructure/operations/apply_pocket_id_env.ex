@@ -86,7 +86,6 @@ defmodule FluxVale.Infrastructure.Operations.ApplyPocketIdEnv do
   # caller's honest retry re-upserts (idempotent) and re-rolls.
   defp rollout(kubeconfig, namespace, _opts) do
     case Deployment.restart(kubeconfig, namespace, @deployment_name) do
-      :ok -> :ok
       {:ok, _deployment} -> :ok
       {:error, _reason} = error -> error
     end

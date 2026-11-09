@@ -29,7 +29,6 @@ defmodule FluxVale.Infrastructure.Operations.RotatePocketIdSecret do
   alias FluxVale.Infrastructure.PocketIdWiring
   alias FluxVale.Ops.FeatureFlags
 
-
   # v2.19.2's floor for a caller-supplied secret: ≥16 printable ASCII.
   @secret_bytes 32
 
