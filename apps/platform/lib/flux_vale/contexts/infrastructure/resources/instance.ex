@@ -57,7 +57,7 @@ defmodule FluxVale.Infrastructure.Instance do
     otp_app: :flux_vale,
     domain: FluxVale.Infrastructure,
     data_layer: AshPostgres.DataLayer,
-    extensions: [AshOban, AshAdmin.Resource, AshJsonApi.Resource],
+    extensions: [AshOban, AshAdmin.Resource, AshJsonApi.Resource, AshPaperTrail.Resource],
     authorizers: [Ash.Policy.Authorizer],
     notifiers: [Ash.Notifier.PubSub]
 
@@ -238,6 +238,45 @@ defmodule FluxVale.Infrastructure.Instance do
 
     # ADR-0032 §3: no DB-side id default — ids are Ash's job (see User).
     migration_defaults(id: "nil")
+  end
+
+  # The audit trail (#645, ADR-0048): the plan's one complete config
+  # posture — the mixin line is mandatory (it carries the read policy,
+  # the indexes, the actor label). version_extensions attaches the
+  # Policy authorizer that policy rides on. Rationale lives in the
+  # ADR, not here.
+  paper_trail do
+    primary_key_type(:uuid_v7)
+    change_tracking_mode(:changes_only)
+    store_action_name?(true)
+    store_action_inputs?(true)
+    sensitive_attributes(:redact)
+    # Decision two (ADR-0048): the edge beacon's :touch bookmark and
+    # the settle tick's metering cursors (:settle_anchors, every 15
+    # min) are machine-cadence stamps, not audit facts — the Post
+    # counters stance. ignore_attributes filters the diff, but 0.8.1's
+    # write trigger is the changeset's changed? flag, so the two
+    # actions are silenced by name too. State-machine fields and the
+    # wake clocks stay versioned.
+    ignore_attributes([
+      :created_at,
+      :updated_at,
+      :last_used_at,
+      :unbilled_running_usec,
+      :storage_metering_since
+    ])
+
+    ignore_actions([:touch, :settle_anchors])
+    reference_source?(false)
+    create_version_on_destroy?(true)
+    operation_id_field(:operation_id)
+    mixin({FluxVale.PaperTrail.VersionMixin, :version_resource, []})
+    version_extensions(authorizers: [Ash.Policy.Authorizer])
+
+    belongs_to_actor(:user, FluxVale.Identity.User,
+      domain: FluxVale.Identity,
+      on_delete: :nilify
+    )
   end
 
   policies do
@@ -638,11 +677,15 @@ defmodule FluxVale.Infrastructure.Instance do
     end
 
     # Merged env (catalog defaults under user values), string values —
-    # the k8s Secret's exact contents.
+    # the k8s Secret's exact contents. sensitive?: bundled backing
+    # services generate credentials into env vars, so the trail
+    # redacts the map (#645, ADR-0048) — the live values stay on the
+    # row, the marker says they existed.
     attribute :env_vars, :map do
       allow_nil?(false)
       default(%{})
       public?(true)
+      sensitive?(true)
     end
 
     create_timestamp(:created_at)
@@ -696,7 +739,9 @@ defmodule FluxVale.Infrastructure.Instance do
       # replaces the whole map on the attribute BEFORE
       # DeriveFromAppVersion merges the catalog defaults under it;
       # absent keeps the attribute default (%{}) as before.
-      argument(:env_vars, :map, allow_nil?: true, public?: true)
+      # sensitive?: the trail redacts the argument's value too
+      # (#645, ADR-0048) — generated credentials ride these maps.
+      argument(:env_vars, :map, allow_nil?: true, public?: true, sensitive?: true)
 
       change(fn changeset, _context ->
         case Ash.Changeset.get_argument(changeset, :env_vars) do
@@ -1280,7 +1325,9 @@ defmodule FluxVale.Infrastructure.Instance do
       description("Error handler for the :deploy trigger — unexpected job failures land :error.")
       require_atomic?(false)
       accept([])
-      argument(:error, :map, allow_nil?: true)
+      # ErrorDetail: the trail stores inputs verbatim (#645, ADR-0048),
+      # and a caught exception struct cannot JSON-encode.
+      argument(:error, FluxVale.Infrastructure.Types.ErrorDetail, allow_nil?: true)
 
       change(fn changeset, _context ->
         # The :error argument carries the Ash error class, but the normal
@@ -1306,7 +1353,9 @@ defmodule FluxVale.Infrastructure.Instance do
 
       require_atomic?(false)
       accept([])
-      argument(:error, :map, allow_nil?: true)
+      # ErrorDetail, the :mark_deploy_error posture — the trail stores
+      # inputs verbatim (#645, ADR-0048).
+      argument(:error, FluxVale.Infrastructure.Types.ErrorDetail, allow_nil?: true)
 
       change(fn changeset, _context ->
         # Per-attempt reasons live in the Oban job's errors array (Oban

@@ -33,7 +33,7 @@ defmodule FluxVale.Identity.User do
     domain: FluxVale.Identity,
     data_layer: AshPostgres.DataLayer,
     authorizers: [Ash.Policy.Authorizer],
-    extensions: [AshAuthentication, AshJsonApi.Resource]
+    extensions: [AshAuthentication, AshJsonApi.Resource, AshPaperTrail.Resource]
 
   alias FluxVale.Api.Scopes
   alias FluxVale.Identity.User.AcceptInvitedEmailRow
@@ -180,6 +180,30 @@ defmodule FluxVale.Identity.User do
     migration_defaults(id: "nil")
   end
 
+  # The audit trail (#645, ADR-0048): the plan's one complete config
+  # posture — the mixin line is mandatory (it carries the read policy,
+  # the indexes, the actor label). version_extensions attaches the
+  # Policy authorizer that policy rides on. Rationale lives in the
+  # ADR, not here.
+  paper_trail do
+    primary_key_type(:uuid_v7)
+    change_tracking_mode(:changes_only)
+    store_action_name?(true)
+    store_action_inputs?(true)
+    sensitive_attributes(:redact)
+    ignore_attributes([:created_at, :updated_at])
+    reference_source?(false)
+    create_version_on_destroy?(true)
+    operation_id_field(:operation_id)
+    mixin({FluxVale.PaperTrail.VersionMixin, :version_resource, []})
+    version_extensions(authorizers: [Ash.Policy.Authorizer])
+
+    belongs_to_actor(:user, FluxVale.Identity.User,
+      domain: FluxVale.Identity,
+      on_delete: :nilify
+    )
+  end
+
   attributes do
     # ADR-0032: UUIDv7 — time-ordered for index locality + keyset cursors;
     # ordering is approximate, never a contract. NB: the explicit default is
@@ -277,10 +301,13 @@ defmodule FluxVale.Identity.User do
       # user_emails is the only address storage. PUBLIC by necessity:
       # private arguments cannot ride for_create params nor the code
       # interface (the :invite token_hash lesson) — every caller passes
-      # the address by name and keeps its shape. No serialization
-      # surface: arguments never render (field lists carry attributes
-      # and calculations only), and User exposes no create route.
-      argument(:email, :ci_string, allow_nil?: false)
+      # the address by name and keeps its shape. sensitive? rides
+      # alongside: the trail redacts the address (#645, ADR-0048),
+      # without the private flag's interface restriction. No
+      # serialization surface: arguments never render (field lists
+      # carry attributes and calculations only), and User exposes no
+      # create route.
+      argument(:email, :ci_string, allow_nil?: false, sensitive?: true)
 
       # Username derivation (#285 T2, #287): reads the :email argument;
       # always producing a 2–39 [a-z0-9-] value; residual failure arms
@@ -397,8 +424,9 @@ defmodule FluxVale.Identity.User do
     # default — see the attribute comment).
     create :invite do
       # PUBLIC (the :create :email note): the admin surface and the
-      # operation pass the address by name.
-      argument(:email, :ci_string, allow_nil?: false)
+      # operation pass the address by name. sensitive? rides alongside
+      # — the trail redacts it (#645, ADR-0048).
+      argument(:email, :ci_string, allow_nil?: false, sensitive?: true)
 
       argument(:token_hash, :string, allow_nil?: false, sensitive?: true, public?: false)
       change(set_attribute(:invite_token_hash, arg(:token_hash)))
