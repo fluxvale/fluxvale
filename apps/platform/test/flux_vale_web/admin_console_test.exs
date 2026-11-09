@@ -222,20 +222,36 @@ defmodule FluxValeWeb.AdminConsoleTest do
       refute AdminConsole.visible?(user, FluxVale.Ops.FeatureFlag, :create)
     end
 
-    # Slice 3's sanity evidence, pinned: the system-only writes answer
-    # false even for the admin (appendix B's probe rows), and the two
-    # operator paths answer true. When #644's blanket-authority lane
-    # lands and shifts an answer, this test moves WITH the new truth.
-    test "the Billing sanity probes: system-only writes stay false for the admin", %{admin: admin} do
-      assert AdminConsole.visible?(admin, FluxVale.Billing.Wallet, :read)
-      refute AdminConsole.visible?(admin, FluxVale.Billing.Wallet, :create)
-      refute AdminConsole.visible?(admin, FluxVale.Billing.Wallet, :set_carryover)
-      refute AdminConsole.visible?(admin, FluxVale.Billing.Wallet, :set_ladder_state)
-      assert AdminConsole.visible?(admin, FluxVale.Billing.Wallet, :set_waiver)
+    # Slice 3's sanity evidence, pinned — MOVED with #657's doctrine:
+    # blanket platform-admin authority (the #644 ruling) makes every
+    # write answer true for the admin, false for the plain user. The
+    # policy layer no longer refuses the admin anything on these
+    # resources; the registry's exclusion lists are the sole curation
+    # of what the console surfaces (the engine's registry-intent gate,
+    # which this suite pins separately in allowed_actions/3).
+    test "the Billing sanity probes: blanket authority answers true for the admin, false for users",
+         %{admin: admin} do
+      user = User.create!("admin-console-billing-#{@n}@fluxvale.com", %{}, authorize?: false)
 
+      # Reads: both actors pass (the member arm scopes a plain user to
+      # their own wallets — filter-shaped, maybe_is: true answers yes).
+      assert AdminConsole.visible?(admin, FluxVale.Billing.Wallet, :read)
+      assert AdminConsole.visible?(user, FluxVale.Billing.Wallet, :read)
       assert AdminConsole.visible?(admin, FluxVale.Billing.LedgerEntry, :read)
-      refute AdminConsole.visible?(admin, FluxVale.Billing.LedgerEntry, :create)
-      assert AdminConsole.visible?(admin, FluxVale.Billing.LedgerEntry, :grant_goodwill)
+      assert AdminConsole.visible?(user, FluxVale.Billing.LedgerEntry, :read)
+
+      # Writes: the doctrine's blanket authority — every action answers
+      # true for the admin, false for the plain user. What the console
+      # SURFACES is the registry's exclusion lists, pinned separately.
+      for action <- [:create, :set_carryover, :set_ladder_state, :set_waiver] do
+        assert AdminConsole.visible?(admin, FluxVale.Billing.Wallet, action)
+        refute AdminConsole.visible?(user, FluxVale.Billing.Wallet, action)
+      end
+
+      for action <- [:create, :grant_goodwill, :reverse] do
+        assert AdminConsole.visible?(admin, FluxVale.Billing.LedgerEntry, action)
+        refute AdminConsole.visible?(user, FluxVale.Billing.LedgerEntry, action)
+      end
     end
   end
 
