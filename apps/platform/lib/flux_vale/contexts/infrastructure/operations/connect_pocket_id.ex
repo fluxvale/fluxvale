@@ -139,23 +139,31 @@ defmodule FluxVale.Infrastructure.Operations.ConnectPocketId do
          {:ok, key} <-
            UsePocketIdKey.call(custody, "client_mint", actor: actor, authorize?: authorize?),
          {:ok, client} <- mint(pocket_id, key, app_instance, callback_path, recipe) do
-      case record(app_instance, pocket_id, recipe, issuer, client, &deployed_guard/1) do
-        {:ok, wiring} ->
-          case ApplyPocketIdEnv.apply_to_running(
-                 Ash.reload!(app_instance, authorize?: false),
-                 sso_env(recipe, issuer, client)
-               ) do
-            :ok -> {:ok, wiring}
-            # The row is truth; the pods lag. The card's apply-retry
-            # converges (idempotent upsert + re-roll).
-            {:error, _apply_reason} = error -> error
-          end
-
-        {:error, _reason} = error ->
-          error
-      end
+      apply_after_record(
+        record(app_instance, pocket_id, recipe, issuer, client, &deployed_guard/1),
+        app_instance,
+        recipe,
+        issuer,
+        client
+      )
     end
   end
+
+  # The retrofit's tail: the row+wiring transaction committed — now
+  # carry the env to the RUNNING workload. The row is truth; the pods
+  # lag on failure — the card's retry converges (idempotent upsert +
+  # re-roll).
+  defp apply_after_record({:ok, wiring}, app_instance, recipe, issuer, client) do
+    fresh = Ash.reload!(app_instance, authorize?: false)
+
+    case ApplyPocketIdEnv.apply_to_running(fresh, sso_env(recipe, issuer, client)) do
+      :ok -> {:ok, wiring}
+      {:error, _apply_reason} = error -> error
+    end
+  end
+
+  defp apply_after_record({:error, _reason} = error, _app, _recipe, _issuer, _client),
+    do: error
 
   # ------------------------------------------------------------------
   # Guards + reads

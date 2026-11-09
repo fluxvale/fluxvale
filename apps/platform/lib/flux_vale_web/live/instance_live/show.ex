@@ -2473,14 +2473,7 @@ defmodule FluxValeWeb.InstanceLive.Show do
       if card? do
         wiring = find_pocketid_wiring(instance.id, user)
         pocket_ids = ready_pocket_ids(instance.organization_id, user)
-
-        state =
-          cond do
-            is_map(wiring) and pocket_id_gone?(wiring, pocket_ids) -> :pocket_id_gone
-            is_map(wiring) -> :wired
-            deployed? and pocket_ids != [] -> :connect
-            true -> :hidden
-          end
+        state = sso_card_state(wiring, pocket_ids, deployed?)
 
         [
           pocketid_sso_state: state,
@@ -2516,6 +2509,17 @@ defmodule FluxValeWeb.InstanceLive.Show do
     end)
   end
 
+  # The card's truth shape: the wiring (and its PocketID) decide the
+  # wired/gone states; the connect offer needs a deployed app AND a
+  # ready PocketID to point at.
+  defp sso_card_state(nil, pocket_ids, deployed?) do
+    if deployed? and pocket_ids != [], do: :connect, else: :hidden
+  end
+
+  defp sso_card_state(wiring, pocket_ids, _deployed?) do
+    if pocket_id_gone?(wiring, pocket_ids), do: :pocket_id_gone, else: :wired
+  end
+
   defp find_pocketid_wiring(instance_id, user) do
     case PocketIdWiring.get_by_instance(instance_id, actor: user) do
       {:ok, wiring} -> wiring
@@ -2526,8 +2530,9 @@ defmodule FluxValeWeb.InstanceLive.Show do
   # The org's ACTIVE PocketIDs (S3's detection read) that also hold
   # custody — the same readiness the wizard's offer demands.
   defp ready_pocket_ids(organization_id, user) do
-    Instance.list_active_pocket_ids_for_organization!(organization_id, actor: user)
-    |> Enum.filter(fn pocket_id ->
+    active = Instance.list_active_pocket_ids_for_organization!(organization_id, actor: user)
+
+    Enum.filter(active, fn pocket_id ->
       match?({:ok, _custody}, PocketIdCustody.get_by_instance(pocket_id.id, actor: user))
     end)
   end

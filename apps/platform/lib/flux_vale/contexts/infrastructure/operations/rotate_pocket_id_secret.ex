@@ -50,13 +50,10 @@ defmodule FluxVale.Infrastructure.Operations.RotatePocketIdSecret do
          {:ok, custody} <- custody(pocket_id),
          {:ok, key} <- UsePocketIdKey.call(custody, "client_rotate", actor: actor),
          new_secret = generated_secret(),
+         url = base_url(pocket_id),
+         client_id = wiring.pocket_id_client_id,
          {:ok, %{secret_id: new_secret_id}} <-
-           ApiClient.create_secret(
-             base_url(pocket_id),
-             key,
-             wiring.pocket_id_client_id,
-             new_secret
-           ),
+           ApiClient.create_secret(url, key, client_id, new_secret),
          :ok <- apply_new(instance, recipe, new_secret) do
       delete_old(pocket_id, key, wiring)
       move_secret_id(wiring, new_secret_id)
