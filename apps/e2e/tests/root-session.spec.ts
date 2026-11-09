@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { runtimeFor } from "./helpers/runtime";
+import { waitForLiveViewJoin } from "./helpers/live-view";
 import { signIn } from "./helpers/sign-in";
 import { TestInbox } from "./helpers/test-inbox";
 
@@ -69,6 +70,13 @@ test("user-menu: signed-in nav shows the user menu, not Sign in", async ({
   const email = `test+menu-${runId}@fluxvale.com`;
   await signIn(page, new TestInbox(request, testInboxToken!), email);
   await page.goto("/");
+  // Wait out the join before clicking the menu open: the native
+  // <details> toggle works in the SSR DOM before the LiveView joins,
+  // and the join's patch swaps that pre-join element for the
+  // server-rendered (closed) copy — an open set in the window is
+  // wiped. The #148 race signIn waits out; slow CI runners widen it
+  // past the click.
+  await waitForLiveViewJoin(page);
 
   await expect(page.getByTestId("user-menu")).toBeVisible();
   await expect(
