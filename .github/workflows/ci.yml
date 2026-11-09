@@ -759,7 +759,7 @@ jobs:
     # spec (the leg's observed worst is 17.1m at #587's head, its
     # cold pulls ride the warm-up), and #610 added vikunja-lifecycle
     # (20m bounded) as the eighth — a memos-shape SQLite-PVC deploy,
-    // ≈ 30m under the ceiling with one more spec of that shape.
+    # ≈ 30m under the ceiling with one more spec of that shape.
     timeout-minutes: 60
     strategy:
       # A red leg must not cancel the others — its report is triage
