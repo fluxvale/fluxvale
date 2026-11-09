@@ -61,8 +61,7 @@ defmodule FluxVale.Infrastructure.Operations.RotatePocketIdSecret do
          new_secret = generated_secret(),
          url = base_url(pocket_id),
          client_id = wiring.pocket_id_client_id,
-         {:ok, %{secret_id: new_secret_id}} <-
-           ApiClient.create_secret(url, key, client_id, new_secret),
+         {:ok, %{secret_id: new_secret_id}} <- create_secret(url, key, client_id, new_secret),
          :ok <- apply_new(instance, recipe, new_secret) do
       delete_old(pocket_id, key, wiring)
       move_secret_id(wiring, new_secret_id)
@@ -115,6 +114,18 @@ defmodule FluxVale.Infrastructure.Operations.RotatePocketIdSecret do
     case PocketIdCustody.get_by_instance(pocket_id.id, authorize?: false) do
       {:ok, custody} -> {:ok, custody}
       {:error, _none} -> {:error, :no_custody}
+    end
+  end
+
+  # The key verdicts fold like the mint's (connect_pocket_id's
+  # mint_result): 401/403 at the secret create are the HELD KEY's
+  # verdicts, not the create's.
+  defp create_secret(url, key, client_id, new_secret) do
+    case ApiClient.create_secret(url, key, client_id, new_secret) do
+      {:ok, created} -> {:ok, created}
+      {:error, :unauthorized} -> {:error, :key_rejected}
+      {:error, :forbidden} -> {:error, :key_forbidden}
+      {:error, _other} = error -> error
     end
   end
 

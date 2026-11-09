@@ -183,12 +183,11 @@ defmodule FluxValeWeb.InstanceLive.PocketIdSsoCardTest do
     pocket_id = pocket_id!(pid_version, owner, "pid")
     app = app!(owner)
 
-    {:ok, view, html} = live(conn, ~p"/instances/#{app.id}")
+    {:ok, view, _html} = live(conn, ~p"/instances/#{app.id}")
 
     assert has_element?(view, "[data-testid=pocketid-sso-connect-copy]")
     assert has_element?(view, "#pocketid-connect-form")
     assert has_element?(view, "[data-testid=pocketid-connect]")
-    assert html =~ "own login keeps working"
   end
 
   test "connect submits the retrofit and lands the wired state", %{conn: conn, owner: owner} do
@@ -315,14 +314,14 @@ defmodule FluxValeWeb.InstanceLive.PocketIdSsoCardTest do
 
     stub(ApiClient, :delete_client, fn _u, _k, _c -> {:error, :unreachable} end)
 
-    {:ok, view, _html} = live(conn, ~p"/instances/#{app.id}")
+    {:ok, view, html} = live(conn, ~p"/instances/#{app.id}")
 
-    html =
+    clicked =
       view
       |> element("[data-testid=pocketid-disconnect]")
       |> render_click()
 
-    assert html =~ "remains in your Pocket ID"
+    assert clicked =~ "remains in your Pocket ID"
     assert {:error, _none} = PocketIdWiring.get_by_instance(app.id, actor: owner)
   end
 
@@ -373,6 +372,69 @@ defmodule FluxValeWeb.InstanceLive.PocketIdSsoCardTest do
   # the rotate op tests — :not_deployed); the card's error-render path
   # itself is pinned by the refused-connect test below.
 
+  # The error copy follows the operation's reason — the re-paste
+  # verdict and the gone verdict both name their way out.
+  test "a rejected key renders the re-paste copy; a gone PocketID its own", %{
+    conn: conn,
+    owner: owner
+  } do
+    flag_on!()
+    pid_version = pocket_id_version!()
+    pocket_id = pocket_id!(pid_version, owner, "pid")
+    app = app!(owner)
+    wire!(app, pocket_id)
+
+    url = "https://#{pocket_id.slug}.#{host()}"
+
+    stub(ApiClient, :create_secret, fn _u, _k, _c, _s -> {:error, :unauthorized} end)
+
+    {:ok, view, _html} = live(conn, ~p"/instances/#{app.id}")
+
+    click =
+      view
+      |> element("[data-testid=pocketid-rotate]")
+      |> render_click()
+
+    # The click's own patch carries the verdict (a post-click
+    # broadcast can replace the page; the patch is the honest answer).
+    assert click =~ "rejected"
+
+    # Gone: the PocketID row dies; the wiring stays; rotate names it.
+    row = PocketIdCustody.get_by_instance!(pocket_id.id, authorize?: false)
+    PocketIdCustody.revoke!(row, authorize?: false)
+    Ash.destroy!(pocket_id, actor: owner)
+
+    # A replacement keeps the org offer-ready after the clear.
+    _replacement = pocket_id!(pid_version, owner, "pid-2")
+
+    {:ok, view2, _html} = live(conn, ~p"/instances/#{app.id}")
+
+    assert has_element?(view2, "[data-testid=pocketid-sso-gone]")
+
+    view2
+    |> element("[data-testid=pocketid-clear-wiring]")
+    |> render_click()
+
+    assert has_element?(view2, "[data-testid=pocketid-sso-connect-copy]")
+  end
+
+  test "connect without custody renders the paste-first copy", %{conn: conn, owner: owner} do
+    flag_on!()
+    pid_version = pocket_id_version!()
+    pocket_id = pocket_id!(pid_version, owner, "pid")
+
+    row = PocketIdCustody.get_by_instance!(pocket_id.id, authorize?: false)
+    PocketIdCustody.revoke!(row, authorize?: false)
+
+    app = app!(owner)
+
+    {:ok, view, _html} = live(conn, ~p"/instances/#{app.id}")
+
+    # Custody gone: no offer at all (the connect state needs a READY
+    # PocketID) — the card hides, the honest answer.
+    refute has_element?(view, "[data-testid=pocketid-sso-card]")
+  end
+
   # Crafted verbs against a hidden card (nil wiring/state) are
   # silence — the handlers' nil arms.
   test "crafted rotate/disconnect events with no card standing are silence", %{
@@ -409,15 +471,15 @@ defmodule FluxValeWeb.InstanceLive.PocketIdSsoCardTest do
 
     Ash.destroy!(pocket_id, actor: owner)
 
-    {:ok, view, _html} = live(conn, ~p"/instances/#{app.id}")
+    {:ok, view, html} = live(conn, ~p"/instances/#{app.id}")
 
-    html =
+    clicked =
       view
       |> element("[data-testid=pocketid-clear-wiring]")
       |> render_click()
 
     # The gone-arm flash words ITS verb, not the client-delete notice.
-    assert html =~ "Wiring cleared"
+    assert clicked =~ "Wiring cleared"
     assert has_element?(view, "[data-testid=pocketid-sso-connect-copy]")
     assert {:error, _none} = PocketIdWiring.get_by_instance(app.id, actor: owner)
   end

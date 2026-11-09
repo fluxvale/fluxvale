@@ -135,12 +135,13 @@ defmodule FluxVale.Infrastructure.Operations.DisconnectPocketId do
     end
   end
 
-  # The strip + clear, atomically on the row: the instance row is
-  # locked, the env stripped, and the wiring row destroyed INSIDE one
-  # transaction — a concurrent retrofit (whose record takes the same
-  # instance-row lock) serializes against this, so the clear can
-  # never destroy a stale row under a fresh wiring (record/6's
-  # guard-under-lock discipline, applied to the teardown side).
+  # The strip's two surfaces, ordered for convergence: the WORKLOAD
+  # first (the apply primitive — idempotent; a failure here leaves
+  # wiring standing and the retry converges), then the ROW side in
+  # ONE lock-protected transaction (env strip + wiring clear together
+  # — a concurrent retrofit's record serializes on the same instance
+  # row, so the clear never lands under a fresh wiring; and the clear
+  # never precedes the workload it describes).
   defp strip_and_clear(app_instance, recipe, wiring, client_deleted) do
     recipe_keys =
       maybe_prepend(
@@ -148,6 +149,18 @@ defmodule FluxVale.Infrastructure.Operations.DisconnectPocketId do
         recipe.enabled_env
       )
 
+    case apply_strip(app_instance, recipe_keys) do
+      :ok ->
+        clear_under_lock(app_instance, wiring, recipe_keys, client_deleted)
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
+  # The row side, one lock-protected transaction: env strip + wiring
+  # clear together.
+  defp clear_under_lock(app_instance, wiring, recipe_keys, client_deleted) do
     result =
       Repo.transaction(fn ->
         locked = lock_instance!(app_instance.id)
@@ -171,11 +184,7 @@ defmodule FluxVale.Infrastructure.Operations.DisconnectPocketId do
     case result do
       {:ok, notifications} ->
         Ash.Notifier.notify(notifications)
-
-        case apply_strip(app_instance, recipe_keys) do
-          :ok -> {:ok, %{client_deleted: client_deleted}}
-          {:error, _reason} = error -> error
-        end
+        {:ok, %{client_deleted: client_deleted}}
 
       {:error, _reason} = error ->
         error
