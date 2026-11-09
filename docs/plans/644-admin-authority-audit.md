@@ -243,11 +243,16 @@ paper_trail do
   reference_source? false
   create_version_on_destroy? true
   operation_id_field :operation_id
+  mixin {FluxVale.PaperTrail.VersionMixin, :version_resource, []}
   belongs_to_actor :user, FluxVale.Identity.User,
     domain: FluxVale.Identity,
     on_delete: :nilify
 end
 ```
+
+This block is the COMPLETE copy-paste posture — the mixin line is not
+optional (it carries the read policy, the indexes, and the actor label;
+a resource omitting it ships policy-less version tables).
 
 Rationale (D6): `:uuid_v7` matches ADR-0032; `:changes_only` keeps rows
 compact and is atomic-safe (`:full_diff` is documented as not
@@ -255,12 +260,19 @@ atomic-trackable — probe `:full_diff` only if `:changes_only` proves
 insufficient for the console view); `store_action_name?` +
 `store_action_inputs?` give the audit view action and arguments (inputs
 redact sensitive values); `sensitive_attributes :redact` records THAT a
-sensitive attribute changed, never the value — the blanket posture since
-User/MembershipInvite/PAT rows carry sensitive attrs;
+sensitive attribute exists on the row, never the value — the blanket
+posture since User/MembershipInvite/PAT rows carry sensitive attrs (the
+0.8.1 quirk the hostile review surfaced: an unchanged sensitive attr
+still lands as a REDACTED entry in `changes`, so the changes map can
+overstate what moved on sensitive-bearing rows — A2-S3 probes a changed?
+guard before those resources ship, and the ADR says so plainly);
 `reference_source? false` is the audit-grade choice: version rows survive
 the record's own destruction, so a destroy leaves its own evidence (a
 cascade-delete trail is theater); `create_version_on_destroy? true` rides
-it — no FK means the destroy-version insert succeeds;
+it — no FK means the destroy-version insert succeeds (a destroy version's
+own `changes` is empty — `:changes_only` has no deltas on destroy — the
+final state reconstructs by replaying the record's chain, which the
+proof tests assert);
 `operation_id_field` correlates the multi-record writes one action causes
 (goodwill credits, `set_tags`, bulk paths). `on_delete: :nilify` on the
 actor reference: a user deletion (the data-deletion flow) keeps the
@@ -292,20 +304,33 @@ owner wants the channel on the row, the `paper_trail metadata` +
 `context.paper_trail_metadata` seam is the mechanism, written from the
 same two boundary plugs that would carry the PAT marker.
 
-### Version read policy
+### Version read policy (D7, revised on hostile-review evidence)
 
-`apply_can_read_policy? true`: version reads ride the SOURCE resource's
-read policies — admins (via Arc 1's bypass) read everything cross-org;
-members would read their own org's versions if a member surface ever
-appears (none in v1 — the audit view is console-only); versions of
-destroyed records resolve to admin-only (the source-read filter cannot
-match a gone row; the bypass does not care). This keeps the repo's
-authorization-on-by-default discipline on the version resources instead
-of shipping policy-less tables any code could read. Probe first (D7): if
-filter-shaped source policies do not translate over the version_source
-relationship in 0.8.1, the fallback is a mixin-injected admin-only read
-policy on every version resource — members get no version reads in v1
-either way, so the audit view is unaffected.
+The shared VersionMixin injects a DIRECT read policy on every version
+resource: platform admins read, everyone else is forbidden —
+`policy always() do authorize_if(FluxVale.Checks.ActorIsPlatformAdmin) end`.
+Why not source-policy replay (`apply_can_read_policy?`): the hostile
+review of PR #651 proved the replay makes version rows readable by
+WHOEVER can read the source — including anonymous callers once
+public-read sources (Feedback, Catalog, Pricing) get versioned — and it
+filters out destroyed-source versions for admins too (an `exists()`
+over a gone row cannot match any actor). The direct admin-only policy
+fixes both: non-admins never read a trail row, and admins see orphaned
+destroy-evidence. Members get no version reads in v1 (the audit view is
+console-only; a member surface, if ever, is a deliberate future policy).
+Implementation detail the worker probes: dropping
+`apply_can_read_policy?` may drop the Policy authorizer from the
+generated resource — the authorizer must attach (via `version_extensions`
+if the DSL allows, else keep `apply_can_read_policy? true` AND the mixin
+policy, accepting the orphan-filter quirk for the A2-S4 view to work
+around). Two further recorded truths: ash_paper_trail's own version-
+create bypass rides the caller-settable `ash_paper_trail?` context key
+(same trust class as `authorize?: false` — internal discipline; the
+audit view must never forward request-derived context), and AshAdmin's
+`authorize?: false` mount CAN edit version rows directly (accepted
+superuser capability, ADR-0048 records it — the doctrine attributes
+mutations, it does not tamper-proof against the operator's own debug
+mount).
 
 ### Retention and growth
 
@@ -393,9 +418,13 @@ first audit slice.
   false` + destroy-versioned, actor nilified on user delete, uuid_v7,
   operation_id. REJECTED: `:snapshot` (row bloat); per-resource tuning
   (drift); cascade-deleted versions (destroys their own evidence).
-- **D7 — version reads**: `apply_can_read_policy? true` (probe; fallback:
-  mixin-injected admin-only policy). REJECTED: policy-less version
-  resources (a hole in authorization-on-by-default).
+- **D7 — version reads**: a DIRECT platform-admin-only read policy
+  injected by the shared mixin on every version resource (revised on
+  hostile-review evidence — source-policy replay leaks trails of
+  public-read sources to anonymous callers and hides orphaned
+  destroy-evidence from admins). REJECTED: policy-less version resources
+  (a hole in authorization-on-by-default); `apply_can_read_policy?`
+  source replay (the two failures above).
 - **D8 — retention**: forever, revisit triggers recorded (cost/scale,
   data-deletion policy finalizing). REJECTED: time-boxed janitor now
   (premature at friends-beta volumes; weakens the audit premise).
@@ -515,8 +544,12 @@ business set is attributable from the console — the doctrine's done-when.
   scope-granted cross-org writes explicitly. Structural change → PA
   relay before building. Judged unlikely (Ash.PlugHelpers context is
   request-scoped by design; the process rung is trivial).
-- **`apply_can_read_policy?` + filter-shaped sources**: probe in A2-S1;
-  the mixin fallback is specified and changes nothing user-visible.
+- **Version-read authorizer attachment**: dropping
+  `apply_can_read_policy?` may drop the Policy authorizer from generated
+  version resources — the worker probes attaching it via
+  `version_extensions`; if impossible, `apply_can_read_policy? true`
+  stays alongside the mixin policy and A2-S4 works around the
+  orphan-filter quirk (both postures close the anonymous-read hole).
 - **Atomic updates under `:changes_only`**: supported per the docs;
   `:full_diff` is the known non-atomic mode — not chosen. Probe
   atomic-update actions (resize) in A2-S3.
