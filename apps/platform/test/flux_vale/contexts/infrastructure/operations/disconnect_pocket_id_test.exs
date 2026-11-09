@@ -167,5 +167,25 @@ defmodule FluxVale.Infrastructure.Operations.DisconnectPocketIdTest do
 
       assert {:error, :not_wired} = Infrastructure.disconnect_pocket_id(app, actor: owner)
     end
+
+    # The §6 gone shape: the PocketID row is gone, so no client is
+    # reachable — the strip + clear still happen (the card's Clear
+    # wiring verb).
+    test "a gone PocketID clears the wiring without a client delete", %{
+      app: app,
+      pocket_id: pocket_id,
+      owner: owner
+    } do
+      PocketIdCustody.get_by_instance!(pocket_id.id, authorize?: false)
+      |> PocketIdCustody.revoke!(authorize?: false)
+
+      Ash.destroy!(pocket_id, authorize?: false)
+
+      assert {:ok, %{client_deleted: false}} =
+               Infrastructure.disconnect_pocket_id(app, actor: owner)
+
+      assert {:error, _none} = PocketIdWiring.get_by_instance(app.id, authorize?: false)
+      assert Instance.get_by_id!(app.id, actor: owner).env_vars == %{"SMTP_HOST" => "smtp"}
+    end
   end
 end

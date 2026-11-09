@@ -46,10 +46,10 @@ defmodule FluxVale.Infrastructure.Operations.DisconnectPocketId do
 
     with :ok <- flag_guard(),
          {:ok, wiring} <- wiring(instance_id),
+         {:ok, recipe, app_instance} <- recipe_for(instance_id),
          {:ok, pocket_id} <- pocket_id(wiring),
          {:ok, custody} <- custody(pocket_id),
-         {:ok, key} <- UsePocketIdKey.call(custody, "client_delete", actor: actor),
-         {:ok, recipe, app_instance} <- recipe_for(instance_id) do
+         {:ok, key} <- UsePocketIdKey.call(custody, "client_delete", actor: actor) do
       client_deleted = client_delete(pocket_id, key, wiring)
 
       case strip_env(app_instance, recipe) do
@@ -61,7 +61,24 @@ defmodule FluxVale.Infrastructure.Operations.DisconnectPocketId do
           error
       end
     end
+    |> maybe_clear_gone_wiring(instance_id)
   end
+
+  # The gone-PocketID shape (§6: the wiring outlives its IdP): there
+  # is no client left that FluxVale can reach — the delete is
+  # impossible, not refused. The strip + clear still happen (that is
+  # the card's "Clear wiring" verb); the leftover client, if the
+  # PocketID ever returns, is PocketID-admin-visible and deletable.
+  defp maybe_clear_gone_wiring({:error, :pocket_id_gone}, instance_id) do
+    with {:ok, wiring} <- wiring(instance_id),
+         {:ok, recipe, app_instance} <- recipe_for(instance_id),
+         :ok <- strip_env(app_instance, recipe) do
+      clear_wiring(wiring)
+      {:ok, %{client_deleted: false}}
+    end
+  end
+
+  defp maybe_clear_gone_wiring(result, _instance_id), do: result
 
   defp flag_guard do
     if FeatureFlags.enabled?(:pocketid_sso_wiring),
