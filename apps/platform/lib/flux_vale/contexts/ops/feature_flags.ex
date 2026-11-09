@@ -57,7 +57,12 @@ defmodule FluxVale.Ops.FeatureFlags do
   #   The instant-shutdown lever for upstream PocketID API drift
   #   (#597 §9); delete row + branch together once the flow is
   #   permanent.
-  @known_flags [:pocketid_sso_wiring]
+  # - `:google_sign_in` (#642): the Google OIDC sign-in arm —
+  #   fail-closed (no row seeded): the button and both controller
+  #   hops stay off until the flag is on AND creds exist. The
+  #   instant-shutdown lever; delete row + branch together once the
+  #   flow is permanent.
+  @known_flags [:pocketid_sso_wiring, :google_sign_in]
 
   @doc """
   Is `key` enabled, anonymous evaluation? Same as `enabled?(key, for: nil)`.

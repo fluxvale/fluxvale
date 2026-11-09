@@ -504,6 +504,33 @@ if config_env() not in [:test, :dev] do
   end
 end
 
+# Google sign-in (#642, plan §6): GOOGLE_CLIENT_ID/SECRET are
+# BWS-injected in the cluster (ADR-0021), never committed; nil/""
+# (the classic empty-Secret shape) = unconfigured — the button and
+# both controller hops refuse under the same predicate, so nothing
+# half-configured ships. Dev is deliberately NOT excluded (the
+# Postmark stance): GoogleOIDC reads Application env at call time, so
+# a local dev run drives the arm through app env. Test IS excluded —
+# a stray exported key in the suite's shell must not flip the suite's
+# arm state. This block sets no defaults: unconfigured stays
+# unconfigured everywhere.
+if config_env() != :test do
+  config :flux_vale, :google_oidc,
+    client_id: System.get_env("GOOGLE_CLIENT_ID"),
+    client_secret: System.get_env("GOOGLE_CLIENT_SECRET")
+end
+
+# GOOGLE_OIDC_ISSUER: the operator override (default
+# https://accounts.google.com lives in GoogleOIDC) — the seam the
+# mock provider and staging experiments point at, writable in :test
+# too for that reason. Written only when non-empty: a present-but-nil
+# key would override the module default (Keyword.get sees the key,
+# not the value).
+case System.get_env("GOOGLE_OIDC_ISSUER") do
+  issuer when issuer in [nil, ""] -> :ok
+  issuer -> config :flux_vale, :google_oidc, issuer: issuer
+end
+
 # TestInbox gate (#22, ADR-0003 Am. 2 / ADR-0023 Am. 3): dev/test enable
 # via their config files; staging — the same prod-mode release as prod
 # (ADR-0010) — flips this env var, and the recipient split then captures
