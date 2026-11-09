@@ -369,6 +369,11 @@ hard requirement of this issue: **no state exists in which email
 codes work worse than today.** Tests pin it: the sign-in LiveView
 suite runs green with the Google arm on, off, and unconfigured.
 
+Provenance: two hostile fresh-context review rounds (Nov 9 2026) are
+folded into this text; their adopted findings shape §3.2 (the
+proxy-chain key, the supervised ETS owner), §4 (the OWASP argument,
+the trust assumption), and the S2/S3 slice contracts.
+
 ## 6. Env config and the owner's step
 
 `config/runtime.exs`, the `HITPAY`/`POLAR`/`POSTMARK` shape:
