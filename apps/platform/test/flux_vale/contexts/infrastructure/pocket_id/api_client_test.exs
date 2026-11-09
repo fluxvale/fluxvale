@@ -272,4 +272,86 @@ defmodule FluxVale.Infrastructure.PocketId.ApiClientTest do
       assert {:error, :unreachable} = ApiClient.create_client(@base_url, @key, @mint_attrs)
     end
   end
+
+  # #597 S5: the rotation + disconnect verbs — shapes read off the
+  # shipped image's source (the caller-supplied secret create, the
+  # secret delete, the client delete), riding the same keyed contract.
+  describe "create_secret/4" do
+    test "sends the caller-supplied value and returns the created secret's id" do
+      expect(Req, :post, fn req, opts ->
+        assert req.options[:base_url] == @base_url
+        assert Req.Request.get_header(req, "x-api-key") == [@key]
+        assert opts[:url] == "/api/oidc/clients/client-1/secrets"
+        assert opts[:json] == %{"secret" => "platform-generated-16-plus"}
+
+        {:ok, %Req.Response{status: 201, body: %{"id" => "sec-2"}}}
+      end)
+
+      assert {:ok, %{secret_id: "sec-2"}} =
+               ApiClient.create_secret(@base_url, @key, "client-1", "platform-generated-16-plus")
+    end
+
+    test "a 2xx without an id is the honest no_created_secret refusal" do
+      expect(Req, :post, fn _req, _opts ->
+        {:ok, %Req.Response{status: 201, body: %{}}}
+      end)
+
+      assert {:error, :no_created_secret} =
+               ApiClient.create_secret(@base_url, @key, "client-1", "platform-generated-16-plus")
+    end
+
+    test "errors ride the shared verdicts" do
+      expect(Req, :post, fn _req, _opts ->
+        {:ok, %Req.Response{status: 401, body: nil}}
+      end)
+
+      assert {:error, :unauthorized} =
+               ApiClient.create_secret(@base_url, @key, "client-1", "platform-generated-16-plus")
+    end
+  end
+
+  describe "delete_secret/4" do
+    test "deletes the named secret — 204 to :ok" do
+      expect(Req, :delete, fn req, opts ->
+        assert req.options[:base_url] == @base_url
+        assert Req.Request.get_header(req, "x-api-key") == [@key]
+        assert opts[:url] == "/api/oidc/clients/client-1/secrets/sec-old"
+
+        {:ok, %Req.Response{status: 204}}
+      end)
+
+      assert :ok = ApiClient.delete_secret(@base_url, @key, "client-1", "sec-old")
+    end
+
+    test "refusals carry the status" do
+      expect(Req, :delete, fn _req, _opts ->
+        {:ok, %Req.Response{status: 404, body: "gone already"}}
+      end)
+
+      assert {:error, %{status: 404}} =
+               ApiClient.delete_secret(@base_url, @key, "client-1", "sec-old")
+    end
+  end
+
+  describe "delete_client/3" do
+    test "deletes the client — 204 to :ok" do
+      expect(Req, :delete, fn req, opts ->
+        assert req.options[:base_url] == @base_url
+        assert Req.Request.get_header(req, "x-api-key") == [@key]
+        assert opts[:url] == "/api/oidc/clients/client-1"
+
+        {:ok, %Req.Response{status: 204}}
+      end)
+
+      assert :ok = ApiClient.delete_client(@base_url, @key, "client-1")
+    end
+
+    test "a transport failure is :unreachable (the disconnect's notice arm)" do
+      expect(Req, :delete, fn _req, _opts ->
+        {:error, %Req.TransportError{reason: :econnrefused}}
+      end)
+
+      assert {:error, :unreachable} = ApiClient.delete_client(@base_url, @key, "client-1")
+    end
+  end
 end
