@@ -116,6 +116,12 @@ defmodule FluxVale.MixProject do
       {:jose, "1.11.13"},
       # security floor: opentelemetry_exporter and prom_ex trees (assent's is optional)
       {:ssl_verify_fun, "1.1.9"},
+      # OIDC client for Google sign-in (#642, ADR-0003 Am. 4): in the
+      # lock all along as ash_authentication's hard dependency; the
+      # direct exact pin makes our own use explicit (the ash/decimal/
+      # yaml_elixir precedent). ID-token verification rides jose above.
+      # HTTP rides the app's existing Req (Assent.HTTPAdapter.Req).
+      {:assent, "0.2.13"},
       # Dev/test-only analysis tools (exact pins, same rule)
       {:dialyxir, "1.4.7", only: [:dev, :test], runtime: false},
       {:credo, "1.7.19", only: [:dev, :test], runtime: false},

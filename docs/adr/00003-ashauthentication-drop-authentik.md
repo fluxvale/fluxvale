@@ -1,6 +1,6 @@
 # ADR-00003: AshAuthentication; drop Authentik
 
-**Status**: Accepted (amended — see Amendments 1–3)
+**Status**: Accepted (amended — see Amendments 1–4)
 **Date**: 2026-08-27
 
 Authentik (~2 GB RAM + Helm release + Terraform branding + provider-skew risk)
@@ -85,3 +85,30 @@ pioneered for membership invites: session tokens never appear in a URL
 (they ride the `POST /auth/session` body), and the one-time invite
 token is the only URL credential. Acceptance runs the first-login
 bootstrap and mints the session through that same POST.
+
+## Amendment 4 (2026-11-09): Google sign-in as a second proof of the same identifier
+
+#642 adds "Sign in with Google" beside the email-code flow — planned in
+[docs/plans/642-google-sign-in.md](../plans/642-google-sign-in.md),
+which owns the full analysis; this amendment records the stance.
+
+The Google arm adds a **proof**, not an identifier: OIDC code flow
+with PKCE (nonce, state) via **assent** — already in the lock as a
+hard dependency of AshAuthentication, promoted to a direct exact pin —
+with scope `openid email` only: nothing beyond the address is kept
+(`sub` exists in the round trip and is never stored; no profile
+claims), so the account shape and the stored-data posture are
+unchanged (the privacy *disclosure* gains a Google card, #642 S4). The
+ID token's `email_verified: true` claim,
+strictly gated, is accepted as equivalent proof of inbox control to a
+burned 6-digit code: **sign-in auto-links on verified-email match, no
+identity table** — the `user_emails` row that every other flow
+resolves through IS the link. The OWASP divergences (link-on-match,
+no notification) are deliberate and argued in the plan's §4. Admission
+is at least as strict as the email
+arm (the invitation wall, `:invite_pending`, team-domain-only JIT,
+`AccessRules` at request and — beyond the native code branch — user
+level at mint): Google is never a side door around
+admission. A `:google_sign_in` feature flag plus credentials presence
+gate the surface, fail-closed; email codes remain the always-on
+fallback in every state the Google arm can be in.
