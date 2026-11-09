@@ -5,8 +5,9 @@ defmodule FluxValeWeb.CatalogLive.DeployTest do
   # create + auto-deploy. K8s is stubbed (Mimic, v1's canonical pattern)
   # because Oban runs inline in tests — the deploy trigger executes
   # synchronously on submit.
+  # Sync: a seed writes shared rows, so it must not overlap another test.
 
-  use FluxValeWeb.ConnCase, async: true
+  use FluxValeWeb.ConnCase, async: false
   use Mimic
 
   import FluxVale.TestSupport.NoK8sLeaks

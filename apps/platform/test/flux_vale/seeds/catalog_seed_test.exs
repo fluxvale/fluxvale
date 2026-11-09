@@ -13,7 +13,9 @@ defmodule FluxVale.Seeds.CatalogSeedTest do
   stay valid as the catalog grows.
   """
 
-  use FluxVale.DataCase, async: true
+  # Sync: a seed writes shared rows, so it must not overlap another test.
+
+  use FluxVale.DataCase, async: false
 
   alias FluxVale.Catalog.App
   alias FluxVale.Catalog.AppVersion

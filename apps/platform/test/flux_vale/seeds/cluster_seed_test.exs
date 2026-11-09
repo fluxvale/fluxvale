@@ -5,7 +5,9 @@ defmodule FluxVale.Seeds.ClusterSeedTest do
   fails here (#72).
   """
 
-  use FluxVale.DataCase, async: true
+  # Sync: a seed writes shared rows, so it must not overlap another test.
+
+  use FluxVale.DataCase, async: false
 
   alias FluxVale.Infrastructure.Cluster
   alias FluxVale.Seeds

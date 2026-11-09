@@ -1,7 +1,8 @@
 defmodule FluxValeWeb.CatalogControllerTest do
   @moduledoc false
+  # Sync: a seed writes shared rows, so it must not overlap another test.
 
-  use FluxValeWeb.ConnCase, async: true
+  use FluxValeWeb.ConnCase, async: false
 
   alias FluxVale.Accounts
   alias FluxVale.Catalog.App

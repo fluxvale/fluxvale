@@ -4,7 +4,9 @@ defmodule FluxVale.Seeds.PricingSeedTest do
   sandboxed DB — create, reprice-convergence, and idempotency (#125).
   """
 
-  use FluxVale.DataCase, async: true
+  # Sync: a seed writes shared rows, so it must not overlap another test.
+
+  use FluxVale.DataCase, async: false
 
   alias FluxVale.Catalog.App
   alias FluxVale.Catalog.AppVersion
