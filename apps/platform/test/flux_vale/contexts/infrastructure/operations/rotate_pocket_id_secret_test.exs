@@ -261,7 +261,7 @@ defmodule FluxVale.Infrastructure.Operations.RotatePocketIdSecretTest do
       assert {:error, :not_wired} =
                Infrastructure.rotate_pocket_id_secret(wiring, actor: owner)
 
-      _ = pocket_id
+      _unused_pocket_id = pocket_id
     end
 
     test "the guards: gone PocketID, undeployed", %{
