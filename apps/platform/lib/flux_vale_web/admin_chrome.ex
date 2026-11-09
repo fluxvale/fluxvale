@@ -78,7 +78,10 @@ defmodule FluxValeWeb.AdminChrome do
   # The hook re-reads the count on every queue notification (create,
   # decision, apply) — the DB is the ordering that cannot lie, so the
   # notification's payload is never trusted for the number.
-  defp handle_queue_notification(%Ash.Notifier.Notification{}, socket) do
+  defp handle_queue_notification(
+         %Ash.Notifier.Notification{resource: StorageRequest},
+         socket
+       ) do
     {:cont,
      Phoenix.Component.assign(
        socket,

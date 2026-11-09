@@ -73,7 +73,7 @@ escalate; do not over-promise.
 ## 4. Attach
 
 **Prod prerequisite (launch checklist, not this lane's build):** the prod StorageClass
-must report `spec.allowVolumeExpansion: true` before any beyond-threshold approval can
+must report `allowVolumeExpansion: true` before any beyond-threshold approval can
 apply. The k3d patch in §4's local note is a **local-dev enabler only**; a prod
 StorageClass change is an owner/operator launch-checklist adjacency — do not improvise it
 from a worker branch. The approve action's live probe refuses honestly until it is true.
@@ -84,7 +84,7 @@ The exact device/LVM names depend on the box; verify, don't guess. The shape:
 2. Extend the LVM volume group that backs the expandable StorageClass with the new
    physical volume, and grow the thin pool / logical volume (`vgextend`, `lvextend`).
 3. Confirm the StorageClass TopoLVM provisions from now reports
-   `spec.allowVolumeExpansion: true`:
+   `allowVolumeExpansion: true`:
 
    ```sh
    kubectl get storageclass <name> -o jsonpath='{.allowVolumeExpansion}'

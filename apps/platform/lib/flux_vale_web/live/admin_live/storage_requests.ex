@@ -16,10 +16,10 @@ defmodule FluxValeWeb.AdminLive.StorageRequests do
 
   Every write re-resolves the actor from the session (`UserAuth.resolve_user/1`)
   and requires the platform-admin role on the FRESH struct — the #571
-  demotion-window defense. The queue also subscribes to
-  `storage_requests:queue` and re-reads/re-streams on every create,
-  decision, and apply notification; the AdminChrome hook keeps the
-  sidebar badge current on every admin page. No polling, no email
+  demotion-window defense. The AdminChrome hook subscribes this process
+  to `storage_requests:queue`, so the sidebar badge stays current on
+  every admin page; this surface re-reads/re-streams its rows on the
+  same create, decision, and apply notifications. No polling, no email
   (ADR-0046 D6).
   """
 
@@ -42,8 +42,6 @@ defmodule FluxValeWeb.AdminLive.StorageRequests do
 
   require Ash.Query
 
-  @queue_topic "storage_requests:queue"
-
   @statuses [:requested, :approved, :applied, :rejected]
 
   @impl Phoenix.LiveView
@@ -61,8 +59,6 @@ defmodule FluxValeWeb.AdminLive.StorageRequests do
         reject_form: nil,
         search_form: to_form(%{"query" => ""}, as: :search)
       )
-
-    if connected?(socket), do: Phoenix.PubSub.subscribe(FluxVale.PubSub, @queue_topic)
 
     {:ok, refresh_rows(socket)}
   end
