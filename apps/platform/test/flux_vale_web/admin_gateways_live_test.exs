@@ -17,9 +17,13 @@ defmodule FluxValeWeb.AdminGatewaysLiveTest do
   alias FluxVale.Accounts.Organization
   alias FluxVale.Identity.User
   alias FluxVale.Infrastructure.AccessProviders.Tailscale
+  alias FluxVale.Infrastructure.Instance
   alias FluxVale.TestSupport.AccessFixtures
+  alias FluxVale.TestSupport.AccountsFixtures
   alias FluxVale.TestSupport.BillingFixtures
+  alias FluxVale.TestSupport.InstanceFixtures
   alias FluxVale.TestSupport.SessionHelpers
+  alias FluxVale.TestSupport.StorageRequestFixtures
 
   require Ash.Query
 
@@ -70,6 +74,28 @@ defmodule FluxValeWeb.AdminGatewaysLiveTest do
   end
 
   describe "the gateway table" do
+    test "carries the pending storage-request badge", %{conn: conn} do
+      user = AccountsFixtures.user!()
+      InstanceFixtures.local_cluster!()
+      version = InstanceFixtures.app_version!(default_storage_gb: 10, monthly_cents: 100)
+
+      instance =
+        Instance.create!(
+          %{
+            name: "gateways-badge-#{System.unique_integer([:positive])}",
+            app_version_id: version.id,
+            env_vars: %{}
+          },
+          actor: user
+        )
+
+      StorageRequestFixtures.request!(instance, user, %{requested_gb: 150})
+
+      {:ok, view, _html} = live(conn, "/admin/gateways")
+
+      assert text_of(view, "[data-testid='admin-pending-storage-requests']") == "1"
+    end
+
     test "lists a member org's gateway with the policy-admitted columns", %{
       conn: conn,
       admin: admin

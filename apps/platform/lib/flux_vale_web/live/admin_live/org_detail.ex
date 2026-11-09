@@ -272,7 +272,11 @@ defmodule FluxValeWeb.AdminLive.OrgDetail do
             <%!-- The section entry is an ANCESTOR mark (exact: false):
             this page is the orgs section's sub-route, so the sidebar's
             orgs entry carries aria-current="location". --%>
-            <AdminShell.sidebar current="orgs" exact={false} />
+            <AdminShell.sidebar
+              current="orgs"
+              exact={false}
+              pending_requests={@pending_storage_requests}
+            />
 
             <div class="min-w-0 flex-1 space-y-8">
               <%!-- The wallet summary: the state badge and the balance.

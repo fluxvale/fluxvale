@@ -54,6 +54,11 @@ The request queue shows each request's current → requested GB and the live cap
 probe. Two operators must not approve into the same headroom; the queue is live and the
 ledger is the human source of truth.
 
+The queue is the console's **Storage requests** section
+(`/admin/storage-requests`). Its sidebar badge counts requests awaiting a decision and
+updates live over PubSub on every admin page — no polling, and no email in v1 (production
+mail is still the local adapter).
+
 ## 3. Order
 
 1. In the provider panel, order **1 × 1 TB block storage** (€13/mo) for the box.
@@ -68,7 +73,7 @@ escalate; do not over-promise.
 ## 4. Attach
 
 **Prod prerequisite (launch checklist, not this lane's build):** the prod StorageClass
-must report `spec.allowVolumeExpansion: true` before any beyond-threshold approval can
+must report `allowVolumeExpansion: true` before any beyond-threshold approval can
 apply. The k3d patch in §4's local note is a **local-dev enabler only**; a prod
 StorageClass change is an owner/operator launch-checklist adjacency — do not improvise it
 from a worker branch. The approve action's live probe refuses honestly until it is true.
@@ -79,10 +84,10 @@ The exact device/LVM names depend on the box; verify, don't guess. The shape:
 2. Extend the LVM volume group that backs the expandable StorageClass with the new
    physical volume, and grow the thin pool / logical volume (`vgextend`, `lvextend`).
 3. Confirm the StorageClass TopoLVM provisions from now reports
-   `spec.allowVolumeExpansion: true`:
+   `allowVolumeExpansion: true`:
 
    ```sh
-   kubectl get storageclass <name> -o jsonpath='{.spec.allowVolumeExpansion}'
+   kubectl get storageclass <name> -o jsonpath='{.allowVolumeExpansion}'
    ```
 
 4. Canary-check expansion on a throwaway PVC in a scratch namespace (patch the request
@@ -91,16 +96,25 @@ The exact device/LVM names depend on the box; verify, don't guess. The shape:
 5. Only then approve the queued request. The approval's capability probe is cached for
    5 minutes; if it still answers false, wait out the TTL or verify step 3.
 
-**Local stack note:** k3d's `local-path` class answers false today and its expansion is
-**spec-level only** — the PVC's requested size changes, the PV's capacity does not, and
-the host disk is the real bound. The local enabler (a Tilt custom deploy patching the
-class to `allowVolumeExpansion: true`) makes the local acceptance real at the spec level;
-it is not a capacity promise. Production's expandable class is the real gate.
+**Local stack note:** k3d's `local-path` class starts without the flag and its expansion
+is **spec-level only** — the PVC's requested size changes, the PV's capacity does not, and
+the host disk is the real bound. The local enabler is the `local-path-expansion` Tilt
+custom deploy in the `Tiltfile`: it patches the class to
+`allowVolumeExpansion: true`. Verify with:
+
+```sh
+kubectl get storageclass local-path -o jsonpath='{.allowVolumeExpansion}'
+```
+
+That makes the local acceptance real at the spec level; it is not a capacity promise.
+Production's expandable class is the real gate.
 
 ## 5. Approve, verify, reconcile
 
-1. Approve in `/admin/storage-requests` (the queue shows the wallet state and the
-   capability probe; approve is disabled with the reason when either blocks).
+1. Approve in the console's **Storage requests** section
+   (`/admin/storage-requests`). The queue shows the wallet state and the capability
+   probe, and approve is disabled with the reason when either blocks. Approve is the
+   only path from the ledger to the apply: never edit the request or volume by hand.
 2. Verify: the PVC spec grew to the requested total, the instance row's storage moved,
    the allocation era appended, and the ledger's `allocated_gb` moved.
 3. The rate re-anchors at approval (create-equivalent snapshot, fresh 1-year clock) and

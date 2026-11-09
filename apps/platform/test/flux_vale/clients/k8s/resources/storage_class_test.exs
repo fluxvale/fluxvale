@@ -20,7 +20,8 @@ defmodule FluxVale.Clients.K8s.Resources.StorageClassTest do
             else: %{}
           )
       },
-      "spec" => %{"allowVolumeExpansion" => Keyword.get(opts, :expandable, false)}
+      # The real storage.k8s.io/v1 shape: top-level, no `spec`.
+      "allowVolumeExpansion" => Keyword.get(opts, :expandable, false)
     }
   end
 

@@ -218,7 +218,7 @@ defmodule FluxValeWeb.AdminLive.Orgs do
         search card and the list are one content column beside it. --%>
         <section class="wrap pt-8 pb-16">
           <div class="rise flex flex-col gap-8 md:flex-row md:gap-12">
-            <AdminShell.sidebar current="orgs" />
+            <AdminShell.sidebar current="orgs" pending_requests={@pending_storage_requests} />
 
             <div class="min-w-0 flex-1 space-y-6">
               <.card class="space-y-4" data-testid="admin-orgs-search-card">

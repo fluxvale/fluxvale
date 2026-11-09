@@ -43,6 +43,12 @@ defmodule FluxValeWeb.AdminShell do
       "the console surface's nav state, %{domain: key | nil, resource: key | nil, exact: boolean}: the domain whose group renders open, the marked leaf, and whether the leaf's href IS the page. nil (every non-console surface, and the landing) renders all groups collapsed and no leaf marked"
   )
 
+  attr(:pending_requests, :integer,
+    default: 0,
+    doc:
+      "the storage-request queue's pending count, rendered as the Storage requests entry's badge (ADR-0046 D5/D6)"
+  )
+
   @doc """
   The section is the unit of navigation, not the page: a section's
   sub-routes (the sizes ladder, the edit forms) mark the section's
@@ -112,7 +118,30 @@ defmodule FluxValeWeb.AdminShell do
               ]}
               data-testid={"admin-nav-#{entry.key}"}
             >
-              {entry.label}
+              <%= if entry.key == "storage-requests" do %>
+                <%!-- The queue's live pending count (#250): the badge
+                rides the nav's label row, keeping the width budget
+                slim — no far-edge float. --%>
+                <span class="flex items-center gap-2">
+                  {entry.label}
+                  <.badge
+                    :if={@pending_requests > 0}
+                    class="px-1.5! text-[11px]!"
+                    aria-label={
+                      ngettext(
+                        "%{count} pending storage request",
+                        "%{count} pending storage requests",
+                        @pending_requests
+                      )
+                    }
+                    data-testid="admin-pending-storage-requests"
+                  >
+                    {@pending_requests}
+                  </.badge>
+                </span>
+              <% else %>
+                {entry.label}
+              <% end %>
             </.link>
           <% end %>
         </div>
@@ -217,6 +246,14 @@ defmodule FluxValeWeb.AdminShell do
           # reserved the section's writes; none are operationally
           # necessary today.
           %{key: "orgs", label: gettext("Orgs and instances"), path: ~p"/admin/orgs"},
+          # #250's storage-request queue: a purpose-built workflow
+          # section (ADR-0046 D5), not a generic resource leaf. The
+          # pending count badges the entry on every admin page.
+          %{
+            key: "storage-requests",
+            label: gettext("Storage requests"),
+            path: ~p"/admin/storage-requests"
+          },
           # #501's last v1 section: live, read-only by design (the v1
           # plan made gateways/domains oversight; registration and key
           # writes stay on the product surfaces). With this flip every

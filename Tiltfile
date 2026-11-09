@@ -121,6 +121,20 @@ k8s_custom_deploy(
     deps=['deploy/local/k8s/15-ingressroute.yaml'],
 )
 
+# #250 (ADR-0046 D8): the k3d default local-path class must advertise
+# allowVolumeExpansion for the local acceptance's PVC spec growth. LOCAL
+# DEV ONLY — local-path expansion is spec-level (the host disk is the real
+# bound), and production's expandable StorageClass is a launch-checklist
+# prerequisite, never patched from a worker branch. The approve action's
+# live probe refuses honestly until the class answers true.
+k8s_custom_deploy(
+    'local-path-expansion',
+    apply_cmd='kubectl patch storageclass local-path --type=merge -p \'{"allowVolumeExpansion":true}\' -o yaml',
+    delete_cmd='kubectl patch storageclass local-path --type=merge -p \'{"allowVolumeExpansion":false}\'',
+    image_deps=[],
+    deps=[],
+)
+
 # The CNPG Cluster CR needs the operator's CRD installed first — k8s_yaml
 # would statically parse (and drop) it before that, so it applies at
 # runtime via custom deploy, ordered after the operator.
