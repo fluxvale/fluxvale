@@ -9,17 +9,19 @@ import { TestInbox } from "./helpers/test-inbox";
 // mirroring memos-lifecycle (the SQLite single-volume sibling): sign
 // in via TestInbox → catalog → deploy (filling the one optional input
 // — the session secret that keeps sign-ins alive across restarts; the
-// Pocket ID provider inputs stay empty, inert while their toggle is
-// off) → running → instance URL serves Vikunja over HTTPS → /health
-// answers 200 OK → /api/v1/info reports v2.8.0, registration open,
-// and concurrent_writes false (the SQLite honesty fact pinned in the
-// listing's caveats) → register (the first registrant is NOT admin —
-// the JWT carries is_admin false, the no-contract posture) → stop →
-// start → the token issued before the stop still works (the session
-// secret held + the SQLite user row survived on the PVC) → destroy.
-// It crosses the real cluster — `running` lands on the reconcile
-// cron's next tick after pod readiness, and a cold node pulls the
-// Vikunja image first — so the waits are generous (ADR-00024 §6).
+// Pocket ID provider inputs ride their defaults — the display name
+// arrives pre-filled, everything else empty, inert while the toggle
+// stays off) → running → instance URL serves Vikunja over HTTPS →
+// /health answers 200 OK → /api/v1/info reports v2.8.0, registration
+// open, and concurrent_writes false (the SQLite honesty fact pinned
+// in the listing's caveats) → register (the first registrant is NOT
+// admin — the JWT carries is_admin false, the no-contract posture) →
+// stop → start → the token issued before the stop still works (the
+// session secret held + the SQLite user row survived on the PVC) →
+// destroy. It crosses the real cluster — `running` lands on the
+// reconcile cron's next tick after pod readiness, and a cold node
+// pulls the Vikunja image first — so the waits are generous
+// (ADR-00024 §6).
 
 // Traces are off for this spec only (the pocket-id posture): CI
 // uploads the playwright report as a public artifact, and the session
@@ -79,9 +81,10 @@ test(
     );
 
     // Deploy stepper: version → configuration (the session secret is
-    // filled; the Pocket ID provider inputs stay empty — inert while
-    // VIKUNJA_AUTH_OPENID_ENABLED is false) → resources at the
-    // recommendation → name.
+    // filled; the Pocket ID provider inputs ride their defaults — the
+    // display name arrives pre-filled with "Pocket ID", everything
+    // else empty, inert while VIKUNJA_AUTH_OPENID_ENABLED is false) →
+    // resources at the recommendation → name.
     await page.locator("[data-testid^='deploy-']").first().click();
     await waitForLiveViewJoin(page);
     await page.getByTestId("version-option").first().check();

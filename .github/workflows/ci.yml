@@ -755,11 +755,9 @@ jobs:
     # leaves ~11.5m hang slack. Tighter than the old slack on purpose:
     # the new worst already carries congestion padding the old one
     # didn't. The waits themselves are unchanged. #587 added
-    # umami-lifecycle (20m bounded) as the lifecycle leg's seventh
-    # spec (the leg's observed worst is 17.1m at #587's head, its
-    # cold pulls ride the warm-up), and #610 added vikunja-lifecycle
-    # (20m bounded) as the eighth — a memos-shape SQLite-PVC deploy,
-    # ≈ 30m under the ceiling with one more spec of that shape.
+    # umami-lifecycle (20m bounded), and #610 added vikunja-lifecycle
+    # (20m bounded) — a memos-shape SQLite-PVC deploy, ≈ 30m under
+    # the ceiling with one more spec of that shape.
     timeout-minutes: 60
     strategy:
       # A red leg must not cancel the others — its report is triage
