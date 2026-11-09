@@ -13,10 +13,24 @@ defmodule FluxValeWeb.AdminChrome do
 
   The per-event demotion seam (ADR-0047 D4, #644's console slice):
   reads stay mount-resolved — a demoted admin's already-mounted tab
-  keeps its stale DOM until the next interaction — but EVERY event
-  re-resolves the actor from the session and refuses a fresh struct
-  that is no longer platform admin. Every admin LiveView inherits the
-  seam here; no surface re-implements it.
+  keeps its stale DOM until the next interaction — but EVERY event and
+  every :handle_info notification re-resolves the actor from the
+  session and refuses a fresh struct that is no longer platform
+  admin. Events answer with the refusal copy; a halted notification
+  is a quiet freeze — the tab stops following live writes (no badge
+  ticks, no row refreshes) instead of streaming cross-org rows at a
+  dead session, and the next explicit event hits the event gate's
+  copy.
+
+  WHO inherits this: the CUSTOM admin LiveViews — every surface on
+  the `:admin` live_session, whose on_mount chain runs this hook
+  after AdminGate. The generated operator tools do NOT: `/admin/ash`
+  (AshAdmin) and `/admin/debug/dashboard` carry only the AdminGate
+  mount-time re-check — their trusted-superuser posture
+  (ADR-0027 Am. 1) keeps a demoted admin's open tab writable until
+  its socket reconnects through the gate. That window is pre-existing
+  and disclosed, not closed by the doctrine's console slice; wiring
+  the hook into their sessions is a deliberate future decision.
 
   The pending storage-request count (#250) rides every admin page: the
   mount reads the queue's countable page once, and — when connected —
@@ -68,11 +82,16 @@ defmodule FluxValeWeb.AdminChrome do
   # it. The refusal copy is the wallet surface's, byte-for-byte — one
   # grammar for the whole console.
   defp attach_demotion_hook(socket) do
-    Phoenix.LiveView.attach_hook(
-      socket,
+    socket
+    |> Phoenix.LiveView.attach_hook(
       :admin_demotion_gate,
       :handle_event,
       &demotion_gate/3
+    )
+    |> Phoenix.LiveView.attach_hook(
+      :admin_demotion_info_gate,
+      :handle_info,
+      &demotion_info_gate/2
     )
   end
 
@@ -91,6 +110,32 @@ defmodule FluxValeWeb.AdminChrome do
       # coveralls-ignore-start
       _not_signed_in ->
         {:halt, demoted(socket)}
+        # coveralls-ignore-stop
+    end
+  end
+
+  # The info-path seam (the hostile review's P3): without it, a
+  # demoted admin's open tab keeps FOLLOWING live writes — the queue
+  # badge ticks, the storage queue re-streams, the org detail's
+  # instances move — fed by notifications no gate ever saw. A demoted
+  # fresh struct halts the notification quietly (no flash: a
+  # notification is not user interaction, and every broadcast would
+  # re-flash the same dead-session copy); the tab freezes on its last
+  # mounted state and the next explicit event hits the copy above.
+  defp demotion_info_gate(_message, socket) do
+    case UserAuth.resolve_user(socket.assigns.admin_session) do
+      %User{} = actor ->
+        if ActorIsPlatformAdmin.platform_admin?(actor) do
+          {:cont, Phoenix.Component.assign(socket, :current_user, actor)}
+        else
+          {:halt, socket}
+        end
+
+      # coveralls-ignore-start - the revoked-token arm, the event
+      # gate's own reasoning: not reachable without revoking the live
+      # session's jti out-of-band.
+      _not_signed_in ->
+        {:halt, socket}
         # coveralls-ignore-stop
     end
   end

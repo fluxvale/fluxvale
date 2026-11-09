@@ -1769,7 +1769,7 @@ msgstr ""
 msgid "Yes, post %{amount}"
 msgstr ""
 
-#: lib/flux_vale_web/admin_chrome.ex:102
+#: lib/flux_vale_web/admin_chrome.ex:147
 #, elixir-autogen, elixir-format
 msgid "Your admin access ended. Sign out and sign back in."
 msgstr ""
@@ -3635,11 +3635,6 @@ msgstr ""
 msgid "The names this org serves its private instances under, including the platform row every instance create mints. Registration lives on the org's own surfaces."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/org_detail.ex:257
-#, elixir-autogen, elixir-format, fuzzy
-msgid "The org's wallet state, its instances, and its domains, across every org in the fleet."
-msgstr ""
-
 #: lib/flux_vale_web/live/admin_live/gateway_detail.ex:410
 #, elixir-autogen, elixir-format
 msgid "The state badge is certificate issuance. The claim line is tailnet resolution. Either can move without the other."
@@ -3648,4 +3643,9 @@ msgstr ""
 #: lib/flux_vale_web/live/admin_live/gateway_detail.ex:387
 #, elixir-autogen, elixir-format
 msgid "Token set %{stamp}. Tailscale API keys expire within 90 days by design. Age this one toward rotation."
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/org_detail.ex:257
+#, elixir-autogen, elixir-format
+msgid "This org's wallet state, instances, and domains. The console reads every org, so a page like this one answers for any of them."
 msgstr ""

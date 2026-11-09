@@ -255,7 +255,7 @@ defmodule FluxValeWeb.AdminLive.OrgDetail do
               <p class="mt-1 font-mono text-sm text-ink-muted">{@org.slug}</p>
               <p class="mt-2 max-w-prose text-base text-ink-muted">
                 {gettext(
-                  "The org's wallet state, its instances, and its domains, across every org in the fleet."
+                  "This org's wallet state, instances, and domains. The console reads every org, so a page like this one answers for any of them."
                 )}
               </p>
               <div class="mt-4">

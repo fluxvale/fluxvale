@@ -1332,8 +1332,22 @@ defmodule FluxValeWeb.AdminResourcesLiveTest do
          } do
       # A stranger's org with a wallet: the admin is provably NOT a
       # member (the membership-refuted shape the curated surfaces'
-      # pins use), and the engine's index read passes the blanket
-      # bypass regardless.
+      # pins use), and the engine's index read passes regardless.
+      #
+      # Honesty about what this pin can fail for: Wallet's read policy
+      # carries its OWN pre-doctrine platform-admin arm (the wallets
+      # lane's #140/#501 arm), so this test pins the SURFACE
+      # visibility — the engine renders cross-org rows — as a belt
+      # over the armed read, not the doctrine. The DOCTRINE-level
+      # regression pins (resources whose only admin path is the
+      # blanket bypass) live at the policy layer:
+      # test/flux_vale/admin_authority_policy_test.exs pins the
+      # un-armed cross-org reads (Organization's primary read,
+      # Membership and invite rosters, Topup, another org's Instance
+      # and Feedback rows) against the member-scoped baseline. An
+      # ENGINE-level bypass-only pin lands with the Infrastructure
+      # registry slice, whose org-scoped resources carry no
+      # pre-doctrine arm.
       {org, wallet} = stranger_org_wallet!()
 
       refute Membership

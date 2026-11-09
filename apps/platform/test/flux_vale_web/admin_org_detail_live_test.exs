@@ -335,7 +335,13 @@ defmodule FluxValeWeb.AdminOrgDetailLiveTest do
 
       assert has_element?(view, "[data-testid='admin-orgs-instances-empty']")
       refute has_element?(view, "[data-testid='admin-orgs-status-strip']")
-      refute has_element?(view, "[data-testid='admin-orgs-instances-hidden']")
+
+      # The member-scoping regression guard: if the read ever narrows
+      # again, the honest scope note's copy returns in place of the
+      # empty state — refute the copy, which CAN render, not a testid
+      # no template carries anymore.
+      refute render(view) =~ "not a member of this org"
+      refute render(view) =~ "readable by org members only"
     end
 
     test "the instances list caps at the latest 100 and says so", %{conn: conn, admin: admin} do
@@ -373,13 +379,20 @@ defmodule FluxValeWeb.AdminOrgDetailLiveTest do
       {:ok, _grant} = Billing.grant_credits(org, 10_000, reason: :adjustment)
 
       version = InstanceFixtures.app_version!()
-      instance = InstanceFixtures.instance!(version, owner)
+      built = InstanceFixtures.instance!(version, owner)
+      instance = InstanceFixtures.walk_to!(built, :running)
 
       {:ok, view, _html} = live(conn, "/admin/orgs/#{org.id}")
 
+      # The positive pin: the foreign org's row renders and the strip
+      # counts it — and if member-scoping ever regresses, the scope
+      # note's copy comes back in the table's place. The copy refutes
+      # are the guard; the old testid no longer exists anywhere.
       assert has_element?(view, "[data-testid='admin-orgs-instance-#{instance.id}']")
       assert has_element?(view, "[data-testid='admin-orgs-status-strip']")
-      refute has_element?(view, "[data-testid='admin-orgs-instances-hidden']")
+      assert text_of(view, "[data-testid='admin-orgs-strip-running']") == "1 running"
+      refute render(view) =~ "not a member of this org"
+      refute render(view) =~ "readable by org members only"
     end
   end
 

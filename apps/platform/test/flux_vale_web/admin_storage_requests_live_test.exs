@@ -730,6 +730,53 @@ defmodule FluxValeWeb.AdminStorageRequestsLiveTest do
       assert render(view) =~ "Your admin access ended."
       assert %{status: :requested} = Ash.get!(StorageRequest, request.id, authorize?: false)
     end
+
+    test "a demoted admin's open tab freezes: a queue notification refreshes nothing",
+         %{conn: conn, admin: admin} do
+      user = user!()
+      cluster!()
+      version = version!()
+      fund_org!(user)
+      first = instance!(version, user, running: true, name: "Archive box")
+      first_request = StorageRequestFixtures.request!(first, user, %{requested_gb: 150})
+
+      {:ok, view, _html} = live(conn, "/admin/storage-requests")
+
+      # Pre-demotion the page is live: a create broadcasts on the
+      # queue topic and the row lands without any click.
+      second = instance!(version, user, running: true, name: "Video box")
+      second_request = StorageRequestFixtures.request!(second, user, %{requested_gb: 120})
+
+      assert has_element?(
+               view,
+               "[data-testid='admin-storage-requests-rate-#{first_request.id}']"
+             )
+
+      assert has_element?(
+               view,
+               "[data-testid='admin-storage-requests-rate-#{second_request.id}']"
+             )
+
+      # Demote under the live session (the idiom above).
+      query = from(u in "users", where: u.id == ^Ecto.UUID.dump!(admin.id))
+      {1, nil} = FluxVale.Repo.update_all(query, set: [platform_role: "user"])
+
+      # A THIRD request broadcasts while the session is dead: the
+      # AdminChrome info gate halts the notification before the
+      # surface's refresh ever runs — the row never reaches the
+      # stream. The tab is quiet, not live.
+      third = instance!(version, user, running: true, name: "Cold box")
+      third_request = StorageRequestFixtures.request!(third, user, %{requested_gb: 180})
+
+      refute has_element?(
+               view,
+               "[data-testid='admin-storage-requests-rate-#{third_request.id}']"
+             )
+
+      # The next explicit event names the session honestly.
+      render_click(view, "filter-status", %{"status" => "requested"})
+      assert render(view) =~ "Your admin access ended."
+    end
   end
 
   # The capped test's row ids, in render order (the rate cell shares the
