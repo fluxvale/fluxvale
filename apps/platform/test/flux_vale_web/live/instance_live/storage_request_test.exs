@@ -342,7 +342,7 @@ defmodule FluxValeWeb.InstanceLive.StorageRequestTest do
              )
     end
 
-    test "a second submit losing the index shows the S2 open-request copy", %{
+    test "a second submit after an open request lands shows the open-request copy", %{
       conn: conn,
       user: user,
       version: version
@@ -352,23 +352,12 @@ defmodule FluxValeWeb.InstanceLive.StorageRequestTest do
 
       # The interleaving the index defends: a request landed after this
       # form opened, so the advisory read that validated this submit saw
-      # none. The create seam answers the S2 refusal; the page re-reads
+      # none. The real create answers the S2 refusal; the page re-reads
       # and the status card wins.
       StorageRequestFixtures.request!(instance, user)
       render(view)
 
       render_click(view, "storage-request-open", %{})
-
-      stub(StorageRequest, :request, fn _attrs, _opts ->
-        {:error,
-         %Ash.Error.Invalid{
-           errors: [
-             %Ash.Error.Changes.InvalidChanges{
-               message: "this instance already has an open storage request"
-             }
-           ]
-         }}
-      end)
 
       submit(view, "200", "A bigger request")
 
@@ -429,9 +418,39 @@ defmodule FluxValeWeb.InstanceLive.StorageRequestTest do
 
       assert has_element?(
                view,
-               "[data-testid='storage-request-status']",
-               "we're adding the space"
+               "[data-testid='storage-request-approved-copy']",
+               "The rate is confirmed when the space is added"
              )
+
+      # No advisory quote once the decision exists, and no future-tense
+      # "confirmed at approval" on the card.
+      refute has_element?(view, "[data-testid='storage-request-quote']")
+
+      refute render(element(view, "[data-testid='storage-request-status']")) =~
+               "confirmed when it's approved"
+    end
+
+    test "an approved request whose apply stalled says it is retrying", %{
+      conn: conn,
+      user: user,
+      version: version
+    } do
+      stub_storage_probe(true)
+      instance = instance!(version, user, :running)
+      request = StorageRequestFixtures.request!(instance, user)
+      admin = AccountsFixtures.platform_admin!()
+      {:ok, approved} = StorageRequest.approve(request, %{}, actor: admin)
+
+      {:ok, _stalled} =
+        StorageRequest.mark_apply_failed(approved, %{error: "pvc patch timed out"},
+          authorize?: false
+        )
+
+      {:ok, view, _html} = live(conn, ~p"/instances/#{instance.id}")
+
+      assert has_element?(view, "[data-testid='storage-request-status-badge']", "Approved")
+      assert has_element?(view, "[data-testid='storage-request-apply-retry']", "we're retrying")
+      refute has_element?(view, "[data-testid='storage-request-quote']")
     end
 
     test "a rejected request shows the feedback verbatim and offers another", %{
@@ -463,7 +482,7 @@ defmodule FluxValeWeb.InstanceLive.StorageRequestTest do
       refute has_element?(view, "#storage-request-form")
     end
 
-    test "an applied request states the date and the new rate", %{
+    test "an applied request states the date and the current rate", %{
       conn: conn,
       user: user,
       version: version
@@ -486,7 +505,7 @@ defmodule FluxValeWeb.InstanceLive.StorageRequestTest do
       assert has_element?(
                view,
                "[data-testid='storage-request-applied-rate']",
-               "Your new rate is"
+               "Your current rate is"
              )
 
       assert has_element?(
@@ -498,7 +517,7 @@ defmodule FluxValeWeb.InstanceLive.StorageRequestTest do
       assert has_element?(view, "[data-testid='storage-request-open']", "Request more")
     end
 
-    test "an applied request on an unpriced row says the price was confirmed", %{
+    test "an applied request on an unpriced row shows no rate and no future tense", %{
       conn: conn,
       user: user
     } do
@@ -513,12 +532,10 @@ defmodule FluxValeWeb.InstanceLive.StorageRequestTest do
       {:ok, view, _html} = live(conn, ~p"/instances/#{instance.id}")
 
       assert has_element?(view, "[data-testid='storage-request-applied']")
+      refute has_element?(view, "[data-testid='storage-request-applied-rate']")
 
-      assert has_element?(
-               view,
-               "[data-testid='storage-request-applied-rate']",
-               "Price confirmed at approval"
-             )
+      refute render(element(view, "[data-testid='storage-request-applied']")) =~
+               "confirmed at approval"
     end
 
     test "live request writes move the card without a reload", %{
@@ -604,7 +621,12 @@ defmodule FluxValeWeb.InstanceLive.StorageRequestTest do
     end
   end
 
-  test "the member copy stays rate-agnostic", %{conn: conn, user: user, version: version} do
+  test "the member copy stays rate-agnostic in every card state", %{
+    conn: conn,
+    user: user,
+    version: version
+  } do
+    # The form.
     instance = instance!(version, user, :running)
     {:ok, view, _html} = live(conn, ~p"/instances/#{instance.id}")
 
@@ -614,14 +636,45 @@ defmodule FluxValeWeb.InstanceLive.StorageRequestTest do
     |> element("#storage-request-form")
     |> render_change(%{"storage_request" => %{"requested_gb" => "150", "reason" => ""}})
 
-    card = render(element(view, "[data-testid='storage-card']"))
+    rate_agnostic!(render(element(view, "[data-testid='storage-card']")))
 
+    # Awaiting review.
+    requested = instance!(version, user, :running)
+    StorageRequestFixtures.request!(requested, user)
+    {:ok, requested_view, _html} = live(conn, ~p"/instances/#{requested.id}")
+
+    rate_agnostic!(render(element(requested_view, "[data-testid='storage-card']")))
+
+    # Rejected.
+    rejected = instance!(version, user, :running)
+    rejected_request = StorageRequestFixtures.request!(rejected, user)
+    admin = AccountsFixtures.platform_admin!()
+
+    {:ok, _rejected} =
+      StorageRequest.reject(rejected_request, %{rejection_reason: "No capacity."}, actor: admin)
+
+    {:ok, rejected_view, _html} = live(conn, ~p"/instances/#{rejected.id}")
+
+    rate_agnostic!(render(element(rejected_view, "[data-testid='storage-card']")))
+
+    # Applied.
+    stub_storage_probe(true)
+    applied = instance!(version, user, :running)
+    applied_request = StorageRequestFixtures.request!(applied, user)
+    {:ok, approved} = StorageRequest.approve(applied_request, %{}, actor: admin)
+    {:ok, _applied} = StorageRequest.mark_applied(approved, %{}, authorize?: false)
+    {:ok, applied_view, _html} = live(conn, ~p"/instances/#{applied.id}")
+
+    rate_agnostic!(render(element(applied_view, "[data-testid='storage-card']")))
+  end
+
+  # --- helpers ---------------------------------------------------------
+
+  defp rate_agnostic!(card) do
     for term <- ["per GB", "COGS", "vendor", "€", "¢", "cents", "0.03", "3¢"] do
       refute card =~ term
     end
   end
-
-  # --- helpers ---------------------------------------------------------
 
   defp instance!(version, user, status, attrs \\ %{}) do
     params =

@@ -941,7 +941,9 @@ defmodule FluxValeWeb.InstanceLive.Show do
       assign(assigns,
         open_request: open_request,
         latest: latest,
-        min_target: max(assigns.instance.storage_gb + 1, assigns.threshold_gb + 1),
+        min_target: min_target(assigns.instance),
+        # The plan's states are running/stopped/sleeping; :error is the
+        # operator's repair path and the affordance returns when it settles.
         available?: assigns.instance.status in [:running, :stopped, :sleeping],
         at_max?: assigns.instance.storage_gb >= assigns.max_gb
       )
@@ -1111,8 +1113,9 @@ defmodule FluxValeWeb.InstanceLive.Show do
 
   attr(:request, :any, required: true)
 
-  # requested / approved: the member's wait, with the advisory quote
-  # (D7 — approval re-prices at the rates in force then).
+  # requested: the advisory quote (D7 — the apply re-prices at the rates
+  # in force then). approved: no quote — the rate is confirmed when the
+  # space is added, and a failed apply says it is being retried.
   defp storage_request_status(assigns) do
     ~H"""
     <div class="space-y-2 rounded-xl bg-panel-raised px-4 py-3" data-testid="storage-request-status">
@@ -1126,16 +1129,30 @@ defmodule FluxValeWeb.InstanceLive.Show do
         </.badge>
       </div>
 
-      <p class="text-sm text-ink" data-testid="storage-request-quote">
+      <p
+        :if={@request.status == :requested}
+        class="text-sm text-ink"
+        data-testid="storage-request-quote"
+      >
         {quote_copy(@request.quoted_monthly_cents)}
       </p>
 
+      <%= if @request.status == :approved do %>
+        <p class="text-sm text-ink" data-testid="storage-request-approved-copy">
+          Approved — we're adding the space. The rate is confirmed when the space is added.
+        </p>
+        <p
+          :if={@request.apply_error}
+          class="text-sm text-ink"
+          data-testid="storage-request-apply-retry"
+        >
+          Adding the space hit a snag — we're retrying.
+        </p>
+        <p class="text-xs text-ink-subtle">A restart may be needed to see it.</p>
+      <% end %>
+
       <p class="text-xs text-ink-subtle" data-testid="storage-request-submitted">
         Requested {Calendar.strftime(@request.created_at, "%b %d, %Y %H:%M UTC")}
-      </p>
-
-      <p :if={@request.status == :approved} class="text-xs text-ink-subtle">
-        Approved — we're adding the space. A restart may be needed to see it.
       </p>
     </div>
     """
@@ -1172,8 +1189,8 @@ defmodule FluxValeWeb.InstanceLive.Show do
   attr(:request, :any, required: true)
   attr(:rates, :any, required: true)
 
-  # Applied: the date and the rate the row now bills. An unpriced row
-  # shows no made-up figure (the quote is advisory, D7).
+  # Applied: the row's current rate (not a "new" rate tied to the
+  # event). An unpriced row shows no made-up figure.
   defp storage_request_applied(assigns) do
     ~H"""
     <div class="space-y-2 rounded-xl bg-panel-raised px-4 py-3" data-testid="storage-request-applied">
@@ -1182,12 +1199,12 @@ defmodule FluxValeWeb.InstanceLive.Show do
         <.badge tone="success" data-testid="storage-request-status-badge">Applied</.badge>
       </div>
 
-      <p class="text-sm text-ink" data-testid="storage-request-applied-rate">
-        <%= if @rates do %>
-          Your new rate is {FluxVale.Pricing.format_monthly_rate(@rates.running)}
-        <% else %>
-          Price confirmed at approval
-        <% end %>
+      <p
+        :if={@rates}
+        class="text-sm text-ink"
+        data-testid="storage-request-applied-rate"
+      >
+        Your current rate is {FluxVale.Pricing.format_monthly_rate(@rates.running)}
       </p>
 
       <p class="text-xs text-ink-subtle" data-testid="storage-request-applied-at">
@@ -1211,7 +1228,8 @@ defmodule FluxValeWeb.InstanceLive.Show do
   defp quote_copy(nil), do: "Price confirmed at approval"
 
   defp quote_copy(cents),
-    do: "Projected #{FluxVale.Pricing.format_monthly_rate(cents)} — confirmed when it's approved."
+    do:
+      "Projected #{FluxVale.Pricing.format_monthly_rate(cents)} — the rate is confirmed when it's approved."
 
   attr(:instance, :any, required: true)
   attr(:form, :any, required: true)
@@ -1442,9 +1460,9 @@ defmodule FluxValeWeb.InstanceLive.Show do
       {:ok, requests} ->
         requests
 
-      # coveralls-ignore-start - race window: the instance was admitted
-      # at mount; a teardown between mount and this re-read is the only
-      # miss (the :destroy broadcast owns the page's exit)
+      # coveralls-ignore-start - DB-level failure: this read cannot fail
+      # on policy (mount admitted the instance), and ExUnit cannot stage a
+      # DB outage (AGENTS: outages are validated at the cluster level)
       {:error, _error} ->
         []
         # coveralls-ignore-stop
@@ -1533,10 +1551,9 @@ defmodule FluxValeWeb.InstanceLive.Show do
         )
 
       any_open_request?(requests) ->
-        # coveralls-ignore-start - race window: a second submit lost the
-        # partial unique index after the advisory read passed; no
-        # deterministic test can stage the interleaving, and the S2
-        # message is the honest answer
+        # A second submit that the advisory read let through loses the
+        # partial unique index; the re-read finds the winner and the S2
+        # message is the honest answer.
         socket
         |> assign(
           storage_requests: requests,
@@ -1545,8 +1562,6 @@ defmodule FluxValeWeb.InstanceLive.Show do
           storage_request_within?: false
         )
         |> put_flash(:error, "This instance already has an open storage request.")
-
-      # coveralls-ignore-stop
 
       true ->
         assign(socket, storage_requests: requests, storage_request_error: error_lines(error))
@@ -1564,11 +1579,11 @@ defmodule FluxValeWeb.InstanceLive.Show do
     |> Enum.reject(&is_nil/1)
   end
 
-  # coveralls-ignore-start - defensive: the create's failures are all
-  # Ash.Error.Invalid (policy denials read as Forbidden and can only
-  # reach a non-member, which mount already refused)
+  # Defensive: the create's failures are all Ash.Error.Invalid in
+  # practice (a policy denial reads Forbidden and can only reach a
+  # non-member, which mount already refused), but an unexpected shape
+  # still says something true.
   defp error_lines(_error), do: ["Something went wrong. Try again."]
-  # coveralls-ignore-stop
 
   defp error_line(%Ash.Error.Changes.Required{field: field}) do
     "#{field_label(field)} is required."
