@@ -51,10 +51,11 @@ defmodule FluxValeWeb.DashboardLiveTest do
            )
 
     assert html =~ "No instances yet"
-    assert html =~ "in credits. Your first deploy is on us."
+    assert html =~ "Welcome credit ready"
+    assert html =~ "in your wallet. Your first deploy is on us."
     # Quick actions (#205): deploy from catalog, top up.
     assert has_element?(view, "a[href='/apps']", "Deploy an app")
-    assert has_element?(view, "a[href='/billing/topup']", "Add credits")
+    assert has_element?(view, "a[href='/billing/topup']", "Top up wallet")
     assert has_element?(view, "a[href='/instances']", "View all")
   end
 
@@ -289,7 +290,7 @@ defmodule FluxValeWeb.DashboardLiveTest do
     assert html =~ "Billing unavailable"
     refute has_element?(view, "[data-testid='dashboard-balance']")
     # The fresh-account nudge needs the wallet — nothing to promise here.
-    refute html =~ "in credits. Your first deploy is on us."
+    refute html =~ "in your wallet. Your first deploy is on us."
   end
 
   test "a bad session never mounts the dashboard", %{conn: conn} do

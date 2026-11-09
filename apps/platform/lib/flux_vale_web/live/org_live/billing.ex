@@ -6,7 +6,7 @@ defmodule FluxValeWeb.OrganizationLive.Billing do
   policy denials read as "not here" — one arm, one answer, so a
   non-member's probe is indistinguishable from a typo (no enumeration).
 
-  The band's Add credits CTA opens the org-scoped top-up wizard
+  The band's Top up wallet CTA opens the org-scoped top-up wizard
   (#408): a top-up credits the URL org's wallet. The personal org has
   no view here at all (S5): its URL redirects to `/billing` — one
   wallet, one surface.
@@ -123,14 +123,14 @@ defmodule FluxValeWeb.OrganizationLive.Billing do
           <div class="wrap pt-8 pb-10">
             <div class="rise">
               <%!-- The band shape the personal billing page set (S9):
-              identity left, the Add-credits CTA right — the wizard it
+              identity left, the top-up CTA right — the wizard it
               opens bills THIS org's wallet (#408). --%>
               <div class="flex flex-wrap items-end justify-between gap-x-6 gap-y-4">
                 <div class="min-w-0">
                   <p class="eyebrow">{@org.name}</p>
                   <h1 class="page-title mt-1.5">Billing</h1>
                   <p class="mt-2 text-base text-ink-muted">
-                    Prepaid credits fund {@org.name}'s instances.
+                    A prepaid wallet funds {@org.name}'s instances.
                   </p>
                 </div>
 
@@ -140,7 +140,7 @@ defmodule FluxValeWeb.OrganizationLive.Billing do
                     variant="secondary"
                     id="add-credits"
                   >
-                    Add credits
+                    Top up wallet
                   </.button>
                 </div>
               </div>

@@ -134,14 +134,14 @@ defmodule FluxVale.MailerTest do
   # #377: the top-up outcome mail — the email twin of the in-app
   # result state (#391). Plain sentences by the owner's copy rule.
   describe "the top-up outcome mails" do
-    test "the completed mail carries the amount, the credit, the balance, and the Polar receipt pointer" do
+    test "the completed mail carries the amount, the top-up, the balance, and the Polar receipt pointer" do
       {:ok, _delivery} = Mailer.deliver_topup_completed("outcome@fluxvale.com", 5000, 5000)
 
       assert_receive {:email, %Swoosh.Email{subject: subject, text_body: body} = email}
       assert subject == "Your FluxVale payment went through"
       assert email.to == [{"", "outcome@fluxvale.com"}]
       assert body =~ "payment of $50.00"
-      assert body =~ "Your credit was added and your balance is now $50.00."
+      assert body =~ "Your wallet was topped up and your balance is now $50.00."
       assert body =~ "Your receipt arrives from Polar in a separate email."
     end
 

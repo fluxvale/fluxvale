@@ -35,7 +35,7 @@ defmodule FluxValeWeb.PageControllerTest do
     assert body =~ "No YAML"
     assert body =~ "We run it"
     assert body =~ "Simple pricing"
-    assert body =~ "welcome credits"
+    assert body =~ "a welcome credit"
     assert body =~ "© #{Date.utc_today().year} FluxVale"
 
     # Phoenix scaffold regression guard — the old page must stay gone.

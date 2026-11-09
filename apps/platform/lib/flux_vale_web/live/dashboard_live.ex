@@ -117,7 +117,7 @@ defmodule FluxValeWeb.DashboardLive do
 
             <div class="flex shrink-0 flex-wrap gap-2">
               <.button navigate={~p"/billing/topup"} variant="secondary">
-                Add credits
+                Top up wallet
               </.button>
               <.button navigate={~p"/apps"}>
                 Deploy an app
@@ -160,7 +160,7 @@ defmodule FluxValeWeb.DashboardLive do
                 <p class="mt-1.5 whitespace-nowrap text-4xl font-bold tracking-tight text-ink min-[900px]:text-5xl">
                   {format_usd(@wallet.balance_cents)}
                 </p>
-                <p class="mt-1 text-xs text-ink-subtle">Credits never expire.</p>
+                <p class="mt-1 text-xs text-ink-subtle">Wallet balance never expires.</p>
               </div>
 
               <div :if={@wallet != :none} data-testid="dashboard-runway" class="min-[760px]:mt-[76px]">
@@ -212,9 +212,9 @@ defmodule FluxValeWeb.DashboardLive do
             <.callout
               :if={@instance_count == 0 and @wallet != :none and @wallet.balance_cents > 0}
               tone="info"
-              title="Welcome credits ready"
+              title="Welcome credit ready"
             >
-              You have {format_usd(@wallet.balance_cents)} in credits. Your first deploy is on us.
+              You have {format_usd(@wallet.balance_cents)} in your wallet. Your first deploy is on us.
             </.callout>
 
             <%!-- The concept's row language: monogram chip, name + mono
