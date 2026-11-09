@@ -31,4 +31,10 @@
   <script type="application/ld+json" id="ld-json-app">
     <%= raw(@json_ld) %>
   </script>
+
+  <%!-- #611 S5 (plan §9): the FAQ markup rides its own block, built in
+  the controller from the exact items the FAQ section renders. --%>
+  <script type="application/ld+json" id="ld-json-faq">
+    <%= raw(@faq_json_ld) %>
+  </script>
 </Layouts.public>
