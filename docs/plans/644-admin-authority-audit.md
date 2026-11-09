@@ -61,25 +61,36 @@ exempted, nor pending); the closing slice asserts ZERO pendings remain.
 
 ## ARC 1 — authority (#644)
 
-### Mechanism: one shared check, one bypass per resource
+### Mechanism: the existing platform-admin check, one bypass per resource
 
 Ash 3.37's policies doc names the exact idiom: a bypass policy is for "a
 simple rule like 'an admin can do anything' without needing to specify it
 as part of every other policy." Per-resource, first in the policies block:
 
 ```elixir
-bypass FluxVale.Checks.ActorIsConsoleAdmin do
+bypass [FluxVale.Checks.ActorIsPlatformAdmin, FluxVale.Checks.CallOutsideMachineApi] do
   description("Platform admins see and do everything (#644)")
   authorize_if(always())
 end
 ```
 
-`FluxVale.Checks.ActorIsConsoleAdmin` (new, `lib/flux_vale/checks/`, the
-`Actor<Assertion>` grammar) answers: the actor's `platform_role` is
-`:admin` (delegating to `ActorIsPlatformAdmin.platform_admin?/1` so the
-notion cannot fork) AND the call does not ride the machine API. When the
-bypass passes, every other policy — including the member filters — is
-skipped: admin reads are cross-org by construction, not by per-policy arms.
+NO new role, NO new concept (owner correction, Nov 9): the blanket
+authority attaches to the EXISTING platform admin — `platform_role ==
+:admin` on User, the role the admin account already carries.
+`FluxVale.Checks.ActorIsPlatformAdmin` stays exactly what it is (the
+single answer to "is this actor a platform admin", predicate shared with
+plug-land, used by today's read arms on Wallet/LedgerEntry/PAT/User —
+untouched, byte-for-byte). The machine-API refusal rides the bypass as a
+CONDITION, not inside the actor check: `FluxVale.Checks.CallOutsideMachineApi`
+(new, `lib/flux_vale/checks/`, a call-property check — not actor-shaped
+because it is not an actor question; the moduledoc says so) answers
+"this call originates outside the machine API" (web console or any
+non-PAT context). When the bypass passes, every other policy — including
+the member filters — is skipped: platform-admin reads are cross-org by
+construction, not by per-resource arms. The condition pair also means the
+doctrine is surgically scoped: existing arms keep their exact semantics
+(an admin PAT still passes today's arms exactly as today), and only the
+NEW blanket is PAT-refused.
 
 Why not the alternatives (D1): per-policy admin arms (the #577/#613/D2
 pattern generalized) touch every policy on 29 resources, drift silently
@@ -87,63 +98,83 @@ when a new policy forgets the arm, and compose wrongly with
 `forbid_unless`-shaped gates (the arm inside one policy cannot rescue a
 `forbid_unless(member)` in it — each gate needs its own edit). Ash has no
 domain-level policy layer in 3.37. A macro injecting the bypass hides the
-doctrine from grep. The bypass is the documented idiom, is greppable, and
-one doctrine test makes it complete.
+doctrine from grep. A second actor-shaped "console admin" check forks the
+platform-admin notion against the one-module-one-question rule (owner
+correction killed the concept before it ever shipped). The bypass is the
+documented idiom, is greppable, and one doctrine gate makes it complete.
+
+### The role model: two tiers, both already in the schema
+
+Platform admin — `PlatformRole :admin`, FluxVale as a whole, access to
+everything (this doctrine). Organization admin — the org-scoped
+`MembershipRole` axis: today that tier is `:owner` (provisioning creates
+owners; `:member` is the expansion point), and a dedicated `:admin`
+membership value is the natural future slot if owner/member proves too
+coarse — decided when a concrete need lands, not now. The axes must never
+be conflated (both type moduledocs already say so). The future scoped
+roles sketch (below) is org admins getting console-shaped powers scoped
+to their org — NOT a third tier and NOT a "console admin".
 
 ### The doctrine gate
 
 Described above ("the business resource set" → "the doctrine gate"):
 `test/flux_vale/admin_authority_test.exs` walks
 `Application.get_env(:flux_vale, :ash_domains)`, asserts every
-business-set resource's policies carry the `ActorIsConsoleAdmin` bypass
-AND the paper_trail block (Ash policy + extension introspection; probe
-the exact APIs first), and that every other resource holds a named
-exemption with a reason. A new resource fails CI until it joins a set —
-the decision is forced, never silent. The bypass half of the gate goes
-live in this arc; the trail half activates as A2's rollouts land (the
-pendings phasing above).
+business-set resource's policies carry the condition-pair bypass
+(`ActorIsPlatformAdmin` AND `CallOutsideMachineApi`) AND the paper_trail
+block (Ash policy + extension introspection; probe the exact APIs first),
+and that every other resource holds a named exemption with a reason. A
+new resource fails CI until it joins a set — the decision is forced,
+never silent. The bypass half of the gate goes live in this arc; the
+trail half activates as A2's rollouts land (the pendings phasing above).
 
 ### Reads
 
-Admin reads through the bypass are unfiltered: every instance, org,
-gateway, domain, wallet, ledger row, user, membership, invite, topup,
-feedback row, catalog/pricing row, cross-org. This subsumes 595's D2 arms
-(slice 5's seven Infrastructure read arms become belt-and-suspenders —
-correct, leave them) and closes #613 (the gateways section's
-operator-truth fields — `needs_attention_since`, `token_set_at`,
-`dns_claims` — become policy-admitted). Members lose nothing: the bypass
-condition never fires for them and every existing policy applies verbatim.
+Platform-admin reads through the bypass are unfiltered: every instance,
+org, gateway, domain, wallet, ledger row, user, membership, invite,
+topup, feedback row, catalog/pricing row, cross-org. This subsumes 595's
+D2 arms (slice 5's seven Infrastructure read arms become
+belt-and-suspenders — correct, leave them) and closes #613 (the gateways
+section's operator-truth fields — `needs_attention_since`,
+`token_set_at`, `dns_claims` — become policy-admitted). Members lose
+nothing: the bypass condition never fires for them and every existing
+policy applies verbatim.
 
 ### Writes
 
-The same bypass admits admins on every action of the 29 — including
-actions whose policies are `forbid_if(always())` system-only gates
-(`Wallet :create`, `LedgerEntry :create`, machinery-adjacent writes).
-This is deliberate (D4): the policy layer stops pretending an operator
-class cannot do what `/admin/ash` already lets them do `authorize?: false`
-(ADR-0027 Am. 1). What changes is reachability honesty — nobody can call
-these action paths as an actor today except through surfaces, and the
-surfaces stay curated: the console registry's intent lists (machinery
-actions never render) and the curated sections own what is OFFERED; the
-policies own what is PERMITTED. The machine API is unaffected — its route
-table has no routes for system-only actions, PAT actors never pass the
-console check (below), and scope enforcement runs before policies anyway.
+The same bypass admits platform admins on every action of the 29 —
+including actions whose policies are `forbid_if(always())` system-only
+gates (`Wallet :create`, `LedgerEntry :create`, machinery-adjacent
+writes). This is deliberate (D4): the policy layer stops pretending an
+operator class cannot do what `/admin/ash` already lets them do
+`authorize?: false` (ADR-0027 Am. 1). What changes is reachability
+honesty — nobody can call these action paths as an actor today except
+through surfaces, and the surfaces stay curated: the console registry's
+intent lists (machinery actions never render) and the curated sections
+own what is OFFERED; the policies own what is PERMITTED. The machine API
+is unaffected — its route table has no routes for system-only actions,
+PAT actors never pass the bypass (below), and scope enforcement runs
+before policies anyway.
 
 The demotion-window seam is untouched and inherited: every console write
 re-resolves the actor per event (#571/#617 ruling) and the bypass
 evaluates the FRESH struct. A demoted admin's stale socket sees the
 existing refusal copy.
 
-### Console-context only in v1 (no god-mode PAT)
+### The blanket never rides a PAT in v1 (no god-mode PAT)
 
-PAT actors never pass `ActorIsConsoleAdmin`, so an admin's PAT keeps
-exactly today's contract: scope-gated routes, member-shaped policies. The
-MCP router rides PATs too (`conn.assigns.api_pat`), so MCP stays
-scope-bound. Webhooks and Oban run actorless — policies never consult the
-bypass for them. Mechanism (D2): the check refuses calls whose Ash request
-context carries the PAT marker (`FluxVale.Api.Scopes.pat_scopes_context_key/0`
-— the `PutPatScopesInAshContext` bridge, written for every PAT call and
-absent for every session call). Probe ladder for the worker, in order:
+PAT actors never pass the bypass (`CallOutsideMachineApi` is false for
+them), so an admin's PAT keeps exactly today's contract: scope-gated
+routes, member-shaped policies — including today's per-resource admin
+arms, which stay pure actor checks and keep their current behavior
+byte-for-byte (the refusal lives on the bypass alone, the surgical
+scoping D2 demands). The MCP router rides PATs too
+(`conn.assigns.api_pat`), so MCP stays scope-bound. Webhooks and Oban run
+actorless — policies never consult the bypass for them. Mechanism (D2):
+`CallOutsideMachineApi` refuses calls whose Ash request context carries
+the PAT marker (`FluxVale.Api.Scopes.pat_scopes_context_key/0` — the
+`PutPatScopesInAshContext` bridge, written for every PAT call and absent
+for every session call). Probe ladder for the worker, in order:
 
 1. Does the policy check's context expose the Ash request context
    (`match?/3`'s second argument)? Read the marker there. Preferred — no
@@ -162,20 +193,27 @@ the marker fails it loudly, not silently.
 
 ### Future scoped roles (sketched, not built)
 
-`platform_role` stays the single axis. The check is the future dispatch
-point: a role-to-grants resolver replaces the boolean, the bypass becomes
-"actor holds a grant covering this resource", and narrower roles are
-subsets of the 29 (per-domain, per-action-type) expressed in that resolver
-— no policy-block changes. v1 ships one role, one boolean. The sketch
-lives in ADR-0047 so the shape is recorded before it is needed.
+The two-tier model above IS the role model: platform admin (everything,
+this doctrine) and organization admin (org-scoped). The future sketch is
+the ORG tier growing console-shaped powers: an org-admin grant resolver
+answers "which of this resource's actions may an org admin of THIS org
+run" (org-scoped variants of read/workflow gates), expressed as a second
+condition set on the same policies — the platform bypass is untouched.
+Whether the org tier is `:owner` or a dedicated `:admin` membership value
+is decided when a concrete need lands. What is NOT sketched: a third
+platform tier or any "console admin" concept — killed by the owner Nov 9,
+before it ever shipped. The sketch lives in ADR-0047 so the shape is
+recorded before it is needed.
 
 ### ADR-0047
 
-`docs/adr/00047-platform-admin-authority.md`: the doctrine, the bypass
-mechanism, the console-context scoping and its PAT refusal, the
-surfacing-vs-permissioning split, the set table, the future-roles sketch,
-and what is rejected (per-policy arms, god-mode PATs, an API admin scope).
-Lands with the first authority slice.
+`docs/adr/00047-platform-admin-authority.md`: the doctrine, the two-tier
+role model, the bypass mechanism (existing platform-admin check + the
+call-origin condition), the PAT refusal and its surgical scoping, the
+surfacing-vs-permissioning split, the set table, the org-admin future
+sketch, and what is rejected (per-policy arms, god-mode PATs, an API
+admin scope, any console-admin tier). Lands with the first authority
+slice.
 
 ## ARC 2 — audit (#645)
 
@@ -312,20 +350,28 @@ first audit slice.
 
 ## Decisions
 
-- **D1 — authority mechanism**: per-resource `bypass` with ONE shared
-  check (`ActorIsConsoleAdmin`) + the doctrine gate in its strictest form
+- **D1 — authority mechanism**: per-resource `bypass` on the condition
+  pair — the EXISTING `ActorIsPlatformAdmin` check plus
+  `CallOutsideMachineApi` — + the doctrine gate in its strictest form
   (PA rider: any new resource joining an `ash_domains` list fails the
   build without bypass+trail or a named, reasoned exemption — the
-  doctrine survives new resources being added). REJECTED:
-  per-policy admin arms (the #577/D2 pattern generalized — ceremony ×100+,
-  drifts, cannot rescue `forbid_unless` gates); macro-injected bypasses
-  (ungreppable); Ash domain-level policies (no such layer in 3.37).
-- **D2 — console-context only**: YES. The check refuses PAT-context
-  calls; API and MCP (both PAT-bound) keep today's contract; webhooks and
-  Oban are actorless. REJECTED: actor-only check (silent god-mode PAT —
-  an admin PAT would write other orgs' instances, a scope-contract change
-  nobody granted); boundary-side restrictions (would change today's
-  member-level admin-PAT behavior).
+  doctrine survives new resources being added). NO new role or concept
+  (owner correction, Nov 9: the blanket attaches to the existing
+  platform admin). REJECTED: per-policy admin arms (the #577/D2 pattern
+  generalized — ceremony ×100+, drifts, cannot rescue `forbid_unless`
+  gates); macro-injected bypasses (ungreppable); Ash domain-level
+  policies (no such layer in 3.37); a "console admin" check/module
+  (forks the platform-admin notion, and the concept is owner-dead).
+- **D2 — the blanket never rides a PAT**: the refusal is a CONDITION on
+  the bypass (`CallOutsideMachineApi`), leaving `ActorIsPlatformAdmin`
+  and every existing arm byte-for-byte unchanged — the strictest reading
+  of "PATs keep today's contract". API and MCP (both PAT-bound) see no
+  new authority; webhooks and Oban are actorless. REJECTED: baking the
+  refusal INTO `ActorIsPlatformAdmin` (silently narrows today's
+  reachable admin-PAT behavior on wallet/ledger reads — a contract
+  change nobody asked for); no refusal at all (silent god-mode PAT);
+  boundary-side restrictions (would change today's member-level
+  admin-PAT behavior).
 - **D3 — the authority set**: the 29-resource business set (the shared
   table), excluded machinery named with reasons. REJECTED: all 35
   (bypasses on Token/AuthCode/DeviceCode/snapshots are ceremony with no
@@ -409,18 +455,21 @@ plan doc ship in this PR. The architect sends the 595 heads-up prompt
 no-diff verified. Done when: `mix ci` green and the trail is provably
 attributed on Ops.
 
-### A1-S1 — the check, the bypass, the doctrine test (the authority PR)
+### A1-S1 — the bypass, the doctrine gate (the authority PR)
 
-`ActorIsConsoleAdmin` (probe ladder for the context marker FIRST; the
-boundary integration pin second), the bypass on all 29 business-set
-resources, the doctrine gate (bypass half live; trail pendings for the
-resources A2 has not reached yet — the gate's phasing per D1's rider),
-policy tests per the probe table (admin cross-org read/write true; member
-scoping byte-identical — the existing suites ARE the regression net), the
-PAT refusal pin, ADR-0047 (with D4's flagging). No console copy changes
-here (surfaces follow). Done when: an admin actor passes cross-org in
-policy tests, a PAT actor does not, members are unchanged, and the
-doctrine gate forces every future resource to decide.
+`FluxVale.Checks.CallOutsideMachineApi` (probe ladder for the context
+marker FIRST; the boundary integration pin second) — `ActorIsPlatformAdmin`
+stays untouched — the condition-pair bypass on all 29 business-set
+resources (replacing User's and Cluster's existing blanket admin
+policies, which the bypass subsumes), the doctrine gate (bypass half
+live; trail pendings for the resources A2 has not reached yet — the
+gate's phasing per D1's rider), policy tests per the probe table
+(platform admin cross-org read/write true; member scoping byte-identical
+— the existing suites ARE the regression net), the PAT refusal pin,
+ADR-0047 (with D4's flagging). No console copy changes here (surfaces
+follow). Done when: a platform-admin actor passes cross-org in policy
+tests, a PAT actor does not, members are unchanged, and the doctrine
+gate forces every future resource to decide.
 
 ### A1-S2 — the console reads cross-org (the visual PR)
 
