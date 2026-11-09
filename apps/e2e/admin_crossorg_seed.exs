@@ -216,7 +216,7 @@ end
 {:ok, _fund} = Billing.grant_credits(detail_wallet, 6_000, reason: :adjustment)
 member!.(detail_org)
 
-detail_version = version!()
+detail_version = version!.()
 
 instance! = fn name ->
   Instance.create!(
