@@ -70,8 +70,7 @@ defmodule FluxVale.Infrastructure.Operations.ApplyPocketIdEnv do
   # through SSA's field-level ownership untouched.
   defp read_env(kubeconfig, namespace) do
     case Secret.get_data(kubeconfig, namespace, @env_secret) do
-      {:ok, %{} = data} -> {:ok, data}
-      {:ok, _empty} -> {:ok, %{}}
+      {:ok, data} when is_map(data) -> {:ok, data}
       {:error, %K8s.Error{reason: :not_found}} -> {:ok, %{}}
       {:error, _other} = error -> error
     end

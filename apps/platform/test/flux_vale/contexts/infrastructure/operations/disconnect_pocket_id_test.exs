@@ -52,9 +52,9 @@ defmodule FluxVale.Infrastructure.Operations.DisconnectPocketIdTest do
 
     stub(K8s, :kubeconfig, fn _ref -> {:ok, %{}} end)
 
-    stub(Secret, :get_data, fn _kc, _ns, _ref ->
-      case _ref do
-        "fluxvale-pocketid-custody-" <> _ -> {:ok, %{"POCKETID_API_KEY" => @held_key}}
+    stub(Secret, :get_data, fn _kc, _ns, ref ->
+      case ref do
+        "fluxvale-pocketid-custody-" <> _suffix -> {:ok, %{"POCKETID_API_KEY" => @held_key}}
         "app-env" -> {:ok, %{"SSO_AUTHORITY" => @issuer, "SMTP_HOST" => "smtp"}}
       end
     end)
@@ -88,7 +88,7 @@ defmodule FluxVale.Infrastructure.Operations.DisconnectPocketIdTest do
         oidc_callback_path: "/cb"
       )
 
-    app =
+    created =
       Instance.create!(
         %{
           name: "Inst #{System.unique_integer()}",
@@ -97,6 +97,9 @@ defmodule FluxVale.Infrastructure.Operations.DisconnectPocketIdTest do
         },
         actor: owner
       )
+
+    app =
+      created
       |> InstanceFixtures.walk_to!(:running)
       |> InstanceFixtures.pin!(namespace: "ns-app")
 
@@ -176,8 +179,8 @@ defmodule FluxVale.Infrastructure.Operations.DisconnectPocketIdTest do
       pocket_id: pocket_id,
       owner: owner
     } do
-      PocketIdCustody.get_by_instance!(pocket_id.id, authorize?: false)
-      |> PocketIdCustody.revoke!(authorize?: false)
+      custody_row = PocketIdCustody.get_by_instance!(pocket_id.id, authorize?: false)
+      PocketIdCustody.revoke!(custody_row, authorize?: false)
 
       Ash.destroy!(pocket_id, authorize?: false)
 

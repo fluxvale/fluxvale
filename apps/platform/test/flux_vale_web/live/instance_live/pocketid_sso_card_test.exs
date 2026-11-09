@@ -73,8 +73,7 @@ defmodule FluxValeWeb.InstanceLive.PocketIdSsoCardTest do
   defp flag_on!,
     do: FeatureFlag.create!("pocketid_sso_wiring", %{enabled: true}, authorize?: false)
 
-  defp pocket_id_version!(owner) do
-    _ = owner
+  defp pocket_id_version! do
     InstanceFixtures.app_version!(app_slug: "pocket-id", configurable_env_vars: %{})
   end
 
@@ -134,7 +133,7 @@ defmodule FluxValeWeb.InstanceLive.PocketIdSsoCardTest do
   defp host, do: Application.fetch_env!(:flux_vale, :instances_base_domain)
 
   test "fail-closed: no flag row means no card, even wired", %{conn: conn, owner: owner} do
-    pid_version = pocket_id_version!(owner)
+    pid_version = pocket_id_version!()
     pocket_id = pocket_id!(pid_version, owner, "pid")
     app = app!(owner)
     wire!(app, pocket_id)
@@ -146,7 +145,7 @@ defmodule FluxValeWeb.InstanceLive.PocketIdSsoCardTest do
 
   test "a recipe-less instance shows nothing even with the flag on", %{conn: conn, owner: owner} do
     flag_on!()
-    pid_version = pocket_id_version!(owner)
+    pid_version = pocket_id_version!()
     _pocket_id = pocket_id!(pid_version, owner, "pid")
 
     plain_version = InstanceFixtures.app_version!(configurable_env_vars: %{})
@@ -162,7 +161,7 @@ defmodule FluxValeWeb.InstanceLive.PocketIdSsoCardTest do
     owner: owner
   } do
     flag_on!()
-    pid_version = pocket_id_version!(owner)
+    pid_version = pocket_id_version!()
     pocket_id = pocket_id!(pid_version, owner, "pid")
     app = app!(owner)
     wire!(app, pocket_id)
@@ -180,7 +179,7 @@ defmodule FluxValeWeb.InstanceLive.PocketIdSsoCardTest do
 
   test "connect: the retrofit offers the org's ready PocketIDs", %{conn: conn, owner: owner} do
     flag_on!()
-    pid_version = pocket_id_version!(owner)
+    pid_version = pocket_id_version!()
     pocket_id = pocket_id!(pid_version, owner, "pid")
     app = app!(owner)
 
@@ -194,7 +193,7 @@ defmodule FluxValeWeb.InstanceLive.PocketIdSsoCardTest do
 
   test "connect submits the retrofit and lands the wired state", %{conn: conn, owner: owner} do
     flag_on!()
-    pid_version = pocket_id_version!(owner)
+    pid_version = pocket_id_version!()
     pocket_id = pocket_id!(pid_version, owner, "pid")
     app = app!(owner)
     green_wiring!(pocket_id)
@@ -212,7 +211,7 @@ defmodule FluxValeWeb.InstanceLive.PocketIdSsoCardTest do
 
   test "a refused connect renders in place, never a crash", %{conn: conn, owner: owner} do
     flag_on!()
-    pid_version = pocket_id_version!(owner)
+    pid_version = pocket_id_version!()
     pocket_id = pocket_id!(pid_version, owner, "sleepy")
     app = app!(owner)
 
@@ -232,7 +231,7 @@ defmodule FluxValeWeb.InstanceLive.PocketIdSsoCardTest do
 
   test "rotate rides the operation and stays wired", %{conn: conn, owner: owner} do
     flag_on!()
-    pid_version = pocket_id_version!(owner)
+    pid_version = pocket_id_version!()
     pocket_id = pocket_id!(pid_version, owner, "pid")
     app = app!(owner)
     wire!(app, pocket_id)
@@ -257,7 +256,7 @@ defmodule FluxValeWeb.InstanceLive.PocketIdSsoCardTest do
 
   test "disconnect clears the wiring and the card returns to connect", %{conn: conn, owner: owner} do
     flag_on!()
-    pid_version = pocket_id_version!(owner)
+    pid_version = pocket_id_version!()
     pocket_id = pocket_id!(pid_version, owner, "pid")
     app = app!(owner)
     wire!(app, pocket_id)
@@ -280,7 +279,7 @@ defmodule FluxValeWeb.InstanceLive.PocketIdSsoCardTest do
     owner: owner
   } do
     flag_on!()
-    pid_version = pocket_id_version!(owner)
+    pid_version = pocket_id_version!()
     pocket_id = pocket_id!(pid_version, owner, "pid")
     app = app!(owner)
     wire!(app, pocket_id)
@@ -300,15 +299,15 @@ defmodule FluxValeWeb.InstanceLive.PocketIdSsoCardTest do
 
   test "the wiring outliving its PocketID renders the gone shape", %{conn: conn, owner: owner} do
     flag_on!()
-    pid_version = pocket_id_version!(owner)
+    pid_version = pocket_id_version!()
     pocket_id = pocket_id!(pid_version, owner, "pid")
     app = app!(owner)
     wire!(app, pocket_id)
 
     # The PocketID dies while the wiring lives (§6): destroy its
     # custody first (the FK restricts), then the row.
-    PocketIdCustody.get_by_instance!(pocket_id.id, authorize?: false)
-    |> PocketIdCustody.revoke!(authorize?: false)
+    row = PocketIdCustody.get_by_instance!(pocket_id.id, authorize?: false)
+    PocketIdCustody.revoke!(row, authorize?: false)
 
     Ash.destroy!(pocket_id, actor: owner)
 
@@ -321,16 +320,16 @@ defmodule FluxValeWeb.InstanceLive.PocketIdSsoCardTest do
 
   test "clearing a gone wiring restores the connect shape", %{conn: conn, owner: owner} do
     flag_on!()
-    pid_version = pocket_id_version!(owner)
+    pid_version = pocket_id_version!()
     pocket_id = pocket_id!(pid_version, owner, "pid")
     app = app!(owner)
     wire!(app, pocket_id)
 
     # A SECOND PocketID keeps the org offer-ready after the clear.
-    replacement = pocket_id!(pid_version, owner, "pid-2")
+    _replacement = pocket_id!(pid_version, owner, "pid-2")
 
-    PocketIdCustody.get_by_instance!(pocket_id.id, authorize?: false)
-    |> PocketIdCustody.revoke!(authorize?: false)
+    row = PocketIdCustody.get_by_instance!(pocket_id.id, authorize?: false)
+    PocketIdCustody.revoke!(row, authorize?: false)
 
     Ash.destroy!(pocket_id, actor: owner)
 
@@ -342,6 +341,5 @@ defmodule FluxValeWeb.InstanceLive.PocketIdSsoCardTest do
 
     assert has_element?(view, "[data-testid=pocketid-sso-connect-copy]")
     assert {:error, _none} = PocketIdWiring.get_by_instance(app.id, actor: owner)
-    _ = replacement
   end
 end

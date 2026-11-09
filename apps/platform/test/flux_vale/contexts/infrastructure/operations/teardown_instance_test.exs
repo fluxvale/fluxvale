@@ -19,6 +19,8 @@ defmodule FluxVale.Infrastructure.Operations.TeardownInstanceTest do
   alias FluxVale.Infrastructure.Instance
   alias FluxVale.Infrastructure.Operations.InstanceK8s
   alias FluxVale.Infrastructure.Operations.TeardownInstance
+  alias FluxVale.Infrastructure.PocketIdCustody
+  alias FluxVale.Infrastructure.PocketIdWiring
   alias FluxVale.TestSupport.InstanceFixtures
 
   defp user do
@@ -185,7 +187,7 @@ defmodule FluxVale.Infrastructure.Operations.TeardownInstanceTest do
         |> InstanceFixtures.walk_to!(:running)
         |> InstanceFixtures.pin!(namespace: "ns-pid")
 
-      FluxVale.Infrastructure.PocketIdCustody.record!(
+      PocketIdCustody.record!(
         %{
           organization_id: pocket_id.organization_id,
           instance_id: pocket_id.id,
@@ -207,11 +209,11 @@ defmodule FluxVale.Infrastructure.Operations.TeardownInstanceTest do
         )
 
       {:ok, deleting} = InstanceK8s.update_status(app, :deleting, "Tearing down...")
-      app = InstanceFixtures.pin!(deleting, namespace: "fluxvale-app-#{app.id}")
+      pinned = InstanceFixtures.pin!(deleting, namespace: "fluxvale-app-#{app.id}")
 
-      FluxVale.Infrastructure.PocketIdWiring.record!(
+      PocketIdWiring.record!(
         %{
-          instance_id: app.id,
+          instance_id: pinned.id,
           pocket_id_instance_id: pocket_id.id,
           pocket_id_client_id: "client-d6",
           pocket_id_secret_id: "secret-d6"
@@ -219,7 +221,7 @@ defmodule FluxVale.Infrastructure.Operations.TeardownInstanceTest do
         authorize?: false
       )
 
-      {app, pocket_id}
+      {pinned, pocket_id}
     end
 
     test "deletes the PocketID client before the row cascades away" do
@@ -234,7 +236,7 @@ defmodule FluxVale.Infrastructure.Operations.TeardownInstanceTest do
         :ok
       end)
 
-      assert {:ok, _} = TeardownInstance.call(app)
+      assert {:ok, _returned} = TeardownInstance.call(app)
       assert_received :client_deleted
       assert {:error, %Ash.Error.Invalid{}} = Instance.get_by_id(app.id, authorize?: false)
     end
@@ -247,20 +249,20 @@ defmodule FluxVale.Infrastructure.Operations.TeardownInstanceTest do
         {:error, :unreachable}
       end)
 
-      assert {:ok, _} = TeardownInstance.call(app)
+      assert {:ok, _returned} = TeardownInstance.call(app)
       assert {:error, %Ash.Error.Invalid{}} = Instance.get_by_id(app.id, authorize?: false)
     end
 
     test "no wiring is plain silence — nothing extra is called" do
       stub_deletes()
-      instance = deleting_with_wiring!() |> then(fn {app, _pid} -> app end)
+      {instance, _pocket_id} = deleting_with_wiring!()
 
-      FluxVale.Infrastructure.PocketIdWiring.get_by_instance!(instance.id, authorize?: false)
-      |> FluxVale.Infrastructure.PocketIdWiring.replace(authorize?: false)
+      wiring = PocketIdWiring.get_by_instance!(instance.id, authorize?: false)
+      PocketIdWiring.replace(wiring, authorize?: false)
 
       # No ApiClient stub: Mimic rejects any call — the teardown must
       # not reach for the PocketID without a wiring.
-      assert {:ok, _} = TeardownInstance.call(instance)
+      assert {:ok, _returned} = TeardownInstance.call(instance)
     end
   end
 end

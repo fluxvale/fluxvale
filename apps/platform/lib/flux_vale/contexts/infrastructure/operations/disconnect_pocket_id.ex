@@ -127,7 +127,10 @@ defmodule FluxVale.Infrastructure.Operations.DisconnectPocketId do
   # visible client named `FluxVale · …` in PocketID's admin. The
   # disconnect proceeds — the notice rides the result.
   defp client_delete(pocket_id, key, wiring) do
-    case ApiClient.delete_client(base_url(pocket_id), key, wiring.pocket_id_client_id) do
+    url = base_url(pocket_id)
+    client_id = wiring.pocket_id_client_id
+
+    case ApiClient.delete_client(url, key, client_id) do
       :ok ->
         true
 
@@ -146,8 +149,10 @@ defmodule FluxVale.Infrastructure.Operations.DisconnectPocketId do
   # workload (the apply primitive carrying the removal).
   defp strip_env(app_instance, recipe) do
     recipe_keys =
-      [recipe.issuer_env, recipe.client_id_env, recipe.client_secret_env]
-      |> maybe_prepend(recipe.enabled_env)
+      maybe_prepend(
+        [recipe.issuer_env, recipe.client_id_env, recipe.client_secret_env],
+        recipe.enabled_env
+      )
 
     result =
       Repo.transaction(fn ->

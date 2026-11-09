@@ -82,12 +82,15 @@ defmodule FluxVale.Infrastructure.Operations.RotatePocketIdSecretTest do
       authorize?: false
     )
 
-    app =
+    app_version =
       InstanceFixtures.app_version!(
         configurable_env_vars: @schema,
         oidc_wiring: @recipe,
         oidc_callback_path: "/cb"
       )
+
+    app =
+      app_version
       |> InstanceFixtures.instance!(owner)
       |> InstanceFixtures.walk_to!(:running)
       |> InstanceFixtures.pin!(namespace: "ns-app")
