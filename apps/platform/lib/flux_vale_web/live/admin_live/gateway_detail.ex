@@ -208,7 +208,11 @@ defmodule FluxValeWeb.AdminLive.GatewayDetail do
           <div class="rise flex flex-col gap-8 md:flex-row md:gap-12">
             <%!-- The section entry is an ANCESTOR mark (exact: false):
             this page is the gateways section's sub-route. --%>
-            <AdminShell.sidebar current="gateways" exact={false} />
+            <AdminShell.sidebar
+              current="gateways"
+              exact={false}
+              pending_requests={@pending_storage_requests}
+            />
 
             <div class="min-w-0 flex-1 space-y-8">
               <%!-- The gateway's facts: the state (the product's own

@@ -1268,7 +1268,7 @@ msgstr ""
 msgid "Send invite"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/gateway_detail.ex:396
+#: lib/flux_vale_web/live/admin_live/gateway_detail.ex:400
 #: lib/flux_vale_web/live/admin_live/gateways.ex:354
 #: lib/flux_vale_web/live/admin_live/people.ex:535
 #, elixir-autogen, elixir-format
@@ -2315,7 +2315,7 @@ msgstr ""
 msgid "Balance state"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/gateway_detail.ex:289
+#: lib/flux_vale_web/live/admin_live/gateway_detail.ex:293
 #: lib/flux_vale_web/live/admin_live/gateways.ex:356
 #: lib/flux_vale_web/live/admin_live/org_detail.ex:464
 #, elixir-autogen, elixir-format
@@ -2789,7 +2789,7 @@ msgstr ""
 msgid "Quoted rate"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/gateway_detail.ex:265
+#: lib/flux_vale_web/live/admin_live/gateway_detail.ex:269
 #: lib/flux_vale_web/live/admin_live/gateways.ex:355
 #: lib/flux_vale_web/live/admin_live/storage_requests.ex:808
 #, elixir-autogen, elixir-format
@@ -2993,17 +2993,17 @@ msgstr ""
 msgid "—"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/gateway_detail.ex:304
+#: lib/flux_vale_web/live/admin_live/gateway_detail.ex:308
 #, elixir-autogen, elixir-format
 msgid "A gateway's keys live in the platform's secret store, outside this app. The names below point at the store entries that hold them."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/gateway_detail.ex:329
+#: lib/flux_vale_web/live/admin_live/gateway_detail.ex:333
 #, elixir-autogen, elixir-format
 msgid "API token entry"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/gateway_detail.ex:320
+#: lib/flux_vale_web/live/admin_live/gateway_detail.ex:324
 #, elixir-autogen, elixir-format
 msgid "Auth key entry"
 msgstr ""
@@ -3023,7 +3023,7 @@ msgstr ""
 msgid "Connecting"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/gateway_detail.ex:302
+#: lib/flux_vale_web/live/admin_live/gateway_detail.ex:306
 #, elixir-autogen, elixir-format
 msgid "Credential references"
 msgstr ""
@@ -3033,12 +3033,12 @@ msgstr ""
 msgid "Custom"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/gateway_detail.ex:394
+#: lib/flux_vale_web/live/admin_live/gateway_detail.ex:398
 #, elixir-autogen, elixir-format
 msgid "Domain"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/gateway_detail.ex:361
+#: lib/flux_vale_web/live/admin_live/gateway_detail.ex:365
 #, elixir-autogen, elixir-format
 msgid "Domains"
 msgstr ""
@@ -3053,7 +3053,7 @@ msgstr ""
 msgid "Find a gateway"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/gateway_detail.ex:222
+#: lib/flux_vale_web/live/admin_live/gateway_detail.ex:226
 #: lib/flux_vale_web/live/admin_live/gateways.ex:353
 #, elixir-autogen, elixir-format
 msgid "Gateway"
@@ -3074,7 +3074,7 @@ msgstr ""
 msgid "Gateways are readable by org members only, so none are listed here."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/gateway_detail.ex:241
+#: lib/flux_vale_web/live/admin_live/gateway_detail.ex:245
 #, elixir-autogen, elixir-format
 msgid "Hostname"
 msgstr ""
@@ -3084,7 +3084,7 @@ msgstr ""
 msgid "Hostname or org"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/gateway_detail.ex:395
+#: lib/flux_vale_web/live/admin_live/gateway_detail.ex:399
 #, elixir-autogen, elixir-format
 msgid "Kind"
 msgstr ""
@@ -3095,7 +3095,7 @@ msgstr ""
 msgid "Needs attention"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/gateway_detail.ex:385
+#: lib/flux_vale_web/live/admin_live/gateway_detail.ex:389
 #, elixir-autogen, elixir-format
 msgid "No domains registered for this org yet."
 msgstr ""
@@ -3110,8 +3110,8 @@ msgstr ""
 msgid "No gateways in the orgs you belong to."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/gateway_detail.ex:325
-#: lib/flux_vale_web/live/admin_live/gateway_detail.ex:347
+#: lib/flux_vale_web/live/admin_live/gateway_detail.ex:329
+#: lib/flux_vale_web/live/admin_live/gateway_detail.ex:351
 #, elixir-autogen, elixir-format
 msgid "Not recorded."
 msgstr ""
@@ -3131,17 +3131,17 @@ msgstr ""
 msgid "Private-access gateways and the domains that serve them. This page is read-only: registration and keys live on each org's Access panel."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/gateway_detail.ex:259
+#: lib/flux_vale_web/live/admin_live/gateway_detail.ex:263
 #, elixir-autogen, elixir-format
 msgid "Provider"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/gateway_detail.ex:281
+#: lib/flux_vale_web/live/admin_live/gateway_detail.ex:285
 #, elixir-autogen, elixir-format
 msgid "Provisioned"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/gateway_detail.ex:397
+#: lib/flux_vale_web/live/admin_live/gateway_detail.ex:401
 #, elixir-autogen, elixir-format
 msgid "Registered"
 msgstr ""
@@ -3161,7 +3161,7 @@ msgstr ""
 msgid "Search narrows this list by hostname or org name or slug. It never reaches past it."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/gateway_detail.ex:374
+#: lib/flux_vale_web/live/admin_live/gateway_detail.ex:378
 #, elixir-autogen, elixir-format
 msgid "Showing the latest 100 domains."
 msgstr ""
@@ -3177,7 +3177,7 @@ msgstr ""
 msgid "Suspended"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/gateway_detail.ex:250
+#: lib/flux_vale_web/live/admin_live/gateway_detail.ex:254
 #, elixir-autogen, elixir-format
 msgid "Tailnet domain"
 msgstr ""
@@ -3207,12 +3207,12 @@ msgstr ""
 msgid "The gateway's org did not load. Try again."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/gateway_detail.ex:312
+#: lib/flux_vale_web/live/admin_live/gateway_detail.ex:316
 #, elixir-autogen, elixir-format
 msgid "The keys themselves are never stored in the app database and never pass through this console. This page can show a name, never a key."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/gateway_detail.ex:363
+#: lib/flux_vale_web/live/admin_live/gateway_detail.ex:367
 #, elixir-autogen, elixir-format
 msgid "The names this org serves its private instances under. Registration lives on the org's own surfaces."
 msgstr ""
@@ -3232,7 +3232,7 @@ msgstr ""
 msgid "per month"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/gateway_detail.ex:271
+#: lib/flux_vale_web/live/admin_live/gateway_detail.ex:275
 #, elixir-autogen, elixir-format
 msgid "per month, billed while connected. Suspended or removed, nothing accrues."
 msgstr ""
