@@ -1,26 +1,26 @@
 defmodule FluxValeWeb.AdminLive.Orgs do
   @moduledoc """
-  The admin orgs surface (#501): every org the console can legally see
-  in one table, read-only by design (the v1 plan reserved this
-  section's writes).
+  The admin orgs surface (#501): every org with a wallet in one table,
+  read-only by design (the v1 plan reserved this section's writes).
 
-  The org read policy is members-only, so the list rides the one
-  cross-org seam the wallets lane owns: the wallet read policy's
-  platform-admin arm (every row IS the org's wallet — the unique_org
-  identity makes org and wallet one-to-one) carries the org ids and
-  the balance state, and the flagged `Organization :admin_lookup`
-  (#501, three public fields) carries the names. What the table does
-  NOT carry is the policies' honesty, not an omission:
+  The list's spine is the wallet read — a curation choice now, not a
+  policy constraint: the org read itself admits platform admins
+  cross-org (ADR-0047's blanket bypass), but this surface's meaning is
+  wallet state, and every row IS the org's wallet (the unique_org
+  identity makes org and wallet one-to-one). The names ride the shared
+  `Organization :admin_lookup` seam — kept deliberately over the now-
+  admitted primary read: it is the one batched, switcher-shaped idiom
+  every admin surface shares (id, name, slug — exactly the fields the
+  tables render), so the surfaces stay one grammar. What the table
+  does NOT carry is honest curation, not policy:
 
-  - member count — Membership reads are members-only; a platform admin
-    who is not a member of the org cannot load the count. No column.
-  - instance count — the instance read policy has no platform-admin
-    arm either, so the count is not legally loadable for a non-member
-    admin. An org's instances render on the detail page, exactly as
-    far as that policy admits.
+  - member count — Membership rows render on no admin surface today;
+    the count is not this table's question.
+  - instance count — an org's instances render on the detail page,
+    cross-org since the bypass.
   - the org's own created stamp — :admin_lookup returns id, name, and
-    slug only (deliberately not widened); the stamp shown is the
-    wallet's provisioning date, labeled as such.
+    slug only; the stamp shown is the wallet's provisioning date,
+    labeled as such.
 
   The list caps at the latest 100 (the wallets surface's rationale: an
   unbounded scan grows expensive and the operator scans for what just
@@ -74,9 +74,10 @@ defmodule FluxValeWeb.AdminLive.Orgs do
   # Attention first: the destroy-clock rows pin to the top (the wallets
   # surface's order), then newest provisioned. Capped one past the cap
   # so the overflow question answers without a count. The org names
-  # ride the flagged lookup seam — one read for the page's ids, mapped
-  # by id; a wallet whose org vanished (the FK has no ON DELETE, so
-  # this cannot happen today) would simply render without a name.
+  # ride the shared lookup seam (see the moduledoc for why it stays
+  # over the now-admitted primary read) — one read for the page's ids,
+  # mapped by id; a wallet whose org vanished (the FK has no ON DELETE,
+  # so this cannot happen today) would simply render without a name.
   defp refresh_rows(socket) do
     admin = socket.assigns.current_user
 

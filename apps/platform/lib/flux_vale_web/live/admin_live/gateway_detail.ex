@@ -27,14 +27,14 @@ defmodule FluxValeWeb.AdminLive.GatewayDetail do
   enter this app's database and never pass through this console. The
   auth key an owner pasted appears NOWHERE on this page.
 
-  Known limitation, stated: this view reaches the org's domains
-  THROUGH the gateway, so it shows them only while the gateway row
-  stands. `MintDefaultHostname` mints a domain row for every instance
-  create, so orgs that never enabled private access — and orgs past
-  teardown — hold domains this page cannot show (no gateway row to
-  mount). The org-independent domain read is still an open ruling
-  (#613's second half names the org detail as the natural home; that
-  lane shipped without it) — not this surface's to build.
+  Known limitation, resolved where it lives: this view reaches the
+  org's domains THROUGH the gateway, so it shows them only while the
+  gateway row stands. `MintDefaultHostname` mints a domain row for
+  every instance create, so orgs that never enabled private access —
+  and orgs past teardown — hold domains this page cannot show (no
+  gateway row to mount). The org detail's domains card (this slice,
+  #613's second half) answers for those orgs: the same `:list_for_org`
+  read, mounted from the org instead of the gateway.
 
   The domains list caps at the latest 100 (the lane's cap rationale).
   """
@@ -385,7 +385,7 @@ defmodule FluxValeWeb.AdminLive.GatewayDetail do
                   data-testid="admin-gateways-secret-token-set"
                 >
                   {gettext(
-                    "Token set %{stamp}. Tailscale API keys expire within 90 days by design — age this one toward rotation.",
+                    "Token set %{stamp}. Tailscale API keys expire within 90 days by design. Age this one toward rotation.",
                     stamp: stamp_text(@gateway.token_set_at)
                   )}
                 </p>
@@ -408,7 +408,7 @@ defmodule FluxValeWeb.AdminLive.GatewayDetail do
                   </p>
                   <p class="mt-1 text-sm text-ink-muted">
                     {gettext(
-                      "The state badge is certificate issuance; the claim line is tailnet resolution. Either can move without the other."
+                      "The state badge is certificate issuance. The claim line is tailnet resolution. Either can move without the other."
                     )}
                   </p>
                 </div>
