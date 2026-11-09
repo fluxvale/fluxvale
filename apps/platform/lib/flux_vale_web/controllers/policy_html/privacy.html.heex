@@ -68,6 +68,26 @@
       </p>
     </.card>
 
+    <%!-- #642: Google as an identity provider for sign-in. The card
+    states exactly what the arm does (plan §8, D-scopes): Google
+    attests the address, we ask for nothing beyond it, we store no
+    Google profile, and the email-code door keeps working. --%>
+    <.card class="space-y-4">
+      <h2 class="text-base font-medium text-ink">Sign-in with Google</h2>
+      <p class="text-sm text-ink-muted">
+        You can sign in with a Google account. When you do, Google
+        tells us your email address and confirms that Google has
+        verified it. We ask for nothing else, and we do not send
+        Google any data about you. We store no Google profile, no
+        name, and no picture. Your email-code sign-in keeps working
+        either way.
+      </p>
+      <p class="text-sm text-ink-muted">
+        Google is an identity provider for sign-in. How Google handles
+        its own data is described in Google's privacy policy.
+      </p>
+    </.card>
+
     <.card class="space-y-4">
       <h2 class="text-base font-medium text-ink">What we never collect</h2>
       <p class="text-sm text-ink-muted">

@@ -23,6 +23,8 @@ FluxVale uses no passwords. Sign in with a one-time code:
 
 Sessions last 60 days on a device. There is no password to forget and none to leak.
 
+You can also sign in with Google. Choose **Sign in with Google** on the sign-in page and follow Google's steps. We receive only your email address, and only after Google confirms it has verified it. Both doors lead to the same account: if your Google address matches a FluxVale account, you are signed in to that account. The one-time code above keeps working either way, so you can use Google on your phone and a code on your laptop.
+
 ## What an account includes
 
 Your account comes with a personal organization and its own wallet. New accounts start with a small welcome credit so you can deploy something before you ever top up.

@@ -73,6 +73,15 @@ defmodule FluxValeWeb.PolicyControllerTest do
       assert html =~ "12 months before that claim"
       assert html =~ "admin@fluxvale.com"
 
+      # #642: the Google-account clause — the owner's responsibility
+      # line and the email-code door staying open (plan §8). The
+      # sentences wrap in source; assert against a whitespace-
+      # flattened copy (the privacy test's idiom).
+      flat = String.replace(html, ~r/\s+/, " ")
+      assert flat =~ "You may sign in with a Google account"
+      assert flat =~ "Keeping that Google account secure is your responsibility"
+      assert flat =~ "email-code sign-in remains available"
+
       # Post-termination data stays non-committal — no committed window.
       assert html =~ "We may delete your data after termination"
       refute html =~ ~r/deleted? (within|after) \d+/
@@ -174,6 +183,17 @@ defmodule FluxValeWeb.PolicyControllerTest do
       assert flat =~ "the record of every entry that adds to or draws down that balance"
       assert flat =~ "buyer name and email"
       assert flat =~ "the country your connection came from"
+
+      # #642: Google as an identity provider — the card states the
+      # arm's exact data posture (plan §8, D-scopes: openid email,
+      # nothing kept beyond the address, email codes still the door).
+      assert flat =~ "You can sign in with a Google account"
+      assert flat =~ "confirms that Google has verified it"
+      assert flat =~ "We ask for nothing else"
+      assert flat =~ "we do not send Google any data about you"
+      assert flat =~ "store no Google profile"
+      assert flat =~ "Google is an identity provider for sign-in"
+      assert flat =~ "email-code sign-in keeps working"
 
       # Email is transactional only; codes are hashed, single use, and
       # short-lived.
