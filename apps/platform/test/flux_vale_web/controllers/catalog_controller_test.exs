@@ -47,6 +47,23 @@ defmodule FluxValeWeb.CatalogControllerTest do
     IO.iodata_to_binary(iodata)
   end
 
+  # The page's FAQ questions and answers, scanned in document order from
+  # the rendered HTML. The rows are the page's only <summary> spans and
+  # its only `[overflow-wrap:anywhere]` paragraphs (caveats are list
+  # items), so this is exactly what a reader sees — the markup the
+  # FAQPage must mirror.
+  defp visible_faq_questions(html) do
+    ~r{<summary[^>]*>\s*<span[^>]*>(.*?)</span>}s
+    |> Regex.scan(html)
+    |> Enum.map(fn [_full, question] -> question end)
+  end
+
+  defp visible_faq_answers(html) do
+    ~r{<p class="\[overflow-wrap:anywhere\]">(.*?)</p>}s
+    |> Regex.scan(html)
+    |> Enum.map(fn [_full, answer] -> answer end)
+  end
+
   describe "GET /catalog" do
     test "renders category-grouped app cards for anonymous visitors", %{conn: conn} do
       # icon_url exercises the SSR tile's img arm — the LiveView twin
@@ -936,9 +953,9 @@ defmodule FluxValeWeb.CatalogControllerTest do
     end
 
     # #611 S5: the structured data is derived per seeded app too. Both
-    # payloads decode on every catalog page, and the FAQ mirrors the
-    # rendered items — Docmost and Umami included by derivation, never
-    # a hardcoded list.
+    # payloads decode on every catalog page, and the FAQPage mirrors the
+    # rendered questions AND answers in order — Docmost and Umami
+    # included by derivation, never a hardcoded list.
     test "every seeded app emits decodable app and FAQ JSON-LD", %{conn: conn} do
       assert :ok == Seeds.seed_pricing!()
       assert :ok == Seeds.seed_catalog!()
@@ -966,6 +983,14 @@ defmodule FluxValeWeb.CatalogControllerTest do
         assert faq_data["@type"] == "FAQPage"
         assert is_list(faq_data["mainEntity"])
         assert faq_data["mainEntity"] != []
+
+        # The mirror, not just non-emptiness: the JSON names and answers
+        # are the rendered rows, same order, escaped the same way.
+        names = Enum.map(faq_data["mainEntity"], & &1["name"])
+        answers = Enum.map(faq_data["mainEntity"], & &1["acceptedAnswer"]["text"])
+
+        assert Enum.map(names, &html_escape/1) == visible_faq_questions(html)
+        assert Enum.map(answers, &html_escape/1) == visible_faq_answers(html)
       end
     end
 
@@ -1205,14 +1230,17 @@ defmodule FluxValeWeb.CatalogControllerTest do
       # in document order and demand the markup matches exactly, with
       # the JSON names escaped the same way the page escaped them. The
       # /s keeps a newline inside an authored question capturable.
-      visible =
-        ~r{<summary[^>]*>\s*<span[^>]*>(.*?)</span>}s
-        |> Regex.scan(html)
-        |> Enum.map(fn [_full, question] -> question end)
+      visible = visible_faq_questions(html)
 
       names = Enum.map(data["mainEntity"], & &1["name"])
       escaped_names = Enum.map(names, &html_escape/1)
       assert escaped_names == visible
+
+      # The pairing too: each question's answer is the row under it, so
+      # a mispaired map cannot pass on names alone.
+      answers = Enum.map(data["mainEntity"], & &1["acceptedAnswer"]["text"])
+
+      assert Enum.map(answers, &html_escape/1) == visible_faq_answers(html)
 
       # The rendered shape: setup column (guidance + the OIDC row), about
       # column with the replace row, the app FAQ appended exactly once.
@@ -1294,10 +1322,11 @@ defmodule FluxValeWeb.CatalogControllerTest do
       assert [_app_match, app_encoded] = Regex.run(~r/id="ld-json-app">(.*?)<\/script>/s, html)
       assert [_faq_match, faq_encoded] = Regex.run(~r/id="ld-json-faq">(.*?)<\/script>/s, html)
 
-      # The hostile tags encode (\u003C, \/) — no literal close-tag rides
-      # inside either payload.
-      assert app_encoded =~ ~S(\u003C\/script>)
-      assert faq_encoded =~ ~S(\u003C\/script>)
+      # The invariant, not Jason's spelling: no literal "<" rides inside
+      # either payload, so no tag — let alone </script> — can start. The
+      # decode assertions below prove the text still round-trips as data.
+      refute app_encoded =~ "<"
+      refute faq_encoded =~ "<"
 
       # Both payloads decode, and the hostile text round-trips as data.
       app_data = Jason.decode!(app_encoded)
