@@ -1,8 +1,10 @@
 /* Design-system screenshots (#178): capture the storybook and the
  * migrated surfaces in both color modes. Local dev target only
  * (127.0.0.1:4000), driven by a minted session cookie passed via
- * FV_TOKEN (produced by /tmp/opencode/fv178_session.exs through the
- * same JWT the sign-in flow mints — no test backdoors in the app).
+ * FV_TOKEN (minted by a dev mix-run script through the same JWT the
+ * sign-in flow mints — no test backdoors in the app; the #178-era
+ * mint script was ephemeral, any sibling *_seed.exs shows the
+ * posture).
  *
  * Usage: node screenshot.mjs <outdir>   (FV_TOKEN=<jwt> required for
  * the authenticated pages; unauthenticated pages always captured)
