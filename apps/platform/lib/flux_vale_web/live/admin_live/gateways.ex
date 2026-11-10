@@ -5,34 +5,37 @@ defmodule FluxValeWeb.AdminLive.Gateways do
   gateways/domains oversight; registration, keys, and config belong to
   the product surfaces — the org Access panel and the provider API).
 
-  The honesty the surface can offer rides its read policy: under the
-  blanket platform-admin authority (#644, ADR-0047), a session admin
-  reads EVERY org's gateway — the #613 ask, delivered by the bypass —
-  so the operator-truth columns the member-scoped posture dropped land
-  here: the attention clock beside the pinned row, the key age and
-  tailnet claims on the detail page. The membership probe that served
-  the old member-scoped empties is gone with them (#608's scope note
-  upgraded to the platform-wide read it now states).
+  The honesty the surface can offer is bounded by its read policy:
+  `AccessGateway` reads are members-only (`relates_to_actor_via`
+  [:organization, :members]) with NO platform-admin arm — unlike the
+  wallet seam the orgs surface rides. `relates_to_actor_via` is a
+  FILTER, so a non-member admin's read answers `[]`, not Forbidden:
+  this list is exactly the gateways of orgs the admin belongs to. The
+  empty state says that in its title (filter-scoped, never a global
+  claim), and for an admin with no org memberships at all (only
+  producible by bypassing the create's JIT personal org) a scope note
+  says why the list is empty instead. Widening the read policy is a
+  policy change this lane does not make — the gap is reported, not
+  built around (#613).
 
   Columns the policies admit: the org name (the flagged `:admin_lookup`
   seam, the lane's one org path), the identifier grammar the product
   uses (`fv-<8 hex>` + the tailnet domain, ADR-0039 §1), the state (the
   product's own vocabulary, rendered through the section's shared badge
-  in AdminComponents with a shape cue per state) with the attention
-  clock (`needs_attention_since`, the wallets surface's since-date
-  signal) for rows the state flags, the rate snapshot, the created
-  stamp. The credential references stay off the list: they render on
-  the detail page, as names, with the copy that keeps them honest.
+  in AdminComponents with a shape cue per state), the rate snapshot,
+  the created stamp. The credential references stay off the list: they
+  render on the detail page, as names, with the copy that keeps them
+  honest.
 
   Attention first: a gateway whose STATE is `:needs_attention` pins to
   the top, then newest created. The pin keys on the state, not the
   `needs_attention_since` stamp — Suspend does not clear that stamp, so
   a stamp-keyed sort would pin a suspended row indefinitely (the review
-  finding; the clock renders under the same state key for the same
-  reason). The list caps at the latest 100 (the lane's cap rationale).
-  Revisit trigger: pagination once gateway volume approaches the cap.
-  Search narrows by hostname or org name/slug — the relationship filter
-  runs at the data layer, so the search never needs an org read.
+  finding; the domain-side fix is #613, not ours). The list is
+  paginated by the shared data table (the latest-100 cap retired into
+  real pagination; offset mode). Search narrows by hostname or
+  org name/slug — the relationship filter runs at the data layer, so
+  the search never needs an org read.
   """
 
   use FluxValeWeb, :live_view
@@ -42,74 +45,175 @@ defmodule FluxValeWeb.AdminLive.Gateways do
   alias FluxVale.Pricing
   alias FluxValeWeb.AdminComponents
   alias FluxValeWeb.AdminShell
+  alias FluxValeWeb.Components.AdminDataTable
 
   require Ash.Query
   require Ash.Expr
 
-  # The list cap (the moduledoc names it; move the two together): an
-  # unbounded read is an unindexed sort away from growing expensive,
-  # and the operator finds a gateway by search, not by paging. Revisit
-  # trigger: pagination once gateway volume approaches the cap.
-  @list_cap 100
+  # The data table's contract (#501): the sortable fields are the
+  # columns the row prints that the gateway read carries. Offset mode
+  # (no keyset action on this read). The org name is NOT sortable: it
+  # rides the flagged :admin_lookup seam after the read, not a column
+  # of it.
+  @sortable [:hostname, :state, :monthly_cents, :created_at]
+  @sizes AdminDataTable.default_sizes()
 
   @impl Phoenix.LiveView
   def mount(_params, _session, socket) do
     # The chrome assigns (current_user, username, nav_section) ride the
     # AdminChrome on_mount on the :admin live_session — this mount adds
-    # only the page's own data.
-    {:ok,
-     socket
-     |> assign(query: "")
-     |> assign(search_form: to_form(%{"query" => ""}, as: :search))
-     |> refresh_rows()}
+    # only the page's own non-table data. The table's view state is
+    # handle_params' business (the URL is the source of truth).
+    {:ok, socket}
   end
 
+  # The URL states the table's view: sort, page, size, and the search
+  # term ride query params, parsed with garbage-proof fallbacks.
   @impl Phoenix.LiveView
-  def handle_event("search", %{"search" => %{"query" => query}}, socket) do
-    trimmed = String.trim(query)
+  def handle_params(params, _uri, socket) do
+    state = AdminDataTable.parse_params(params, sortable: @sortable)
 
     {:noreply,
      socket
-     |> assign(query: trimmed, search_form: to_form(%{"query" => trimmed}, as: :search))
+     |> assign(
+       table: state,
+       columns: columns(),
+       search_form: to_form(%{"query" => state.query}, as: :search)
+     )
      |> refresh_rows()}
+  end
+
+  # -- events ---------------------------------------------------------------
+
+  @impl Phoenix.LiveView
+  def handle_event("search", %{"search" => %{"query" => query}}, socket) when is_binary(query) do
+    state = %{socket.assigns.table | query: AdminDataTable.cap_query(query), page: 1}
+
+    push_view(socket, state)
+  end
+
+  # A crafted query that is not a string is a no-op, not a crash.
+  def handle_event("search", _params, socket), do: {:noreply, socket}
+
+  # The header sort: whitelisted fields only, click-to-toggle. The
+  # page resets with the order, so a stale deep link cannot land past
+  # the new end.
+  @impl Phoenix.LiveView
+  def handle_event("sort", %{"field" => raw_field}, socket) do
+    sort = AdminDataTable.toggle_sort(socket.assigns.table.sort, raw_field, @sortable)
+    # A crafted field leaves the sort as it was: a true no-op, no
+    # page reset, no patch.
+    if sort == socket.assigns.table.sort do
+      {:noreply, socket}
+    else
+      push_view(socket, %{socket.assigns.table | sort: sort, page: 1})
+    end
+  end
+
+  # A crafted field is not a crash: the sort stays as it was.
+  def handle_event("sort", _params, socket), do: {:noreply, socket}
+
+  @impl Phoenix.LiveView
+  def handle_event("page", %{"nav" => "prev"}, socket) do
+    state = %{socket.assigns.table | page: socket.assigns.table.page - 1}
+
+    push_view(socket, state)
+  end
+
+  def handle_event("page", %{"nav" => "next"}, socket) do
+    state = %{socket.assigns.table | page: socket.assigns.table.page + 1}
+
+    push_view(socket, state)
+  end
+
+  # A crafted page event is a no-op.
+  def handle_event("page", _params, socket), do: {:noreply, socket}
+
+  @impl Phoenix.LiveView
+  def handle_event("size", %{"size" => raw}, socket) do
+    size = AdminDataTable.parse_size(raw)
+    state = %{socket.assigns.table | size: size, page: 1}
+
+    push_view(socket, state)
+  end
+
+  def handle_event("size", _params, socket), do: {:noreply, socket}
+
+  # The search-empty state's clear lever: the same view, term gone.
+  @impl Phoenix.LiveView
+  def handle_event("clear-search", _params, socket) do
+    state = %{socket.assigns.table | query: "", page: 1}
+
+    push_view(socket, state)
+  end
+
+  # Every table event is a patch: the URL states the view, and
+  # handle_params owns the re-query. replace keeps the browser
+  # history clean — a table view is a state, not a navigation.
+  defp push_view(socket, state) do
+    {:noreply,
+     push_patch(socket, to: AdminDataTable.url_for(~p"/admin/gateways", state), replace: true)}
   end
 
   # -- reads ----------------------------------------------------------------
 
-  # Attention first, then newest created: the pin is a STATE-keyed
-  # expression sort (Ash.Expr.calc) — needs_attention_since is written
+  # Attention first, then newest provisioned. The pin is a STATE-keyed
+  # expression sort (Ash.Expr.calc): needs_attention_since is written
   # by the state funnel but never cleared by Suspend, so a stamp-keyed
   # sort would pin a suspended row above a newer active one forever.
-  # Capped one past the cap so the overflow question answers without a
-  # count. The org names ride the flagged lookup seam — one read for
-  # the page's ids, mapped by id; a gateway whose org vanished (the FK
-  # is :restrict, so this cannot happen today) would simply render
-  # without a name.
+  # The page rides the shared data table: an honest count, then one
+  # server-driven page. The org names ride the flagged lookup seam —
+  # one read for the page's ids, mapped by id; a gateway whose org
+  # vanished (the FK is :restrict, so this cannot happen today) would
+  # simply render without a name.
   defp refresh_rows(socket) do
     admin = socket.assigns.current_user
+    state = socket.assigns.table
 
-    fetched =
+    filtered =
       AccessGateway
       |> Ash.Query.for_read(:read, %{}, actor: admin)
-      |> Ash.Query.sort([
-        {Ash.Expr.calc(state == :needs_attention), :desc},
-        {:created_at, :desc},
-        {:id, :desc}
-      ])
-      |> maybe_search(socket.assigns.query)
-      |> Ash.Query.limit(@list_cap + 1)
+      |> maybe_search(state.query)
+
+    total = Ash.count!(filtered)
+    page_count = AdminDataTable.page_count(total, state.size)
+
+    # A crafted deep link clamps BEFORE the query is built: the page
+    # read runs at the honest offset, never a crafted deep scan.
+    page = min(state.page, page_count)
+
+    gateways =
+      filtered
+      |> apply_sort(state.sort)
+      |> Ash.Query.limit(state.size)
+      |> Ash.Query.offset((page - 1) * state.size)
       |> Ash.read!()
 
-    capped? = length(fetched) > @list_cap
-    gateways = Enum.take(fetched, @list_cap)
+    updated = %{state | page: page, total: total}
 
     socket
     |> assign(
+      table: updated,
       orgs: org_lookup(admin, gateways),
-      rows_empty?: gateways == [],
-      rows_capped?: capped?
+      rows_empty?: gateways == []
     )
     |> stream(:gateways, gateways, reset: true)
+  end
+
+  # The default order is the attention-pin expression sort; the id
+  # tiebreak rides every sort so a same-second page boundary cannot
+  # shuffle rows between reads.
+  defp apply_sort(query, nil) do
+    Ash.Query.sort(query, [
+      {Ash.Expr.calc(state == :needs_attention), :desc},
+      {:created_at, :desc},
+      {:id, :desc}
+    ])
+  end
+
+  # Whitelisted atoms only — the param path never builds a sort term.
+  defp apply_sort(query, {field, dir}) do
+    Ash.Query.sort(query, [{field, dir}, {:id, :desc}])
   end
 
   defp maybe_search(query, ""), do: query
@@ -180,6 +284,61 @@ defmodule FluxValeWeb.AdminLive.Gateways do
   # Reached only under the created_at guard in the template.
   defp stamp_text(stamp), do: Calendar.strftime(stamp, "%b %d, %Y")
 
+  # The column declarations, built per render so the labels ride the
+  # live locale. The two flexible columns declare their own floors:
+  # the pledged #608 finding was exactly this table's floor riding
+  # the fixed tracks alone, stranding the org and gateway columns —
+  # the component's computed floor now reads every column's minimum.
+  defp columns do
+    [
+      %{
+        key: :org,
+        label: gettext("Organization"),
+        track: "minmax(0,1.5fr)",
+        floor_rem: 7
+      },
+      %{
+        key: :gateway,
+        label: gettext("Gateway"),
+        track: "minmax(0,1.2fr)",
+        sort: :hostname,
+        floor_rem: 8
+      },
+      %{key: :state, label: gettext("State"), track: "9.5rem", sort: :state},
+      %{
+        key: :rate,
+        label: gettext("Rate"),
+        track: "7.5rem",
+        align: :right,
+        sort: :monthly_cents
+      },
+      %{key: :created, label: gettext("Created"), track: "6.5rem", sort: :created_at},
+      %{
+        key: :actions,
+        label: gettext("Actions"),
+        track: "3.5rem",
+        align: :right,
+        sr_only: true
+      }
+    ]
+  end
+
+  # The view state the component renders: the parsed params plus the
+  # honest count and the surface's event names.
+  defp table_meta(state) do
+    %{
+      query: state.query,
+      page: state.page,
+      size: state.size,
+      sort: state.sort,
+      total: state.total,
+      sizes: @sizes,
+      sort_event: "sort",
+      page_event: "page",
+      size_event: "size"
+    }
+  end
+
   @impl Phoenix.LiveView
   def render(assigns) do
     ~H"""
@@ -208,10 +367,11 @@ defmodule FluxValeWeb.AdminLive.Gateways do
               </p>
               <%!-- The one honesty statement the page carries: the read
               scope, stated at fact weight, not as a footnote (the orgs
-              surface's treatment). #608's member-scope note upgraded to
-              the platform-wide read #613 landed. --%>
+              surface's treatment). --%>
               <p class="mt-1 max-w-prose text-sm font-medium text-ink">
-                {gettext("Gateway reads here are platform-wide: this list is every org's gateway.")}
+                {gettext(
+                  "Gateway reads are member-scoped, so this list is the gateways of orgs you belong to."
+                )}
               </p>
             </div>
           </div>
@@ -252,25 +412,19 @@ defmodule FluxValeWeb.AdminLive.Gateways do
               </.card>
 
               <div class="space-y-4" data-testid="admin-gateways-list">
-                <%!-- The count is the @list_cap above (kept literal here —
-                a module attribute reads as assigns inside HEEx); move the
-                two together. --%>
-                <p
-                  :if={@rows_capped?}
-                  class="text-sm text-ink-muted"
-                  data-testid="admin-gateways-capped"
-                >
-                  {gettext("Showing the latest 100 gateways. Attention pins to the top.")}
-                </p>
-
-                <%!-- The empty state rides the lane's panel-inset shape
-                (the #571/#603 treatment) — no dashed boxes on this
-                surface, dark mode included. With the platform-admin
-                read (#613) the empty is a GLOBAL claim the cross-org
-                read can support — no filter-scoped hedging, no
-                membership probe. --%>
+                <%!-- The empty states ride the lane's panel-inset shape
+                (the scope note's card, the #571/#603 treatment) — no
+                dashed boxes on this surface, dark mode included. The
+                MAIN empty is filter-scoped: the member-scoped read
+                cannot support a global claim, so the title names the
+                orgs this admin belongs to and only the copy carries
+                the once-enabled story. --%>
+                <%!-- The blanket authority (#644/#648) reads cross-org,
+                so the main empty state is the GLOBAL claim — the old
+                filter-scoped hedging and the membership probe are gone
+                with #613's arm. --%>
                 <div
-                  :if={@rows_empty? and @query == ""}
+                  :if={@rows_empty? and @table.query == ""}
                   class="rounded-panel border border-line bg-panel px-4 py-3"
                   data-testid="admin-gateways-empty"
                 >
@@ -285,115 +439,110 @@ defmodule FluxValeWeb.AdminLive.Gateways do
                 </div>
 
                 <div
-                  :if={@rows_empty? and @query != ""}
+                  :if={@rows_empty? and @table.query != ""}
                   class="rounded-panel border border-line bg-panel px-4 py-3"
                   data-testid="admin-gateways-search-empty"
                 >
                   <p class="text-sm font-medium text-ink">
                     {gettext("No gateway matches that search.")}
                   </p>
+                  <.button
+                    variant="secondary"
+                    size="sm"
+                    phx-click="clear-search"
+                    class="mt-2"
+                    data-testid="admin-gateways-clear-search"
+                  >
+                    {gettext("Clear search")}
+                  </.button>
                 </div>
 
-                <%!-- The table chrome lives under the rows guard: an
-                empty list renders its honest empty state, never a dead
-                header (the people surface's structure). One grid
-                template shared by the header and every row (kept
-                literal in both spots), so the columns can never drift.
-                Every track shrinks (minmax(0, …)) inside the fixed
-                ones; the whole chrome rides its own scroll below the
-                fixed tracks' floor (the people surface's
-                floor-and-scroll idiom), so the page never scrolls
-                sideways. The gutter is the console's disclosed delta
-                (the review round): gap-x-3, so the right-aligned tracks
-                stop colliding with their neighbors. --%>
-                <div :if={not @rows_empty?} class="overflow-x-auto">
-                  <div class="min-w-[32.25rem]">
-                    <div class="grid grid-cols-[minmax(0,1.5fr)_minmax(0,1.2fr)_9.5rem_7.5rem_6.5rem_3.5rem] items-center gap-x-3 border-b border-line px-3 py-3 text-left text-xs font-medium tracking-wide text-ink-muted uppercase">
-                      <div>{gettext("Organization")}</div>
-                      <div>{gettext("Gateway")}</div>
-                      <div>{gettext("State")}</div>
-                      <div class="text-right">{gettext("Rate")}</div>
-                      <div>{gettext("Created")}</div>
-                      <div class="sr-only">{gettext("Actions")}</div>
-                    </div>
-
-                    <div>
-                      <div id="admin-gateways-table" phx-update="stream">
-                        <div
-                          :for={{dom_id, gateway} <- @streams.gateways}
-                          id={dom_id}
-                          class="grid grid-cols-[minmax(0,1.5fr)_minmax(0,1.2fr)_9.5rem_7.5rem_6.5rem_3.5rem] items-center gap-x-3 border-b border-line px-3 py-3 transition-colors last:border-0 hover:bg-panel-raised/60"
-                        >
-                          <div class="min-w-0" data-testid={"admin-gateways-org-#{gateway.id}"}>
-                            <p class="truncate font-medium text-ink">{org_name(@orgs, gateway)}</p>
-                            <p class="truncate font-mono text-xs text-ink-muted">
-                              {org_slug(@orgs, gateway)}
-                            </p>
-                          </div>
-                          <div class="min-w-0" data-testid={"admin-gateways-host-#{gateway.id}"}>
-                            <p class="truncate font-mono text-sm text-ink">{gateway.hostname}</p>
-                            <p class="truncate font-mono text-xs text-ink-muted">
-                              {gateway.tailnet_domain}
-                            </p>
-                          </div>
-                          <div>
-                            <span data-testid={"admin-gateways-state-#{gateway.id}"}>
-                              <AdminComponents.gateway_state_badge state={gateway.state} />
-                            </span>
-                            <%!-- The attention clock (#613's operator-truth
-                            column, the wallets surface's since-date
-                            signal): how long the row has been flagged.
-                            Guarded on the STATE — Suspend never clears
-                            the stamp, so an unguarded render would show
-                            a clock under a suspended row (the pin's
-                            discipline, applied to the column). --%>
-                            <p
-                              :if={
-                                gateway.state == :needs_attention and gateway.needs_attention_since
-                              }
-                              class="mt-1 text-xs text-ink-muted"
-                              data-testid={"admin-gateways-attention-since-#{gateway.id}"}
-                            >
-                              {gettext("Since %{stamp}",
-                                stamp: stamp_text(gateway.needs_attention_since)
-                              )}
-                            </p>
-                          </div>
-                          <div class="text-right">
-                            <span
-                              class="whitespace-nowrap text-sm tabular-nums text-ink"
-                              data-testid={"admin-gateways-rate-#{gateway.id}"}
-                            >
-                              {Pricing.format_usd(gateway.monthly_cents)}
-                              <span class="text-xs font-normal text-ink-muted">
-                                {gettext("per month")}
-                              </span>
-                            </span>
-                          </div>
-                          <div>
-                            <span
-                              :if={gateway.created_at}
-                              class="text-sm text-ink-muted"
-                              data-testid={"admin-gateways-created-#{gateway.id}"}
-                            >
-                              {stamp_text(gateway.created_at)}
-                            </span>
-                          </div>
-                          <div>
-                            <div class="flex items-center justify-end">
-                              <.link
-                                navigate={~p"/admin/gateways/#{gateway.id}"}
-                                data-testid={"admin-gateways-open-#{gateway.id}"}
-                                class="text-sm font-medium text-link underline-offset-2 hover:underline"
-                              >
-                                {gettext("Open")}
-                              </.link>
-                            </div>
-                          </div>
-                        </div>
+                <%!-- The data table (#501): the shared component owns
+                the chrome, the computed floor (the pledged #608
+                finding: this list's floor now reads every column's
+                minimum, not the fixed tracks alone), the sort
+                headers, and the pagination. --%>
+                <div :if={not @rows_empty?}>
+                  <AdminDataTable.data_table
+                    id="admin-gateways-table"
+                    items={@streams.gateways}
+                    columns={@columns}
+                    meta={table_meta(@table)}
+                  >
+                    <:cell :let={gateway} col={:org}>
+                      <div data-testid={"admin-gateways-org-#{gateway.id}"}>
+                        <p class="truncate font-medium text-ink">{org_name(@orgs, gateway)}</p>
+                        <p class="truncate font-mono text-xs text-ink-muted">
+                          {org_slug(@orgs, gateway)}
+                        </p>
                       </div>
-                    </div>
-                  </div>
+                    </:cell>
+
+                    <:cell :let={gateway} col={:gateway}>
+                      <div data-testid={"admin-gateways-host-#{gateway.id}"}>
+                        <p class="truncate font-mono text-sm text-ink">{gateway.hostname}</p>
+                        <p class="truncate font-mono text-xs text-ink-muted">
+                          {gateway.tailnet_domain}
+                        </p>
+                      </div>
+                    </:cell>
+
+                    <:cell :let={gateway} col={:state}>
+                      <span data-testid={"admin-gateways-state-#{gateway.id}"}>
+                        <AdminComponents.gateway_state_badge state={gateway.state} />
+                      </span>
+                      <%!-- The attention clock (#648's operator-truth
+                      column, the wallets surface's since-date signal):
+                      how long the row has been flagged. Guarded on the
+                      STATE — Suspend never clears the stamp, so an
+                      unguarded render would show a clock under a
+                      suspended row (the pin's discipline, applied to
+                      the column). --%>
+                      <p
+                        :if={gateway.state == :needs_attention and gateway.needs_attention_since}
+                        class="mt-1 text-xs text-ink-muted"
+                        data-testid={"admin-gateways-attention-since-#{gateway.id}"}
+                      >
+                        {gettext("Since %{stamp}",
+                          stamp: stamp_text(gateway.needs_attention_since)
+                        )}
+                      </p>
+                    </:cell>
+
+                    <:cell :let={gateway} col={:rate}>
+                      <span
+                        class="whitespace-nowrap text-sm tabular-nums text-ink"
+                        data-testid={"admin-gateways-rate-#{gateway.id}"}
+                      >
+                        {Pricing.format_usd(gateway.monthly_cents)}
+                        <span class="text-xs font-normal text-ink-muted">
+                          {gettext("per month")}
+                        </span>
+                      </span>
+                    </:cell>
+
+                    <:cell :let={gateway} col={:created}>
+                      <span
+                        :if={gateway.created_at}
+                        class="text-sm text-ink-muted"
+                        data-testid={"admin-gateways-created-#{gateway.id}"}
+                      >
+                        {stamp_text(gateway.created_at)}
+                      </span>
+                    </:cell>
+
+                    <:cell :let={gateway} col={:actions}>
+                      <div class="flex items-center justify-end">
+                        <.link
+                          navigate={~p"/admin/gateways/#{gateway.id}"}
+                          data-testid={"admin-gateways-open-#{gateway.id}"}
+                          class="text-sm font-medium text-link underline-offset-2 hover:underline"
+                        >
+                          {gettext("Open")}
+                        </.link>
+                      </div>
+                    </:cell>
+                  </AdminDataTable.data_table>
                 </div>
               </div>
             </div>

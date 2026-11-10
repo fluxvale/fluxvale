@@ -2,9 +2,10 @@ defmodule FluxValeWeb.AdminLive.People do
   @moduledoc """
   The admin people surface (#501): the invitation list and the invite
   form. The list is every account with an invitation story (invite_state
-  anything but :none), newest first, capped at the latest 100,
-  with the stamps support acts on — invited at, expires at, accepted at,
-  withdrawn at.
+  anything but :none), newest first, paginated server-side by the
+  shared data table (the latest-100 cap retired into real pagination),
+  with the stamps support acts on — invited at, expires at, accepted
+  at, withdrawn at.
 
   Deliberately NOT a user directory (the owner ruling on this lane's
   scope): accounts without an invitation story are not this page's
@@ -13,8 +14,8 @@ defmodule FluxValeWeb.AdminLive.People do
 
   Every read and write rides the identity domain with the
   platform-admin actor and authorization on: invites and reinvites go
-  through `Identity.invite_user/4` (the one invite verb — the operation
-  resolves the occupant and refuses live accounts), withdrawals through
+  through `Identity.invite_user/4` (the one invite verb — the
+  operation resolves the occupant and refuses live accounts), withdrawals through
   `Identity.withdraw_invite/3`. No `authorize?: false` anywhere on this
   surface.
 
@@ -27,23 +28,25 @@ defmodule FluxValeWeb.AdminLive.People do
 
   alias FluxVale.Identity
   alias FluxVale.Identity.User
-  alias FluxValeWeb.AdminComponents
   alias FluxValeWeb.AdminShell
+  alias FluxValeWeb.Components.AdminDataTable
 
   require Ash.Query
 
-  # The list cap (the moduledoc names it; move the two together): an
-  # unbounded read is an ilike scan plus an unindexed sort waiting to
-  # grow expensive, and the operator scans for what just happened
-  # anyway. Revisit trigger: pagination and an invited_at index once
-  # invitation volume approaches the cap.
-  @list_cap 100
+  # The data table's contract (#501): pagination rides the shared
+  # component, server-driven (offset mode — the users read has no
+  # keyset action; the friends-beta volumes are small, the pattern is
+  # the point). The sortable fields are the stamps the row prints;
+  # the address is NOT sortable (it rides the user_emails lookup, not
+  # a column of this read), the state is a computed vocabulary.
+  @sortable [:invited_at, :expires_at, :accepted_at, :withdrawn_at]
+  @sizes AdminDataTable.default_sizes()
 
   @impl Phoenix.LiveView
   # `/admin` is no longer a surface of its own (Am. 4): the homepage
   # cards retired, the path bounces to the first live section. The
   # named :home action keeps this head apart from the surface's own
-  # :index mount (the access panel's :personal posture, S5). Flash-free
+  # mount (the access panel's :personal posture, S5). Flash-free
   # — nothing failed.
   def mount(_params, _session, %{assigns: %{live_action: :home}} = socket) do
     {:ok, push_navigate(socket, to: ~p"/admin/people")}
@@ -53,33 +56,104 @@ defmodule FluxValeWeb.AdminLive.People do
   def mount(_params, _session, socket) do
     # The chrome assigns (current_user, username, nav_section) ride the
     # AdminChrome on_mount on the :admin live_session — this mount adds
-    # only the page's own data.
+    # only the page's own non-table data. The table's view state is
+    # handle_params' business (the URL is the source of truth).
     {:ok,
      socket
-     |> assign(query: "")
      |> assign(withdrawing_id: nil)
      |> assign(withdrawing_user: nil)
-     |> assign(invite_form: to_form(%{"email" => ""}, as: :invite))
-     |> assign(search_form: to_form(%{"query" => ""}, as: :search))
+     |> assign(invite_form: to_form(%{"email" => ""}, as: :invite))}
+  end
+
+  # The URL states the table's view: sort, page, size, and the search
+  # term ride query params, parsed with garbage-proof fallbacks.
+  @impl Phoenix.LiveView
+  def handle_params(params, _uri, socket) do
+    state = AdminDataTable.parse_params(params, sortable: @sortable)
+
+    {:noreply,
+     socket
+     |> assign(
+       table: state,
+       columns: columns(),
+       search_form: to_form(%{"query" => state.query}, as: :search)
+     )
      |> refresh_rows()}
   end
 
   # -- events -------------------------------------------------------------
 
   @impl Phoenix.LiveView
-  def handle_event("search", %{"search" => %{"query" => query}}, socket) do
+  def handle_event("search", %{"search" => %{"query" => query}}, socket) when is_binary(query) do
     trimmed = String.trim(query)
+    state = %{socket.assigns.table | query: trimmed, page: 1}
 
-    {:noreply,
-     socket
-     |> assign(
-       query: trimmed,
-       search_form: to_form(%{"query" => trimmed}, as: :search),
-       # The list moves under a reset, so an open confirm closes with it.
-       withdrawing_id: nil,
-       withdrawing_user: nil
-     )
-     |> refresh_rows()}
+    # The list moves under a reset, so an open confirm closes with it.
+    revealed = assign(socket, withdrawing_id: nil, withdrawing_user: nil)
+
+    push_view(revealed, state)
+  end
+
+  # A crafted query that is not a string is a no-op, not a crash.
+  def handle_event("search", _params, socket), do: {:noreply, socket}
+
+  # The header sort: whitelisted fields only, click-to-toggle. The
+  # page resets with the order, so a stale deep link cannot land past
+  # the new end.
+  @impl Phoenix.LiveView
+  def handle_event("sort", %{"field" => raw_field}, socket) do
+    sort = AdminDataTable.toggle_sort(socket.assigns.table.sort, raw_field, @sortable)
+
+    # A crafted field leaves the sort as it was: a true no-op, no
+    # page reset, no patch. A real sort moves the list under a reset,
+    # so an open confirm closes with it.
+    if sort == socket.assigns.table.sort do
+      {:noreply, socket}
+    else
+      cleared = assign(socket, withdrawing_id: nil, withdrawing_user: nil)
+
+      push_view(cleared, %{socket.assigns.table | sort: sort, page: 1})
+    end
+  end
+
+  # A crafted field is not a crash: the sort stays as it was.
+  def handle_event("sort", _params, socket), do: {:noreply, socket}
+
+  @impl Phoenix.LiveView
+  def handle_event("page", %{"nav" => "prev"}, socket) do
+    state = %{socket.assigns.table | page: socket.assigns.table.page - 1}
+    cleared = assign(socket, withdrawing_id: nil, withdrawing_user: nil)
+
+    push_view(cleared, state)
+  end
+
+  def handle_event("page", %{"nav" => "next"}, socket) do
+    state = %{socket.assigns.table | page: socket.assigns.table.page + 1}
+    cleared = assign(socket, withdrawing_id: nil, withdrawing_user: nil)
+
+    push_view(cleared, state)
+  end
+
+  # A crafted page event is a no-op.
+  def handle_event("page", _params, socket), do: {:noreply, socket}
+
+  @impl Phoenix.LiveView
+  def handle_event("size", %{"size" => raw}, socket) do
+    size = AdminDataTable.parse_size(raw)
+    state = %{socket.assigns.table | size: size, page: 1}
+    cleared = assign(socket, withdrawing_id: nil, withdrawing_user: nil)
+
+    push_view(cleared, state)
+  end
+
+  def handle_event("size", _params, socket), do: {:noreply, socket}
+
+  # The search-empty state's clear lever: the same view, term gone.
+  @impl Phoenix.LiveView
+  def handle_event("clear-search", _params, socket) do
+    state = %{socket.assigns.table | query: "", page: 1}
+
+    push_view(socket, state)
   end
 
   # The page's primary action: the one invite verb. The operation
@@ -279,6 +353,14 @@ defmodule FluxValeWeb.AdminLive.People do
 
   # -- reads ----------------------------------------------------------------
 
+  # Every table event is a patch: the URL states the view, and
+  # handle_params owns the re-query. replace keeps the browser
+  # history clean — a table view is a state, not a navigation.
+  defp push_view(socket, state) do
+    {:noreply,
+     push_patch(socket, to: AdminDataTable.url_for(~p"/admin/people", state), replace: true)}
+  end
+
   # The copy branch ahead of the write: does this address already carry
   # an outstanding invitation (pending, withdrawn, expired)? Admins may
   # read users (the platform-admin policy), and any user_emails row on
@@ -315,28 +397,72 @@ defmodule FluxValeWeb.AdminLive.People do
 
   # One scope filter, the support ruling drawn in data: an invitation
   # story means invited_at is stamped (invite_state answers :none
-  # exactly when it is nil). Newest first, capped (see @list_cap).
+  # exactly when it is nil). The page rides the shared data table:
+  # an honest count for the page math, then one server-driven page
+  # (offset mode — this read has no keyset action). Newest first by
+  # default; the whitelisted stamps override, never a raw param.
   defp refresh_rows(socket) do
     admin = socket.assigns.current_user
+    state = socket.assigns.table
 
-    # One past the cap answers the capped? question without a count.
-    fetched =
+    filtered =
       User
       |> Ash.Query.for_read(:read, %{}, actor: admin)
       |> Ash.Query.filter(not is_nil(invited_at))
-      |> Ash.Query.sort(invited_at: :desc)
-      |> maybe_search(socket.assigns.query)
-      |> Ash.Query.limit(@list_cap + 1)
+      |> maybe_search(state.query)
+
+    total = Ash.count!(filtered)
+    page_count = AdminDataTable.page_count(total, state.size)
+
+    # A crafted deep link clamps BEFORE the query is built: the page
+    # read runs at the honest offset, never a crafted deep scan.
+    page = min(state.page, page_count)
+
+    users =
+      filtered
+      |> apply_sort(state.sort)
       |> Ash.Query.load(:invite_state)
       |> Ash.Query.load(:contact_email)
+      |> Ash.Query.limit(state.size)
+      |> Ash.Query.offset((page - 1) * state.size)
       |> Ash.read!()
 
-    capped? = length(fetched) > @list_cap
-    users = Enum.take(fetched, @list_cap)
+    updated = %{state | page: page, total: total}
 
     socket
-    |> assign(rows_empty?: users == [], rows_capped?: capped?)
+    |> assign(table: updated, rows_empty?: users == [])
     |> stream(:people, users, reset: true)
+  end
+
+  # The id tiebreak rides every sort: the stamps carry second
+  # precision, so a same-second page boundary would shuffle rows
+  # between reads without it.
+  defp apply_sort(query, nil), do: Ash.Query.sort(query, invited_at: :desc, id: :desc)
+
+  # The column sort names map to the resource's real stamp attributes
+  # (invite_expires_at and friends — the #520 names): the sortable
+  # atoms are the table's vocabulary, the sort needs the field. NULLS
+  # LAST on the descending nullable stamps: Postgres floats NULLs
+  # first on DESC, which would bury the rows that actually carry the
+  # date the operator sorted by (CodeRabbit, #643).
+  @stamp_fields %{
+    expires_at: :invite_expires_at,
+    accepted_at: :invite_accepted_at,
+    withdrawn_at: :invite_withdrawn_at
+  }
+
+  defp apply_sort(query, {field, :desc}) when is_map_key(@stamp_fields, field) do
+    attribute = Map.fetch!(@stamp_fields, field)
+    Ash.Query.sort(query, [{attribute, :desc_nils_last}, {:id, :desc}])
+  end
+
+  defp apply_sort(query, {field, dir}) when is_map_key(@stamp_fields, field) do
+    attribute = Map.fetch!(@stamp_fields, field)
+    Ash.Query.sort(query, [{attribute, dir}, {:id, :desc}])
+  end
+
+  defp apply_sort(query, {field, dir}) do
+    Ash.Query.sort(query, [{field, dir}, {:id, :desc}])
   end
 
   defp maybe_search(query, ""), do: query
@@ -344,7 +470,20 @@ defmodule FluxValeWeb.AdminLive.People do
   # Search rides the address table (#287): exists() over the emails
   # join — no row multiplication for multi-row users, ci via citext.
   defp maybe_search(query, term) do
-    Ash.Query.filter(query, exists(emails, ilike(address, ^"%#{term}%")))
+    # ILIKE wildcards in the term are literals: escaped before the
+    # pattern wraps both ends (the backslash first, or it would
+    # double-escape the ones below) — the billing surface's block.
+    escaped =
+      term
+      |> String.replace("\\", "\\\\")
+      |> String.replace("%", "\\%")
+      |> String.replace("_", "\\_")
+
+    pattern = "%#{escaped}%"
+
+    # Search rides the address table (#287): exists() over the emails
+    # join — no row multiplication for multi-row users, ci via citext.
+    Ash.Query.filter(query, exists(emails, ilike(address, ^pattern)))
   end
 
   # -- display helpers ------------------------------------------------------
@@ -379,6 +518,70 @@ defmodule FluxValeWeb.AdminLive.People do
 
   defp stamp_text(nil), do: nil
   defp stamp_text(stamp), do: Calendar.strftime(stamp, "%b %d, %Y")
+
+  # The column declarations, built per render so the labels ride the
+  # live locale (a module attribute would freeze them at compile
+  # time). The tracks and floors are the shared component's data: the
+  # flexible stamp columns declare their own floor so the computed
+  # min-width cannot strand them (the #608 review's finding, owned
+  # once in the component).
+  defp columns do
+    [
+      %{key: :email, label: gettext("Email"), track: "minmax(7rem,1.8fr)", floor_rem: 10},
+      %{key: :state, label: gettext("State"), track: "5.5rem"},
+      %{
+        key: :invited,
+        label: gettext("Invited"),
+        track: "minmax(5rem,1fr)",
+        sort: :invited_at,
+        floor_rem: 5
+      },
+      %{
+        key: :expires,
+        label: gettext("Expires"),
+        track: "minmax(5rem,1fr)",
+        sort: :expires_at,
+        floor_rem: 5
+      },
+      %{
+        key: :accepted,
+        label: gettext("Accepted"),
+        track: "minmax(5rem,1fr)",
+        sort: :accepted_at,
+        floor_rem: 5
+      },
+      %{
+        key: :withdrawn,
+        label: gettext("Withdrawn"),
+        track: "minmax(5rem,1fr)",
+        sort: :withdrawn_at,
+        floor_rem: 5
+      },
+      %{
+        key: :actions,
+        label: gettext("Actions"),
+        track: "5.25rem",
+        align: :right,
+        sr_only: true
+      }
+    ]
+  end
+
+  # The view state the component renders: the parsed params plus the
+  # honest count and the surface's event names.
+  defp table_meta(state) do
+    %{
+      query: state.query,
+      page: state.page,
+      size: state.size,
+      sort: state.sort,
+      total: state.total,
+      sizes: @sizes,
+      sort_event: "sort",
+      page_event: "page",
+      size_event: "size"
+    }
+  end
 
   @impl Phoenix.LiveView
   def render(assigns) do
@@ -487,19 +690,8 @@ defmodule FluxValeWeb.AdminLive.People do
               </div>
 
               <div class="space-y-4" data-testid="admin-people-list">
-                <%!-- The count is the @list_cap above (kept literal here —
-            a module attribute reads as assigns inside HEEx); move the
-            two together. --%>
-                <p
-                  :if={@rows_capped?}
-                  class="text-sm text-ink-muted"
-                  data-testid="admin-people-capped"
-                >
-                  {gettext("Showing the latest 100 invitations.")}
-                </p>
-
                 <.empty_state
-                  :if={@rows_empty? and @query == ""}
+                  :if={@rows_empty? and @table.query == ""}
                   title={gettext("No invitations yet.")}
                 >
                   {gettext(
@@ -507,172 +699,165 @@ defmodule FluxValeWeb.AdminLive.People do
                   )}
                 </.empty_state>
 
-                <.empty_state
-                  :if={@rows_empty? and @query != ""}
-                  title={gettext("No invitation matches that email.")}
-                />
+                <div
+                  :if={@rows_empty? and @table.query != ""}
+                  class="rounded-panel border border-line bg-panel px-6 py-8"
+                  data-testid="admin-people-search-empty"
+                >
+                  <.empty_state
+                    title={gettext("No invitation matches that email.")}
+                    class="border-none bg-transparent"
+                  >
+                    <.button
+                      variant="secondary"
+                      size="sm"
+                      phx-click="clear-search"
+                      data-testid="admin-people-clear-search"
+                    >
+                      {gettext("Clear search")}
+                    </.button>
+                  </.empty_state>
+                </div>
 
+                <%!-- The data table (#501): the shared component owns
+                the chrome, the tracks, the floor, the sort headers,
+                and the pagination; this surface keeps its panel
+                wrapper, its row grammar (badges, actions, the
+                withdraw confirm under its row), and its
+                policy-scoped read. The cells ride slots, so the
+                per-row testids survive unchanged. --%>
                 <div
                   :if={not @rows_empty?}
-                  class="overflow-x-auto rounded-panel border border-line bg-panel text-ink"
+                  class="rounded-panel border border-line bg-panel text-ink"
                 >
-                  <div class="min-w-[41.5rem]">
-                    <%!-- One grid template shared by the header and every
-                row (kept literal in both spots), so the columns can
-                never drift. The date tracks carry their stamps with
-                trailing slack and flex with the email column (1fr
-                against 1.8fr), so the stretch distributes across the
-                row instead of pooling in one giant email void. Mins
-                total 41.5rem — 37.75rem tracks + 2.25rem gaps + the
-                1.5rem px-3 the grid carries inside this floored
-                wrapper: below it the table rides its own
-                overflow-x-auto (the md-band posture), never the
-                page. --%>
-                    <div class={[
-                      "grid-cols-[minmax(7rem,1.8fr)_5.5rem_repeat(4,minmax(5rem,1fr))_5.25rem]",
-                      AdminComponents.admin_table_header_class()
-                    ]}>
-                      <div>{gettext("Email")}</div>
-                      <div>{gettext("State")}</div>
-                      <div>{gettext("Invited")}</div>
-                      <div>{gettext("Expires")}</div>
-                      <div>{gettext("Accepted")}</div>
-                      <div>{gettext("Withdrawn")}</div>
-                      <div class="sr-only">{gettext("Actions")}</div>
-                    </div>
-
-                    <%!-- The separator rides this stream wrapper. The grid
-                    inside stays pure shared chrome (#602). --%>
-                    <div id="admin-people-table" phx-update="stream">
-                      <div
-                        :for={{dom_id, user} <- @streams.people}
-                        id={dom_id}
-                        class="border-b border-line last:border-0"
+                  <AdminDataTable.data_table
+                    id="admin-people-table"
+                    items={@streams.people}
+                    columns={@columns}
+                    meta={table_meta(@table)}
+                  >
+                    <:cell :let={user} col={:email}>
+                      <span
+                        class="block truncate whitespace-nowrap font-medium text-ink"
+                        data-testid={"admin-people-email-#{user.id}"}
+                        title={user.contact_email}
                       >
-                        <div class={[
-                          "grid-cols-[minmax(7rem,1.8fr)_5.5rem_repeat(4,minmax(5rem,1fr))_5.25rem]",
-                          AdminComponents.admin_table_row_class()
-                        ]}>
-                          <div class="min-w-0">
-                            <span
-                              class="block truncate whitespace-nowrap font-medium text-ink"
-                              data-testid={"admin-people-email-#{user.id}"}
-                              title={user.contact_email}
-                            >
-                              {user.contact_email}
-                            </span>
-                          </div>
-                          <div>
-                            <span data-testid={"admin-people-state-#{user.id}"}>
-                              <.badge
-                                tone={state_tone(user.invite_state)}
-                                class="px-1.5! text-[11px]!"
-                              >
-                                <%= case state_cue(user.invite_state) do %>
-                                  <% {:dot, :pulse} -> %>
-                                    <span class="size-1.5 rounded-full bg-current motion-safe:animate-pulse" />
-                                  <% {:icon, name} -> %>
-                                    <.icon name={name} class="size-3.5" />
-                                  <% nil -> %>
-                                    <%!-- the resting states carry no cue --%>
-                                <% end %>
-                                {state_label(user.invite_state)}
-                              </.badge>
-                            </span>
-                          </div>
-                          <div>
-                            <span
-                              class="whitespace-nowrap text-xs text-ink-muted"
-                              data-testid={"admin-people-invited-#{user.id}"}
-                            >
-                              {stamp_text(user.invited_at)}
-                            </span>
-                          </div>
-                          <%!-- expiry is only meaningful while the link can
-                      still be used; closed rows leave the cell empty --%>
-                          <div>
-                            <span
-                              :if={user.invite_state == :pending}
-                              class="whitespace-nowrap text-xs text-ink-muted"
-                              data-testid={"admin-people-expires-#{user.id}"}
-                            >
-                              {stamp_text(user.invite_expires_at)}
-                            </span>
-                          </div>
-                          <div>
-                            <span
-                              class="whitespace-nowrap text-xs text-ink-muted"
-                              data-testid={"admin-people-accepted-#{user.id}"}
-                            >
-                              {stamp_text(user.invite_accepted_at)}
-                            </span>
-                          </div>
-                          <div>
-                            <span
-                              class="whitespace-nowrap text-xs text-ink-muted"
-                              data-testid={"admin-people-withdrawn-#{user.id}"}
-                            >
-                              {stamp_text(user.invite_withdrawn_at)}
-                            </span>
-                          </div>
-                          <div>
-                            <div class="flex items-center justify-end gap-2">
-                              <button
-                                :if={reinvite?(user.invite_state)}
-                                type="button"
-                                phx-click="reinvite"
-                                phx-value-email={user.contact_email}
-                                phx-disable-with={gettext("Sending...")}
-                                class="text-sm font-medium text-link underline-offset-2 hover:underline disabled:pointer-events-none disabled:opacity-50"
-                                data-testid={"admin-people-reinvite-#{user.id}"}
-                              >
-                                {gettext("Reinvite")}
-                              </button>
-                              <.button
-                                :if={withdrawable?(user.invite_state)}
-                                size="sm"
-                                variant="secondary"
-                                phx-click="open-withdraw"
-                                phx-value-id={user.id}
-                                phx-disable-with={gettext("Opening...")}
-                                data-testid={"admin-people-withdraw-#{user.id}"}
-                              >
-                                {gettext("Withdraw")}
-                              </.button>
-                            </div>
-                          </div>
-                        </div>
+                        {user.contact_email}
+                      </span>
+                    </:cell>
 
-                        <%!-- The confirm expands directly under the row that
+                    <:cell :let={user} col={:state}>
+                      <span data-testid={"admin-people-state-#{user.id}"}>
+                        <.badge tone={state_tone(user.invite_state)} class="px-1.5! text-[11px]!">
+                          <%= case state_cue(user.invite_state) do %>
+                            <% {:dot, :pulse} -> %>
+                              <span class="size-1.5 rounded-full bg-current motion-safe:animate-pulse" />
+                            <% {:icon, name} -> %>
+                              <.icon name={name} class="size-3.5" />
+                            <% nil -> %>
+                              <%!-- the resting states carry no cue --%>
+                          <% end %>
+                          {state_label(user.invite_state)}
+                        </.badge>
+                      </span>
+                    </:cell>
+
+                    <:cell :let={user} col={:invited}>
+                      <span
+                        class="whitespace-nowrap text-xs text-ink-muted"
+                        data-testid={"admin-people-invited-#{user.id}"}
+                      >
+                        {stamp_text(user.invited_at)}
+                      </span>
+                    </:cell>
+
+                    <%!-- expiry is only meaningful while the link can
+                    still be used; closed rows leave the cell empty --%>
+                    <:cell :let={user} col={:expires}>
+                      <span
+                        :if={user.invite_state == :pending}
+                        class="whitespace-nowrap text-xs text-ink-muted"
+                        data-testid={"admin-people-expires-#{user.id}"}
+                      >
+                        {stamp_text(user.invite_expires_at)}
+                      </span>
+                    </:cell>
+
+                    <:cell :let={user} col={:accepted}>
+                      <span
+                        class="whitespace-nowrap text-xs text-ink-muted"
+                        data-testid={"admin-people-accepted-#{user.id}"}
+                      >
+                        {stamp_text(user.invite_accepted_at)}
+                      </span>
+                    </:cell>
+
+                    <:cell :let={user} col={:withdrawn}>
+                      <span
+                        class="whitespace-nowrap text-xs text-ink-muted"
+                        data-testid={"admin-people-withdrawn-#{user.id}"}
+                      >
+                        {stamp_text(user.invite_withdrawn_at)}
+                      </span>
+                    </:cell>
+
+                    <:cell :let={user} col={:actions}>
+                      <div class="flex items-center justify-end gap-2">
+                        <button
+                          :if={reinvite?(user.invite_state)}
+                          type="button"
+                          phx-click="reinvite"
+                          phx-value-email={user.contact_email}
+                          phx-disable-with={gettext("Sending...")}
+                          class="text-sm font-medium text-link underline-offset-2 hover:underline disabled:pointer-events-none disabled:opacity-50"
+                          data-testid={"admin-people-reinvite-#{user.id}"}
+                        >
+                          {gettext("Reinvite")}
+                        </button>
+                        <.button
+                          :if={withdrawable?(user.invite_state)}
+                          size="sm"
+                          variant="secondary"
+                          phx-click="open-withdraw"
+                          phx-value-id={user.id}
+                          phx-disable-with={gettext("Opening...")}
+                          data-testid={"admin-people-withdraw-#{user.id}"}
+                        >
+                          {gettext("Withdraw")}
+                        </.button>
+                      </div>
+                    </:cell>
+
+                    <%!-- The confirm expands directly under the row that
                     opened it (the backups page's posture): the action
                     and its consequence share one visual block. One
                     confirm per page — @withdrawing_id is the expansion
                     key, so the shared destructive-confirm testid stays
                     safe. The reveal rode a fresh domain read
                     (open-withdraw). --%>
-                        <div :if={@withdrawing_id == user.id} class="px-4 pb-4">
-                          <.confirm_block
-                            title={
-                              gettext("Withdraw the invite for %{email}?",
-                                email: @withdrawing_user.contact_email
-                              )
-                            }
-                            body={
-                              gettext(
-                                "Their accept link stops working. The account remains inert until someone invites them again."
-                              )
-                            }
-                            action={gettext("Yes, withdraw this invite")}
-                            event="confirm-withdraw"
-                            action_testid="admin-people-withdraw-confirm"
-                            cancel_testid="admin-people-withdraw-cancel"
-                            return_focus={"[data-testid='admin-people-withdraw-#{@withdrawing_id}']"}
-                            myself={nil}
-                          />
-                        </div>
+                    <:expansion :let={user}>
+                      <div :if={@withdrawing_id == user.id} class="px-4 pb-4">
+                        <.confirm_block
+                          title={
+                            gettext("Withdraw the invite for %{email}?",
+                              email: @withdrawing_user.contact_email
+                            )
+                          }
+                          body={
+                            gettext(
+                              "Their accept link stops working. The account remains inert until someone invites them again."
+                            )
+                          }
+                          action={gettext("Yes, withdraw this invite")}
+                          event="confirm-withdraw"
+                          action_testid="admin-people-withdraw-confirm"
+                          cancel_testid="admin-people-withdraw-cancel"
+                          return_focus={"[data-testid='admin-people-withdraw-#{@withdrawing_id}']"}
+                          myself={nil}
+                        />
                       </div>
-                    </div>
-                  </div>
+                    </:expansion>
+                  </AdminDataTable.data_table>
                 </div>
               </div>
             </div>

@@ -135,6 +135,16 @@ defmodule FluxValeWeb.AdminGatewayDetailLiveTest do
     end
   end
 
+  defp attribute(view, testid, name) do
+    html = render(element(view, "[data-testid='#{testid}']"))
+    document = LazyHTML.from_fragment(html)
+    matches = LazyHTML.query(document, "[data-testid='#{testid}']")
+    first = Enum.at(matches, 0)
+    values = LazyHTML.attribute(first, name) || []
+
+    Enum.join(values, "")
+  end
+
   defp text_of(view, selector) do
     view
     |> element(selector)
@@ -420,24 +430,62 @@ defmodule FluxValeWeb.AdminGatewayDetailLiveTest do
                registered
     end
 
-    test "the domains list caps at the latest 100 and says so", %{conn: conn, admin: admin} do
+    test "real pagination replaces the old cap: page two carries the oldest domain", %{
+      conn: conn,
+      admin: admin
+    } do
       {org, gateway} = member_gateway!(admin)
 
       # The platform row is minted first, so it is the oldest row the
-      # cap pushes off the page.
+      # page boundary pushes off page one.
       platform = platform_domain!(org)
 
-      for _n <- 1..100 do
+      for _n <- 1..25 do
         custom_domain!(admin, org, :pending)
       end
 
-      newest = custom_domain!(admin, org, :pending)
+      {:ok, view, _html} = live(conn, "/admin/gateways/#{gateway.id}?size=25")
 
-      {:ok, view, _html} = live(conn, "/admin/gateways/#{gateway.id}")
+      # A full first page (newest registered first), the platform row
+      # waiting on page two. The count copy carries the honest total.
+      assert has_element?(
+               view,
+               "[data-testid='admin-gateways-domains-table-count']",
+               "1 to 25 of 26"
+             )
 
-      assert has_element?(view, "[data-testid='admin-gateways-domains-capped']", "latest 100")
-      assert has_element?(view, "[data-testid='admin-gateways-domain-name-#{newest.id}']")
       refute has_element?(view, "[data-testid='admin-gateways-domain-name-#{platform.id}']")
+
+      view
+      |> element("[data-testid='admin-gateways-domains-table-page-next']")
+      |> render_click()
+
+      assert has_element?(view, "[data-testid='admin-gateways-domain-name-#{platform.id}']")
+
+      assert has_element?(
+               view,
+               "[data-testid='admin-gateways-domains-table-page-label']",
+               "Page 2 of 2"
+             )
+
+      # The canonical URL omits the default size: page 2 alone states
+      # the view.
+      assert_patched(view, "/admin/gateways/#{gateway.id}?page=2")
+
+      # The table's guard rails: a crafted event is a no-op (the view
+      # is unmoved), and a whitelisted sort rides the URL.
+      render_click(view, "sort", %{"field" => "not-a-field"})
+      render_click(view, "page", %{"nav" => "sideways"})
+      render_click(view, "sort", %{})
+      render_click(view, "page", %{})
+      render_click(view, "size", %{})
+      render_click(view, "size", %{"size" => "999"})
+
+      assert has_element?(view, "[data-testid='admin-gateways-domains-table-page-label']")
+
+      {:ok, sorted, _html} = live(conn, "/admin/gateways/#{gateway.id}?sort=domain&dir=asc")
+
+      assert has_element?(sorted, "[data-testid='admin-gateways-domains-table-header-domain']")
     end
 
     test "an org with no domains gets the honest empty state", %{conn: conn, admin: admin} do
@@ -556,6 +604,91 @@ defmodule FluxValeWeb.AdminGatewayDetailLiveTest do
     {org, _owner} = BillingFixtures.grant_free_org!()
     gateway = AccessFixtures.gateway!(org)
     {org, gateway}
+  end
+
+  describe "the domains controls" do
+    test "executes every control, and the floor and scroll wrapper hold", %{
+      conn: conn,
+      admin: admin
+    } do
+      {org, gateway} = member_gateway!(admin)
+      platform_domain!(org)
+
+      for _n <- 1..25 do
+        custom_domain!(admin, org, :pending)
+      end
+
+      {:ok, view, _html} = live(conn, "/admin/gateways/#{gateway.id}")
+
+      # The floor and the internal scroll ride the component: the
+      # table region carries the computed min-width and the overflow
+      # wrapper never leaves (finding 8's regression guard).
+      html = render(view)
+
+      assert html =~ "min-width:"
+      assert html =~ "overflow-x-auto"
+
+      # Sort ascending, then the sorted column flips to descending.
+      view
+      |> element("[data-testid='admin-gateways-domains-table-sort-domain']")
+      |> render_click()
+
+      assert attribute(view, "admin-gateways-domains-table-header-domain", "aria-sort") ==
+               "ascending"
+
+      view
+      |> element("[data-testid='admin-gateways-domains-table-sort-domain']")
+      |> render_click()
+
+      assert attribute(view, "admin-gateways-domains-table-header-domain", "aria-sort") ==
+               "descending"
+
+      # Prev: page two, then back to one.
+      view
+      |> element("[data-testid='admin-gateways-domains-table-page-next']")
+      |> render_click()
+
+      view
+      |> element("[data-testid='admin-gateways-domains-table-page-prev']")
+      |> render_click()
+
+      assert text_of(view, "[data-testid='admin-gateways-domains-table-page-label']") =~
+               "Page 1 of"
+
+      # Every size option executes.
+      view
+      |> element("[data-testid='admin-gateways-domains-table-size-50']")
+      |> render_click()
+
+      assert has_element?(
+               view,
+               "[data-testid='admin-gateways-domains-table-size-50'][aria-pressed=true]"
+             )
+
+      view
+      |> element("[data-testid='admin-gateways-domains-table-size-100']")
+      |> render_click()
+
+      assert has_element?(
+               view,
+               "[data-testid='admin-gateways-domains-table-size-100'][aria-pressed=true]"
+             )
+
+      view
+      |> element("[data-testid='admin-gateways-domains-table-size-25']")
+      |> render_click()
+
+      assert has_element?(
+               view,
+               "[data-testid='admin-gateways-domains-table-size-25'][aria-pressed=true]"
+             )
+
+      # The deep-link clamp: a crafted page answers with the last one.
+      {:ok, clamped, _html} = live(conn, "/admin/gateways/#{gateway.id}?page=10000")
+
+      assert text_of(clamped, "[data-testid='admin-gateways-domains-table-page-label']") =~
+               "Page 2 of 2"
+    end
   end
 
   describe "the gates" do

@@ -91,15 +91,44 @@ const DETAIL_WIDTHS = [480, 768, 1024, 1280, 1440];
 const browser = await chromium.launch();
 
 // A signed-in context via the sanctioned session POST, then the page.
+// The POST is checked for a 2xx EXPLICITLY, at the failure point: an
+// expired or missing token, a CSRF mismatch, or a refused role each
+// answer non-2xx with a body that names the cause, and a silent
+// hand-wave here used to surface much later as a mystery redirect to
+// /sign-in. The check reads the status and the body, so the seed's
+// token is the first suspect named.
 async function newSession(sessionToken) {
   const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
   const page = await ctx.newPage();
   await page.goto(`${BASE}/sign-in`, { waitUntil: "networkidle" });
   const csrf = await page.locator('meta[name="csrf-token"]').getAttribute("content");
-  await page.request.post(`${BASE}/auth/session`, {
+  const posted = await page.request.post(`${BASE}/auth/session`, {
     form: { token: sessionToken },
     headers: { "x-csrf-token": csrf },
   });
+
+  if (!posted.ok()) {
+    const cause = (await posted.text()).slice(0, 400).replace(/\s+/g, " ").trim();
+    throw new Error(
+      `session POST failed: HTTP ${posted.status()} ${posted.statusText()} — ` +
+        `is the seed's session token expired, missing, or for a demoted account? Body: ${cause}`
+    );
+  }
+
+  // The bounce check: a 200 also renders for a refused token, so the
+  // admin page itself is the verifier (the data-tables script's
+  // posture — a mystery sign-in three steps later hides the cause).
+  await page.goto(`${BASE}/admin/gateways`, { waitUntil: "networkidle" });
+
+  if (page.url().includes("/sign-in")) {
+    throw new Error(
+      "session POST answered 2xx but the session did not authenticate — " +
+        "the admin page bounced to /sign-in. Is the seed's token minted " +
+        "for an account that still exists, and did the env export reach " +
+        "this run?"
+    );
+  }
+
   return { ctx, page };
 }
 

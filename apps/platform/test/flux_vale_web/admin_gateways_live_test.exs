@@ -66,6 +66,16 @@ defmodule FluxValeWeb.AdminGatewaysLiveTest do
     {org, gateway}
   end
 
+  defp attribute(view, testid, name) do
+    html = render(element(view, "[data-testid='#{testid}']"))
+    document = LazyHTML.from_fragment(html)
+    matches = LazyHTML.query(document, "[data-testid='#{testid}']")
+    first = Enum.at(matches, 0)
+    values = LazyHTML.attribute(first, name) || []
+
+    Enum.join(values, "")
+  end
+
   defp text_of(view, selector) do
     view
     |> element(selector)
@@ -358,25 +368,141 @@ defmodule FluxValeWeb.AdminGatewaysLiveTest do
       assert stale_org
     end
 
-    test "the list caps at the latest 100 and says so", %{conn: conn, admin: admin} do
+    test "real pagination replaces the old cap: a full first page and a second page", %{
+      conn: conn,
+      admin: admin
+    } do
       {_oldest_org, oldest} = gateway_for_admin!(admin)
 
-      built =
-        for _n <- 1..100 do
-          gateway_for_admin!(admin)
-        end
-
       newest =
-        built
-        |> Enum.reverse()
-        |> Enum.at(0)
-        |> elem(1)
+        for _n <- 1..25 do
+          {_org, gateway} = gateway_for_admin!(admin)
+          gateway
+        end
+        |> List.last()
 
       {:ok, view, _html} = live(conn, "/admin/gateways")
 
-      assert has_element?(view, "[data-testid='admin-gateways-capped']", "latest 100")
+      # A full first page, the oldest row waiting on page two.
+      assert has_element?(view, "[data-testid='admin-gateways-table-count']", "1 to 25 of 26")
+
+      assert text_of(view, "[data-testid='admin-gateways-table-page-label']") =~ "Page 1 of 2"
       assert has_element?(view, "[data-testid='admin-gateways-host-#{newest.id}']")
       refute has_element?(view, "[data-testid='admin-gateways-host-#{oldest.id}']")
+
+      view
+      |> element("[data-testid='admin-gateways-table-page-next']")
+      |> render_click()
+
+      # Provisioning order, newest first: page two carries the oldest.
+      assert has_element?(view, "[data-testid='admin-gateways-host-#{oldest.id}']")
+      assert text_of(view, "[data-testid='admin-gateways-table-page-label']") =~ "Page 2 of 2"
+      assert_patched(view, "/admin/gateways?page=2")
+
+      # The table's guard rails: a whitelisted sort rides the URL, a
+      # crafted event is a no-op (the list is unmoved).
+      render_click(view, "sort", %{"field" => "not-a-field"})
+      render_click(view, "page", %{"nav" => "sideways"})
+      render_click(view, "sort", %{})
+      render_click(view, "page", %{})
+      render_click(view, "size", %{})
+      render_change(view, "search", %{"search" => %{"query" => %{"deep" => "crafted"}}})
+
+      assert text_of(view, "[data-testid='admin-gateways-table-page-label']") =~ "Page 2 of 2"
+
+      # A garbage size falls back to the default and resets the page
+      # with it: the honest fallback, not a silent acceptance.
+      render_click(view, "size", %{"size" => "999"})
+
+      assert text_of(view, "[data-testid='admin-gateways-table-page-label']") =~ "Page 1 of"
+
+      {:ok, sorted, _html} = live(conn, "/admin/gateways?sort=hostname&dir=asc")
+
+      assert has_element?(sorted, "[data-testid='admin-gateways-table-header-gateway']")
+    end
+  end
+
+  describe "the table controls" do
+    test "executes every control: sort asc then desc, prev, every size, and the deep-link clamp",
+         %{conn: conn, admin: admin} do
+      {_org, _gw} = gateway_for_admin!(admin)
+
+      for _n <- 1..25 do
+        {_org, _gateway} = gateway_for_admin!(admin)
+      end
+
+      {:ok, view, _html} = live(conn, "/admin/gateways")
+
+      # Sort ascending, then the sorted column flips to descending.
+      view
+      |> element("[data-testid='admin-gateways-table-sort-hostname']")
+      |> render_click()
+
+      assert attribute(view, "admin-gateways-table-header-gateway", "aria-sort") == "ascending"
+
+      view
+      |> element("[data-testid='admin-gateways-table-sort-hostname']")
+      |> render_click()
+
+      assert attribute(view, "admin-gateways-table-header-gateway", "aria-sort") == "descending"
+
+      # Prev: page two, then back to one.
+      view
+      |> element("[data-testid='admin-gateways-table-page-next']")
+      |> render_click()
+
+      view
+      |> element("[data-testid='admin-gateways-table-page-prev']")
+      |> render_click()
+
+      assert text_of(view, "[data-testid='admin-gateways-table-page-label']") =~ "Page 1 of"
+
+      # Every size option executes.
+      view
+      |> element("[data-testid='admin-gateways-table-size-50']")
+      |> render_click()
+
+      assert has_element?(view, "[data-testid='admin-gateways-table-size-50'][aria-pressed=true]")
+
+      view
+      |> element("[data-testid='admin-gateways-table-size-100']")
+      |> render_click()
+
+      assert has_element?(
+               view,
+               "[data-testid='admin-gateways-table-size-100'][aria-pressed=true]"
+             )
+
+      view
+      |> element("[data-testid='admin-gateways-table-size-25']")
+      |> render_click()
+
+      assert has_element?(view, "[data-testid='admin-gateways-table-size-25'][aria-pressed=true]")
+
+      # The deep-link clamp: a crafted page answers with the last one.
+      {:ok, clamped, _html} = live(conn, "/admin/gateways?page=10000")
+
+      assert text_of(clamped, "[data-testid='admin-gateways-table-page-label']") =~
+               "Page 2 of 2"
+    end
+  end
+
+  describe "the clear lever" do
+    test "the search-empty state's clear lever hands the list back", %{conn: conn, admin: admin} do
+      {_org, _gw} = gateway_for_admin!(admin)
+
+      {:ok, view, _html} = live(conn, "/admin/gateways")
+
+      render_change(view, "search", %{"search" => %{"query" => "zzz-no-such-gateway"}})
+
+      assert has_element?(view, "[data-testid='admin-gateways-search-empty']")
+
+      view
+      |> element("[data-testid='admin-gateways-clear-search']")
+      |> render_click()
+
+      assert has_element?(view, "[data-testid^='admin-gateways-host-']")
+      refute has_element?(view, "[data-testid='admin-gateways-search-empty']")
     end
   end
 

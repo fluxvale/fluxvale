@@ -74,6 +74,16 @@ defmodule FluxValeWeb.AdminOrgsLiveTest do
     {org, anchored}
   end
 
+  defp attribute(view, testid, name) do
+    html = render(element(view, "[data-testid='#{testid}']"))
+    document = LazyHTML.from_fragment(html)
+    matches = LazyHTML.query(document, "[data-testid='#{testid}']")
+    first = Enum.at(matches, 0)
+    values = LazyHTML.attribute(first, name) || []
+
+    Enum.join(values, "")
+  end
+
   defp text_of(view, selector) do
     view
     |> element(selector)
@@ -250,11 +260,13 @@ defmodule FluxValeWeb.AdminOrgsLiveTest do
              )
     end
 
-    test "the list caps at the latest 100 and says so", %{conn: conn} do
+    test "real pagination replaces the old cap: a full first page and a second page", %{
+      conn: conn
+    } do
       {_oldest_org, oldest} = org_wallet!()
 
       newest =
-        for _n <- 1..100 do
+        for _n <- 1..25 do
           {_org, wallet} = org_wallet!()
           wallet
         end
@@ -262,9 +274,43 @@ defmodule FluxValeWeb.AdminOrgsLiveTest do
 
       {:ok, view, _html} = live(conn, "/admin/orgs")
 
-      assert has_element?(view, "[data-testid='admin-orgs-capped']", "latest 100")
+      # The admin's own JIT personal wallet is in the list too, so the
+      # assertions pin the SHAPE (a full first page, a second page),
+      # not the environment's row count.
+      assert text_of(view, "[data-testid='admin-orgs-table-count']") =~ "1 to 25 of"
+      assert text_of(view, "[data-testid='admin-orgs-table-page-label']") =~ "Page 1 of"
       assert has_element?(view, "[data-testid='admin-orgs-org-#{newest.id}']")
       refute has_element?(view, "[data-testid='admin-orgs-org-#{oldest.id}']")
+
+      view
+      |> element("[data-testid='admin-orgs-table-page-next']")
+      |> render_click()
+
+      # Provisioning order, newest first: page two carries the oldest.
+      assert has_element?(view, "[data-testid='admin-orgs-org-#{oldest.id}']")
+      assert text_of(view, "[data-testid='admin-orgs-table-page-label']") =~ "Page 2 of"
+      assert_patched(view, "/admin/orgs?page=2")
+
+      # The table's guard rails: a whitelisted sort rides the URL, a
+      # crafted event is a no-op (the list is unmoved).
+      render_click(view, "sort", %{"field" => "not-a-field"})
+      render_click(view, "page", %{"nav" => "sideways"})
+      render_click(view, "sort", %{})
+      render_click(view, "page", %{})
+      render_click(view, "size", %{})
+      render_change(view, "search", %{"search" => %{"query" => %{"deep" => "crafted"}}})
+
+      assert text_of(view, "[data-testid='admin-orgs-table-page-label']") =~ "Page 2 of"
+
+      # A garbage size falls back to the default and resets the page
+      # with it: the honest fallback, not a silent acceptance.
+      render_click(view, "size", %{"size" => "999"})
+
+      assert text_of(view, "[data-testid='admin-orgs-table-page-label']") =~ "Page 1 of"
+
+      {:ok, sorted, _html} = live(conn, "/admin/orgs?sort=balance&dir=asc")
+
+      assert has_element?(sorted, "[data-testid='admin-orgs-table-header-balance']")
     end
 
     test "the list is the wallet seam: an org without a wallet renders nowhere", %{conn: conn} do
@@ -296,6 +342,83 @@ defmodule FluxValeWeb.AdminOrgsLiveTest do
                "[data-testid='admin-orgs']",
                "An org appears here once its wallet exists"
              )
+    end
+  end
+
+  describe "the table controls" do
+    test "executes every control: sort asc then desc, prev, every size, and the deep-link clamp",
+         %{conn: conn} do
+      for n <- 1..26 do
+        org_wallet!(name: "control org co #{n}")
+      end
+
+      {:ok, view, _html} = live(conn, "/admin/orgs")
+
+      # Sort ascending, then the sorted column flips to descending.
+      view
+      |> element("[data-testid='admin-orgs-table-sort-balance']")
+      |> render_click()
+
+      assert attribute(view, "admin-orgs-table-header-balance", "aria-sort") == "ascending"
+
+      view
+      |> element("[data-testid='admin-orgs-table-sort-balance']")
+      |> render_click()
+
+      assert attribute(view, "admin-orgs-table-header-balance", "aria-sort") == "descending"
+
+      # Prev: page two, then back to one.
+      view
+      |> element("[data-testid='admin-orgs-table-page-next']")
+      |> render_click()
+
+      view
+      |> element("[data-testid='admin-orgs-table-page-prev']")
+      |> render_click()
+
+      assert text_of(view, "[data-testid='admin-orgs-table-page-label']") =~ "Page 1 of"
+
+      # Every size option executes.
+      view
+      |> element("[data-testid='admin-orgs-table-size-50']")
+      |> render_click()
+
+      assert has_element?(view, "[data-testid='admin-orgs-table-size-50'][aria-pressed=true]")
+
+      view
+      |> element("[data-testid='admin-orgs-table-size-100']")
+      |> render_click()
+
+      assert has_element?(view, "[data-testid='admin-orgs-table-size-100'][aria-pressed=true]")
+
+      view
+      |> element("[data-testid='admin-orgs-table-size-25']")
+      |> render_click()
+
+      assert has_element?(view, "[data-testid='admin-orgs-table-size-25'][aria-pressed=true]")
+
+      # The deep-link clamp: a crafted page answers with the last one.
+      {:ok, clamped, _html} = live(conn, "/admin/orgs?page=10000")
+
+      assert text_of(clamped, "[data-testid='admin-orgs-table-page-label']") =~ "Page 2 of"
+    end
+  end
+
+  describe "the clear lever" do
+    test "the search-empty state's clear lever hands the list back", %{conn: conn} do
+      org_wallet!(name: "clear lever org")
+
+      {:ok, view, _html} = live(conn, "/admin/orgs")
+
+      render_change(view, "search", %{"search" => %{"query" => "zzz-no-such-org"}})
+
+      assert has_element?(view, "[data-testid='admin-orgs-list'] p", "No org with a wallet")
+
+      view
+      |> element("[data-testid='admin-orgs-clear-search']")
+      |> render_click()
+
+      assert has_element?(view, "[data-testid^='admin-orgs-org-link-']")
     end
   end
 

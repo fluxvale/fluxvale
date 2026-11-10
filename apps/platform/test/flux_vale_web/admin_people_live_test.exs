@@ -207,19 +207,11 @@ defmodule FluxValeWeb.AdminPeopleLiveTest do
       refute has_element?(view, "[data-testid='admin-people-withdraw-#{expired.id}']")
     end
 
-    test "the list caps at the latest 100 and says so", %{conn: conn} do
+    test "real pagination replaces the old cap: 26 rows make two honest pages", %{conn: conn} do
       # Precondition volume through the real action (nil actor +
       # authorize?: false, the seeds posture; the deliver discards).
-      {:ok, oldest_user, _raw} =
-        Identity.invite_user(
-          nil,
-          unique_address("oldest"),
-          fn _to, _url -> {:ok, :discarded} end,
-          authorize?: false
-        )
-
       invited =
-        for _n <- 1..100 do
+        for _n <- 1..26 do
           {:ok, user, _raw} =
             Identity.invite_user(
               nil,
@@ -232,12 +224,27 @@ defmodule FluxValeWeb.AdminPeopleLiveTest do
         end
 
       newest = List.last(invited)
+      oldest = List.first(invited)
 
       {:ok, view, _html} = live(conn, "/admin/people")
 
-      assert has_element?(view, "[data-testid='admin-people-capped']", "latest 100")
+      # Newest first: page one is a full first page carrying the
+      # newest row, and the count and page label are honest about the
+      # oldest row waiting on page two.
       assert has_element?(view, "[data-testid='admin-people-email-#{newest.id}']")
-      refute has_element?(view, "[data-testid='admin-people-email-#{oldest_user.id}']")
+      assert has_element?(view, "[data-testid='admin-people-table-count']", "1 to 25 of 26")
+      assert has_element?(view, "[data-testid='admin-people-table-page-label']", "Page 1 of 2")
+
+      view
+      |> element("[data-testid='admin-people-table-page-next']")
+      |> render_click()
+
+      assert has_element?(view, "[data-testid='admin-people-email-#{oldest.id}']")
+      refute has_element?(view, "[data-testid='admin-people-email-#{newest.id}']")
+      assert has_element?(view, "[data-testid='admin-people-table-page-label']", "Page 2 of 2")
+
+      # The URL states the view: reloading lands on the same page.
+      assert_patched(view, "/admin/people?page=2")
     end
 
     test "a live account with no invitation story never appears", %{conn: conn, admin: admin} do
@@ -248,6 +255,40 @@ defmodule FluxValeWeb.AdminPeopleLiveTest do
 
       assert has_element?(view, "[data-testid='admin-people-email-#{pending.id}']")
       refute has_element?(view, "[data-testid='admin-people-email-#{outsider.id}']")
+    end
+
+    test "a descending accepted_at sort keeps the never-accepted rows last", %{
+      conn: conn,
+      admin: admin
+    } do
+      # Postgres floats NULLs FIRST on DESC: without nils_last a
+      # newest-accepted sort buries the accepted rows under every
+      # pending invitation (CodeRabbit, #643).
+      {pending, _raw} = pending_invite!(admin, "nils-last-pending-#{@n}@fluxvale.com")
+      {accepted, _accepted_raw} = accepted_invite!(admin)
+
+      {:ok, view, _html} = live(conn, "/admin/people?sort=accepted_at&dir=desc")
+      html = render(view)
+
+      {pending_at, _pending_len} = :binary.match(html, "admin-people-email-#{pending.id}")
+
+      {accepted_at, _accepted_len} = :binary.match(html, "admin-people-email-#{accepted.id}")
+
+      assert accepted_at < pending_at
+
+      # The ascending arm of the stamp map (codecov, #643): same
+      # mapping, opposite direction — the accepted row leads when the
+      # sort runs asc and the pending row's NULL sorts last either way.
+      {:ok, asc_view, _asc_html} = live(conn, "/admin/people?sort=accepted_at&dir=asc")
+      asc_html = render(asc_view)
+
+      {asc_pending_at, _asc_pending_len} =
+        :binary.match(asc_html, "admin-people-email-#{pending.id}")
+
+      {asc_accepted_at, _asc_accepted_len} =
+        :binary.match(asc_html, "admin-people-email-#{accepted.id}")
+
+      assert asc_accepted_at < asc_pending_at
     end
 
     test "search narrows this list by email and never reaches past it", %{
@@ -564,6 +605,25 @@ defmodule FluxValeWeb.AdminPeopleLiveTest do
 
       assert has_element?(view, "#flash-error", "already active")
       assert has_element?(view, "[data-testid='admin-people-state-#{pending.id}']", "Accepted")
+    end
+  end
+
+  describe "the clear lever" do
+    test "the search-empty state's clear lever hands the list back", %{conn: conn, admin: admin} do
+      {:ok, _user, _raw} = Identity.invite_user(admin, unique_address("clear"))
+
+      {:ok, view, _html} = live(conn, "/admin/people")
+
+      render_change(view, "search", %{"search" => %{"query" => "zzz-no-such-invite"}})
+
+      assert has_element?(view, "[data-testid='admin-people-search-empty']")
+
+      view
+      |> element("[data-testid='admin-people-clear-search']")
+      |> render_click()
+
+      assert has_element?(view, "[data-testid^='admin-people-email-']")
+      refute has_element?(view, "[data-testid='admin-people-search-empty']")
     end
   end
 

@@ -6,13 +6,12 @@ defmodule FluxValeWeb.AdminComponents do
   an allocation reads as. Since #558 a size is a compute class: its
   rows print CPU and memory only, while version blueprints still
   describe the whole allocation (their defaults carry a storage term
-  that prices per GB on its own axis). Also the grid tables' shared
-  chrome (#602): one header and one row class list, so the five
-  hand-rolled tables can never disagree about the chrome around their
-  tracks.
+  that prices per GB on its own axis).
   """
 
   use FluxValeWeb, :html
+
+  alias FluxValeWeb.Components.AdminDataTable
 
   @doc """
   The destroy clock's deadline string: the anchor plus 30 days, the
@@ -55,38 +54,6 @@ defmodule FluxValeWeb.AdminComponents do
       cpu: Decimal.to_string(size.cpu_cores),
       memory: Integer.to_string(size.memory_mb)
     )
-  end
-
-  @doc """
-  The admin grid tables' shared chrome (#602): one header and one row
-  class list for the five hand-rolled tables (people, billing wallets,
-  moderation posts and tags, the wallet ledger). The five copies were
-  byte-identical, not divergent. The motive is five places to drift
-  with no single owner. Kept as class-list functions, not a wrapper
-  component: these divs also carry id, data-testid, and conditional
-  classes at the call sites (stream dom ids, billing's negative-row
-  tint), so a component would mean attribute plumbing at ten sites or
-  a new wrapper element that changes the markup. The `grid-cols-[...]`
-  tracks stay inline per surface (different columns by necessity) and
-  stay literal, so Tailwind's source scan keeps emitting them.
-  Semantic CSS classes in app.css would re-express utilities as raw
-  CSS. The design system keeps component chrome hand-written Tailwind
-  on the tokens. The orgs surfaces' tables ride the same chrome.
-  """
-  @spec admin_table_header_class :: String.t()
-  def admin_table_header_class do
-    "grid items-center gap-x-3 border-b border-line px-3 py-3 text-left text-xs font-medium tracking-wide text-ink-muted uppercase"
-  end
-
-  @doc """
-  The body-row counterpart of `admin_table_header_class/0`. The rows
-  carry no separator here: each surface draws it on its own wrapper
-  (or, in billing's case, appends it to the grid itself, since the
-  stream items are the rows there).
-  """
-  @spec admin_table_row_class :: String.t()
-  def admin_table_row_class do
-    "grid items-center gap-x-3 px-3 py-3 transition-colors hover:bg-panel-raised/60"
   end
 
   @doc """
@@ -244,4 +211,18 @@ defmodule FluxValeWeb.AdminComponents do
   defp domain_state_label(:needs_attention), do: gettext("Needs attention")
   defp domain_state_label(:failed), do: gettext("Failed")
   defp domain_state_label(:suspended), do: gettext("Suspended")
+
+  @doc """
+  The #606 shared table chrome seam, kept public for surfaces the
+  DataTable has not adopted yet (the resources console's surfaces and
+  storage requests ride it directly). The DataTable now OWNS the
+  strings (its header_row_class/body_row_class internals, #643);
+  these delegate so the two can never drift — the same
+  one-definition rule that birthed the seam.
+  """
+  @spec admin_table_header_class() :: String.t()
+  def admin_table_header_class, do: AdminDataTable.header_row_class()
+
+  @spec admin_table_row_class() :: String.t()
+  def admin_table_row_class, do: AdminDataTable.body_row_class()
 end
