@@ -148,3 +148,26 @@ live section — no homepage of its own. The remaining workflows
 (billing #571, then feedback, orgs, gateways) land as sections in
 later slices and flip their sidebar entries live when they do. The
 gate does not move; Am. 3's triple gate stays on every surface.
+
+## Amendment 5 (2026-11-11): the per-event demotion seam rides the generated tools too (#671)
+
+Am. 3's "exact same triple gate" left the generated tools with the
+mount-time re-check alone, so a platform admin demoted mid-session
+kept acting through an already-open tab until the socket reconnected
+— on AshAdmin including saves and destroys (Am. 1's trusted-superuser
+posture). #671 extracts the console's per-event seam
+(`FluxValeWeb.AdminDemotionGate`: every event re-resolves the actor
+from the session; notifications halt quietly) and mounts it after
+AdminGate on the ash_admin and live_dashboard live_sessions too, so
+the gate stack is a quadruple on every admin surface.
+
+Measured honestly against LiveView's channel, the seam sees
+VIEW-targeted events and info messages only. LiveDashboard's
+interaction is view-shaped (nav, refresh, page events, the tick), so
+its window closes. AshAdmin's resource writes — the save/destroy
+forms, the generic actions — target their own LiveComponents
+(`phx-target={@myself}`), and cid-targeted events route straight to
+the component: no view-level hook can see them. That residue stands
+disclosed on #671; closing it needs a socket-level answer (a periodic
+re-resolve that redirects, or a demotion broadcast the tab hears), a
+posture decision for the owner, not this slice.
