@@ -548,15 +548,18 @@ defmodule FluxValeWeb.Router do
     # the shared section sidebar (AdminShell — the #568 account-settings
     # idiom). There is no homepage: `/admin` is the People mount's
     # :home action, which pushes navigation to the first live section.
-    # The session carries the same two arms for the same two jobs as
-    # the app's :authenticated session: Locale first (the LiveView
-    # process re-resolves from the session), then the AdminGate socket
-    # re-check (the demotion window). The route gate is the scope's
-    # :admin_auth pipeline.
+    # The session carries the same arms for the same jobs as the app's
+    # :authenticated session: Locale first (the LiveView process
+    # re-resolves from the session), then the AdminGate socket re-check
+    # (the demotion window), then the per-event demotion seam (#671:
+    # the AdminDemotionGate hooks, extracted) BEFORE the chrome so its
+    # info gate halts ahead of the badge hook — and the route gate is
+    # the scope's :admin_auth pipeline.
     live_session :admin,
       on_mount: [
         {FluxValeWeb.Locale, :set_locale},
         {FluxValeWeb.AdminGate, :ensure_admin},
+        {FluxValeWeb.AdminDemotionGate, :attach},
         {FluxValeWeb.AdminChrome, :assign_chrome}
       ] do
       live("/", FluxValeWeb.AdminLive.People, :home)
@@ -650,15 +653,19 @@ defmodule FluxValeWeb.Router do
 
     # LiveDashboard on the debug subpath (Am. 3): this node's BEAM and
     # Ecto telemetry, the LiveDashboard docs' prod pattern — no more
-    # /dev-only mount. The SAME triple gate as everything on this
+    # /dev-only mount. The SAME gate stack as everything on this
     # surface (the :browser pipeline, the :admin_auth route pipeline —
     # session auth plus the platform-admin role — and the on_mount
-    # socket re-check): the macro accepts on_mount and a LiveDashboard
-    # LiveView socket never re-enters the router, so a demoted admin's
-    # open tab cannot outlive the gate. Business telemetry
-    # (Telemetry.Metric definitions in FluxValeWeb.Telemetry) renders
-    # here; alert-worthy metrics ALSO flow to Grafana where the alert
-    # rules live.
+    # socket re-check), plus the per-event demotion seam (#671): the
+    # AdminGate re-check answers per MOUNT, and a socket outlives a
+    # demotion, so the seam re-resolves the actor on every view-level
+    # event and halts the refresh tick under a dead session. The
+    # residue, measured: the table controls (search/sort/limit) are
+    # cid events that push_patch, and patches re-run handle_params
+    # ungated — node telemetry still refreshes on interaction under a
+    # dead session. Business telemetry (Telemetry.Metric definitions
+    # in FluxValeWeb.Telemetry) renders here; alert-worthy metrics
+    # ALSO flow to Grafana where the alert rules live.
     #
     # ORDER MATTERS: this mount must precede ash_admin — AshAdmin's
     # page routes end in a segment wildcard, and router clauses compile
@@ -668,13 +675,28 @@ defmodule FluxValeWeb.Router do
     live_dashboard("/debug/dashboard",
       metrics: FluxValeWeb.Telemetry,
       ecto_repos: [FluxVale.Repo],
-      on_mount: {FluxValeWeb.AdminGate, :ensure_admin}
+      on_mount: [
+        {FluxValeWeb.AdminGate, :ensure_admin},
+        {FluxValeWeb.AdminDemotionGate, :attach}
+      ]
     )
 
     # AshAdmin on the debug subpath (Am. 3): the generated superuser
     # surface, kept for emergency data surgery — it lands LAST because
     # its own wildcard route would swallow any clause after it in this
-    # scope.
-    ash_admin("/ash", on_mount: {FluxValeWeb.AdminGate, :ensure_admin})
+    # scope. The demotion seam (#671) rides it too, with its honest
+    # limits: the seam sees VIEW-level events (nav, the authorizing
+    # toggle, actor/tenant ops), while the rest of AshAdmin's
+    # component-level UI — the save/destroy forms, generic actions,
+    # table filters — targets its own LiveComponents
+    # (`phx-target={@myself}`) and no view-level hook can see those;
+    # the residue and its socket-level follow-up decision are
+    # disclosed on #671.
+    ash_admin("/ash",
+      on_mount: [
+        {FluxValeWeb.AdminGate, :ensure_admin},
+        {FluxValeWeb.AdminDemotionGate, :attach}
+      ]
+    )
   end
 end

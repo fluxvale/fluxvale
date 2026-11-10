@@ -23,7 +23,7 @@ defmodule FluxValeWeb.AdminLive.WalletDetail do
   - the reversal (`LedgerEntry :reverse`, #577, the compensating
     unwind): confirmed under its row, the original stays.
 
-  Every write runs under the AdminChrome per-event seam (#644's
+  Every write runs under the AdminDemotionGate per-event seam (#644's
   console slice, ADR-0047 D4): the shared hook re-resolves the actor
   from the session (which also re-checks token revocation) at EVERY
   event and refuses a demoted one before the handler runs, so
@@ -225,7 +225,7 @@ defmodule FluxValeWeb.AdminLive.WalletDetail do
   end
 
   # The goodwill write. Irreversible by design (no unpost, only a
-  # compensating reversal), under the AdminChrome per-event actor seam
+  # compensating reversal), under the AdminDemotionGate per-event actor seam
   # like every write here.
   # coveralls-ignore-start - the same clause-head cover artifact; the
   # goodwill confirm tests drive it and the body's lines carry counts
@@ -282,7 +282,7 @@ defmodule FluxValeWeb.AdminLive.WalletDetail do
 
   # The compensating unwind: the `LedgerEntry :reverse` action, gated
   # by the same platform-admin policy as the goodwill credit. The
-  # AdminChrome hook has already re-resolved the actor at this event
+  # AdminDemotionGate hook has already re-resolved the actor at this event
   # (a mount-resolved admin does not survive a demotion), then the
   # fresh actor-authorized read, then the action. The domain's own
   # guard refuses a double reversal.

@@ -148,3 +148,35 @@ live section — no homepage of its own. The remaining workflows
 (billing #571, then feedback, orgs, gateways) land as sections in
 later slices and flip their sidebar entries live when they do. The
 gate does not move; Am. 3's triple gate stays on every surface.
+
+## Amendment 5 (2026-11-11): the per-event demotion seam rides the generated tools too (#671)
+
+Am. 3's "exact same triple gate" left the generated tools with the
+mount-time re-check alone, so a platform admin demoted mid-session
+kept acting through an already-open tab until the socket reconnected
+— on AshAdmin including saves and destroys (Am. 1's trusted-superuser
+posture). #671 extracts the console's per-event seam
+(`FluxValeWeb.AdminDemotionGate`: every event re-resolves the actor
+from the session; notifications halt quietly —
+[ADR-0047](00047-platform-admin-authority.md) D4's doctrine, extended)
+and mounts it after AdminGate on the ash_admin and live_dashboard
+live_sessions too, so the gate stack is a quadruple on every admin
+surface.
+
+Measured honestly against LiveView's channel, the seam sees
+VIEW-targeted events and info messages only, and neither vendor
+layout renders a flash group — a refusal on a generated surface is
+silent (the copy renders on the console alone). LiveDashboard: the
+refresh tick halts and view-level events are refused, but the table
+controls (search, sort, limit) are cid-targeted events that
+push_patch, and a patch re-runs handle_params ungated — node
+telemetry still refreshes on interaction under a dead session.
+AshAdmin: the view-level chrome is refused; the rest of its
+component-level UI — save/destroy forms, generic actions, table
+filters — targets its own LiveComponents, and cid-targeted events
+route straight to the component: no view-level hook can see them.
+Both residues stand disclosed on #671; closing them needs a
+socket-level answer (a periodic re-resolve that redirects, a
+demotion broadcast, or a :handle_params gate), a posture decision
+for the owner, not this slice. The seam's resolve cost is accepted:
+a few queries per info message, including the dashboard's tick.

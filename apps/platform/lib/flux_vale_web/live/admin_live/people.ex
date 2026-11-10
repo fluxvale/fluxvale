@@ -127,7 +127,7 @@ defmodule FluxValeWeb.AdminLive.People do
          |> assign(invite_form: to_form(%{"email" => address}, as: :invite))}
 
       # The residual error class, NOT a mid-session demotion: the
-      # AdminChrome hook re-resolves the actor per event and refuses a
+      # AdminDemotionGate hook re-resolves the actor per event and refuses a
       # demoted one before this handler runs, so what lands here is the
       # occupant race between the operation's read and its write, or
       # the DB-down class. Neither is simulatable under the sandbox.
@@ -175,7 +175,7 @@ defmodule FluxValeWeb.AdminLive.People do
          |> refresh_rows()}
 
       # coveralls-ignore-start - the residual error class, not a
-      # mid-session demotion (the AdminChrome hook refuses a demoted
+      # mid-session demotion (the AdminDemotionGate hook refuses a demoted
       # actor per event, before this handler runs): the same occupant
       # race or DB-down class as the invite form above. Not simulatable
       # under the sandbox.

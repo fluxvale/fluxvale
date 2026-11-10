@@ -15,7 +15,7 @@ defmodule FluxValeWeb.AdminLive.StorageRequests do
   org name rides the shared `Organization :admin_lookup`; the wallet
   state rides `ActorOrgWalletFunded.org_funded?/1`.
 
-  The demotion-window defense rides the AdminChrome per-event hook
+  The demotion-window defense rides the AdminDemotionGate per-event hook
   every admin LiveView inherits (#644's console slice, ADR-0047 D4):
   each event re-resolves the actor from the session and refuses a
   demoted one, so the write handlers below act on the FRESH struct.

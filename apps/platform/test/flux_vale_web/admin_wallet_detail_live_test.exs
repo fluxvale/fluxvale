@@ -892,7 +892,7 @@ defmodule FluxValeWeb.AdminWalletDetailLiveTest do
     end
   end
 
-  describe "the demotion window (the AdminChrome per-event hook)" do
+  describe "the demotion window (the AdminDemotionGate per-event hook)" do
     test "a mid-session demotion cannot post: every event re-resolves the actor", %{
       conn: conn,
       admin: admin,
