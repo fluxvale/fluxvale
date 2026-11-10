@@ -20,6 +20,7 @@ defmodule FluxValeWeb.InstanceLive.Show do
   alias FluxVale.Infrastructure.BackupRun
   alias FluxVale.Infrastructure.Instance
   alias FluxVale.Infrastructure.PocketIdCustody
+  alias FluxVale.Infrastructure.PocketIdWiring
   alias FluxVale.Infrastructure.StorageRequest
   alias FluxVale.Ops.FeatureFlags
   alias FluxValeWeb.AllocationSliders
@@ -88,6 +89,7 @@ defmodule FluxValeWeb.InstanceLive.Show do
           # assign_access).
           |> assign_access(instance, user)
           |> assign_pocketid_custody(instance, user)
+          |> assign_pocketid_sso(instance, user)
           |> assign_storage_request(instance, user)
 
         {:ok, maybe_schedule_status_tick(socket)}
@@ -599,6 +601,112 @@ defmodule FluxValeWeb.InstanceLive.Show do
                   </.button>
                 </div>
               </.form>
+            </.card>
+
+            <%!-- #597 §4.6 (S5): the SSO card — recipe-carrying app
+            instances only, flag-gated. The truth shapes: WIRED (the
+            confirmation + Rotate/Disconnect), CONNECT (deployed, the
+            org's ready PocketIDs — the retrofit), POCKET_ID_GONE (the
+            wiring outlives its IdP — clear it). Local login survives
+            every path (#511 verified per-app). --%>
+            <.card
+              :if={@pocketid_sso_state != :hidden}
+              class="card space-y-3"
+              data-testid="pocketid-sso-card"
+            >
+              <div class="flex items-center justify-between gap-3">
+                <h3 class="text-sm font-semibold">Pocket ID sign-in</h3>
+              </div>
+
+              <%= cond do %>
+                <% @pocketid_sso_state == :wired -> %>
+                  <p class="text-sm text-ink-subtle" data-testid="pocketid-sso-wired">
+                    Sign-in wired to your Pocket ID — client <span class="font-medium">FluxVale · {@instance.name}</span>,
+                    created {Calendar.strftime(@pocketid_wiring.wired_at, "%b %d, %Y")}.
+                    All Pocket ID users can sign in. This app's own login keeps working.
+                  </p>
+                  <p
+                    :if={@pocketid_sso_error}
+                    class="text-sm text-danger"
+                    data-testid="pocketid-sso-error"
+                  >
+                    {@pocketid_sso_error}
+                  </p>
+                  <div class="flex flex-wrap justify-end gap-2">
+                    <.button
+                      size="sm"
+                      variant="ghost"
+                      phx-click="pocketid-rotate"
+                      phx-disable-with="Rotating…"
+                      data-testid="pocketid-rotate"
+                    >
+                      Rotate secret
+                    </.button>
+                    <.button
+                      size="sm"
+                      variant="ghost"
+                      phx-click="pocketid-disconnect"
+                      phx-disable-with="Disconnecting…"
+                      data-confirm="Disconnect Pocket ID sign-in? This app keeps its own login; the Pocket ID client is deleted. Redoing the wiring later creates a fresh client."
+                      data-testid="pocketid-disconnect"
+                    >
+                      Disconnect
+                    </.button>
+                  </div>
+                <% @pocketid_sso_state == :connect -> %>
+                  <p class="text-sm text-ink-subtle" data-testid="pocketid-sso-connect-copy">
+                    Sign this app in with your Pocket ID — FluxVale creates the
+                    client and configures it now. This app's own login keeps working.
+                  </p>
+                  <p
+                    :if={@pocketid_sso_error}
+                    class="text-sm text-danger"
+                    data-testid="pocketid-sso-error"
+                  >
+                    {@pocketid_sso_error}
+                  </p>
+                  <.form
+                    for={@pocketid_connect_form}
+                    id="pocketid-connect-form"
+                    phx-submit="pocketid-connect"
+                  >
+                    <div class="flex items-end gap-2">
+                      <div :if={length(@pocketid_choices) > 1} class="min-w-0 flex-1">
+                        <.input
+                          field={@pocketid_connect_form[:pocket_id_instance_id]}
+                          type="select"
+                          label="Pocket ID"
+                          options={pocketid_options(@pocketid_choices)}
+                        />
+                      </div>
+                      <input
+                        :if={length(@pocketid_choices) < 2}
+                        type="hidden"
+                        name="pocket_id_instance_id"
+                        value={@pocketid_pick}
+                      />
+                      <.button size="sm" phx-disable-with="Wiring…" data-testid="pocketid-connect">
+                        Connect Pocket ID
+                      </.button>
+                    </div>
+                  </.form>
+                <% true -> %>
+                  <p class="text-sm text-ink-subtle" data-testid="pocketid-sso-gone">
+                    The Pocket ID this app was wired to is gone. Clear the wiring —
+                    this app keeps its own login either way.
+                  </p>
+                  <div class="flex flex-wrap justify-end gap-2">
+                    <.button
+                      size="sm"
+                      variant="ghost"
+                      phx-click="pocketid-disconnect"
+                      phx-disable-with="Clearing…"
+                      data-testid="pocketid-clear-wiring"
+                    >
+                      Clear wiring
+                    </.button>
+                  </div>
+              <% end %>
             </.card>
 
             <%!-- #250: the storage row beside the resize panel — the
@@ -1755,6 +1863,85 @@ defmodule FluxValeWeb.InstanceLive.Show do
     end
   end
 
+  # The card's voice for the operations' reasons — the wizard panel's
+  # map, the card's shorter register. Anything unrecognized (an Ash
+  # error, a refused mint's map) gets the honest generic.
+  # ------------------------------------------------------------------
+  # #597 S5 (§4.6): the SSO card's three verbs — every one is the
+  # operation's own seam (the card is sugar, like the wizard). All
+  # three re-assign the card from post-action ground truth; a refusal
+  # renders in place (pocketid_sso_error), never a crash.
+  # ------------------------------------------------------------------
+  def handle_event("pocketid-connect", %{"pocket_id_instance_id" => pocket_id_id}, socket) do
+    instance = socket.assigns.instance
+
+    case Infrastructure.retrofit_pocket_id(instance, pocket_id_id,
+           actor: socket.assigns.current_user
+         ) do
+      {:ok, _wiring} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, "Pocket ID sign-in wired.")
+         |> reload_sso_card()}
+
+      {:error, reason} ->
+        {:noreply, assign(socket, pocketid_sso_error: sso_error_copy(reason))}
+    end
+  end
+
+  # A crafted connect without a pick is nothing to wire.
+  def handle_event("pocketid-connect", _no_pick, socket) do
+    {:noreply, socket}
+  end
+
+  def handle_event("pocketid-rotate", _params, socket) do
+    case socket.assigns.pocketid_wiring do
+      nil ->
+        {:noreply, socket}
+
+      wiring ->
+        case Infrastructure.rotate_pocket_id_secret(wiring, actor: socket.assigns.current_user) do
+          {:ok, _wiring} ->
+            {:noreply,
+             socket
+             |> put_flash(:info, "Sign-in secret rotated — the new one is already live.")
+             |> reload_sso_card()}
+
+          {:error, reason} ->
+            {:noreply, assign(socket, pocketid_sso_error: sso_error_copy(reason))}
+        end
+    end
+  end
+
+  def handle_event("pocketid-disconnect", _params, socket) do
+    gone_before? = socket.assigns.pocketid_sso_state == :pocket_id_gone
+
+    case Infrastructure.disconnect_pocket_id(socket.assigns.instance,
+           actor: socket.assigns.current_user
+         ) do
+      {:ok, %{client_deleted: deleted?}} ->
+        flash =
+          cond do
+            gone_before? ->
+              "Wiring cleared."
+
+            deleted? ->
+              "Pocket ID sign-in disconnected."
+
+            true ->
+              "Pocket ID sign-in disconnected. The client remains in your Pocket ID — delete it there."
+          end
+
+        {:noreply,
+         socket
+         |> put_flash(:info, flash)
+         |> reload_sso_card()}
+
+      {:error, reason} ->
+        {:noreply, assign(socket, pocketid_sso_error: sso_error_copy(reason))}
+    end
+  end
+
   # #253 (ADR-0035 Am. 3): platform-tab switching. The active platform
   # is server state, and the click locks it — the OS-detected default
   # can then never override a choice (detection assists, never traps).
@@ -1929,6 +2116,49 @@ defmodule FluxValeWeb.InstanceLive.Show do
         {:noreply, put_flash(socket, :error, "Delete failed. Try again.")}
         # coveralls-ignore-stop
     end
+  end
+
+  defp sso_error_copy(reason) do
+    case reason do
+      :unreachable ->
+        "Your Pocket ID didn't answer — it may be waking up. Try again shortly."
+
+      :key_rejected ->
+        "The held Pocket ID key was rejected — its owner can re-paste it on the Pocket ID's page."
+
+      :no_custody ->
+        "FluxVale holds no key for that Pocket ID — paste one on the Pocket ID's page first."
+
+      :pocket_id_gone ->
+        "That Pocket ID no longer exists."
+
+      :not_deployed ->
+        "This app isn't deployed yet."
+
+      _other ->
+        "That didn't work (#{inspect(reason)}). Try again, or check the Pocket ID's page."
+    end
+  end
+
+  # Post-action ground truth: the wiring, the choices, the state — the
+  # SAME derivation the mount assign rides (sso_card_state; the
+  # duplication that diverged once already).
+  defp reload_sso_card(socket) do
+    instance = socket.assigns.instance
+    user = socket.assigns.current_user
+
+    wiring = find_pocketid_wiring(instance.id, user)
+    pocket_ids = ready_pocket_ids(instance.organization_id, user)
+    state = sso_card_state(wiring, pocket_ids, not is_nil(instance.namespace))
+
+    assign(socket,
+      pocketid_sso_state: state,
+      pocketid_wiring: wiring,
+      pocketid_choices: pocket_ids,
+      pocketid_pick: pick_id(pocket_ids),
+      pocketid_connect_form: connect_form(pick_id(pocket_ids)),
+      pocketid_sso_error: nil
+    )
   end
 
   defp resize_submit(socket, params) do
@@ -2226,6 +2456,104 @@ defmodule FluxValeWeb.InstanceLive.Show do
       end
 
     assign(socket, :pocketid_custody, custody)
+  end
+
+  # ------------------------------------------------------------------
+  # #597 S5 (§4.6): the SSO card — recipe-carrying instances only,
+  # flag-gated, member-visible. Three truth shapes: WIRED (the row +
+  # its PocketID both stand — Rotate/Disconnect), CONNECT (deployed,
+  # no wiring, the org has a ready PocketID — the retrofit picker),
+  # POCKET_ID_GONE (the wiring outlives its IdP — Clear wiring).
+  # Nothing renders outside those: no recipe, no flag, nothing to
+  # offer — the plain posture.
+  # ------------------------------------------------------------------
+  defp assign_pocketid_sso(socket, instance, user) do
+    recipe = instance.app_version.oidc_wiring
+    deployed? = not is_nil(instance.namespace)
+
+    card? =
+      FeatureFlags.enabled?(:pocketid_sso_wiring, for: user) and
+        is_map(recipe) and recipe.kind == :env
+
+    assigns =
+      if card? do
+        wiring = find_pocketid_wiring(instance.id, user)
+        pocket_ids = ready_pocket_ids(instance.organization_id, user)
+        state = sso_card_state(wiring, pocket_ids, deployed?)
+
+        [
+          pocketid_sso_state: state,
+          pocketid_wiring: wiring,
+          pocketid_choices: pocket_ids,
+          pocketid_pick: pick_id(pocket_ids),
+          pocketid_sso_error: nil
+        ]
+      else
+        [
+          pocketid_sso_state: :hidden,
+          pocketid_wiring: nil,
+          pocketid_choices: [],
+          pocketid_pick: nil,
+          pocketid_sso_error: nil,
+          pocketid_connect_form: nil
+        ]
+      end
+
+    assign(
+      socket,
+      Keyword.put(assigns, :pocketid_connect_form, connect_form(assigns[:pocketid_pick]))
+    )
+  end
+
+  defp connect_form(pick_id) do
+    to_form(%{"pocket_id_instance_id" => pick_id})
+  end
+
+  defp pocketid_options(choices) do
+    Enum.map(choices, fn pocket_id ->
+      {pocket_id.name <> " (" <> pocket_id.slug <> ")", pocket_id.id}
+    end)
+  end
+
+  # The card's truth shape: the wiring (and its PocketID) decide the
+  # wired/gone states; the connect offer needs a deployed app AND a
+  # ready PocketID to point at.
+  defp sso_card_state(nil, pocket_ids, deployed?) do
+    if deployed? and pocket_ids != [], do: :connect, else: :hidden
+  end
+
+  defp sso_card_state(wiring, _pocket_ids, _deployed?) do
+    if pocket_id_gone?(wiring), do: :pocket_id_gone, else: :wired
+  end
+
+  defp find_pocketid_wiring(instance_id, user) do
+    case PocketIdWiring.get_by_instance(instance_id, actor: user) do
+      {:ok, wiring} -> wiring
+      {:error, _none} -> nil
+    end
+  end
+
+  # The org's ACTIVE PocketIDs (S3's detection read) that also hold
+  # custody — the same readiness the wizard's offer demands. The
+  # CONNECT offer's candidate set only.
+  defp ready_pocket_ids(organization_id, user) do
+    active = Instance.list_active_pocket_ids_for_organization!(organization_id, actor: user)
+
+    Enum.filter(active, fn pocket_id ->
+      match?({:ok, _custody}, PocketIdCustody.get_by_instance(pocket_id.id, actor: user))
+    end)
+  end
+
+  defp pick_id([%Instance{} = newest | _rest]), do: newest.id
+  defp pick_id([]), do: nil
+
+  # §6's question is EXISTENCE, not offer-readiness: a wiring whose
+  # PocketID row still stands is live sign-in even when custody was
+  # revoked or the PocketID went private — those affect the NEXT
+  # connect, not the standing wiring (the ops keep the same split:
+  # :no_custody vs :pocket_id_gone).
+  defp pocket_id_gone?(wiring) do
+    match?({:error, _gone}, Ash.get(Instance, wiring.pocket_id_instance_id, authorize?: false))
   end
 
   defp fresh_key_form, do: to_form(%{"api_key" => ""}, as: :pocketid_key)

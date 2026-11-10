@@ -195,6 +195,68 @@ defmodule FluxVale.Infrastructure.PocketId.ApiClient do
     end
   end
 
+  @doc """
+  Adds a second active secret to a client (`POST /api/oidc/clients/:id/
+  secrets`) with a **caller-supplied** value (v2.19.2 accepts ≥16
+  printable ASCII; §2's transcript) — the platform generates its own so
+  the flow never depends on capturing PocketID's minted shape. The
+  response carries the created secret's id (`secret_id`, S5's rotation
+  delete target); the VALUE is what the caller sent, so nothing is
+  revealed by the call. The old secret stays usable until deleted —
+  the zero-downtime pair with `delete_secret/4`.
+  """
+  @spec create_secret(String.t(), String.t(), String.t(), String.t()) ::
+          {:ok, %{secret_id: String.t()}} | {:error, error()}
+  def create_secret(base_url, api_key, client_id, secret)
+      when is_binary(base_url) and is_binary(api_key) and is_binary(client_id) and
+             is_binary(secret) do
+    req = new_req(base_url, api_key)
+
+    case Req.post(req, url: "/api/oidc/clients/#{client_id}/secrets", json: %{"secret" => secret}) do
+      {:ok, %Req.Response{status: status, body: body}} when status in 200..299 ->
+        created_secret(body)
+
+      other ->
+        error_result(other)
+    end
+  end
+
+  @doc """
+  Deletes one of a client's secrets (`DELETE /api/oidc/clients/:id/
+  secrets/:secretId`) — immediately unusable. The rotation's LAST step
+  (the new secret is already live in env; deleting the old one
+  completes the cutover).
+  """
+  @spec delete_secret(String.t(), String.t(), String.t(), String.t()) ::
+          :ok | {:error, error()}
+  def delete_secret(base_url, api_key, client_id, secret_id)
+      when is_binary(base_url) and is_binary(api_key) and is_binary(client_id) and
+             is_binary(secret_id) do
+    req = new_req(base_url, api_key)
+
+    case Req.delete(req, url: "/api/oidc/clients/#{client_id}/secrets/#{secret_id}") do
+      {:ok, %Req.Response{status: status}} when status in 200..299 -> :ok
+      other -> error_result(other)
+    end
+  end
+
+  @doc """
+  Deletes a client outright (`DELETE /api/oidc/clients/:id`) — the
+  disconnect and teardown-time cleanup (D6) verb. Best-effort by
+  design at every caller: a refused delete leaves a harmless, visible
+  client named `FluxVale · …` in PocketID's admin.
+  """
+  @spec delete_client(String.t(), String.t(), String.t()) :: :ok | {:error, error()}
+  def delete_client(base_url, api_key, client_id)
+      when is_binary(base_url) and is_binary(api_key) and is_binary(client_id) do
+    req = new_req(base_url, api_key)
+
+    case Req.delete(req, url: "/api/oidc/clients/#{client_id}") do
+      {:ok, %Req.Response{status: status}} when status in 200..299 -> :ok
+      other -> error_result(other)
+    end
+  end
+
   # ------------------------------------------------------------------
   # Plumbing
   # ------------------------------------------------------------------
@@ -216,6 +278,14 @@ defmodule FluxVale.Infrastructure.PocketId.ApiClient do
     do: {:ok, issuer}
 
   defp issuer(_answered_without_issuer), do: {:error, :no_issuer}
+
+  # The 201 body of a caller-supplied secret create: PocketID echoes
+  # the secret's id (the rotation's delete target). The VALUE is the
+  # caller's own — nothing to extract.
+  defp created_secret(%{"id" => secret_id}) when is_binary(secret_id) and secret_id != "",
+    do: {:ok, %{secret_id: secret_id}}
+
+  defp created_secret(_no_id), do: {:error, :no_created_secret}
 
   # The 201 body: PocketID's client id, the created secret's id (S5's
   # rotation targets it), and the one-time secret value. The value

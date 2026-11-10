@@ -46,6 +46,7 @@ defmodule FluxVale.Infrastructure.Operations.ConnectPocketId do
   """
 
   alias FluxVale.Infrastructure.Instance
+  alias FluxVale.Infrastructure.Operations.ApplyPocketIdEnv
   alias FluxVale.Infrastructure.Operations.UsePocketIdKey
   alias FluxVale.Infrastructure.PocketId.ApiClient
   alias FluxVale.Infrastructure.PocketIdCustody
@@ -110,6 +111,73 @@ defmodule FluxVale.Infrastructure.Operations.ConnectPocketId do
     end
   end
 
+  @doc """
+  The retrofit (#597 S5, §4.6) — the SAME wiring pipeline for a
+  DEPLOYED instance (app predates the PocketID): the mint and the
+  atomic row+wiring write are identical to `call/3`; only the status
+  guard flips to the deployed set, and after the transaction the new
+  env reaches the RUNNING workload through the SSO-scoped apply
+  primitive (Secret merge-upsert + rolling restart — D5's narrow
+  primitive, never arbitrary env).
+
+  The row write precedes the apply (the row is the truth; a failed
+  apply leaves a recorded wiring with stale pods — visible, retryable,
+  converging — never undocumented live values).
+  """
+  @spec retrofit(Instance.t(), Ash.UUID.t(), keyword()) ::
+          {:ok, PocketIdWiring.t()} | {:error, term()}
+  def retrofit(%Instance{id: app_instance_id}, pocket_id_instance_id, opts \\ []) do
+    actor = opts[:actor]
+    authorize? = Keyword.get(opts, :authorize?, true)
+
+    with :ok <- flag_guard(),
+         {:ok, app_instance} <- load_deployed(app_instance_id, actor, authorize?),
+         {:ok, recipe, callback_path} <- recipe(app_instance),
+         {:ok, pocket_id} <- pocket_id(pocket_id_instance_id, app_instance),
+         {:ok, custody} <- custody(pocket_id),
+         {:ok, issuer} <- discover(pocket_id),
+         {:ok, key} <-
+           UsePocketIdKey.call(custody, "client_mint", actor: actor, authorize?: authorize?),
+         {:ok, client} <- mint(pocket_id, key, app_instance, callback_path, recipe) do
+      apply_after_record(
+        record(app_instance, pocket_id, recipe, issuer, client, &deployed_guard/1),
+        app_instance,
+        recipe,
+        issuer,
+        client
+      )
+    end
+  end
+
+  # The retrofit's tail: the row+wiring transaction committed — now
+  # carry the env to the RUNNING workload. The row is truth; the pods
+  # lag on failure — the card's retry converges (idempotent upsert +
+  # re-roll).
+  defp apply_after_record({:ok, wiring}, app_instance, recipe, issuer, client) do
+    # Non-bang: the row can die between commit and here (teardown
+    # serialized past the txn's lock and destroyed it) — an error
+    # tuple, never a crash in the caller's LiveView.
+    case Ash.reload(app_instance, authorize?: false) do
+      {:ok, fresh} ->
+        case ApplyPocketIdEnv.apply_to_running(fresh, sso_env(recipe, issuer, client)) do
+          :ok -> {:ok, wiring}
+          {:error, _apply_reason} = error -> error
+        end
+
+      # coveralls-ignore-start - the teardown-race arm: the instance
+      # row died between the wiring transaction's commit and this
+      # read (teardown serialized past the lock and destroyed it) —
+      # the window ExUnit cannot stage deterministically (#86).
+      {:error, _gone} ->
+        {:error, :instance_gone}
+
+        # coveralls-ignore-stop
+    end
+  end
+
+  defp apply_after_record({:error, _reason} = error, _app, _recipe, _issuer, _client),
+    do: error
+
   # ------------------------------------------------------------------
   # Guards + reads
   # ------------------------------------------------------------------
@@ -138,6 +206,27 @@ defmodule FluxVale.Infrastructure.Operations.ConnectPocketId do
   defp status_guard(%Instance{status: :deleting}), do: {:error, :instance_deleting}
 
   defp status_guard(%Instance{status: status}), do: {:error, {:instance_running, status}}
+
+  # The retrofit's mirror of the member fence + guard: the instance
+  # must be DEPLOYED (a namespace to reach) and not on its way out.
+  # The deployed set is the funnel's live-workload statuses — anything
+  # else routes to the wizard path (or refuses honestly).
+  @deployed_statuses [:deploying, :starting, :running, :stopped, :sleeping, :restoring]
+
+  defp load_deployed(app_instance_id, actor, authorize?) do
+    with {:ok, app_instance} <-
+           Instance.get_by_id(app_instance_id, actor: actor, authorize?: authorize?),
+         :ok <- deployed_guard(app_instance) do
+      {:ok, app_instance}
+    end
+  end
+
+  defp deployed_guard(%Instance{status: :deleting}), do: {:error, :instance_deleting}
+
+  defp deployed_guard(%Instance{status: status}) when status in @deployed_statuses,
+    do: :ok
+
+  defp deployed_guard(%Instance{status: status}), do: {:error, {:instance_not_deployed, status}}
 
   # Fresh discovery through the PocketID's own public URL — never a
   # cached answer (§4.4: the wizard's probe cache answers setup
@@ -258,12 +347,19 @@ defmodule FluxVale.Infrastructure.Operations.ConnectPocketId do
   # publishes. A refusal here can orphan the minted client in
   # PocketID: harmless and visible there (D6), S5's cleanup.
   defp record(app_instance, pocket_id, recipe, issuer, client) do
+    record(app_instance, pocket_id, recipe, issuer, client, &status_guard/1)
+  end
+
+  # `guard/1` is the re-read re-guard: the pre-deploy path re-checks
+  # the wireable set; the retrofit re-checks the deployed set (the
+  # locked row must STILL be what the caller fenced).
+  defp record(app_instance, pocket_id, recipe, issuer, client, guard) do
     result =
       Repo.transaction(fn ->
         locked = lock_instance!(app_instance.id)
         merged = Map.merge(locked.env_vars, sso_env(recipe, issuer, client))
 
-        with :ok <- status_guard(locked),
+        with :ok <- guard.(locked),
              {:ok, _env, env_notifications} <- apply_env(locked, merged),
              :ok <- replace_existing_wiring(app_instance.id),
              {:ok, wiring, wiring_notifications} <-

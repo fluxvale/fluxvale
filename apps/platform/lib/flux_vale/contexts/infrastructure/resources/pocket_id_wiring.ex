@@ -25,9 +25,12 @@ defmodule FluxVale.Infrastructure.PocketIdWiring do
   Posture follows PocketIdCustody exactly: members read (the S5
   card), the system operation funnels every write (`authorize?:
   false` — the op's own authorization already decided). Immutable by
-  construction: no update action, `wired_at` is the create timestamp
-  (a re-wire writes a fresh row), no `update_timestamp` — history
-  with an edit button is not history.
+  construction except ONE carve-out: `rotate_secret` (S5) moves
+  `pocket_id_secret_id` to the new secret after the workload carries
+  it — a field describing the live secret, not the wiring's history
+  (which PocketID, which client, when — those stay write-once).
+  `wired_at` is the create timestamp (a re-wire writes a fresh row),
+  no `update_timestamp` — history with an edit button is not history.
   """
 
   use Ash.Resource,
@@ -64,7 +67,7 @@ defmodule FluxVale.Infrastructure.PocketIdWiring do
     # System-only funnels (the PocketIdCustody stance): the wiring
     # operation owns the writes; callers run authorize?: false with
     # that comment in place.
-    policy action_type([:create, :destroy]) do
+    policy action_type([:create, :update, :destroy]) do
       description("System-only: the wiring operation owns the writes (authorize?: false)")
       forbid_if(always())
     end
@@ -176,6 +179,14 @@ defmodule FluxVale.Infrastructure.PocketIdWiring do
     create :record do
       description("System-only: record a completed wiring.")
       accept([:instance_id, :pocket_id_instance_id, :pocket_id_client_id, :pocket_id_secret_id])
+    end
+
+    # Rotation's durable record (#597 S5): the row's secret_id moves
+    # to the new secret AFTER the workload carries it. System-only —
+    # the rotation operation is the only caller.
+    update :rotate_secret do
+      description("System-only: the rotation's new secret id.")
+      accept([:pocket_id_secret_id])
     end
 
     # The re-wire's funnel: the old row goes before the new one lands

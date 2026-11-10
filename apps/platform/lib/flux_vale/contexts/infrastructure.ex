@@ -269,4 +269,30 @@ defmodule FluxVale.Infrastructure do
   defdelegate connect_pocket_id(instance, pocket_id_instance_id, opts \\ []),
     to: ConnectPocketId,
     as: :call
+
+  # #597 S5 (§4.6): the deployed-instance retrofit — same wiring
+  # pipeline, the running workload gets the env through the SSO-scoped
+  # apply primitive (Secret merge-upsert + rolling restart).
+  defdelegate retrofit_pocket_id(instance, pocket_id_instance_id, opts \\ []),
+    to: ConnectPocketId,
+    as: :retrofit
+
+  # #597 S5 (§4.6): the zero-downtime secret rotation — second active
+  # secret, apply, delete the old one.
+  defdelegate rotate_pocket_id_secret(wiring, opts \\ []),
+    to: FluxVale.Infrastructure.Operations.RotatePocketIdSecret,
+    as: :rotate
+
+  # #597 S5 (§4.6): the disconnect — best-effort client delete, strip
+  # the recipe's env from row and workload, clear the wiring.
+  defdelegate disconnect_pocket_id(instance, opts \\ []),
+    to: FluxVale.Infrastructure.Operations.DisconnectPocketId,
+    as: :disconnect
+
+  # #597 S5 (D5): the SSO-scoped env-update + rollout primitive —
+  # rewrite ONLY the given keys in a deployed instance's Secret, then
+  # roll. The retrofit/rotation/disconnect legs ride this one seam.
+  defdelegate apply_pocket_id_env(instance, sso_env, opts \\ []),
+    to: FluxVale.Infrastructure.Operations.ApplyPocketIdEnv,
+    as: :apply_to_running
 end

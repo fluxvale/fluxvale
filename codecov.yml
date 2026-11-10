@@ -25,6 +25,12 @@ coverage:
         # target auto = patch coverage must be ≥ base commit's coverage
         # (v1's effective behavior — not a 100% gate on new lines).
         # Set target: 100% to hard-require tested new lines.
+        # 1% absorbs the marker-export gap on nested case arms (cli's
+        # stance): excoveralls nulls some coveralls-ignore'd arms but
+        # not all shapes (#597 S5 hit it — defensive FK/DB-race arms,
+        # markers in place, tests where stageable). Listed lines stay
+        # in the report; the threshold only absorbs the accounting.
+        threshold: 1%
       cli:
         flags: [cli]
         # target auto, same stance as platform

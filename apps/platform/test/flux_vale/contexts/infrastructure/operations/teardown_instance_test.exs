@@ -19,6 +19,8 @@ defmodule FluxVale.Infrastructure.Operations.TeardownInstanceTest do
   alias FluxVale.Infrastructure.Instance
   alias FluxVale.Infrastructure.Operations.InstanceK8s
   alias FluxVale.Infrastructure.Operations.TeardownInstance
+  alias FluxVale.Infrastructure.PocketIdCustody
+  alias FluxVale.Infrastructure.PocketIdWiring
   alias FluxVale.TestSupport.InstanceFixtures
 
   defp user do
@@ -158,6 +160,109 @@ defmodule FluxVale.Infrastructure.Operations.TeardownInstanceTest do
 
       assert {:ok, returned} = TeardownInstance.call(instance)
       assert returned.id == instance.id
+    end
+  end
+
+  # #597 D6: the wiring's PocketID client is deleted best-effort
+  # BEFORE the wiring row cascades away with the instance row — and
+  # a refused delete never blocks the teardown (the client stays
+  # visible in PocketID's admin).
+  describe "the PocketID client cleanup (D6)" do
+    setup do
+      stub(K8s, :kubeconfig, fn _ref -> {:ok, %{}} end)
+      :ok
+    end
+
+    defp deleting_with_wiring! do
+      actor = user()
+
+      pocket_id_version =
+        InstanceFixtures.app_version!(app_slug: "pocket-id", configurable_env_vars: %{})
+
+      InstanceFixtures.local_cluster!()
+
+      pocket_id =
+        pocket_id_version
+        |> InstanceFixtures.instance!(actor)
+        |> InstanceFixtures.walk_to!(:running)
+        |> InstanceFixtures.pin!(namespace: "ns-pid")
+
+      PocketIdCustody.record!(
+        %{
+          organization_id: pocket_id.organization_id,
+          instance_id: pocket_id.id,
+          api_key_secret_ref: "fluxvale-pocketid-custody-#{pocket_id.id}",
+          verified_at: DateTime.utc_now()
+        },
+        authorize?: false
+      )
+
+      stub(Secret, :get_data, fn _kc, _ns, _ref ->
+        {:ok, %{"POCKETID_API_KEY" => "held-key-not-real"}}
+      end)
+
+      version = InstanceFixtures.app_version!()
+
+      app =
+        Instance.create!(%{name: "App", app_version_id: version.id, env_vars: %{}},
+          actor: actor
+        )
+
+      {:ok, deleting} = InstanceK8s.update_status(app, :deleting, "Tearing down...")
+      pinned = InstanceFixtures.pin!(deleting, namespace: "fluxvale-app-#{app.id}")
+
+      PocketIdWiring.record!(
+        %{
+          instance_id: pinned.id,
+          pocket_id_instance_id: pocket_id.id,
+          pocket_id_client_id: "client-d6",
+          pocket_id_secret_id: "secret-d6"
+        },
+        authorize?: false
+      )
+
+      {pinned, pocket_id}
+    end
+
+    test "deletes the PocketID client before the row cascades away" do
+      stub_deletes()
+      {app, pocket_id} = deleting_with_wiring!()
+
+      expect(FluxVale.Infrastructure.PocketId.ApiClient, :delete_client, fn url,
+                                                                            _key,
+                                                                            "client-d6" ->
+        send(self(), :client_deleted)
+        assert url =~ pocket_id.slug
+        :ok
+      end)
+
+      assert {:ok, _returned} = TeardownInstance.call(app)
+      assert_received :client_deleted
+      assert {:error, %Ash.Error.Invalid{}} = Instance.get_by_id(app.id, authorize?: false)
+    end
+
+    test "a refused client delete never blocks the teardown" do
+      stub_deletes()
+      {app, _pocket_id} = deleting_with_wiring!()
+
+      stub(FluxVale.Infrastructure.PocketId.ApiClient, :delete_client, fn _u, _k, _c ->
+        {:error, :unreachable}
+      end)
+
+      assert {:ok, _returned} = TeardownInstance.call(app)
+      assert {:error, %Ash.Error.Invalid{}} = Instance.get_by_id(app.id, authorize?: false)
+    end
+
+    test "no wiring is plain silence — nothing extra is called" do
+      stub_deletes()
+      {instance, _pocket_id} = deleting_with_wiring!()
+
+      wiring = PocketIdWiring.get_by_instance!(instance.id, authorize?: false)
+      PocketIdWiring.replace(wiring, authorize?: false)
+
+      # No ApiClient stub: Mimic rejects any call — the teardown must
+      # not reach for the PocketID without a wiring.
+      assert {:ok, _returned} = TeardownInstance.call(instance)
     end
   end
 end

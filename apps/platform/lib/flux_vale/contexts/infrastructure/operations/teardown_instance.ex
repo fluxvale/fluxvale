@@ -26,6 +26,10 @@ defmodule FluxVale.Infrastructure.Operations.TeardownInstance do
   alias FluxVale.Clients.K8s.Resources.Service
   alias FluxVale.Infrastructure.Instance
   alias FluxVale.Infrastructure.Operations.InstanceK8s
+  alias FluxVale.Infrastructure.Operations.UsePocketIdKey
+  alias FluxVale.Infrastructure.PocketId.ApiClient
+  alias FluxVale.Infrastructure.PocketIdCustody
+  alias FluxVale.Infrastructure.PocketIdWiring
 
   require Logger
 
@@ -50,10 +54,57 @@ defmodule FluxVale.Infrastructure.Operations.TeardownInstance do
   defp finish_teardown(kubeconfig, instance) do
     case teardown_resources(kubeconfig, instance) do
       :ok ->
+        best_effort_pocketid_cleanup(instance)
         destroy_row(instance)
 
       {:error, error} ->
         log_teardown_failure(instance, error)
+    end
+  end
+
+  # #597 D6: a wiring's PocketID client outlives its app instance by
+  # design on a failed delete — best-effort HERE (before the wiring
+  # row cascades away with the instance row), tolerated if refused:
+  # the client stays visible and deletable in PocketID's own admin.
+  # Runs AFTER the namespace teardown succeeded and BEFORE the row
+  # delete, so a refused delete never blocks the teardown itself.
+  defp best_effort_pocketid_cleanup(instance) do
+    case cleanup_context(instance) do
+      {pocket_id, key, wiring} ->
+        delete_pocketid_client(pocket_id, key, wiring)
+
+      :nothing ->
+        # No wiring / PocketID gone / custody gone / key unavailable:
+        # nothing to clean — the teardown proceeds whatever this says
+        # (best-effort by contract).
+        :ok
+    end
+  end
+
+  defp cleanup_context(instance) do
+    with {:ok, wiring} <- PocketIdWiring.get_by_instance(instance.id, authorize?: false),
+         {:ok, pocket_id} <- Ash.get(Instance, wiring.pocket_id_instance_id, authorize?: false),
+         {:ok, custody} <- PocketIdCustody.get_by_instance(pocket_id.id, authorize?: false),
+         {:ok, key} <- UsePocketIdKey.call(custody, "teardown_cleanup", authorize?: false) do
+      {pocket_id, key, wiring}
+    else
+      _missing_or_refused -> :nothing
+    end
+  end
+
+  defp delete_pocketid_client(pocket_id, key, wiring) do
+    url =
+      "https://#{pocket_id.slug}.#{Application.fetch_env!(:flux_vale, :instances_base_domain)}"
+
+    case ApiClient.delete_client(url, key, wiring.pocket_id_client_id) do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning(
+          "PocketID client cleanup refused on teardown (client " <>
+            "#{wiring.pocket_id_client_id}): #{inspect(reason)} — it remains in PocketID, deletable there"
+        )
     end
   end
 
