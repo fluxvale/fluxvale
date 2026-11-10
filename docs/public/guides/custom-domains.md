@@ -7,7 +7,7 @@ slug: custom-domains
 
 Every app gets an address under `fluxvale.app` for free. You can also bring your own domain. Custom domains are aimed at the private-access lane, where your apps are reachable only from your own network.
 
-Custom domains are free of charge. Registering one requires a one-time top-up of at least $1 in your organization's wallet, like the other infrastructure features.
+Custom domains are free of charge. Registering one requires a one-time top-up of at least $5 in your organization's wallet, like the other infrastructure features.
 
 ## How verification works
 

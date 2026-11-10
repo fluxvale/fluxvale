@@ -291,7 +291,14 @@ config :flux_vale,
     # charge; the no-real-charge e2e enables it per the runbook.
     allow_discount_codes: false,
     server: "sandbox"
-  ]
+  ],
+  # The minimum wallet top-up (#250 S6, ratified 2026-11-10). Polar Pro
+  # charges $0.40 per checkout, so a floor keeps the fixed fee from
+  # eating a small lane's margin: at $5 the marginal storage rate still
+  # clears 41.4% gross (45.4% at $10, rejected for early-stage
+  # friction). The wizard, its copy, and the paid-feature prompts all
+  # read this one value; StartTopup enforces it server-side.
+  billing: [min_topup_cents: 500]
 
 # Storage beyond the self-service threshold (#250, ADR-0046): the ladder
 # tops out at 100 GB self-service; above it a member requests a target
@@ -303,7 +310,8 @@ config :flux_vale,
 # test; `max_gb` is the attachable ceiling, not a ladder value.
 config :flux_vale, :storage_beyond_threshold, %{
   threshold_gb: 100,
-  # PROVISIONAL — S6 (Terence's one-line ratification) sets the final rate.
+  # Ratified 2026-11-10 (#250 S6) on the Polar Pro fee model: 3c/GB/mo
+  # holds 45-48% gross at realistic top-ups (ADR-0046 Am. 1).
   cents_per_gb: 3,
   max_gb: 7_600
 }

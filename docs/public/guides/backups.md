@@ -13,7 +13,7 @@ The backup feature sends your app's data to a bucket you own, on a schedule, so 
 
 Backups go to your own S3-compatible bucket. Cloudflare R2, or any MinIO or S3 endpoint, all work. You pay your provider for storage. FluxVale charges no fee for backups.
 
-Setting backups up needs a one-time top-up of at least $1 in your wallet. That is a wallet minimum, not a charge. Every backup run needs a positive balance. Pausing backups and removing the settings are never gated, and restoring is never gated. Recovery must not depend on your wallet.
+Setting backups up needs a one-time top-up of at least $5 in your wallet. That is a wallet minimum, not a charge. Every backup run needs a positive balance. Pausing backups and removing the settings are never gated, and restoring is never gated. Recovery must not depend on your wallet.
 
 ## Set it up
 
