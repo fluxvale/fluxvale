@@ -1411,6 +1411,9 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
       # would refuse it, so the pick is silence — the unknown-slug
       # posture.
       {:noreply, socket}
+    end
+  end
+
   # #597 S4: the fail-soft choice (D3). A wiring failure NEVER blocks
   # the created instance — it parks the choice on step 4 and the user
   # decides: deploy without sign-in, or retry the wiring. Crafted
