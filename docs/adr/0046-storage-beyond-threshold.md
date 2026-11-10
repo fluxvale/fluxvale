@@ -36,9 +36,8 @@ wait for the customer to stop the instance.
    above bills at `cents_per_gb`. The marginal rate is the seeded
    region's effective COGS pass-through plus margin — not a market-curve
    term — so the v5 regional surcharge never multiplies it. The number is
-   **3¢/GB/mo, ratified 2026-11-10** (COGS floor ≈ 1.4¢/GB at €13/TB ≈
-   $14.04; Amendment 1 records the payment-fee basis and the $5 wallet
-   floor ratified with it). Member copy
+   **PROVISIONAL 3¢/GB/mo** (COGS floor ≈ 1.4¢/GB at €13/TB ≈ $14.04);
+   the owner's one-line ratification is S6, #250's closer. Member copy
    stays rate-agnostic: it shows the computed monthly figure, never the
    per-GB rate, the COGS, or the rule
    ([pricing calibration](../pricing-calibration.md)).

@@ -89,6 +89,10 @@ defmodule FluxVale.Billing.Operations.StartTopupTest do
     assert {:error, :amount_below_minimum} =
              Billing.start_topup(org, Map.put(@params, :amount_cents, 499))
 
+    # A negative amount answers the floor, not Tax.tax_cents/2's guard.
+    assert {:error, :amount_below_minimum} =
+             Billing.start_topup(org, Map.put(@params, :amount_cents, -1))
+
     assert [] =
              Topup
              |> Ash.Query.filter(organization_id == ^org.id)

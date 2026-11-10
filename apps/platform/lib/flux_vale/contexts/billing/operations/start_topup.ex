@@ -89,6 +89,16 @@ defmodule FluxVale.Billing.Operations.StartTopup do
   end
 
   defp create_topup(org, params) do
+    # The floor is checked before any tax arithmetic: a negative or
+    # non-integer amount must answer `:amount_below_minimum`, never
+    # reach `Tax.tax_cents/2`'s non-negative guard.
+    case check_minimum(params.amount_cents) do
+      :ok -> do_create_topup(org, params)
+      error -> error
+    end
+  end
+
+  defp do_create_topup(org, params) do
     customer_type = params[:customer_type] || :consumer
     reverse_charge? = Tax.reverse_charge?(customer_type, params[:vat_number])
 
@@ -109,8 +119,7 @@ defmodule FluxVale.Billing.Operations.StartTopup do
     # fails closed before anything is persisted.
     tax_cents = Tax.tax_cents(params.amount_cents, rate_bp)
 
-    with :ok <- check_minimum(params.amount_cents),
-         :ok <- check_tax_rate(params[:tax_rate_bp], rate_bp, reverse_charge?),
+    with :ok <- check_tax_rate(params[:tax_rate_bp], rate_bp, reverse_charge?),
          :ok <- check_tax_cents(params[:tax_cents], tax_cents) do
       Topup.create(
         %{
