@@ -28,6 +28,8 @@ defmodule FluxVale.Seeds do
   alias FluxVale.Identity.UserEmail
   alias FluxVale.Infrastructure.Cluster
   alias FluxVale.Infrastructure.Instance
+  alias FluxVale.Ops.FeatureFlag
+  alias FluxVale.Ops.FeatureFlags
   alias FluxVale.Pricing.Size
   alias FluxVale.Pricing.TaxRate
   alias FluxVale.Seeds.CatalogData
@@ -64,6 +66,8 @@ defmodule FluxVale.Seeds do
     seed_catalog!()
     seed_tags!()
     seed_feedback_if_demo!()
+    # #597 S6
+    seed_feature_flags!()
   end
 
   @doc """
@@ -371,6 +375,35 @@ defmodule FluxVale.Seeds do
       {:ok, cluster} -> cluster
       {:error, _not_found} -> Cluster.create!(%{name: "local"}, authorize?: false)
     end
+  end
+
+  @doc """
+  Seeds the platform's enabled feature flags (#597 S6): rows the promotable
+  seed owns, enabled by deliberate decision — the flag stays the instant
+  shutdown lever for upstream PocketID API drift (#597 §9). Idempotent,
+  create-if-missing only: an operator turning a flag off is deliberate
+  drift the seed never reverts (the seed_local_cluster stance).
+  """
+  @spec seed_feature_flags! :: :ok
+  def seed_feature_flags! do
+    # The declare gate: crash loudly on a key that isn't declared in
+    # FeatureFlags's @known_flags — a typo'd key would otherwise create a
+    # permanently inert flag row. (Atom comparison: @known_flags is atoms,
+    # the seed list is DB-key strings.)
+    true =
+      Enum.all?(
+        ["pocketid_sso_wiring"],
+        &(String.to_existing_atom(&1) in FeatureFlags.known_flags())
+      )
+
+    for key <- ["pocketid_sso_wiring"] do
+      case FeatureFlag.by_key(key, authorize?: false) do
+        {:ok, _flag} -> :ok
+        {:error, _not_found} -> FeatureFlag.create!(key, %{enabled: true}, authorize?: false)
+      end
+    end
+
+    :ok
   end
 
   @doc """

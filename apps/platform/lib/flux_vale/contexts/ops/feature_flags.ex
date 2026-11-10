@@ -208,4 +208,10 @@ defmodule FluxVale.Ops.FeatureFlags do
   # {:ok, _} | {:error, reason} → the verbs' :ok | {:error, reason} contract
   defp verdict({:ok, _flag}), do: :ok
   defp verdict({:error, reason}), do: {:error, reason}
+
+  @doc false
+  # The declare gate as an accessor: seed writers assert membership so a
+  # typo'd key can never create a permanently inert flag row.
+  @spec known_flags :: [atom()]
+  def known_flags, do: @known_flags
 end

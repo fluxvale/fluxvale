@@ -251,8 +251,11 @@ Staging/prod divergence is feature flags only — a `FeatureFlag` Ash
 resource (key, enabled, optional rollout %) administered via
 **AshAdmin** ([ADR-0027](adr/00027-admin-surface-ashadmin.md); the
 curated view is deferred until generated CRUD annoys), separate
-values per environment via separate databases. Flags gate *features*,
-never schema. Delete flags on a schedule.
+values per environment via separate databases. Flags are seeded
+create-only at bring-up (`Seeds.seed_feature_flags!/0`, #597 S6)
+and administered via AshAdmin thereafter; the seed never converges
+an existing row. Flags gate *features*, never schema. Delete flags
+on a schedule.
 
 ## Polar payments (top-ups)
 
