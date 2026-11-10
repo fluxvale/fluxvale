@@ -1,10 +1,10 @@
 defmodule FluxValeWeb.Components.AccountSettingsTest do
   @moduledoc """
   The account settings sidebar's contract (#551): one entry per surface,
-  grouped Account (Profile, Access, Developer) and Billing (Wallet), the
-  active entry aria-current. The Access entry rides the personal-org
-  gate — no dead entries ship. Developer (#635) is ungated: the page
-  needs no org.
+  grouped Account (Profile, Access, AI agents, Developer) and Billing
+  (Wallet), the active entry aria-current. The Access entry rides the
+  personal-org gate — no dead entries ship. Developer (#635) and the
+  quickstart (#484 W5) are ungated: their pages need no org.
   """
 
   use ExUnit.Case, async: true
@@ -42,6 +42,7 @@ defmodule FluxValeWeb.Components.AccountSettingsTest do
     assert links(html) == [
              {"Profile", "/settings", true},
              {"Access", "/settings/access", false},
+             {"AI agents", "/settings/agents", false},
              {"Developer", "/settings/developer", false},
              {"Wallet", "/billing", false}
            ]
@@ -81,6 +82,7 @@ defmodule FluxValeWeb.Components.AccountSettingsTest do
     assert links(html) == [
              {"Profile", "/settings", false},
              {"Access", "/settings/access", true},
+             {"AI agents", "/settings/agents", false},
              {"Developer", "/settings/developer", false},
              {"Wallet", "/billing", false}
            ]
@@ -91,7 +93,19 @@ defmodule FluxValeWeb.Components.AccountSettingsTest do
     assert links(developer_page) == [
              {"Profile", "/settings", false},
              {"Access", "/settings/access", false},
+             {"AI agents", "/settings/agents", false},
              {"Developer", "/settings/developer", true},
+             {"Wallet", "/billing", false}
+           ]
+
+    agents_page =
+      render_component(&AccountSettings.sidebar/1, current: "agents", personal_org_id: "org_1")
+
+    assert links(agents_page) == [
+             {"Profile", "/settings", false},
+             {"Access", "/settings/access", false},
+             {"AI agents", "/settings/agents", true},
+             {"Developer", "/settings/developer", false},
              {"Wallet", "/billing", false}
            ]
   end
@@ -99,10 +113,12 @@ defmodule FluxValeWeb.Components.AccountSettingsTest do
   test "no personal org: the gated sections never ship (no dead entries)" do
     html = render_component(&AccountSettings.sidebar/1, current: "profile")
 
-    # Developer stays beside Profile — its page is actor-scoped (#635),
-    # so the entry is no dead end for the no-org actor.
+    # Developer and the quickstart stay beside Profile — both pages
+    # are actor-scoped (#635, #484 W5), so neither entry is a dead end
+    # for the no-org actor.
     assert links(html) == [
              {"Profile", "/settings", true},
+             {"AI agents", "/settings/agents", false},
              {"Developer", "/settings/developer", false}
            ]
 

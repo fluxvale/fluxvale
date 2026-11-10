@@ -90,6 +90,7 @@ defmodule FluxVale.Infrastructure.Instance do
   alias FluxVale.Infrastructure.Operations.SleepInstance
   alias FluxVale.Infrastructure.Operations.StartInstance
   alias FluxVale.Infrastructure.Operations.StopInstance
+  alias FluxVale.Infrastructure.PocketIdWiring
 
   # #360 (ADR-0019 §1): the instance family's wire contract — each
   # route's field list is deliberate, public attributes only. Scope
@@ -180,6 +181,12 @@ defmodule FluxVale.Infrastructure.Instance do
       # backups:write — the panel's "Back up now" / "Restore latest".
       route(:post, "instances/:id/backup-runs", :run_backup)
       route(:post, "instances/:id/backup-runs/:backup_run_id/restore", :restore_backup)
+
+      # instances:write — #597 S4: wire this instance's sign-in to an
+      # org PocketID before deploy. Body: the PocketID instance id.
+      # Returns the wiring row (ids only — the secret lives in the
+      # instance's env, never on the wire).
+      route(:post, "instances/:id/connect-pocketid", :connect_pocketid)
     end
   end
 
@@ -391,6 +398,15 @@ defmodule FluxVale.Infrastructure.Instance do
     # the wallet gates bite inside the run (the authorized get_by_id,
     # then the operation's own guards).
     policy action([:run_backup, :restore_backup]) do
+      description("Ownership is enforced by the authorized get_by_id read inside the action")
+      authorize_if(actor_present())
+    end
+
+    # #597 S4: the wiring verb joins the backup posture — ownership is
+    # the authorized get_by_id inside (the operation adds the org
+    # fence against the PocketID's own org, the status guard, and the
+    # custody requirement).
+    policy action(:connect_pocketid) do
       description("Ownership is enforced by the authorized get_by_id read inside the action")
       authorize_if(actor_present())
     end
@@ -1271,6 +1287,43 @@ defmodule FluxVale.Infrastructure.Instance do
       end)
     end
 
+    # #597 S4: wire an instance's sign-in to the org's PocketID — the
+    # operation's public seam (the run_backup posture: ownership is
+    # the authorized get_by_id inside; every operation refusal maps
+    # to honest words below). Works on not-yet-deployed instances
+    # only; a deployed one needs S5's env-update + rollout primitive,
+    # and the error says exactly that.
+    action :connect_pocketid, :struct do
+      description("""
+      Mints a PocketID OIDC client for this instance and wires its sign-in env — #597. The instance must not be deployed yet (pending/error/lost); the PocketID instance must belong to the same org, be public, and have held-key custody.
+      """)
+
+      argument(:id, :uuid, allow_nil?: false, public?: true)
+      argument(:pocket_id_instance_id, :uuid, allow_nil?: false, public?: true)
+      constraints(instance_of: PocketIdWiring)
+
+      run(fn input, %{actor: actor, authorize?: authorize?} ->
+        case get_by_id(input.arguments.id, actor: actor, authorize?: authorize?) do
+          {:ok, instance} ->
+            # The domain is the public seam (never the operation
+            # direct); both posture values propagate (the nested-call
+            # rule — never hard-code either).
+            case FluxVale.Infrastructure.connect_pocket_id(
+                   instance,
+                   input.arguments.pocket_id_instance_id,
+                   actor: actor,
+                   authorize?: authorize?
+                 ) do
+              {:ok, wiring} -> {:ok, wiring}
+              {:error, reason} -> {:error, wiring_error(reason)}
+            end
+
+          {:error, _reason} = error ->
+            error
+        end
+      end)
+    end
+
     update :perform_deploy do
       description("The :deploy trigger's body — see Operations.DeployInstance.")
       require_atomic?(false)
@@ -1306,6 +1359,25 @@ defmodule FluxVale.Infrastructure.Instance do
 
       accept([:storage_metering_since, :unbilled_running_usec])
       require_atomic?(false)
+    end
+
+    # #597 S4: the wiring operation's env funnel. Accepts nothing; the
+    # merged map arrives as the :env argument and lands as one
+    # force_change — the op built it by merging ONLY the recipe's keys
+    # over the current env (user values preserved), so no caller can
+    # route arbitrary env through here and the ride-along posture is
+    # enforced at the write, not the form.
+    update :merge_pocket_id_env do
+      description("System-only: force-merge the PocketID wiring's env (authorize?: false).")
+
+      accept([])
+      argument(:env, :map, allow_nil?: false)
+      require_atomic?(false)
+
+      change(fn changeset, _context ->
+        env = Ash.Changeset.get_argument(changeset, :env)
+        Ash.Changeset.force_change_attribute(changeset, :env_vars, env)
+      end)
     end
 
     update :perform_teardown do
@@ -1439,6 +1511,76 @@ defmodule FluxVale.Infrastructure.Instance do
   end
 
   defp backup_error(reason), do: reason
+
+  # --- the wiring verb's helpers (#597 S4) -----------------------------
+
+  # The operation's guard atoms carry no message of their own; give
+  # them the panel's plain words. Anything else (an Ash error, a
+  # refused mint's status map) passes through untouched — the
+  # :delete action's stance.
+  @wiring_refusals %{
+    flag_disabled: "Pocket ID sign-in wiring is turned off right now",
+    instance_running:
+      "this app is already deployed — wiring sign-in lands with the instance page's Pocket ID card instead",
+    instance_deleting: "this app is being deleted — there is nothing to wire",
+    recipe_missing: "this app version has no automatic sign-in wiring recipe",
+    recipe_not_env: "this app configures sign-in in its own settings, not automatically",
+    no_callback_path: "this app version declares no OIDC callback path",
+    pocket_id_not_found: "no Pocket ID instance with that id",
+    forbidden: "that Pocket ID belongs to another organization",
+    not_public: "that Pocket ID is private and cannot serve sign-in",
+    no_custody:
+      "FluxVale holds no admin key for that Pocket ID — its owner pastes one once, on the Pocket ID's instance page",
+    unreachable:
+      "the Pocket ID did not answer (it may be waking) — retry in a moment, or deploy without sign-in",
+    no_issuer: "the Pocket ID answered but published no issuer — check its APP_URL",
+    key_rejected:
+      "the held Pocket ID key was rejected — re-paste it on the Pocket ID's instance page",
+    key_forbidden: "the held Pocket ID key may not manage clients — paste an admin's key instead",
+    no_created_secret:
+      "the Pocket ID created the client but returned no secret — check its client-secret settings, then retry",
+    no_api_key: "the held Pocket ID key is gone — re-paste it on the Pocket ID's instance page",
+    api_key_malformed:
+      "the held Pocket ID key is unreadable — re-paste it on the Pocket ID's instance page"
+  }
+
+  defp wiring_error({:instance_running, _status}) do
+    InvalidArgument.exception(message: Map.get(@wiring_refusals, :instance_running))
+  end
+
+  defp wiring_error(reason) when is_atom(reason) do
+    message = Map.get(@wiring_refusals, reason, "sign-in wiring refused: #{reason}")
+
+    InvalidArgument.exception(message: message)
+  end
+
+  # A refused mint carries the raw status map; the wire answer needs
+  # only the status (the body snippet stays in the logs, the ApiClient
+  # already wrote it).
+  defp wiring_error(%{status: status}) do
+    InvalidArgument.exception(message: "the Pocket ID refused the client (#{status})")
+  end
+
+  # The key read's cluster shape (use_pocket_id_key passes the K8s
+  # client's own error struct verbatim — a gateway-cluster outage at
+  # the Secret read, with discovery already green over the URL):
+  # honest words, the same InvalidArgument boringness.
+  defp wiring_error(%FluxVale.Clients.K8s.Error{}) do
+    InvalidArgument.exception(
+      message: "the held Pocket ID key could not be read from the cluster — retry in a moment"
+    )
+  end
+
+  # coveralls-ignore-start - the Ash-error passthrough's producers
+  # are unstagedable by design: a concurrent double-wire losing the
+  # wiring identity's unique index (race window, #86's documented
+  # class) and the custody's instance vanishing mid-call (use_pocket
+  # _id_key's own defensive arm — the FK cascade makes ExUnit unable
+  # to stage it). Every stageable error shape carries its own clause
+  # above.
+  defp wiring_error(reason), do: reason
+
+  # coveralls-ignore-stop
 
   # The status write commits before the job insert (separate writes), so
   # a raising insert would strand the row in :deleting with no job — and

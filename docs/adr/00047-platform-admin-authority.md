@@ -103,9 +103,12 @@ lands the mechanism and the gate.
    already-mounted live tab displays stale cross-org data until its
    next interaction or reconnect), while writes re-resolve the actor
    per event (#571/#617) — today satisfied by the WalletDetail surface
-   and the console engine's write path, and A1-S2's AdminChrome
-   `handle_event` attach_hook closes the interactive part for every
-   admin LiveView.
+   and the console engine's write path, and the AdminChrome
+   `handle_event` attach_hook (A1-S2; extracted into
+   `FluxValeWeb.AdminDemotionGate` by #671, which also mounted it on
+   the generated tools' sessions — view-level events only there; the
+   component-targeted residue stays disclosed on #671) closes the
+   interactive part for every admin LiveView.
 
 5. **The two-tier role model — both tiers already in the schema.**
    Platform admin (`PlatformRole :admin`, FluxVale as a whole,

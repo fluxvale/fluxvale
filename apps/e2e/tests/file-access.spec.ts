@@ -3,7 +3,8 @@ import { mkdtemp, readFile, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test } from "@playwright/test";
+import { waitForStatus } from "./helpers/instance-ui";
 import { waitForLiveViewJoin } from "./helpers/live-view";
 import { runtimeFor, type Runtime } from "./helpers/runtime";
 import { signIn } from "./helpers/sign-in";
@@ -247,32 +248,6 @@ test("file access: deploy Kavita → rclone put through /dav → file lands in t
   await page.waitForURL(/\/instances$/);
   await rm(dir, { recursive: true, force: true });
 });
-
-// Poll the live badge until `want` shows — the lifecycle spec's helper
-// (failure fails fast with the status message).
-async function waitForStatus(page: Page, want: string, timeoutMs: number) {
-  const deadline = Date.now() + timeoutMs;
-
-  while (Date.now() < deadline) {
-    const status = await page
-      .getByTestId("status-badge")
-      .innerText({ timeout: 10_000 })
-      .catch(() => null);
-
-    if (status?.trim() === want) return;
-    if (status?.trim() === "Failed") {
-      const message = await page
-        .getByTestId("status-message")
-        .textContent()
-        .catch(() => "");
-      throw new Error(`instance hit error state: ${message?.trim()}`);
-    }
-
-    await new Promise((resolve) => setTimeout(resolve, 5_000));
-  }
-
-  throw new Error(`status never reached "${want}" within ${timeoutMs}ms`);
-}
 
 function rcloneOnPath(): boolean {
   try {

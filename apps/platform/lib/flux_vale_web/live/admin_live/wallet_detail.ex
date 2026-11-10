@@ -23,11 +23,9 @@ defmodule FluxValeWeb.AdminLive.WalletDetail do
   - the reversal (`LedgerEntry :reverse`, #577, the compensating
     unwind): confirmed under its row, the original stays.
 
-  Every write re-resolves the actor from the session first
-  (`UserAuth.resolve_user/1`, which also re-checks token revocation)
-  and requires the platform-admin role on the fresh struct: AdminChrome
-  resolves `current_user` once, at mount, and a socket outlives a
-  demotion. Every write is policy-gated at the domain; the reversal
+  Every write runs under the AdminDemotionGate per-event seam
+  (#688): the shared hook re-resolves the actor from the session at
+  every event, so a demoted admin's write never reaches the handler. Every write is policy-gated at the domain; the reversal
   rides the `LedgerEntry :reverse` action (#577), under the same admin
   policy as the goodwill credit. This per-event re-resolve is the
   demotion window's defense, not the authorization decision.
@@ -42,13 +40,10 @@ defmodule FluxValeWeb.AdminLive.WalletDetail do
   alias FluxVale.Billing
   alias FluxVale.Billing.LedgerEntry
   alias FluxVale.Billing.Wallet
-  alias FluxVale.Checks.ActorIsPlatformAdmin
-  alias FluxVale.Identity.User
   alias FluxValeWeb.AdminComponents
   alias FluxValeWeb.AdminShell
   alias FluxValeWeb.BillingComponents
   alias FluxValeWeb.Components.AdminDataTable
-  alias FluxValeWeb.UserAuth
 
   require Ash.Query
 
@@ -71,7 +66,7 @@ defmodule FluxValeWeb.AdminLive.WalletDetail do
   @goodwill_max_cents 100_000
 
   @impl Phoenix.LiveView
-  def mount(%{"id" => id}, session, socket) do
+  def mount(%{"id" => id}, _session, socket) do
     admin = socket.assigns.current_user
 
     with {:ok, wallet} <- Ash.get(Wallet, id, actor: admin),
@@ -80,9 +75,6 @@ defmodule FluxValeWeb.AdminLive.WalletDetail do
         {:ok, runway} ->
           {:ok,
            assign(socket,
-             # The session map, kept for the per-write actor re-resolve
-             # (see `reauthorized_actor/1`).
-             admin_session: session,
              wallet: wallet,
              org: org,
              runway: runway,
@@ -235,23 +227,9 @@ defmodule FluxValeWeb.AdminLive.WalletDetail do
   def handle_event("confirm-waiver", _params, socket) do
     case socket.assigns.confirm do
       {:waiver, target, paid?} ->
-        case reauthorized_actor(socket) do
-          {:ok, admin} ->
-            attempt_waiver(socket, target, paid?, admin)
-
-          # coveralls-ignore-start - wire-unreachable behind the
-          # AdminChrome per-event hook, which refuses every event from
-          # a demoted actor before the handler runs (the demotion test
-          # pins the hook): the arm keeps the handler independently
-          # safe should that hook ever move.
-          :revoked ->
-            {:noreply,
-             socket
-             |> put_flash(:error, revoked_copy())
-             |> assign(confirm: nil)}
-
-            # coveralls-ignore-stop
-        end
+        # The AdminDemotionGate per-event seam (#688) has already
+        # re-resolved the actor: a demoted admin never reaches here.
+        attempt_waiver(socket, target, paid?, socket.assigns.current_user)
 
       # A second confirm click (or a stale frame naming the other
       # panel): the confirm already closed. A quiet no-op — the panel
@@ -332,20 +310,9 @@ defmodule FluxValeWeb.AdminLive.WalletDetail do
     # coveralls-ignore-stop
     case socket.assigns.confirm do
       {:goodwill, cents} ->
-        case reauthorized_actor(socket) do
-          {:ok, admin} ->
-            attempt_goodwill(socket, cents, admin)
-
-          # coveralls-ignore-start - wire-unreachable behind the
-          # AdminChrome per-event hook (see confirm-waiver's arm).
-          :revoked ->
-            {:noreply,
-             socket
-             |> put_flash(:error, revoked_copy())
-             |> assign(confirm: nil)}
-
-            # coveralls-ignore-stop
-        end
+        # The AdminDemotionGate per-event seam (#688) has already
+        # re-resolved the actor: a demoted admin never reaches here.
+        attempt_goodwill(socket, cents, socket.assigns.current_user)
 
       _expired ->
         {:noreply, socket}
@@ -401,21 +368,9 @@ defmodule FluxValeWeb.AdminLive.WalletDetail do
   def handle_event("confirm-reverse", _params, socket) do
     case socket.assigns.confirm do
       {:reverse, entry} ->
-        case reauthorized_actor(socket) do
-          {:ok, admin} ->
-            attempt_reverse(socket, admin, entry)
-
-          # coveralls-ignore-start - wire-unreachable behind the
-          # AdminChrome per-event hook (see confirm-waiver's arm).
-          :revoked ->
-            {:noreply,
-             socket
-             |> put_flash(:error, revoked_copy())
-             |> assign(confirm: nil)
-             |> refresh_ledger()}
-
-            # coveralls-ignore-stop
-        end
+        # The AdminDemotionGate per-event seam (#688) has already
+        # re-resolved the actor: a demoted admin never reaches here.
+        attempt_reverse(socket, socket.assigns.current_user, entry)
 
       _expired ->
         {:noreply, socket}
@@ -554,28 +509,6 @@ defmodule FluxValeWeb.AdminLive.WalletDetail do
   end
 
   # -- the gate -------------------------------------------------------------
-
-  # The demotion-window gate behind every write. AdminChrome resolves
-  # the actor ONCE, at mount, and a socket outlives a demotion — so the
-  # write handlers re-resolve from the session (which also re-checks
-  # token revocation) and require the platform-admin role on the FRESH
-  # struct. Reads keep the mount-resolved actor: the route pipeline and
-  # the AdminGate mount check own that window; the writes own this one.
-  defp reauthorized_actor(socket) do
-    case UserAuth.resolve_user(socket.assigns.admin_session) do
-      %User{} = actor ->
-        if ActorIsPlatformAdmin.platform_admin?(actor), do: {:ok, actor}, else: :revoked
-
-      # The revoked-token arm: same refusal as the demoted actor, and
-      # unreachable in a test without minting and revoking the live
-      # session's jti out-of-band — the demoted-actor test carries the
-      # gate's behavior.
-      # coveralls-ignore-start
-      _not_signed_in ->
-        :revoked
-        # coveralls-ignore-stop
-    end
-  end
 
   defp attempt_waiver(socket, target, paid?, admin) do
     case Wallet.set_waiver(socket.assigns.wallet, %{paywall_waived: target}, actor: admin) do
@@ -829,10 +762,6 @@ defmodule FluxValeWeb.AdminLive.WalletDetail do
 
   defp goodwill_confirm_action(cents) do
     gettext("Yes, post %{amount}", amount: BillingComponents.format_balance(cents))
-  end
-
-  defp revoked_copy do
-    gettext("Your admin access ended. Sign out and sign back in.")
   end
 
   # The confirm states the DELTA — the card above already carries the

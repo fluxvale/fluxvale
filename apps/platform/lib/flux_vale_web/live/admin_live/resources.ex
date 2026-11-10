@@ -21,7 +21,7 @@ defmodule FluxValeWeb.AdminLive.Resources do
   `<.input>`, and success navigates to the record's show page. Every
   button gates on `AdminConsole.visible?/3` — the bar shows nothing
   when nothing is permitted. The per-event demotion seam rides the
-  AdminChrome hook every admin LiveView inherits (#644's console
+  AdminDemotionGate hook every admin LiveView inherits (#644's console
   slice, ADR-0047 D4): each event re-resolves the actor from the
   session, so `current_user` is FRESH at every handler and the submit
   carries it — the policy reads the fresh role, never the mount-time
@@ -540,7 +540,7 @@ defmodule FluxValeWeb.AdminLive.Resources do
 
   def handle_event("validate", _params, socket), do: {:noreply, socket}
 
-  # Every save runs under the AdminChrome per-event seam: the hook has
+  # Every save runs under the AdminDemotionGate per-event seam: the hook has
   # already re-resolved the actor (and refused a demoted one), so
   # `current_user` here is the FRESH struct and the submit carries it —
   # the policy reads the fresh role, never the form's mount-time actor.
@@ -582,7 +582,7 @@ defmodule FluxValeWeb.AdminLive.Resources do
 
   # The destructive click. The quiet expired arm is the double-click
   # guard: the confirm already closed (or never opened), so there is
-  # nothing to say and nothing to run. The actor is the AdminChrome
+  # nothing to say and nothing to run. The actor is the AdminDemotionGate
   # hook's fresh struct (the save handler's posture).
   def handle_event("confirm-destroy", _params, socket) do
     case socket.assigns.confirm do

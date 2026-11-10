@@ -11784,6 +11784,74 @@ pub struct OrganizationRelationshipsMembersDataItem {
     #[serde(rename = "type")]
     pub type_: ::std::string::String,
 }
+///A "Resource object" representing a pocket_id_wiring
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct PocketIdWiring {
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub attributes: ::std::option::Option<PocketIdWiringAttributes>,
+    pub id: ::std::string::String,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub relationships: ::std::option::Option<PocketIdWiringRelationships>,
+    #[serde(rename = "type")]
+    pub type_: ::std::string::String,
+}
+///An attributes object for a pocket_id_wiring
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct PocketIdWiringAttributes {
+    ///Field included by default.
+    pub instance_id: ::std::string::String,
+    ///Field included by default.
+    pub pocket_id_client_id: ::std::string::String,
+    ///Field included by default.
+    pub pocket_id_instance_id: ::std::string::String,
+    ///Field included by default.
+    pub pocket_id_secret_id: ::std::string::String,
+    ///Field included by default.
+    pub wired_at: ::serde_json::Value,
+}
+///A relationships object for a pocket_id_wiring
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
+#[serde(deny_unknown_fields)]
+pub struct PocketIdWiringRelationships {
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub instance: ::std::option::Option<PocketIdWiringRelationshipsInstance>,
+}
+///`PocketIdWiringRelationshipsInstance`
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
+pub struct PocketIdWiringRelationshipsInstance {
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub data: ::std::option::Option<PocketIdWiringRelationshipsInstanceData>,
+}
+///An identifier for instance
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct PocketIdWiringRelationshipsInstanceData {
+    pub id: ::std::string::String,
+    #[serde(default, skip_serializing_if = "::serde_json::Map::is_empty")]
+    pub meta: ::serde_json::Map<::std::string::String, ::serde_json::Value>,
+    #[serde(rename = "type")]
+    pub type_: ::std::string::String,
+}
+///`PocketIdWiringType`
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct PocketIdWiringType {
+    ///Field included by default.
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub id: ::std::option::Option<::std::string::String>,
+    ///Field included by default.
+    pub instance_id: ::std::string::String,
+    ///Field included by default.
+    pub pocket_id_client_id: ::std::string::String,
+    ///Field included by default.
+    pub pocket_id_instance_id: ::std::string::String,
+    ///Field included by default.
+    pub pocket_id_secret_id: ::std::string::String,
+    ///Field included by default.
+    pub wired_at: ::serde_json::Value,
+}
 ///A "Resource object" representing a storage_request
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
 #[serde(deny_unknown_fields)]

@@ -68,6 +68,8 @@ defmodule FluxVale.Api.Scopes do
     {{"GET", ["instances", :_, "storage-requests"]}, "instances:read"},
     {{"GET", ["storage-requests", :_]}, "instances:read"},
     {{"DELETE", ["instances", :_]}, "instances:write"},
+    # #597 S4: the PocketID wiring verb — an instance write.
+    {{"POST", ["instances", :_, "connect-pocketid"]}, "instances:write"},
     # Backups.
     {{"GET", ["instances", :_, "backup-setting"]}, "backups:read"},
     {{"GET", ["instances", :_, "backup-runs"]}, "backups:read"},

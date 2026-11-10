@@ -145,11 +145,13 @@ in-cluster platform service and sets
 `MCP_ALLOWED_HOSTS=mcp.fluxvale.lvh.me`, so the guard admits exactly
 the hostname the IngressRoute routes.
 
-## Coming later (not in this slice)
+## Deployed (fleet #157)
 
-- **W3b** — the fleet-repo deploy of this image to staging/prod and
-  the MCP gateway in front of it. (The image itself, its CI publish,
-  and the k3d exposure above landed in W3a.)
+- **W3b landed** (fluxvale/fleet#157) — the staging and prod
+  manifests are live: `https://mcp.staging.fluxvale.com/mcp` and
+  `https://mcp.fluxvale.com/mcp` (the protocol path — `MCP_PATH`
+  above). DNS records are pending rollout: the hostnames go live
+  with the beta rollout and don't resolve until then.
 
 ## Gates
 

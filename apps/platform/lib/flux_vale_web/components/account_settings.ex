@@ -6,13 +6,14 @@ defmodule FluxValeWeb.AccountSettings do
   account cluster's navigation cannot drift between them (the
   OrgSettings posture at account scope).
 
-  Sections group the existing surfaces — Account (Profile, Access,
-  Developer) and Billing (Wallet). No dead entries ship: Access and
-  Billing ride the personal-org gate, since both targets flash and
+  Sections group the existing surfaces — Account (Profile, Access, AI
+  agents, Developer) and Billing (Wallet). No dead entries ship: Access
+  and Billing ride the personal-org gate, since both targets flash and
   navigate away for the seeded/legacy no-org actor (the settings page's
   access card hid on the same condition; BillingLive's mount degrades
-  identically). Developer (#635) is ungated: the page is actor-scoped
-  and works for every signed-in actor.
+  identically). Developer (#635) and the quickstart (#484 W5) are
+  ungated: both pages are actor-scoped static-or-self surfaces that
+  work for every signed-in actor.
   """
 
   use FluxValeWeb, :html
@@ -21,7 +22,8 @@ defmodule FluxValeWeb.AccountSettings do
   attr(:personal_org_id, :string, default: nil)
 
   @doc """
-  One entry per surface — Profile, Access, Developer, Wallet — each at
+  One entry per surface — Profile, Access, AI agents, Developer,
+  Wallet — each at
   its own path (the section-per-surface routing shape: org settings'
   tab idiom at account scope, one LiveView per section, no live_action
   tabs). No dead entries ship: the list carries only what exists.
@@ -66,10 +68,13 @@ defmodule FluxValeWeb.AccountSettings do
   # The org-gated sections: both gated targets flash and navigate away
   # for the seeded/legacy no-org actor — the settings page's access card
   # hid on this exact condition, and BillingLive's mount degrades
-  # identically. The gate leaves the no-org sidebar at Profile and
-  # Developer (#635: the developer page is actor-scoped, no org at
-  # mount, so its entry ships ungated beside Profile).
-  defp sections(nil), do: [%{key: "account", label: "Account", entries: [profile(), developer()]}]
+  # identically. The gate leaves the no-org sidebar at Profile, the
+  # quickstart, and Developer (#635/#484 W5: both pages are
+  # actor-scoped with no org at mount, so their entries ship ungated
+  # beside Profile).
+  defp sections(nil) do
+    [%{key: "account", label: "Account", entries: [profile(), agents(), developer()]}]
+  end
 
   defp sections(_personal_org_id) do
     [
@@ -79,6 +84,7 @@ defmodule FluxValeWeb.AccountSettings do
         entries: [
           profile(),
           %{key: "access", label: "Access", path: ~p"/settings/access"},
+          agents(),
           developer()
         ]
       },
@@ -91,6 +97,8 @@ defmodule FluxValeWeb.AccountSettings do
   end
 
   defp profile, do: %{key: "profile", label: "Profile", path: ~p"/settings"}
+
+  defp agents, do: %{key: "agents", label: "AI agents", path: ~p"/settings/agents"}
 
   defp developer, do: %{key: "developer", label: "Developer", path: ~p"/settings/developer"}
 end

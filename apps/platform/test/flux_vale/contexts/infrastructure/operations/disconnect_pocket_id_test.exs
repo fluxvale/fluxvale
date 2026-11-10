@@ -1,0 +1,333 @@
+defmodule FluxVale.Infrastructure.Operations.DisconnectPocketIdTest do
+  @moduledoc false
+
+  # #597 S5: the disconnect — best-effort client delete (D6: refused
+  # never blocks), strip the recipe's env from row AND workload, clear
+  # the wiring. The app keeps its local login.
+
+  # Serialized (async: false) — the shared feature-flag row's lock
+  # order (the S2/S3/S4 files' note).
+  use FluxVale.DataCase, async: false
+  use Mimic
+
+  alias FluxVale.Clients.K8s
+  alias FluxVale.Clients.K8s.Resources.Deployment
+  alias FluxVale.Clients.K8s.Resources.Secret
+  alias FluxVale.Infrastructure
+  alias FluxVale.Infrastructure.Instance
+  alias FluxVale.Infrastructure.PocketId.ApiClient
+  alias FluxVale.Infrastructure.PocketIdCustody
+  alias FluxVale.Infrastructure.PocketIdWiring
+  alias FluxVale.Ops.FeatureFlags
+  alias FluxVale.TestSupport.AccountsFixtures
+  alias FluxVale.TestSupport.BillingFixtures
+  alias FluxVale.TestSupport.InstanceFixtures
+
+  @held_key "held-key-not-a-real-credential"
+  @issuer "https://id.example"
+
+  @recipe %{
+    "kind" => "env",
+    "issuer_env" => "SSO_AUTHORITY",
+    "client_id_env" => "SSO_CLIENT_ID",
+    "client_secret_env" => "SSO_CLIENT_SECRET",
+    "enabled_env" => "SSO_ENABLED",
+    "pkce" => true
+  }
+
+  @schema %{
+    "SSO_AUTHORITY" => %{label: "OIDC issuer URL", type: :string},
+    "SSO_CLIENT_ID" => %{label: "OIDC client ID", type: :string},
+    "SSO_CLIENT_SECRET" => %{label: "OIDC client secret", type: :string, secret: true},
+    "SSO_ENABLED" => %{label: "Enable Pocket ID sign-in", type: :boolean, default: false},
+    "SMTP_HOST" => %{label: "SMTP host", type: :string}
+  }
+
+  setup do
+    :ok = FeatureFlags.enable(:pocketid_sso_wiring, actor: AccountsFixtures.platform_admin!())
+
+    InstanceFixtures.local_cluster!()
+    {org, owner} = BillingFixtures.grant_free_org!()
+    BillingFixtures.funded_wallet!(org: org)
+
+    stub(K8s, :kubeconfig, fn _ref -> {:ok, %{}} end)
+
+    stub(Secret, :get_data, fn _kc, _ns, ref ->
+      case ref do
+        "fluxvale-pocketid-custody-" <> _suffix -> {:ok, %{"POCKETID_API_KEY" => @held_key}}
+        "app-env" -> {:ok, %{"SSO_AUTHORITY" => @issuer, "SMTP_HOST" => "smtp"}}
+      end
+    end)
+
+    stub(Secret, :upsert, fn _kc, _ns, _n, _d -> {:ok, %{}} end)
+    stub(Deployment, :restart, fn _kc, _ns, _n -> {:ok, %{}} end)
+
+    pocket_id_version =
+      InstanceFixtures.app_version!(app_slug: "pocket-id", configurable_env_vars: %{})
+
+    pocket_id =
+      pocket_id_version
+      |> InstanceFixtures.instance!(owner)
+      |> InstanceFixtures.walk_to!(:running)
+      |> InstanceFixtures.pin!(namespace: "ns-pid")
+
+    PocketIdCustody.record!(
+      %{
+        organization_id: pocket_id.organization_id,
+        instance_id: pocket_id.id,
+        api_key_secret_ref: "fluxvale-pocketid-custody-#{pocket_id.id}",
+        verified_at: DateTime.utc_now()
+      },
+      authorize?: false
+    )
+
+    app_version =
+      InstanceFixtures.app_version!(
+        configurable_env_vars: @schema,
+        oidc_wiring: @recipe,
+        oidc_callback_path: "/cb"
+      )
+
+    created =
+      Instance.create!(
+        %{
+          name: "Inst #{System.unique_integer()}",
+          app_version_id: app_version.id,
+          env_vars: %{"SMTP_HOST" => "smtp"}
+        },
+        actor: owner
+      )
+
+    app =
+      created
+      |> InstanceFixtures.walk_to!(:running)
+      |> InstanceFixtures.pin!(namespace: "ns-app")
+
+    PocketIdWiring.record!(
+      %{
+        instance_id: app.id,
+        pocket_id_instance_id: pocket_id.id,
+        pocket_id_client_id: "client-1",
+        pocket_id_secret_id: "secret-1"
+      },
+      authorize?: false
+    )
+
+    %{app: app, pocket_id: pocket_id, owner: owner}
+  end
+
+  defp url(pocket_id) do
+    base = Application.fetch_env!(:flux_vale, :instances_base_domain)
+    "https://#{pocket_id.slug}.#{base}"
+  end
+
+  describe "disconnect/2" do
+    test "deletes the client, strips row + workload, clears the wiring", %{
+      app: app,
+      pocket_id: pocket_id,
+      owner: owner
+    } do
+      expect(ApiClient, :delete_client, fn _u, @held_key, "client-1" ->
+        send(self(), :client_deleted)
+        :ok
+      end)
+
+      expect(Secret, :upsert, fn _kc, "ns-app", "app-env", data ->
+        send(self(), {:stripped, data})
+        {:ok, %{}}
+      end)
+
+      expect(Deployment, :restart, fn _kc, "ns-app", "app" -> {:ok, %{}} end)
+
+      assert {:ok, %{client_deleted: true}} =
+               Infrastructure.disconnect_pocket_id(app, actor: owner)
+
+      assert_received :client_deleted
+      assert_received {:stripped, data}
+      # The recipe's keys are GONE (unset semantics), user env intact.
+      assert data == %{"SMTP_HOST" => "smtp"}
+
+      reloaded = Instance.get_by_id!(app.id, actor: owner)
+      assert reloaded.env_vars == %{"SMTP_HOST" => "smtp"}
+      assert {:error, _none} = PocketIdWiring.get_by_instance(app.id, authorize?: false)
+    end
+
+    test "a refused client delete does not block — the notice carries it", %{
+      app: app,
+      owner: owner
+    } do
+      stub(ApiClient, :delete_client, fn _u, _k, _c -> {:error, :unreachable} end)
+
+      assert {:ok, %{client_deleted: false}} =
+               Infrastructure.disconnect_pocket_id(app, actor: owner)
+
+      assert {:error, _none} = PocketIdWiring.get_by_instance(app.id, authorize?: false)
+    end
+
+    test "not-wired is the honest refusal; flag-off likewise", %{app: app, owner: owner} do
+      wiring = PocketIdWiring.get_by_instance!(app.id, authorize?: false)
+      PocketIdWiring.replace(wiring, authorize?: false)
+
+      assert {:error, :not_wired} = Infrastructure.disconnect_pocket_id(app, actor: owner)
+    end
+
+    test "flag-off is the honest refusal", %{app: app, owner: owner} do
+      :ok = FeatureFlags.disable(:pocketid_sso_wiring, actor: AccountsFixtures.platform_admin!())
+
+      assert {:error, :flag_disabled} = Infrastructure.disconnect_pocket_id(app, actor: owner)
+    end
+
+    test "a failed workload apply fails the disconnect — the row strip stands, nothing clears", %{
+      app: app,
+      pocket_id: pocket_id,
+      owner: owner
+    } do
+      stub(ApiClient, :delete_client, fn _u, _k, _c -> :ok end)
+
+      stub(Secret, :upsert, fn _kc, _ns, _n, _d ->
+        {:error, %K8s.Error{status_code: 500, reason: :unknown, message: "no"}}
+      end)
+
+      assert {:error, %K8s.Error{}} =
+               Infrastructure.disconnect_pocket_id(app, actor: owner)
+
+      # The row strip happened (the transaction committed); the wiring
+      # STANDS — the retry converges the cluster side.
+      assert {:ok, _wiring_still_stands} =
+               PocketIdWiring.get_by_instance(app.id, authorize?: false)
+
+      _unused_pocket_id = pocket_id
+    end
+
+    # The pre-deploy disconnect: the row is the whole truth — no
+    # cluster calls (Mimic would reject any), the strip lands on the
+    # row alone, the wiring clears.
+    test "a pending instance disconnects without touching the cluster", %{
+      owner: owner
+    } do
+      version =
+        InstanceFixtures.app_version!(
+          configurable_env_vars: @schema,
+          oidc_wiring: @recipe,
+          oidc_callback_path: "/cb"
+        )
+
+      pending =
+        Instance.create!(
+          %{name: "Pending App", app_version_id: version.id, env_vars: %{"SMTP_HOST" => "smtp"}},
+          actor: owner
+        )
+
+      PocketIdWiring.record!(
+        %{
+          instance_id: pending.id,
+          pocket_id_instance_id: Ash.UUID.generate(),
+          pocket_id_client_id: "client-p",
+          pocket_id_secret_id: "secret-p"
+        },
+        authorize?: false
+      )
+
+      assert {:ok, %{client_deleted: false}} =
+               Infrastructure.disconnect_pocket_id(pending, actor: owner)
+
+      assert Instance.get_by_id!(pending.id, actor: owner).env_vars == %{"SMTP_HOST" => "smtp"}
+      assert {:error, _none} = PocketIdWiring.get_by_instance(pending.id, authorize?: false)
+    end
+
+    test "revoked custody is the honest no_custody refusal", %{
+      app: app,
+      pocket_id: pocket_id,
+      owner: owner
+    } do
+      row = PocketIdCustody.get_by_instance!(pocket_id.id, authorize?: false)
+      PocketIdCustody.revoke!(row, authorize?: false)
+
+      assert {:error, :no_custody} = Infrastructure.disconnect_pocket_id(app, actor: owner)
+      assert {:ok, _stands} = PocketIdWiring.get_by_instance(app.id, authorize?: false)
+    end
+
+    test "a version that lost its recipe refuses — nothing names the strip", %{
+      app: app,
+      owner: owner
+    } do
+      stub(ApiClient, :delete_client, fn _u, _k, _c -> :ok end)
+
+      version = Ash.load!(app, :app_version, authorize?: false).app_version
+
+      version
+      |> Ash.Changeset.for_update(:update, %{oidc_wiring: nil}, authorize?: false)
+      |> Ash.update!()
+
+      assert {:error, :recipe_missing} = Infrastructure.disconnect_pocket_id(app, actor: owner)
+    end
+
+    # A recipe without the optional enabled_env strips only its three
+    # named keys (the maybe_prepend nil arm).
+    test "a recipe without enabled_env strips its three keys only", %{
+      owner: owner,
+      pocket_id: pocket_id
+    } do
+      stub(ApiClient, :delete_client, fn _u, _k, _c -> :ok end)
+
+      version =
+        InstanceFixtures.app_version!(
+          configurable_env_vars: Map.delete(@schema, "SSO_ENABLED"),
+          oidc_wiring: Map.delete(@recipe, "enabled_env"),
+          oidc_callback_path: "/cb"
+        )
+
+      created =
+        Instance.create!(
+          %{
+            name: "No Toggle #{System.unique_integer()}",
+            app_version_id: version.id,
+            env_vars: %{"SSO_ENABLED" => "true", "SSO_AUTHORITY" => "x", "SMTP_HOST" => "z"}
+          },
+          actor: owner
+        )
+
+      enabledless =
+        created
+        |> InstanceFixtures.walk_to!(:running)
+        |> InstanceFixtures.pin!(namespace: "ns-notoggle")
+
+      PocketIdWiring.record!(
+        %{
+          instance_id: enabledless.id,
+          pocket_id_instance_id: pocket_id.id,
+          pocket_id_client_id: "client-ne",
+          pocket_id_secret_id: "secret-ne"
+        },
+        authorize?: false
+      )
+
+      assert {:ok, _disconnected} = Infrastructure.disconnect_pocket_id(enabledless, actor: owner)
+
+      # The three named keys are stripped; the toggle the recipe never
+      # named rides through untouched.
+      env = Instance.get_by_id!(enabledless.id, actor: owner).env_vars
+      assert env == %{"SSO_ENABLED" => "true", "SMTP_HOST" => "z"}
+    end
+
+    # The §6 gone shape: the PocketID row is gone, so no client is
+    # reachable — the strip + clear still happen (the card's Clear
+    # wiring verb).
+    test "a gone PocketID clears the wiring without a client delete", %{
+      app: app,
+      pocket_id: pocket_id,
+      owner: owner
+    } do
+      custody_row = PocketIdCustody.get_by_instance!(pocket_id.id, authorize?: false)
+      PocketIdCustody.revoke!(custody_row, authorize?: false)
+
+      Ash.destroy!(pocket_id, authorize?: false)
+
+      assert {:ok, %{client_deleted: false}} =
+               Infrastructure.disconnect_pocket_id(app, actor: owner)
+
+      assert {:error, _none} = PocketIdWiring.get_by_instance(app.id, authorize?: false)
+      assert Instance.get_by_id!(app.id, actor: owner).env_vars == %{"SMTP_HOST" => "smtp"}
+    end
+  end
+end

@@ -1,4 +1,5 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test } from "@playwright/test";
+import { waitForStatus, destroyInstance } from "./helpers/instance-ui";
 import { waitForLiveViewJoin } from "./helpers/live-view";
 import { runtimeFor } from "./helpers/runtime";
 import { signIn } from "./helpers/sign-in";
@@ -128,38 +129,5 @@ test("forgejo: catalog → deploy → running → open → stop → destroy", as
     "$0.40/mo while stopped · billed hourly",
   );
 
-  // Destroy: native confirm() dialog, teardown (async Oban) exits the
-  // view to /instances where the fresh user's list is empty again
-  page.once("dialog", (dialog) => dialog.accept());
-  await page.getByTestId("delete-button").click();
-  await page.waitForURL(/\/instances$/);
-  await expect(page.getByTestId("instance-row")).toHaveCount(0);
+  await destroyInstance(page);
 });
-
-// Poll the live badge until `want` shows; "Failed" fails fast with the
-// status message — waiting out a dead deploy proves nothing. The badge
-// reads #179's user-facing vocabulary (Running/Stopped/Failed…), never
-// the internal state-machine atom.
-async function waitForStatus(page: Page, want: string, timeoutMs: number) {
-  const deadline = Date.now() + timeoutMs;
-
-  while (Date.now() < deadline) {
-    const status = await page
-      .getByTestId("status-badge")
-      .innerText({ timeout: 10_000 })
-      .catch(() => null);
-
-    if (status?.trim() === want) return;
-    if (status?.trim() === "Failed") {
-      const message = await page
-        .getByTestId("status-message")
-        .textContent()
-        .catch(() => "");
-      throw new Error(`instance hit error state: ${message?.trim()}`);
-    }
-
-    await new Promise((resolve) => setTimeout(resolve, 5_000));
-  }
-
-  throw new Error(`status never reached "${want}" within ${timeoutMs}ms`);
-}
