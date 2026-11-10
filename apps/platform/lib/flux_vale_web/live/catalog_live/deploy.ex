@@ -1370,6 +1370,42 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
     end
   end
 
+  # #597 S4: the fail-soft choice (D3). A wiring failure NEVER blocks
+  # the created instance — it parks the choice on step 4 and the user
+  # decides: deploy without sign-in, or retry the wiring. Crafted
+  # events with no choice standing are silence (the pick-org posture).
+  def handle_event("deploy-without-sso", _params, socket) do
+    case socket.assigns.pocketid_choice do
+      %{instance: instance} ->
+        socket = assign(socket, :pocketid_choice, nil)
+        resume_parked_deploy(socket, instance)
+
+      nil ->
+        {:noreply, socket}
+    end
+  end
+
+  def handle_event("retry-pocketid", _params, socket) do
+    case socket.assigns.pocketid_choice do
+      %{instance: instance} -> wire_created(socket, instance)
+      nil -> {:noreply, socket}
+    end
+  end
+
+  # The already-running verdict's single way out: the op re-read the
+  # instance fresh and found it deployed — the panel's copy already
+  # says wiring lands with the instance page, so that's where this
+  # goes (no deploy buttons to misuse).
+  def handle_event("open-instance", _params, socket) do
+    case socket.assigns.pocketid_choice do
+      %{instance: instance} ->
+        {:noreply, push_navigate(socket, to: ~p"/instances/#{instance.id}")}
+
+      nil ->
+        {:noreply, socket}
+    end
+  end
+
   # A version switch resets the allocation (CodeRabbit, #639): the
   # picked rungs belong to the version they were picked for. Carried
   # across a switch they can sit under the new version's floors
@@ -1411,42 +1447,6 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
       # would refuse it, so the pick is silence — the unknown-slug
       # posture.
       {:noreply, socket}
-    end
-  end
-
-  # #597 S4: the fail-soft choice (D3). A wiring failure NEVER blocks
-  # the created instance — it parks the choice on step 4 and the user
-  # decides: deploy without sign-in, or retry the wiring. Crafted
-  # events with no choice standing are silence (the pick-org posture).
-  def handle_event("deploy-without-sso", _params, socket) do
-    case socket.assigns.pocketid_choice do
-      %{instance: instance} ->
-        socket = assign(socket, :pocketid_choice, nil)
-        resume_parked_deploy(socket, instance)
-
-      nil ->
-        {:noreply, socket}
-    end
-  end
-
-  def handle_event("retry-pocketid", _params, socket) do
-    case socket.assigns.pocketid_choice do
-      %{instance: instance} -> wire_created(socket, instance)
-      nil -> {:noreply, socket}
-    end
-  end
-
-  # The already-running verdict's single way out: the op re-read the
-  # instance fresh and found it deployed — the panel's copy already
-  # says wiring lands with the instance page, so that's where this
-  # goes (no deploy buttons to misuse).
-  def handle_event("open-instance", _params, socket) do
-    case socket.assigns.pocketid_choice do
-      %{instance: instance} ->
-        {:noreply, push_navigate(socket, to: ~p"/instances/#{instance.id}")}
-
-      nil ->
-        {:noreply, socket}
     end
   end
 
