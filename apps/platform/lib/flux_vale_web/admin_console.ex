@@ -104,6 +104,7 @@ defmodule FluxValeWeb.AdminConsole do
           module: FluxVale.Catalog.App,
           config: %{
             label_attr: :name,
+            columns: [:name, :category_id],
             note:
               "The catalog page and its deploy wizard are the daily tool. This raw surface carries the marketing copy fields the page renders."
           }

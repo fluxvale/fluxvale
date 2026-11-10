@@ -497,7 +497,7 @@ defmodule FluxValeWeb.AdminLive.Resources do
       form =
         record
         |> AshPhoenix.Form.for_update(action.name, form_opts(admin))
-        |> AshPhoenix.Form.validate(seed_params(fields, record), errors: false)
+        |> AshPhoenix.Form.validate(seed_params(fields, record))
         |> to_form()
 
       {:ok,
@@ -532,12 +532,14 @@ defmodule FluxValeWeb.AdminLive.Resources do
   # -- events ---------------------------------------------------------------
 
   # The form's live validation: per-field errors ride AshPhoenix's form
-  # data protocol into <.input> as the operator types. JSON-textarea
-  # params arrive as JSON text and are decoded first (see
-  # decode_json_params/2).
+  # data protocol into <.input> as the operator types. Params pass
+  # through UNTOUCHED — the operator's textarea text stays a binary in
+  # the form, so the field re-renders it verbatim on every keystroke;
+  # while the text is not yet castable, the composite's cast says
+  # "is invalid" beside the field, which is live validation telling
+  # the truth. The decode happens at submit (see the save handler).
   @impl Phoenix.LiveView
   def handle_event("validate", %{"record" => params}, socket) do
-    params = decode_json_params(socket.assigns.fields, params)
     form = AshPhoenix.Form.validate(socket.assigns.form, params)
 
     {:noreply, assign(socket, form: form)}
@@ -750,37 +752,51 @@ defmodule FluxValeWeb.AdminLive.Resources do
   end
 
   # The JSON textareas' current values for the edit mount: the form's
-  # params carry the JSON text the operator edits (the textarea's
-  # rendered value comes from the params). The strings cast only for
-  # :map — Ash decodes JSON there — so the composite textareas' seed
-  # errors are the seeding's own artifact, never operator input, and
-  # this one validation hides them (`errors: false`); every later
-  # validate event runs on the operator's params and shows their
-  # errors. The record's in-memory composites serialize through
-  # json_safe/1 (plain maps/lists, struct values degraded to data).
+  # params carry what the operator edits (the textarea's rendered
+  # value comes from the params), so the seed puts each field's current
+  # value there in the shape its cast accepts. :map accepts JSON text
+  # (Ash decodes strings itself — probed); every composite accepts its
+  # in-memory shape, so it seeds as the raw value. The seed validate
+  # therefore produces no errors of its own — a mount-time error is
+  # the record's stored data violating an invariant, and it renders
+  # (no suppression).
   defp seed_params(fields, record) do
     fields
     |> Enum.filter(&(&1.type == "textarea"))
     |> Map.new(fn field ->
-      value = Map.get(record, field.name)
-      safe = json_safe(value)
-      json = Jason.encode!(safe)
-      {Atom.to_string(field.name), json}
+      attr = Info.attribute(record.__struct__, field.name)
+      value = seed_value(record, field.name, attr)
+      {Atom.to_string(field.name), value}
     end)
   end
 
-  # The composites' in-memory shapes are plain maps and lists of plain
-  # maps per their moduledocs — json_safe exists so the edge (a struct
-  # sneaking in) degrades to data, never a crash.
-  defp json_safe(value) do
-    if is_map(value) and is_map_key(value, :__struct__) do
-      value
-      |> Map.from_struct()
-      |> Map.new(fn {key, item} -> {key, json_safe(item)} end)
-    else
-      value
-    end
+  defp seed_value(record, name, %{type: Ash.Type.Map}) do
+    value = Map.get(record, name)
+    safe = json_safe(value)
+    Jason.encode!(safe)
   end
+
+  defp seed_value(record, name, _composite_casts_from_its_in_memory_shape) do
+    Map.get(record, name)
+  end
+
+  # The composites' in-memory shapes nest structs in maps and lists
+  # (EnvVarSpec inside EnvVarSchema's map, BackingService structs in
+  # the backing_services list) — json_safe recurses every container so
+  # a rendered serialization degrades structs to data, never a crash.
+  defp json_safe(value) when is_map(value) and is_map_key(value, :__struct__) do
+    value
+    |> Map.from_struct()
+    |> Map.new(fn {key, item} -> {key, json_safe(item)} end)
+  end
+
+  defp json_safe(value) when is_map(value) do
+    Map.new(value, fn {key, item} -> {key, json_safe(item)} end)
+  end
+
+  defp json_safe(value) when is_list(value), do: Enum.map(value, &json_safe/1)
+
+  defp json_safe(value), do: value
 
   # The show page's Edit items: the registry's allowed update actions
   # the actor may run (intent AND truth at render — the plan's two
@@ -1023,11 +1039,20 @@ defmodule FluxValeWeb.AdminLive.Resources do
   # The curated list honors names only — slices 4-5 trim wide resources
   # this way. An inert name (a renamed attribute, a typo) falls back by
   # being skipped: the row renders without it, never crashes, never
-  # renders a non-public attribute it cannot resolve.
+  # renders a non-public attribute it cannot resolve. The created_at
+  # pin rides configured lists too (the engine's columns contract, the
+  # plan's row-age scanning), once, last — a list that already names it
+  # stays as-is.
   defp configured_columns(entry, names) do
     sources = column_sources(entry.module)
     resolver = fn name -> resolve_column(sources, name) end
-    Enum.flat_map(names, resolver)
+    resolved = Enum.flat_map(names, resolver)
+
+    if Enum.any?(resolved, &(&1.name == :created_at)) do
+      resolved
+    else
+      resolved ++ created_at_column(entry)
+    end
   end
 
   defp resolve_column(sources, name) do

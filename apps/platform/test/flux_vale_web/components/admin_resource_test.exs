@@ -363,6 +363,9 @@ defmodule FluxValeWeb.Components.AdminResourceTest do
       # An array whose inner maps to a non-textarea input stays
       # unmappable too.
       assert AdminResource.input_type(%{type: {:array, Ash.Type.Integer}}) == nil
+
+      # A fabricated non-atom non-array type is the _unmapped fallback.
+      assert AdminResource.input_type(%{type: {:custom_tuple, :x}}) == nil
     end
 
     test "the Catalog composites textarea (the atom-composite and array clauses)" do
@@ -378,11 +381,15 @@ defmodule FluxValeWeb.Components.AdminResourceTest do
       assert AdminResource.input_type(features) == "textarea"
       assert AdminResource.input_type(caveats) == "textarea"
 
-      # A one_of atom still selects, and any non-enum atom type reads
-      # as a module composite — the clause the Catalog types ride.
+      # A one_of atom still selects. Any non-enum atom type reads as a
+      # module composite — the probe-verified JSON-cast contract the
+      # Catalog types ride; a built-in landing here would fail at cast
+      # time as a field error, and the registry-intake tests surface
+      # it at intake.
       purpose = attr(AccessRule, :purpose)
       assert AdminResource.input_type(purpose) == "select"
       assert AdminResource.input_type(%{type: SomeUnmappedCompositeType}) == "textarea"
+      assert AdminResource.input_type(%{type: SomeNonArrayType}) == "textarea"
     end
 
     test "decimal inputs step by hundredths — the browser default of 1 would reject fractions" do

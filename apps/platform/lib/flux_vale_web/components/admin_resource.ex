@@ -421,11 +421,14 @@ defmodule FluxValeWeb.AdminResource do
   (either precision) → datetime-local.
 
   `nil` is a shape the engine still cannot map (array-of-array, an
-  array whose inner maps to a non-textarea input): the form SKIPS the
-  field rather than guess at an encoding, the flagged-not-forced rule.
-  Maps, arrays of scalars, and module composites answer "textarea" —
-  they cast from JSON-shaped plain maps and their own validation rides
-  AshPhoenix's field errors (slice 4's JSON-textarea contract).
+  array whose inner maps to a non-textarea input, a non-atom non-array
+  tuple): the form SKIPS the field rather than guess at an encoding,
+  the flagged-not-forced rule. Module types (atoms without values/0)
+  answer "textarea" on the probe-verified JSON-cast contract of the
+  Catalog composites; a built-in type that reaches that clause without
+  accepting JSON-shaped maps fails AT CAST TIME as a field error
+  beside the input — never silently — and a new resource's form-mapping
+  tests (the registry-intake discipline) surface it at intake.
   """
   @spec input_type(map()) :: String.t() | nil
   def input_type(%{type: Ash.Type.String}), do: "text"
@@ -454,9 +457,11 @@ defmodule FluxValeWeb.AdminResource do
 
   # A custom enum type selects like a one_of atom (the same source the
   # renderer's shape/1 reads — values/0 from `use Ash.Type.Enum`).
-  # Every other atom type is a module composite: they cast from
-  # JSON-shaped plain maps (probe-verified), so they textarea like the
-  # map shape above.
+  # Every other atom type is a module composite: the Catalog composites
+  # were probed to cast from JSON-shaped plain maps, so they textarea
+  # like the map shape above. A built-in landing here (Term, Date)
+  # would fail at cast time with a field error — never silently — and
+  # the registry-intake form-mapping tests surface it at intake.
   def input_type(%{type: type}) when is_atom(type) do
     if(enum_type?(type), do: "select", else: "textarea")
   end

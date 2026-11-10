@@ -723,7 +723,9 @@ defmodule FluxValeWeb.AdminResourcesLiveTest do
       curated = entry(%{columns: [:key, :renamed_attr]})
       columns = Resources.columns(curated)
 
-      assert Enum.map(columns, & &1.name) == [:key]
+      # The inert name skips; the created_at pin still rides the
+      # configured list (the engine's columns contract).
+      assert Enum.map(columns, & &1.name) == [:key, :created_at]
     end
 
     test "a label override honors public attributes only — a stale name falls back" do
@@ -1600,6 +1602,36 @@ defmodule FluxValeWeb.AdminResourcesLiveTest do
   # -- slice 4: the Catalog rollout (FK links + JSON textareas) ---------------
 
   describe "the Catalog rollout (slice 4: FK links and JSON textareas)" do
+    test "the app index renders the category FK link over the configured columns", %{
+      conn: conn,
+      admin: admin
+    } do
+      category = category!(admin)
+      _app = app!(admin, category)
+
+      {:ok, view, _html} = live(conn, "/admin/resources/catalog/app")
+
+      # The configured trim: name, the category link, the created_at
+      # pin (the engine's columns contract).
+      html = render(view)
+      document = LazyHTML.from_fragment(html)
+
+      matches = LazyHTML.query(document, "[data-testid^='admin-resource-col-']")
+
+      rendered =
+        for match <- Enum.to_list(matches) do
+          [testid] = LazyHTML.attribute(match, "data-testid")
+          String.replace_prefix(testid, "admin-resource-col-", "")
+        end
+        |> MapSet.new()
+
+      assert MapSet.equal?(rendered, MapSet.new(["name", "category_id", "created_at"]))
+
+      link = render(element(view, "a[data-testid='admin-resource-fk-#{category.id}']"))
+      assert link =~ category.name
+      assert link =~ ~s(href="/admin/resources/catalog/category/#{category.id}")
+    end
+
     test "the app show renders the category FK link with the category's name", %{
       conn: conn,
       admin: admin
@@ -1614,6 +1646,9 @@ defmodule FluxValeWeb.AdminResourcesLiveTest do
                "a[data-testid='admin-resource-fk-#{category.id}']",
                category.name
              )
+
+      link = render(element(view, "a[data-testid='admin-resource-fk-#{category.id}']"))
+      assert link =~ ~s(href="/admin/resources/catalog/category/#{category.id}")
     end
 
     test "the app_version index renders the app FK link over the configured trim", %{
@@ -1627,7 +1662,8 @@ defmodule FluxValeWeb.AdminResourcesLiveTest do
 
       {:ok, view, _html} = live(conn, "/admin/resources/catalog/app_version")
 
-      # The configured trim: exactly version, the app link, published_at.
+      # The configured trim: exactly version, the app link,
+      # published_at, and the created_at pin.
       html = render(view)
       document = LazyHTML.from_fragment(html)
 
@@ -1640,12 +1676,19 @@ defmodule FluxValeWeb.AdminResourcesLiveTest do
         end
         |> MapSet.new()
 
-      assert MapSet.equal?(rendered, MapSet.new(["version", "app_id", "published_at"]))
+      assert MapSet.equal?(
+               rendered,
+               MapSet.new(["version", "app_id", "published_at", "created_at"])
+             )
+
       refute has_element?(view, "[data-testid='admin-resource-col-image']")
       refute has_element?(view, "[data-testid='admin-resource-col-port']")
 
       # The FK link cell: the app's name, linked to its show page.
       assert has_element?(view, "a[data-testid='admin-resource-fk-#{app.id}']", app.name)
+
+      link = render(element(view, "a[data-testid='admin-resource-fk-#{app.id}']"))
+      assert link =~ ~s(href="/admin/resources/catalog/app/#{app.id}")
       assert has_element?(view, "[data-testid='admin-resource-cell-version-#{version.id}']")
     end
 
@@ -1664,7 +1707,14 @@ defmodule FluxValeWeb.AdminResourcesLiveTest do
       # The first cross-domain link: catalog → pricing. The size's slug
       # is its label (the registry's heuristic pick).
       assert has_element?(view, "a[data-testid='admin-resource-fk-#{size.id}']", size.slug)
+
+      size_link = render(element(view, "a[data-testid='admin-resource-fk-#{size.id}']"))
+      assert size_link =~ ~s(href="/admin/resources/pricing/size/#{size.id}")
+
       assert has_element?(view, "a[data-testid='admin-resource-fk-#{app.id}']", app.name)
+
+      app_link = render(element(view, "a[data-testid='admin-resource-fk-#{app.id}']"))
+      assert app_link =~ ~s(href="/admin/resources/catalog/app/#{app.id}")
     end
 
     test "app_version :new renders the required JSON textareas", %{conn: conn} do
@@ -1753,7 +1803,7 @@ defmodule FluxValeWeb.AdminResourcesLiveTest do
       assert has_element?(view, "[data-testid='admin-resource-form']")
     end
 
-    test "the version edit form seeds the JSON textareas with current values, no errors", %{
+    test "the version edit form seeds the JSON textareas with current values", %{
       conn: conn,
       admin: admin
     } do
@@ -1764,9 +1814,8 @@ defmodule FluxValeWeb.AdminResourcesLiveTest do
 
       {:ok, view, _html} = live(conn, "/admin/resources/catalog/app_version/#{version.id}/edit")
 
-      # Seeded as JSON text (no errors on a pristine form); read the
-      # textarea's text content through LazyHTML so the entity-escaped
-      # HTML decodes.
+      # The :map field seeds as JSON text; read the textarea's text
+      # content through LazyHTML so the entity-escaped HTML decodes.
       seeded_value =
         view
         |> element("[data-testid='admin-resource-input-default_env_vars'] textarea")
@@ -1776,8 +1825,9 @@ defmodule FluxValeWeb.AdminResourcesLiveTest do
 
       assert seeded_value =~ ~s({"A":"1"})
 
-      # The schema's structs degrade to their storage shape (atom
-      # values as strings) — key order is the map's, not a contract.
+      # The schema seeds in its in-memory shape and renders serialized
+      # through json_safe — atom values as strings; key order is the
+      # map's, not a contract.
       schema =
         view
         |> element("[data-testid='admin-resource-input-configurable_env_vars'] textarea")
@@ -1786,9 +1836,68 @@ defmodule FluxValeWeb.AdminResourcesLiveTest do
         |> LazyHTML.text()
 
       assert schema =~ ~s("type":"integer")
+    end
 
-      # A pristine edit form carries no errors of its own.
-      refute render(view) =~ "is invalid"
+    test "a pristine version edit form shows no field errors — honest seeding, no suppression", %{
+      conn: conn,
+      admin: admin
+    } do
+      size = sized_size!(admin)
+      category = category!(admin)
+      app = app!(admin, category)
+      version = version!(admin, app, size)
+
+      {:ok, view, _html} = live(conn, "/admin/resources/catalog/app_version/#{version.id}/edit")
+
+      # The seed validate runs UNsuppressed: the pristine form renders
+      # zero field errors because the seeding casts clean, not because
+      # errors are hidden — a stored-data invariant violation would
+      # render here.
+      html = render(view)
+      document = LazyHTML.from_fragment(html)
+
+      errors = LazyHTML.query(document, "[data-testid='admin-resource-form'] p.text-danger")
+
+      assert Enum.to_list(errors) == []
+    end
+
+    test "a live validate re-renders the textarea with the operator's text verbatim", %{
+      conn: conn,
+      admin: admin
+    } do
+      # The review probe's fixture chain: cpu 1.0 / mem 512 on both
+      # sides of the size-match invariant, DATABASE_URL in the schema
+      # and in the backing service's url_env.
+      size = size!(admin, %{cpu_cores: Decimal.new("1.0"), memory_mb: 512})
+      category = category!(admin)
+      app = app!(admin, category)
+
+      version =
+        version!(admin, app, size, %{
+          default_cpu_cores: Decimal.new("1"),
+          default_memory_mb: 512
+        })
+
+      {:ok, view, _html} = live(conn, "/admin/resources/catalog/app_version/#{version.id}/edit")
+
+      # The operator types valid JSON with their own spacing: the field
+      # re-renders the text VERBATIM — no cast-value re-serialization —
+      # and, the composite not accepting the raw text, says "is
+      # invalid" beside itself: live validation telling the truth.
+      typed = ~s({"TYPED": "justnow"})
+
+      html = render_change(view, "validate", %{"record" => %{"configurable_env_vars" => typed}})
+
+      re_rendered =
+        view
+        |> element("[data-testid='admin-resource-input-configurable_env_vars'] textarea")
+        |> render()
+        |> LazyHTML.from_fragment()
+        |> LazyHTML.text()
+
+      assert re_rendered =~ typed
+      assert html =~ "is invalid"
+      assert has_element?(view, "[data-testid='admin-resource-form']")
     end
 
     test "the version show renders first_run and oidc_wiring through the inspect fallback", %{
