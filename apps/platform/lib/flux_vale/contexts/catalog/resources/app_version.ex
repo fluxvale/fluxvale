@@ -285,8 +285,12 @@ defmodule FluxVale.Catalog.AppVersion do
 
     # Curated prose under the version on the app page — D10 copy rules
     # at write time (#678, the ValidateCopyRules wiring in the actions).
+    # The bound rides the pattern every ValidateCopyRules field carries
+    # (audience 180, in_action_intro 160); 600 is the longest shipped
+    # entry (424) with headroom.
     attribute :release_notes, :string do
       public?(true)
+      constraints(max_length: 600)
     end
 
     attribute :published_at, :utc_datetime_usec do

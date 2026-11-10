@@ -747,6 +747,10 @@ defmodule FluxVale.Seeds.CatalogDataTest do
         refute app.community_url == app.source_url,
                "#{app.slug} community_url duplicates source_url"
       end
+
+      # The swapped surface is pinned, not just distinct.
+      assert app_by_slug!(entries, "forgejo").community_url ==
+               "https://matrix.to/#/#forgejo:matrix.org"
     end
 
     test "the fixture's marketing fields pass through raw (string keys, #611)" do

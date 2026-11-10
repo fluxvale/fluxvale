@@ -144,6 +144,12 @@ defmodule FluxVale.Catalog.AppVersionTest do
 
       assert {:error, %Ash.Error.Invalid{}} = AppVersion.create(semicolon, authorize?: false)
 
+      # The field's own length bound — the audience/in_action_intro
+      # pattern every ValidateCopyRules field carries.
+      over = version_attrs(app(), %{release_notes: String.duplicate("a", 601)})
+
+      assert {:error, %Ash.Error.Invalid{}} = AppVersion.create(over, authorize?: false)
+
       # The seed converges through the update action — the copy rules
       # hold there too, so a drifted YAML string fails loudly on
       # re-seed, not only at first insert.
