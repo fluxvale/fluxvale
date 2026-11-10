@@ -81,6 +81,11 @@ defmodule FluxValeWeb.AdminAudit do
       domain: FluxVale.Infrastructure
     },
     %{
+      key: :pocket_id_wiring,
+      module: FluxVale.Infrastructure.PocketIdWiring,
+      domain: FluxVale.Infrastructure
+    },
+    %{
       key: :storage_request,
       module: FluxVale.Infrastructure.StorageRequest,
       domain: FluxVale.Infrastructure

@@ -20,7 +20,7 @@ defmodule FluxValeWeb.AdminAuditTest do
     test "one per business resource, keyed, labeled, and version-backed" do
       entries = AdminAudit.entries()
 
-      assert length(entries) == 31
+      assert length(entries) == 32
 
       keys = Enum.map(entries, & &1.key)
       assert Enum.uniq(keys) == keys, "entry keys must be unique"

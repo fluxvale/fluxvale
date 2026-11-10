@@ -7836,6 +7836,137 @@
         },
         "type": "object"
       },
+      "pocket_id_wiring": {
+        "additionalProperties": false,
+        "description": "A \"Resource object\" representing a pocket_id_wiring",
+        "properties": {
+          "attributes": {
+            "additionalProperties": false,
+            "description": "An attributes object for a pocket_id_wiring",
+            "properties": {
+              "instance_id": {
+                "description": "Field included by default.",
+                "format": "uuid",
+                "type": "string"
+              },
+              "pocket_id_client_id": {
+                "description": "Field included by default.",
+                "type": "string"
+              },
+              "pocket_id_instance_id": {
+                "description": "Field included by default.",
+                "format": "uuid",
+                "type": "string"
+              },
+              "pocket_id_secret_id": {
+                "description": "Field included by default.",
+                "type": "string"
+              },
+              "wired_at": {
+                "description": "Field included by default."
+              }
+            },
+            "required": [
+              "pocket_id_client_id",
+              "pocket_id_secret_id",
+              "pocket_id_instance_id",
+              "wired_at",
+              "instance_id"
+            ],
+            "type": "object"
+          },
+          "id": {
+            "type": "string"
+          },
+          "relationships": {
+            "additionalProperties": false,
+            "description": "A relationships object for a pocket_id_wiring",
+            "properties": {
+              "instance": {
+                "properties": {
+                  "data": {
+                    "additionalProperties": false,
+                    "description": "An identifier for instance",
+                    "nullable": true,
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "meta": {
+                        "additionalProperties": true,
+                        "type": "object"
+                      },
+                      "type": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "type",
+                      "id"
+                    ],
+                    "type": "object"
+                  }
+                }
+              }
+            },
+            "type": "object"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "id"
+        ],
+        "type": "object"
+      },
+      "pocket_id_wiring-type": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Field included by default."
+          },
+          "instance_id": {
+            "description": "Field included by default.",
+            "format": "uuid",
+            "type": "string"
+          },
+          "pocket_id_client_id": {
+            "description": "Field included by default.",
+            "type": "string"
+          },
+          "pocket_id_instance_id": {
+            "description": "Field included by default.",
+            "format": "uuid",
+            "type": "string"
+          },
+          "pocket_id_secret_id": {
+            "description": "Field included by default.",
+            "type": "string"
+          },
+          "wired_at": {
+            "description": "Field included by default."
+          }
+        },
+        "required": [
+          "pocket_id_client_id",
+          "pocket_id_secret_id",
+          "pocket_id_instance_id",
+          "wired_at",
+          "instance_id"
+        ],
+        "type": "object"
+      },
       "storage_request": {
         "additionalProperties": false,
         "description": "A \"Resource object\" representing a storage_request",
@@ -13909,6 +14040,73 @@
               "application/vnd.api+json": {
                 "schema": {
                   "$ref": "#/components/schemas/backup_run-type"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/errors"
+          }
+        },
+        "tags": [
+          "instance"
+        ]
+      }
+    },
+    "/api/v1/instances/{id}/connect-pocketid": {
+      "post": {
+        "callbacks": {},
+        "deprecated": false,
+        "description": "Mints a PocketID OIDC client for this instance and wires its sign-in env — #597. The instance must not be deployed yet (pending/error/lost); the PocketID instance must belong to the same org, be public, and have held-key custody.\n",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "style": "form"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/vnd.api+json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "data": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "pocket_id_instance_id": {
+                        "format": "uuid",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "pocket_id_instance_id"
+                    ],
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "data"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "description": "Request body for the /instances/:id/connect-pocketid operation on instance resource",
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/vnd.api+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/pocket_id_wiring-type"
                 }
               }
             },
