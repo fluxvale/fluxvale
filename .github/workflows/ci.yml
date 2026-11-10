@@ -793,8 +793,15 @@ jobs:
             # the way the backups leg reads MinIO. vikunja joined at
             # birth too (#610) — a memos-shape SQLite deploy. docmost
             # joined at birth (#609) — its per-run Redis pod's pin is
-            # pre-pulled by the warm-up below.
-            specs: tests/forgejo-lifecycle.spec.ts tests/actual-lifecycle.spec.ts tests/vaultwarden-lifecycle.spec.ts tests/memos-lifecycle.spec.ts tests/vikunja-lifecycle.spec.ts tests/pocket-id-lifecycle.spec.ts tests/umami-lifecycle.spec.ts tests/docmost-lifecycle.spec.ts tests/file-access.spec.ts tests/backups.spec.ts
+            # pre-pulled by the warm-up below. instance-resize joined
+            # here via #510's pass (#518 had shipped it without a leg,
+            # the pocket-id class again) — a Forgejo deploy plus the
+            # stop→resize→start flow, 15m bounded (test.setTimeout),
+            # forgejo already warm: observed leg 21m55s green at ten
+            # specs (run 42844965176) leaves ~38m under the 60m
+            # ceiling; the worst growth (~10m observed + one retried
+            # 15m bound) stays inside with the report intact.
+            specs: tests/forgejo-lifecycle.spec.ts tests/actual-lifecycle.spec.ts tests/vaultwarden-lifecycle.spec.ts tests/memos-lifecycle.spec.ts tests/vikunja-lifecycle.spec.ts tests/pocket-id-lifecycle.spec.ts tests/umami-lifecycle.spec.ts tests/docmost-lifecycle.spec.ts tests/instance-resize.spec.ts tests/file-access.spec.ts tests/backups.spec.ts
             warm_apps: forgejo actualbudget vaultwarden memos vikunja pocket-id kavita umami docmost
           # #210 part 3: threshold 45s + probe window 150s are safe
           # HERE only — this leg's instance gets no traffic, so the
