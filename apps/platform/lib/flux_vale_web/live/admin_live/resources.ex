@@ -337,6 +337,7 @@ defmodule FluxValeWeb.AdminLive.Resources do
                       <AdminResource.actions_bar
                         update_actions={@update_actions}
                         destroy_actions={@destroy_actions}
+                        history={@history}
                       />
                     </div>
                   </div>
@@ -444,6 +445,7 @@ defmodule FluxValeWeb.AdminLive.Resources do
            index_path: index_path(entry),
            update_actions: update_actions(entry, record.id, admin),
            destroy_actions: destroy_actions(entry, admin),
+           history: history_path(entry, record.id),
            confirm: nil
          )}
 
@@ -1038,6 +1040,28 @@ defmodule FluxValeWeb.AdminLive.Resources do
 
   defp show_path(domain_key, resource_key, id),
     do: ~p"/admin/resources/#{domain_key}/#{resource_key}/#{id}"
+
+  # The record's audit History deep link (#645): the engine resolves
+  # its own resource key against AdminAudit's business-set entries, so
+  # the link renders exactly where the doctrine's trail exists. A
+  # module outside the set answers :error and renders nothing.
+  defp history_path(entry, record_id) do
+    case FluxValeWeb.AdminAudit.key_for_module(entry.module) do
+      {:ok, key} ->
+        %{"resource" => Atom.to_string(key), "source" => record_id}
+        |> URI.encode_query()
+        |> then(&"/admin/audit?#{&1}")
+
+      # coveralls-ignore-start - every registry resource is
+      # business-set today (the doctrine gate's parity arm pins the
+      # registry against that set), so the refusal arm cannot fire
+      # through the engine; the guard keeps a future out-of-set
+      # registry resource from linking into a surface it never joined.
+      :error ->
+        nil
+        # coveralls-ignore-stop
+    end
+  end
 
   # The sidebar's console nav state (D3 revised): the active domain
   # whose group renders open, and the active resource leaf with its

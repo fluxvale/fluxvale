@@ -151,12 +151,49 @@ defmodule FluxVale.AdminAuthorityTest do
   }
 
   # Trail pendings: the bypass is live, the paper trail arrives with
-  # the named A2 rollout slice. A2-S3 emptied this map — the business
-  # set is fully trailed (the doctrine's zero-pendings state, ahead of
-  # the A2-S4 console slice).
+  # the named A2 rollout slice. A2-S3 emptied this map, and the phasing
+  # device is CLOSED (the test below pins the emptiness permanently) —
+  # a new pending is a set-table amendment decision, not a test edit.
   @pending %{}
 
   describe "the states account for every configured resource" do
+    # The audit console's parity seam (#645, A2-S4): the section
+    # (FluxValeWeb.AdminAudit) browses EXACTLY this set — one test both
+    # sides must satisfy, so the window and the doctrine cannot drift.
+    test "the audit section browses exactly the business set" do
+      audited =
+        FluxValeWeb.AdminAudit.entries()
+        |> Enum.map(& &1.module)
+        |> MapSet.new()
+
+      assert MapSet.equal?(audited, @business_set),
+             "the audit section and the doctrine disagree — " <>
+               "audit-only: #{inspect(MapSet.to_list(MapSet.difference(audited, @business_set)))}, " <>
+               "gate-only: #{inspect(MapSet.to_list(MapSet.difference(@business_set, audited)))}"
+    end
+
+    test "every audited entry's Version module is registered in its domain" do
+      for entry <- FluxValeWeb.AdminAudit.entries() do
+        version = FluxValeWeb.AdminAudit.version_module(entry)
+
+        assert version in Ash.Domain.Info.resources(entry.domain),
+               "#{inspect(version)} is not registered in #{inspect(entry.domain)} — " <>
+                 "the audit section would query a table no domain admits"
+      end
+    end
+
+    # The phasing device is closed: A2-S4 is the trail's window and
+    # every business resource is already full. A pending entry added
+    # back fails HERE, not silently — re-opening the phase is a
+    # set-table amendment (the plan's business-set table + ADR-0048),
+    # never a quiet test edit.
+    test "the phasing device is closed — pendings stay at zero, permanently" do
+      assert @pending == %{},
+             "a pending entry (#{inspect(Map.keys(@pending))}) cannot return: " <>
+               "the phasing closed with the audit console — a resource joins full or exempt " <>
+               "by amending the set table, never by re-opening this map"
+    end
+
     test "every walked resource is business-set or exempt — and every entry is real" do
       walked = walked_resources()
 
@@ -290,6 +327,24 @@ defmodule FluxVale.AdminAuthorityTest do
                "#{inspect(resource)} un-redacted — the blanket sensitive posture is doctrine"
       end
     end
+
+    # The mixin pins the policy TEXT; the version_extensions line on
+    # the source resource is what makes the policy RUN (the authorizer
+    # attach). And with the authorizer attached but no policies
+    # present, reads run ungated — an empty policy list denies nothing.
+    # The gate pins both halves on every generated version module, so
+    # the version tables cannot ship readable.
+    test "every full resource's version module carries the authorizer and a read policy" do
+      for resource <- full_resources() do
+        version = AshPaperTrail.Resource.Info.version_resource(resource)
+
+        assert Ash.Policy.Authorizer in Ash.Resource.Info.authorizers(version),
+               "#{inspect(version)} lost the policy authorizer — the mixin's admin-only read policy would never run"
+
+        assert read_policy?(version),
+               "#{inspect(version)} carries no policy that admits reads — reads would run ungated"
+      end
+    end
   end
 
   describe "exempt — by name, with a reason" do
@@ -355,5 +410,24 @@ defmodule FluxVale.AdminAuthorityTest do
   defp condition_is_pair?(condition) do
     checks = MapSet.new(condition, fn {module, _opts} -> module end)
     MapSet.equal?(checks, @pair)
+  end
+
+  # A read policy: a policy whose condition admits the read action.
+  # The mixin's single policy is `always()` (the compiled Static-true
+  # check — it governs every action, reads included); the narrower
+  # `action_type(:read)` spelling compiles to the ActionType check
+  # with :read among its types.
+  defp read_policy?(version) do
+    version
+    |> Ash.Policy.Info.policies()
+    |> Enum.any?(fn policy -> condition_admits_reads?(policy.condition) end)
+  end
+
+  defp condition_admits_reads?(condition) do
+    Enum.any?(condition, fn
+      {Ash.Policy.Check.Static, opts} -> Keyword.get(opts, :result) == true
+      {Ash.Policy.Check.ActionType, opts} -> :read in List.wrap(opts[:type])
+      _condition_neither_shape -> false
+    end)
   end
 end

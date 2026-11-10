@@ -633,6 +633,14 @@ defmodule FluxValeWeb.Router do
       # scoped system read after the admin gate (the member Instance
       # read policy gains no admin arm here).
       live("/storage-requests", FluxValeWeb.AdminLive.StorageRequests)
+
+      # The audit trail's window (#645, ADR-0048): the business set's
+      # version rows in one cross-resource view, resource/actor/record
+      # filters riding query params. Each read rides the selected
+      # Version resource's own admin-only policy (the shared
+      # VersionMixin) with the platform-admin actor — the mixin
+      # decides, never the UI.
+      live("/audit", FluxValeWeb.AdminLive.Audit, :index)
     end
 
     # LiveDashboard on the debug subpath (Am. 3): this node's BEAM and
