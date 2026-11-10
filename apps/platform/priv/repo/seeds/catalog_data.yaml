@@ -54,7 +54,7 @@
         - GitLab
       # #611 S7: the curated in-action copy, captured from a running
       # instance (repository with README + issue tracker).
-      community_url: https://codeberg.org/forgejo/forgejo
+      community_url: https://matrix.to/#/#forgejo:matrix.org
       in_action_intro: >-
         Forgejo as it ships here: a repository with its README, open
         issues and git over HTTPS.
@@ -111,7 +111,7 @@
           recommended_size: small
           release_notes: |
             First FluxVale catalog release, tracking upstream v16.0.5.
-            HTTPS-only git (SSH disabled); SQLite on a dedicated volume.
+            HTTPS-only git (SSH disabled). SQLite on a dedicated volume.
           published_at: "2026-09-17T15:27:32Z"
           # Operator-owned config (#71 scope, ADR-0031 M3): SQLite-on-PVC
           # (no CNPG dependency — the single cluster is platform-only,
@@ -278,7 +278,7 @@
           release_notes: |
             First FluxVale catalog release, tracking upstream v0.9.1
             (0.9.1.4). SQLite on a dedicated volume mounted at
-            /kavita/config; the admin account is created on first open.
+            /kavita/config. The admin account is created on first open.
           published_at: "2026-09-02T21:07:38Z"
           # First-run contract (#189, ADR-0034): Kavita's first boot
           # shows the registration page and POST /api/account/register
@@ -1245,7 +1245,7 @@
             The bundled packaging of upstream v3.4.1: PostgreSQL 18
             runs inside the instance and shares its resources, all
             data on the instance volume. Existing instances keep the
-            external-database packaging of the same release — their
+            external-database packaging of the same release. Their
             pinned row is unchanged.
           published_at: "2026-11-09T00:00:00Z"
           # DATABASE_URL flips platform-owned on THIS row (the

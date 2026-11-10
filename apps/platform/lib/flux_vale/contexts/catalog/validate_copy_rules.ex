@@ -2,11 +2,11 @@ defmodule FluxVale.Catalog.ValidateCopyRules do
   @moduledoc """
   D10 for the curated fields the map-shaped types don't cover (#611
   plan §4.3): App `caveats`/`alternatives` items and
-  `in_action_intro`, Category `audience` — plain strings, or lists of
-  them, that must obey `CopyRules` at write time so seeds, admin, and
-  the API enforce the same copy rules the typed lists already carry.
-  Only fields being changed are checked: stored text was validated at
-  its own write.
+  `in_action_intro`, Category `audience`, AppVersion `release_notes`
+  (#678) — plain strings, or lists of them, that must obey `CopyRules`
+  at write time so seeds, admin, and the API enforce the same copy
+  rules the typed lists already carry. Only fields being changed are
+  checked: stored text was validated at its own write.
   """
 
   use Ash.Resource.Validation

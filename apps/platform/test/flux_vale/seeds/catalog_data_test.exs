@@ -716,6 +716,39 @@ defmodule FluxVale.Seeds.CatalogDataTest do
       assert kavita_guidance =~ "file access over WebDAV provides"
     end
 
+    test "release_notes carry no em dashes or semicolons (#678)" do
+      entries = CatalogData.entries()
+
+      for entry <- entries,
+          app <- entry.apps,
+          version <- app.versions,
+          notes = version[:release_notes],
+          notes != nil do
+        refute String.contains?(notes, ["\u2014", ";"]),
+               "#{app.slug} #{version[:version]} release_notes: #{notes}"
+      end
+
+      # The cleaned strings keep their meaning.
+      forgejo = app_by_slug!(entries, "forgejo")
+      assert hd(forgejo.versions)[:release_notes] =~ "HTTPS-only git (SSH disabled)."
+
+      kavita = app_by_slug!(entries, "kavita")
+      assert hd(kavita.versions)[:release_notes] =~ "The admin account is created on first open."
+
+      umami = app_by_slug!(entries, "umami")
+      bundled = Enum.find(umami.versions, &(&1[:version] == "3.4.1-bundled"))
+      assert bundled[:release_notes] =~ "same release. Their"
+    end
+
+    test "community_url names a community, not the repo again (#678)" do
+      entries = CatalogData.entries()
+
+      for entry <- entries, app <- entry.apps, app.community_url != nil do
+        refute app.community_url == app.source_url,
+               "#{app.slug} community_url duplicates source_url"
+      end
+    end
+
     test "the fixture's marketing fields pass through raw (string keys, #611)" do
       [entry] = CatalogData.entries(@fixture)
 

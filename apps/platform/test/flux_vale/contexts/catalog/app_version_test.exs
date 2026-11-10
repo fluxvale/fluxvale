@@ -136,6 +136,26 @@ defmodule FluxVale.Catalog.AppVersionTest do
       assert {:error, %Ash.Error.Invalid{}} = rejected
     end
 
+    test "copy rules reject em dashes and semicolons in release_notes (#678)" do
+      em_dash = version_attrs(app(), %{release_notes: "A line — not plain."})
+      semicolon = version_attrs(app(), %{release_notes: "A line; not plain."})
+
+      assert {:error, %Ash.Error.Invalid{}} = AppVersion.create(em_dash, authorize?: false)
+
+      assert {:error, %Ash.Error.Invalid{}} = AppVersion.create(semicolon, authorize?: false)
+
+      # The seed converges through the update action — the copy rules
+      # hold there too, so a drifted YAML string fails loudly on
+      # re-seed, not only at first insert.
+      attrs = version_attrs(app())
+      version = AppVersion.create!(attrs, authorize?: false)
+
+      rejected =
+        AppVersion.update(version, %{release_notes: "A line; not plain."}, authorize?: false)
+
+      assert {:error, %Ash.Error.Invalid{}} = rejected
+    end
+
     test "enforces unique version per app" do
       attrs = version_attrs(app())
       AppVersion.create!(attrs, authorize?: false)
