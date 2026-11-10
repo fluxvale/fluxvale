@@ -222,6 +222,28 @@ defmodule FluxValeWeb.AdminResource do
     """
   end
 
+  @doc """
+  A belongs_to cell whose destination is a registry resource: the
+  loaded record's label, linked to its show page.
+  """
+
+  attr(:label, :string, required: true)
+  attr(:path, :string, required: true)
+  attr(:record_id, :string, required: true)
+
+  @spec link_value(map()) :: Phoenix.LiveView.Rendered.t()
+  def link_value(assigns) do
+    ~H"""
+    <.link
+      navigate={@path}
+      class="text-sm text-link underline-offset-2 hover:underline"
+      data-testid={"admin-resource-fk-#{@record_id}"}
+    >
+      {@label}
+    </.link>
+    """
+  end
+
   # -- pagination --------------------------------------------------------
 
   @doc """
@@ -398,10 +420,12 @@ defmodule FluxValeWeb.AdminResource do
   a one_of atom or a custom `Ash.Type.Enum` → select, utc datetimes
   (either precision) → datetime-local.
 
-  `nil` is a shape the engine cannot map yet (maps, arrays, custom
-  composites — slice 4 owns the JSON-textarea decision for those):
-  the form SKIPS the field rather than guess at an encoding, the
-  flagged-not-forced rule.
+  `nil` is a shape the engine still cannot map (array-of-array, an
+  array whose inner maps to a non-textarea input): the form SKIPS the
+  field rather than guess at an encoding, the flagged-not-forced rule.
+  Maps, arrays of scalars, and module composites answer "textarea" —
+  they cast from JSON-shaped plain maps and their own validation rides
+  AshPhoenix's field errors (slice 4's JSON-textarea contract).
   """
   @spec input_type(map()) :: String.t() | nil
   def input_type(%{type: Ash.Type.String}), do: "text"
@@ -419,14 +443,37 @@ defmodule FluxValeWeb.AdminResource do
   def input_type(%{type: Ash.Type.UtcDatetime}), do: "datetime-local"
   def input_type(%{type: Ash.Type.UtcDatetimeUsec}), do: "datetime-local"
 
+  # JSON textareas (slice 4's contract): the map shape casts from
+  # JSON-shaped plain maps (probe-verified), the type's own validation
+  # rides AshPhoenix's field errors.
+  def input_type(%{type: Ash.Type.Map}), do: "textarea"
+
   def input_type(%{type: Ash.Type.Atom, constraints: constraints}) do
     if Keyword.has_key?(constraints, :one_of), do: "select", else: nil
   end
 
   # A custom enum type selects like a one_of atom (the same source the
   # renderer's shape/1 reads — values/0 from `use Ash.Type.Enum`).
+  # Every other atom type is a module composite: they cast from
+  # JSON-shaped plain maps (probe-verified), so they textarea like the
+  # map shape above.
   def input_type(%{type: type}) when is_atom(type) do
-    if(enum_type?(type), do: "select", else: nil)
+    if(enum_type?(type), do: "select", else: "textarea")
+  end
+
+  # Arrays of scalars and of composites textarea through the same
+  # JSON-shaped casting. Array-of-array stays unmappable (nil) —
+  # nothing uses it, and the guard must precede the recursion: the
+  # generic clause would otherwise re-enter the {:array,
+  # Ash.Type.String} clause and map it, which the unit tests pin nil.
+  def input_type(%{type: {:array, Ash.Type.String}}), do: "textarea"
+  def input_type(%{type: {:array, {:array, _inner}}}), do: nil
+
+  def input_type(%{type: {:array, inner}}) do
+    case input_type(%{type: inner}) do
+      "textarea" -> "textarea"
+      _composite_unmappable -> nil
+    end
   end
 
   def input_type(_unmapped), do: nil

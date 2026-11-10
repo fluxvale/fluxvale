@@ -346,11 +346,43 @@ defmodule FluxValeWeb.Components.AdminResourceTest do
       assert AdminResource.input_type(%{type: Ash.Type.UtcDatetime}) == "datetime-local"
     end
 
-    test "anything the engine cannot map answers nil — skipped, never guessed at" do
-      assert AdminResource.input_type(%{type: Ash.Type.Map}) == nil
+    test "JSON-shaped composites map to the textarea; unmappable shapes stay nil" do
+      # Slice 4's JSON-textarea contract: maps, arrays of scalars, and
+      # the module composites all cast from JSON-shaped plain maps.
+      assert AdminResource.input_type(%{type: Ash.Type.Map}) == "textarea"
+      assert AdminResource.input_type(%{type: {:array, Ash.Type.String}}) == "textarea"
+
+      # Ash.Type.Atom without one_of still answers nil — its specific
+      # clause precedes the atom-composite clause.
       assert AdminResource.input_type(%{type: Ash.Type.Atom, constraints: []}) == nil
-      assert AdminResource.input_type(%{type: SomeUnmappedInputType}) == nil
-      assert AdminResource.input_type(%{type: {:array, Ash.Type.String}}) == nil
+
+      # Array-of-array stays unmappable — the guard pins it against the
+      # recursion re-entering the array-of-string clause.
+      assert AdminResource.input_type(%{type: {:array, {:array, Ash.Type.String}}}) == nil
+
+      # An array whose inner maps to a non-textarea input stays
+      # unmappable too.
+      assert AdminResource.input_type(%{type: {:array, Ash.Type.Integer}}) == nil
+    end
+
+    test "the Catalog composites textarea (the atom-composite and array clauses)" do
+      env_vars = attr(FluxVale.Catalog.AppVersion, :default_env_vars)
+      schema = attr(FluxVale.Catalog.AppVersion, :configurable_env_vars)
+      services = attr(FluxVale.Catalog.AppVersion, :backing_services)
+      features = attr(FluxVale.Catalog.App, :features)
+      caveats = attr(FluxVale.Catalog.App, :caveats)
+
+      assert AdminResource.input_type(env_vars) == "textarea"
+      assert AdminResource.input_type(schema) == "textarea"
+      assert AdminResource.input_type(services) == "textarea"
+      assert AdminResource.input_type(features) == "textarea"
+      assert AdminResource.input_type(caveats) == "textarea"
+
+      # A one_of atom still selects, and any non-enum atom type reads
+      # as a module composite — the clause the Catalog types ride.
+      purpose = attr(AccessRule, :purpose)
+      assert AdminResource.input_type(purpose) == "select"
+      assert AdminResource.input_type(%{type: SomeUnmappedCompositeType}) == "textarea"
     end
 
     test "decimal inputs step by hundredths — the browser default of 1 would reject fractions" do
@@ -420,6 +452,25 @@ defmodule FluxValeWeb.Components.AdminResourceTest do
                update_actions: [],
                destroy_actions: []
              ) == ""
+    end
+  end
+
+  describe "the FK link cell (slice 4)" do
+    test "link_value renders the label linked to its path" do
+      path = "/admin/resources/catalog/app/01a1b89f-0c37-7660-8970-2b93c7181a59"
+
+      html =
+        render_component(&AdminResource.link_value/1,
+          label: "Probe App",
+          path: path,
+          record_id: "02b2c90f-1d48-8771-9081-3c04d8292b70"
+        )
+
+      link =
+        text_of(html, "a[data-testid='admin-resource-fk-02b2c90f-1d48-8771-9081-3c04d8292b70']")
+
+      assert link == "Probe App"
+      assert html =~ ~s(href="#{path}")
     end
   end
 end
