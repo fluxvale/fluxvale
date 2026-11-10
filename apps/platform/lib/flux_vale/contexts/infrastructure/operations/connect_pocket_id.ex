@@ -53,14 +53,17 @@ defmodule FluxVale.Infrastructure.Operations.ConnectPocketId do
   alias FluxVale.Ops.FeatureFlags
   alias FluxVale.Repo
 
+  require Ash.Query
+
   # §4.5: the statuses whose next deploy (re)ships env from the row —
   # the complete set this operation may touch.
   @wireable_statuses [:pending, :error, :lost]
 
-  # PocketID's create DTO caps the name at 50 chars (v2.19.2
-  # `binding:"required,max=50"`); the prefix leaves 39 for the
-  # instance's own name. Grapheme slicing can only come in under a
-  # codepoint cap, never over.
+  # PocketID's create DTO caps the name at 50 RUNES (v2.19.2
+  # `binding:"required,max=50"` — codepoints, not graphemes); the
+  # prefix leaves 39 for the instance's own name. Sliced by
+  # codepoints: a grapheme can span several (combining accents, emoji
+  # sequences), and grapheme slicing could exceed a codepoint cap.
   @client_name_prefix "FluxVale · "
   @client_name_budget 39
 
@@ -81,6 +84,8 @@ defmodule FluxVale.Infrastructure.Operations.ConnectPocketId do
   - `:unreachable` (discovery or mint transport — the wake-race,
     ADR-0036) / `:no_issuer` (answered, but no issuer published)
   - `:key_rejected` (401) / `:key_forbidden` (403) at the mint
+  - `:no_created_secret` (a 2xx mint answered with no secret — the
+    instance's client-secret settings)
   - `:no_api_key` / `:api_key_malformed` (custody Secret unreadable)
   - `%{status:, body:}` (a refused mint — e.g. a 400) as-is
 
@@ -98,7 +103,8 @@ defmodule FluxVale.Infrastructure.Operations.ConnectPocketId do
          {:ok, pocket_id} <- pocket_id(pocket_id_instance_id, app_instance),
          {:ok, custody} <- custody(pocket_id),
          {:ok, issuer} <- discover(pocket_id),
-         {:ok, key} <- UsePocketIdKey.call(custody, "client_mint", actor: actor),
+         {:ok, key} <-
+           UsePocketIdKey.call(custody, "client_mint", actor: actor, authorize?: authorize?),
          {:ok, client} <- mint(pocket_id, key, app_instance, callback_path, recipe) do
       record(app_instance, pocket_id, recipe, issuer, client)
     end
@@ -242,15 +248,23 @@ defmodule FluxVale.Infrastructure.Operations.ConnectPocketId do
   # Atomic by design (the debit_wallet stance): a DB failure can
   # never leave a recorded wiring whose env never landed, nor merged
   # env no row describes — D3's "wiring either recorded or absent".
+  # The network legs above took seconds, so the row is re-read LOCKED
+  # here: a deploy that raced the window serializes behind this
+  # transaction or refuses cleanly at the re-guard, and the merge
+  # builds from the row's CURRENT env — a concurrent env write cannot
+  # be lost to a stale snapshot (the last_owner_guard lock stance).
   # Notifications ride out of the transaction and fire after commit
   # (return_notifications?, the post_entry stance): a rollback never
-  # publishes.
+  # publishes. A refusal here can orphan the minted client in
+  # PocketID: harmless and visible there (D6), S5's cleanup.
   defp record(app_instance, pocket_id, recipe, issuer, client) do
-    merged = Map.merge(app_instance.env_vars, sso_env(recipe, issuer, client))
-
     result =
       Repo.transaction(fn ->
-        with {:ok, _env, env_notifications} <- apply_env(app_instance, merged),
+        locked = lock_instance!(app_instance.id)
+        merged = Map.merge(locked.env_vars, sso_env(recipe, issuer, client))
+
+        with :ok <- status_guard(locked),
+             {:ok, _env, env_notifications} <- apply_env(locked, merged),
              :ok <- replace_existing_wiring(app_instance.id),
              {:ok, wiring, wiring_notifications} <-
                PocketIdWiring.record(
@@ -288,6 +302,16 @@ defmodule FluxVale.Infrastructure.Operations.ConnectPocketId do
         error
         # coveralls-ignore-stop
     end
+  end
+
+  # The write-transaction's locked re-read (last_owner_guard's lock
+  # stance): FOR UPDATE inside the transaction serializes the row
+  # against a racing deploy's writes.
+  defp lock_instance!(instance_id) do
+    Instance
+    |> Ash.Query.filter(id == ^instance_id)
+    |> Ash.Query.lock(:for_update)
+    |> Ash.read_one!(authorize?: false)
   end
 
   # The system funnel on Instance: force_change the MERGED map (user
@@ -352,8 +376,14 @@ defmodule FluxVale.Infrastructure.Operations.ConnectPocketId do
   end
 
   # Recognizable in the PocketID admin UI (§4.3): the platform's mark
-  # plus the instance's own name, truncated to PocketID's 50-char cap.
+  # plus the instance's own name, truncated to PocketID's 50-RUNE cap
+  # (codepoint-sliced — see @client_name_budget).
   defp client_name(%Instance{name: name}) do
-    @client_name_prefix <> String.slice(name, 0, @client_name_budget)
+    kept =
+      name
+      |> String.codepoints()
+      |> Enum.take(@client_name_budget)
+
+    @client_name_prefix <> Enum.join(kept)
   end
 end

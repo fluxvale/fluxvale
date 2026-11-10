@@ -200,13 +200,15 @@ defmodule FluxVale.Infrastructure.PocketId.ApiClient do
   # ------------------------------------------------------------------
 
   # The keyless discovery request: same fail-fast posture as the keyed
-  # calls (no retries, bounded connect), but no X-API-KEY — the
-  # document is public and the key would only widen its exposure.
+  # calls (no retries, bounded connect AND receive — the wizard waits
+  # on this synchronously), but no X-API-KEY — the document is public
+  # and the key would only widen its exposure.
   defp discovery_req(base_url) do
     Req.new(
       base_url: base_url,
       retry: false,
-      connect_options: [timeout: @timeout_milliseconds]
+      connect_options: [timeout: @timeout_milliseconds],
+      receive_timeout: @timeout_milliseconds
     )
   end
 

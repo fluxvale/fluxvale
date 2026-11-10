@@ -604,6 +604,32 @@ defmodule FluxValeWeb.CatalogLive.DeployPocketIdWiringTest do
       assert created!(user, version).status == :pending
     end
 
+    # A gone PocketID cannot be retried into existence — the panel
+    # names it and offers the deploy alone (the never-retryable set).
+    test "a vanished PocketID parks the choice without a retry button", %{
+      conn: conn,
+      user: user,
+      app: app,
+      version: version,
+      pocket_id_version: pocket_id_version
+    } do
+      pocketid = ready_pocketid!(user, pocket_id_version)
+      expect(Req, :get, fn _url, _opts -> {:ok, %Req.Response{status: 404}} end)
+
+      {:ok, view, _html} = open_wizard(conn, app)
+      to_ticked_step_2(view, version)
+      to_step_4(view)
+
+      # The window: the chosen PocketID is destroyed before submit.
+      Ash.destroy!(pocketid, actor: user)
+      submit(view)
+
+      assert has_element?(view, "#pocketid-wiring-choice")
+      assert render(view) =~ "no longer exists"
+      assert has_element?(view, "[data-testid='deploy-without-sso']")
+      refute has_element?(view, "[data-testid='retry-pocketid']")
+    end
+
     # The panel's copy follows the operation's reason — the re-paste
     # verdict (401 at the mint) and the honest generic for anything
     # unrecognized both name the way out.

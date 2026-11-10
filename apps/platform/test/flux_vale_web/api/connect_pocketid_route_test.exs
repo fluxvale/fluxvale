@@ -276,6 +276,35 @@ defmodule FluxValeWeb.Api.ConnectPocketIdRouteTest do
     refute Map.has_key?(reloaded.env_vars, "SSO_AUTHORITY")
   end
 
+  # A 2xx mint with no createdSecret (CodeRabbit): the instance's
+  # client-secret settings — honest words, not a raw atom.
+  test "a mint answering with no secret gets honest words", %{conn: conn} do
+    user = elem(ApiPat.member!(), 0)
+    {app, pocket_id} = member_with_pocket_id(user)
+
+    base_domain = Application.fetch_env!(:flux_vale, :instances_base_domain)
+    url = "https://#{pocket_id.slug}.#{base_domain}"
+
+    stub(ApiClient, :get_discovery, fn ^url -> {:ok, @issuer} end)
+
+    stub(ApiClient, :create_client, fn ^url, @held_key, _attrs -> {:error, :no_created_secret} end)
+
+    pat = ApiPat.mint!(user, ["instances:write"])
+
+    conn =
+      conn
+      |> auth(pat)
+      |> put_req_header("content-type", "application/vnd.api+json")
+      |> post("/api/v1/instances/#{app.id}/connect-pocketid", %{
+        "data" => %{"pocket_id_instance_id" => pocket_id.id}
+      })
+
+    assert [%{"detail" => detail} | _rest] = json_response(conn, 400)["errors"]
+    assert detail =~ "returned no secret"
+    assert reloaded = Instance.get_by_id!(app.id, actor: user)
+    assert reloaded.status == :pending
+  end
+
   test "a PocketID from another org is refused honestly", %{conn: conn} do
     user = elem(ApiPat.member!(), 0)
     {app, _own_pocket_id} = member_with_pocket_id(user)
