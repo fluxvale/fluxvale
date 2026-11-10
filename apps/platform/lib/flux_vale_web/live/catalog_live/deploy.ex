@@ -68,7 +68,15 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
   app is a behavior change the user must choose), and ticking it
   hides the recipe's manual env inputs (the platform writes them,
   S4) while everything else stays. The probe answer and the choice
-  ride wizard state only — the submit path is untouched until S4.
+  ride wizard state only.
+
+  The wiring leg (#597 S4, §4.5): a ticked offer inserts the wiring
+  operation between create and deploy! — one seam with the API's
+  connect-pocketid verb. Its failure is D3 fail-soft: the created
+  instance is fully deployable, the wizard parks the choice (deploy
+  without sign-in / retry) instead of blocking, and a ticked submit
+  strips any user value under the recipe's env names before the
+  create (the wiring's force_change owns those keys regardless).
 
   Bundled backing services (#612 S3, ADR-0045): a declaring version
   owns its `url_env` keys — those inputs never render (the deploy
@@ -124,6 +132,10 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
           |> assign(:pocketid_probes, %{})
           |> assign(:pocketid_ticked, @pocketid_offer_default_unticked)
           |> assign(:pocketid_instance_id, nil)
+          # #597 S4: the fail-soft choice (D3) — set when a ticked
+          # wiring failed on submit; the panel replaces the submit
+          # form until the user deploys without sign-in or retries.
+          |> assign(:pocketid_choice, nil)
           |> assign(
             :form,
             Instance
@@ -707,7 +719,62 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
               >
                 <p :for={msg <- step_invisible_errors(@form)}>{msg}</p>
               </div>
-              <.form for={@form} id="deploy-form" phx-submit="save" class="space-y-4">
+              <%!-- #597 S4 (D3): the wiring-failure choice. The instance
+              is already created and fully deployable — sign-in wiring
+              failed, and continuing is the USER's call, not the
+              platform's. The panel replaces the submit form (a second
+              create would duplicate the instance); focus lands on it so
+              the decision is heard. --%>
+              <div
+                :if={@pocketid_choice}
+                id="pocketid-wiring-choice"
+                role="alert"
+                tabindex="-1"
+                phx-hook=".FocusOnMount"
+                data-testid="pocketid-wiring-choice"
+                class="space-y-3 rounded-xl border border-warning bg-warning-muted px-4 py-3 text-sm text-ink focus:outline-none"
+              >
+                <p class="font-medium">Pocket ID sign-in couldn't be wired</p>
+                <p class="text-ink-muted">
+                  {wiring_failure_copy(@pocketid_choice.reason)}
+                </p>
+                <div
+                  :if={running_elsewhere?(@pocketid_choice.reason)}
+                  class="flex flex-wrap justify-end pt-1"
+                >
+                  <.button size="sm" phx-click="open-instance" data-testid="open-instance">
+                    Open the instance
+                  </.button>
+                </div>
+                <div
+                  :if={not running_elsewhere?(@pocketid_choice.reason)}
+                  class="flex flex-wrap justify-end gap-3 pt-1"
+                >
+                  <.button
+                    variant="ghost"
+                    size="sm"
+                    phx-click="deploy-without-sso"
+                    data-testid="deploy-without-sso"
+                  >
+                    Deploy without sign-in
+                  </.button>
+                  <.button
+                    size="sm"
+                    phx-click="retry-pocketid"
+                    phx-disable-with="Retrying…"
+                    data-testid="retry-pocketid"
+                  >
+                    Retry wiring
+                  </.button>
+                </div>
+              </div>
+              <.form
+                :if={is_nil(@pocketid_choice)}
+                for={@form}
+                id="deploy-form"
+                phx-submit="save"
+                class="space-y-4"
+              >
                 <.input
                   field={@form[:name]}
                   type="text"
@@ -1263,11 +1330,19 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
     end
   end
 
+  # #597 S4: a crafted save while the choice is parked is silence —
+  # the panel replaced the form precisely because a second create
+  # would duplicate the instance (the crafted-channel posture; the
+  # parked instance is the only path forward).
+  def handle_event("save", _params, %{assigns: %{pocketid_choice: %{}}} = socket) do
+    {:noreply, socket}
+  end
+
   def handle_event("save", %{"instance" => instance_params}, socket) do
     params =
       socket.assigns.form.params
       |> Map.merge(instance_params)
-      |> Map.put("env_vars", socket.assigns.env_values)
+      |> Map.put("env_vars", submit_env(socket))
       |> Map.merge(allocation_params(socket.assigns.resources))
       |> org_param(socket.assigns.org_id)
 
@@ -1275,15 +1350,12 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
 
     case AshPhoenix.Form.submit(form, params: params) do
       {:ok, instance} ->
-        # Auto-deploy: the stepper's exit is the status page already
-        # moving (pending → deploying). The instance page's Deploy
-        # button covers the pending/error retry states.
-        deploying = Instance.deploy!(instance, actor: socket.assigns.current_user)
-
-        {:noreply,
-         socket
-         |> put_flash(:info, "Deploying #{deploying.slug}. Tracking its progress.")
-         |> push_navigate(to: ~p"/instances/#{deploying.id}")}
+        # #597 S4 (§4.5): create → wiring → deploy! — the existing
+        # two-step with the middle inserted, only when the user ticked
+        # a live offer. Nothing else about the path changes.
+        if wiring_applies?(socket),
+          do: wire_created(socket, instance),
+          else: deploy_created(socket, instance, plain_deploy_flash(instance))
 
       {:error, form} ->
         socket =
@@ -1338,6 +1410,56 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
       # would refuse it, so the pick is silence — the unknown-slug
       # posture.
       {:noreply, socket}
+  # #597 S4: the fail-soft choice (D3). A wiring failure NEVER blocks
+  # the created instance — it parks the choice on step 4 and the user
+  # decides: deploy without sign-in, or retry the wiring. Crafted
+  # events with no choice standing are silence (the pick-org posture).
+  def handle_event("deploy-without-sso", _params, socket) do
+    case socket.assigns.pocketid_choice do
+      %{instance: instance} ->
+        socket = assign(socket, :pocketid_choice, nil)
+
+        # Fresh read before the deploy leg: the parked window is
+        # unbounded, and the instance page's own Deploy button (the
+        # place the product itself points stranded users) or another
+        # tab may have moved the instance — never force a second
+        # deploy over a live status (the deploy action's in-memory
+        # guard reads only changeset.data).
+        fresh = Instance.get_by_id!(instance.id, actor: socket.assigns.current_user)
+
+        if fresh.status in [:pending, :error, :lost] do
+          flash = plain_deploy_flash(fresh) <> " Pocket ID sign-in was not wired."
+          deploy_created(socket, fresh, flash)
+        else
+          {:noreply,
+           socket
+           |> put_flash(:info, "#{fresh.name} is already #{fresh.status} — opening it.")
+           |> push_navigate(to: ~p"/instances/#{fresh.id}")}
+        end
+
+      nil ->
+        {:noreply, socket}
+    end
+  end
+
+  def handle_event("retry-pocketid", _params, socket) do
+    case socket.assigns.pocketid_choice do
+      %{instance: instance} -> wire_created(socket, instance)
+      nil -> {:noreply, socket}
+    end
+  end
+
+  # The already-running verdict's single way out: the op re-read the
+  # instance fresh and found it deployed — the panel's copy already
+  # says wiring lands with the instance page, so that's where this
+  # goes (no deploy buttons to misuse).
+  def handle_event("open-instance", _params, socket) do
+    case socket.assigns.pocketid_choice do
+      %{instance: instance} ->
+        {:noreply, push_navigate(socket, to: ~p"/instances/#{instance.id}")}
+
+      nil ->
+        {:noreply, socket}
     end
   end
 
@@ -1348,6 +1470,116 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
       socket
     end
   end
+
+  # --- the Pocket ID wiring leg (#597 S4, D3 fail-soft) --------------------
+  # create → wire → deploy! — the wizard is sugar over the operation
+  # (§4.2): one seam, the same one the API action rides. A wiring
+  # failure parks a choice; it never blocks the deploy, and the
+  # created-but-unwired instance stays fully deployable either way.
+
+  # The leg runs only for a ticked, live offer naming a chosen Pocket
+  # ID — the tick cannot exist without the offer (toggle-pocketid's
+  # guard), and the choice cannot exist without the tick; the checks
+  # stay explicit anyway (the crafted-channel posture).
+  defp wiring_applies?(socket) do
+    offer = socket.assigns.pocketid_offer
+
+    socket.assigns.pocketid_ticked and is_map(offer) and offer.state == :offer and
+      not is_nil(socket.assigns.pocketid_instance_id)
+  end
+
+  defp wire_created(socket, instance) do
+    case Infrastructure.connect_pocket_id(instance, socket.assigns.pocketid_instance_id,
+           actor: socket.assigns.current_user
+         ) do
+      {:ok, _wiring} ->
+        deploy_created(socket, instance, wired_deploy_flash(socket, instance))
+
+      {:error, reason} ->
+        # D3: visible, retryable, never a blocker — the choice panel
+        # replaces the submit form until the user decides.
+        {:noreply, assign(socket, :pocketid_choice, %{instance: instance, reason: reason})}
+    end
+  end
+
+  defp deploy_created(socket, instance, flash) do
+    # Auto-deploy: the stepper's exit is the status page already
+    # moving (pending → deploying). The instance page's Deploy
+    # button covers the pending/error retry states.
+    deploying = Instance.deploy!(instance, actor: socket.assigns.current_user)
+
+    {:noreply,
+     socket
+     |> put_flash(:info, flash)
+     |> push_navigate(to: ~p"/instances/#{deploying.id}")}
+  end
+
+  defp plain_deploy_flash(instance), do: "Deploying #{instance.slug}. Tracking its progress."
+
+  # The success flash the brief asks for: the client's name and the
+  # Pocket ID's URL. The name is the operation's own derivation,
+  # duplicated here for display only (the set_pocket_id_key stance on
+  # shared one-liners) — truncation doesn't matter for copy.
+  defp wired_deploy_flash(socket, instance) do
+    url =
+      selected_pocketid_url(socket.assigns.pocketid_offer, socket.assigns.pocketid_instance_id)
+
+    name = "FluxVale · #{instance.name}"
+
+    "#{plain_deploy_flash(instance)} Pocket ID sign-in wired — client #{name} at #{url}."
+  end
+
+  # The env the submit carries: the wizard's values, minus the
+  # recipe's names when the offer is ticked — the tick dropped them
+  # from state, but a crafted env-continue could re-add one, and any
+  # user-supplied value under a recipe key must not survive the
+  # platform-writes-them posture (belt and braces: the wiring's
+  # force_change owns those keys regardless).
+  defp submit_env(socket) do
+    if wiring_applies?(socket) do
+      Map.drop(socket.assigns.env_values, recipe_env_names(socket.assigns.selected))
+    else
+      socket.assigns.env_values
+    end
+  end
+
+  # The choice panel's copy — the wizard's voice for the operation's
+  # reasons (the API carries its own words). The plain atoms live in
+  # one map; the shaped reasons get their own clauses below. Anything
+  # unrecognized (an Ash error class, a refused mint's map) gets the
+  # honest generic, never a crash.
+  @wiring_failure_copy %{
+    unreachable:
+      "Your Pocket ID didn't answer — it may be waking up. Retry the wiring, or deploy now and sign-in stays manual.",
+    no_issuer:
+      "Your Pocket ID answered but published no sign-in issuer — check its APP_URL, then retry.",
+    key_rejected:
+      "The Pocket ID admin key FluxVale holds was rejected. Its owner can re-paste it on the Pocket ID's page; retry after.",
+    key_forbidden:
+      "The Pocket ID key FluxVale holds may not manage clients — an admin's key is needed. Retry after re-pasting one.",
+    no_api_key:
+      "The Pocket ID admin key FluxVale held is gone — re-paste it on the Pocket ID's page, then retry.",
+    api_key_malformed:
+      "The Pocket ID admin key FluxVale holds is unreadable — re-paste it on the Pocket ID's page, then retry.",
+    flag_disabled: "Pocket ID sign-in wiring is turned off right now.",
+    instance_deleting: "This app is being deleted — there is nothing to wire."
+  }
+
+  defp wiring_failure_copy(reason) when is_map_key(@wiring_failure_copy, reason),
+    do: Map.get(@wiring_failure_copy, reason)
+
+  defp wiring_failure_copy({:instance_running, _status}),
+    do: "This app is already running — wiring sign-in lands with the instance page instead."
+
+  defp wiring_failure_copy(other),
+    do:
+      "Pocket ID sign-in couldn't be wired (#{inspect(other)}). Retry, or deploy now and sign-in stays manual."
+
+  # The panel's single-way-out switch: the already-running verdict
+  # (the retry path's fresh re-read finding a deployed instance)
+  # offers Open-the-instance, never the deploy buttons.
+  defp running_elsewhere?({:instance_running, _status}), do: true
+  defp running_elsewhere?(_reason), do: false
 
   # The create's org context (#408): the picker's pick rides the create
   # argument. No pick means no resolvable orgs — a seeded/legacy shape
