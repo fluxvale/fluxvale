@@ -497,6 +497,37 @@ defmodule FluxValeWeb.CatalogLive.DeployPocketIdWiringTest do
       assert moved_on.namespace == instance.namespace
     end
 
+    # The window's other exit: delete hard-deletes a never-deployed
+    # instance — the choice flashes it and points at a new deploy,
+    # never crashes.
+    test "\"Deploy without sign-in\" after the instance was deleted flashes, never crashes", %{
+      conn: conn,
+      user: user,
+      app: app,
+      version: version,
+      pocket_id_version: pocket_id_version
+    } do
+      pocketid = ready_pocketid!(user, pocket_id_version)
+      expect(Req, :get, fn _url, _opts -> {:ok, %Req.Response{status: 404}} end)
+      sleeping_pocketid!(pocketid)
+
+      {:ok, view, _html} = open_wizard(conn, app)
+      to_ticked_step_2(view, version)
+      to_step_4(view)
+      submit(view)
+
+      instance = created!(user, version)
+      Ash.destroy!(instance, actor: user)
+
+      {:ok, _view, html} =
+        view
+        |> element("[data-testid='deploy-without-sso']")
+        |> render_click()
+        |> follow_redirect(conn)
+
+      assert html =~ "no longer exists"
+    end
+
     # The retry's fresh re-read can find the instance deployed (the
     # same moved-on window): the verdict is its own shape — the panel
     # drops the deploy buttons and offers the instance page instead.
@@ -607,6 +638,7 @@ defmodule FluxValeWeb.CatalogLive.DeployPocketIdWiringTest do
 
       render_click(view, "deploy-without-sso", %{})
       render_click(view, "retry-pocketid", %{})
+      render_click(view, "open-instance", %{})
 
       # Still on the wizard, nothing created, nothing crashed.
       assert has_element?(view, "#version-#{version.id}")
