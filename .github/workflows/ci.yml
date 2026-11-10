@@ -816,6 +816,11 @@ jobs:
         with:
           persist-credentials: false
 
+      # #510 batch 3: a spec in no leg runs only in nightlies — the
+      # pocket-id (#492) and instance-resize (#518) classes. Seconds,
+      # no cluster: red here beats 20 minutes of bootstrap on a gap.
+      - run: ./scripts/lint-e2e-legs.sh
+
       # Binaries only (node/k3d/kubectl/helm/rclone), verified against
       # mise.lock — the same pins and checksums as local. install:
       # false: a bare `mise install` would also pull erlang (source

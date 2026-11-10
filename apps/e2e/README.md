@@ -130,7 +130,9 @@ leg (instance-deploying specs), a `timers` leg (platform-timer-bound
 specs — scale-to-zero on the bootstrap's compressed cadence), and a
 `pages` leg (the rest), one report artifact per leg. A new spec file
 joins a leg's list in the workflow matrix — it won't run in PR CI
-otherwise. The per-merge post-deploy smoke retired with #556 (the
+otherwise, and `scripts/lint-e2e-legs.sh` (first step of the e2e job)
+reds on a spec no leg lists. The per-merge post-deploy smoke retired
+with #556 (the
 readiness gate that replaced it runs no behavioral suite); the
 nightly workflow (`.github/workflows/e2e-nightly.yml`) runs the full
 suite at the real 1h + */5 cadence on main, daily.
