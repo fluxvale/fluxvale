@@ -573,6 +573,37 @@ defmodule FluxValeWeb.CatalogLive.DeployPocketIdWiringTest do
       assert html =~ @instance_name
     end
 
+    # The cluster-outage verdict's copy — the key read's K8s error
+    # shape, the panel's voice (the API words are the route test's).
+    test "a key-store outage parks the choice with the retry copy", %{
+      conn: conn,
+      user: user,
+      app: app,
+      version: version,
+      pocket_id_version: pocket_id_version
+    } do
+      pocketid = ready_pocketid!(user, pocket_id_version)
+      expect(Req, :get, fn _url, _opts -> {:ok, %Req.Response{status: 404}} end)
+
+      url = pocketid_url(pocketid)
+
+      stub(ApiClient, :get_discovery, fn ^url -> {:ok, @issuer} end)
+
+      stub(Secret, :get_data, fn _kc, _ns, _ref ->
+        {:error, %FluxVale.Clients.K8s.Error{status_code: 500, reason: :unknown, message: "boom"}}
+      end)
+
+      {:ok, view, _html} = open_wizard(conn, app)
+      to_ticked_step_2(view, version)
+      to_step_4(view)
+      submit(view)
+
+      assert has_element?(view, "#pocketid-wiring-choice")
+      assert render(view) =~ "key store didn&#39;t answer"
+
+      assert created!(user, version).status == :pending
+    end
+
     # The panel's copy follows the operation's reason — the re-paste
     # verdict (401 at the mint) and the honest generic for anything
     # unrecognized both name the way out.
