@@ -283,8 +283,14 @@ defmodule FluxVale.Catalog.AppVersion do
       public?(true)
     end
 
+    # Curated prose under the version on the app page — D10 copy rules
+    # at write time (#678, the ValidateCopyRules wiring in the actions).
+    # The bound rides the pattern every ValidateCopyRules field carries
+    # (audience 180, in_action_intro 160); 600 is the longest shipped
+    # entry (424) with headroom.
     attribute :release_notes, :string do
       public?(true)
+      constraints(max_length: 600)
     end
 
     attribute :published_at, :utc_datetime_usec do
@@ -347,6 +353,8 @@ defmodule FluxVale.Catalog.AppVersion do
       validate(FluxVale.Catalog.AppVersion.ValidateFirstRunEnv)
       validate(FluxVale.Catalog.AppVersion.ValidateOidcWiringEnv)
       validate(FluxVale.Catalog.AppVersion.ValidateBackingServices)
+      # D10 at the plain-field seam (#678, the App create stance).
+      validate({FluxVale.Catalog.ValidateCopyRules, fields: [:release_notes]})
     end
 
     update :update do
@@ -388,6 +396,8 @@ defmodule FluxVale.Catalog.AppVersion do
       validate(FluxVale.Catalog.AppVersion.ValidateFirstRunEnv)
       validate(FluxVale.Catalog.AppVersion.ValidateOidcWiringEnv)
       validate(FluxVale.Catalog.AppVersion.ValidateBackingServices)
+      # D10 at the plain-field seam (#678, the App update stance).
+      validate({FluxVale.Catalog.ValidateCopyRules, fields: [:release_notes]})
     end
 
     # #360: the detail page reads versions through the app relationship;
