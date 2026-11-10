@@ -702,6 +702,7 @@ defmodule FluxValeWeb.BillingLive.TopupTest do
       view = to_amount(conn)
 
       assert FluxVale.Billing.min_topup_cents() == 500
+      assert FluxVale.Billing.min_topup_dollars() == 5
       assert has_element?(view, "input[name='amount[dollars]'][min='5']")
     end
 
