@@ -37,8 +37,8 @@
       tagline: Git forge with issues, pull requests, and Actions CI
       description: |
         Repositories, issues, pull requests, wiki, and Forgejo Actions CI in
-        a lightweight, 100% free-software package. Git over HTTPS only;
-        repositories and metadata live on a dedicated volume.
+        a lightweight, 100% free-software package. Git over HTTPS only, with
+        repositories and metadata living on a dedicated volume.
       icon_url: https://codeberg.org/forgejo/forgejo/raw/branch/forgejo/assets/logo.svg
       source_url: https://codeberg.org/forgejo/forgejo
       docs_url: https://forgejo.org/docs/latest/
@@ -52,6 +52,39 @@
       alternatives:
         - GitHub
         - GitLab
+      # #611 S7: the curated in-action copy, captured from a running
+      # instance (repository with README + issue tracker).
+      community_url: https://codeberg.org/forgejo/forgejo
+      in_action_intro: >-
+        Forgejo as it ships here: a repository with its README, open
+        issues and git over HTTPS.
+      screenshots:
+        - src: /images/catalog/forgejo/repository-readme.png
+          alt: A Forgejo repository home with the README rendered beside the file list
+          caption: A repository with its README, file list and history.
+        - src: /images/catalog/forgejo/issues.png
+          alt: The Forgejo issue tracker listing three open issues
+          caption: The issue tracker, where work gets picked up.
+      features:
+        - icon: hero-code-bracket
+          title: Git hosting with pull requests
+          body: Repositories, issues, pull requests and Forgejo Actions CI in one lightweight package.
+        - icon: hero-shield-check
+          title: HTTPS-only git by default
+          body: Git works over HTTPS on every instance. Repositories and metadata live on a dedicated volume.
+        - icon: hero-user-group
+          title: Organizations and teams
+          body: Organizations, teams and per-repository permissions ship with the forge.
+        - icon: hero-arrow-path
+          title: Pinned upstream releases
+          body: Instances run an upstream stable release, so you know exactly what you are running.
+      faq:
+        - question: How do I set up Forgejo?
+          answer: Open the instance URL and register. The first account becomes the admin.
+        - question: Is SSH supported?
+          answer: No. Git works over HTTPS only in this packaging, and SSH pushes are disabled.
+        - question: Can I import existing repositories?
+          answer: Yes. Forgejo ships migration tools that pull repositories and issues over HTTPS.
       versions:
         - version: "16.0.5"          # upstream stable, 2026-09-17
           image: codeberg.org/forgejo/forgejo:16.0.5
@@ -152,11 +185,11 @@
       slug: kavita
       tagline: Digital library for comics, manga, and ebooks
       description: |
-        A fast, cross-platform reading server for a personal digital
-        library — comics, manga, and ebooks with a polished in-browser
-        reader, per-user reading progress, OPDS support for third-party
-        clients, and OIDC SSO. All configuration happens in the web UI;
-        no environment variables are needed to boot.
+        A fast, cross-platform reading server for a personal digital library
+        of comics, manga, and ebooks, with a polished in-browser reader,
+        per-user reading progress, OPDS support for third-party clients, and
+        OIDC SSO. All configuration happens in the web UI and no environment
+        variables are needed to boot.
       icon_url: https://raw.githubusercontent.com/Kareadita/Kavita/develop/Logo/kavita.svg
       source_url: https://github.com/Kareadita/Kavita
       docs_url: https://wiki.kavitareader.com
@@ -170,6 +203,40 @@
       alternatives:
         - Komga
         - Calibre-Web
+      # #611 S7: the curated in-action copy, captured from a running
+      # instance (runbook §3 kavita fallback screens: the server admin
+      # screens — see the PR body for the capture posture).
+      community_url: https://github.com/Kareadita/Kavita/discussions
+      in_action_intro: >-
+        Kavita's admin screens after setup, captured from a running
+        instance.
+      screenshots:
+        - src: /images/catalog/kavita/libraries.png
+          alt: The Kavita server settings listing the Books library ready to scan
+          caption: Server settings, where libraries are created and scanned.
+        - src: /images/catalog/kavita/users.png
+          alt: The Kavita users screen listing the instance admin
+          caption: Users and roles live in the same admin panel.
+      features:
+        - icon: hero-book-open
+          title: Ebooks, comics and manga in one server
+          body: Epub, pdf and comic archives stream to a polished in-browser reader.
+        - icon: hero-user-group
+          title: Progress for every reader
+          body: Each account keeps its own reading progress, wants-to-read list and history.
+        - icon: hero-share
+          title: OPDS for your reader apps
+          body: OPDS support lets third-party reader apps browse and download from the library.
+        - icon: hero-magnifying-glass
+          title: Search the whole library
+          body: Series, people and genres become searchable as soon as a scan finishes.
+      faq:
+        - question: How do I set up Kavita?
+          answer: Open the instance URL and register. The first account becomes the admin.
+        - question: How do files get in?
+          answer: Library files move in over WebDAV file access. There is no in-app upload path.
+        - question: Why is my series grid empty?
+          answer: A scan only sees files that are in the library's folder and that the instance can read. Upload over WebDAV, then check the folder under Server settings before you scan.
       # File access (#190, ADR-0035): Kavita is the flagship file-access
       # app — the whole point is loading your own library. The sidecar
       # serves the volume at the app's declared mount path, so libraries
@@ -265,6 +332,39 @@
       alternatives:
         - Google Keep
         - Joplin
+      # #611 S7: the curated in-action copy, captured from a running
+      # instance (timeline feed + the launch tag view).
+      community_url: https://github.com/usememos/memos/discussions
+      in_action_intro: >-
+        A fresh Memos instance with its first notes, captured from a
+        running instance.
+      screenshots:
+        - src: /images/catalog/memos/memos-feed.png
+          alt: The Memos timeline with three notes and the composer on top
+          caption: Notes land in a single feed, newest first.
+        - src: /images/catalog/memos/tag-view.png
+          alt: The Memos view filtered to the launch tag with two notes
+          caption: Notes carrying a tag collect in one view.
+      features:
+        - icon: hero-tag
+          title: Hashtags that filter
+          body: Markdown notes carry hashtags, and every tag opens a filtered view.
+        - icon: hero-share
+          title: Private until you share
+          body: Notes stay private to your account until you switch them to public.
+        - icon: hero-device-phone-mobile
+          title: Works from phone and desktop
+          body: The web UI adapts to small screens, so quick notes work anywhere.
+        - icon: hero-magnifying-glass
+          title: Search by tag and date
+          body: The timeline is searchable by tag and date range out of the box.
+      faq:
+        - question: How do I set up Memos?
+          answer: Open the instance URL and create your account. The first account becomes the host.
+        - question: Where is my data stored?
+          answer: Everything lives in a single SQLite database on the instance volume.
+        - question: Can I close public sign-up?
+          answer: Yes. Turn off registration in Memos' admin settings after you claim the host account.
       versions:
         - version: "26.11.0"          # upstream stable, 2026-11-01
           # The canonical image: built and pushed by Memos' own release
@@ -348,6 +448,39 @@
       alternatives:
         - Todoist
         - Trello
+      # #611 S7: the curated in-action copy, captured from a running
+      # instance (Launch project kanban board + task detail).
+      community_url: https://community.vikunja.io/
+      in_action_intro: >-
+        The Launch project as a kanban board, captured from a running
+        instance.
+      screenshots:
+        - src: /images/catalog/vikunja/kanban.png
+          alt: The Launch project kanban board with tasks across three buckets
+          caption: A project as a board, columns and all.
+        - src: /images/catalog/vikunja/task-detail.png
+          alt: A task open with its description and due date
+          caption: A task, with its description and due date.
+      features:
+        - icon: hero-document-text
+          title: Views for every kind of work
+          body: List, kanban, Gantt and table views on the same project, plus labels and filters.
+        - icon: hero-user-group
+          title: Share projects with a team
+          body: Share a project with household members or a team and work on tasks together.
+        - icon: hero-bolt
+          title: Reminders and repeating tasks
+          body: Tasks take due dates, reminders and repeat patterns so nothing slips.
+        - icon: hero-share
+          title: CalDAV and app clients
+          body: Phone and desktop clients connect over CalDAV and the Vikunja API.
+      faq:
+        - question: How do I set up Vikunja?
+          answer: Open the instance URL and register. Sign-ups stay open, so claim your account early.
+        - question: Is the first account the admin?
+          answer: No. Vikunja grants the first registrant no extra rights on this packaging.
+        - question: Can I connect phone apps?
+          answer: Yes. Phone and desktop clients connect over CalDAV and the API.
       versions:
         - version: "2.8.0"          # upstream stable, 2026-11-05
           # The canonical image (upstream's own release pipeline pushes
@@ -525,6 +658,39 @@
       alternatives:
         - Bitwarden
         - 1Password
+      # #611 S7: the curated in-action copy, captured from a running
+      # instance (vault list + item detail).
+      community_url: https://github.com/dani-garcia/vaultwarden/discussions
+      in_action_intro: >-
+        The web vault with two example logins, captured from a running
+        instance.
+      screenshots:
+        - src: /images/catalog/vaultwarden/vault-items.png
+          alt: The Bitwarden web vault listing two example logins
+          caption: The vault, with your logins in one list.
+        - src: /images/catalog/vaultwarden/item-detail.png
+          alt: A login item detail with the username, masked password and website
+          caption: An item, with its fields and history.
+      features:
+        - icon: hero-key
+          title: Works with Bitwarden apps
+          body: Point the official Bitwarden apps at your instance and they just sync.
+        - icon: hero-shield-check
+          title: End-to-end encrypted
+          body: Vault contents are encrypted and decrypted on your devices. The server holds ciphertext only.
+        - icon: hero-user-group
+          title: Share through collections
+          body: Collections and organizations let a family or team share selected logins.
+        - icon: hero-finger-print
+          title: Passkeys and two-factor sign-in
+          body: Attach two-factor login and WebAuthn passkeys to accounts for extra safety.
+      faq:
+        - question: How do I set up Vaultwarden?
+          answer: Open the web vault and create your account, then point your Bitwarden apps at the instance URL.
+        - question: Can anyone register?
+          answer: Sign-ups stay open on the instance URL. Create your account soon after deploying.
+        - question: Is there an admin panel?
+          answer: No. The admin panel is disabled in this packaging and there is no admin token to turn on.
       versions:
         - version: "1.37.5"          # upstream stable, 2026-11-01
           # The canonical upstream image: Docker Hub is the release
@@ -666,6 +832,39 @@
       alternatives:
         - Keycloak
         - Auth0
+      # #611 S7: the curated in-action copy, captured from a running
+      # instance (users list + OIDC client detail).
+      community_url: https://github.com/pocket-id/pocket-id/discussions
+      in_action_intro: >-
+        The admin panel with two accounts and an OIDC client, captured
+        from a running instance.
+      screenshots:
+        - src: /images/catalog/pocket-id/users.png
+          alt: The Pocket ID user list showing an admin and a regular user
+          caption: Everyone who can sign in, in one list.
+        - src: /images/catalog/pocket-id/client-detail.png
+          alt: The Pocket ID client page with the client ID and callback URL
+          caption: A client, with the callback URL it trusts.
+      features:
+        - icon: hero-finger-print
+          title: Passkey-first sign-in
+          body: Users authenticate with passkeys instead of passwords.
+        - icon: hero-key
+          title: OIDC for your other apps
+          body: OpenID Connect clients let your self-hosted apps use Pocket ID for sign-in.
+        - icon: hero-user-group
+          title: Users and groups
+          body: Manage users and groups in one admin panel with a sign-in audit log.
+        - icon: hero-shield-check
+          title: Lightweight and load-bearing
+          body: A single small binary that stays fast, because your other apps depend on it.
+      faq:
+        - question: How do I set up Pocket ID?
+          answer: Open the instance URL and create your account on the setup page, then add a passkey.
+        - question: Do users need a passkey?
+          answer: Passkeys are the primary sign-in method.
+        - question: What connects over OIDC?
+          answer: Any app that speaks OpenID Connect. Register it as a client and point its callback URL here.
       versions:
         - version: "2.19.2"          # upstream stable, 2026-11-02
           # The canonical image, built and pushed by Pocket ID's own
@@ -783,6 +982,39 @@
       alternatives:
         - YNAB
         - Firefly III
+      # #611 S7: the curated in-action copy, captured from a running
+      # instance (November budget + the Everyday register).
+      community_url: https://actualbudget.org/contact
+      in_action_intro: >-
+        A month budgeted and spent in Actual, captured from a running
+        instance.
+      screenshots:
+        - src: /images/catalog/actualbudget/budget-overview.png
+          alt: The Actual budget page for November with budgeted, spent and balance columns
+          caption: A month, budgeted and spent in one view.
+        - src: /images/catalog/actualbudget/account-register.png
+          alt: The Everyday account register with six categorized transactions
+          caption: Every account keeps its own register.
+      features:
+        - icon: hero-calculator
+          title: Envelope budgeting
+          body: Assign every dollar a job, then watch spent and balance update as you spend.
+        - icon: hero-share
+          title: Shared by the household
+          body: Family members sign in with the server password and budgets sync across devices.
+        - icon: hero-chart-bar
+          title: Reports on your spending
+          body: Net worth, spending and cash flow reports come built in.
+        - icon: hero-document-text
+          title: Import from your bank
+          body: Import QIF, OFX and QFX files into any account when statements arrive.
+      faq:
+        - question: How do I set up ActualBudget?
+          answer: Open the instance URL and set the server password. That first open claims the instance.
+        - question: How do we share one budget?
+          answer: Share the server password with people you trust. Everyone signs in with it.
+        - question: Does it connect to my bank?
+          answer: Bank sync works with a SimpleFIN token you provide in the app's own settings.
       versions:
         - version: "26.11.0"          # upstream stable, 2026-11-02
           # The canonical image: ghcr and Docker Hub publish the same
@@ -938,6 +1170,40 @@
       alternatives:
         - Plausible
         - Matomo
+      # #611 S7: the curated in-action copy, captured from a running
+      # instance (demo.example website dashboard + realtime feed).
+      community_url: https://github.com/umami-software/umami/discussions
+      in_action_intro: >-
+        The Umami dashboard with demo traffic on one website, captured
+        from a running instance.
+      screenshots:
+        - src: /images/catalog/umami/website-dashboard.png
+          alt: The Umami website dashboard with a traffic chart and visitor cards
+          caption: Traffic, sessions and top pages for one site.
+        - src: /images/catalog/umami/realtime.png
+          alt: The Umami realtime activity feed listing recent pageviews
+          caption: Who is on the site right now.
+      features:
+        - icon: hero-chart-bar
+          title: Pageviews without cookies
+          body: Collect pageviews and events without cookie banners or third-party trackers.
+        - icon: hero-magnifying-glass
+          title: Filter any view
+          body: Break traffic down by path, referrer, browser, country and device.
+        - icon: hero-device-phone-mobile
+          title: Realtime visitor feed
+          body: The realtime page lists who is on the site right now.
+        - icon: hero-share
+          title: Share stats publicly
+          body: Optional shared links let a client or team see a site's numbers.
+      faq:
+        - question: How do I set up Umami?
+          answer: Open the instance URL and sign in with the default admin account, then change the password.
+        - question: How does tracking work?
+          answer: Add the tracking snippet to your site. Pageviews stream in without cookies.
+        - question: Where is my data stored?
+          answer: On the bundled version, in its own PostgreSQL on the instance volume. On the plain 3.4.1 version, in the PostgreSQL database you supply through DATABASE_URL.
+      # The bundled row covers both version rows' public copy.
       versions:
         - version: "3.4.1-bundled"    # packaging variant, 2026-11-09
           # The OQ #3 takeover row (#612 S4): same upstream image as
@@ -1193,6 +1459,39 @@
       alternatives:
         - Notion
         - Outline
+      # #611 S7: the curated in-action copy (Getting Started page +
+      # Handbook space tree).
+      community_url: https://github.com/docmost/docmost/discussions
+      in_action_intro: >-
+        A workspace wiki with a Handbook space, captured from a running
+        instance.
+      screenshots:
+        - src: /images/catalog/docmost/page.png
+          alt: The Getting started page open in the Docmost editor
+          caption: A page, written and edited in place.
+        - src: /images/catalog/docmost/space-tree.png
+          alt: The Docmost sidebar showing the Handbook page tree
+          caption: The space tree, one page under another.
+      features:
+        - icon: hero-chat-bubble-left-right
+          title: Real-time collaborative editor
+          body: The editor updates live, so comments, mentions and history stay next to the text.
+        - icon: hero-book-open
+          title: Spaces organize the wiki
+          body: Pages organize into spaces, and pages nest under pages in the tree.
+        - icon: hero-magnifying-glass
+          title: Search the whole workspace
+          body: Search covers every space, so the team finds pages fast.
+        - icon: hero-document-text
+          title: Export pages for backups
+          body: Export pages and spaces to markdown and html when you need copies.
+      faq:
+        - question: How do I set up Docmost?
+          answer: Open the instance URL and create your account on the setup page. It becomes the workspace admin.
+        - question: How do I invite the team?
+          answer: Invite people with a copyable link from the members settings.
+        - question: Is the AI included?
+          answer: No. AI features need a paid Docmost Business license from upstream.
       versions:
         - version: "0.97.0"          # upstream stable, 2026-10-25
           # The canonical image is Docker Hub only: ghcr.io/docmost

@@ -681,14 +681,17 @@ defmodule FluxVale.Seeds.CatalogDataTest do
       assert app_by_slug!(entries, "vikunja").alternatives == ["Todoist", "Trello"]
       assert app_by_slug!(entries, "docmost").alternatives == ["Notion", "Outline"]
 
-      # S7 content, not S1: the typed lists stay absent on the shipped
-      # entries ([]), the intros and community links nil.
+      # S7 content: every shipped app carries the curated in-action copy
+      # (two screenshots, the 2x2 feature grid, app FAQ and the community
+      # link) — the S1 absent state is gone.
       for entry <- entries, app <- entry.apps do
-        assert app.screenshots == []
-        assert app.features == []
-        assert app.faq == []
-        assert app.in_action_intro == nil
-        assert app.community_url == nil
+        assert length(app.screenshots) == 2,
+               "#{app.slug} ships #{length(app.screenshots)} screenshots"
+
+        assert length(app.features) == 4, "#{app.slug} ships #{length(app.features)} features"
+        assert app.faq != [], "#{app.slug} ships no app FAQ"
+        assert app.in_action_intro != nil, "#{app.slug} ships no in-action intro"
+        assert app.community_url != nil, "#{app.slug} ships no community link"
       end
     end
 
