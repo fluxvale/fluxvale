@@ -479,6 +479,40 @@ defmodule FluxValeWeb.InstanceLive.PocketIdSsoCardTest do
     refute has_element?(view, "[data-testid=pocketid-sso-card]")
   end
 
+  # A pre-deploy wiring (the wizard's path) carries the card; its
+  # Rotate refuses honestly — rotation is the running-workload verb.
+  # Assert on the click's own patch (a post-click broadcast can
+  # replace the page; the patch is the honest answer).
+  test "rotating a not-yet-deployed wiring renders the honest refusal", %{
+    conn: conn,
+    owner: owner
+  } do
+    flag_on!()
+    pid_version = pocket_id_version!()
+    pocket_id = pocket_id!(pid_version, owner, "pid")
+
+    version =
+      InstanceFixtures.app_version!(
+        configurable_env_vars: @schema,
+        oidc_wiring: @recipe,
+        oidc_callback_path: "/cb"
+      )
+
+    pending = InstanceFixtures.instance!(version, owner)
+    wire!(pending, pocket_id)
+
+    {:ok, view, _html} = live(conn, ~p"/instances/#{pending.id}")
+
+    assert has_element?(view, "[data-testid=pocketid-sso-wired]")
+
+    clicked =
+      view
+      |> element("[data-testid=pocketid-rotate]")
+      |> render_click()
+
+    assert clicked =~ "isn&#39;t deployed"
+  end
+
   # Crafted verbs against a hidden card (nil wiring/state) are
   # silence — the handlers' nil arms.
   test "crafted rotate/disconnect events with no card standing are silence", %{

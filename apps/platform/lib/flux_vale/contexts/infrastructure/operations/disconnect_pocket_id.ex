@@ -109,8 +109,13 @@ defmodule FluxVale.Infrastructure.Operations.DisconnectPocketId do
             {:error, :recipe_missing}
         end
 
+      # coveralls-ignore-start - the cascade-race arm: the instance
+      # delete cascades the wiring row, so this read can only miss in
+      # the window between the wiring read and here — unstagedable
+      # under the sandbox (#86).
       {:error, _gone} ->
         {:error, :not_wired}
+        # coveralls-ignore-stop
     end
   end
 

@@ -359,6 +359,38 @@ defmodule FluxVale.Infrastructure.Operations.ConnectPocketIdTest do
       assert {:error, _none} = PocketIdWiring.get_by_instance(app.id, authorize?: false)
     end
 
+    # record() itself refusing (the locked re-guard) rides the same
+    # error passthrough the apply failure does — one arm, two producers.
+    test "a mid-window deleting refusal passes through apply_after_record", %{
+      owner: owner,
+      pocket_id: pocket_id
+    } do
+      app =
+        owner
+        |> sso_instance!()
+        |> InstanceFixtures.walk_to!(:running)
+        |> InstanceFixtures.pin!(namespace: "ns-del")
+
+      url = pocket_id_url(pocket_id)
+
+      stub(ApiClient, :get_discovery, fn ^url ->
+        app
+        |> Ash.Changeset.for_update(:update_status, %{status: :deleting}, authorize?: false)
+        |> Ash.update!()
+
+        {:ok, @issuer}
+      end)
+
+      stub(ApiClient, :create_client, fn ^url, @held_key, _attrs ->
+        {:ok, %{client_id: "pid-1", client_name: "n", secret_id: "sec-1", secret: @minted_secret}}
+      end)
+
+      assert {:error, :instance_deleting} =
+               Infrastructure.retrofit_pocket_id(app, pocket_id.id, actor: owner)
+
+      assert {:error, _none} = PocketIdWiring.get_by_instance(app.id, authorize?: false)
+    end
+
     test "a failed apply keeps the recorded wiring — the retry converges (row is truth)", %{
       owner: owner,
       pocket_id: pocket_id
