@@ -1759,7 +1759,7 @@ msgstr ""
 msgid "Yes, post %{amount}"
 msgstr ""
 
-#: lib/flux_vale_web/admin_demotion_gate.ex:120
+#: lib/flux_vale_web/admin_demotion_gate.ex:135
 #, elixir-autogen, elixir-format
 msgid "Your admin access ended. Sign out and sign back in."
 msgstr ""

@@ -762,7 +762,7 @@ defmodule FluxValeWeb.AdminStorageRequestsLiveTest do
       {1, nil} = FluxVale.Repo.update_all(query, set: [platform_role: "user"])
 
       # A THIRD request broadcasts while the session is dead: the
-      # AdminChrome info gate halts the notification before the
+      # AdminDemotionGate info gate halts the notification before the
       # surface's refresh ever runs — the row never reaches the
       # stream. The tab is quiet, not live.
       third = instance!(version, user, running: true, name: "Cold box")

@@ -380,7 +380,7 @@ defmodule FluxValeWeb.AdminGatewaysLiveTest do
     end
   end
 
-  describe "the per-event demotion seam (the AdminChrome hook)" do
+  describe "the per-event demotion seam (the AdminDemotionGate hook)" do
     test "a demoted admin's event is refused with the wallet surface's copy", %{
       conn: conn,
       admin: admin

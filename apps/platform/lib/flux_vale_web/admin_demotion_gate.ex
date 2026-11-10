@@ -22,17 +22,33 @@ defmodule FluxValeWeb.AdminDemotionGate do
 
   Honest coverage on the generated tools (#671, measured against
   LiveView's channel): the hooks see VIEW-targeted events and info
-  messages only. LiveDashboard's interaction is view-shaped (nav,
-  refresh rate, the page events) and its `:refresh` tick is a message —
-  under demotion the dashboard stops answering events and stops
-  following live data. AshAdmin's resource writes (the save/destroy
-  forms, the generic actions) are `phx-target={@myself}`: LiveView
-  routes cid-targeted events straight to the component, and no
-  view-level hook ever sees them — those events stay outside this seam
-  (and outside any view-level seam). Closing that residue needs a
-  socket-level answer — a periodic re-resolve that redirects, or a
-  demotion broadcast the tab hears — a posture decision deliberately
-  not made in this slice; disclosed on #671 instead.
+  messages only, and neither vendor layout renders a flash group —
+  so a refusal on a generated surface is SILENT (the event simply
+  does not happen); the copy renders on the console, whose layout
+  carries the flash group. LiveDashboard: the refresh tick is an
+  info message and nav is navigate-shaped (a remount through
+  AdminGate), so a demoted tab stops auto-following and its
+  view-level events — the refresh-rate select among them — are
+  refused; but the table controls (search, sort, limit) are
+  cid-targeted events that push_patch, and a patch re-runs
+  handle_params ungated, so those still refresh node telemetry
+  under a dead session. AshAdmin: the view-level chrome (sidebar,
+  the authorizing toggle, actor/tenant ops) is refused; the rest of
+  its component-level UI — save/destroy forms, generic actions,
+  table filters, the sensitive-attribute reveal — is
+  `phx-target={@myself}`, and LiveView routes cid-targeted events
+  straight to the component, where no view-level hook can see them.
+  Both residues are outside this seam and outside any view-level
+  seam; closing them needs a socket-level answer — a periodic
+  re-resolve that redirects, a demotion broadcast, or a
+  :handle_params gate — a posture decision deliberately not made in
+  this slice; disclosed on #671 instead.
+
+  Cost, accepted: the resolve rides every info message, including
+  the dashboard's refresh tick (default 15s, floor 1s) — a few
+  queries per tick per open admin socket. The tick drives data
+  re-reads, so leaving it ungated would reopen the very window this
+  seam exists to close.
   """
 
   use Gettext, backend: FluxValeWeb.Gettext
@@ -79,13 +95,12 @@ defmodule FluxValeWeb.AdminDemotionGate do
           {:halt, demoted(socket)}
         end
 
-      # coveralls-ignore-start - the revoked-token arm: same refusal as
-      # the demoted actor, unreachable without revoking the live
-      # session's jti out-of-band (the demoted-actor tests carry the
-      # gate's behavior).
+      # The revoked-token arm: the session no longer resolves (the
+      # resolve re-checks token-store revocation), so the refusal is
+      # the demoted actor's — pinned by the generated-tools suite's
+      # revoke test.
       _not_signed_in ->
         {:halt, demoted(socket)}
-        # coveralls-ignore-stop
     end
   end
 
@@ -104,12 +119,12 @@ defmodule FluxValeWeb.AdminDemotionGate do
           {:halt, socket}
         end
 
-      # coveralls-ignore-start - the revoked-token arm, the event
-      # gate's own reasoning: not reachable without revoking the live
-      # session's jti out-of-band.
+      # The revoked-token arm, the event gate's own reasoning — the
+      # session stops resolving; the halt is quiet either way. Pinned
+      # by the generated-tools suite's revoke test (the info message
+      # class) alongside the event arm.
       _not_signed_in ->
         {:halt, socket}
-        # coveralls-ignore-stop
     end
   end
 

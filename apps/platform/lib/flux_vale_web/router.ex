@@ -552,9 +552,9 @@ defmodule FluxValeWeb.Router do
     # :authenticated session: Locale first (the LiveView process
     # re-resolves from the session), then the AdminGate socket re-check
     # (the demotion window), then the per-event demotion seam (#671:
-    # the AdminChrome hooks, extracted) BEFORE the chrome so its info
-    # gate halts ahead of the badge hook — and the route gate is the
-    # scope's :admin_auth pipeline.
+    # the AdminDemotionGate hooks, extracted) BEFORE the chrome so its
+    # info gate halts ahead of the badge hook — and the route gate is
+    # the scope's :admin_auth pipeline.
     live_session :admin,
       on_mount: [
         {FluxValeWeb.Locale, :set_locale},
@@ -658,11 +658,14 @@ defmodule FluxValeWeb.Router do
     # session auth plus the platform-admin role — and the on_mount
     # socket re-check), plus the per-event demotion seam (#671): the
     # AdminGate re-check answers per MOUNT, and a socket outlives a
-    # demotion, so the seam re-resolves the actor on every event and
-    # halts the refresh tick under a dead session. Business telemetry
-    # (Telemetry.Metric definitions in FluxValeWeb.Telemetry) renders
-    # here; alert-worthy metrics ALSO flow to Grafana where the alert
-    # rules live.
+    # demotion, so the seam re-resolves the actor on every view-level
+    # event and halts the refresh tick under a dead session. The
+    # residue, measured: the table controls (search/sort/limit) are
+    # cid events that push_patch, and patches re-run handle_params
+    # ungated — node telemetry still refreshes on interaction under a
+    # dead session. Business telemetry (Telemetry.Metric definitions
+    # in FluxValeWeb.Telemetry) renders here; alert-worthy metrics
+    # ALSO flow to Grafana where the alert rules live.
     #
     # ORDER MATTERS: this mount must precede ash_admin — AshAdmin's
     # page routes end in a segment wildcard, and router clauses compile
@@ -683,10 +686,12 @@ defmodule FluxValeWeb.Router do
     # its own wildcard route would swallow any clause after it in this
     # scope. The demotion seam (#671) rides it too, with its honest
     # limits: the seam sees VIEW-level events (nav, the authorizing
-    # toggle, actor/tenant ops), while AshAdmin's save/destroy forms
-    # target their own LiveComponents (`phx-target={@myself}`) and no
-    # view-level hook can see those — the residue and its socket-level
-    # follow-up decision are disclosed on #671.
+    # toggle, actor/tenant ops), while the rest of AshAdmin's
+    # component-level UI — the save/destroy forms, generic actions,
+    # table filters — targets its own LiveComponents
+    # (`phx-target={@myself}`) and no view-level hook can see those;
+    # the residue and its socket-level follow-up decision are
+    # disclosed on #671.
     ash_admin("/ash",
       on_mount: [
         {FluxValeWeb.AdminGate, :ensure_admin},
