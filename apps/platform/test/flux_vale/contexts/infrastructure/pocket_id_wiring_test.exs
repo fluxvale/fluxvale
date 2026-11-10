@@ -86,7 +86,13 @@ defmodule FluxVale.Infrastructure.PocketIdWiringTest do
                PocketIdWiring.get_by_instance(instance.id, actor: stranger)
     end
 
-    test "the write funnels are system-only — an actor call is Forbidden", %{instance: instance} do
+    # #644's doctrine: platform admins carry the condition-pair bypass
+    # and see/do everything — the system-only stance is pinned against
+    # a MEMBER actor (the strongest non-admin denial).
+    test "the write funnels are system-only — a member actor call is Forbidden", %{
+      instance: instance,
+      owner: owner
+    } do
       assert {:error, %Ash.Error.Forbidden{}} =
                PocketIdWiring.record(
                  %{
@@ -95,7 +101,7 @@ defmodule FluxVale.Infrastructure.PocketIdWiringTest do
                    pocket_id_client_id: "c",
                    pocket_id_secret_id: "s"
                  },
-                 actor: AccountsFixtures.platform_admin!()
+                 actor: owner
                )
     end
   end

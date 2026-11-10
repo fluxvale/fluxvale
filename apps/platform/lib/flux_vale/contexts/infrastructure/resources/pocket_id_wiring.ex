@@ -35,7 +35,7 @@ defmodule FluxVale.Infrastructure.PocketIdWiring do
     domain: FluxVale.Infrastructure,
     data_layer: AshPostgres.DataLayer,
     authorizers: [Ash.Policy.Authorizer],
-    extensions: [AshJsonApi.Resource]
+    extensions: [AshJsonApi.Resource, AshPaperTrail.Resource]
 
   alias FluxVale.Infrastructure.Instance
 
@@ -51,6 +51,11 @@ defmodule FluxVale.Infrastructure.PocketIdWiring do
   end
 
   policies do
+    bypass [FluxVale.Checks.ActorIsPlatformAdmin, FluxVale.Checks.CallOutsideMachineApi] do
+      description("Platform admins see and do everything (#644)")
+      authorize_if(always())
+    end
+
     policy action_type(:read) do
       description("Members read their org's instance wiring (the S5 card)")
       authorize_if(relates_to_actor_via([:instance, :organization, :members]))
@@ -83,6 +88,31 @@ defmodule FluxVale.Infrastructure.PocketIdWiring do
       # PocketID-side client becomes S5's best-effort cleanup (D6).
       reference(:instance, on_delete: :delete)
     end
+  end
+
+  # The audit trail (#645, ADR-0048): the complete config posture —
+  # the mixin line is mandatory (read policy, indexes, actor label);
+  # version_attachments attach the Policy authorizer. The wiring row's
+  # only sensitive-adjacent value is the PocketID secret ID (an id,
+  # never the value — that lives in env alone), so redaction posture
+  # follows the set, not a column.
+  paper_trail do
+    primary_key_type(:uuid_v7)
+    change_tracking_mode(:changes_only)
+    store_action_name?(true)
+    store_action_inputs?(true)
+    sensitive_attributes(:redact)
+    ignore_attributes([:created_at, :updated_at])
+    reference_source?(false)
+    create_version_on_destroy?(true)
+    operation_id_field(:operation_id)
+    mixin({FluxVale.PaperTrail.VersionMixin, :version_resource, []})
+    version_extensions(authorizers: [Ash.Policy.Authorizer])
+
+    belongs_to_actor(:user, FluxVale.Identity.User,
+      domain: FluxVale.Identity,
+      on_delete: :nilify
+    )
   end
 
   attributes do
