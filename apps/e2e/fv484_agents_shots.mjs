@@ -29,16 +29,22 @@ const browser = await chromium.launch();
 const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
 
 // Session through the real endpoint (the POST the sign-in flow
-// makes), then reuse the cookie jar for every page.
+// makes), then reuse the cookie jar for every page. The POST is
+// asserted 2xx before any capture: a rejected login would otherwise
+// silently shoot unauthenticated pages (CodeRabbit GNsF).
 const page = await ctx.newPage();
 await page.goto(`${BASE}/sign-in`, { waitUntil: "networkidle" });
 const csrf = await page
   .locator('meta[name="csrf-token"]')
   .getAttribute("content");
-await page.request.post(`${BASE}/auth/session`, {
+const session = await page.request.post(`${BASE}/auth/session`, {
   form: { token },
   headers: { "x-csrf-token": csrf },
 });
+if (!session.ok()) {
+  console.error(`session POST rejected: ${session.status()} — not capturing`);
+  process.exit(1);
+}
 
 for (const mode of ["light", "dark"]) {
   for (const [name, path] of shots) {
@@ -51,7 +57,13 @@ for (const mode of ["light", "dark"]) {
       document.documentElement.setAttribute("data-theme-source", "user");
     }, mode);
     await page.waitForTimeout(300);
-    await page.screenshot({ path: `${OUT}/${name}-${mode}.png`, fullPage: true });
+    // Animations disabled: deterministic captures past theme
+    // transitions (CodeRabbit GNsE).
+    await page.screenshot({
+      path: `${OUT}/${name}-${mode}.png`,
+      fullPage: true,
+      animations: "disabled",
+    });
     console.log(`captured ${name}-${mode}.png`);
   }
 }

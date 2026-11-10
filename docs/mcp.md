@@ -24,7 +24,14 @@ yet, the endpoint is rolling out): prod
    there.
 2. **Point your client at the server**: paste the server URL and the
    token into one of the configs below. `fvpat_…` marks where the
-   token goes.
+   token goes in Claude's form; the Cursor and opencode snippets read
+   it from `FLUXVALE_PAT` in your environment instead.
+
+**Never commit a token.** The file snippets reference the token
+through each client's env syntax (Cursor `${env:FLUXVALE_PAT}`,
+opencode `{env:FLUXVALE_PAT}`) — set the variable in your shell
+(`export FLUXVALE_PAT=fvpat_…`), and the committed config carries no
+secret.
 
 Claude Desktop — no config file; a remote server is a custom
 connector (`claude_desktop_config.json` is the local-stdio
@@ -32,10 +39,13 @@ mechanism). Customize → Connectors → **Add custom connector**:
 
 1. Name: `FluxVale`
 2. URL: `https://mcp.fluxvale.com/mcp`
-3. Request headers: `Authorization: Bearer fvpat_…`
+3. Auth: pick **No sign-in** (not OAuth — the header below is the
+   auth)
+4. Request headers: `Authorization: Bearer fvpat_…`
 
 Cursor (`.cursor/mcp.json` per project, `~/.cursor/mcp.json`
-everywhere — same shape either way):
+everywhere — same shape either way; the token rides
+`${env:FLUXVALE_PAT}`, never the file):
 
 ```json
 {
@@ -43,20 +53,22 @@ everywhere — same shape either way):
     "fluxvale": {
       "url": "https://mcp.fluxvale.com/mcp",
       "headers": {
-        "Authorization": "Bearer fvpat_…"
+        "Authorization": "Bearer ${env:FLUXVALE_PAT}"
       }
     }
   }
 }
 ```
 
-opencode (`opencode.json` per project,
-`~/.config/opencode/opencode.json` everywhere; entries nest under
-`mcp.servers` — the V2 shape, direct-under-`mcp` entries are
-silently dropped; `protocol: "auto"` because the default `legacy`
-caps at 2025-11-25 and the destructive tools' confirmations need
-the 2026-07-28 stateless revision; `oauth: false` because the
-server's 401 is a bearer challenge, not an OAuth dance):
+opencode — **requires v2** (the `mcp.servers` shape; v1 uses a
+different layout — upgrade rather than hand-edit). `opencode.json`
+per project, `~/.config/opencode/opencode.json` everywhere; entries
+nest under `mcp.servers` — direct-under-`mcp` entries are silently
+dropped; `protocol: "auto"` because the default `legacy` caps at
+2025-11-25 and the destructive tools' confirmations need the
+2026-07-28 stateless revision; `oauth: false` because the server's
+401 is a bearer challenge, not an OAuth dance; the token rides
+`{env:FLUXVALE_PAT}`, never the file:
 
 ```json
 {
@@ -69,7 +81,7 @@ server's 401 is a bearer challenge, not an OAuth dance):
         "url": "https://mcp.fluxvale.com/mcp",
         "oauth": false,
         "headers": {
-          "Authorization": "Bearer fvpat_…"
+          "Authorization": "Bearer {env:FLUXVALE_PAT}"
         }
       }
     }
@@ -79,8 +91,10 @@ server's 401 is a bearer challenge, not an OAuth dance):
 
 **Scopes.** What the agent can do is what the token allows:
 `tools/list` offers exactly the tools the token's scopes cover, write
-includes read, and a zero-scope token still identifies itself. The
-scope meanings are listed at mint time in the panel.
+includes read, and a zero-scope token still identifies itself. Some
+tools need two domains — the catalog table lists each tool's exact
+set; mint the union. The scope meanings are listed at mint time in
+the panel.
 
 **Destructive actions.** `instances_destroy` and `backups_restore`
 confirm through the client before anything runs. A client that can't
@@ -92,7 +106,11 @@ panel is the fallback.
 Seventeen tools at the initial surface. Scope-filtered per token: a
 tool the token's scopes don't cover never appears in `tools/list`
 (and a direct call still refuses — the platform's own 403s are the
-enforcement).
+enforcement). The scope column is the FULL set the tool needs — a
+tool that makes several API calls needs every scope its calls
+require (the server's `tools/list` gate is per-tool and may offer a
+tool on its primary scope alone; the platform's route scopes are
+the enforcement, so mint the union):
 
 | Tool | What it answers | Scope | Gated |
 | --- | --- | --- | --- |
@@ -101,11 +119,11 @@ enforcement).
 | `apps_show` | One catalog app by its URL slug | `catalog:read` | — |
 | `instances_list` | Your instances, one entry each | `instances:read` | — |
 | `instances_status` | One instance's full detail by id — or, with no id, the verbose list | `instances:read` | — |
-| `instances_deploy` | Deploy an app: resolve the slug, pick the version, create the instance, enqueue the deploy | `instances:write` | — |
+| `instances_deploy` | Deploy an app: resolve the slug, pick the version, create the instance, enqueue the deploy | `catalog:read` + `instances:write` (reads the app + versions before it writes the instance) | — |
 | `instances_stop` | Scale to zero — the pause (storage keeps accruing) | `instances:write` | — |
 | `instances_start` | Start a stopped/sleeping instance back up | `instances:write` | — |
 | `instances_destroy` | Destroy an instance and all its data | `instances:write` | confirm-gated |
-| `backups_status` | An instance's backup settings + latest run | `backups:read` | — |
+| `backups_status` | An instance's backup settings + latest run | `instances:read` + `backups:read` (the instance read gates first — the runs list alone can't name a foreign id) | — |
 | `backups_configure` | Save the backup destination (identifiers only) | `backups:write` | — |
 | `backups_run` | Run a backup now | `backups:write` | — |
 | `backups_restore` | Restore a volume from the newest successful backup | `backups:write` | confirm-gated |

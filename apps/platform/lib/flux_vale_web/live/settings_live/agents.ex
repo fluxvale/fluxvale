@@ -121,8 +121,11 @@ defmodule FluxValeWeb.SettingsLive.Agents do
                     <p class="text-sm font-medium text-ink">Point your client at the server</p>
                     <p class="mt-1 text-sm text-ink-muted">
                       Paste the server URL and your token into one of the configs below.
-                      The snippets carry <span class="font-mono text-xs">fvpat_…</span>
-                      where your token goes.
+                      Claude's form takes the token where
+                      <span class="font-mono text-xs">fvpat_…</span>
+                      marks; the file snippets read it from
+                      <span class="font-mono text-xs">FLUXVALE_PAT</span>
+                      in your environment — never a token in a committed file.
                     </p>
                   </div>
                 </div>
@@ -153,17 +156,29 @@ defmodule FluxValeWeb.SettingsLive.Agents do
                 </p>
               </div>
 
-              <%!-- The per-client configs. Cursor rides the mcpServers
-              grammar in a file; opencode nests under mcp.servers (the
-              V2 shape — direct-under-mcp entries are silently dropped)
-              with protocol auto (the legacy default caps at
-              2025-11-25; the destructive tools' confirmations need
-              the 2026-07-28 stateless revision) and oauth off (the
-              server's 401 is a bearer challenge, not an OAuth dance).
-              Claude Desktop's remote path is a connector FORM, not a
-              file — claude_desktop_config.json is the local-stdio
-              mechanism. --%>
+              <%!-- The per-client configs. Claude Desktop's remote
+              path is a connector FORM, not a file —
+              claude_desktop_config.json is the local-stdio mechanism,
+              and the auth choice is explicitly No sign-in (the
+              bearer header IS the auth). Cursor rides the mcpServers
+              grammar in a file; opencode nests under mcp.servers
+              (the V2 shape — direct-under-mcp entries are silently
+              dropped; v1 uses a different layout — upgrade rather
+              than hand-edit) with protocol auto (the legacy default
+              caps at 2025-11-25; the destructive tools'
+              confirmations need the 2026-07-28 stateless revision)
+              and oauth off (the server's 401 is a bearer challenge,
+              not an OAuth dance). The file snippets reference the
+              token through each client's env syntax — never a
+              committable PAT (CodeRabbit GNsI). --%>
               <div class="space-y-6" data-testid="agents-clients">
+                <p class="text-xs text-ink-subtle" data-testid="agents-clients-secret">
+                  Never commit a token: both snippets read it from
+                  <span class="font-mono">FLUXVALE_PAT</span>
+                  in your environment (Cursor <span class="font-mono">{"${env:FLUXVALE_PAT}"}</span>, opencode <span class="font-mono">{"{env:FLUXVALE_PAT}"}</span>) — the file
+                  stays shareable.
+                </p>
+
                 <div class="space-y-2" data-testid="agents-config-claude">
                   <div class="flex flex-wrap items-baseline justify-between gap-2">
                     <h3 class="text-sm font-medium text-ink">Claude Desktop</h3>
@@ -185,6 +200,10 @@ defmodule FluxValeWeb.SettingsLive.Agents do
                       <li>Name it <span class="font-medium">FluxVale</span>.</li>
                       <li>URL: <span class="font-mono">{server_url()}</span></li>
                       <li>
+                        Auth: pick <span class="font-medium">No sign-in</span>
+                        (not OAuth — the header below is the auth).
+                      </li>
+                      <li>
                         Request headers: <code class="font-mono">Authorization: Bearer fvpat_…</code>
                         <.copy_button
                           id="copy-agents-config-claude"
@@ -204,7 +223,9 @@ defmodule FluxValeWeb.SettingsLive.Agents do
                   <p class="text-xs text-ink-subtle">
                     Project scope at <span class="font-mono">.cursor/mcp.json</span>,
                     global at <span class="font-mono">~/.cursor/mcp.json</span>. Same
-                    shape either way.
+                    shape either way — the token rides
+                    <span class="font-mono">{"${env:FLUXVALE_PAT}"}</span>
+                    (set it in your shell), never the file.
                   </p>
                   <div class="mono-panel min-w-0">
                     <div class="flex flex-wrap items-center justify-between gap-2">
@@ -228,8 +249,12 @@ defmodule FluxValeWeb.SettingsLive.Agents do
                     <code class="font-mono text-xs text-ink-subtle">opencode.json</code>
                   </div>
                   <p class="text-xs text-ink-subtle">
+                    Requires opencode v2 (the <span class="font-mono">mcp.servers</span>
+                    shape) — v1 uses a different layout; upgrade rather than hand-edit.
                     Project scope at <span class="font-mono">opencode.json</span>, global
                     at <span class="font-mono">~/.config/opencode/opencode.json</span>.
+                    The token rides <span class="font-mono">{"{env:FLUXVALE_PAT}"}</span>
+                    (set it in your shell), never the file.
                   </p>
                   <div class="mono-panel min-w-0">
                     <div class="flex flex-wrap items-center justify-between gap-2">
@@ -258,7 +283,10 @@ defmodule FluxValeWeb.SettingsLive.Agents do
                   token allows.</span>
                   The server offers exactly the tools the token's scopes cover — write
                   includes read, so an instances:write token sees every instances tool.
-                  A zero-scope token still identifies itself. The scope meanings are
+                  Some tools need two domains — deploy reads the catalog before it
+                  writes the instance — so mint the union; the docs/mcp.md catalog
+                  table lists each tool's exact set. A zero-scope token still
+                  identifies itself. The scope meanings are
                   listed where you mint,
                   <.link
                     navigate={~p"/settings/developer#api-tokens"}
@@ -307,7 +335,7 @@ defmodule FluxValeWeb.SettingsLive.Agents do
         "fluxvale": {
           "url": "#{server_url()}",
           "headers": {
-            "Authorization": "Bearer fvpat_…"
+            "Authorization": "Bearer ${env:FLUXVALE_PAT}"
           }
         }
       }
@@ -327,7 +355,7 @@ defmodule FluxValeWeb.SettingsLive.Agents do
             "url": "#{server_url()}",
             "oauth": false,
             "headers": {
-              "Authorization": "Bearer fvpat_…"
+              "Authorization": "Bearer {env:FLUXVALE_PAT}"
             }
           }
         }

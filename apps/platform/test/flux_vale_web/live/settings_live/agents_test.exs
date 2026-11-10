@@ -80,24 +80,40 @@ defmodule FluxValeWeb.SettingsLive.AgentsTest do
     claude = render(element(view, "[data-testid='agents-config-claude']"))
     assert claude =~ "Add custom connector"
     assert claude =~ "https://mcp.fluxvale.com/mcp"
+    # The auth choice is explicit: No sign-in, not OAuth — the header
+    # below is the auth (CodeRabbit GNsF).
+    assert claude =~ "No sign-in"
     assert claude =~ "Bearer fvpat_…"
 
     assert render(element(view, "[data-testid='agents-config-claude-copy']")) =~
              "Authorization: Bearer fvpat_…"
 
+    # The file snippets never carry the token — each reads it from
+    # FLUXVALE_PAT through its client's env syntax (CodeRabbit GNsI):
+    # Cursor ${env:…}, opencode {env:…}.
+    assert render(element(view, "[data-testid='agents-clients-secret']")) =~
+             "Never commit a token"
+
     cursor = render(element(view, "[data-testid='agents-config-cursor'] pre"))
     assert cursor =~ "&quot;mcpServers&quot;"
     assert cursor =~ "https://mcp.fluxvale.com/mcp"
+    assert cursor =~ "Bearer ${env:FLUXVALE_PAT}"
     assert has_element?(view, "[data-testid='agents-config-cursor-copy']")
 
-    # opencode rides the V2 shape: nested under mcp.servers with
-    # protocol auto (legacy caps at 2025-11-25; the destructive
-    # confirmations need the 2026-07-28 stateless revision).
+    # opencode rides the V2 shape (the card says so — v1 uses a
+    # different layout, upgrade rather than hand-edit): nested under
+    # mcp.servers with protocol auto (legacy caps at 2025-11-25; the
+    # destructive confirmations need the 2026-07-28 stateless
+    # revision).
+    opencode_card = render(element(view, "[data-testid='agents-config-opencode']"))
+    assert opencode_card =~ "Requires opencode v2"
+
     opencode = render(element(view, "[data-testid='agents-config-opencode'] pre"))
     assert opencode =~ "&quot;servers&quot;"
     assert opencode =~ "&quot;protocol&quot;: &quot;auto&quot;"
     assert opencode =~ "&quot;type&quot;: &quot;remote&quot;"
     assert opencode =~ "&quot;oauth&quot;: false"
+    assert opencode =~ "Bearer {env:FLUXVALE_PAT}"
 
     # The invariant: every fvpat_ on the page (snippets, copy values,
     # prose) is the ellipsis placeholder — the page holds no minted
@@ -119,6 +135,10 @@ defmodule FluxValeWeb.SettingsLive.AgentsTest do
     assert scopes =~ "write"
     assert scopes =~ "includes read"
     assert scopes =~ "zero-scope token"
+    # Multi-domain tools: the callout says the union is the mint and
+    # points at the docs table for the exact sets (CodeRabbit GNsM).
+    assert scopes =~ "two domains"
+    assert scopes =~ "docs/mcp.md"
   end
 
   test "the sidebar marks AI agents current on this page", %{conn: conn} do
