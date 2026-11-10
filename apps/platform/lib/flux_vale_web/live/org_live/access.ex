@@ -53,6 +53,10 @@ defmodule FluxValeWeb.OrganizationLive.Access do
   alias FluxValeWeb.OrgSettings
   alias FluxValeWeb.PersonalOrg
 
+  # #250 S6: the paid-feature hint names the wallet floor the wizard
+  # enforces (FluxVale.Billing's config), never a hardcoded amount.
+  @min_topup_dollars FluxVale.Billing.min_topup_dollars()
+
   @impl Phoenix.LiveView
   # The :personal route's contract is NO slug — but LiveView merges query
   # params into mount params, so `/settings/access?slug=…` lands in mount
@@ -601,6 +605,8 @@ defmodule FluxValeWeb.OrganizationLive.Access do
   attr(:price_cents, :integer, required: true)
 
   defp access_empty_state(assigns) do
+    assigns = assign(assigns, :min_topup_dollars, @min_topup_dollars)
+
     ~H"""
     <div class="max-w-2xl space-y-6" data-testid="access-empty">
       <.card id="access-intro-card" class="card space-y-4">
@@ -649,7 +655,7 @@ defmodule FluxValeWeb.OrganizationLive.Access do
           data-testid="access-paid-hint"
         >
           <p>
-            Private access needs a one-time top-up of at least $1. Add funds in <.link
+            Private access needs a one-time top-up of at least ${@min_topup_dollars}. Add funds in <.link
               navigate={@billing_path}
               class="underline underline-offset-2 hover:text-ink"
               data-testid="access-paid-link"

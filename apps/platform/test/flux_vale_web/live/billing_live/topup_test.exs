@@ -698,6 +698,25 @@ defmodule FluxValeWeb.BillingLive.TopupTest do
       assert has_element?(view, "#topup-amount-form")
     end
 
+    test "the amount input's floor is the configured wallet minimum", %{conn: conn} do
+      view = to_amount(conn)
+
+      assert FluxVale.Billing.min_topup_cents() == 500
+      assert FluxVale.Billing.min_topup_dollars() == 5
+      assert has_element?(view, "input[name='amount[dollars]'][min='5']")
+    end
+
+    test "an amount below the wallet floor keeps the step and names the floor", %{conn: conn} do
+      view = to_amount(conn)
+
+      view
+      |> form("#topup-amount-form", amount: %{dollars: "4"})
+      |> render_submit()
+
+      assert has_element?(view, "#topup-amount-form")
+      assert render(view) =~ "at least $5"
+    end
+
     test "a valid amount advances to the payment step", %{conn: conn} do
       view = to_amount(conn)
 

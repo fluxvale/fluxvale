@@ -51,6 +51,21 @@ defmodule FluxVale.Billing do
     resource(FluxVale.Billing.Wallet)
   end
 
+  # The minimum wallet top-up (#250 S6, ratified 2026-11-10): $5 — one
+  # config value the wizard, its copy, and the paid-feature prompts all
+  # read, with StartTopup enforcing it server-side. Polar Pro's fixed
+  # $0.40 per checkout is why the floor exists (41.4% marginal storage
+  # margin at $5).
+  @min_topup_cents Application.compile_env(:flux_vale, [:billing, :min_topup_cents])
+
+  @doc "The minimum wallet top-up, in whole US cents."
+  @spec min_topup_cents() :: pos_integer()
+  def min_topup_cents, do: @min_topup_cents
+
+  @doc "The minimum wallet top-up in whole dollars (the wizard's unit)."
+  @spec min_topup_dollars() :: pos_integer()
+  def min_topup_dollars, do: div(@min_topup_cents, 100)
+
   # Operations are verb-named modules under operations/ (see
   # apps/platform/AGENTS.md); the domain stays the public seam
   defdelegate ensure_wallet(org), to: Operations.EnsureWallet, as: :call

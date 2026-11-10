@@ -103,17 +103,27 @@ orders block capacity and an operator approves the request
 ([ADR-0046](adr/0046-storage-beyond-threshold.md)), so those GB price on
 their own rule: the first `threshold_gb` on the v5 curve exactly as
 below it (100 GB = 228¢), each further GB at a configured marginal rate
-— **PROVISIONAL 3¢/GB/mo** (`config :flux_vale,
-:storage_beyond_threshold`), pending the owner's one-line ratification
-(S6, the closer of #250). The marginal rate is an effective-rate COGS
-pass-through plus margin, not a market-curve term, so the regional
-surcharge never multiplies it. A test pins `threshold_gb` to the ladder's
+— **3¢/GB/mo, ratified 2026-11-10** (`config :flux_vale,
+:storage_beyond_threshold`; #250 S6, [ADR-0046
+Am. 1](adr/0046-storage-beyond-threshold.md#amendment-1--the-rate-is-ratified-2026-11-10)).
+The marginal rate is an effective-rate COGS pass-through plus margin, not
+a market-curve term, so the regional surcharge never multiplies it. A test pins `threshold_gb` to the ladder's
 top storage rung, making a ladder move a reviewed two-line change.
 
 The COGS floor is ≈ **1.4¢/GB/mo** (€13/TB ≈ $14.04 at €1 ≈ $1.08), so
 3¢ carries a healthy margin: 200 GB = 228 + 100 × 3 = **528¢**; 1 TB =
 **2928¢** (≈ $29.28) vs ≈ $14.04; 7.6 TB (the attachable ceiling) ≈
 **$227.28** vs ≈ $106.70.
+
+**Payment fees (the ratification basis).** Revenue reaches the platform
+through the prepaid wallet, so the gateway fee rides the **top-up**, not
+the monthly storage charge. On Polar Pro (3.8% + $0.40 per checkout,
+$20/mo) the fee is `3.8% + $0.40/T` per dollar of spend; at 3¢ the 3.8%
+alone caps gross margin at **49.4%**, realistic top-ups ($20–30, the mode
+from the ladder's plus/pro bills) land **47–48%**, and the ratified **$5**
+wallet floor (`config :flux_vale, :billing, min_topup_cents: 500`) holds
+**41.4%**. Holding the 53% headline would need 3.25¢ at a $10 floor and
+3.13¢ at any floor — both rejected against the owner's number.
 
 Rejected — extend the per-GB curve instead: the v5 curve is underwater
 at 1 TB (**$12.80** vs $14.04) and the gap widens — 2 TB **$21.53** vs

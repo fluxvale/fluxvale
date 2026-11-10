@@ -299,7 +299,7 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponentTest do
       instance = instance!(version, user)
       {:ok, view, _html} = live(conn, ~p"/instances/#{instance.id}")
 
-      assert has_element?(view, "[data-testid=backups-unpaid]", "one-time top-up of at least $1")
+      assert has_element?(view, "[data-testid=backups-unpaid]", "one-time top-up of at least $5")
 
       assert has_element?(
                view,
@@ -353,7 +353,7 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponentTest do
       assert has_element?(
                view,
                "[data-testid=backups-error]",
-               "Top up at least $1 to use backups"
+               "Top up at least $5 to use backups"
              )
     end
 
@@ -375,7 +375,7 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponentTest do
       assert has_element?(
                view,
                "[data-testid=backups-error]",
-               "Top up at least $1 to resume backups"
+               "Top up at least $5 to resume backups"
              )
 
       {:ok, stored} = BackupSetting.get_by_instance(instance.id, authorize?: false)
@@ -416,7 +416,7 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponentTest do
       assert has_element?(
                view,
                "[data-testid=backups-config-unpaid]",
-               "Backups are blocked. Top up once (at least $1) to use them"
+               "Backups are blocked. Top up once (at least $5) to use them"
              )
 
       assert has_element?(
@@ -1121,7 +1121,7 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponentTest do
       assert has_element?(
                view,
                "[data-testid=backups-error]",
-               "Top up to run a backup. Add at least $1 once, and keep a positive balance."
+               "Top up to run a backup. Add at least $5 once, and keep a positive balance."
              )
     end
 

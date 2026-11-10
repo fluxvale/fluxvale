@@ -100,3 +100,48 @@ wait for the customer to stop the instance.
   curve remains the price function up to the threshold; above it the
   configured marginal rate stacks on the curve's threshold price — a COGS
   pass-through + margin, not a curve term.
+
+## Amendment 1 — the rate is ratified (2026-11-10)
+
+**S6 closes #250: `cents_per_gb: 3` stands, and the wallet top-up minimum
+moves from $1 to $5** (`config :flux_vale, :billing, min_topup_cents: 500`).
+
+The ratification basis is the fee under every dollar of this revenue.
+Revenue arrives through the prepaid wallet, so the gateway fee rides the
+**top-up**, not the monthly storage charge — `Billing.Providers.Polar`
+charges the checkout and hourly usage debits the wallet. On Polar Pro
+(**3.8% + $0.40 per checkout, $20/mo**) the fee is therefore
+`3.8% + $0.40/T` per dollar of spend (T = top-up dollars):
+
+| top-up T | fee share of spend | net ¢/GB | gross margin |
+|---|---|---|---|
+| $1 (the old floor) | 43.8% | 0.282 | 9.4% |
+| $5 (ratified floor) | 11.8% | 1.242 | 41.4% |
+| $10 | 7.8% | 1.362 | 45.4% |
+| $20 | 5.8% | 1.422 | 47.4% |
+| $50 | 4.6% | 1.458 | 48.6% |
+| ∞ (variable only) | 3.8% | 1.482 | 49.4% |
+
+Overage size does not move those rows: the rate is a fixed ¢/GB, so the
+fixed fee's ¢/GB cost tracks the dollar value of the charge, and only the
+top-up size sets its share.
+
+Two consequences are decisions, not accidents:
+
+1. **3¢ keeps its no-fee story only as a headline.** The 3.8% variable
+   alone caps the marginal gross at 49.4%; realistic top-ups ($20–30 — the
+   mode from the ladder's plus/pro bills) land 47–48%. The owner accepted
+   that trim: the rate is the product's cost story, not a fee passthrough.
+2. **The $5 floor is the fee's control.** $10 would have held 45.4% and
+   $5 holds 41.4%; the owner chose $5 over $10 for lower early-stage
+   friction and accepted the 41.4% floor. `StartTopup` refuses a smaller
+   top-up (`:amount_below_minimum`), so the floor is a rule rather than a
+   UI hint; the wizard, its copy, and the paid-feature prompts read the
+   one config value.
+
+Holding the 53% headline instead would have needed **3.25¢/GB at a $10
+floor, 3.17¢ at $25, and 3.13¢ as the hard floor** (the variable fee costs
+0.114¢/GB); **4¢** would have over-earned at 57–60%. The $20/mo Pro line
+is fixed overhead, not per GB: $0.20/customer at 100 customers, or about
+14 beyond-threshold customers' marginal storage margin. The fee schedule
+is a plan term, so a provider change re-runs the same table.

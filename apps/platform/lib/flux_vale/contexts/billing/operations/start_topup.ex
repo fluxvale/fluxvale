@@ -26,6 +26,11 @@ defmodule FluxVale.Billing.Operations.StartTopup do
   (`FluxVale.Billing.Tax`), so the recorded signals cannot fork from
   the buyer input.
 
+  A top-up below the configured wallet minimum (#250 S6: $5,
+  `FluxVale.Billing.min_topup_cents/0`) is refused
+  (`:amount_below_minimum`) before anything is persisted or charged —
+  the gateway's fixed per-checkout fee only amortizes at that floor.
+
   Checkout failure marks the row `:failed` (terminal, auditable) and
   returns the error; the buyer retries with a fresh row. System
   operation, `authorize?: false` — the row is created from a flow that
@@ -84,6 +89,16 @@ defmodule FluxVale.Billing.Operations.StartTopup do
   end
 
   defp create_topup(org, params) do
+    # The floor is checked before any tax arithmetic: a negative or
+    # non-integer amount must answer `:amount_below_minimum`, never
+    # reach `Tax.tax_cents/2`'s non-negative guard.
+    case check_minimum(params.amount_cents) do
+      :ok -> do_create_topup(org, params)
+      error -> error
+    end
+  end
+
+  defp do_create_topup(org, params) do
     customer_type = params[:customer_type] || :consumer
     reverse_charge? = Tax.reverse_charge?(customer_type, params[:vat_number])
 
@@ -154,6 +169,20 @@ defmodule FluxVale.Billing.Operations.StartTopup do
       :ok
     else
       {:error, :tax_rate_mismatch}
+    end
+  end
+
+  # The wallet floor (#250 S6, ratified at $5): the wizard gates the
+  # amount client-side, this is the gate a crafted event cannot skip.
+  # The floor exists because Polar Pro charges a fixed $0.40 per
+  # checkout — see FluxVale.Billing.min_topup_cents/0.
+  defp check_minimum(amount_cents) do
+    minimum = FluxVale.Billing.min_topup_cents()
+
+    if is_integer(amount_cents) and amount_cents >= minimum do
+      :ok
+    else
+      {:error, :amount_below_minimum}
     end
   end
 

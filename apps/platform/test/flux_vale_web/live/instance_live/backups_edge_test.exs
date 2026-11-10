@@ -274,7 +274,7 @@ defmodule FluxValeWeb.InstanceLive.BackupsEdgeTest do
 
       assert has_element?(view, "[data-testid=backups-error]", "Something went wrong on our side")
 
-      refute has_element?(view, "[data-testid=backups-error]", "Top up at least $1 to resume")
+      refute has_element?(view, "[data-testid=backups-error]", "Top up at least $5 to resume")
     end
 
     test "a save before the app is set up says so", %{conn: conn, user: user, version: version} do

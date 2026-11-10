@@ -11,6 +11,9 @@ rate-agnostic; (3) the 100 GB boundary finding is stated as an assumption below 
 morning reader sees the issue's original 400 GB number was wrong, not the implementation.
 The pricing **number** is a morning ratification item — the mechanism ships tonight with
 a provisional rate in configuration, never a business number in code.
+**S6 (2026-11-10): ratified** — 3¢/GB stands with a $5 wallet top-up floor
+([ADR-0046 Am. 1](../adr/0046-storage-beyond-threshold.md#amendment-1--the-rate-is-ratified-2026-11-10)); the
+PROVISIONAL notes below are the shipped-night record, kept as written.
 Evidence base: issue #250 + its Oct 24 product decision, issue #243, [ADR-0043](../adr/00043-instance-resize.md)
 (resize), [ADR-0028](../adr/00028-flat-rate-pricing.md) (pricing), [ADR-0027](../adr/00027-admin-surface-ashadmin.md)
 Am. 4 (console sections), [ADR-0030](../adr/00030-ops-domain.md) (Ops domain), the code at
