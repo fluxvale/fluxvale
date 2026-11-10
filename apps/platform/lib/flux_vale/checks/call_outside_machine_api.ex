@@ -10,10 +10,10 @@ defmodule FluxVale.Checks.CallOutsideMachineApi do
   authority plan's D2) while every existing pure-actor arm keeps
   today's semantics byte-for-byte.
 
-  Two rungs, one per PAT boundary — and both boundaries carry BOTH
-  rungs where they can, so the refusal survives nested action calls
-  (a generic action's inner `get_by_id` drops the request context; it
-  cannot drop the process):
+  Two rungs, both set by the one PAT boundary left standing — and the
+  process rung rides wherever the context rung cannot, so the refusal
+  survives nested action calls (a generic action's inner `get_by_id`
+  drops the request context; it cannot drop the process):
 
   - `/api/v1` — the plug chain bridges the calling PAT's scopes into
     the Ash request context
@@ -25,15 +25,14 @@ defmodule FluxVale.Checks.CallOutsideMachineApi do
     process (`mark_process!/0`): the context rung holds for
     context-propagating calls, the process rung for everything nested
     beneath them.
-  - `/mcp` — the router's tool handlers call actions directly, so no
-    request context carries the marker; `require_scope/2` (every
-    handler's first step) marks the PROCESS instead. Phantom runs
-    handlers in a worker it spawns, so the mark is set in the very
-    process whose action calls need refusing, and the worker dies
-    with its request. The only leak
-    surface is a test process that drove the boundary directly, and
-    its direction is conservative: the refusal extends to later direct
-    calls in that same process, never the reverse.
+
+  The retired `/mcp` boundary (the Phantom endpoint, retired at the
+  ADR-0019 Am. 5 cutover) was the second writer: its handlers marked
+  the process directly. Its writer died with the endpoint; the check
+  and the doctrine stay whole on `/api/v1` alone. The only leak
+  surface is a test process that drove the boundary directly, and
+  its direction is conservative: the refusal extends to later direct
+  calls in that same process, never the reverse.
 
   Session callers and actorless system paths (Oban, webhooks, seeds)
   carry no marker of either kind — outside the machine API by the
@@ -64,10 +63,10 @@ defmodule FluxVale.Checks.CallOutsideMachineApi do
 
   @doc """
   Marks the calling process as a machine-API request process — the one
-  writer-side helper every PAT boundary calls (the `/api/v1` chain's
-  `PutPatScopesInAshContext`, the MCP handlers' `require_scope/2`), so
-  the refusal survives NESTED action calls: the mark rides the request
-  process, and actions — outer and inner alike — run in it.
+  writer-side helper the PAT boundary calls (the `/api/v1` chain's
+  `PutPatScopesInAshContext`), so the refusal survives NESTED action
+  calls: the mark rides the request process, and actions — outer and
+  inner alike — run in it.
   """
   @spec mark_process!() :: :ok
   def mark_process! do

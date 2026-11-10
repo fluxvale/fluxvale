@@ -137,3 +137,51 @@ Rejected: SDKv2, and generating the client from the committed OpenAPI
 dump (the CLI's approach — the provider maps hand-written schema
 semantics, not raw API shapes); revisit if schema drift pain says
 otherwise.
+
+## Amendment 5 (2026-11-09): the MCP server is Rust — standalone, elicitation-gated, subdomain-hosted
+
+The standalone Rust server (`apps/mcp`, rmcp 3.9.0, streamable HTTP,
+stateless) replaces Am. 2's Phoenix-hosted endpoint: the Phantom
+`POST /mcp` on the platform app is retired at cutover with zero
+external clients (pre-beta; the tokens-panel quickstart, #640, teaches
+only the remote server). The Rust surface is the INITIAL published
+contract — the rename set (`list_apps`→`apps_list` et al.) is
+pre-publication naming, not a versioned break.
+
+The Rust side of the repo becomes three workspaces: `apps/cli`,
+`crates/fluxvale-api` (the shared `/api/v1` client), `apps/mcp` — two
+lockfiles → three by the same rationale. Auth is PAT passthrough (the
+server holds no credentials); the platform boundary stays the
+enforcement, so every upstream call lands the same per-route audit +
+rate-limit, with per-path attribution where Phantom's opaque
+`POST /mcp` rows had none. `tools/list` is filtered by the calling
+token's scopes read from `/me`'s `meta.scopes` (#585 — a runtime
+render, deliberately NOT in the OpenAPI artifact; generated clients
+learn it from `docs/mcp.md`).
+
+Destructive gating is SEP-2322 MRTR: the first call answers
+`input_required` carrying a yes/no confirm question plus an
+HMAC-sealed `requestState` keyed to the calling PAT — TTL-bounded
+(ten minutes), not single-use; a seal from another token never opens.
+A client that cannot confirm gets an honest error naming the panel —
+never a silent no-op, and the verb never runs.
+
+The host is a dedicated subdomain — `mcp.fluxvale.com` /
+`mcp.staging.fluxvale.com`, the protocol nesting at `/mcp` on that
+host. Subdomain over path-on-the-app-host: ecosystem convention (an
+MCP server is advertised as one URL), traffic isolation, independent
+edge rules, and a clean OAuth resource origin. Certs are DNS-01; the
+A records are client-reachability only. Deployment posture: own image
+(`ghcr.io/fluxvale/fluxvale-mcp`) under Flux image automation, on a
+hardened pod — no SA token, non-root, read-only rootfs.
+
+Rejected: the stdio subcommand (deferred — revisit trigger: a real
+stdio-only client asks), a second Phoenix endpoint (a cross-workspace
+dep-graph cycle), and Phantom retention (two surfaces drift — the
+exact fate this cutover exists to prevent).
+
+Straggler note: ADR-0047's doctrine loses no teeth at cutover —
+`FluxVale.Checks.CallOutsideMachineApi` and both its rungs survive on
+`/api/v1` (the plug chain remains the writer); the `/mcp` handler
+writer retired with the endpoint, so ADR-0047's `/mcp` bullet now
+describes history.

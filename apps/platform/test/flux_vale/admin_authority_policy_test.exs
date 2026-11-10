@@ -279,7 +279,7 @@ defmodule FluxVale.AdminAuthorityPolicyTest do
       assert {:ok, nil} = Ash.read_one(query)
     end
 
-    test "the process mark (the MCP boundary's rung) switches it off too", %{} do
+    test "the process mark (the nested-call rung) switches it off too", %{} do
       admin = admin()
       {_org, _wallet, owner} = foreign_org!()
       instance = foreign_instance!(owner)
