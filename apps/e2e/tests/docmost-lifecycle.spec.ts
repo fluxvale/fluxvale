@@ -2,11 +2,11 @@ import { execFile } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { promisify } from "node:util";
 import { expect, test } from "@playwright/test";
+import { waitForStatus, destroyInstance } from "./helpers/instance-ui";
 import { waitForLiveViewJoin } from "./helpers/live-view";
 import { runtimeFor } from "./helpers/runtime";
 import { signIn } from "./helpers/sign-in";
 import { TestInbox } from "./helpers/test-inbox";
-import { waitForStatus, destroyInstance } from "./helpers/instance-ui";
 
 const run = promisify(execFile);
 

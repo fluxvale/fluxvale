@@ -1,9 +1,9 @@
 import { expect, test } from "@playwright/test";
+import { waitForStatus } from "./helpers/instance-ui";
 import { waitForLiveViewJoin } from "./helpers/live-view";
 import { runtimeFor } from "./helpers/runtime";
 import { signIn } from "./helpers/sign-in";
 import { TestInbox } from "./helpers/test-inbox";
-import { waitForStatus } from "./helpers/instance-ui";
 
 // #493: the guided stop→resize→start through the real UI — sign in via
 // TestInbox → deploy Forgejo at its small recommendation → running →

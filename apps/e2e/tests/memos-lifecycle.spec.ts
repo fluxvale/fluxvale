@@ -1,9 +1,9 @@
 import { expect, test } from "@playwright/test";
+import { waitForStatus, destroyInstance } from "./helpers/instance-ui";
 import { waitForLiveViewJoin } from "./helpers/live-view";
 import { runtimeFor } from "./helpers/runtime";
 import { signIn } from "./helpers/sign-in";
 import { TestInbox } from "./helpers/test-inbox";
-import { waitForStatus, destroyInstance } from "./helpers/instance-ui";
 
 // Memos' full customer lifecycle through the real UI (#492), mirroring
 // pocket-id-lifecycle and vaultwarden-lifecycle: sign in via TestInbox

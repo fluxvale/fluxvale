@@ -4,11 +4,11 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { expect, test } from "@playwright/test";
+import { waitForStatus } from "./helpers/instance-ui";
 import { waitForLiveViewJoin } from "./helpers/live-view";
 import { runtimeFor, type Runtime } from "./helpers/runtime";
 import { signIn } from "./helpers/sign-in";
 import { TestInbox } from "./helpers/test-inbox";
-import { waitForStatus } from "./helpers/instance-ui";
 
 // #190's E2E (ADR-0035): deploy Kavita (file access seeded on, #189)
 // through the wizard, then rclone-put a file through the public WebDAV

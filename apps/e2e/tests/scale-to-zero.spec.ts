@@ -1,10 +1,10 @@
 import { expect, test, type Page } from "@playwright/test";
+import { waitForStatus } from "./helpers/instance-ui";
 import { waitForLiveViewJoin } from "./helpers/live-view";
 import { runtimeFor } from "./helpers/runtime";
 import { signIn } from "./helpers/sign-in";
 import { TestInbox } from "./helpers/test-inbox";
 import { wakeCeilingMs, wakeSliSnapshot } from "./helpers/wake-metrics";
-import { waitForStatus } from "./helpers/instance-ui";
 
 // #203 (ADR-0036): the scale-to-zero economic model end to end —
 // deploy → idle → sleeps (storage-only) → request → wakes → serves,

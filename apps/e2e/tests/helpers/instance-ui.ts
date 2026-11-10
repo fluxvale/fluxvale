@@ -1,9 +1,10 @@
 import { expect, type Page } from "@playwright/test";
 
 // The instance-page assertions every lifecycle spec shares. Extracted
-// from twelve byte-identical per-spec copies (#510 batch 3): a new
-// lifecycle spec copies the destroy block at birth (vikunja #610 and
-// docmost #609 both did), so the shared shape lives here now.
+// from twelve per-spec copies of one body (eleven byte-identical plus
+// one brace-formatting variant; four comment variants) — #510 batch 3.
+// A new lifecycle spec copies the destroy block at birth (vikunja #610
+// and docmost #609 both did), so the shared shape lives here now.
 
 // Poll the live badge until `want` shows; "Failed" fails fast with the
 // status message — waiting out a dead deploy proves nothing. The badge

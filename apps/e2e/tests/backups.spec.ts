@@ -4,11 +4,11 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { expect, test, type Page } from "@playwright/test";
+import { waitForStatus } from "./helpers/instance-ui";
 import { waitForLiveViewJoin } from "./helpers/live-view";
 import { runtimeFor } from "./helpers/runtime";
 import { signIn } from "./helpers/sign-in";
 import { TestInbox } from "./helpers/test-inbox";
-import { waitForStatus } from "./helpers/instance-ui";
 
 // #222's acceptance test (ADR-0037): the owner's whole backup round-trip
 // through the real UI against the in-cluster MinIO stand-in for a BYO

@@ -1,9 +1,9 @@
 import { expect, test } from "@playwright/test";
+import { waitForStatus, destroyInstance } from "./helpers/instance-ui";
 import { waitForLiveViewJoin } from "./helpers/live-view";
 import { runtimeFor } from "./helpers/runtime";
 import { signIn } from "./helpers/sign-in";
 import { TestInbox } from "./helpers/test-inbox";
-import { waitForStatus, destroyInstance } from "./helpers/instance-ui";
 
 // Forgejo's full customer lifecycle through the real UI — the flow the
 // build ladder demos at every milestone exit (ADR-0031): sign in via
