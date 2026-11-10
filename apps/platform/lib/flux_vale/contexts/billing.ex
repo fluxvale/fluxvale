@@ -19,7 +19,7 @@ defmodule FluxVale.Billing do
   # (ADR-0019 §1).
   use Ash.Domain,
     otp_app: :flux_vale,
-    extensions: [AshAdmin.Domain, AshJsonApi.Domain]
+    extensions: [AshAdmin.Domain, AshJsonApi.Domain, AshPaperTrail.Domain]
 
   # AshAdmin exposure (#140, ADR-0027 §3 — opt-in, admin policies ride
   # ActorIsPlatformAdmin like every exposed domain): the goodwill
@@ -35,6 +35,14 @@ defmodule FluxVale.Billing do
     show_resources([FluxVale.Billing.Wallet, FluxVale.Billing.LedgerEntry])
   end
 
+  # The paper-trail seam (#645, ADR-0048): versioned resources' Version
+  # modules join the domain here so codegen migrates them and reads see
+  # them. The console registry excludes them by name — the audit trail
+  # surfaces in its own section, not as raw tables.
+  paper_trail do
+    include_versions?(true)
+  end
+
   alias FluxVale.Billing.Operations
 
   resources do
@@ -42,6 +50,21 @@ defmodule FluxVale.Billing do
     resource(FluxVale.Billing.Topup)
     resource(FluxVale.Billing.Wallet)
   end
+
+  # The minimum wallet top-up (#250 S6, ratified 2026-11-10): $5 — one
+  # config value the wizard, its copy, and the paid-feature prompts all
+  # read, with StartTopup enforcing it server-side. Polar Pro's fixed
+  # $0.40 per checkout is why the floor exists (41.4% marginal storage
+  # margin at $5).
+  @min_topup_cents Application.compile_env(:flux_vale, [:billing, :min_topup_cents])
+
+  @doc "The minimum wallet top-up, in whole US cents."
+  @spec min_topup_cents() :: pos_integer()
+  def min_topup_cents, do: @min_topup_cents
+
+  @doc "The minimum wallet top-up in whole dollars (the wizard's unit)."
+  @spec min_topup_dollars() :: pos_integer()
+  def min_topup_dollars, do: div(@min_topup_cents, 100)
 
   # Operations are verb-named modules under operations/ (see
   # apps/platform/AGENTS.md); the domain stays the public seam

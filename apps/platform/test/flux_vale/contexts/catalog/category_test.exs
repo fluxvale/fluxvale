@@ -42,23 +42,25 @@ defmodule FluxVale.Catalog.CategoryTest do
     end
 
     test "enforces unique slug and unique name" do
-      Category.create!(%{name: "Media", slug: "media"}, authorize?: false)
+      n = System.unique_integer([:positive])
+      Category.create!(%{name: "Media #{n}", slug: "media-#{n}"}, authorize?: false)
 
       assert {:error, %Ash.Error.Invalid{}} =
-               Category.create(%{name: "Other", slug: "media"}, authorize?: false)
+               Category.create(%{name: "Other", slug: "media-#{n}"}, authorize?: false)
 
       assert {:error, %Ash.Error.Invalid{}} =
-               Category.create(%{name: "Media", slug: "other"}, authorize?: false)
+               Category.create(%{name: "Media #{n}", slug: "other"}, authorize?: false)
     end
 
     # #611 (D5): the audience line every app page in the category
     # renders as its hero's "who it suits" paragraph.
     test "accepts an audience line up to 180 chars, in create and update" do
       line = "A fit for teams that want their own source control without running the servers."
+      n = System.unique_integer([:positive])
 
       assert {:ok, category} =
                Category.create(
-                 %{name: "Developer Tools", slug: "devtools", audience: line},
+                 %{name: "Developer Tools #{n}", slug: "devtools-#{n}", audience: line},
                  authorize?: false
                )
 
@@ -91,9 +93,11 @@ defmodule FluxVale.Catalog.CategoryTest do
 
   describe "get_by_slug/1" do
     test "fetches by slug or errors" do
-      created = Category.create!(%{name: "Media", slug: "media"}, authorize?: false)
+      n = System.unique_integer([:positive])
+      slug = "media-#{n}"
+      created = Category.create!(%{name: "Media #{n}", slug: slug}, authorize?: false)
 
-      assert {:ok, fetched} = Category.get_by_slug("media", authorize?: false)
+      assert {:ok, fetched} = Category.get_by_slug(slug, authorize?: false)
       assert fetched.id == created.id
 
       assert {:error, _not_found} = Category.get_by_slug("nope", authorize?: false)
@@ -108,7 +112,8 @@ defmodule FluxVale.Catalog.CategoryTest do
     test "public read — anonymous browse included (#164); mutations stay admin-gated", %{
       regular: regular
     } do
-      Category.create!(%{name: "Media", slug: "media"}, authorize?: false)
+      n = System.unique_integer([:positive])
+      Category.create!(%{name: "Media #{n}", slug: "media-#{n}"}, authorize?: false)
 
       assert {:ok, [_row]} = Ash.read(Category, actor: regular, authorize?: true)
 
@@ -126,7 +131,8 @@ defmodule FluxVale.Catalog.CategoryTest do
                  authorize?: true
                )
 
-      category = Category.create!(%{name: "Media", slug: "media"}, authorize?: false)
+      n = System.unique_integer([:positive])
+      category = Category.create!(%{name: "Media #{n}", slug: "media-#{n}"}, authorize?: false)
 
       assert {:ok, updated} =
                Ash.update(category, %{description: "changed"}, actor: admin, authorize?: true)
@@ -142,10 +148,11 @@ defmodule FluxVale.Catalog.CategoryTest do
 
   describe "destroy with dependents" do
     test "fails on the FK — apps reference categories, no cascade" do
-      category = Category.create!(%{name: "Media", slug: "media"}, authorize?: false)
+      n = System.unique_integer([:positive])
+      category = Category.create!(%{name: "Media #{n}", slug: "media-#{n}"}, authorize?: false)
 
       App.create!(
-        %{name: "Kavita", slug: "kavita", category_id: category.id},
+        %{name: "Kavita #{n}", slug: "kavita-#{n}", category_id: category.id},
         # Test precondition: the FK behavior is the subject, not policy.
         authorize?: false
       )

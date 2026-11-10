@@ -20,11 +20,12 @@ defmodule FluxValeWeb.AdminLive.Resources do
   per-field errors ride AshPhoenix's form data protocol into
   `<.input>`, and success navigates to the record's show page. Every
   button gates on `AdminConsole.visible?/3` — the bar shows nothing
-  when nothing is permitted. Every write event re-resolves the actor
-  from the session and requires the platform-admin role on the FRESH
-  struct (the #571 demotion-window ruling) — the mount-resolved struct
-  is never trusted for writes, and the submit carries the fresh actor
-  so the policy reads the fresh role, not the stale one.
+  when nothing is permitted. The per-event demotion seam rides the
+  AdminChrome hook every admin LiveView inherits (#644's console
+  slice, ADR-0047 D4): each event re-resolves the actor from the
+  session, so `current_user` is FRESH at every handler and the submit
+  carries it — the policy reads the fresh role, never the mount-time
+  struct.
 
   Unknown domain/resource URL segments can never exist: they resolve
   against the registry's atoms and bounce to the landing with an honest
@@ -44,12 +45,9 @@ defmodule FluxValeWeb.AdminLive.Resources do
   use FluxValeWeb, :live_view
 
   alias Ash.Resource.Info
-  alias FluxVale.Checks.ActorIsPlatformAdmin
-  alias FluxVale.Identity.User
   alias FluxValeWeb.AdminConsole
   alias FluxValeWeb.AdminResource
   alias FluxValeWeb.AdminShell
-  alias FluxValeWeb.UserAuth
 
   @page_size 25
 
@@ -98,33 +96,33 @@ defmodule FluxValeWeb.AdminLive.Resources do
 
   def mount(
         %{"domain" => domain_segment, "resource" => resource_segment, "id" => id},
-        session,
+        _session,
         %{assigns: %{live_action: :show}} = socket
       ) do
     case AdminConsole.fetch(domain_segment, resource_segment) do
-      {:ok, entry} -> mount_show(entry, id, session, socket)
+      {:ok, entry} -> mount_show(entry, id, socket)
       :error -> bounce_unknown(socket)
     end
   end
 
   def mount(
         %{"domain" => domain_segment, "resource" => resource_segment} = params,
-        session,
+        _session,
         %{assigns: %{live_action: :new}} = socket
       ) do
     case AdminConsole.fetch(domain_segment, resource_segment) do
-      {:ok, entry} -> mount_new(entry, params, session, socket)
+      {:ok, entry} -> mount_new(entry, params, socket)
       :error -> bounce_unknown(socket)
     end
   end
 
   def mount(
         %{"domain" => domain_segment, "resource" => resource_segment, "id" => id} = params,
-        session,
+        _session,
         %{assigns: %{live_action: :edit}} = socket
       ) do
     case AdminConsole.fetch(domain_segment, resource_segment) do
-      {:ok, entry} -> mount_edit(entry, id, params, session, socket)
+      {:ok, entry} -> mount_edit(entry, id, params, socket)
       :error -> bounce_unknown(socket)
     end
   end
@@ -339,6 +337,7 @@ defmodule FluxValeWeb.AdminLive.Resources do
                       <AdminResource.actions_bar
                         update_actions={@update_actions}
                         destroy_actions={@destroy_actions}
+                        history={@history}
                       />
                     </div>
                   </div>
@@ -427,14 +426,13 @@ defmodule FluxValeWeb.AdminLive.Resources do
     end
   end
 
-  defp mount_show(entry, id, session, socket) do
+  defp mount_show(entry, id, socket) do
     admin = socket.assigns.current_user
 
     case Ash.get(entry.module, id, actor: admin) do
       {:ok, record} ->
         {:ok,
          assign(socket,
-           admin_session: session,
            resource_module: entry.module,
            domain_key: entry.domain.key,
            domain_label: entry.domain.label,
@@ -447,6 +445,7 @@ defmodule FluxValeWeb.AdminLive.Resources do
            index_path: index_path(entry),
            update_actions: update_actions(entry, record.id, admin),
            destroy_actions: destroy_actions(entry, admin),
+           history: history_path(entry, record.id),
            confirm: nil
          )}
 
@@ -460,14 +459,13 @@ defmodule FluxValeWeb.AdminLive.Resources do
     end
   end
 
-  defp mount_new(entry, params, session, socket) do
+  defp mount_new(entry, params, socket) do
     admin = socket.assigns.current_user
 
     case form_action(entry, :create, params["action"]) do
       {:ok, action} ->
         {:ok,
          assign(socket,
-           admin_session: session,
            domain_key: entry.domain.key,
            domain_label: entry.domain.label,
            resource_key: entry.key,
@@ -492,14 +490,13 @@ defmodule FluxValeWeb.AdminLive.Resources do
     end
   end
 
-  defp mount_edit(entry, id, params, session, socket) do
+  defp mount_edit(entry, id, params, socket) do
     admin = socket.assigns.current_user
 
     with {:ok, record} <- Ash.get(entry.module, id, actor: admin),
          {:ok, action} <- form_action(entry, :update, params["action"]) do
       {:ok,
        assign(socket,
-         admin_session: session,
          domain_key: entry.domain.key,
          domain_label: entry.domain.label,
          resource_key: entry.key,
@@ -543,15 +540,12 @@ defmodule FluxValeWeb.AdminLive.Resources do
 
   def handle_event("validate", _params, socket), do: {:noreply, socket}
 
-  # Every save re-resolves the actor first (the #571 demotion-window
-  # gate) and the submit carries the FRESH actor, so the policy reads
-  # the fresh role — the form's mount-time actor struct is never the
-  # authorization answer.
+  # Every save runs under the AdminChrome per-event seam: the hook has
+  # already re-resolved the actor (and refused a demoted one), so
+  # `current_user` here is the FRESH struct and the submit carries it —
+  # the policy reads the fresh role, never the form's mount-time actor.
   def handle_event("save", %{"record" => params}, socket) do
-    case reauthorized_actor(socket) do
-      {:ok, admin} -> attempt_save(socket, params, admin)
-      :revoked -> {:noreply, refused(socket)}
-    end
+    attempt_save(socket, params, socket.assigns.current_user)
   end
 
   def handle_event("save", _params, socket), do: {:noreply, socket}
@@ -588,14 +582,12 @@ defmodule FluxValeWeb.AdminLive.Resources do
 
   # The destructive click. The quiet expired arm is the double-click
   # guard: the confirm already closed (or never opened), so there is
-  # nothing to say and nothing to run.
+  # nothing to say and nothing to run. The actor is the AdminChrome
+  # hook's fresh struct (the save handler's posture).
   def handle_event("confirm-destroy", _params, socket) do
     case socket.assigns.confirm do
       %{action: action_name} ->
-        case reauthorized_actor(socket) do
-          {:ok, admin} -> attempt_destroy(socket, action_name, admin)
-          :revoked -> {:noreply, refused(socket, confirm: nil)}
-        end
+        attempt_destroy(socket, action_name, socket.assigns.current_user)
 
       _expired ->
         {:noreply, socket}
@@ -683,42 +675,6 @@ defmodule FluxValeWeb.AdminLive.Resources do
       {:error, _vanished} ->
         {:noreply, bounce_record_gone(socket)}
     end
-  end
-
-  # The demotion-window gate behind every write (the #571 ruling,
-  # wallet-detail's shape): AdminChrome resolves the actor ONCE, at
-  # mount, and a socket outlives a demotion — so the write handlers
-  # re-resolve from the session (which also re-checks token revocation)
-  # and require the platform-admin role on the FRESH struct. Reads keep
-  # the mount-resolved actor: the route pipeline and the AdminGate
-  # mount check own that window; the writes own this one.
-  defp reauthorized_actor(socket) do
-    case UserAuth.resolve_user(socket.assigns.admin_session) do
-      %User{} = actor ->
-        if ActorIsPlatformAdmin.platform_admin?(actor), do: {:ok, actor}, else: :revoked
-
-      # The revoked-token arm: same refusal as the demoted actor. The
-      # demoted-actor tests carry the gate's behavior; this arm needs
-      # minting and revoking the live session's jti out-of-band, which
-      # the suite has no helper for.
-      # coveralls-ignore-start
-      _not_signed_in ->
-        :revoked
-
-        # coveralls-ignore-stop
-    end
-  end
-
-  # The refusal every write answers a demoted or revoked actor with:
-  # honest copy naming what to do, never a crash.
-  defp refused(socket, extra \\ []) do
-    socket
-    |> put_flash(:error, revoked_copy())
-    |> assign(Keyword.put(extra, :confirm, nil))
-  end
-
-  defp revoked_copy do
-    gettext("Your admin access ended. Sign out and sign back in.")
   end
 
   defp bounce_record_gone(socket) do
@@ -1084,6 +1040,28 @@ defmodule FluxValeWeb.AdminLive.Resources do
 
   defp show_path(domain_key, resource_key, id),
     do: ~p"/admin/resources/#{domain_key}/#{resource_key}/#{id}"
+
+  # The record's audit History deep link (#645): the engine resolves
+  # its own resource key against AdminAudit's business-set entries, so
+  # the link renders exactly where the doctrine's trail exists. A
+  # module outside the set answers :error and renders nothing.
+  defp history_path(entry, record_id) do
+    case FluxValeWeb.AdminAudit.key_for_module(entry.module) do
+      {:ok, key} ->
+        %{"resource" => Atom.to_string(key), "source" => record_id}
+        |> URI.encode_query()
+        |> then(&"/admin/audit?#{&1}")
+
+      # coveralls-ignore-start - every registry resource is
+      # business-set today (the doctrine gate's parity arm pins the
+      # registry against that set), so the refusal arm cannot fire
+      # through the engine; the guard keeps a future out-of-set
+      # registry resource from linking into a surface it never joined.
+      :error ->
+        nil
+        # coveralls-ignore-stop
+    end
+  end
 
   # The sidebar's console nav state (D3 revised): the active domain
   # whose group renders open, and the active resource leaf with its

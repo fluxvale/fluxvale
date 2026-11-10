@@ -7,7 +7,8 @@ defmodule FluxValeWeb.InstanceLive.PocketIdCustodyCardTest do
   # the op — these pin the card's STATES, the op tests pin the
   # discipline.
 
-  use FluxValeWeb.ConnCase, async: true
+  # Sync: fabricates app rows with a seeded unique slug (#669).
+  use FluxValeWeb.ConnCase, async: false
   use Mimic
 
   import FluxVale.TestSupport.NoK8sLeaks

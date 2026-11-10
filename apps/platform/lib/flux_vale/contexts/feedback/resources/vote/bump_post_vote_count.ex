@@ -4,8 +4,12 @@ defmodule FluxVale.Feedback.Vote.BumpPostVoteCount do
   `Post.vote_count`, never a live count, so cast and retract keep the
   column true. The increment is ATOMIC — `vote_count = vote_count ± 1`
   evaluated in SQL, not a read-modify-write — so concurrent casts on a
-  post cannot lose one. Runs before_action inside the cast/retract
-  transaction: the bump and the vote row land or roll back as one unit.
+  post cannot lose one. It rides Post's dedicated `:bump_vote_count`
+  action — a paper-trail-ignored write (`ignore_actions`, ADR-0048:
+  the counter is derivative data) — while `updated_at` still moves on
+  vote activity (any update touches the timestamp). Runs before_action
+  inside the cast/retract transaction: the bump and the vote row land
+  or roll back as one unit.
 
   A post that cannot resolve (a dangling `post_id`) fails the write
   loudly and field-scoped — the same fail-closed answer SetStatus gives
@@ -61,7 +65,7 @@ defmodule FluxVale.Feedback.Vote.BumpPostVoteCount do
   # The only change is the atomic, so the UPDATE is one SQL expression.
   defp bump(post, step) do
     post
-    |> Ash.Changeset.for_update(:update, %{}, authorize?: false)
+    |> Ash.Changeset.for_update(:bump_vote_count, %{}, authorize?: false)
     |> Ash.Changeset.atomic_update(:vote_count, Ash.Expr.expr(vote_count + ^step))
     |> Ash.update!(authorize?: false)
   end

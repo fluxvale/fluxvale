@@ -19,6 +19,7 @@ defmodule FluxVale.Identity.PersonalAccessToken do
     otp_app: :flux_vale,
     domain: FluxVale.Identity,
     data_layer: AshPostgres.DataLayer,
+    extensions: [AshPaperTrail.Resource],
     authorizers: [Ash.Policy.Authorizer]
 
   alias FluxVale.Identity.PersonalAccessToken.ScopesCatalog
@@ -38,6 +39,36 @@ defmodule FluxVale.Identity.PersonalAccessToken do
     references do
       reference(:user, on_delete: :delete)
     end
+  end
+
+  # The audit trail (#645, ADR-0048): the plan's one complete config
+  # posture — the mixin line is mandatory (it carries the read policy,
+  # the indexes, the actor label). version_extensions attaches the
+  # Policy authorizer that policy rides on. Rationale lives in the
+  # ADR, not here.
+  paper_trail do
+    primary_key_type(:uuid_v7)
+    change_tracking_mode(:changes_only)
+    store_action_name?(true)
+    store_action_inputs?(true)
+    sensitive_attributes(:redact)
+    # Decision two (ADR-0048): the auth path stamps last_used_at on
+    # every authenticated PAT request — machine-cadence churn, the
+    # Post counters stance. ignore_attributes filters the diff, but
+    # 0.8.1's write trigger is the changeset's changed? flag, so the
+    # touch action is silenced by name too.
+    ignore_attributes([:created_at, :updated_at, :last_used_at])
+    ignore_actions([:touch_last_used])
+    reference_source?(false)
+    create_version_on_destroy?(true)
+    operation_id_field(:operation_id)
+    mixin({FluxVale.PaperTrail.VersionMixin, :version_resource, []})
+    version_extensions(authorizers: [Ash.Policy.Authorizer])
+
+    belongs_to_actor(:user, FluxVale.Identity.User,
+      domain: FluxVale.Identity,
+      on_delete: :nilify
+    )
   end
 
   policies do

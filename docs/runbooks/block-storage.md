@@ -127,8 +127,11 @@ Production's expandable class is the real gate.
 
 - COGS: €13/TB/mo ≈ **1.4¢/GB/mo** in USD at €1 ≈ $1.08 (1.3 euro cents; ≈ $14.04/TB).
 - Rule: pass-through + margin as a marginal rate above the threshold; the shipped
-  value is `cents_per_gb: 3` (≈ $30/TB), marked **PROVISIONAL** in config until Terence
-  ratifies the number in S6. The marginal rate is the configured effective rate for the
+  value is `cents_per_gb: 3` (≈ $30/TB), **ratified 2026-11-10** (S6 closed #250). The
+  payment fee rides the wallet top-up, so the same ratification set the top-up floor at
+  **$5** (`config :flux_vale, :billing, min_topup_cents`) — at 3¢ that floor holds a
+  41.4% marginal gross, 47–48% at the $20–30 top-ups the ladder produces. Holding the
+  no-fee 53% would need 3.25¢ at a $10 floor (ADR-0046 Am. 1). The marginal rate is the configured effective rate for the
   seeded region — a COGS anchor, not a market-curve term, so the v5 surcharge does not
   multiply it.
 - One-line home: the `:storage_beyond_threshold` config block (or its seeded equivalent);

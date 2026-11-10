@@ -6,8 +6,9 @@ defmodule FluxValeWeb.PricingCalculatorLiveTest do
   # pricing_controller_test. This file drives the child LiveView itself
   # — live_isolated, because /pricing routes to a controller, not a
   # live route (live/2 needs one).
+  # Sync: a seed writes shared rows, so it must not overlap another test.
 
-  use FluxValeWeb.ConnCase, async: true
+  use FluxValeWeb.ConnCase, async: false
 
   import Phoenix.LiveViewTest
 

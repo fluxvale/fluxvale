@@ -1,16 +1,18 @@
 defmodule FluxValeWeb.AdminGatewaysLiveTest do
   @moduledoc false
 
-  # The gateways surface (#501): the gateway table and its
-  # member-scoped honesty. The gateway read policy is a members-only
-  # filter with no platform-admin arm, so the list renders EXACTLY the
-  # member-org gateways — the policy-exact rendering is the point, and
-  # these tests pin it. The provider is Mimic-stubbed (the fixture's
-  # contract); the route gates ride the shared live_session's arms.
+  # The gateways surface (#501, #613): the gateway table under the
+  # blanket platform-admin authority (#644, ADR-0047). Session reads
+  # are cross-org, so the list is EVERY org's gateway — cross-org rows
+  # render, and the operator-truth columns (the attention clock here;
+  # key age and tailnet claims on the detail page) ride their rows.
+  # The provider is Mimic-stubbed (the fixture's contract); the route
+  # gates ride the shared live_session's arms.
 
   use FluxValeWeb.ConnCase, async: true
   use Mimic
 
+  import Ecto.Query, only: [from: 2]
   import Phoenix.LiveViewTest
 
   alias FluxVale.Accounts.Membership
@@ -47,9 +49,9 @@ defmodule FluxValeWeb.AdminGatewaysLiveTest do
     %{admin: admin, conn: SessionHelpers.sign_in(conn, admin), bare_conn: conn}
   end
 
-  # `{org, gateway}` on an org the admin belongs to — or, with
-  # non_member: true, a stranger org's gateway the list must NOT
-  # render. The membership row is the read policy's only door.
+  # `{org, gateway}` on a member org — or, with non_member: true, a
+  # stranger org's gateway the blanket authority now RENDERS (#644:
+  # cross-org by construction, membership or not).
   defp gateway_for_admin!(admin, opts \\ []) do
     {org, _owner} = BillingFixtures.grant_free_org!()
 
@@ -81,6 +83,16 @@ defmodule FluxValeWeb.AdminGatewaysLiveTest do
     |> LazyHTML.from_fragment()
     |> LazyHTML.text()
     |> String.trim()
+  end
+
+  # User carries no role-write action and Ash.Seed is create-only, so
+  # the demotion rides the data layer directly (tests own their
+  # preconditions; the per-event gate is what the test pins — the
+  # wallet surface's demote shape).
+  defp demote!(admin) do
+    query = from(u in "users", where: u.id == ^Ecto.UUID.dump!(admin.id))
+    {updated, nil} = FluxVale.Repo.update_all(query, set: [platform_role: "user"])
+    assert updated == 1
   end
 
   describe "the gateway table" do
@@ -174,39 +186,26 @@ defmodule FluxValeWeb.AdminGatewaysLiveTest do
       end
     end
 
-    test "the main empty state is filter-scoped, never a global claim", %{
-      conn: conn,
-      admin: admin
-    } do
-      {org, _owner} = BillingFixtures.grant_free_org!()
-
-      Membership.create!(%{organization_id: org.id, user_id: admin.id, role: :member},
-        authorize?: false
-      )
-
+    test "the main empty state is the global claim the cross-org read supports", %{conn: conn} do
+      # Nothing built: the cross-org read backs a global "no gateways
+      # yet" — the old filter-scoped hedging and the membership probe
+      # are gone with #613's arm.
       {:ok, view, _html} = live(conn, "/admin/gateways")
 
-      # The title names the orgs this admin belongs to — the
-      # member-scoped read cannot support "no gateways anywhere".
-      assert has_element?(
-               view,
-               "[data-testid='admin-gateways-empty']",
-               "No gateways in the orgs you belong to"
-             )
-
+      assert has_element?(view, "[data-testid='admin-gateways-empty']", "No gateways yet")
       refute has_element?(view, "[data-testid='admin-gateways-scope-note']")
     end
 
-    test "an org-less admin sees a stranger's gateway — the blanket widened the read (#644)", %{
+    test "a stranger org's gateway renders — the blanket widened the read (#644)", %{
       conn: conn,
       admin: admin
     } do
-      {_stranger_org, hidden} = gateway_for_admin!(admin, non_member: true, state: :active)
+      {stranger_org, foreign} = gateway_for_admin!(admin, non_member: true, state: :active)
 
-      # The setup admin's JIT personal-org membership is the only row
-      # between them and the org-less shape: the system-op posture
-      # removes it (the bootstrap stance — membership rows are
-      # system-created in seeds too).
+      # The org-less shape the old probe served: memberships stripped
+      # (the bootstrap stance), and the stranger's row STILL renders —
+      # ADR-0047's blanket authority reads cross-org, membership or
+      # not — and the scope note is gone with the member-scoped copy.
       Membership
       |> Ash.Query.filter(user_id == ^admin.id)
       |> Ash.read!(authorize?: false)
@@ -215,13 +214,55 @@ defmodule FluxValeWeb.AdminGatewaysLiveTest do
       signed = SessionHelpers.sign_in(conn, admin)
       {:ok, view, _html} = live(signed, "/admin/gateways")
 
-      # ADR-0047: platform-admin reads are cross-org by construction,
-      # membership or not — the row is there and no empty state
-      # renders. (The scope note itself is membership-probed copy the
-      # A1-S2 console pass rewords.)
-      assert has_element?(view, "[data-testid='admin-gateways-host-#{hidden.id}']")
-      refute has_element?(view, "[data-testid='admin-gateways-empty']")
+      assert has_element?(view, "[data-testid='admin-gateways-host-#{foreign.id}']")
+
+      assert text_of(view, "[data-testid='admin-gateways-org-#{foreign.id}']") =~
+               stranger_org.name
+
+      # The org-less emptiness the scope note answered cannot happen:
+      # no probe renders, whatever the membership table says.
       refute has_element?(view, "[data-testid='admin-gateways-scope-note']")
+      refute has_element?(view, "[data-testid='admin-gateways-empty']")
+    end
+
+    test "an attention row carries its clock — and the clock keys on the state, not the stamp",
+         %{conn: conn, admin: admin} do
+      {_org, flagged} = gateway_for_admin!(admin, state: :needs_attention)
+
+      # The funnel is the stamp's only writer (the state alone does not
+      # set it), so the clock's row gets it the way production does.
+      clocked =
+        flagged
+        |> Ash.Changeset.for_update(
+          :update_state,
+          %{needs_attention_since: DateTime.add(DateTime.utc_now(), -2, :day)},
+          authorize?: false
+        )
+        |> Ash.update!()
+
+      # The stale-stamp shape (the pin's finding): Suspend never clears
+      # needs_attention_since, so this suspended row carries the anchor
+      # — and must NOT show a clock, because the clock keys on the
+      # state like the pin does.
+      {_stale_org, active} = gateway_for_admin!(admin, state: :active)
+
+      stale =
+        active
+        |> Ash.Changeset.for_update(
+          :update_state,
+          %{state: :suspended, needs_attention_since: DateTime.add(DateTime.utc_now(), -1, :day)},
+          authorize?: false
+        )
+        |> Ash.update!()
+
+      {:ok, view, _html} = live(conn, "/admin/gateways")
+
+      since = Calendar.strftime(clocked.needs_attention_since, "%b %d, %Y")
+
+      assert text_of(view, "[data-testid='admin-gateways-attention-since-#{clocked.id}']") ==
+               "Since #{since}"
+
+      refute has_element?(view, "[data-testid='admin-gateways-attention-since-#{stale.id}']")
     end
 
     test "search narrows by hostname or org name, and never reaches past the list", %{
@@ -461,6 +502,32 @@ defmodule FluxValeWeb.AdminGatewaysLiveTest do
       |> render_click()
 
       assert has_element?(view, "[data-testid^='admin-gateways-host-']")
+      refute has_element?(view, "[data-testid='admin-gateways-search-empty']")
+    end
+  end
+
+  describe "the per-event demotion seam (the AdminChrome hook)" do
+    test "a demoted admin's event is refused with the wallet surface's copy", %{
+      conn: conn,
+      admin: admin
+    } do
+      {_org, gateway} = gateway_for_admin!(admin, state: :active)
+
+      {:ok, view, _html} = live(conn, "/admin/gateways")
+
+      demote!(admin)
+
+      # The READ window stays (the mounted DOM is stale until the next
+      # interaction — ADR-0047 D4), and the FIRST interaction is where
+      # the shared hook answers: every event re-resolves the actor.
+      html = render_change(view, "search", %{"search" => %{"query" => "zzz-no-such"}})
+
+      assert html =~ "Your admin access ended. Sign out and sign back in."
+
+      # The halt landed BEFORE the surface's own handler: the list
+      # keeps its mounted rows, and the search's no-match state never
+      # rendered.
+      assert has_element?(view, "[data-testid='admin-gateways-host-#{gateway.id}']")
       refute has_element?(view, "[data-testid='admin-gateways-search-empty']")
     end
   end

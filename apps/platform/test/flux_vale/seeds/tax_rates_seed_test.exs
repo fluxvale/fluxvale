@@ -4,7 +4,9 @@ defmodule FluxVale.Seeds.TaxRateSeedTest do
   sandboxed DB — create, reprice-convergence, and idempotency (#138).
   """
 
-  use FluxVale.DataCase, async: true
+  # Sync: a seed writes shared rows, so it must not overlap another test.
+
+  use FluxVale.DataCase, async: false
 
   alias FluxVale.Pricing.TaxRate
   alias FluxVale.Seeds
@@ -46,6 +48,35 @@ defmodule FluxVale.Seeds.TaxRateSeedTest do
       shipped = Seeds.TaxRateData.entries()
 
       assert length(Ash.read!(TaxRate, authorize?: false)) == length(shipped)
+    end
+
+    test "the first seed versions every rate, a converged re-seed adds zero versions (ADR-0048)" do
+      assert :ok == Seeds.seed_tax_rates!()
+
+      shipped = Seeds.TaxRateData.entries()
+      first_run = version_count!()
+
+      assert first_run == length(shipped)
+
+      assert :ok == Seeds.seed_tax_rates!()
+
+      assert version_count!() == first_run
+    end
+
+    test "a drifted rate heals with exactly one new version row" do
+      assert :ok == Seeds.seed_tax_rates!()
+      before = version_count!()
+
+      de = Enum.find(Seeds.TaxRateData.entries(), &(&1.country == "DE"))
+      [row] = find_rows("DE", nil, de.effective_from)
+      TaxRate.update!(row, %{rate_bp: 999}, authorize?: false)
+
+      assert :ok == Seeds.seed_tax_rates!()
+
+      # one version each: the drift's own update (above) and the seed's
+      # heal of it
+      assert version_count!() == before + 2
+      assert row_rate_bp("DE", nil, de.effective_from) == 1900
     end
   end
 
@@ -104,6 +135,12 @@ defmodule FluxVale.Seeds.TaxRateSeedTest do
       end
 
     Ash.read!(query, authorize?: false)
+  end
+
+  defp version_count! do
+    TaxRate.Version
+    |> Ash.read!(authorize?: false)
+    |> length()
   end
 
   defp row_rate_bp(country, state, effective_from) do

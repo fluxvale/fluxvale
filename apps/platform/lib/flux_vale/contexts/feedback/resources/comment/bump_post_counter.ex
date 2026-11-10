@@ -4,13 +4,15 @@ defmodule FluxVale.Feedback.Comment.BumpPostCounter do
   §1's cached aggregate): +1 as the comment lands, -1 when moderation
   removes it.
 
-  The bump rides Post's generic `:update`, so `post.updated_at` moves on
-  comment activity — deliberate, and pinned by a test: a commented post
-  IS changed content, and the board's sitemap `lastmod` reads
-  `updated_at` (ADR-0026 §4, ADR-0025), so search engines should
-  re-crawl. Votes bump the same way. A slice that wants a quieter
-  `updated_at` for the board must change the semantics for BOTH counters
-  in the open, not "fix" this side silently.
+  The bump rides Post's dedicated `:bump_comment_count` action — a
+  paper-trail-ignored write (`ignore_actions`, ADR-0048: the counter is
+  derivative data), so comment activity moves `post.updated_at` (the
+  board's sitemap `lastmod` reads it — ADR-0026 §4, ADR-0025, pinned by
+  a test) without spamming the post's trail. Any update touches the
+  timestamp; the observable activity-updated semantics are unchanged.
+  A slice that wants a quieter `updated_at` for the board must change
+  the semantics for BOTH counters in the open, not "fix" this side
+  silently.
 
   Race safety is the SQL shape, not locking discipline: the bump is
   `comment_count = comment_count + N` (an atomic Ash expression), so two
@@ -44,7 +46,7 @@ defmodule FluxVale.Feedback.Comment.BumpPostCounter do
     case Ash.get(Post, post_id, authorize?: false) do
       {:ok, post} ->
         post
-        |> Ash.Changeset.for_update(:update, %{}, authorize?: false)
+        |> Ash.Changeset.for_update(:bump_comment_count, %{}, authorize?: false)
         |> Ash.Changeset.atomic_update(:comment_count, Ash.Expr.expr(comment_count + ^delta))
         |> Ash.update!(authorize?: false)
 

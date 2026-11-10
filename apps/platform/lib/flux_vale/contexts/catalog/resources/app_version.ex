@@ -14,7 +14,7 @@ defmodule FluxVale.Catalog.AppVersion do
     domain: FluxVale.Catalog,
     data_layer: AshPostgres.DataLayer,
     authorizers: [Ash.Policy.Authorizer],
-    extensions: [AshJsonApi.Resource]
+    extensions: [AshJsonApi.Resource, AshPaperTrail.Resource]
 
   # #360 (ADR-0019 §1): the version family's wire contract — the detail
   # page's blueprint summary, same public surface the page renders.
@@ -108,6 +108,30 @@ defmodule FluxVale.Catalog.AppVersion do
 
     # ADR-0032 §3: no DB-side id default — ids are Ash's job (see User).
     migration_defaults(id: "nil")
+  end
+
+  # The audit trail (#645, ADR-0048): the plan's one complete config
+  # posture — the mixin line is mandatory (it carries the read policy,
+  # the indexes, the actor label). version_extensions attaches the
+  # Policy authorizer that policy rides on. Rationale lives in the
+  # ADR, not here.
+  paper_trail do
+    primary_key_type(:uuid_v7)
+    change_tracking_mode(:changes_only)
+    store_action_name?(true)
+    store_action_inputs?(true)
+    sensitive_attributes(:redact)
+    ignore_attributes([:created_at, :updated_at])
+    reference_source?(false)
+    create_version_on_destroy?(true)
+    operation_id_field(:operation_id)
+    mixin({FluxVale.PaperTrail.VersionMixin, :version_resource, []})
+    version_extensions(authorizers: [Ash.Policy.Authorizer])
+
+    belongs_to_actor(:user, FluxVale.Identity.User,
+      domain: FluxVale.Identity,
+      on_delete: :nilify
+    )
   end
 
   attributes do
@@ -259,8 +283,14 @@ defmodule FluxVale.Catalog.AppVersion do
       public?(true)
     end
 
+    # Curated prose under the version on the app page — D10 copy rules
+    # at write time (#678, the ValidateCopyRules wiring in the actions).
+    # The bound rides the pattern every ValidateCopyRules field carries
+    # (audience 180, in_action_intro 160); 600 is the longest shipped
+    # entry (424) with headroom.
     attribute :release_notes, :string do
       public?(true)
+      constraints(max_length: 600)
     end
 
     attribute :published_at, :utc_datetime_usec do
@@ -323,6 +353,8 @@ defmodule FluxVale.Catalog.AppVersion do
       validate(FluxVale.Catalog.AppVersion.ValidateFirstRunEnv)
       validate(FluxVale.Catalog.AppVersion.ValidateOidcWiringEnv)
       validate(FluxVale.Catalog.AppVersion.ValidateBackingServices)
+      # D10 at the plain-field seam (#678, the App create stance).
+      validate({FluxVale.Catalog.ValidateCopyRules, fields: [:release_notes]})
     end
 
     update :update do
@@ -364,6 +396,8 @@ defmodule FluxVale.Catalog.AppVersion do
       validate(FluxVale.Catalog.AppVersion.ValidateFirstRunEnv)
       validate(FluxVale.Catalog.AppVersion.ValidateOidcWiringEnv)
       validate(FluxVale.Catalog.AppVersion.ValidateBackingServices)
+      # D10 at the plain-field seam (#678, the App update stance).
+      validate({FluxVale.Catalog.ValidateCopyRules, fields: [:release_notes]})
     end
 
     # #360: the detail page reads versions through the app relationship;

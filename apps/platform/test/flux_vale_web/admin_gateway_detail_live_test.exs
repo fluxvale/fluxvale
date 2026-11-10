@@ -1,13 +1,13 @@
 defmodule FluxValeWeb.AdminGatewayDetailLiveTest do
   @moduledoc false
 
-  # The gateway detail surface (#501): the gateway's facts, the
+  # The gateway detail surface (#501, #613): the gateway's facts, the
   # credential references rendered as NAMES (never keys), and the org's
-  # domains with their verification vocabulary. The read that lands
-  # here is members-only, so a non-member admin's id takes the same
-  # honest arm as an unknown one. The provider and the Certificate leg
-  # are Mimic-stubbed (the fixtures' contract); the route gates ride
-  # the shared live_session's arms.
+  # domains with their verification vocabulary plus each row's tailnet
+  # claim. Reads carry the platform-admin arm, so a stranger org's
+  # gateway renders here too — the missing arm is a missing row. The
+  # provider and the Certificate leg are Mimic-stubbed (the fixtures'
+  # contract); the route gates ride the shared live_session's arms.
 
   use FluxValeWeb.ConnCase, async: true
   use Mimic
@@ -23,8 +23,6 @@ defmodule FluxValeWeb.AdminGatewayDetailLiveTest do
   alias FluxVale.TestSupport.AccessFixtures
   alias FluxVale.TestSupport.BillingFixtures
   alias FluxVale.TestSupport.SessionHelpers
-
-  require Ash.Query
 
   @n :erlang.unique_integer([:positive])
 
@@ -58,8 +56,9 @@ defmodule FluxValeWeb.AdminGatewayDetailLiveTest do
     %{admin: admin, conn: SessionHelpers.sign_in(conn, admin), bare_conn: conn}
   end
 
-  # A member org (the admin is inside) with its gateway: the only shape
-  # the members-only reads admit onto the page.
+  # A member org (the admin is inside) with its gateway: the row shape
+  # the member arm admits onto the page — with #613 the admin arm
+  # admits stranger rows just as well (the cross-org test below).
   defp member_gateway!(admin, opts \\ []) do
     {org, _owner} = BillingFixtures.grant_free_org!()
 
@@ -222,6 +221,44 @@ defmodule FluxValeWeb.AdminGatewayDetailLiveTest do
       assert text_of(view, "[data-testid='admin-gateways-detail-state']") == "Connecting"
       assert has_element?(view, "[data-testid='admin-gateways-detail-state'] .hero-bolt")
     end
+
+    test "an attention row carries its clock; a stale stamp under another state carries none",
+         %{conn: conn, admin: admin} do
+      {_org, flagged} = member_gateway!(admin, state: :needs_attention)
+
+      clocked =
+        flagged
+        |> Ash.Changeset.for_update(
+          :update_state,
+          %{needs_attention_since: DateTime.add(DateTime.utc_now(), -2, :day)},
+          authorize?: false
+        )
+        |> Ash.update!()
+
+      # The stale-stamp shape: Suspend never clears the stamp, so the
+      # clock must key on the STATE (the list pin's discipline) — a
+      # suspended row shows no clock however old its anchor is.
+      {_stale_org, active} = member_gateway!(admin, state: :active)
+
+      stale =
+        active
+        |> Ash.Changeset.for_update(
+          :update_state,
+          %{state: :suspended, needs_attention_since: DateTime.add(DateTime.utc_now(), -1, :day)},
+          authorize?: false
+        )
+        |> Ash.update!()
+
+      {:ok, view, _html} = live(conn, "/admin/gateways/#{clocked.id}")
+
+      since = Calendar.strftime(clocked.needs_attention_since, "%b %d, %Y")
+
+      assert text_of(view, "[data-testid='admin-gateways-detail-attention-since']") =~ since
+
+      {:ok, stale_view, _html} = live(conn, "/admin/gateways/#{stale.id}")
+
+      refute has_element?(stale_view, "[data-testid='admin-gateways-detail-attention-since']")
+    end
   end
 
   describe "the credential references" do
@@ -268,6 +305,29 @@ defmodule FluxValeWeb.AdminGatewayDetailLiveTest do
       assert text_of(view, "[data-testid='admin-gateways-secret-token-none']") == "Not recorded."
 
       refute has_element?(view, "[data-testid='admin-gateways-secret-token-ref']")
+    end
+
+    test "a stamped token carries the key-age signal — the 90-day rotation clock", %{
+      conn: conn,
+      admin: admin
+    } do
+      {_org, gateway} = member_gateway!(admin)
+
+      # The ref write stamps token_set_at (its change, ADR-0040 §5) —
+      # the only writer, so the page reads the funnel's own fact.
+      stamped =
+        AccessGateway.set_api_token_ref!(
+          gateway,
+          %{api_token_secret_ref: "api-token-stub"},
+          authorize?: false
+        )
+
+      {:ok, view, _html} = live(conn, "/admin/gateways/#{stamped.id}")
+
+      stamp = Calendar.strftime(stamped.token_set_at, "%b %d, %Y")
+
+      assert text_of(view, "[data-testid='admin-gateways-secret-token-set']") =~ stamp
+      assert text_of(view, "[data-testid='admin-gateways-secret-token-set']") =~ "90 days"
     end
 
     test "a row with no recorded credential entry says so instead of showing nil", %{
@@ -436,58 +496,113 @@ defmodule FluxValeWeb.AdminGatewayDetailLiveTest do
       assert has_element?(view, "[data-testid='admin-gateways-domains-empty']")
       refute has_element?(view, "[data-testid^='admin-gateways-domain-name-']")
     end
+
+    test "each domain carries its tailnet claim — a fact apart from the state badge", %{
+      conn: conn,
+      admin: admin
+    } do
+      {org, gateway} = member_gateway!(admin, state: :active)
+
+      unclaimed = custom_domain!(admin, org, :verified)
+      claimed = custom_domain!(admin, org, :verified)
+
+      # The claims map rides the claims funnel (the claim/unclaim
+      # operations' writer): only `claimed`'s domain is on the tailnet.
+      gateway
+      |> Ash.Changeset.for_update(
+        :update_claims,
+        %{
+          dns_claims: %{
+            claimed.domain => %{"ip" => "100.100.100.1", "tailnet" => "example.ts.net"}
+          }
+        },
+        authorize?: false
+      )
+      |> Ash.update!()
+
+      {:ok, view, _html} = live(conn, "/admin/gateways/#{gateway.id}")
+
+      # Both rows are :verified (cert issuance) — the claim line is
+      # what differs, and it differs per row.
+      assert text_of(view, "[data-testid='admin-gateways-domain-state-#{unclaimed.id}']") ==
+               "Verified"
+
+      assert text_of(view, "[data-testid='admin-gateways-domain-state-#{claimed.id}']") ==
+               "Verified"
+
+      assert has_element?(
+               view,
+               "[data-testid='admin-gateways-domain-claim-#{claimed.id}']",
+               "Claimed on the tailnet"
+             )
+
+      assert has_element?(
+               view,
+               "[data-testid='admin-gateways-domain-unclaimed-#{unclaimed.id}']",
+               "Not on the tailnet"
+             )
+    end
   end
 
   describe "the missing arm" do
-    test "an unknown id bounces back with the member-scope flash copy", %{conn: conn} do
+    test "an unknown id bounces back with the plain not-here flash", %{conn: conn} do
       missing_id = "00000000-0000-0000-0000-000000000000"
 
       assert {:error, {:live_redirect, %{to: "/admin/gateways", flash: flash}}} =
                live(conn, "/admin/gateways/#{missing_id}")
 
-      assert flash["info"] =~ "That gateway is not listed"
-      assert flash["info"] =~ "member-scoped"
-    end
-
-    test "a malformed id takes the plain typo arm, no authorization cause", %{conn: conn} do
-      assert {:error, {:live_redirect, %{to: "/admin/gateways", flash: flash}}} =
-               live(conn, "/admin/gateways/not-a-uuid")
-
-      # A typo gets the sibling's plain answer — presenting the
-      # member-scope sentence here would read as an authorization
-      # verdict on a mistyped id.
+      # The filter-less admin read makes an empty answer "no such row"
+      # — the same plain sentence the typo arm carries, no scope
+      # verdict left to guess (#613).
       assert flash["error"] == "That gateway does not exist."
       refute Map.has_key?(flash, "info")
     end
 
-    test "a stranger org's gateway detail renders — the blanket widened the read (#644)",
-         %{
-           conn: conn,
-           admin: admin
-         } do
-      {_stranger_org, hidden} =
-        member_gateway_unreachable!(admin)
+    test "a malformed id takes the same plain arm", %{conn: conn} do
+      assert {:error, {:live_redirect, %{to: "/admin/gateways", flash: flash}}} =
+               live(conn, "/admin/gateways/not-a-uuid")
 
-      {:ok, view, _html} = live(conn, "/admin/gateways/#{hidden.id}")
+      assert flash["error"] == "That gateway does not exist."
+      refute Map.has_key?(flash, "info")
+    end
 
-      # ADR-0047: platform-admin reads are cross-org by construction —
-      # the member filter no longer hides a foreign gateway's detail.
+    test "a stranger org's gateway renders — the blanket reads cross-org (#644), with the operator-truth fields",
+         %{conn: conn} do
+      {stranger_org, gateway} = stranger_gateway!()
+
+      # The clock and the token stamp ride the system funnels (the
+      # only writers), so the cross-org page proves the whole #613
+      # surface: the row, the clock, the key age.
+      flagged =
+        gateway
+        |> Ash.Changeset.for_update(
+          :update_state,
+          %{
+            state: :needs_attention,
+            needs_attention_since: DateTime.add(DateTime.utc_now(), -3, :day)
+          },
+          authorize?: false
+        )
+        |> Ash.update!()
+        |> AccessGateway.set_api_token_ref!(%{api_token_secret_ref: "tok-stub"},
+          authorize?: false
+        )
+
+      {:ok, view, _html} = live(conn, "/admin/gateways/#{flagged.id}")
+
       assert has_element?(view, "[data-testid='admin-gateways-detail']")
-      assert has_element?(view, "[data-testid='admin-gateways-detail-state']")
+      assert render(view) =~ stranger_org.name
+
+      assert has_element?(view, "[data-testid='admin-gateways-detail-attention-since']")
+      assert has_element?(view, "[data-testid='admin-gateways-secret-token-set']")
     end
   end
 
-  # A NON-member org's gateway: unreachable for member-shaped reads —
-  # the fixture shape the widened-admin tests above read across.
-  defp member_gateway_unreachable!(admin) do
+  # A stranger org's gateway — a fresh org whose only member is its
+  # owner, the exact shape #613's arm admits cross-org.
+  defp stranger_gateway! do
     {org, _owner} = BillingFixtures.grant_free_org!()
-
     gateway = AccessFixtures.gateway!(org)
-
-    refute Membership
-           |> Ash.Query.filter(organization_id == ^org.id and user_id == ^admin.id)
-           |> Ash.exists?(actor: admin)
-
     {org, gateway}
   end
 

@@ -6,13 +6,10 @@ defmodule FluxValeWeb.AdminLive.OrgDetail do
   Read-only by design (the v1 plan reserved this section's writes).
   The org identity rides the flagged `:admin_lookup` seam (three
   public fields — the wallets lane's read), the wallet rides the read
-  policy's platform-admin arm, and the instances ride
-  `:list_for_organization` behind a membership probe: the read
-  policies are members-only filters, so the probe (a Membership read
-  with the actor attached) is what lets the page tell "nothing
-  deployed" apart from "not yours to see". A non-member admin gets the
-  honest scope note where the instance table would be — the page
-  states what it can see, never silently less.
+  policy's platform-admin arm, and the instances and domains ride
+  their reads under the blanket platform-admin authority (#644/#648,
+  ADR-0047): any admin reads any org's rows, cross-org — the
+  membership probe and its scope note are gone with the widened read.
 
   The instances list is paginated by the shared data table (the
   latest-100 cap retired into real pagination; offset mode). No
@@ -21,17 +18,14 @@ defmodule FluxValeWeb.AdminLive.OrgDetail do
 
   use FluxValeWeb, :live_view
 
-  alias FluxVale.Accounts.Membership
   alias FluxVale.Accounts.Organization
   alias FluxVale.Billing.Wallet
+  alias FluxVale.Infrastructure.AccessDomain
   alias FluxVale.Infrastructure.Instance
   alias FluxValeWeb.AdminComponents
   alias FluxValeWeb.AdminShell
   alias FluxValeWeb.BillingComponents
   alias FluxValeWeb.Components.AdminDataTable
-
-  require Ash.Query
-  require Ash.Expr
 
   # The instances table's contract (#501): the sortable fields are
   # the columns the row prints that the instance read carries. The
@@ -48,13 +42,23 @@ defmodule FluxValeWeb.AdminLive.OrgDetail do
     with {:ok, org_id} <- cast_uuid(raw_id),
          {:ok, [org]} <- org_lookup(admin, org_id) do
       wallet = wallet_read(admin, org_id)
+      {domains, domains_capped?} = domains_page(admin, org_id)
 
       # Live truth (the dashboard's posture, #74): every status-writing
       # action broadcasts on instances:<id>, and the strip and rows
       # follow the broadcasts instead of aging into a lie. The
       # subscriptions ride the loaded page (handle_params); the id set
       # keeps a patch from doubling them.
-      {:ok, assign(socket, org: org, wallet: wallet, subscribed_ids: MapSet.new())}
+      {:ok,
+       socket
+       |> assign(
+         org: org,
+         wallet: wallet,
+         subscribed_ids: MapSet.new(),
+         domains_capped?: domains_capped?,
+         domains_empty?: domains == []
+       )
+       |> stream(:domains, domains)}
     else
       # A malformed param (the cast) or a lookup that answers nothing:
       # one arm, one answer — back to the list with the flash.
@@ -245,54 +249,55 @@ defmodule FluxValeWeb.AdminLive.OrgDetail do
   # (the same members-only filter, one row in or none), and only a
   # member admin's read runs. The page rides the shared data table:
   # an honest count, then one server-driven page (offset mode).
+  # The blanket authority (#644/#648) widened the instances read
+  # cross-org: any platform admin reads any org's instances, so the
+  # membership probe and its :hidden arm are gone — the read answers,
+  # the page renders. The page rides the shared data table: an honest
+  # count, then one server-driven page (offset mode).
   defp refresh_instances(socket) do
     admin = socket.assigns.current_user
     state = socket.assigns.table
 
-    if org_member?(admin, socket.assigns.org.id) do
-      filtered =
-        Ash.Query.for_read(
-          Instance,
-          :list_for_organization,
-          %{organization_id: socket.assigns.org.id},
-          actor: admin
-        )
-
-      total = Ash.count!(filtered)
-      page_count = AdminDataTable.page_count(total, state.size)
-
-      # A crafted deep link clamps BEFORE the query is built: the page
-      # read runs at the honest offset, never a crafted deep scan.
-      page = min(state.page, page_count)
-
-      instances =
-        filtered
-        |> apply_sort(state.sort)
-        |> Ash.Query.load(app_version: :app)
-        |> Ash.Query.limit(state.size)
-        |> Ash.Query.offset((page - 1) * state.size)
-        |> Ash.read!()
-
-      updated = %{state | page: page, total: total}
-
-      # A stream is not enumerable, so the strip's counts ride an
-      # id → status index of the SHOWN page (the numbers never read
-      # as org totals).
-      index = Map.new(instances, fn instance -> {instance.id, instance.status} end)
-
-      socket
-      |> subscribe_to_new(instances)
-      |> assign(
-        table: updated,
-        instances_state: :ok,
-        instances_empty?: instances == [],
-        instances_index: index,
-        strip: strip_counts(index)
+    filtered =
+      Ash.Query.for_read(
+        Instance,
+        :list_for_organization,
+        %{organization_id: socket.assigns.org.id},
+        actor: admin
       )
-      |> stream(:instances, instances, reset: true)
-    else
-      assign(socket, instances_state: :hidden)
-    end
+
+    total = Ash.count!(filtered)
+    page_count = AdminDataTable.page_count(total, state.size)
+
+    # A crafted deep link clamps BEFORE the query is built: the page
+    # read runs at the honest offset, never a crafted deep scan.
+    page = min(state.page, page_count)
+
+    instances =
+      filtered
+      |> apply_sort(state.sort)
+      |> Ash.Query.load(app_version: :app)
+      |> Ash.Query.limit(state.size)
+      |> Ash.Query.offset((page - 1) * state.size)
+      |> Ash.read!()
+
+    updated = %{state | page: page, total: total}
+
+    # A stream is not enumerable, so the strip's counts ride an
+    # id → status index of the SHOWN page (the numbers never read
+    # as org totals).
+    index = Map.new(instances, fn instance -> {instance.id, instance.status} end)
+
+    socket
+    |> subscribe_to_new(instances)
+    |> assign(
+      table: updated,
+      instances_state: :ok,
+      instances_empty?: instances == [],
+      instances_index: index,
+      strip: strip_counts(index)
+    )
+    |> stream(:instances, instances, reset: true)
   end
 
   # Newest created first by default; the id tiebreak rides every sort
@@ -304,17 +309,23 @@ defmodule FluxValeWeb.AdminLive.OrgDetail do
     Ash.Query.sort(query, [{field, dir}, {:id, :desc}])
   end
 
-  # The membership probe: the Membership read policy is members-only
-  # with the same relates_to_actor_via filter, so a non-member admin's
-  # read answers [] — the policy's own "you are not inside" answer.
-  # No new action, no widened policy: the probe rides the member read
-  # exactly as the instance table does.
-  defp org_member?(admin, org_id) do
-    Membership
-    |> Ash.Query.for_read(:read, %{}, actor: admin)
-    |> Ash.Query.filter(organization_id == ^org_id and user_id == ^admin.id)
-    |> Ash.read!()
-    |> Enum.any?()
+  # The org's domains (#613's org-scoped read, admitted by the
+  # blanket bypass): the same `:list_for_org` the gateway detail
+  # rides, here on the org's own page — the platform row every
+  # instance create mints renders even for orgs that never enabled
+  # private access. Capped at the lane's cap, the instances' shape.
+  @domains_cap 100
+
+  defp domains_page(admin, org_id) do
+    fetched =
+      AccessDomain
+      |> Ash.Query.for_read(:list_for_org, %{organization_id: org_id}, actor: admin)
+      |> Ash.Query.sort(registered_at: :desc, id: :desc)
+      |> Ash.Query.limit(@domains_cap + 1)
+      |> Ash.read!()
+
+    capped? = length(fetched) > @domains_cap
+    {Enum.take(fetched, @domains_cap), capped?}
   end
 
   # The strip's counts read the index of the SHOWN page. "other" is
@@ -340,6 +351,11 @@ defmodule FluxValeWeb.AdminLive.OrgDetail do
 
   # Reached only under the wallet_since guard in the template.
   defp stamp_text(stamp), do: Calendar.strftime(stamp, "%b %d, %Y")
+
+  # The domains card rides the gateway detail's vocabulary (one idiom
+  # for the section).
+  defp kind_label(:platform), do: gettext("Platform")
+  defp kind_label(:custom), do: gettext("Custom")
 
   # The column declarations, built per render so the labels ride the
   # live locale. Tracks and floors are the shared component's data.
@@ -530,19 +546,6 @@ defmodule FluxValeWeb.AdminLive.OrgDetail do
                   {sort_copy(@table.sort)}
                 </p>
 
-                <div
-                  :if={@instances_state == :hidden}
-                  class="rounded-panel border border-line bg-panel px-6 py-8"
-                  data-testid="admin-orgs-instances-hidden"
-                >
-                  <p class="text-sm font-medium text-ink">
-                    {gettext("You are not a member of this org.")}
-                  </p>
-                  <p class="mt-1 text-sm text-ink-muted">
-                    {gettext("Instances are readable by org members only, so none are listed here.")}
-                  </p>
-                </div>
-
                 <%= if @instances_state == :ok do %>
                   <div :if={@instances_empty?} data-testid="admin-orgs-instances-empty">
                     <%!-- The moderation inset (the one grammar). --%>
@@ -668,6 +671,101 @@ defmodule FluxValeWeb.AdminLive.OrgDetail do
                     </AdminDataTable.data_table>
                   </div>
                 <% end %>
+              </div>
+
+              <%!-- The org's domains (#613): the org-scoped read the
+              blanket bypass admits — the platform row every instance
+              create mints renders here even for orgs that never
+              enabled private access, the exact rows the gateway
+              detail's org-scoped-through-the-gateway view could not
+              answer for. The table grammar is the gateway detail's
+              (one idiom for the section). --%>
+              <div class="space-y-4" data-testid="admin-orgs-detail-domains">
+                <div>
+                  <h2 class="text-base font-medium text-ink">{gettext("Domains")}</h2>
+                  <p class="mt-1 max-w-prose text-sm text-ink-muted">
+                    {gettext(
+                      "The names this org serves its private instances under, including the platform row every instance create mints. Registration lives on the org's own surfaces."
+                    )}
+                  </p>
+                </div>
+
+                <p
+                  :if={@domains_capped?}
+                  class="text-sm text-ink-muted"
+                  data-testid="admin-orgs-domains-capped"
+                >
+                  {gettext("Showing the latest 100 domains.")}
+                </p>
+
+                <div
+                  :if={@domains_empty?}
+                  class="rounded-panel border border-line bg-panel px-4 py-3"
+                  data-testid="admin-orgs-domains-empty"
+                >
+                  <p class="text-sm font-medium text-ink">
+                    {gettext("No domains registered for this org yet.")}
+                  </p>
+                </div>
+
+                <div :if={not @domains_empty?} class="overflow-x-auto">
+                  <div class="min-w-[30rem]">
+                    <%!-- One grid template shared by the header and every
+                    row (kept literal in both spots), so the columns can
+                    never drift. --%>
+                    <div class="grid grid-cols-[minmax(0,1.6fr)_6.5rem_10rem_6.5rem] items-center gap-x-3 border-b border-line px-3 py-3 text-left text-xs font-medium tracking-wide text-ink-muted uppercase">
+                      <div>{gettext("Domain")}</div>
+                      <div>{gettext("Kind")}</div>
+                      <div>{gettext("State")}</div>
+                      <div>{gettext("Registered")}</div>
+                    </div>
+
+                    <div>
+                      <div id="admin-orgs-domains-table" phx-update="stream">
+                        <div
+                          :for={{dom_id, domain} <- @streams.domains}
+                          id={dom_id}
+                          class="grid grid-cols-[minmax(0,1.6fr)_6.5rem_10rem_6.5rem] items-center gap-x-3 border-b border-line px-3 py-3 transition-colors last:border-0 hover:bg-panel-raised/60"
+                        >
+                          <div class="min-w-0">
+                            <p
+                              class="truncate font-mono text-sm text-ink"
+                              data-testid={"admin-orgs-domain-name-#{domain.id}"}
+                            >
+                              {domain.domain}
+                            </p>
+                          </div>
+                          <div>
+                            <span
+                              class="text-sm text-ink-muted"
+                              data-testid={"admin-orgs-domain-kind-#{domain.id}"}
+                            >
+                              {kind_label(domain.kind)}
+                            </span>
+                          </div>
+                          <div>
+                            <span data-testid={"admin-orgs-domain-state-#{domain.id}"}>
+                              <%!-- The house badge size, no overrides — these
+                              pills carry Failed and must not read
+                              dinkier than their neighbors (the review's
+                              scale note). --%>
+                              <AdminComponents.domain_state_badge state={domain.state} />
+                            </span>
+                          </div>
+                          <div>
+                            <span
+                              :if={domain.registered_at}
+                              class="text-sm text-ink-muted"
+                              data-testid={"admin-orgs-domain-registered-#{domain.id}"}
+                            >
+                              {stamp_text(domain.registered_at)}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
           </div>

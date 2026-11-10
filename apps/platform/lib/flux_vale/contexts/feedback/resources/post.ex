@@ -19,6 +19,7 @@ defmodule FluxVale.Feedback.Post do
     otp_app: :flux_vale,
     domain: FluxVale.Feedback,
     data_layer: AshPostgres.DataLayer,
+    extensions: [AshPaperTrail.Resource],
     authorizers: [Ash.Policy.Authorizer]
 
   alias FluxVale.Feedback.Post.AuthorStatusMail
@@ -79,6 +80,38 @@ defmodule FluxVale.Feedback.Post do
         message: "must be zero or more"
       )
     end
+  end
+
+  # The audit trail (#645, ADR-0048): the plan's one complete config
+  # posture — the mixin line is mandatory (it carries the read policy,
+  # the indexes, the actor label). version_extensions attaches the
+  # Policy authorizer that policy rides on. Rationale lives in the
+  # ADR, not here.
+  paper_trail do
+    primary_key_type(:uuid_v7)
+    change_tracking_mode(:changes_only)
+    store_action_name?(true)
+    store_action_inputs?(true)
+    sensitive_attributes(:redact)
+    # The cached counters ride the ignore list too (ADR-0048): they are
+    # derivative data, recomputed from the Vote and Comment rows, so a
+    # cast or comment can never put counter values in a version's diff.
+    # The row itself is silenced by name via ignore_actions below —
+    # 0.8.1's ignore_attributes filters the recorded diff, but the
+    # write trigger is the changeset's changed? flag, which the bumps'
+    # atomic updates set.
+    ignore_attributes([:created_at, :updated_at, :vote_count, :comment_count])
+    ignore_actions([:bump_vote_count, :bump_comment_count])
+    reference_source?(false)
+    create_version_on_destroy?(true)
+    operation_id_field(:operation_id)
+    mixin({FluxVale.PaperTrail.VersionMixin, :version_resource, []})
+    version_extensions(authorizers: [Ash.Policy.Authorizer])
+
+    belongs_to_actor(:user, FluxVale.Identity.User,
+      domain: FluxVale.Identity,
+      on_delete: :nilify
+    )
   end
 
   policies do
@@ -262,6 +295,29 @@ defmodule FluxVale.Feedback.Post do
       # The author notification (T7) rides after the write: a FRESH
       # status move mails the author (the change owns the gates).
       change(AuthorStatusMail)
+    end
+
+    # The counters' maintenance writes (BumpPostVoteCount and
+    # BumpPostCounter): dedicated actions so the paper trail can ignore
+    # them by name (ignore_actions above) — the counters are derivative
+    # data (ADR-0048). updated_at still moves on vote/comment activity
+    # (any update touches the timestamp), so the sitemap's
+    # re-crawl semantics are unchanged (the pinned test in
+    # comment_test).
+    update :bump_vote_count do
+      description("Atomic vote-counter maintenance for Vote cast/retract — never versioned")
+
+      accept([])
+      require_atomic?(false)
+    end
+
+    update :bump_comment_count do
+      description(
+        "Atomic comment-counter maintenance for Comment create/destroy — never versioned"
+      )
+
+      accept([])
+      require_atomic?(false)
     end
 
     update :set_tags do

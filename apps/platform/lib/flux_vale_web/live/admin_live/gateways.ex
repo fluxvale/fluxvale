@@ -40,7 +40,6 @@ defmodule FluxValeWeb.AdminLive.Gateways do
 
   use FluxValeWeb, :live_view
 
-  alias FluxVale.Accounts.Membership
   alias FluxVale.Accounts.Organization
   alias FluxVale.Infrastructure.AccessGateway
   alias FluxVale.Pricing
@@ -196,7 +195,6 @@ defmodule FluxValeWeb.AdminLive.Gateways do
     |> assign(
       table: updated,
       orgs: org_lookup(admin, gateways),
-      any_membership?: any_membership?(admin),
       rows_empty?: gateways == []
     )
     |> stream(:gateways, gateways, reset: true)
@@ -260,22 +258,6 @@ defmodule FluxValeWeb.AdminLive.Gateways do
       |> Ash.run_action()
 
     Map.new(orgs, fn org -> {org.id, org} end)
-  end
-
-  # The membership probe (the orgs slice's, generalized to "any"): the
-  # Membership read policy is members-only with the same
-  # relates_to_actor_via filter, so a non-member admin's read answers
-  # [] — the policy's own "you are not inside" answer. No new action,
-  # no widened policy. It serves ONLY the org-less shape (a seeded
-  # service account): a product-created admin always carries the JIT
-  # personal org, so the main empty state stays filter-scoped and never
-  # leans on this.
-  defp any_membership?(admin) do
-    Membership
-    |> Ash.Query.for_read(:read, %{}, actor: admin)
-    |> Ash.Query.filter(user_id == ^admin.id)
-    |> Ash.read!()
-    |> Enum.any?()
   end
 
   # -- display helpers ------------------------------------------------------
@@ -437,35 +419,22 @@ defmodule FluxValeWeb.AdminLive.Gateways do
                 cannot support a global claim, so the title names the
                 orgs this admin belongs to and only the copy carries
                 the once-enabled story. --%>
+                <%!-- The blanket authority (#644/#648) reads cross-org,
+                so the main empty state is the GLOBAL claim — the old
+                filter-scoped hedging and the membership probe are gone
+                with #613's arm. --%>
                 <div
-                  :if={@rows_empty? and @table.query == "" and @any_membership?}
+                  :if={@rows_empty? and @table.query == ""}
                   class="rounded-panel border border-line bg-panel px-4 py-3"
                   data-testid="admin-gateways-empty"
                 >
                   <p class="text-sm font-medium text-ink">
-                    {gettext("No gateways in the orgs you belong to.")}
+                    {gettext("No gateways yet.")}
                   </p>
                   <p class="mt-1 text-sm text-ink-muted">
                     {gettext(
                       "Private access is opt-in per org. An org's gateway appears here once its owner enables it."
                     )}
-                  </p>
-                </div>
-
-                <%!-- The honest scope note: a members-only read cannot
-                tell "no gateways anywhere" from "not yours to see", so
-                the membership probe answers and the page states which
-                emptiness this is (the orgs slice's discipline). --%>
-                <div
-                  :if={@rows_empty? and @table.query == "" and not @any_membership?}
-                  class="rounded-panel border border-line bg-panel px-4 py-3"
-                  data-testid="admin-gateways-scope-note"
-                >
-                  <p class="text-sm font-medium text-ink">
-                    {gettext("You are not a member of any org.")}
-                  </p>
-                  <p class="mt-1 text-sm text-ink-muted">
-                    {gettext("Gateways are readable by org members only, so none are listed here.")}
                   </p>
                 </div>
 
@@ -522,6 +491,22 @@ defmodule FluxValeWeb.AdminLive.Gateways do
                       <span data-testid={"admin-gateways-state-#{gateway.id}"}>
                         <AdminComponents.gateway_state_badge state={gateway.state} />
                       </span>
+                      <%!-- The attention clock (#648's operator-truth
+                      column, the wallets surface's since-date signal):
+                      how long the row has been flagged. Guarded on the
+                      STATE — Suspend never clears the stamp, so an
+                      unguarded render would show a clock under a
+                      suspended row (the pin's discipline, applied to
+                      the column). --%>
+                      <p
+                        :if={gateway.state == :needs_attention and gateway.needs_attention_since}
+                        class="mt-1 text-xs text-ink-muted"
+                        data-testid={"admin-gateways-attention-since-#{gateway.id}"}
+                      >
+                        {gettext("Since %{stamp}",
+                          stamp: stamp_text(gateway.needs_attention_since)
+                        )}
+                      </p>
                     </:cell>
 
                     <:cell :let={gateway} col={:rate}>

@@ -72,7 +72,7 @@ defmodule FluxVale.Infrastructure.Operations.ConfigureBackups do
   # Neutral on purpose: the same refusal renders on a first save and on
   # an edit of a configured row — "setting up" would read wrong on the
   # edit.
-  @paid_message "Top up at least $1 to use backups"
+  @paid_message "Top up at least $#{FluxVale.Billing.min_topup_dollars()} to use backups"
 
   # The row's own fields — the settings form, minus every credential.
   @row_fields [:endpoint, :bucket, :prefix, :access_key_id, :retention_keep, :enabled]

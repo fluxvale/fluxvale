@@ -135,6 +135,67 @@ janitor bookkeeping, each named with its reason there).
   doctrine attributes mutations, it does not tamper-proof against the
   operator's own debug mount — the same superuser trust class ADR-0027
   Am. 1 already records. Deliberately not excluded in this slice.
+- **Topup buyer evidence is redacted-by-flag.** The buyer-evidence
+  attributes (`buyer_email`, `buyer_name`, `billing_country`,
+  `billing_state`, `customer_type`, `vat_number`, `ip_country`,
+  `reverse_charge?`, `ip_matches_billing?`) carry `sensitive?(true)`,
+  so the blanket `sensitive_attributes :redact` keeps their values out
+  of the trail — version rows carry REDACTED markers, amounts and
+  statuses stay plaintext. The erasure question stays OPEN: a deleted
+  user's buyer evidence surviving as REDACTED markers (the marker
+  proves a value existed, not what it was) is the data-deletion
+  policy's call, not silently settled here.
+- **Comment and Vote trails end at create.** Both resources' post FK
+  cascades at the DB (`on_delete :delete` — the dependent-records
+  posture), so a moderation delete of a Post takes its comments and
+  votes without per-row destroy versions; the parent Post's destroy
+  version row, with its actor, IS the audit record for the dependent
+  rows' deletion. Deliberate: restructuring destroy flows to per-row
+  trails would buy noise, not accountability.
+- **Counter bumps never version the post.** The cached
+  `vote_count`/`comment_count` are derivative data, recomputable from
+  the Vote and Comment rows. In ash_paper_trail 0.8.1
+  `ignore_attributes` filters the recorded DIFF but the write trigger
+  is the changeset's own `changed?` flag — which the bumps' atomic
+  updates set — so the bumps ride dedicated actions
+  (`:bump_vote_count`, `:bump_comment_count`) silenced by name via
+  `ignore_actions`. `updated_at` still moves on vote/comment activity
+  (any update touches the timestamp), so the sitemap's re-crawl
+  semantics are unchanged.
+- **The redaction `changed?`-guard was evaluated and declined at
+  A2-S3.** 0.8.1 lands every sensitive attribute as REDACTED in every
+  version row's `changes` (and inputs) whether or not it moved. Kept:
+  the marker is honest — it says the attribute exists and is
+  protected, not that it changed — and a write-side guard would fork
+  the dep's serialization. Pinned per sensitive-bearing resource in
+  the proof tests (User, MembershipInvite, PersonalAccessToken).
+- **Machine-cadence stamps ride the ignore lists.** The PAT auth
+  path's `last_used_at` (per request), the Instance edge beacon's
+  `:touch` bookmark and settle tick's metering cursors, and the
+  gateway settle tick's `metering_since` (per 15-min tick) are
+  machine cadence, not audit facts — the Post counters stance:
+  `ignore_attributes` plus `ignore_actions` by name (0.8.1's write
+  trigger is the changeset's `changed?` flag, so attribute-level
+  ignoring alone cannot stop the row). State-machine fields and the
+  wake clocks stay versioned. The audit surface for metering is the
+  billing ledger (money movement) and the allocation snapshot
+  history, not the anchor fields. Operator reachability of the
+  silenced actions rides only the `/admin/ash` trusted-superuser
+  mount ([ADR-0027](00027-admin-surface-ashadmin.md) Am. 1's accepted
+  trust class, where every write is unversioned by construction).
+- **Addresses in the trail are redacted markers.** The invitee
+  address (MembershipInvite's `email`), the user_emails `address`,
+  and the User signup/invite `email` arguments all carry
+  `sensitive?`, so the trail holds REDACTED markers for every
+  address-bearing write — the marker says an address existed and is
+  protected, never what it was. The live address remains the row's
+  own data: the redaction is a trail posture, not an erasure.
+- **Exception evidence in the trail is bounded and scrubbed.** The
+  error handlers' stored inputs carry the exception module name plus
+  a one-line, 200-char-bounded message — never raw error text, which
+  can embed request bodies, secret names, connection details, or
+  unbounded output.
+
 
 ## Notes from the A2-S1 probes (ash_paper_trail 0.8.1)
 

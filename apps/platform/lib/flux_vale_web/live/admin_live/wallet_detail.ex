@@ -239,11 +239,18 @@ defmodule FluxValeWeb.AdminLive.WalletDetail do
           {:ok, admin} ->
             attempt_waiver(socket, target, paid?, admin)
 
+          # coveralls-ignore-start - wire-unreachable behind the
+          # AdminChrome per-event hook, which refuses every event from
+          # a demoted actor before the handler runs (the demotion test
+          # pins the hook): the arm keeps the handler independently
+          # safe should that hook ever move.
           :revoked ->
             {:noreply,
              socket
              |> put_flash(:error, revoked_copy())
              |> assign(confirm: nil)}
+
+            # coveralls-ignore-stop
         end
 
       # A second confirm click (or a stale frame naming the other
@@ -329,11 +336,15 @@ defmodule FluxValeWeb.AdminLive.WalletDetail do
           {:ok, admin} ->
             attempt_goodwill(socket, cents, admin)
 
+          # coveralls-ignore-start - wire-unreachable behind the
+          # AdminChrome per-event hook (see confirm-waiver's arm).
           :revoked ->
             {:noreply,
              socket
              |> put_flash(:error, revoked_copy())
              |> assign(confirm: nil)}
+
+            # coveralls-ignore-stop
         end
 
       _expired ->
@@ -394,12 +405,16 @@ defmodule FluxValeWeb.AdminLive.WalletDetail do
           {:ok, admin} ->
             attempt_reverse(socket, admin, entry)
 
+          # coveralls-ignore-start - wire-unreachable behind the
+          # AdminChrome per-event hook (see confirm-waiver's arm).
           :revoked ->
             {:noreply,
              socket
              |> put_flash(:error, revoked_copy())
              |> assign(confirm: nil)
              |> refresh_ledger()}
+
+            # coveralls-ignore-stop
         end
 
       _expired ->

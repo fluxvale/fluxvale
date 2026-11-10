@@ -9,23 +9,24 @@ defmodule FluxValeWeb.AdminLive.StorageRequests do
   Every read rides `StorageRequest :queue` with the platform-admin actor
   and `authorize?: true`. The instance's decision context (status,
   allocation, cluster) is a **scoped system read** after the admin gate
-  (`authorize?: false`, selected fields only) — the member Instance read
-  policy has no platform-admin arm (#603), and this lane does not widen
-  it. The org name rides the flagged `Organization :admin_lookup`; the
-  wallet state rides `ActorOrgWalletFunded.org_funded?/1`.
+  (`authorize?: false`, selected fields only) — kept as built (#250's
+  shape): the blanket bypass (#644) would admit the Instance read too,
+  but this queue renders decision context, not the instance table. The
+  org name rides the shared `Organization :admin_lookup`; the wallet
+  state rides `ActorOrgWalletFunded.org_funded?/1`.
 
-  Every write re-resolves the actor from the session (`UserAuth.resolve_user/1`)
-  and requires the platform-admin role on the FRESH struct — the #571
-  demotion-window defense. The AdminChrome hook subscribes this process
-  to `storage_requests:queue`, so the sidebar badge stays current on
-  every admin page; this surface re-reads/re-streams its rows on the
-  same create, decision, and apply notifications. No polling, no email
-  (ADR-0046 D6).
+  The demotion-window defense rides the AdminChrome per-event hook
+  every admin LiveView inherits (#644's console slice, ADR-0047 D4):
+  each event re-resolves the actor from the session and refuses a
+  demoted one, so the write handlers below act on the FRESH struct.
+  The same hook subscribes this process to `storage_requests:queue`,
+  so the sidebar badge stays current on every admin page; this surface
+  re-reads/re-streams its rows on the same create, decision, and apply
+  notifications. No polling, no email (ADR-0046 D6).
   """
 
   use FluxValeWeb, :live_view
 
-  alias FluxVale.Checks.ActorIsPlatformAdmin
   alias FluxVale.Checks.ActorOrgWalletFunded
   alias FluxVale.Infrastructure
   alias FluxVale.Infrastructure.Instance
@@ -38,19 +39,17 @@ defmodule FluxValeWeb.AdminLive.StorageRequests do
   alias FluxValeWeb.AdminShell
   alias FluxValeWeb.FeedbackHTML
   alias FluxValeWeb.InstanceStatus
-  alias FluxValeWeb.UserAuth
 
   require Ash.Query
 
   @statuses [:requested, :approved, :applied, :rejected]
 
   @impl Phoenix.LiveView
-  def mount(_params, session, socket) do
+  def mount(_params, _session, socket) do
     # The chrome assigns (current_user, pending_storage_requests) ride
     # the AdminChrome on_mount; this mount adds the page's own state.
     socket =
       assign(socket,
-        admin_session: session,
         query: "",
         status: :requested,
         statuses: @statuses,
@@ -124,13 +123,7 @@ defmodule FluxValeWeb.AdminLive.StorageRequests do
   # failed volume patch — the row stays Approved with its error and a
   # Retry button.
   def handle_event("approve", %{"id" => id}, socket) do
-    case reauthorized_actor(socket) do
-      {:ok, admin} ->
-        attempt_approve(socket, admin, id)
-
-      :revoked ->
-        {:noreply, revoked(socket)}
-    end
+    attempt_approve(socket, socket.assigns.current_user, id)
   end
 
   # Reject requires the member-visible feedback. The surface refuses a
@@ -147,10 +140,7 @@ defmodule FluxValeWeb.AdminLive.StorageRequests do
          |> refresh_rows()}
 
       trimmed ->
-        case reauthorized_actor(socket) do
-          {:ok, admin} -> attempt_reject(socket, admin, id, trimmed)
-          :revoked -> {:noreply, revoked(socket)}
-        end
+        attempt_reject(socket, socket.assigns.current_user, id, trimmed)
     end
   end
 
@@ -159,10 +149,7 @@ defmodule FluxValeWeb.AdminLive.StorageRequests do
   # Retry re-runs the mechanical apply on a durable approval — no
   # decision write. Idempotent when the volume already reached target.
   def handle_event("retry", %{"id" => id}, socket) do
-    case reauthorized_actor(socket) do
-      {:ok, admin} -> attempt_retry(socket, admin, id)
-      :revoked -> {:noreply, revoked(socket)}
-    end
+    attempt_retry(socket, socket.assigns.current_user, id)
   end
 
   # -- notifications --------------------------------------------------------
@@ -245,31 +232,6 @@ defmodule FluxValeWeb.AdminLive.StorageRequests do
          |> put_flash(:error, refusal_copy(error))
          |> refresh_all()}
     end
-  end
-
-  # The demotion-window gate behind every write. AdminChrome resolves
-  # the actor once, at mount; a socket outlives a demotion — the write
-  # handlers re-resolve from the session (which also re-checks token
-  # revocation) and require the platform-admin role on the FRESH struct.
-  defp reauthorized_actor(socket) do
-    case UserAuth.resolve_user(socket.assigns.admin_session) do
-      %FluxVale.Identity.User{} = actor ->
-        if ActorIsPlatformAdmin.platform_admin?(actor), do: {:ok, actor}, else: :revoked
-
-      # The revoked-token arm: the same refusal as the demoted actor,
-      # unreachable without minting and revoking the live session's jti
-      # out of band — the demoted-actor test carries the gate's behavior.
-      # coveralls-ignore-start
-      _not_signed_in ->
-        :revoked
-        # coveralls-ignore-stop
-    end
-  end
-
-  defp revoked(socket) do
-    socket
-    |> put_flash(:error, gettext("Your admin access ended. Sign out and sign back in."))
-    |> refresh_all()
   end
 
   # -- reads ----------------------------------------------------------------

@@ -20,6 +20,7 @@ defmodule FluxValeWeb.Api.AccessDomainRouteTest do
   alias FluxVale.Infrastructure.InstanceHostname
   alias FluxVale.Infrastructure.Operations.RenderAccessDNS
   alias FluxVale.TestSupport.AccessFixtures
+  alias FluxVale.TestSupport.AccountsFixtures
   alias FluxVale.TestSupport.ApiPat
   alias FluxVale.TestSupport.BillingFixtures
   alias FluxVale.TestSupport.InstanceFixtures
@@ -330,6 +331,18 @@ defmodule FluxValeWeb.Api.AccessDomainRouteTest do
         |> get("/api/v1/organizations/#{other_org.id}/access-domains")
 
       assert %{"data" => []} = json_response(foreign, 200)
+
+      # ADR-0047: a PAT-carrying admin falls past the blanket bypass to
+      # the member-shaped policies — the foreign org lists empty, the
+      # same answer a member gets. Cross-org reads ride the session.
+      admin_pat = ApiPat.mint!(AccountsFixtures.platform_admin!(), ["gateways:write"])
+
+      cross =
+        build_conn()
+        |> auth(admin_pat)
+        |> get("/api/v1/organizations/#{other_org.id}/access-domains")
+
+      assert %{"data" => []} = json_response(cross, 200)
     end
   end
 

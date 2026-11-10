@@ -10,6 +10,13 @@ defmodule FluxVale.Infrastructure.Instance.ValidateEnvVars do
 
   Only schema-declared fields are type-checked; unknown keys pass through
   (v1 stance, kept: operator-owned env outside the configurable surface).
+
+  Validated once, at create, against the version row as it stands
+  then — a point-in-time read like `DeriveFromAppVersion`'s (which
+  reads the row separately, both unlocked); nothing re-checks stored
+  values against a later schema. Deliberate (#605): the blueprint is
+  snapshotted at create, there is no invariant to protect, so no lock
+  is taken.
   """
 
   use Ash.Resource.Validation

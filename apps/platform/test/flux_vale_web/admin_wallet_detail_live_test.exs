@@ -943,8 +943,8 @@ defmodule FluxValeWeb.AdminWalletDetailLiveTest do
     end
   end
 
-  describe "the demotion window" do
-    test "a mid-session demotion cannot post: every write re-resolves the actor", %{
+  describe "the demotion window (the AdminChrome per-event hook)" do
+    test "a mid-session demotion cannot post: every event re-resolves the actor", %{
       conn: conn,
       admin: admin,
       wallet: wallet
@@ -953,28 +953,22 @@ defmodule FluxValeWeb.AdminWalletDetailLiveTest do
 
       {:ok, view, _html} = live(conn, "/admin/billing/wallets/#{wallet.id}")
 
-      # While the session still resolves an admin, the confirms open.
-      render_click(view, "open-waiver", %{})
-      assert has_element?(view, "[data-testid='admin-wallet-waiver-confirm']")
-      render_click(view, "cancel-confirm", %{})
-
+      # While the session still resolves an admin, the reveals open —
+      # under the shared hook even these read-shaped events re-check
+      # the actor, so the confirms must exist BEFORE the demotion.
       render_click(view, "open-reverse", %{"id" => entry.id})
       assert has_element?(view, "[data-testid='admin-wallet-reverse-confirm']")
-      render_click(view, "cancel-confirm", %{})
 
       # Demote the actor under the live session. User carries no
       # role-write action and Ash.Seed is create-only, so this one
       # precondition rides the data layer directly (tests own their
-      # preconditions; the write gate is what the test pins).
+      # preconditions; the per-event gate is what the test pins).
       query = from(u in "users", where: u.id == ^Ecto.UUID.dump!(admin.id))
       {updated, nil} = FluxVale.Repo.update_all(query, set: [platform_role: "user"])
       assert updated == 1
 
-      # Each refusal clears the one-open confirm, so each write
-      # re-reveals first (the reveals are reads; the writes are the
-      # gate).
-      render_click(view, "open-reverse", %{"id" => entry.id})
-
+      # The reversal write: refused with the shared copy, the ledger
+      # keeps what it held.
       view
       |> element("[data-testid='admin-wallet-reverse-confirm']")
       |> render_click()
@@ -984,28 +978,25 @@ defmodule FluxValeWeb.AdminWalletDetailLiveTest do
       entries = ledger_entries!(wallet, admin)
       assert [] = Enum.filter(entries, &(&1.reverses_id == entry.id))
 
+      # The waiver reveal under the demoted session: the shared hook
+      # refuses the event itself — the copy is the same one the write
+      # refusal carries.
       render_click(view, "open-waiver", %{})
-
-      view
-      |> element("[data-testid='admin-wallet-waiver-confirm']")
-      |> render_click()
-
       assert has_element?(view, "#flash-error", "Your admin access ended")
+      refute has_element?(view, "[data-testid='admin-wallet-waiver-confirm']")
 
       {:ok, fresh} = Wallet.get_by_organization(wallet.organization_id, actor: admin)
       assert fresh.paywall_waived == false
 
+      # The goodwill submit is an event too, so the hook refuses it the
+      # same way: no confirm ever opens for a demoted actor — no write
+      # path on this surface starts under a dead session.
       view
       |> element("#admin-wallet-goodwill-form")
       |> render_submit(%{"goodwill" => %{"amount_cents" => "300"}})
 
-      assert has_element?(view, "[data-testid='admin-wallet-goodwill-confirm']")
-
-      view
-      |> element("[data-testid='admin-wallet-goodwill-confirm']")
-      |> render_click()
-
       assert has_element?(view, "#flash-error", "Your admin access ended")
+      refute has_element?(view, "[data-testid='admin-wallet-goodwill-confirm']")
 
       # The ledger holds exactly what it held before the demotion:
       # the funding grant and the pre-seeded goodwill entry.

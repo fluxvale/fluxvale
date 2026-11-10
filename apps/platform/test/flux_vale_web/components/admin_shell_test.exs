@@ -48,9 +48,8 @@ defmodule FluxValeWeb.Components.AdminShellTest do
   end
 
   # Every entry the sidebar carries, in order: the live sections, the
-  # Every entry the sidebar carries, in order: the live sections, the
-  # coming ones, the resource console's own group, then deep debugging.
-  @entry_keys ~w(people catalog wallets feedback orgs storage-requests gateways resources ash dashboard)
+  # resource console's own group, then deep debugging.
+  @entry_keys ~w(people catalog wallets feedback orgs storage-requests gateways audit resources ash dashboard)
 
   test "the sections in order, live ones at their paths, coming ones linkless" do
     html = render_component(&AdminShell.sidebar/1, current: "people")
@@ -63,6 +62,7 @@ defmodule FluxValeWeb.Components.AdminShellTest do
              {"orgs", "/admin/orgs", nil},
              {"storage-requests", "/admin/storage-requests", nil},
              {"gateways", "/admin/gateways", nil},
+             {"audit", "/admin/audit", nil},
              {"resources", "/admin/resources", nil},
              {"ash", "/admin/ash", nil},
              {"dashboard", "/admin/debug/dashboard", nil}
@@ -100,6 +100,8 @@ defmodule FluxValeWeb.Components.AdminShellTest do
       feedback: "Feedback moderation",
       orgs: "Orgs and instances",
       "storage-requests": "Storage requests",
+      gateways: "Access gateways and domains",
+      audit: "Audit trail",
       resources: "Resource console",
       ash: "AshAdmin",
       dashboard: "LiveDashboard"
@@ -169,6 +171,7 @@ defmodule FluxValeWeb.Components.AdminShellTest do
              {"orgs", nil},
              {"storage-requests", nil},
              {"gateways", nil},
+             {"audit", nil},
              {"resources", nil},
              {"ash", nil},
              {"dashboard", nil}

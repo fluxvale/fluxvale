@@ -79,6 +79,26 @@ defmodule FluxVale.Billing.Operations.StartTopupTest do
     assert {"reference_number", topup.id} in form
   end
 
+  test "refuses a top-up below the wallet floor before any row or charge" do
+    {org, _wallet} = BillingFixtures.funded_wallet!(balance_cents: 0)
+
+    # No Req expectation: the refusal must never reach the gateway, so a
+    # stray call would fail this test rather than pass silently.
+    assert Billing.min_topup_cents() == 500
+
+    assert {:error, :amount_below_minimum} =
+             Billing.start_topup(org, Map.put(@params, :amount_cents, 499))
+
+    # A negative amount answers the floor, not Tax.tax_cents/2's guard.
+    assert {:error, :amount_below_minimum} =
+             Billing.start_topup(org, Map.put(@params, :amount_cents, -1))
+
+    assert [] =
+             Topup
+             |> Ash.Query.filter(organization_id == ^org.id)
+             |> Ash.read!(authorize?: false)
+  end
+
   test "an unpriced market (no table row, or no billing country) resolves to 0%" do
     {org, _wallet} = BillingFixtures.funded_wallet!(balance_cents: 0)
 

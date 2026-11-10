@@ -71,17 +71,14 @@ defmodule FluxValeWeb.AdminLive.GatewayDetail do
          |> put_flash(:error, gettext("That gateway does not exist."))
          |> push_navigate(to: ~p"/admin/gateways")}
 
-      # The members-only read answers [] for a bad id AND for an id the
-      # policy does not admit — one arm, the scope named, no per-cause
-      # guessing. The flash rides the INFO posture: whatever happened,
-      # the list is the truthful answer, not an error at the operator.
+      # The blanket authority (#644/#648) makes the admin read
+      # filter-less cross-org: an empty answer IS "no such row" — the
+      # same plain sentence as the typo arm, no scope verdict left to
+      # guess (#613's resolution).
       [] ->
         {:ok,
          socket
-         |> put_flash(
-           :info,
-           gettext("That gateway is not listed. Gateway reads are member-scoped.")
-         )
+         |> put_flash(:error, gettext("That gateway does not exist."))
          |> push_navigate(to: ~p"/admin/gateways")}
 
       # The lookup's error class is DB-down, not a policy answer — its
@@ -251,6 +248,13 @@ defmodule FluxValeWeb.AdminLive.GatewayDetail do
   defp kind_label(:platform), do: gettext("Platform")
   defp kind_label(:custom), do: gettext("Custom")
 
+  # The row's tailnet claim state (#648's operator-truth column): the
+  # gateway's `dns_claims` map keys are the claimed domains, written
+  # only through the claim/unclaim funnels. Distinct from the state
+  # badge's cert issuance — either can move without the other.
+  defp claimed?(gateway, domain),
+    do: Map.has_key?(gateway.dns_claims || %{}, domain.domain)
+
   defp provider_label(:tailscale), do: gettext("Tailscale")
 
   # Reached only under the stamp guards in the template.
@@ -418,6 +422,23 @@ defmodule FluxValeWeb.AdminLive.GatewayDetail do
                     <span class="w-32 shrink-0 text-ink-muted">{gettext("Provisioned")}</span>
                     <span class="text-ink-muted">{stamp_text(@gateway.provisioned_at)}</span>
                   </p>
+                  <%!-- The attention clock (#648's operator-truth
+                  column, the wallets surface's since-date signal).
+                  Guarded on the STATE like the list's pin — Suspend
+                  never clears the stamp, so an unguarded render would
+                  show a clock under a suspended row. --%>
+                  <p
+                    :if={@gateway.state == :needs_attention and @gateway.needs_attention_since}
+                    class="flex gap-4 text-sm"
+                    data-testid="admin-gateways-detail-attention-since"
+                  >
+                    <span class="w-32 shrink-0 text-ink-muted">
+                      {gettext("Attention since")}
+                    </span>
+                    <span class="text-ink-muted">
+                      {stamp_text(@gateway.needs_attention_since)}
+                    </span>
+                  </p>
                   <p
                     :if={@gateway.created_at}
                     class="flex gap-4 text-sm"
@@ -486,6 +507,21 @@ defmodule FluxValeWeb.AdminLive.GatewayDetail do
                     <% end %>
                   </div>
                 </dl>
+                <%!-- The key-age signal (#648's operator-truth column):
+                the ref write stamps token_set_at (its change,
+                ADR-0040 §5) — the only writer, so the page reads the
+                funnel's own fact. Absent when no ref write ever
+                stamped it. --%>
+                <p
+                  :if={@gateway.token_set_at}
+                  class="text-sm text-ink-muted"
+                  data-testid="admin-gateways-secret-token-set"
+                >
+                  {gettext(
+                    "Token set %{stamp}. Tailscale API keys expire within 90 days by design. Age this one toward rotation.",
+                    stamp: stamp_text(@gateway.token_set_at)
+                  )}
+                </p>
               </.card>
 
               <%!-- The org's domains: the data model ties a domain to
@@ -532,6 +568,27 @@ defmodule FluxValeWeb.AdminLive.GatewayDetail do
                         data-testid={"admin-gateways-domain-name-#{domain.id}"}
                       >
                         {domain.domain}
+                      </p>
+                      <%!-- The claim state (#648's operator-truth
+                      column): claimed on the tailnet or not — the
+                      state badge cannot carry it (issuance and
+                      resolution are separate truths). The map keys are
+                      the claimed domains. Both states render: the
+                      unclaimed line is the operator's "check the
+                      funnel" cue, not an absence. --%>
+                      <p
+                        :if={claimed?(@gateway, domain)}
+                        class="truncate text-xs text-ink-muted"
+                        data-testid={"admin-gateways-domain-claim-#{domain.id}"}
+                      >
+                        {gettext("Claimed on the tailnet")}
+                      </p>
+                      <p
+                        :if={not claimed?(@gateway, domain)}
+                        class="truncate text-xs text-ink-subtle"
+                        data-testid={"admin-gateways-domain-unclaimed-#{domain.id}"}
+                      >
+                        {gettext("Not on the tailnet")}
                       </p>
                     </:cell>
 

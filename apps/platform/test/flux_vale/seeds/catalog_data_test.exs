@@ -681,14 +681,17 @@ defmodule FluxVale.Seeds.CatalogDataTest do
       assert app_by_slug!(entries, "vikunja").alternatives == ["Todoist", "Trello"]
       assert app_by_slug!(entries, "docmost").alternatives == ["Notion", "Outline"]
 
-      # S7 content, not S1: the typed lists stay absent on the shipped
-      # entries ([]), the intros and community links nil.
+      # S7 content: every shipped app carries the curated in-action copy
+      # (two screenshots, the 2x2 feature grid, app FAQ and the community
+      # link) — the S1 absent state is gone.
       for entry <- entries, app <- entry.apps do
-        assert app.screenshots == []
-        assert app.features == []
-        assert app.faq == []
-        assert app.in_action_intro == nil
-        assert app.community_url == nil
+        assert length(app.screenshots) == 2,
+               "#{app.slug} ships #{length(app.screenshots)} screenshots"
+
+        assert length(app.features) == 4, "#{app.slug} ships #{length(app.features)} features"
+        assert app.faq != [], "#{app.slug} ships no app FAQ"
+        assert app.in_action_intro != nil, "#{app.slug} ships no in-action intro"
+        assert app.community_url != nil, "#{app.slug} ships no community link"
       end
     end
 
@@ -711,6 +714,43 @@ defmodule FluxVale.Seeds.CatalogDataTest do
       kavita = app_by_slug!(entries, "kavita")
       kavita_guidance = first_guidance(kavita)
       assert kavita_guidance =~ "file access over WebDAV provides"
+    end
+
+    test "release_notes carry no em dashes or semicolons (#678)" do
+      entries = CatalogData.entries()
+
+      for entry <- entries,
+          app <- entry.apps,
+          version <- app.versions,
+          notes = version[:release_notes],
+          notes != nil do
+        refute String.contains?(notes, ["\u2014", ";"]),
+               "#{app.slug} #{version[:version]} release_notes: #{notes}"
+      end
+
+      # The cleaned strings keep their meaning.
+      forgejo = app_by_slug!(entries, "forgejo")
+      assert hd(forgejo.versions)[:release_notes] =~ "HTTPS-only git (SSH disabled)."
+
+      kavita = app_by_slug!(entries, "kavita")
+      assert hd(kavita.versions)[:release_notes] =~ "The admin account is created on first open."
+
+      umami = app_by_slug!(entries, "umami")
+      bundled = Enum.find(umami.versions, &(&1[:version] == "3.4.1-bundled"))
+      assert bundled[:release_notes] =~ "same release. Their"
+    end
+
+    test "community_url names a community, not the repo again (#678)" do
+      entries = CatalogData.entries()
+
+      for entry <- entries, app <- entry.apps, app.community_url != nil do
+        refute app.community_url == app.source_url,
+               "#{app.slug} community_url duplicates source_url"
+      end
+
+      # The swapped surface is pinned, not just distinct.
+      assert app_by_slug!(entries, "forgejo").community_url ==
+               "https://matrix.to/#/#forgejo:matrix.org"
     end
 
     test "the fixture's marketing fields pass through raw (string keys, #611)" do

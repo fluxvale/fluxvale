@@ -1,4 +1,4 @@
-/* Admin gateways surface captures (#501, review round 2). One seeded
+/* Admin gateways surface captures (#501, #613's read arm). One seeded
  * state (admin_gateways_seed.exs resets its own rows first), light and
  * dark shot from the SAME state. Read-only surface: stills only, no
  * motion. The width probes print scrollWidth vs clientWidth for EVERY
@@ -7,10 +7,13 @@
  * 768 / 1024 / 1280 / 1440 where the surface claims them; the script
  * throws on overflow.
  *
- * Four sessions: the member admin (list + detail + the non-connected
- * detail + the domains-empty detail + the hidden-id arm), the
- * gateway-less admin (the filter-scoped empty), and the org-less admin
- * (the scope note).
+ * The capture admin's session: the list — now cross-org, with the
+ * stranger org's row and the attention clock — the detail with its
+ * key-age and claim lines, the non-connected detail, the domains-empty
+ * detail, and the missing-id arm. The GLOBAL empty (no gateway in any
+ * org) is pinned by the live tests; in a populated dev DB the
+ * cross-org read renders every seeded gateway, so no seeded admin can
+ * produce it on camera.
  *
  *   node admin_gateways_screenshot.mjs <outdir>
  */
@@ -18,25 +21,22 @@ import { chromium } from "@playwright/test";
 import { mkdirSync } from "node:fs";
 
 const BASE = process.env.FV_BASE ?? "http://127.0.0.1:4000";
-const outdir = process.argv[2] ?? "/tmp/opencode/fv501-gw-shots";
+const outdir = process.argv[2] ?? "/tmp/opencode/fv613-gw-shots";
 mkdirSync(outdir, { recursive: true });
 
 const token = process.env.FV_TOKEN ?? "";
-const tokenEmpty = process.env.FV_TOKEN_EMPTY ?? "";
-const tokenOrgless = process.env.FV_TOKEN_ORGLESS ?? "";
 const gatewayDetail = process.env.FV_GATEWAY_DETAIL ?? "";
 const gatewayAttention = process.env.FV_GATEWAY_ATTENTION ?? "";
 const gatewayNoDomains = process.env.FV_GATEWAY_NODOMAINS ?? "";
-const gatewayHidden = process.env.FV_GATEWAY_HIDDEN ?? "";
+const gatewayCrossorg = process.env.FV_GATEWAY_CROSSORG ?? "";
+const missingId = "00000000-0000-0000-0000-000000000000";
 
 const ids = {
   token,
-  tokenEmpty,
-  tokenOrgless,
   gatewayDetail,
   gatewayAttention,
   gatewayNoDomains,
-  gatewayHidden,
+  gatewayCrossorg,
 };
 const missing = Object.entries(ids).filter(([k, v]) => !v).map(([k]) => k);
 
@@ -141,19 +141,21 @@ async function atWidths(page, label, widths) {
   await page.setViewportSize({ width: 1440, height: 900 });
 }
 
-// The member admin: the populated list, the search arm, the connected
-// detail (all five domain states), the non-connected detail (the
-// credential card beside the reconnect message), the domains-empty
-// detail, and the hidden-id arm.
+// The capture admin: the populated cross-org list (the stranger org's
+// row renders under #613's arm, the attention clock rides the pinned
+// row), the search arm, the connected detail (all five domain states,
+// the key-age line, and the claim lines), the non-connected detail,
+// the domains-empty detail, and the missing-id arm.
 for (const mode of ["light", "dark"]) {
   const { ctx, page } = await newSession(token);
 
-  // The gateway table: the state-keyed attention pin, then the state
-  // vocabulary with its shape cues. The stranger org's gateway is
-  // deliberately absent from this frame.
+  // The gateway table: the state-keyed attention pin with its clock,
+  // then the state vocabulary with its shape cues — and the stranger
+  // org's gateway in the list (the cross-org read on camera).
   await page.goto(`${BASE}/admin/gateways`, { waitUntil: "networkidle" });
   await setTheme(page, mode);
-  await page.waitForSelector("[data-testid^='admin-gateways-host-']");
+  await page.waitForSelector(`[data-testid='admin-gateways-host-${gatewayCrossorg}']`);
+  await page.waitForSelector("[data-testid^='admin-gateways-attention-since-']");
   await page.screenshot({ path: `${outdir}/admin-gateways-table-${mode}.png`, fullPage: true });
   console.log(`table-${mode}`);
 
@@ -183,12 +185,15 @@ for (const mode of ["light", "dark"]) {
   await searchBox.fill("");
   await page.waitForTimeout(600);
 
-  // The connected detail: facts, THE credential-references card, and
-  // the org's domains in all five verification states.
+  // The connected detail: facts, THE credential-references card (the
+  // key-age line beside the token entry), and the org's domains in all
+  // five verification states with their claim lines.
   await page.goto(`${BASE}/admin/gateways/${gatewayDetail}`, { waitUntil: "networkidle" });
   await setTheme(page, mode);
   await page.waitForSelector("[data-testid='admin-gateways-secret-card']");
+  await page.waitForSelector("[data-testid='admin-gateways-secret-token-set']");
   await page.waitForSelector("[data-testid^='admin-gateways-domain-state-']");
+  await page.waitForSelector("[data-testid^='admin-gateways-domain-claim-']");
   await page.screenshot({
     path: `${outdir}/admin-gateways-detail-${mode}.png`,
     fullPage: true,
@@ -209,10 +214,12 @@ for (const mode of ["light", "dark"]) {
   }
   await page.setViewportSize({ width: 1440, height: 900 });
 
-  // The non-connected detail: the reconnect copy and the credential
-  // card side by side — where the trust copy matters most.
+  // The non-connected detail: the reconnect copy, the attention clock,
+  // and the credential card side by side — where the trust copy
+  // matters most.
   await page.goto(`${BASE}/admin/gateways/${gatewayAttention}`, { waitUntil: "networkidle" });
   await page.waitForSelector("[data-testid='admin-gateways-secret-card']");
+  await page.waitForSelector("[data-testid='admin-gateways-detail-attention-since']");
   await page.screenshot({
     path: `${outdir}/admin-gateways-detail-attention-${mode}.png`,
     fullPage: true,
@@ -228,45 +235,22 @@ for (const mode of ["light", "dark"]) {
   });
   console.log(`detail-nodomains-${mode}`);
 
-  // The missing arm: a stranger org's gateway id reads exactly like an
-  // unknown id — one flash, back to the list.
-  await page.goto(`${BASE}/admin/gateways/${gatewayHidden}`, { waitUntil: "networkidle" });
+  // The missing arm: an unknown id reads exactly like a typo — one
+  // flash, back to the list (#613: the filter-less read leaves no
+  // scope verdict to guess).
+  await page.goto(`${BASE}/admin/gateways/${missingId}`, { waitUntil: "networkidle" });
   await page.waitForSelector("[data-testid='admin-gateways']");
   await page.screenshot({
-    path: `${outdir}/admin-gateways-not-listed-${mode}.png`,
+    path: `${outdir}/admin-gateways-missing-${mode}.png`,
     fullPage: true,
   });
-  console.log(`not-listed-${mode}`);
+  console.log(`missing-${mode}`);
 
-  await ctx.close();
-}
-
-// The gateway-less admin: the filter-scoped empty.
-for (const mode of ["light", "dark"]) {
-  const { ctx, page } = await newSession(tokenEmpty);
-  await page.goto(`${BASE}/admin/gateways`, { waitUntil: "networkidle" });
-  await setTheme(page, mode);
-  await page.waitForSelector("[data-testid='admin-gateways-empty']");
-  await page.screenshot({ path: `${outdir}/admin-gateways-empty-${mode}.png`, fullPage: true });
-  console.log(`empty-${mode}`);
-  await ctx.close();
-}
-
-// The org-less admin: the scope note (the membership probe's answer).
-for (const mode of ["light", "dark"]) {
-  const { ctx, page } = await newSession(tokenOrgless);
-  await page.goto(`${BASE}/admin/gateways`, { waitUntil: "networkidle" });
-  await setTheme(page, mode);
-  await page.waitForSelector("[data-testid='admin-gateways-scope-note']");
-  await page.screenshot({ path: `${outdir}/admin-gateways-scope-note-${mode}.png`, fullPage: true });
-  console.log(`scope-note-${mode}`);
   await ctx.close();
 }
 
 // The sidebar with the gateways entry live: shot from a people page
-// like the earlier flips' capture. On this branch the orgs entry is
-// still its Coming placeholder — that flip belongs to the open orgs
-// slice (#603); when it merges, the Coming list empties completely.
+// like the earlier flips' capture.
 for (const mode of ["light", "dark"]) {
   const { ctx, page } = await newSession(token);
   await page.goto(`${BASE}/admin/people`, { waitUntil: "networkidle" });

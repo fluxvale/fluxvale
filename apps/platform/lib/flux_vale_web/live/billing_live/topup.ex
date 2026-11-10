@@ -65,6 +65,9 @@ defmodule FluxValeWeb.BillingLive.Topup do
   @country_rows 8
   # $1 credit unit × quantity (decided 2026-10-13, #137).
   @unit_cents 100
+  # The wizard's floor (#250 S6): the config minimum in whole dollars —
+  # the form, its gates, and its copy all read this one value.
+  @min_topup_dollars FluxVale.Billing.min_topup_dollars()
   # The pending confirmation's brief poll loop (#377): the webhook
   # stays the source of truth — these buys at most ~10 seconds of
   # presentation promptness on a slow delivery, then the honest
@@ -387,10 +390,15 @@ defmodule FluxValeWeb.BillingLive.Topup do
   def handle_event("next-amount", %{"amount" => %{"dollars" => dollars}}, socket) do
     amount = parse_dollars(dollars)
 
-    if is_integer(amount) and amount >= 1 do
+    if is_integer(amount) and amount >= @min_topup_dollars do
       {:noreply, assign(socket, amount_dollars: amount, step: :payment)}
     else
-      {:noreply, put_flash(socket, :error, "Enter a whole-dollar amount of at least $1.")}
+      {:noreply,
+       put_flash(
+         socket,
+         :error,
+         "Enter a whole-dollar amount of at least $#{@min_topup_dollars}."
+       )}
     end
   end
 
@@ -413,7 +421,7 @@ defmodule FluxValeWeb.BillingLive.Topup do
 
   defp payable?(assigns) do
     assigns.step == :payment and is_integer(assigns.amount_dollars) and
-      assigns.amount_dollars >= 1 and details_valid?(assigns.details)
+      assigns.amount_dollars >= @min_topup_dollars and details_valid?(assigns.details)
   end
 
   defp open_checkout(socket, assigns) do
@@ -838,6 +846,7 @@ defmodule FluxValeWeb.BillingLive.Topup do
 
     assigns =
       assigns
+      |> assign(min_topup_dollars: @min_topup_dollars)
       |> assign(form: to_form(%{"dollars" => dollars}, as: :amount))
       |> assign(totals: totals(assigns))
 
@@ -856,7 +865,7 @@ defmodule FluxValeWeb.BillingLive.Topup do
           field={@form[:dollars]}
           label="Amount (whole US dollars)"
           type="number"
-          min="1"
+          min={@min_topup_dollars}
           step="1"
           placeholder="10"
           required
@@ -871,7 +880,7 @@ defmodule FluxValeWeb.BillingLive.Topup do
         </div>
       </.form>
 
-      <%= if is_integer(@amount_dollars) and @amount_dollars >= 1 do %>
+      <%= if is_integer(@amount_dollars) and @amount_dollars >= @min_topup_dollars do %>
         <%!-- Receipt panels on the card language (#277 T6): the backups
             sub-panel idiom — panel radius, raised fill, line-strong
             border (in dark --line IS --panel-raised, so a border or
@@ -1038,7 +1047,7 @@ defmodule FluxValeWeb.BillingLive.Topup do
   end
 
   defp totals(%{amount_dollars: dollars, tax_rate_bp: rate_bp})
-       when is_integer(dollars) and dollars >= 1 do
+       when is_integer(dollars) and dollars >= @min_topup_dollars do
     subtotal = dollars * @unit_cents
     tax = Tax.tax_cents(subtotal, rate_bp)
     %{subtotal: subtotal, tax: tax, total: subtotal + tax}
@@ -1495,7 +1504,7 @@ defmodule FluxValeWeb.BillingLive.Topup do
 
   defp parse_dollars(raw) do
     case Integer.parse(raw || "") do
-      {dollars, ""} when dollars >= 1 -> dollars
+      {dollars, ""} when dollars >= @min_topup_dollars -> dollars
       _invalid -> nil
     end
   end

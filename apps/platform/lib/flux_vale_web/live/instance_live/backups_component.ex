@@ -38,6 +38,10 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponent do
   alias FluxValeWeb.PersonalOrg
   alias Phoenix.Component
 
+  # #250 S6: the wallet floor is configuration (FluxVale.Billing); the
+  # paid-feature copy names the value the wizard actually enforces.
+  @min_topup_dollars FluxVale.Billing.min_topup_dollars()
+
   @runs_limit 20
 
   # The statuses each action can start from — the operations' own guards,
@@ -137,7 +141,7 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponent do
 
       # :wallet_unfunded names two gates (paid-once OR funded), so the
       # org's paid answer rides along — copy_for/2 splits the line by
-      # population (the waiver made "$1 once" false for waived orgs).
+      # population (the waiver made "$5 once" false for waived orgs).
       {:error, reason} ->
         {:noreply, assign(socket, error: copy_for(reason, socket.assigns.org_paid?))}
     end
@@ -386,6 +390,7 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponent do
   defp unconfigured(assigns) do
     assigns =
       assign(assigns,
+        min_topup_dollars: @min_topup_dollars,
         # The pointer gates on the same condition as the setup button:
         # a never-deployed app has no configuration below to point at.
         setup_pointer:
@@ -397,7 +402,7 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponent do
     save would be refused anyway, so the card says so before the form. --%>
     <.callout :if={!@org_paid?} tone="warning" data-testid="backups-unpaid">
       <p class="text-sm text-ink-muted">
-        Backups need a one-time top-up of at least $1 in your wallet. Add
+        Backups need a one-time top-up of at least ${@min_topup_dollars} in your wallet. Add
         funds in <.link
           navigate={@billing_path}
           class="underline underline-offset-2 hover:text-ink"
@@ -466,6 +471,7 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponent do
   defp configured(assigns) do
     assigns =
       assign(assigns,
+        min_topup_dollars: @min_topup_dollars,
         backup_blocked?: blocked_backup?(assigns),
         restore_blocked?: blocked_restore?(assigns),
         # The cadence line reads the same gate the callouts name: a row
@@ -481,7 +487,7 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponent do
     silently skipped — the same shapes the due pass skips benignly. --%>
     <.callout :if={!@org_paid?} tone="warning" data-testid="backups-config-unpaid">
       <p class="text-sm text-ink-muted">
-        Backups are blocked. Top up once (at least $1) to use them. Add funds
+        Backups are blocked. Top up once (at least ${@min_topup_dollars}) to use them. Add funds
         in <.link
           navigate={@billing_path}
           class="underline underline-offset-2 hover:text-ink"
@@ -1091,7 +1097,8 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponent do
   # The resume toggle's paid refusal — the resource policy has no
   # message of its own, so the panel names the fix (the save path's
   # refusal renders the operation's own line).
-  defp copy_for(:resume_unpaid), do: "Top up at least $1 to resume backups."
+  defp copy_for(:resume_unpaid),
+    do: "Top up at least $#{@min_topup_dollars} to resume backups."
 
   # A Forbidden whose policy error carries a plain-words message is the
   # operation speaking to the owner (the paid gate) — render its words.
@@ -1112,7 +1119,9 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponent do
   # org keeps the $1-once education, a paid-or-waived org at zero gets
   # the balance-only line. The up-front callouts stay population-gated.
   defp copy_for(:wallet_unfunded, false),
-    do: "Top up to run a backup. Add at least $1 once, and keep a positive balance."
+    do:
+      "Top up to run a backup. Add at least $#{@min_topup_dollars} once, " <>
+        "and keep a positive balance."
 
   defp copy_for(:wallet_unfunded, _paid_or_waived),
     do: "Top up to run a backup. Keep a positive balance in your wallet."
