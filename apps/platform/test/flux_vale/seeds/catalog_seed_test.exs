@@ -783,10 +783,13 @@ defmodule FluxVale.Seeds.CatalogSeedTest do
         assert app.caveats != [], "#{slug} carries no caveats"
         assert length(app.caveats) <= 6
         assert app.alternatives != [], "#{slug} carries no alternatives"
-        # S7 content stays absent: the typed lists read back [].
-        assert app.screenshots == []
-        assert app.features == []
-        assert app.faq == []
+        # S7 ships the curated in-action copy: the typed lists read back
+        # with the shipped content.
+        assert length(app.screenshots) == 2,
+               "#{slug} ships #{length(app.screenshots)} screenshots"
+
+        assert length(app.features) == 4, "#{slug} ships #{length(app.features)} features"
+        assert app.faq != [], "#{slug} ships no app FAQ"
       end
 
       assert Category.get_by_slug!("developer-tools", authorize?: false).audience ==

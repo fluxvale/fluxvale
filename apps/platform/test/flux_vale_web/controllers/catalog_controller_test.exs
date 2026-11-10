@@ -893,13 +893,12 @@ defmodule FluxValeWeb.CatalogControllerTest do
         assert html =~ ~s(data-testid="deploy-cta")
       end
 
-      # S3: every seeded app also renders the four generated sections.
-      # The browse card is the under-two-peers fallback, and #610 put a
-      # second app in Productivity (its pairs reach one peer each),
-      # so every page still shows the card — the honest result, not a
-      # bug. S4: no seeded app carries screenshots or features yet
-      # (S7 owns that content pass), so the curated sections omit
-      # everywhere.
+      # S3: every seeded app renders the four generated sections plus
+      # the curated ones — the browse card is the under-two-peers
+      # fallback, and #610 put a second app in Productivity (its pairs
+      # reach one peer each), so every page still shows the card — the
+      # honest result, not a bug. S7 ships the curated sections for
+      # every seeded app, so they render everywhere.
       for slug <- seeded do
         html = html_response(get(conn, ~p"/catalog/#{slug}"), 200)
 
@@ -908,21 +907,21 @@ defmodule FluxValeWeb.CatalogControllerTest do
         assert html =~ ~s(data-testid="similar-section")
         assert html =~ ~s(data-testid="cta-section")
         assert html =~ ~s(data-testid="browse-card")
-        refute html =~ ~s(data-testid="in-action-section")
-        refute html =~ ~s(data-testid="features-section")
+        assert html =~ ~s(data-testid="in-action-section")
+        assert html =~ ~s(data-testid="features-section")
+        # The seeded screenshots render by src path, so a renderer that
+        # rewrites or drops the PNG sources cannot pass silently.
+        assert html =~ ~s(/images/catalog/#{slug}/)
       end
 
-      # The retro-filled apps: the honest hero renders their curated
-      # slots.
-      for slug <- ~w(forgejo kavita memos vaultwarden pocket-id actualbudget vikunja) do
+      # The retro-filled apps plus umami and docmost (both full parity
+      # as of this pass): the honest hero renders their curated slots.
+      for slug <- seeded do
         html = html_response(get(conn, ~p"/catalog/#{slug}"), 200)
 
         assert html =~ "Worth knowing"
         assert html =~ "An alternative to"
       end
-
-      # Umami (#587) rounds out the loop on the minimum contract — its
-      # curation depth is #620's concern, not pinned here.
 
       # Kavita is the file-access flagship; Pocket ID declares no OIDC
       # consumer surface of its own (it is the provider).
