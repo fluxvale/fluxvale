@@ -20,11 +20,14 @@ defmodule FluxVale.PaperTrail.VersionMixin do
   @doc """
   The code mixed into a generated version resource (the dep's `mixin`
   MFA shape): the direct admin-only read policy (D7, revised), the
-  audit view's `version_source_id` / `user_id` indexes, and the
+  audit view's indexes (`version_source_id`, `user_id`,
+  `version_inserted_at` + `id`, `actor_label`), and the
   `actor_label` attribute `ActorLabel` stamps on create. Attribute
   names are the generated ones, confirmed against the 0.8.1 codegen
   output. The Policy authorizer itself attaches via the posture's
-  `version_extensions` line on the source resource.
+  `version_extensions` line on the source resource — the doctrine
+  gate pins that line alongside the mixin, the authorizer without
+  policies denies nothing.
   """
   @spec version_resource() :: Macro.t()
   def version_resource do
@@ -43,10 +46,14 @@ defmodule FluxVale.PaperTrail.VersionMixin do
 
       postgres do
         custom_indexes do
-          # The audit view's two axes: one record's history, one
-          # actor's.
+          # The audit view's four axes: one record's history, one
+          # actor's user_id, the newest-first sort (the stamp with the
+          # id as the tiebreaker), and the tombstone-label match the
+          # actor filter reads.
           index([:version_source_id])
           index([:user_id])
+          index([:version_inserted_at, :id])
+          index([:actor_label])
         end
       end
 

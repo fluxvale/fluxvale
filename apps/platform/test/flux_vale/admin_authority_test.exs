@@ -327,6 +327,24 @@ defmodule FluxVale.AdminAuthorityTest do
                "#{inspect(resource)} un-redacted — the blanket sensitive posture is doctrine"
       end
     end
+
+    # The mixin pins the policy TEXT; the version_extensions line on
+    # the source resource is what makes the policy RUN (the authorizer
+    # attach). And with the authorizer attached but no policies
+    # present, reads run ungated — an empty policy list denies nothing.
+    # The gate pins both halves on every generated version module, so
+    # the version tables cannot ship readable.
+    test "every full resource's version module carries the authorizer and a read policy" do
+      for resource <- full_resources() do
+        version = AshPaperTrail.Resource.Info.version_resource(resource)
+
+        assert Ash.Policy.Authorizer in Ash.Resource.Info.authorizers(version),
+               "#{inspect(version)} lost the policy authorizer — the mixin's admin-only read policy would never run"
+
+        assert read_policy?(version),
+               "#{inspect(version)} carries no policy that admits reads — reads would run ungated"
+      end
+    end
   end
 
   describe "exempt — by name, with a reason" do
@@ -392,5 +410,24 @@ defmodule FluxVale.AdminAuthorityTest do
   defp condition_is_pair?(condition) do
     checks = MapSet.new(condition, fn {module, _opts} -> module end)
     MapSet.equal?(checks, @pair)
+  end
+
+  # A read policy: a policy whose condition admits the read action.
+  # The mixin's single policy is `always()` (the compiled Static-true
+  # check — it governs every action, reads included); the narrower
+  # `action_type(:read)` spelling compiles to the ActionType check
+  # with :read among its types.
+  defp read_policy?(version) do
+    version
+    |> Ash.Policy.Info.policies()
+    |> Enum.any?(fn policy -> condition_admits_reads?(policy.condition) end)
+  end
+
+  defp condition_admits_reads?(condition) do
+    Enum.any?(condition, fn
+      {Ash.Policy.Check.Static, opts} -> Keyword.get(opts, :result) == true
+      {Ash.Policy.Check.ActionType, opts} -> :read in List.wrap(opts[:type])
+      _condition_neither_shape -> false
+    end)
   end
 end

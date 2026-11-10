@@ -17,16 +17,25 @@ defmodule FluxValeWeb.AdminLive.Audit do
   Filters ride query params: `?resource=<key>` picks the resource
   (unknown segments bounce to the default honestly, the registry's
   posture), `?actor=<label>` exact-matches the denormalized actor
-  tombstone (no joins — the label rides the row), and
-  `?source=<uuid>` narrows one record's history (the engine show
-  pages' History deep link). A source that is not UUID-shaped bounces
-  with an honest flash — garbage never reaches the query.
+  tombstone (no joins — the label rides the row) with the literal
+  "System" naming the nil tombstone itself (the system-writes
+  filter), and `?source=<uuid>` narrows one record's history (the
+  engine show pages' History deep link). A source that is not
+  UUID-shaped bounces with an honest flash — garbage never reaches
+  the query. A label carrying control bytes (the NUL shape — the
+  byte the query layer refuses) filters nothing, the empty-value
+  posture.
 
   The rows render the tombstone as recorded: a nil `actor_label` is
   the honest system attribution and says so, REDACTED markers in
   `changes` render verbatim (that a sensitive attribute exists is the
-  record — the value never shipped), and a destroy keeps its row (no
-  source reference, D6). Unknown anything bounces; nothing is guessed.
+  record — the value never shipped), and a destroy keeps its row (the
+  row names the record it retired — the id survives, the reference
+  does not, D6). Every row NAMES its record: the
+  `version_source_id` renders as the engine's short id, linked to the
+  record-history view, and the actor tombstone links its own filter —
+  the drill-down grammar. Unknown anything bounces; nothing is
+  guessed.
   """
 
   use FluxValeWeb, :live_view
@@ -166,7 +175,7 @@ defmodule FluxValeWeb.AdminLive.Audit do
                   data-testid="admin-audit-filter-actor"
                   class="inline-flex items-center gap-1 rounded-control border border-line bg-panel-raised px-2 py-0.5 text-xs text-ink"
                 >
-                  {gettext("Actor")}: {@actor}
+                  {gettext("Actor")}: {filter_copy(@actor)}
                 </span>
                 <span
                   :if={@source}
@@ -233,6 +242,7 @@ defmodule FluxValeWeb.AdminLive.Audit do
                       <th class="px-4 py-3 font-medium">{gettext("When")}</th>
                       <th class="px-4 py-3 font-medium">{gettext("Type")}</th>
                       <th class="px-4 py-3 font-medium">{gettext("Action")}</th>
+                      <th class="px-4 py-3 font-medium">{gettext("Record")}</th>
                       <th class="px-4 py-3 font-medium">{gettext("Actor")}</th>
                       <th>
                         <span class="sr-only">{gettext("Changes")}</span>
@@ -265,10 +275,40 @@ defmodule FluxValeWeb.AdminLive.Audit do
                         {AdminResource.label(version.version_action_name)}
                       </td>
                       <td
+                        class="px-4 py-3 font-mono text-xs"
+                        data-testid={"admin-audit-record-#{version.id}"}
+                      >
+                        <%!-- Every generated version row carries the
+                        source id — creates, updates, and destroys
+                        alike (the reference is gone on destroy, the
+                        id is not), so the cell always names its
+                        record and links it. --%>
+                        <.link
+                          navigate={
+                            drill_path(@entry.key, [
+                              {"source", version.version_source_id}
+                            ])
+                          }
+                          class="text-link underline-offset-2 hover:underline"
+                          title={version.version_source_id}
+                        >
+                          {AdminResource.short_uuid(version.version_source_id)}
+                        </.link>
+                      </td>
+                      <td
                         class="px-4 py-3 text-sm text-ink"
                         data-testid={"admin-audit-actor-#{version.id}"}
                       >
-                        {actor_copy(version.actor_label)}
+                        <.link
+                          navigate={
+                            drill_path(@entry.key, [
+                              {"actor", actor_link_filter(version.actor_label)}
+                            ])
+                          }
+                          class="text-link underline-offset-2 hover:underline"
+                        >
+                          {actor_copy(version.actor_label)}
+                        </.link>
                       </td>
                       <td class="px-4 py-3">
                         <details
@@ -349,7 +389,7 @@ defmodule FluxValeWeb.AdminLive.Audit do
   """
   @spec read_page(
           map(),
-          %{actor: String.t() | nil, source: String.t() | nil},
+          %{actor: String.t() | :system | nil, source: String.t() | nil},
           pos_integer(),
           term()
         ) ::
@@ -370,7 +410,8 @@ defmodule FluxValeWeb.AdminLive.Audit do
   end
 
   # The tombstone makes the actor filter a column match — no joins.
-  # The value compares exactly as recorded.
+  # The value compares exactly as recorded; the :system assign is the
+  # nil tombstone's filter (the rows that recorded no actor at all).
   defp apply_filters(query, %{actor: actor, source: source}) do
     query
     |> apply_actor_filter(actor)
@@ -378,6 +419,10 @@ defmodule FluxValeWeb.AdminLive.Audit do
   end
 
   defp apply_actor_filter(query, nil), do: query
+
+  defp apply_actor_filter(query, :system),
+    do: Ash.Query.filter(query, is_nil(actor_label))
+
   defp apply_actor_filter(query, label), do: Ash.Query.filter(query, actor_label == ^label)
 
   defp apply_source_filter(query, nil), do: query
@@ -397,7 +442,11 @@ defmodule FluxValeWeb.AdminLive.Audit do
   defp actor_filter(raw) when is_binary(raw) do
     case String.trim(raw) do
       "" -> nil
-      label -> label
+      # The nil tombstone's own spelling: a real actor literally named
+      # "System" is shadowed by the filter's param — the accepted
+      # trade, labels are free text and params are not.
+      "System" -> :system
+      label -> if printable?(label), do: label, else: nil
     end
   end
 
@@ -405,6 +454,11 @@ defmodule FluxValeWeb.AdminLive.Audit do
   # the view renders the honest full history rather than guessing at
   # an encoding.
   defp actor_filter(_not_a_string), do: nil
+
+  # A label carrying control bytes (a NUL byte 500s the mount — the
+  # value never reaches the query) takes the empty-value posture: it
+  # filters nothing, no chip renders.
+  defp printable?(label), do: String.printable?(label)
 
   # A ?source= must read as a UUID before it filters anything — the
   # engine's "an unknown id is data" posture, with the malformed shape
@@ -436,13 +490,21 @@ defmodule FluxValeWeb.AdminLive.Audit do
 
   # -- render helpers ---------------------------------------------------------
 
-  # The picker's groups: the entries already carry display order, so a
-  # chunk on the domain plus the domain's own short name is the whole
-  # grouping.
+  # The picker's groups: the DISTINCT domains in first-occurrence
+  # order, one group per domain. Chunking the display order would
+  # split a domain's group the moment an entry appends out of chunk
+  # adjacency — the list grows by appending, so the grouping must not
+  # depend on it.
   defp groups(entries) do
     entries
-    |> Enum.chunk_by(& &1.domain)
-    |> Enum.map(fn group -> {domain_label(hd(group).domain), group} end)
+    |> Enum.uniq_by(& &1.domain)
+    |> Enum.map(fn first ->
+      {domain_label(first.domain), same_domain(entries, first.domain)}
+    end)
+  end
+
+  defp same_domain(entries, domain) do
+    Enum.filter(entries, &(&1.domain == domain))
   end
 
   defp domain_label(domain) do
@@ -456,6 +518,17 @@ defmodule FluxValeWeb.AdminLive.Audit do
   defp actor_copy(nil), do: gettext("System")
   defp actor_copy(label), do: label
 
+  # The active-filter chip's copy: the :system assign is the filter
+  # whose label is the literal System param.
+  defp filter_copy(:system), do: gettext("System")
+  defp filter_copy(label), do: label
+
+  # The actor cell's filter link: a recorded label filters itself; the
+  # nil tombstone's link is the literal "System" param (the system
+  # filter).
+  defp actor_link_filter(nil), do: "System"
+  defp actor_link_filter(label), do: label
+
   # The changes cell: verbatim JSON in mono (the engine's fallback-map
   # grammar). REDACTED markers are values here and render as values —
   # that a sensitive attribute exists is the record, the value never
@@ -464,15 +537,32 @@ defmodule FluxValeWeb.AdminLive.Audit do
     Jason.encode!(version.changes || %{}, pretty: true)
   end
 
-  # Every link this surface builds — picker, filters, pagination —
-  # goes through one query builder, so no control can drop or mangle
-  # the filters. The pairs build ordered (resource first), so the
-  # URLs read the same everywhere they render.
+  # The view controls' links — picker, filter clear, pagination, the
+  # mount's bounces — all go through one query builder, so no control
+  # can drop or mangle the filters. The pairs build ordered (resource
+  # first), so the URLs read the same everywhere they render.
   defp audit_path(key, actor, source, page) do
     [{"resource", Atom.to_string(key)}]
-    |> put_param("actor", actor)
+    |> put_param("actor", actor_param(actor))
     |> put_param("source", source)
     |> put_param("page", Integer.to_string(page))
+    |> URI.encode_query()
+    |> then(&"/admin/audit?#{&1}")
+  end
+
+  # The filter assign's URL spelling: a label rides itself, the system
+  # filter is the literal "System" param, and no filter drops the
+  # param.
+  defp actor_param(:system), do: "System"
+  defp actor_param(nil), do: nil
+  defp actor_param(label), do: label
+
+  # The row cells' drill-down links: the engine's two-pair deep-link
+  # shape (resource plus one filter), the exact grammar the record
+  # History action builds. No page and no other filter rides along —
+  # a drill starts that view fresh.
+  defp drill_path(key, pairs) do
+    [{"resource", Atom.to_string(key)} | pairs]
     |> URI.encode_query()
     |> then(&"/admin/audit?#{&1}")
   end
@@ -485,7 +575,7 @@ defmodule FluxValeWeb.AdminLive.Audit do
   attr(:current, :integer, required: true)
   attr(:total, :integer, required: true)
   attr(:entry, :map, required: true)
-  attr(:actor, :string, default: nil)
+  attr(:actor, :any, default: nil)
   attr(:source, :string, default: nil)
 
   defp audit_pagination(assigns) do

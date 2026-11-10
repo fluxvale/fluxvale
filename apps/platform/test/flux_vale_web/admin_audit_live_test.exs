@@ -10,6 +10,7 @@ defmodule FluxValeWeb.AdminAuditLiveTest do
 
   use FluxValeWeb.ConnCase, async: true
 
+  import Ecto.Query, only: [from: 2]
   import Phoenix.LiveViewTest
 
   alias FluxVale.Accounts
@@ -99,6 +100,27 @@ defmodule FluxValeWeb.AdminAuditLiveTest do
       assert text_of(view, "[data-testid='admin-audit-type-#{version.id}']") == "Create"
       assert text_of(view, "[data-testid='admin-audit-action-#{version.id}']") == "Create"
 
+      # The row names its record: the short id, linked to the
+      # record-history view (the engine History link's exact shape).
+      assert text_of(view, "[data-testid='admin-audit-record-#{version.id}']") ==
+               String.slice(flag.id, 0, 8)
+
+      assert has_element?(
+               view,
+               "[data-testid='admin-audit-record-#{version.id}'] a" <>
+                 "[href='/admin/audit?resource=feature_flag&source=#{flag.id}']"
+             )
+
+      # The actor tombstone links its own filter.
+      actor_href =
+        "/admin/audit?" <>
+          URI.encode_query([{"resource", "feature_flag"}, {"actor", admin.username}])
+
+      assert has_element?(
+               view,
+               "[data-testid='admin-audit-actor-#{version.id}'] a[href='#{actor_href}']"
+             )
+
       assert text_of(view, "[data-testid='admin-audit-actor-#{version.id}']") == admin.username
 
       json = text_of(view, "[data-testid='admin-audit-changes-json-#{version.id}']")
@@ -144,20 +166,40 @@ defmodule FluxValeWeb.AdminAuditLiveTest do
       [version] = versions!(FeatureFlag.Version, flag.id)
 
       assert text_of(view, "[data-testid='admin-audit-actor-#{version.id}']") == "System"
+
+      # The System tombstone is reachable: its link is the literal
+      # System param, the nil-actor filter.
+      assert has_element?(
+               view,
+               "[data-testid='admin-audit-actor-#{version.id}'] a" <>
+                 "[href='/admin/audit?resource=feature_flag&actor=System']"
+             )
     end
 
-    test "an empty resource answers with the empty state, not a bare table", %{conn: conn} do
+    test "an empty resource answers with the empty state, not a bare table", %{
+      conn: conn,
+      admin: admin
+    } do
       # The shared partition DB carries committed version strays from
-      # other lanes' strands (versions outlive their rolled-back
-      # sources). Version resources carry no destroy action, so the
-      # test clears the view's table on the data layer — INSIDE the
-      # sandbox, rolled back after, the shared DB untouched (#241's
-      # sweep discipline applied to the trail's tables).
-      {deleted, nil} = FluxVale.Repo.delete_all("feedback_votes_versions")
+      # other lanes (votes, posts, wallets — versions outlive their
+      # rolled-back sources), so NO shared table gets swept. This run
+      # creates its own row, then clears exactly that row — the
+      # deleted count equals what it created — and the feature_flags
+      # view (a table whose only writers roll back) answers on a
+      # table that reads empty (#241's sweep discipline, scoped).
+      flag = flag!(admin, "empty_state")
+      [version] = versions!(FeatureFlag.Version, flag.id)
 
-      assert deleted >= 0
+      # A schema-less query has no uuid type to cast through — the id
+      # dumps to the raw binary the table column stores.
+      {:ok, version_pk} = Ecto.UUID.dump(version.id)
 
-      {:ok, view, _html} = live(conn, "/admin/audit?resource=vote")
+      delete_own_row = from(v in "feature_flags_versions", where: v.id == ^version_pk)
+      {deleted, nil} = FluxVale.Repo.delete_all(delete_own_row)
+
+      assert deleted == 1
+
+      {:ok, view, _html} = live(conn, "/admin/audit?resource=feature_flag")
 
       assert has_element?(view, "[data-testid='admin-audit-empty']", "No history yet.")
       assert text_of(view, "[data-testid='admin-audit-count']") == "0 changes"
@@ -186,6 +228,40 @@ defmodule FluxValeWeb.AdminAuditLiveTest do
 
       assert text_of(view, "[data-testid='admin-audit-filter-actor']") ==
                "Actor: #{admin.username}"
+    end
+
+    test "?actor=System is the nil-actor filter — the literal param names the tombstone", %{
+      conn: conn,
+      admin: admin
+    } do
+      mine = flag!(admin, "system_filter")
+
+      system_flag =
+        FeatureFlag
+        |> Ash.Changeset.for_create(:create, %{key: "audit_system_filtered_#{@n}"},
+          authorize?: false
+        )
+        |> Ash.create!()
+
+      path =
+        "/admin/audit?" <> URI.encode_query([{"resource", "feature_flag"}, {"actor", "System"}])
+
+      {:ok, view, _html} = live(conn, path)
+
+      [system_version] = versions!(FeatureFlag.Version, system_flag.id)
+      [mine_version] = versions!(FeatureFlag.Version, mine.id)
+
+      assert has_element?(view, "[data-testid='admin-audit-row-#{system_version.id}']")
+      refute has_element?(view, "[data-testid='admin-audit-row-#{mine_version.id}']")
+
+      assert text_of(view, "[data-testid='admin-audit-filter-actor']") == "Actor: System"
+      assert text_of(view, "[data-testid='admin-audit-count']") == "1 change"
+
+      # The filter rides the past-end bounce in its URL spelling — the
+      # literal System param comes back.
+      expected = path <> "&page=1"
+
+      assert {:error, {:live_redirect, %{to: ^expected}}} = live(conn, path <> "&page=9")
     end
 
     test "?source= narrows one record's history", %{conn: conn, admin: admin} do
@@ -257,17 +333,40 @@ defmodule FluxValeWeb.AdminAuditLiveTest do
       # A destroy versions no deltas: the changes block reads {}.
       assert text_of(view, "[data-testid='admin-audit-changes-json-#{destroy_version.id}']") ==
                "{}"
+
+      # And the row still NAMES the record it retired: the source id
+      # rides the destroy row (the reference is gone, the id is not),
+      # its link landing on the history that outlives the record (D6).
+      assert text_of(view, "[data-testid='admin-audit-record-#{destroy_version.id}']") ==
+               String.slice(flag.id, 0, 8)
+
+      assert has_element?(
+               view,
+               "[data-testid='admin-audit-record-#{destroy_version.id}'] a" <>
+                 "[href='/admin/audit?resource=feature_flag&source=#{flag.id}']"
+             )
     end
 
     test "REDACTED markers render verbatim — the sensitive value never ships", %{conn: conn} do
       {org, owner} = BillingFixtures.grant_free_org!()
       address = "audit-redacted-#{@n}@fluxvale.test"
 
-      {:ok, _invite} = Accounts.invite_member(owner, org, address)
+      {:ok, invite} = Accounts.invite_member(owner, org, address)
 
-      {:ok, view, _html} = live(conn, "/admin/audit?resource=membership_invite")
+      # Scoped to the invite's own history: the row this write created
+      # is the one under the knife, not some other row's marker.
+      {:ok, view, _html} =
+        live(conn, "/admin/audit?resource=membership_invite&source=#{invite.id}")
 
-      assert render(view) =~ "REDACTED"
+      [version] = versions!(Accounts.MembershipInvite.Version, invite.id)
+
+      assert has_element?(view, "[data-testid='admin-audit-row-#{version.id}']")
+
+      assert text_of(view, "[data-testid='admin-audit-changes-json-#{version.id}']") =~
+               "REDACTED"
+
+      # The plaintext address renders nowhere on the page.
+      refute render(view) =~ address
     end
   end
 
@@ -355,6 +454,16 @@ defmodule FluxValeWeb.AdminAuditLiveTest do
 
       assert has_element?(empty_view, "[data-testid='admin-audit-row-#{version.id}']")
       refute has_element?(empty_view, "[data-testid='admin-audit-filter-actor']")
+
+      # A control byte in the actor (the NUL shape — the byte the
+      # query layer refuses, which used to 500 the mount) takes the
+      # same empty-value posture: it filters nothing.
+      nul_path = "/admin/audit?resource=feature_flag&actor=" <> URI.encode_www_form("a\0b")
+
+      {:ok, nul_view, _html} = live(conn, nul_path)
+
+      assert has_element?(nul_view, "[data-testid='admin-audit-row-#{version.id}']")
+      refute has_element?(nul_view, "[data-testid='admin-audit-filter-actor']")
 
       # A list source is a malformed deep link like any other garbage.
       assert {:error, {:live_redirect, %{to: to, flash: flash}}} =
