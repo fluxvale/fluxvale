@@ -1305,11 +1305,14 @@ defmodule FluxVale.Infrastructure.Instance do
       run(fn input, %{actor: actor, authorize?: authorize?} ->
         case get_by_id(input.arguments.id, actor: actor, authorize?: authorize?) do
           {:ok, instance} ->
-            # The domain is the public seam (never the operation direct).
+            # The domain is the public seam (never the operation
+            # direct); both posture values propagate (the nested-call
+            # rule — never hard-code either).
             case FluxVale.Infrastructure.connect_pocket_id(
                    instance,
                    input.arguments.pocket_id_instance_id,
-                   actor: actor
+                   actor: actor,
+                   authorize?: authorize?
                  ) do
               {:ok, wiring} -> {:ok, wiring}
               {:error, reason} -> {:error, wiring_error(reason)}
@@ -1534,6 +1537,8 @@ defmodule FluxVale.Infrastructure.Instance do
     key_rejected:
       "the held Pocket ID key was rejected — re-paste it on the Pocket ID's instance page",
     key_forbidden: "the held Pocket ID key may not manage clients — paste an admin's key instead",
+    no_created_secret:
+      "the Pocket ID created the client but returned no secret — check its client-secret settings, then retry",
     no_api_key: "the held Pocket ID key is gone — re-paste it on the Pocket ID's instance page",
     api_key_malformed:
       "the held Pocket ID key is unreadable — re-paste it on the Pocket ID's instance page"

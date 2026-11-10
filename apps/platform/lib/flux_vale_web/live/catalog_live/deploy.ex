@@ -759,6 +759,7 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
                     Deploy without sign-in
                   </.button>
                   <.button
+                    :if={retryable?(@pocketid_choice.reason)}
                     size="sm"
                     phx-click="retry-pocketid"
                     phx-disable-with="Retrying…"
@@ -1569,10 +1570,22 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
       "The Pocket ID admin key FluxVale holds was rejected. Its owner can re-paste it on the Pocket ID's page; retry after.",
     key_forbidden:
       "The Pocket ID key FluxVale holds may not manage clients — an admin's key is needed. Retry after re-pasting one.",
+    no_created_secret:
+      "Your Pocket ID created the client but returned no secret — check its client-secret settings, then retry.",
+    no_custody:
+      "FluxVale no longer holds a Pocket ID key — its owner re-pastes one on the Pocket ID's page; retry after.",
+    not_public:
+      "That Pocket ID is private and cannot serve sign-in — make it public on its instance page, then retry.",
     no_api_key:
       "The Pocket ID admin key FluxVale held is gone — re-paste it on the Pocket ID's page, then retry.",
     api_key_malformed:
       "The Pocket ID admin key FluxVale holds is unreadable — re-paste it on the Pocket ID's page, then retry.",
+    recipe_missing: "This app version has no automatic sign-in wiring recipe.",
+    recipe_not_env: "This app configures sign-in in its own settings, not automatically.",
+    no_callback_path: "This app version declares no sign-in callback path.",
+    pocket_id_not_found:
+      "That Pocket ID no longer exists — deploy without sign-in, or start again later.",
+    forbidden: "That Pocket ID belongs to another organization.",
     flag_disabled: "Pocket ID sign-in wiring is turned off right now.",
     instance_deleting: "This app is being deleted — there is nothing to wire."
   }
@@ -1598,6 +1611,18 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
   # offers Open-the-instance, never the deploy buttons.
   defp running_elsewhere?({:instance_running, _status}), do: true
   defp running_elsewhere?(_reason), do: false
+
+  # Retry only when the underlying condition can change by waiting or
+  # by an owner act elsewhere (wake-up, re-paste, cluster recovery,
+  # the flag). The recipe trio names this app version's own shape and
+  # the gone/foreign shapes name facts — retrying cannot fix any of
+  # them, so the panel offers Deploy without sign-in alone. (The
+  # already-running verdict never reaches here — the panel's
+  # running_elsewhere? split intercepts it.)
+  @retry_impossible ~w(recipe_missing recipe_not_env no_callback_path pocket_id_not_found forbidden instance_deleting)a
+
+  defp retryable?(reason) when reason in @retry_impossible, do: false
+  defp retryable?(_reason), do: true
 
   # The create's org context (#408): the picker's pick rides the create
   # argument. No pick means no resolvable orgs — a seeded/legacy shape

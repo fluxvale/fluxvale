@@ -99,7 +99,13 @@ defmodule FluxVale.Infrastructure.Operations.ConnectPocketIdTest do
   # the merge so a keyword override actually lands: @recipe carries
   # string keys, and Map.new(enabled_env: nil) would add a parallel
   # atom key the merge never touches.
-  defp sso_instance!(owner, version_attrs \\ [], env \\ %{}, recipe_overrides \\ %{}) do
+  defp sso_instance!(
+         owner,
+         version_attrs \\ [],
+         env \\ %{},
+         recipe_overrides \\ %{},
+         instance_attrs \\ %{}
+       ) do
     overrides = Map.new(recipe_overrides, fn {key, value} -> {to_string(key), value} end)
     recipe = Map.merge(@recipe, overrides)
 
@@ -112,14 +118,10 @@ defmodule FluxVale.Infrastructure.Operations.ConnectPocketIdTest do
         ] ++ version_attrs
       )
 
-    Instance.create!(
-      %{
-        name: "Inst #{System.unique_integer()}",
-        app_version_id: version.id,
-        env_vars: env
-      },
-      actor: owner
-    )
+    params = %{name: "Inst #{System.unique_integer()}", app_version_id: version.id, env_vars: env}
+    merged_params = Map.merge(params, Map.new(instance_attrs))
+
+    Instance.create!(merged_params, actor: owner)
   end
 
   # The full green stub set: discovery answers the issuer, the mint
@@ -139,6 +141,32 @@ defmodule FluxVale.Infrastructure.Operations.ConnectPocketIdTest do
 
       {:ok, %{client_id: "pid-1", client_name: name, secret_id: "sec-1", secret: @minted_secret}}
     end)
+  end
+
+  # PocketID's DTO cap counts RUNES (codepoints); a grapheme-heavy
+  # name must still come in under it (CodeRabbit's combining-accent
+  # case — grapheme slicing would exceed the cap). Pinned through the
+  # public seam: the mint's attrs.
+  test "a grapheme-heavy instance name stays under PocketID's codepoint cap", %{
+    owner: owner,
+    pocket_id: pocket_id
+  } do
+    # 45 graphemes of TWO codepoints each (e + combining acute) —
+    # grapheme slicing at 39 keeps all 45; codepoint slicing cannot.
+    decomposed = String.duplicate("e\u0301", 45)
+    app = sso_instance!(owner, [], %{}, %{}, name: decomposed)
+    url = pocket_id_url(pocket_id)
+
+    stub(ApiClient, :get_discovery, fn ^url -> {:ok, @issuer} end)
+
+    stub(ApiClient, :create_client, fn ^url, @held_key, attrs ->
+      assert length(String.codepoints(attrs.name)) <= 50
+
+      {:ok,
+       %{client_id: "pid-1", client_name: attrs.name, secret_id: "sec-1", secret: @minted_secret}}
+    end)
+
+    assert {:ok, _wiring} = Infrastructure.connect_pocket_id(app, pocket_id.id, actor: owner)
   end
 
   defp host, do: Application.fetch_env!(:flux_vale, :instances_base_domain)
@@ -296,6 +324,38 @@ defmodule FluxVale.Infrastructure.Operations.ConnectPocketIdTest do
 
       assert {:error, :unreachable} =
                Infrastructure.connect_pocket_id(app, pocket_id.id, actor: owner)
+    end
+
+    # The locked re-read's race (CodeRabbit): a deploy landing in the
+    # seconds the network legs take must not let the wiring row commit
+    # over a live instance whose env Secret shipped without SSO — the
+    # transaction's FOR UPDATE re-guard refuses honestly.
+    test "a deploy racing the window refuses at the locked re-read, never half-wires", %{
+      owner: owner,
+      pocket_id: pocket_id
+    } do
+      app = sso_instance!(owner)
+      url = pocket_id_url(pocket_id)
+
+      # The window: discovery answers its issuer while — behind the
+      # wizard's back — the instance deploys mid-call.
+      stub(ApiClient, :get_discovery, fn ^url ->
+        racing = reloaded!(app)
+        InstanceFixtures.walk_to!(racing, :running)
+        {:ok, @issuer}
+      end)
+
+      stub(ApiClient, :create_client, fn ^url, _key, _attrs ->
+        {:ok, %{client_id: "pid-1", client_name: "n", secret_id: "sec-1", secret: @minted_secret}}
+      end)
+
+      assert {:error, {:instance_running, :running}} =
+               Infrastructure.connect_pocket_id(app, pocket_id.id, actor: owner)
+
+      moved = reloaded!(app)
+      assert moved.status == :running
+      refute Map.has_key?(moved.env_vars, "SSO_AUTHORITY")
+      assert {:error, _none} = PocketIdWiring.get_by_instance(app.id, authorize?: false)
     end
 
     test "the mint leg fails soft too (create unreachable after discovery)", %{
