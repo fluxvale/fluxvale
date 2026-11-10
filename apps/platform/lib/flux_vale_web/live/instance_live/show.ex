@@ -2132,11 +2132,8 @@ defmodule FluxValeWeb.InstanceLive.Show do
       :pocket_id_gone ->
         "That Pocket ID no longer exists."
 
-      {:instance_not_deployed, _status} ->
+      :not_deployed ->
         "This app isn't deployed yet."
-
-      {:instance_running, _status} ->
-        "This app is already running."
 
       _other ->
         "That didn't work (#{inspect(reason)}). Try again, or check the Pocket ID's page."
