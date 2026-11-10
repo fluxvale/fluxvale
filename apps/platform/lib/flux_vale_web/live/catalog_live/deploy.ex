@@ -1425,16 +1425,26 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
         # tab may have moved the instance — never force a second
         # deploy over a live status (the deploy action's in-memory
         # guard reads only changeset.data).
-        fresh = Instance.get_by_id!(instance.id, actor: socket.assigns.current_user)
+        case Instance.get_by_id(instance.id, actor: socket.assigns.current_user) do
+          {:ok, fresh} ->
+            if fresh.status in [:pending, :error, :lost] do
+              flash = plain_deploy_flash(fresh) <> " Pocket ID sign-in was not wired."
+              deploy_created(socket, fresh, flash)
+            else
+              {:noreply,
+               socket
+               |> put_flash(:info, "#{fresh.name} is already #{fresh.status} — opening it.")
+               |> push_navigate(to: ~p"/instances/#{fresh.id}")}
+            end
 
-        if fresh.status in [:pending, :error, :lost] do
-          flash = plain_deploy_flash(fresh) <> " Pocket ID sign-in was not wired."
-          deploy_created(socket, fresh, flash)
-        else
-          {:noreply,
-           socket
-           |> put_flash(:info, "#{fresh.name} is already #{fresh.status} — opening it.")
-           |> push_navigate(to: ~p"/instances/#{fresh.id}")}
+          # The window's other exit: the delete funnel hard-deletes a
+          # never-deployed instance — flash it, don't crash (the show
+          # page's own deploy handler posture).
+          {:error, _gone} ->
+            {:noreply,
+             socket
+             |> put_flash(:error, "That instance no longer exists — start a new deploy.")
+             |> push_navigate(to: ~p"/apps")}
         end
 
       nil ->
@@ -1570,6 +1580,12 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
 
   defp wiring_failure_copy({:instance_running, _status}),
     do: "This app is already running — wiring sign-in lands with the instance page instead."
+
+  # The key read's cluster-outage shape (the API's K8s words, the
+  # wizard's voice): honest, retryable, never an inspect dump.
+  defp wiring_failure_copy(%FluxVale.Clients.K8s.Error{}),
+    do:
+      "The Pocket ID key store didn't answer — retry in a moment, or deploy now and sign-in stays manual."
 
   defp wiring_failure_copy(other),
     do:

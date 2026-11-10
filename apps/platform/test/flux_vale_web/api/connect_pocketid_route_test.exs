@@ -242,6 +242,40 @@ defmodule FluxValeWeb.Api.ConnectPocketIdRouteTest do
     assert detail =~ "turned off"
   end
 
+  # The key read's cluster-outage shape: use_pocket_id_key passes the
+  # K8s client's error struct verbatim — honest words on the wire,
+  # and D3's posture holds (instance untouched, deployable).
+  test "a cluster outage at the key read answers in honest words", %{conn: conn} do
+    user = elem(ApiPat.member!(), 0)
+    {app, pocket_id} = member_with_pocket_id(user)
+
+    base_domain = Application.fetch_env!(:flux_vale, :instances_base_domain)
+    url = "https://#{pocket_id.slug}.#{base_domain}"
+
+    stub(ApiClient, :get_discovery, fn ^url -> {:ok, @issuer} end)
+
+    stub(Secret, :get_data, fn _kc, _ns, _ref ->
+      {:error, %FluxVale.Clients.K8s.Error{status_code: 500, reason: :unknown, message: "boom"}}
+    end)
+
+    pat = ApiPat.mint!(user, ["instances:write"])
+
+    conn =
+      conn
+      |> auth(pat)
+      |> put_req_header("content-type", "application/vnd.api+json")
+      |> post("/api/v1/instances/#{app.id}/connect-pocketid", %{
+        "data" => %{"pocket_id_instance_id" => pocket_id.id}
+      })
+
+    assert [%{"detail" => detail} | _rest] = json_response(conn, 400)["errors"]
+    assert detail =~ "could not be read from the cluster"
+
+    reloaded = Instance.get_by_id!(app.id, actor: user)
+    assert reloaded.status == :pending
+    refute Map.has_key?(reloaded.env_vars, "SSO_AUTHORITY")
+  end
+
   test "a PocketID from another org is refused honestly", %{conn: conn} do
     user = elem(ApiPat.member!(), 0)
     {app, _own_pocket_id} = member_with_pocket_id(user)

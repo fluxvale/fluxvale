@@ -1556,10 +1556,23 @@ defmodule FluxVale.Infrastructure.Instance do
     InvalidArgument.exception(message: "the Pocket ID refused the client (#{status})")
   end
 
-  # coveralls-ignore-start - the Ash-error passthrough's only producer
-  # is a concurrent double-wire losing the wiring identity's unique
-  # index race and rolling back through the operation — a race window
-  # ExUnit cannot stage deterministically (#86's documented class).
+  # The key read's cluster shape (use_pocket_id_key passes the K8s
+  # client's own error struct verbatim — a gateway-cluster outage at
+  # the Secret read, with discovery already green over the URL):
+  # honest words, the same InvalidArgument boringness.
+  defp wiring_error(%FluxVale.Clients.K8s.Error{}) do
+    InvalidArgument.exception(
+      message: "the held Pocket ID key could not be read from the cluster — retry in a moment"
+    )
+  end
+
+  # coveralls-ignore-start - the Ash-error passthrough's producers
+  # are unstagedable by design: a concurrent double-wire losing the
+  # wiring identity's unique index (race window, #86's documented
+  # class) and the custody's instance vanishing mid-call (use_pocket
+  # _id_key's own defensive arm — the FK cascade makes ExUnit unable
+  # to stage it). Every stageable error shape carries its own clause
+  # above.
   defp wiring_error(reason), do: reason
 
   # coveralls-ignore-stop
