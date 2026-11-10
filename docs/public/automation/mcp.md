@@ -7,6 +7,8 @@ slug: mcp
 
 FluxVale hosts a Model Context Protocol server for driving the platform from agents and other MCP clients. It is live and early. The tool set may still change shape, so this page stays short until the surface settles.
 
-The endpoint is `https://fluxvale.com/mcp`, speaking the streamable HTTP transport. Authentication is a personal access token used as a bearer token. The token's scopes decide which tools the server exposes, and destructive tools ask for confirmation before they act.
+The endpoint is `https://mcp.fluxvale.com/mcp` (DNS records pending rollout — if the URL doesn't resolve yet, the endpoint is rolling out), speaking the streamable HTTP transport. Authentication is a personal access token used as a bearer token. The token's scopes decide which tools the server exposes, and destructive tools ask for confirmation before they act.
+
+The full recipe is elsewhere, on purpose — this page stays the summary. The in-app quickstart at [`/settings/agents`](https://fluxvale.com/settings/agents) walks the two steps (mint a scoped token, point your client at the server) with per-client configs, one click from where the token is minted; the repo's [`docs/mcp.md`](https://github.com/fluxvale/fluxvale/blob/main/docs/mcp.md) is the tool-surface source of truth (the catalog and the changelog).
 
 If you want to try it, create a scoped token and write to [support@fluxvale.com](mailto:support@fluxvale.com) for the current tool list.

@@ -143,10 +143,14 @@ otherwise.
 The standalone Rust server (`apps/mcp`, rmcp 3.9.0, streamable HTTP,
 stateless) replaces Am. 2's Phoenix-hosted endpoint: the Phantom
 `POST /mcp` on the platform app is retired at cutover with zero
-external clients (pre-beta; the tokens-panel quickstart, #640, teaches
-only the remote server). The Rust surface is the INITIAL published
-contract — the rename set (`list_apps`→`apps_list` et al.) is
-pre-publication naming, not a versioned break.
+external clients (pre-beta; the tokens-panel quickstart #640,
+[`docs/mcp.md`](../mcp.md), and the public automation page all teach
+only the remote server post-fix). The Rust surface is the INITIAL
+published contract — the rename set (`list_apps`→`apps_list` et al.)
+and the unported verbs (gateway lifecycle get/create/resume/attach/
+detach, `set_instance_always_on`, `set_instance_exposure` — 22
+Elixir tools → 17 Rust) are pre-publication surface, not a versioned
+break.
 
 The Rust side of the repo becomes three workspaces: `apps/cli`,
 `crates/fluxvale-api` (the shared `/api/v1` client), `apps/mcp` — two
@@ -157,7 +161,7 @@ rate-limit, with per-path attribution where Phantom's opaque
 `POST /mcp` rows had none. `tools/list` is filtered by the calling
 token's scopes read from `/me`'s `meta.scopes` (#585 — a runtime
 render, deliberately NOT in the OpenAPI artifact; generated clients
-learn it from `docs/mcp.md`).
+learn it from [`docs/mcp.md`](../mcp.md)).
 
 Destructive gating is SEP-2322 MRTR: the first call answers
 `input_required` carrying a yes/no confirm question plus an
@@ -167,8 +171,8 @@ A client that cannot confirm gets an honest error naming the panel —
 never a silent no-op, and the verb never runs.
 
 The host is a dedicated subdomain — `mcp.fluxvale.com` /
-`mcp.staging.fluxvale.com`, the protocol nesting at `/mcp` on that
-host. Subdomain over path-on-the-app-host: ecosystem convention (an
+`mcp.staging.fluxvale.com` (DNS records pending rollout), the
+protocol nesting at `/mcp` on that host. Subdomain over path-on-the-app-host: ecosystem convention (an
 MCP server is advertised as one URL), traffic isolation, independent
 edge rules, and a clean OAuth resource origin. Certs are DNS-01; the
 A records are client-reachability only. Deployment posture: own image
@@ -180,7 +184,8 @@ stdio-only client asks), a second Phoenix endpoint (a cross-workspace
 dep-graph cycle), and Phantom retention (two surfaces drift — the
 exact fate this cutover exists to prevent).
 
-Straggler note: ADR-0047's doctrine loses no teeth at cutover —
+Straggler note: [ADR-0047](00047-platform-admin-authority.md)'s
+doctrine loses no teeth at cutover —
 `FluxVale.Checks.CallOutsideMachineApi` and both its rungs survive on
 `/api/v1` (the plug chain remains the writer); the `/mcp` handler
 writer retired with the endpoint, so ADR-0047's `/mcp` bullet now

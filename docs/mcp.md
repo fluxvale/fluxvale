@@ -91,7 +91,9 @@ dropped; `protocol: "auto"` because the default `legacy` caps at
 
 **Scopes.** What the agent can do is what the token allows:
 `tools/list` offers exactly the tools the token's scopes cover, write
-includes read, and a zero-scope token still identifies itself. Some
+includes read, and a zero-scope token still identifies itself. The
+server reads the exact scope list from GET `/me`'s `meta.scopes`
+(#585) — one upstream read per `tools/list`. Some
 tools need two domains — the catalog table lists each tool's exact
 set; mint the union. The scope meanings are listed at mint time in
 the panel.

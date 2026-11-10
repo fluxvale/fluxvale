@@ -75,6 +75,8 @@ lands the mechanism and the gate.
      `require_scope/2`, the first step of every handler in the MCP
      router, marks the process instead (the shared
      `mark_process!/0` helper is the one writer both boundaries call).
+     Amended by [ADR-0019 Am. 5](00019-machine-first-api-cli-mcp.md)
+     — the `/mcp` rung retired at cutover.
 
    Session callers and actorless system paths (Oban, webhooks, seeds)
    carry no marker: outside the machine API by definition. The
