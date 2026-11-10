@@ -1,4 +1,5 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test } from "@playwright/test";
+import { waitForStatus } from "./helpers/instance-ui";
 import { waitForLiveViewJoin } from "./helpers/live-view";
 import { runtimeFor } from "./helpers/runtime";
 import { signIn } from "./helpers/sign-in";
@@ -124,30 +125,3 @@ test("resize: stop → panel reprices → confirm → resized → running again"
   await page.getByTestId("start-button").click();
   await waitForStatus(page, "Running", 6 * 60_000);
 });
-
-// Poll the live badge until `want` shows; "Failed" fails fast with the
-// status message — waiting out a dead deploy proves nothing. The badge
-// reads #179's user-facing vocabulary, never the state-machine atom.
-async function waitForStatus(page: Page, want: string, timeoutMs: number) {
-  const deadline = Date.now() + timeoutMs;
-
-  while (Date.now() < deadline) {
-    const status = await page
-      .getByTestId("status-badge")
-      .innerText({ timeout: 10_000 })
-      .catch(() => null);
-
-    if (status?.trim() === want) return;
-    if (status?.trim() === "Failed") {
-      const message = await page
-        .getByTestId("status-message")
-        .textContent()
-        .catch(() => "");
-      throw new Error(`instance hit error state: ${message?.trim()}`);
-    }
-
-    await new Promise((resolve) => setTimeout(resolve, 5_000));
-  }
-
-  throw new Error(`status never reached "${want}" within ${timeoutMs}ms`);
-}

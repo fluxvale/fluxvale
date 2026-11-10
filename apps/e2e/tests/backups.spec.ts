@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { expect, test, type Page } from "@playwright/test";
+import { waitForStatus } from "./helpers/instance-ui";
 import { waitForLiveViewJoin } from "./helpers/live-view";
 import { runtimeFor } from "./helpers/runtime";
 import { signIn } from "./helpers/sign-in";
@@ -501,32 +502,6 @@ async function kubectl(args: string[]): Promise<string> {
   const { stdout } = await run("kubectl", ["--context", "k3d-fluxvale", ...args]);
 
   return stdout;
-}
-
-// Poll the live badge until `want` shows — the lifecycle specs' helper
-// (failure fails fast with the status message).
-async function waitForStatus(page: Page, want: string, timeoutMs: number) {
-  const deadline = Date.now() + timeoutMs;
-
-  while (Date.now() < deadline) {
-    const status = await page
-      .getByTestId("status-badge")
-      .innerText({ timeout: 10_000 })
-      .catch(() => null);
-
-    if (status?.trim() === want) return;
-    if (status?.trim() === "Failed") {
-      const message = await page
-        .getByTestId("status-message")
-        .textContent()
-        .catch(() => "");
-      throw new Error(`instance hit error state: ${message?.trim()}`);
-    }
-
-    await new Promise((resolve) => setTimeout(resolve, 5_000));
-  }
-
-  throw new Error(`status never reached "${want}" within ${timeoutMs}ms`);
 }
 
 function rcloneOnPath(): boolean {
