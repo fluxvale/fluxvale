@@ -1418,34 +1418,7 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
     case socket.assigns.pocketid_choice do
       %{instance: instance} ->
         socket = assign(socket, :pocketid_choice, nil)
-
-        # Fresh read before the deploy leg: the parked window is
-        # unbounded, and the instance page's own Deploy button (the
-        # place the product itself points stranded users) or another
-        # tab may have moved the instance — never force a second
-        # deploy over a live status (the deploy action's in-memory
-        # guard reads only changeset.data).
-        case Instance.get_by_id(instance.id, actor: socket.assigns.current_user) do
-          {:ok, fresh} ->
-            if fresh.status in [:pending, :error, :lost] do
-              flash = plain_deploy_flash(fresh) <> " Pocket ID sign-in was not wired."
-              deploy_created(socket, fresh, flash)
-            else
-              {:noreply,
-               socket
-               |> put_flash(:info, "#{fresh.name} is already #{fresh.status} — opening it.")
-               |> push_navigate(to: ~p"/instances/#{fresh.id}")}
-            end
-
-          # The window's other exit: the delete funnel hard-deletes a
-          # never-deployed instance — flash it, don't crash (the show
-          # page's own deploy handler posture).
-          {:error, _gone} ->
-            {:noreply,
-             socket
-             |> put_flash(:error, "That instance no longer exists — start a new deploy.")
-             |> push_navigate(to: ~p"/apps")}
-        end
+        resume_parked_deploy(socket, instance)
 
       nil ->
         {:noreply, socket}
@@ -1470,6 +1443,35 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
 
       nil ->
         {:noreply, socket}
+    end
+  end
+
+  # The parked choice's deploy leg, always on a FRESH read: the
+  # parked window is unbounded, and the instance page's own Deploy
+  # button (the place the product itself points stranded users) or
+  # another tab may have moved the instance — never force a second
+  # deploy over a live status (the deploy action's in-memory guard
+  # reads only changeset.data). The window's other exit: the delete
+  # funnel hard-deletes a never-deployed instance — flash it, don't
+  # crash (the show page's own deploy handler posture).
+  defp resume_parked_deploy(socket, instance) do
+    case Instance.get_by_id(instance.id, actor: socket.assigns.current_user) do
+      {:ok, fresh} ->
+        if fresh.status in [:pending, :error, :lost] do
+          flash = plain_deploy_flash(fresh) <> " Pocket ID sign-in was not wired."
+          deploy_created(socket, fresh, flash)
+        else
+          {:noreply,
+           socket
+           |> put_flash(:info, "#{fresh.name} is already #{fresh.status} — opening it.")
+           |> push_navigate(to: ~p"/instances/#{fresh.id}")}
+        end
+
+      {:error, _gone} ->
+        {:noreply,
+         socket
+         |> put_flash(:error, "That instance no longer exists — start a new deploy.")
+         |> push_navigate(to: ~p"/apps")}
     end
   end
 
