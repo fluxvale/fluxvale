@@ -239,7 +239,11 @@ defmodule FluxValeWeb.PersonalAccountTest do
     {:ok, view, _html} = live(conn, ~p"/settings")
 
     assert has_element?(view, "[data-testid='account-settings-nav-profile']")
+    # #635 + #484 W5: Developer and the quickstart are both ungated —
+    # actor-scoped pages that stay beside Profile when the gated pair
+    # drops.
     assert has_element?(view, "[data-testid='account-settings-nav-developer']")
+    assert has_element?(view, "[data-testid='account-settings-nav-agents']")
     refute has_element?(view, "[data-testid='account-settings-nav-access']")
     refute has_element?(view, "[data-testid='account-settings-nav-wallet']")
     refute has_element?(view, "[data-testid='account-settings-section-billing']")

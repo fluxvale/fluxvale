@@ -28,6 +28,19 @@ defmodule FluxValeWeb.DeveloperSettingsLiveTest do
 
   # -- The frame ----------------------------------------------------------
 
+  # #484 W5: the quickstart is ONE click from the mint — the link
+  # renders INSIDE the API tokens section (the scoped selector is the
+  # claim), riding the section's move from /settings/access (#638).
+  test "the tokens section links the agent quickstart one click away", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/settings/developer")
+
+    assert has_element?(view, "#api-tokens [data-testid='api-tokens-agents-link']")
+
+    link = render(element(view, "[data-testid='api-tokens-agents-link']"))
+    assert link =~ ~s(href="/settings/agents")
+    assert link =~ "AI agent"
+  end
+
   describe "the page and its navigation" do
     test "renders both sections in the account frame, Developer current in the sidebar", %{
       conn: conn

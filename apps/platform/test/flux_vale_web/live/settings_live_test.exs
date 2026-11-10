@@ -81,7 +81,7 @@ defmodule FluxValeWeb.SettingsLiveTest do
     assert profile =~ ~s(aria-current="page")
     assert profile =~ ~s(href="/settings")
 
-    for key <- ["access", "developer", "wallet"] do
+    for key <- ["access", "agents", "developer", "wallet"] do
       quiet = render(element(view, "[data-testid='account-settings-nav-#{key}']"))
       refute quiet =~ "aria-current", "#{key} should stay quiet"
     end

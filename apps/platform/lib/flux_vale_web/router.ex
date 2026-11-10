@@ -452,6 +452,11 @@ defmodule FluxValeWeb.Router do
       # contract and no named action — the device flow's
       # /settings/access/device landing redirects here at its anchor.
       live("/settings/developer", DeveloperSettingsLive)
+      # #484 W5: the agent quickstart — the remote MCP server's recipe
+      # (server URL, per-client configs, scopes, the destructive gate),
+      # one click from the developer page's tokens section and from
+      # the sidebar. Static content: no org, no reads.
+      live("/settings/agents", SettingsLive.Agents)
     end
   end
 
