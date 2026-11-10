@@ -505,8 +505,10 @@ defmodule FluxValeWeb.AdminResource do
   @doc """
   The record page's actions bar: one Edit link per permitted update
   action, one Delete button per permitted destroy action (the delete
-  opens the confirm_block; it never destroys directly). Both lists
-  empty renders nothing — the bar is absent, not an empty box.
+  opens the confirm_block; it never destroys directly), and — for a
+  business-set resource — the record's audit History deep link. Both
+  action lists empty AND no history renders nothing — the bar is
+  absent, not an empty box.
   """
 
   attr(:update_actions, :list,
@@ -519,9 +521,15 @@ defmodule FluxValeWeb.AdminResource do
     doc: "[%{name: action_name, label: label}] — one per permitted destroy action"
   )
 
+  attr(:history, :string,
+    default: nil,
+    doc: "the record's audit History link path, nil outside the business set"
+  )
+
   @spec actions_bar(map()) :: Phoenix.LiveView.Rendered.t()
   # Same empty-template nothing as new_button's empty clause.
-  def actions_bar(%{update_actions: [], destroy_actions: []} = assigns), do: ~H""
+  def actions_bar(%{update_actions: [], destroy_actions: [], history: nil} = assigns),
+    do: ~H""
 
   def actions_bar(assigns) do
     ~H"""
@@ -529,6 +537,14 @@ defmodule FluxValeWeb.AdminResource do
       class="flex flex-wrap items-center gap-3 border-t border-line pt-4"
       data-testid="admin-resource-actions"
     >
+      <.link
+        :if={@history}
+        navigate={@history}
+        data-testid="admin-resource-history"
+        class="text-sm font-medium text-link underline-offset-2 hover:underline"
+      >
+        {gettext("History")}
+      </.link>
       <.link
         :for={action <- @update_actions}
         navigate={action.path}

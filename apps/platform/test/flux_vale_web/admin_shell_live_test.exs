@@ -33,7 +33,8 @@ defmodule FluxValeWeb.AdminShellLiveTest do
     {"sizes ladder", "/admin/catalog/sizes"},
     {"wallets", "/admin/billing"},
     {"orgs", "/admin/orgs"},
-    {"resources console", "/admin/resources"}
+    {"resources console", "/admin/resources"},
+    {"audit", "/admin/audit"}
   ]
 
   # The console-lane flush test's route source (#593): the router's
@@ -252,6 +253,7 @@ defmodule FluxValeWeb.AdminShellLiveTest do
         {FluxValeWeb.AdminLive.GatewayDetail, "/admin/gateways/:id"} => {"gateways", "location"},
         {FluxValeWeb.AdminLive.StorageRequests, "/admin/storage-requests"} =>
           {"storage-requests", "page"},
+        {FluxValeWeb.AdminLive.Audit, "/admin/audit"} => {"audit", "page"},
         {FluxValeWeb.AdminLive.Resources, "/admin/resources"} => {"resources", "page"},
         {FluxValeWeb.AdminLive.Resources, "/admin/resources/:domain"} =>
           {"resources", "location"},
@@ -272,10 +274,10 @@ defmodule FluxValeWeb.AdminShellLiveTest do
 
       # The shell's full live route set: the pre-console surfaces, one
       # pair per landed section (#603 orgs, #608 gateways, #250 storage
-      # requests), and the console's six (four reads + :new + :edit). A
-      # new admin route that skips the expected map below fails the
-      # fetch, not just this count.
-      assert length(admin_routes) == 19
+      # requests), the console's six (four reads + :new + :edit), and
+      # #645's audit window. A new admin route that skips the expected
+      # map below fails the fetch, not just this count.
+      assert length(admin_routes) == 20
 
       for {mod, path} <- admin_routes do
         {key, mark} = Map.fetch!(expected, {mod, path})

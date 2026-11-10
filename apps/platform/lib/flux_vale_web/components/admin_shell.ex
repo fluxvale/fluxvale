@@ -264,7 +264,12 @@ defmodule FluxValeWeb.AdminShell do
             key: "gateways",
             label: gettext("Access gateways and domains"),
             path: ~p"/admin/gateways"
-          }
+          },
+          # #645's audit section: the paper trail's window over the
+          # business set. The browsable list rides AdminAudit's parity
+          # seam with the doctrine gate — the section and the 31
+          # cannot drift.
+          %{key: "audit", label: gettext("Audit trail"), path: ~p"/admin/audit"}
         ]
       },
       %{
