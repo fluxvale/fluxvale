@@ -26,6 +26,22 @@ defmodule FluxVale.Infrastructure.PocketId.ApiClient do
     array is primary, an object wrapper tolerated, every other shape
     degrades to "no expiry known" — a wrong guess costs a date on a
     card, nothing else.
+  - `GET /.well-known/openid-configuration` — the wiring's issuer
+    source (#597 S4, §4.4): the issuer string VERBATIM from the
+    document, fetched fresh per wiring (never cached — S3's probe
+    cache answers a different question, reachability of setup, and a
+    wizard-lifetime cache could pin an issuer the owner has since
+    changed). Keyless on purpose: the document is public, and sending
+    the admin key to an unauthenticated endpoint is exposure with no
+    benefit.
+  - `POST /api/oidc/clients` — the wiring's client mint (#597 S4,
+    §4.5). The create response is the ONLY one that reveals a secret
+    (the v2.19.2 DTOs: `credentials.secrets` is read-only on create —
+    "any value sent by a client is ignored" — and a caller-supplied
+    secret is accepted solely by the dedicated `POST .../secrets`
+    endpoint). So the mint takes the `createdSecret` the response
+    carries and hands its value straight to the caller; this module
+    never logs it (only error bodies log, and they never contain it).
   - 401 vs 403 are never folded (the Tailscale rule): 401 = the key
     was rejected (expired/revoked present identically); 403 =
     authenticated but not permitted (a non-admin user's key) —
@@ -43,13 +59,38 @@ defmodule FluxVale.Infrastructure.PocketId.ApiClient do
   # the card waits on this call synchronously.
   @timeout_milliseconds 3_000
 
+  @discovery_path "/.well-known/openid-configuration"
+  @clients_path "/api/oidc/clients"
+
   @typedoc "A non-2xx other than 401/403: the status plus a body snippet."
   @type api_error :: %{status: pos_integer(), body: String.t()}
+
+  @typedoc """
+  The minted client as the wiring needs it (#597 S4): PocketID's own
+  ids (`client_id` for admin/delete, `secret_id` for S5's rotation)
+  and the one-time `secret` — carried straight into env, never logged,
+  never persisted on a row.
+  """
+  @type created_client :: %{
+          client_id: String.t(),
+          client_name: String.t(),
+          secret_id: String.t(),
+          secret: String.t()
+        }
+
+  @typedoc "The mint's request shape: the name, the callback, PKCE on/off."
+  @type client_attrs :: %{
+          required(:name) => String.t(),
+          required(:callback_url) => String.t(),
+          required(:pkce) => boolean()
+        }
 
   @type error ::
           :unauthorized
           | :forbidden
           | :unreachable
+          | :no_issuer
+          | :no_created_secret
           | api_error()
 
   @doc """
@@ -97,9 +138,97 @@ defmodule FluxVale.Infrastructure.PocketId.ApiClient do
     end
   end
 
+  @doc """
+  The discovery document's `issuer`, VERBATIM (#597 §4.4) — the value
+  the recipe's `issuer_env` must carry (PocketID returns its own
+  `APP_URL` exactly, and consumers like Vaultwarden require issuer
+  equality). `{:error, :no_issuer}` when a 2xx document carries no
+  issuer string — answered, but broken (an unset `APP_URL`); not
+  `:unreachable`, which reserves for hosts that never answered.
+  """
+  @spec get_discovery(String.t()) :: {:ok, String.t()} | {:error, error()}
+  def get_discovery(base_url) when is_binary(base_url) do
+    req = discovery_req(base_url)
+
+    case Req.get(req, url: @discovery_path) do
+      {:ok, %Req.Response{status: status, body: body}} when status in 200..299 ->
+        issuer(body)
+
+      other ->
+        error_result(other)
+    end
+  end
+
+  @doc """
+  Mints a confidential OIDC client (`POST /api/oidc/clients`): name
+  `FluxVale · <instance name>`-shaped (the caller composes it),
+  callback, PKCE per the recipe, `isPublic` false — the env-wired
+  consumer exchanges its secret server-side. The 201's
+  `createdSecret` is the only shape that ever reveals the value (see
+  the moduledoc); a 2xx without one (`isPublic` somehow true, or the
+  instance's `AutoCreateOIDCClientSecret` disabled) is
+  `{:error, :no_created_secret}` — an honest refusal, not a client
+  the wiring cannot authenticate.
+  """
+  @spec create_client(String.t(), String.t(), client_attrs()) ::
+          {:ok, created_client()} | {:error, error()}
+  def create_client(base_url, api_key, attrs)
+      when is_binary(base_url) and is_binary(api_key) and is_map(attrs) do
+    req = new_req(base_url, api_key)
+
+    # The v2.19.2 wire shape (§2's transcript): camelCase fields, one
+    # callback, confidential (the env-wired consumer exchanges its
+    # secret server-side), pkce per the recipe.
+    wire = %{
+      "name" => attrs.name,
+      "callbackUrls" => [attrs.callback_url],
+      "isPublic" => false,
+      "pkceEnabled" => attrs.pkce
+    }
+
+    case Req.post(req, url: @clients_path, json: wire) do
+      {:ok, %Req.Response{status: status, body: body}} when status in 200..299 ->
+        created(attrs.name, body)
+
+      other ->
+        error_result(other)
+    end
+  end
+
   # ------------------------------------------------------------------
   # Plumbing
   # ------------------------------------------------------------------
+
+  # The keyless discovery request: same fail-fast posture as the keyed
+  # calls (no retries, bounded connect), but no X-API-KEY — the
+  # document is public and the key would only widen its exposure.
+  defp discovery_req(base_url) do
+    Req.new(
+      base_url: base_url,
+      retry: false,
+      connect_options: [timeout: @timeout_milliseconds]
+    )
+  end
+
+  defp issuer(%{"issuer" => issuer}) when is_binary(issuer) and issuer != "",
+    do: {:ok, issuer}
+
+  defp issuer(_answered_without_issuer), do: {:error, :no_issuer}
+
+  # The 201 body: PocketID's client id, the created secret's id (S5's
+  # rotation targets it), and the one-time secret value. The value
+  # rides the return map to the wiring's env merge — this function and
+  # its callers never log it (the module logs error bodies only).
+  defp created(name, %{
+         "id" => client_id,
+         "createdSecret" => %{"id" => secret_id, "secret" => secret}
+       })
+       when is_binary(client_id) and client_id != "" and is_binary(secret_id) and
+              secret_id != "" and is_binary(secret) and secret != "" do
+    {:ok, %{client_id: client_id, client_name: name, secret_id: secret_id, secret: secret}}
+  end
+
+  defp created(_name, _no_created_secret), do: {:error, :no_created_secret}
 
   defp new_req(base_url, api_key) do
     # retry: false — Req's default (:safe_transient) would retry a

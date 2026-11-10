@@ -7836,114 +7836,42 @@
         },
         "type": "object"
       },
-      "storage_request": {
+      "pocket_id_wiring": {
         "additionalProperties": false,
-        "description": "A \"Resource object\" representing a storage_request",
+        "description": "A \"Resource object\" representing a pocket_id_wiring",
         "properties": {
           "attributes": {
             "additionalProperties": false,
-            "description": "An attributes object for a storage_request",
+            "description": "An attributes object for a pocket_id_wiring",
             "properties": {
-              "applied_at": {
-                "anyOf": [
-                  {},
-                  {
-                    "type": "null"
-                  }
-                ],
-                "description": "Field included by default."
-              },
-              "current_storage_gb": {
-                "description": "Field included by default.",
-                "type": "integer"
-              },
-              "decided_at": {
-                "anyOf": [
-                  {},
-                  {
-                    "type": "null"
-                  }
-                ],
-                "description": "Field included by default."
-              },
               "instance_id": {
                 "description": "Field included by default.",
                 "format": "uuid",
                 "type": "string"
               },
-              "organization_id": {
+              "pocket_id_client_id": {
+                "description": "Field included by default.",
+                "type": "string"
+              },
+              "pocket_id_instance_id": {
                 "description": "Field included by default.",
                 "format": "uuid",
                 "type": "string"
               },
-              "quoted_current_cents": {
-                "anyOf": [
-                  {
-                    "nullable": true,
-                    "type": "integer"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ],
-                "description": "Field included by default."
-              },
-              "quoted_monthly_cents": {
-                "anyOf": [
-                  {
-                    "nullable": true,
-                    "type": "integer"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ],
-                "description": "Field included by default."
-              },
-              "reason": {
+              "pocket_id_secret_id": {
                 "description": "Field included by default.",
                 "type": "string"
               },
-              "rejection_reason": {
-                "anyOf": [
-                  {
-                    "nullable": true,
-                    "type": "string"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ],
+              "wired_at": {
                 "description": "Field included by default."
-              },
-              "requested_by_user_id": {
-                "description": "Field included by default.",
-                "format": "uuid",
-                "type": "string"
-              },
-              "requested_gb": {
-                "description": "Field included by default.",
-                "type": "integer"
-              },
-              "status": {
-                "description": "Field included by default.",
-                "enum": [
-                  "requested",
-                  "approved",
-                  "rejected",
-                  "applied"
-                ],
-                "type": "string"
               }
             },
             "required": [
-              "requested_gb",
-              "current_storage_gb",
-              "reason",
-              "status",
-              "requested_by_user_id",
-              "instance_id",
-              "organization_id"
+              "pocket_id_client_id",
+              "pocket_id_secret_id",
+              "pocket_id_instance_id",
+              "wired_at",
+              "instance_id"
             ],
             "type": "object"
           },
@@ -7952,39 +7880,13 @@
           },
           "relationships": {
             "additionalProperties": false,
-            "description": "A relationships object for a storage_request",
+            "description": "A relationships object for a pocket_id_wiring",
             "properties": {
               "instance": {
                 "properties": {
                   "data": {
                     "additionalProperties": false,
                     "description": "An identifier for instance",
-                    "nullable": true,
-                    "properties": {
-                      "id": {
-                        "type": "string"
-                      },
-                      "meta": {
-                        "additionalProperties": true,
-                        "type": "object"
-                      },
-                      "type": {
-                        "type": "string"
-                      }
-                    },
-                    "required": [
-                      "type",
-                      "id"
-                    ],
-                    "type": "object"
-                  }
-                }
-              },
-              "organization": {
-                "properties": {
-                  "data": {
-                    "additionalProperties": false,
-                    "description": "An identifier for organization",
                     "nullable": true,
                     "properties": {
                       "id": {
@@ -8019,665 +7921,50 @@
         ],
         "type": "object"
       },
-      "storage_request-filter": {
+      "pocket_id_wiring-type": {
         "additionalProperties": false,
-        "description": "Filters the query to results matching the given filter object",
-        "example": "",
         "properties": {
-          "and": {
-            "items": {
-              "$ref": "#/components/schemas/storage_request-filter"
-            },
-            "type": "array",
-            "uniqueItems": true
-          },
-          "applied_at": {
-            "$ref": "#/components/schemas/storage_request-filter-applied_at"
-          },
-          "current_storage_gb": {
-            "$ref": "#/components/schemas/storage_request-filter-current_storage_gb"
-          },
-          "decided_at": {
-            "$ref": "#/components/schemas/storage_request-filter-decided_at"
-          },
           "id": {
-            "$ref": "#/components/schemas/storage_request-filter-id"
-          },
-          "instance": {
-            "$ref": "#/components/schemas/instance-filter"
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Field included by default."
           },
           "instance_id": {
-            "$ref": "#/components/schemas/storage_request-filter-instance_id"
+            "description": "Field included by default.",
+            "format": "uuid",
+            "type": "string"
           },
-          "not": {
-            "$ref": "#/components/schemas/storage_request-filter"
+          "pocket_id_client_id": {
+            "description": "Field included by default.",
+            "type": "string"
           },
-          "or": {
-            "items": {
-              "$ref": "#/components/schemas/storage_request-filter"
-            },
-            "type": "array",
-            "uniqueItems": true
+          "pocket_id_instance_id": {
+            "description": "Field included by default.",
+            "format": "uuid",
+            "type": "string"
           },
-          "organization": {
-            "$ref": "#/components/schemas/organization-filter"
+          "pocket_id_secret_id": {
+            "description": "Field included by default.",
+            "type": "string"
           },
-          "organization_id": {
-            "$ref": "#/components/schemas/storage_request-filter-organization_id"
-          },
-          "quoted_current_cents": {
-            "$ref": "#/components/schemas/storage_request-filter-quoted_current_cents"
-          },
-          "quoted_monthly_cents": {
-            "$ref": "#/components/schemas/storage_request-filter-quoted_monthly_cents"
-          },
-          "reason": {
-            "$ref": "#/components/schemas/storage_request-filter-reason"
-          },
-          "rejection_reason": {
-            "$ref": "#/components/schemas/storage_request-filter-rejection_reason"
-          },
-          "requested_by_user_id": {
-            "$ref": "#/components/schemas/storage_request-filter-requested_by_user_id"
-          },
-          "requested_gb": {
-            "$ref": "#/components/schemas/storage_request-filter-requested_gb"
-          },
-          "status": {
-            "$ref": "#/components/schemas/storage_request-filter-status"
+          "wired_at": {
+            "description": "Field included by default."
           }
         },
-        "type": "deepObject"
-      },
-      "storage_request-filter-applied_at": {
-        "additionalProperties": false,
-        "properties": {
-          "eq": {},
-          "greater_than": {},
-          "greater_than_or_equal": {},
-          "in": {
-            "items": {},
-            "type": "array"
-          },
-          "is_distinct_from": {},
-          "is_nil": {
-            "type": "boolean"
-          },
-          "is_not_distinct_from": {},
-          "less_than": {},
-          "less_than_or_equal": {},
-          "not_eq": {}
-        },
-        "type": "object"
-      },
-      "storage_request-filter-current_storage_gb": {
-        "additionalProperties": false,
-        "properties": {
-          "eq": {
-            "type": "integer"
-          },
-          "greater_than": {
-            "type": "integer"
-          },
-          "greater_than_or_equal": {
-            "type": "integer"
-          },
-          "in": {
-            "items": {
-              "type": "integer"
-            },
-            "type": "array"
-          },
-          "is_distinct_from": {
-            "type": "integer"
-          },
-          "is_nil": {
-            "type": "boolean"
-          },
-          "is_not_distinct_from": {
-            "type": "integer"
-          },
-          "less_than": {
-            "type": "integer"
-          },
-          "less_than_or_equal": {
-            "type": "integer"
-          },
-          "not_eq": {
-            "type": "integer"
-          }
-        },
-        "type": "object"
-      },
-      "storage_request-filter-decided_at": {
-        "additionalProperties": false,
-        "properties": {
-          "eq": {},
-          "greater_than": {},
-          "greater_than_or_equal": {},
-          "in": {
-            "items": {},
-            "type": "array"
-          },
-          "is_distinct_from": {},
-          "is_nil": {
-            "type": "boolean"
-          },
-          "is_not_distinct_from": {},
-          "less_than": {},
-          "less_than_or_equal": {},
-          "not_eq": {}
-        },
-        "type": "object"
-      },
-      "storage_request-filter-id": {
-        "additionalProperties": false,
-        "properties": {
-          "eq": {
-            "format": "uuid",
-            "type": "string"
-          },
-          "greater_than": {
-            "format": "uuid",
-            "type": "string"
-          },
-          "greater_than_or_equal": {
-            "format": "uuid",
-            "type": "string"
-          },
-          "in": {
-            "items": {
-              "format": "uuid",
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "is_distinct_from": {
-            "format": "uuid",
-            "type": "string"
-          },
-          "is_nil": {
-            "type": "boolean"
-          },
-          "is_not_distinct_from": {
-            "format": "uuid",
-            "type": "string"
-          },
-          "less_than": {
-            "format": "uuid",
-            "type": "string"
-          },
-          "less_than_or_equal": {
-            "format": "uuid",
-            "type": "string"
-          },
-          "not_eq": {
-            "format": "uuid",
-            "type": "string"
-          }
-        },
-        "type": "object"
-      },
-      "storage_request-filter-instance_id": {
-        "additionalProperties": false,
-        "properties": {
-          "eq": {
-            "format": "uuid",
-            "type": "string"
-          },
-          "greater_than": {
-            "format": "uuid",
-            "type": "string"
-          },
-          "greater_than_or_equal": {
-            "format": "uuid",
-            "type": "string"
-          },
-          "in": {
-            "items": {
-              "format": "uuid",
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "is_distinct_from": {
-            "format": "uuid",
-            "type": "string"
-          },
-          "is_nil": {
-            "type": "boolean"
-          },
-          "is_not_distinct_from": {
-            "format": "uuid",
-            "type": "string"
-          },
-          "less_than": {
-            "format": "uuid",
-            "type": "string"
-          },
-          "less_than_or_equal": {
-            "format": "uuid",
-            "type": "string"
-          },
-          "not_eq": {
-            "format": "uuid",
-            "type": "string"
-          }
-        },
-        "type": "object"
-      },
-      "storage_request-filter-organization_id": {
-        "additionalProperties": false,
-        "properties": {
-          "eq": {
-            "format": "uuid",
-            "type": "string"
-          },
-          "greater_than": {
-            "format": "uuid",
-            "type": "string"
-          },
-          "greater_than_or_equal": {
-            "format": "uuid",
-            "type": "string"
-          },
-          "in": {
-            "items": {
-              "format": "uuid",
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "is_distinct_from": {
-            "format": "uuid",
-            "type": "string"
-          },
-          "is_nil": {
-            "type": "boolean"
-          },
-          "is_not_distinct_from": {
-            "format": "uuid",
-            "type": "string"
-          },
-          "less_than": {
-            "format": "uuid",
-            "type": "string"
-          },
-          "less_than_or_equal": {
-            "format": "uuid",
-            "type": "string"
-          },
-          "not_eq": {
-            "format": "uuid",
-            "type": "string"
-          }
-        },
-        "type": "object"
-      },
-      "storage_request-filter-quoted_current_cents": {
-        "additionalProperties": false,
-        "properties": {
-          "eq": {
-            "type": "integer"
-          },
-          "greater_than": {
-            "type": "integer"
-          },
-          "greater_than_or_equal": {
-            "type": "integer"
-          },
-          "in": {
-            "items": {
-              "type": "integer"
-            },
-            "type": "array"
-          },
-          "is_distinct_from": {
-            "type": "integer"
-          },
-          "is_nil": {
-            "type": "boolean"
-          },
-          "is_not_distinct_from": {
-            "type": "integer"
-          },
-          "less_than": {
-            "type": "integer"
-          },
-          "less_than_or_equal": {
-            "type": "integer"
-          },
-          "not_eq": {
-            "type": "integer"
-          }
-        },
-        "type": "object"
-      },
-      "storage_request-filter-quoted_monthly_cents": {
-        "additionalProperties": false,
-        "properties": {
-          "eq": {
-            "type": "integer"
-          },
-          "greater_than": {
-            "type": "integer"
-          },
-          "greater_than_or_equal": {
-            "type": "integer"
-          },
-          "in": {
-            "items": {
-              "type": "integer"
-            },
-            "type": "array"
-          },
-          "is_distinct_from": {
-            "type": "integer"
-          },
-          "is_nil": {
-            "type": "boolean"
-          },
-          "is_not_distinct_from": {
-            "type": "integer"
-          },
-          "less_than": {
-            "type": "integer"
-          },
-          "less_than_or_equal": {
-            "type": "integer"
-          },
-          "not_eq": {
-            "type": "integer"
-          }
-        },
-        "type": "object"
-      },
-      "storage_request-filter-reason": {
-        "additionalProperties": false,
-        "properties": {
-          "contains": {
-            "type": "string"
-          },
-          "eq": {
-            "type": "string"
-          },
-          "greater_than": {
-            "type": "string"
-          },
-          "greater_than_or_equal": {
-            "type": "string"
-          },
-          "ilike": {
-            "type": "string"
-          },
-          "in": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "is_distinct_from": {
-            "type": "string"
-          },
-          "is_nil": {
-            "type": "boolean"
-          },
-          "is_not_distinct_from": {
-            "type": "string"
-          },
-          "less_than": {
-            "type": "string"
-          },
-          "less_than_or_equal": {
-            "type": "string"
-          },
-          "like": {
-            "type": "string"
-          },
-          "not_eq": {
-            "type": "string"
-          },
-          "string_ends_with": {
-            "type": "string"
-          },
-          "string_starts_with": {
-            "type": "string"
-          }
-        },
-        "type": "object"
-      },
-      "storage_request-filter-rejection_reason": {
-        "additionalProperties": false,
-        "properties": {
-          "contains": {
-            "type": "string"
-          },
-          "eq": {
-            "type": "string"
-          },
-          "greater_than": {
-            "type": "string"
-          },
-          "greater_than_or_equal": {
-            "type": "string"
-          },
-          "ilike": {
-            "type": "string"
-          },
-          "in": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "is_distinct_from": {
-            "type": "string"
-          },
-          "is_nil": {
-            "type": "boolean"
-          },
-          "is_not_distinct_from": {
-            "type": "string"
-          },
-          "less_than": {
-            "type": "string"
-          },
-          "less_than_or_equal": {
-            "type": "string"
-          },
-          "like": {
-            "type": "string"
-          },
-          "not_eq": {
-            "type": "string"
-          },
-          "string_ends_with": {
-            "type": "string"
-          },
-          "string_starts_with": {
-            "type": "string"
-          }
-        },
-        "type": "object"
-      },
-      "storage_request-filter-requested_by_user_id": {
-        "additionalProperties": false,
-        "properties": {
-          "eq": {
-            "format": "uuid",
-            "type": "string"
-          },
-          "greater_than": {
-            "format": "uuid",
-            "type": "string"
-          },
-          "greater_than_or_equal": {
-            "format": "uuid",
-            "type": "string"
-          },
-          "in": {
-            "items": {
-              "format": "uuid",
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "is_distinct_from": {
-            "format": "uuid",
-            "type": "string"
-          },
-          "is_nil": {
-            "type": "boolean"
-          },
-          "is_not_distinct_from": {
-            "format": "uuid",
-            "type": "string"
-          },
-          "less_than": {
-            "format": "uuid",
-            "type": "string"
-          },
-          "less_than_or_equal": {
-            "format": "uuid",
-            "type": "string"
-          },
-          "not_eq": {
-            "format": "uuid",
-            "type": "string"
-          }
-        },
-        "type": "object"
-      },
-      "storage_request-filter-requested_gb": {
-        "additionalProperties": false,
-        "properties": {
-          "eq": {
-            "type": "integer"
-          },
-          "greater_than": {
-            "type": "integer"
-          },
-          "greater_than_or_equal": {
-            "type": "integer"
-          },
-          "in": {
-            "items": {
-              "type": "integer"
-            },
-            "type": "array"
-          },
-          "is_distinct_from": {
-            "type": "integer"
-          },
-          "is_nil": {
-            "type": "boolean"
-          },
-          "is_not_distinct_from": {
-            "type": "integer"
-          },
-          "less_than": {
-            "type": "integer"
-          },
-          "less_than_or_equal": {
-            "type": "integer"
-          },
-          "not_eq": {
-            "type": "integer"
-          }
-        },
-        "type": "object"
-      },
-      "storage_request-filter-status": {
-        "additionalProperties": false,
-        "properties": {
-          "eq": {
-            "enum": [
-              "requested",
-              "approved",
-              "rejected",
-              "applied"
-            ],
-            "type": "string"
-          },
-          "greater_than": {
-            "enum": [
-              "requested",
-              "approved",
-              "rejected",
-              "applied"
-            ],
-            "type": "string"
-          },
-          "greater_than_or_equal": {
-            "enum": [
-              "requested",
-              "approved",
-              "rejected",
-              "applied"
-            ],
-            "type": "string"
-          },
-          "in": {
-            "items": {
-              "enum": [
-                "requested",
-                "approved",
-                "rejected",
-                "applied"
-              ],
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "is_distinct_from": {
-            "enum": [
-              "requested",
-              "approved",
-              "rejected",
-              "applied"
-            ],
-            "type": "string"
-          },
-          "is_nil": {
-            "type": "boolean"
-          },
-          "is_not_distinct_from": {
-            "enum": [
-              "requested",
-              "approved",
-              "rejected",
-              "applied"
-            ],
-            "type": "string"
-          },
-          "less_than": {
-            "enum": [
-              "requested",
-              "approved",
-              "rejected",
-              "applied"
-            ],
-            "type": "string"
-          },
-          "less_than_or_equal": {
-            "enum": [
-              "requested",
-              "approved",
-              "rejected",
-              "applied"
-            ],
-            "type": "string"
-          },
-          "not_eq": {
-            "enum": [
-              "requested",
-              "approved",
-              "rejected",
-              "applied"
-            ],
-            "type": "string"
-          }
-        },
+        "required": [
+          "pocket_id_client_id",
+          "pocket_id_secret_id",
+          "pocket_id_instance_id",
+          "wired_at",
+          "instance_id"
+        ],
         "type": "object"
       },
       "user": {
@@ -13923,6 +13210,73 @@
         ]
       }
     },
+    "/api/v1/instances/{id}/connect-pocketid": {
+      "post": {
+        "callbacks": {},
+        "deprecated": false,
+        "description": "Mints a PocketID OIDC client for this instance and wires its sign-in env — #597. The instance must not be deployed yet (pending/error/lost); the PocketID instance must belong to the same org, be public, and have held-key custody.\n",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "style": "form"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/vnd.api+json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "data": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "pocket_id_instance_id": {
+                        "format": "uuid",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "pocket_id_instance_id"
+                    ],
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "data"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "description": "Request body for the /instances/:id/connect-pocketid operation on instance resource",
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/vnd.api+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/pocket_id_wiring-type"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/errors"
+          }
+        },
+        "tags": [
+          "instance"
+        ]
+      }
+    },
     "/api/v1/instances/{id}/deploy": {
       "patch": {
         "callbacks": {},
@@ -16659,613 +16013,6 @@
         ]
       }
     },
-    "/api/v1/instances/{instance_id}/storage-requests": {
-      "get": {
-        "callbacks": {},
-        "deprecated": false,
-        "description": "One instance's requests, newest first (the member list and the API route).",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "instance_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "type": "string"
-            },
-            "style": "form"
-          },
-          {
-            "description": "Filters the query to results with attributes matching the given filter object",
-            "in": "query",
-            "name": "filter",
-            "required": false,
-            "schema": {
-              "$ref": "#/components/schemas/storage_request-filter"
-            },
-            "style": "deepObject"
-          },
-          {
-            "description": "Sort order to apply to the results",
-            "explode": false,
-            "in": "query",
-            "name": "sort",
-            "required": false,
-            "schema": {
-              "pattern": "^(id|-id|\\+\\+id|--id|requested_gb|-requested_gb|\\+\\+requested_gb|--requested_gb|current_storage_gb|-current_storage_gb|\\+\\+current_storage_gb|--current_storage_gb|reason|-reason|\\+\\+reason|--reason|status|-status|\\+\\+status|--status|quoted_monthly_cents|-quoted_monthly_cents|\\+\\+quoted_monthly_cents|--quoted_monthly_cents|quoted_current_cents|-quoted_current_cents|\\+\\+quoted_current_cents|--quoted_current_cents|requested_by_user_id|-requested_by_user_id|\\+\\+requested_by_user_id|--requested_by_user_id|decided_at|-decided_at|\\+\\+decided_at|--decided_at|rejection_reason|-rejection_reason|\\+\\+rejection_reason|--rejection_reason|applied_at|-applied_at|\\+\\+applied_at|--applied_at|instance_id|-instance_id|\\+\\+instance_id|--instance_id|organization_id|-organization_id|\\+\\+organization_id|--organization_id)(,(id|-id|\\+\\+id|--id|requested_gb|-requested_gb|\\+\\+requested_gb|--requested_gb|current_storage_gb|-current_storage_gb|\\+\\+current_storage_gb|--current_storage_gb|reason|-reason|\\+\\+reason|--reason|status|-status|\\+\\+status|--status|quoted_monthly_cents|-quoted_monthly_cents|\\+\\+quoted_monthly_cents|--quoted_monthly_cents|quoted_current_cents|-quoted_current_cents|\\+\\+quoted_current_cents|--quoted_current_cents|requested_by_user_id|-requested_by_user_id|\\+\\+requested_by_user_id|--requested_by_user_id|decided_at|-decided_at|\\+\\+decided_at|--decided_at|rejection_reason|-rejection_reason|\\+\\+rejection_reason|--rejection_reason|applied_at|-applied_at|\\+\\+applied_at|--applied_at|instance_id|-instance_id|\\+\\+instance_id|--instance_id|organization_id|-organization_id|\\+\\+organization_id|--organization_id))*$",
-              "type": "string"
-            },
-            "style": "form"
-          },
-          {
-            "description": "Relationship paths to include in the response",
-            "explode": false,
-            "in": "query",
-            "name": "include",
-            "required": false,
-            "schema": {
-              "pattern": "^()(,())*$",
-              "type": "string"
-            },
-            "style": "form"
-          },
-          {
-            "description": "Limits the response fields to only those listed for each type",
-            "in": "query",
-            "name": "fields",
-            "required": false,
-            "schema": {
-              "additionalProperties": true,
-              "example": {
-                "storage_request": "id,requested_gb,current_storage_gb,reason,status,quoted_monthly_cents,quoted_current_cents,requested_by_user_id,decided_at,rejection_reason,applied_at,instance_id,organization_id"
-              },
-              "properties": {
-                "storage_request": {
-                  "description": "Comma separated field names for storage_request",
-                  "example": "id,requested_gb,current_storage_gb,reason,status,quoted_monthly_cents,quoted_current_cents,requested_by_user_id,decided_at,rejection_reason,applied_at,instance_id,organization_id",
-                  "type": "string"
-                }
-              },
-              "type": "object"
-            },
-            "style": "deepObject"
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/vnd.api+json": {
-                "schema": {
-                  "additionalProperties": false,
-                  "properties": {
-                    "data": {
-                      "description": "An array of resource objects representing a storage_request",
-                      "items": {
-                        "additionalProperties": false,
-                        "description": "A \"Resource object\" representing a storage_request",
-                        "properties": {
-                          "attributes": {
-                            "additionalProperties": false,
-                            "description": "An attributes object for a storage_request",
-                            "properties": {
-                              "applied_at": {
-                                "anyOf": [
-                                  {},
-                                  {
-                                    "type": "null"
-                                  }
-                                ],
-                                "description": "Field included by default."
-                              },
-                              "current_storage_gb": {
-                                "description": "Field included by default.",
-                                "type": "integer"
-                              },
-                              "decided_at": {
-                                "anyOf": [
-                                  {},
-                                  {
-                                    "type": "null"
-                                  }
-                                ],
-                                "description": "Field included by default."
-                              },
-                              "instance_id": {
-                                "description": "Field included by default.",
-                                "format": "uuid",
-                                "type": "string"
-                              },
-                              "organization_id": {
-                                "description": "Field included by default.",
-                                "format": "uuid",
-                                "type": "string"
-                              },
-                              "quoted_current_cents": {
-                                "anyOf": [
-                                  {
-                                    "nullable": true,
-                                    "type": "integer"
-                                  },
-                                  {
-                                    "type": "null"
-                                  }
-                                ],
-                                "description": "Field included by default."
-                              },
-                              "quoted_monthly_cents": {
-                                "anyOf": [
-                                  {
-                                    "nullable": true,
-                                    "type": "integer"
-                                  },
-                                  {
-                                    "type": "null"
-                                  }
-                                ],
-                                "description": "Field included by default."
-                              },
-                              "reason": {
-                                "description": "Field included by default.",
-                                "type": "string"
-                              },
-                              "rejection_reason": {
-                                "anyOf": [
-                                  {
-                                    "nullable": true,
-                                    "type": "string"
-                                  },
-                                  {
-                                    "type": "null"
-                                  }
-                                ],
-                                "description": "Field included by default."
-                              },
-                              "requested_by_user_id": {
-                                "description": "Field included by default.",
-                                "format": "uuid",
-                                "type": "string"
-                              },
-                              "requested_gb": {
-                                "description": "Field included by default.",
-                                "type": "integer"
-                              },
-                              "status": {
-                                "description": "Field included by default.",
-                                "enum": [
-                                  "requested",
-                                  "approved",
-                                  "rejected",
-                                  "applied"
-                                ],
-                                "type": "string"
-                              }
-                            },
-                            "required": [
-                              "requested_gb",
-                              "current_storage_gb",
-                              "reason",
-                              "status",
-                              "requested_by_user_id",
-                              "instance_id",
-                              "organization_id"
-                            ],
-                            "type": "object"
-                          },
-                          "id": {
-                            "type": "string"
-                          },
-                          "relationships": {
-                            "additionalProperties": false,
-                            "description": "A relationships object for a storage_request",
-                            "properties": {
-                              "instance": {
-                                "properties": {
-                                  "data": {
-                                    "additionalProperties": false,
-                                    "description": "An identifier for instance",
-                                    "nullable": true,
-                                    "properties": {
-                                      "id": {
-                                        "type": "string"
-                                      },
-                                      "meta": {
-                                        "additionalProperties": true,
-                                        "type": "object"
-                                      },
-                                      "type": {
-                                        "type": "string"
-                                      }
-                                    },
-                                    "required": [
-                                      "type",
-                                      "id"
-                                    ],
-                                    "type": "object"
-                                  }
-                                }
-                              },
-                              "organization": {
-                                "properties": {
-                                  "data": {
-                                    "additionalProperties": false,
-                                    "description": "An identifier for organization",
-                                    "nullable": true,
-                                    "properties": {
-                                      "id": {
-                                        "type": "string"
-                                      },
-                                      "meta": {
-                                        "additionalProperties": true,
-                                        "type": "object"
-                                      },
-                                      "type": {
-                                        "type": "string"
-                                      }
-                                    },
-                                    "required": [
-                                      "type",
-                                      "id"
-                                    ],
-                                    "type": "object"
-                                  }
-                                }
-                              }
-                            },
-                            "type": "object"
-                          },
-                          "type": {
-                            "type": "string"
-                          }
-                        },
-                        "required": [
-                          "type",
-                          "id"
-                        ],
-                        "type": "object"
-                      },
-                      "type": "array",
-                      "uniqueItems": true
-                    },
-                    "included": {
-                      "items": {
-                        "oneOf": []
-                      },
-                      "type": "array",
-                      "uniqueItems": true
-                    },
-                    "meta": {
-                      "additionalProperties": true,
-                      "type": "object"
-                    }
-                  },
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Success"
-          },
-          "default": {
-            "$ref": "#/components/responses/errors"
-          }
-        },
-        "tags": [
-          "storage_request"
-        ]
-      },
-      "post": {
-        "callbacks": {},
-        "deprecated": false,
-        "description": "A member's storage request: target above the self-service boundary, quoted, one open per instance.",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "instance_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "type": "string"
-            },
-            "style": "form"
-          },
-          {
-            "description": "Relationship paths to include in the response",
-            "explode": false,
-            "in": "query",
-            "name": "include",
-            "required": false,
-            "schema": {
-              "pattern": "^()(,())*$",
-              "type": "string"
-            },
-            "style": "form"
-          },
-          {
-            "description": "Limits the response fields to only those listed for each type",
-            "in": "query",
-            "name": "fields",
-            "required": false,
-            "schema": {
-              "additionalProperties": true,
-              "example": {
-                "storage_request": "id,requested_gb,current_storage_gb,reason,status,quoted_monthly_cents,quoted_current_cents,requested_by_user_id,decided_at,rejection_reason,applied_at,instance_id,organization_id"
-              },
-              "properties": {
-                "storage_request": {
-                  "description": "Comma separated field names for storage_request",
-                  "example": "id,requested_gb,current_storage_gb,reason,status,quoted_monthly_cents,quoted_current_cents,requested_by_user_id,decided_at,rejection_reason,applied_at,instance_id,organization_id",
-                  "type": "string"
-                }
-              },
-              "type": "object"
-            },
-            "style": "deepObject"
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/vnd.api+json": {
-              "schema": {
-                "additionalProperties": false,
-                "properties": {
-                  "data": {
-                    "additionalProperties": false,
-                    "properties": {
-                      "attributes": {
-                        "additionalProperties": false,
-                        "properties": {
-                          "reason": {
-                            "type": "string"
-                          },
-                          "requested_gb": {
-                            "type": "integer"
-                          }
-                        },
-                        "required": [
-                          "requested_gb",
-                          "reason"
-                        ],
-                        "type": "object"
-                      },
-                      "relationships": {
-                        "additionalProperties": false,
-                        "properties": {},
-                        "type": "object"
-                      },
-                      "type": {
-                        "enum": [
-                          "storage_request"
-                        ]
-                      }
-                    },
-                    "type": "object"
-                  }
-                },
-                "required": [
-                  "data"
-                ],
-                "type": "object"
-              }
-            }
-          },
-          "description": "Request body for the /instances/:instance_id/storage-requests operation on storage_request resource",
-          "required": true
-        },
-        "responses": {
-          "201": {
-            "content": {
-              "application/vnd.api+json": {
-                "schema": {
-                  "additionalProperties": false,
-                  "properties": {
-                    "data": {
-                      "additionalProperties": false,
-                      "description": "A \"Resource object\" representing a storage_request",
-                      "properties": {
-                        "attributes": {
-                          "additionalProperties": false,
-                          "description": "An attributes object for a storage_request",
-                          "properties": {
-                            "applied_at": {
-                              "anyOf": [
-                                {},
-                                {
-                                  "type": "null"
-                                }
-                              ],
-                              "description": "Field included by default."
-                            },
-                            "current_storage_gb": {
-                              "description": "Field included by default.",
-                              "type": "integer"
-                            },
-                            "decided_at": {
-                              "anyOf": [
-                                {},
-                                {
-                                  "type": "null"
-                                }
-                              ],
-                              "description": "Field included by default."
-                            },
-                            "instance_id": {
-                              "description": "Field included by default.",
-                              "format": "uuid",
-                              "type": "string"
-                            },
-                            "organization_id": {
-                              "description": "Field included by default.",
-                              "format": "uuid",
-                              "type": "string"
-                            },
-                            "quoted_current_cents": {
-                              "anyOf": [
-                                {
-                                  "nullable": true,
-                                  "type": "integer"
-                                },
-                                {
-                                  "type": "null"
-                                }
-                              ],
-                              "description": "Field included by default."
-                            },
-                            "quoted_monthly_cents": {
-                              "anyOf": [
-                                {
-                                  "nullable": true,
-                                  "type": "integer"
-                                },
-                                {
-                                  "type": "null"
-                                }
-                              ],
-                              "description": "Field included by default."
-                            },
-                            "reason": {
-                              "description": "Field included by default.",
-                              "type": "string"
-                            },
-                            "rejection_reason": {
-                              "anyOf": [
-                                {
-                                  "nullable": true,
-                                  "type": "string"
-                                },
-                                {
-                                  "type": "null"
-                                }
-                              ],
-                              "description": "Field included by default."
-                            },
-                            "requested_by_user_id": {
-                              "description": "Field included by default.",
-                              "format": "uuid",
-                              "type": "string"
-                            },
-                            "requested_gb": {
-                              "description": "Field included by default.",
-                              "type": "integer"
-                            },
-                            "status": {
-                              "description": "Field included by default.",
-                              "enum": [
-                                "requested",
-                                "approved",
-                                "rejected",
-                                "applied"
-                              ],
-                              "type": "string"
-                            }
-                          },
-                          "required": [
-                            "requested_gb",
-                            "current_storage_gb",
-                            "reason",
-                            "status",
-                            "requested_by_user_id",
-                            "instance_id",
-                            "organization_id"
-                          ],
-                          "type": "object"
-                        },
-                        "id": {
-                          "type": "string"
-                        },
-                        "relationships": {
-                          "additionalProperties": false,
-                          "description": "A relationships object for a storage_request",
-                          "properties": {
-                            "instance": {
-                              "properties": {
-                                "data": {
-                                  "additionalProperties": false,
-                                  "description": "An identifier for instance",
-                                  "nullable": true,
-                                  "properties": {
-                                    "id": {
-                                      "type": "string"
-                                    },
-                                    "meta": {
-                                      "additionalProperties": true,
-                                      "type": "object"
-                                    },
-                                    "type": {
-                                      "type": "string"
-                                    }
-                                  },
-                                  "required": [
-                                    "type",
-                                    "id"
-                                  ],
-                                  "type": "object"
-                                }
-                              }
-                            },
-                            "organization": {
-                              "properties": {
-                                "data": {
-                                  "additionalProperties": false,
-                                  "description": "An identifier for organization",
-                                  "nullable": true,
-                                  "properties": {
-                                    "id": {
-                                      "type": "string"
-                                    },
-                                    "meta": {
-                                      "additionalProperties": true,
-                                      "type": "object"
-                                    },
-                                    "type": {
-                                      "type": "string"
-                                    }
-                                  },
-                                  "required": [
-                                    "type",
-                                    "id"
-                                  ],
-                                  "type": "object"
-                                }
-                              }
-                            }
-                          },
-                          "type": "object"
-                        },
-                        "type": {
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "type",
-                        "id"
-                      ],
-                      "type": "object"
-                    },
-                    "included": {
-                      "items": {
-                        "oneOf": []
-                      },
-                      "type": "array",
-                      "uniqueItems": true
-                    },
-                    "meta": {
-                      "additionalProperties": true,
-                      "type": "object"
-                    }
-                  }
-                }
-              }
-            },
-            "description": "Success"
-          },
-          "default": {
-            "$ref": "#/components/responses/errors"
-          }
-        },
-        "tags": [
-          "storage_request"
-        ]
-      }
-    },
     "/api/v1/me": {
       "get": {
         "callbacks": {},
@@ -18206,272 +16953,6 @@
         },
         "tags": [
           "wallet"
-        ]
-      }
-    },
-    "/api/v1/storage-requests/{id}": {
-      "get": {
-        "callbacks": {},
-        "deprecated": false,
-        "description": "One request by id (the API's single read).",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "type": "string"
-            },
-            "style": "form"
-          },
-          {
-            "description": "Relationship paths to include in the response",
-            "explode": false,
-            "in": "query",
-            "name": "include",
-            "required": false,
-            "schema": {
-              "pattern": "^()(,())*$",
-              "type": "string"
-            },
-            "style": "form"
-          },
-          {
-            "description": "Limits the response fields to only those listed for each type",
-            "in": "query",
-            "name": "fields",
-            "required": false,
-            "schema": {
-              "additionalProperties": true,
-              "example": {
-                "storage_request": "id,requested_gb,current_storage_gb,reason,status,quoted_monthly_cents,quoted_current_cents,requested_by_user_id,decided_at,rejection_reason,applied_at,instance_id,organization_id"
-              },
-              "properties": {
-                "storage_request": {
-                  "description": "Comma separated field names for storage_request",
-                  "example": "id,requested_gb,current_storage_gb,reason,status,quoted_monthly_cents,quoted_current_cents,requested_by_user_id,decided_at,rejection_reason,applied_at,instance_id,organization_id",
-                  "type": "string"
-                }
-              },
-              "type": "object"
-            },
-            "style": "deepObject"
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/vnd.api+json": {
-                "schema": {
-                  "additionalProperties": false,
-                  "properties": {
-                    "data": {
-                      "additionalProperties": false,
-                      "description": "A \"Resource object\" representing a storage_request",
-                      "properties": {
-                        "attributes": {
-                          "additionalProperties": false,
-                          "description": "An attributes object for a storage_request",
-                          "properties": {
-                            "applied_at": {
-                              "anyOf": [
-                                {},
-                                {
-                                  "type": "null"
-                                }
-                              ],
-                              "description": "Field included by default."
-                            },
-                            "current_storage_gb": {
-                              "description": "Field included by default.",
-                              "type": "integer"
-                            },
-                            "decided_at": {
-                              "anyOf": [
-                                {},
-                                {
-                                  "type": "null"
-                                }
-                              ],
-                              "description": "Field included by default."
-                            },
-                            "instance_id": {
-                              "description": "Field included by default.",
-                              "format": "uuid",
-                              "type": "string"
-                            },
-                            "organization_id": {
-                              "description": "Field included by default.",
-                              "format": "uuid",
-                              "type": "string"
-                            },
-                            "quoted_current_cents": {
-                              "anyOf": [
-                                {
-                                  "nullable": true,
-                                  "type": "integer"
-                                },
-                                {
-                                  "type": "null"
-                                }
-                              ],
-                              "description": "Field included by default."
-                            },
-                            "quoted_monthly_cents": {
-                              "anyOf": [
-                                {
-                                  "nullable": true,
-                                  "type": "integer"
-                                },
-                                {
-                                  "type": "null"
-                                }
-                              ],
-                              "description": "Field included by default."
-                            },
-                            "reason": {
-                              "description": "Field included by default.",
-                              "type": "string"
-                            },
-                            "rejection_reason": {
-                              "anyOf": [
-                                {
-                                  "nullable": true,
-                                  "type": "string"
-                                },
-                                {
-                                  "type": "null"
-                                }
-                              ],
-                              "description": "Field included by default."
-                            },
-                            "requested_by_user_id": {
-                              "description": "Field included by default.",
-                              "format": "uuid",
-                              "type": "string"
-                            },
-                            "requested_gb": {
-                              "description": "Field included by default.",
-                              "type": "integer"
-                            },
-                            "status": {
-                              "description": "Field included by default.",
-                              "enum": [
-                                "requested",
-                                "approved",
-                                "rejected",
-                                "applied"
-                              ],
-                              "type": "string"
-                            }
-                          },
-                          "required": [
-                            "requested_gb",
-                            "current_storage_gb",
-                            "reason",
-                            "status",
-                            "requested_by_user_id",
-                            "instance_id",
-                            "organization_id"
-                          ],
-                          "type": "object"
-                        },
-                        "id": {
-                          "type": "string"
-                        },
-                        "relationships": {
-                          "additionalProperties": false,
-                          "description": "A relationships object for a storage_request",
-                          "properties": {
-                            "instance": {
-                              "properties": {
-                                "data": {
-                                  "additionalProperties": false,
-                                  "description": "An identifier for instance",
-                                  "nullable": true,
-                                  "properties": {
-                                    "id": {
-                                      "type": "string"
-                                    },
-                                    "meta": {
-                                      "additionalProperties": true,
-                                      "type": "object"
-                                    },
-                                    "type": {
-                                      "type": "string"
-                                    }
-                                  },
-                                  "required": [
-                                    "type",
-                                    "id"
-                                  ],
-                                  "type": "object"
-                                }
-                              }
-                            },
-                            "organization": {
-                              "properties": {
-                                "data": {
-                                  "additionalProperties": false,
-                                  "description": "An identifier for organization",
-                                  "nullable": true,
-                                  "properties": {
-                                    "id": {
-                                      "type": "string"
-                                    },
-                                    "meta": {
-                                      "additionalProperties": true,
-                                      "type": "object"
-                                    },
-                                    "type": {
-                                      "type": "string"
-                                    }
-                                  },
-                                  "required": [
-                                    "type",
-                                    "id"
-                                  ],
-                                  "type": "object"
-                                }
-                              }
-                            }
-                          },
-                          "type": "object"
-                        },
-                        "type": {
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "type",
-                        "id"
-                      ],
-                      "type": "object"
-                    },
-                    "included": {
-                      "items": {
-                        "oneOf": []
-                      },
-                      "type": "array",
-                      "uniqueItems": true
-                    },
-                    "meta": {
-                      "additionalProperties": true,
-                      "type": "object"
-                    }
-                  }
-                }
-              }
-            },
-            "description": "Success"
-          },
-          "default": {
-            "$ref": "#/components/responses/errors"
-          }
-        },
-        "tags": [
-          "storage_request"
         ]
       }
     },
