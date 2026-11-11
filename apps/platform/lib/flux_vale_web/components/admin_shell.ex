@@ -269,7 +269,9 @@ defmodule FluxValeWeb.AdminShell do
           # business set. The browsable list rides AdminAudit's parity
           # seam with the doctrine gate — the section and the 31
           # cannot drift.
-          %{key: "audit", label: gettext("Audit trail"), path: ~p"/admin/audit"}
+          %{key: "audit", label: gettext("Audit trail"), path: ~p"/admin/audit"},
+          # #702's health section (ADR-0050): the instance fleet widget.
+          %{key: "health", label: gettext("Health"), path: ~p"/admin/health"}
         ]
       },
       %{

@@ -681,12 +681,12 @@ msgstr ""
 msgid "Admin"
 msgstr ""
 
-#: lib/flux_vale_web/components/admin_shell.ex:300
+#: lib/flux_vale_web/components/admin_shell.ex:302
 #, elixir-autogen, elixir-format
 msgid "AshAdmin"
 msgstr ""
 
-#: lib/flux_vale_web/components/admin_shell.ex:289
+#: lib/flux_vale_web/components/admin_shell.ex:291
 #, elixir-autogen, elixir-format
 msgid "Deep debugging"
 msgstr ""
@@ -697,7 +697,7 @@ msgstr ""
 msgid "Feedback moderation"
 msgstr ""
 
-#: lib/flux_vale_web/components/admin_shell.ex:301
+#: lib/flux_vale_web/components/admin_shell.ex:303
 #, elixir-autogen, elixir-format
 msgid "LiveDashboard"
 msgstr ""
@@ -707,6 +707,7 @@ msgstr ""
 #: lib/flux_vale_web/live/admin_live/catalog.ex:52
 #: lib/flux_vale_web/live/admin_live/gateway_detail.ex:320
 #: lib/flux_vale_web/live/admin_live/gateways.ex:361
+#: lib/flux_vale_web/live/admin_live/health.ex:47
 #: lib/flux_vale_web/live/admin_live/moderation.ex:1177
 #: lib/flux_vale_web/live/admin_live/org_detail.ex:441
 #: lib/flux_vale_web/live/admin_live/orgs.ex:346
@@ -733,7 +734,7 @@ msgstr ""
 msgid "People and invites"
 msgstr ""
 
-#: lib/flux_vale_web/components/admin_shell.ex:296
+#: lib/flux_vale_web/components/admin_shell.ex:298
 #, elixir-autogen, elixir-format
 msgid "The generated tools. They run as trusted superuser without the resource policies. For emergencies and data surgery."
 msgstr ""
@@ -1079,6 +1080,7 @@ msgstr ""
 
 #: lib/flux_vale_web/components/catalog_page_components.ex:294
 #: lib/flux_vale_web/live/admin_live/catalog.ex:98
+#: lib/flux_vale_web/live/admin_live/health.ex:81
 #, elixir-autogen, elixir-format
 msgid "Version"
 msgstr ""
@@ -2221,13 +2223,13 @@ msgstr ""
 msgid "Previous"
 msgstr ""
 
-#: lib/flux_vale_web/components/admin_shell.ex:284
+#: lib/flux_vale_web/components/admin_shell.ex:286
 #: lib/flux_vale_web/live/admin_live/resources.ex:1113
 #, elixir-autogen, elixir-format
 msgid "Resource console"
 msgstr ""
 
-#: lib/flux_vale_web/components/admin_shell.ex:281
+#: lib/flux_vale_web/components/admin_shell.ex:283
 #, elixir-autogen, elixir-format
 msgid "Resources"
 msgstr ""
@@ -3668,6 +3670,7 @@ msgstr ""
 
 #: lib/flux_vale_web/live/admin_live/audit.ex:518
 #: lib/flux_vale_web/live/admin_live/audit.ex:523
+#: lib/flux_vale_web/live/admin_live/health.ex:143
 #, elixir-autogen, elixir-format
 msgid "System"
 msgstr ""
@@ -3796,4 +3799,39 @@ msgstr ""
 #: lib/flux_vale_web/live/admin_live/org_detail.ex:405
 #, elixir-autogen, elixir-format
 msgid "status"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/health.ex:94
+#, elixir-autogen, elixir-format
+msgid "1 always-on"
+msgid_plural "%{count} always-on"
+msgstr[0] ""
+msgstr[1] ""
+
+#: lib/flux_vale_web/live/admin_live/health.ex:91
+#, elixir-autogen, elixir-format
+msgid "1 instance"
+msgid_plural "%{count} instances"
+msgstr[0] ""
+msgstr[1] ""
+
+#: lib/flux_vale_web/live/admin_live/health.ex:75
+#, elixir-autogen, elixir-format
+msgid "Env"
+msgstr ""
+
+#: lib/flux_vale_web/components/admin_shell.ex:274
+#: lib/flux_vale_web/live/admin_live/health.ex:49
+#, elixir-autogen, elixir-format
+msgid "Health"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/health.ex:112
+#, elixir-autogen, elixir-format
+msgid "Recent deploys"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/health.ex:52
+#, elixir-autogen, elixir-format
+msgid "The instance fleet at a glance — the build this platform runs, the status spread, and the newest deploys."
 msgstr ""

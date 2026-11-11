@@ -603,6 +603,13 @@ defmodule FluxValeWeb.Router do
       # VersionMixin) with the platform-admin actor — the mixin
       # decides, never the UI.
       live("/audit", FluxValeWeb.AdminLive.Audit, :index)
+
+      # The health section (#702, ADR-0050): the instance fleet at a
+      # glance — build stamp, status spread, the newest deploys. Before
+      # the generated-tool mounts below: those carry segment wildcards
+      # and router clauses compile in source order (the ORDER MATTERS
+      # note on the dashboard mount).
+      live("/health", FluxValeWeb.AdminLive.Health)
     end
 
     # LiveDashboard on the debug subpath (Am. 3): this node's BEAM and
