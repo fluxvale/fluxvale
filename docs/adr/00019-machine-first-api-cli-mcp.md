@@ -138,6 +138,14 @@ dump (the CLI's approach — the provider maps hand-written schema
 semantics, not raw API shapes); revisit if schema drift pain says
 otherwise.
 
+> **Straggler note (2026-11-11)**: the deferred-repos decision above
+> fired early — [ADR-0051](00051-tfprovider-repo-extraction.md)
+> extracts the provider to `fluxvale/terraform-provider-fluxvale`
+> with the registry-readiness package (vX.Y.Z tags, GPG-signed
+> versioned checksums + manifest assets). The registry deferral
+> trigger ("a second user") was replaced by the owner's commitment to
+> list properly.
+
 ## Amendment 5 (2026-11-09): the MCP server is Rust — standalone, elicitation-gated, subdomain-hosted
 
 The standalone Rust server (`apps/mcp`, rmcp 3.9.0, streamable HTTP,

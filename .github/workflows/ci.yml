@@ -30,7 +30,6 @@ jobs:
       agents: ${{ steps.filter.outputs.agents }}
       e2e: ${{ steps.filter.outputs.e2e }}
       cli: ${{ steps.filter.outputs.cli }}
-      tfprovider: ${{ steps.filter.outputs.tfprovider }}
       mcp: ${{ steps.filter.outputs.mcp }}
     steps:
       # persist-credentials: false — later steps run no git-authenticated ops
@@ -94,12 +93,6 @@ jobs:
               # script, the 4-leg matrix) — a bump here is a cli change,
               # same rule as e2e-nightly.yml above.
               - ".github/workflows/cli-release.yml"
-            tfprovider:
-              - "apps/tfprovider/**"
-              # The lane parses its Go version from mise.toml — a bump
-              # there must run the lane that consumes it.
-              - "mise.toml"
-              - ".github/workflows/ci.yml"
             mcp:
               - "apps/mcp/**"
               # .dockerignore is a build input for the mcp image — a
@@ -559,109 +552,6 @@ jobs:
       # crates/ coverage rides the `cli` flag (codecov.yml paths) and
       # already has a producer in cli-gates — a crates/** change fires
       # both lanes, so no second report here.
-
-  # The Terraform/OpenTofu provider lane (ADR-0019 Am. 4): gofmt + vet
-  # + test + build, path-gated like every other lane. Go is parsed from
-  # mise.toml — the single source of truth, same as the BEAM lane's
-  # parse step.
-  tfprovider:
-    name: Terraform provider CI
-    needs: check-changes
-    if: needs.check-changes.outputs.tfprovider == 'true'
-    runs-on: ubuntu-24.04
-    # The gates + the real-tofu smoke (a real OpenTofu CLI driving the
-    # real compiled binary: plan, apply, destroy — ~1 min with the
-    # toolchain download; the 10s of the gateway-observe poll inside).
-    # 25 is a ceiling, not a target.
-    timeout-minutes: 25
-    env:
-      # mise x must USE the installed tofu without auto-installing the
-      # config's other pins (erlang = source compile, 15+ min — the
-      # abandoned CI path in AGENTS.md)
-      MISE_AUTO_INSTALL: "0"
-    defaults:
-      run:
-        working-directory: apps/tfprovider
-    steps:
-      # persist-credentials: false — later steps run no git-authenticated ops
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      # mise.toml is the single source of truth for tool versions; parse
-      # (not install) so CI and local dev can't drift. NB: runs at repo
-      # root — the job's working-directory default is apps/tfprovider.
-      - name: Read Go version from mise.toml
-        id: go
-        working-directory: .
-        run: |
-          version="$(sed -n 's/^go *= *"\([^"]*\)".*/\1/p' mise.toml)"
-          echo "go=$version"
-          test -n "$version"
-          echo "go=$version" >>"$GITHUB_OUTPUT"
-
-      # v7.0.0 — pinned to commit: mutable tags execute unreviewed code.
-      # cache-dependency-path: no root go.sum exists, and without this
-      # input setup-go looks for one at the workspace root, fails, and
-      # downgrades to a WARNING — the module cache silently never
-      # saves, every run a cold full-tree download.
-      - name: Setup Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version: ${{ steps.go.outputs.go }}
-          cache-dependency-path: apps/tfprovider/go.sum
-
-      # Fails on any output: the files gofmt would rewrite.
-      - name: gofmt
-        run: |
-          out="$(gofmt -l .)"
-          [ -z "$out" ] || { echo "$out"; exit 1; }
-
-      - run: go vet ./...
-
-      - run: go test ./...
-
-      - run: go build ./...
-
-      # The release-tag gate (#482 P7) proven here on every
-      # provider-touching PR — the same shape the cli lane runs for
-      # its script (the test-script shape the linked-issues lane uses).
-      - run: ./scripts/test-check-tag-version.sh
-
-      - run: shellcheck scripts/*.sh
-
-      # The real-tofu smoke (TFPROVIDER_E2E=1 below): a real OpenTofu
-      # CLI driving the real compiled binary — the gate that catches
-      # what in-process tests cannot (it caught the reserved-`provider`
-      # root attribute and the plan-time-unknown organization seed on
-      # its first runs). Same pins + install shape as the e2e job:
-      # binaries verified against mise.lock; install the ONE tool this
-      # job needs, never the whole config. The cached pre-stage
-      # (2026-11-09) rides ahead of mise-action for the same reason as
-      # the e2e job — keep the two version pins bumped together.
-      - uses: ./.github/actions/mise
-        with:
-          version: "2026.9.14"
-          cache-suffix: tfprovider
-      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
-        with:
-          version: 2026.9.14
-          install: false
-      - run: mise install opentofu
-
-      # Examples are user-facing copy-paste: formatting is part of the
-      # contract. Offline — no provider install, just the formatter.
-      - name: tofu fmt (examples)
-        run: mise x -- tofu fmt -check -recursive examples
-
-      # Offline (the fake is an httptest server; dev_overrides needs no
-      # registry): plan → apply → destroy against the freshly built
-      # binary. See internal/provider/e2e_test.go for what this gate is
-      # for.
-      - name: Real-tofu smoke
-        env:
-          TFPROVIDER_E2E: "1"
-        run: mise x -- go test ./internal/provider -run TestRealTofuSmoke -count=1 -v
 
   # Conventions enforcement (docs/adr/README.md): amended ADRs must be
   # marked in the index — 9 of 14 were unmarked when this landed (#36
@@ -1418,7 +1308,7 @@ jobs:
   # checks run — a green umbrella that proved nothing.
   wait-for-ci:
     name: Wait for CI
-    needs: [check-changes, platform, cli-gates, cli-matrix, mcp-gates, mcp-image, tfprovider, docs-lint, skills-lint, linked-issues, e2e, deploy-image, watch-deploy, readiness-gate]
+    needs: [check-changes, platform, cli-gates, cli-matrix, mcp-gates, mcp-image, docs-lint, skills-lint, linked-issues, e2e, deploy-image, watch-deploy, readiness-gate]
 
     if: always()
     runs-on: ubuntu-24.04
