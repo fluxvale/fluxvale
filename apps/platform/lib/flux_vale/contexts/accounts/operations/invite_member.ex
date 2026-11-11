@@ -46,7 +46,7 @@ defmodule FluxVale.Accounts.Operations.InviteMember do
   defp land_invite(owner, org, email, raw) do
     case create_invite(owner, org, email, raw) do
       {:ok, invite} ->
-        deliver(invite, raw)
+        deliver(owner, invite, raw)
 
       # The create's owner policy refused the caller: mutate nothing —
       # the supersede below must never run on the refusal path (a
@@ -66,7 +66,7 @@ defmodule FluxVale.Accounts.Operations.InviteMember do
 
         case create_invite(owner, org, email, raw) do
           {:ok, invite} ->
-            deliver(invite, raw)
+            deliver(owner, invite, raw)
 
           # A raced duplicate's retry loses the index a second time —
           # reachable only when another owner's fresh invite lands
@@ -89,8 +89,17 @@ defmodule FluxVale.Accounts.Operations.InviteMember do
     end
   end
 
-  defp deliver(invite, raw) do
+  defp deliver(owner, invite, raw) do
+    # ADR-0049 S1b: the invite row is committed — both create arms land
+    # here — and the inviter is the acting user. Only the org id rides:
+    # the raw token is a credential and the invitee's email is PII (the
+    # PostHogRequestContext posture).
+    FluxVale.Analytics.capture("org member invited", owner.id, %{
+      organization_id: invite.organization_id
+    })
+
     InviteMail.deliver(invite, raw)
+
     {:ok, invite}
   end
 

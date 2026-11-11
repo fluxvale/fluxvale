@@ -6,6 +6,7 @@ defmodule FluxVale.Billing.Operations.CompleteTopupTest do
   """
 
   use FluxVale.DataCase, async: true
+  use Mimic
 
   alias FluxVale.Accounts.Organization
   alias FluxVale.Billing
@@ -57,6 +58,16 @@ defmodule FluxVale.Billing.Operations.CompleteTopupTest do
     topup = topup!(500, payment_request_id: "pr_1")
 
     outcome = outcome(topup)
+
+    # ADR-0049 S1b: the webhook path has no actor — nil id; the amount
+    # is the net credit in major units and the provider is the
+    # idempotency key's prefix (never the payment reference).
+    expect(FluxVale.Analytics, :capture, fn "wallet topped up", nil, props ->
+      assert props == %{amount: 5.0, provider: "hitpay"}
+
+      :ok
+    end)
+
     assert {:ok, completed} = Billing.complete_topup(outcome)
     assert completed.status == :completed
     assert completed.payment_id == "pay_1"

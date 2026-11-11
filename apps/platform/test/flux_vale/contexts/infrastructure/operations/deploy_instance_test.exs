@@ -167,6 +167,14 @@ defmodule FluxVale.Infrastructure.Operations.DeployInstanceTest do
         {:ok, %{}}
       end)
 
+      # ADR-0049 S1b: the deploy trigger is a background worker — the
+      # capture is anonymous (nil), and the slug is the only prop.
+      expect(FluxVale.Analytics, :capture, fn "instance deployed", nil, props ->
+        assert props == %{instance_slug: instance.slug}
+
+        :ok
+      end)
+
       assert {:ok, updated} = DeployInstance.call(instance)
       assert updated.status == :starting
       assert updated.namespace == ns

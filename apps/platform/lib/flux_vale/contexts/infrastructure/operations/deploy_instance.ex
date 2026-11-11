@@ -116,6 +116,12 @@ defmodule FluxVale.Infrastructure.Operations.DeployInstance do
 
     case apply_resources(kubeconfig, namespace, instance) do
       :ok ->
+        # ADR-0049 S1b: the deploy trigger is a background worker and
+        # the instance carries no user FK — the event is anonymous.
+        FluxVale.Analytics.capture("instance deployed", nil, %{
+          instance_slug: instance.slug
+        })
+
         InstanceK8s.update_status(
           instance,
           :starting,

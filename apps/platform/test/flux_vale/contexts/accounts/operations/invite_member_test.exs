@@ -22,6 +22,16 @@ defmodule FluxVale.Accounts.Operations.InviteMemberTest do
     test "creates an open :member invite and mails the link" do
       owner = AccountsFixtures.user!()
       org = AccountsFixtures.owned_org!(owner)
+      owner_id = owner.id
+
+      # ADR-0049 S1b: the inviter is the acting user and only the org
+      # id rides — the token is a credential, the email is PII (the
+      # PostHogRequestContext posture).
+      expect(FluxVale.Analytics, :capture, fn "org member invited", ^owner_id, props ->
+        assert props == %{organization_id: org.id}
+
+        :ok
+      end)
 
       assert {:ok, invite} = Accounts.invite_member(owner, org, "newmate@fluxvale.test")
 

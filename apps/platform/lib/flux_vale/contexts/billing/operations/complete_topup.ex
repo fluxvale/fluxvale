@@ -180,6 +180,18 @@ defmodule FluxVale.Billing.Operations.CompleteTopup do
 
     case result do
       %Ash.BulkResult{status: :success, records: [completed]} ->
+        # ADR-0049 S1b: the webhook/reconciliation path has no actor —
+        # the event rides nil (anonymous); the buyer's email never
+        # does. Amount is the net credit in major units; the provider
+        # name is the idempotency key's prefix — the payment reference
+        # after it never rides (the PostHogRequestContext posture).
+        [provider | _rest] = String.split(outcome.idempotency_key, ":")
+
+        FluxVale.Analytics.capture("wallet topped up", nil, %{
+          amount: topup.amount_cents / 100,
+          provider: provider
+        })
+
         {:ok, completed}
 
       %Ash.BulkResult{status: :success, records: []} ->

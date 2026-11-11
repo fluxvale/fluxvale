@@ -7,6 +7,7 @@ defmodule FluxVale.Infrastructure.Operations.WakeInstanceTest do
   alias FluxVale.Accounts.Organization
   alias FluxVale.Billing
   alias FluxVale.Clients.K8s
+  alias FluxVale.Clients.K8s.Error
   alias FluxVale.Clients.K8s.Resources.Deployment
   alias FluxVale.Identity.User
   alias FluxVale.Infrastructure.Instance
@@ -49,8 +50,40 @@ defmodule FluxVale.Infrastructure.Operations.WakeInstanceTest do
     instance = sleeping_instance!(owner)
     BillingFixtures.funded_wallet!(org: org_of(instance))
 
+    # ADR-0049 S1b: the edge wake is anonymous — nil id; the catalog
+    # slug rides (the #232 wake-metric label's value).
+    {:ok, loaded} = Ash.load(instance, [app_version: :app], authorize?: false)
+    app_slug = loaded.app_version.app.slug
+
+    expect(FluxVale.Analytics, :capture, fn "instance wake triggered", nil, props ->
+      assert props == %{app_slug: app_slug}
+
+      :ok
+    end)
+
     assert {:ok, waking} = WakeInstance.call(instance)
     assert waking.status == :starting
+  end
+
+  test "a failed start is no wake — the error propagates and no event fires" do
+    stub_start()
+
+    expect(Deployment, :scale, fn _kc, _ns, _n, 1 ->
+      {:error, Error.connection_error("cluster on fire")}
+    end)
+
+    # ADR-0049 S1b: only a taken wake fires the event — a failed scale
+    # lands :error (StartInstance's {:ok, either-way} contract) and
+    # analytics never touch it.
+    reject(FluxVale.Analytics, :capture, 3)
+
+    owner = user()
+    instance = sleeping_instance!(owner)
+    BillingFixtures.funded_wallet!(org: org_of(instance))
+
+    assert {:ok, errored} = WakeInstance.call(instance)
+    assert errored.status == :error
+    assert errored.failure_reason == :start_failed
   end
 
   # The org starts with the JIT welcome grant (#122) — the sleeping
