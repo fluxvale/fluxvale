@@ -1030,6 +1030,86 @@ jobs:
           name: platform-log-${{ matrix.leg.name }}
           path: platform-log-${{ matrix.leg.name }}.txt
 
+  # PR-side twin of deploy-image below: the same release build, minus
+  # the push. The Nov 11 P0 class (#723 -> #724): `mix release`
+  # serializes config terms no PR job executes in that shape, so a
+  # Regex without the /E modifier passed every PR check and reddened
+  # main's release build minutes after merge — the exact docker build
+  # step this job runs, moved to the PR where the fix belongs. Same
+  # Dockerfile, same prebuilt staging + content sync; NO GHCR login
+  # and no packages:write — nothing to leak, no registry quota, and a
+  # forked PR event holds no credentials at all. Fires on the platform
+  # filter (every glob in it is an image-build input: app tree, the
+  # synced content trees, the sync script, mise pins, this file), so a
+  # docs-only PR — docs/** minus docs/public + docs/blog — pays
+  # nothing. Needs platform itself, like mcp-image needs mcp-gates:
+  # never burn a ~10 min release build on a PR the vetting lane
+  # already reddened (#510's queue-slot discipline).
+  platform-image:
+    name: Build release image (PR)
+    needs: [check-changes, platform]
+    if: github.event_name == 'pull_request' && needs.check-changes.outputs.platform == 'true'
+    runs-on: ubuntu-24.04
+    # Same ceiling as both image siblings: the docker build is the
+    # bounded work (deps + app compile + release, ~10 min warm off
+    # main's gha layers); a hang cancels, never sits out the night.
+    timeout-minutes: 30
+    steps:
+      # v7.0.1 — pinned to commit: mutable tags execute unreviewed code
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      # Same assert deploy-image runs (duplicated inline, not shared:
+      # the push job stays untouched) — today a BASE_IMAGE pin drift
+      # (Dockerfile vs Tiltfile vs mise.toml) costs a red main deploy
+      # to discover; here it reds the PR that caused it.
+      - name: Assert BASE_IMAGE matches Tiltfile + mise.toml pins
+        run: |
+          otp="$(sed -n 's/^erlang *= *"\([^"]*\)".*/\1/p' mise.toml)"
+          elixir="$(sed -n 's/^elixir *= *"\([^"]*\)".*/\1/p' mise.toml | sed 's/-otp-.*//')"
+          base="$(sed -n 's/^ARG BASE_IMAGE=\([^ ]*\)$/\1/p' apps/platform/Dockerfile | head -1)"
+          tilt="$(sed -n "s/^BASE_IMAGE = '\(.*\)'$/\1/p" Tiltfile | head -1)"
+          echo "BASE_IMAGE=$base tilt=$tilt otp=$otp elixir=$elixir"
+          test -n "$base" && test -n "$tilt" && test -n "$otp" && test -n "$elixir"
+          [ "$base" = "$tilt" ] || { echo "::error::Dockerfile BASE_IMAGE ($base) != Tiltfile BASE_IMAGE ($tilt) — bump the pins together"; exit 1; }
+          echo "$base" | grep -qF "$elixir-erlang-$otp" || {
+            echo "::error::BASE_IMAGE ($base) does not match mise.toml (elixir $elixir, erlang $otp) — bump the pin alongside mise"; exit 1; }
+
+      # v4.4.1 — pinned to commit (repo rule above)
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069
+
+      # (#230) Same pre-seed deploy-image stages before the build: the
+      # release's deps.compile and assets.deploy must never fetch
+      # in-image through Erlang httpc's header limit (the class that
+      # reded main's deploy on #235's merge). mdex-gnu stays off —
+      # docker builds are musl-only consumers.
+      - uses: ./.github/actions/prebuilt
+
+      # ADR-0044 §2: same content staging — the build context is
+      # apps/platform and the gitignored priv copies must exist on the
+      # host before docker build, or the image ships an empty /docs
+      # and /blog.
+      - name: Sync content into the build context
+        run: scripts/sync-content.sh
+
+      # v7.4.0 — pinned to commit (repo rule above). Same build inputs
+      # as deploy-image (context, BUILD_SHA, gha layer cache — PR runs
+      # restore main's layers), stopping before the registry: push:
+      # false. cache-to ignore-error: the PR cache scope is read-only,
+      # and a cache-service failure must degrade to a cold build,
+      # never red the gate (mcp-image's PR-side stance).
+      - name: Build the release image (no push)
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc
+        with:
+          context: apps/platform
+          push: false
+          build-args: |
+            BUILD_SHA=${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max,ignore-error=true
+
   # Deploy pipeline jobs 1–2 (docs/deployment.md, #98) — main pushes with
   # platform changes only. Job 1 builds the OTP release image and pushes
   # two tags of the same manifest: sha-<github.sha> (the /health poll
@@ -1308,7 +1388,7 @@ jobs:
   # checks run — a green umbrella that proved nothing.
   wait-for-ci:
     name: Wait for CI
-    needs: [check-changes, platform, cli-gates, cli-matrix, mcp-gates, mcp-image, docs-lint, skills-lint, linked-issues, e2e, deploy-image, watch-deploy, readiness-gate]
+    needs: [check-changes, platform, cli-gates, cli-matrix, mcp-gates, mcp-image, docs-lint, skills-lint, linked-issues, e2e, platform-image, deploy-image, watch-deploy, readiness-gate]
 
     if: always()
     runs-on: ubuntu-24.04
