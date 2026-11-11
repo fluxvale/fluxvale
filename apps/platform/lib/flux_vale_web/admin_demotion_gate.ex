@@ -38,11 +38,11 @@ defmodule FluxValeWeb.AdminDemotionGate do
   table filters, the sensitive-attribute reveal — is
   `phx-target={@myself}`, and LiveView routes cid-targeted events
   straight to the component, where no view-level hook can see them.
-  Both residues are outside this seam and outside any view-level
-  seam; closing them needs a socket-level answer — a periodic
-  re-resolve that redirects, a demotion broadcast, or a
-  :handle_params gate — a posture decision deliberately not made in
-  this slice; disclosed on #671 instead.
+  Both residues stood disclosed on #671 until the owner's Nov 11,
+  2026 decision (ADR-0027 Am. 6): `FluxValeWeb.AdminDemotionRecheck`
+  re-resolves on a timer and redirects a dead generated-session tab
+  out of the admin area within its cadence — the component-level
+  window is now BOUNDED, not gated, which is the accepted posture.
 
   Cost, accepted: the resolve rides every info message, including
   the dashboard's refresh tick (default 15s, floor 1s) — a few

@@ -656,16 +656,18 @@ defmodule FluxValeWeb.Router do
     # /dev-only mount. The SAME gate stack as everything on this
     # surface (the :browser pipeline, the :admin_auth route pipeline —
     # session auth plus the platform-admin role — and the on_mount
-    # socket re-check), plus the per-event demotion seam (#671): the
-    # AdminGate re-check answers per MOUNT, and a socket outlives a
-    # demotion, so the seam re-resolves the actor on every view-level
-    # event and halts the refresh tick under a dead session. The
-    # residue, measured: the table controls (search/sort/limit) are
-    # cid events that push_patch, and patches re-run handle_params
-    # ungated — node telemetry still refreshes on interaction under a
-    # dead session. Business telemetry (Telemetry.Metric definitions
-    # in FluxValeWeb.Telemetry) renders here; alert-worthy metrics
-    # ALSO flow to Grafana where the alert rules live.
+    # socket re-check), plus the per-event demotion seam (#671) and
+    # its periodic sibling: the AdminGate re-check answers per MOUNT,
+    # a socket outlives a demotion, and the seam's info halt is quiet
+    # — so the AdminDemotionRecheck tick (Am. 6) sits BETWEEN them:
+    # ordered before the seam so its redirect wins on the tick, it
+    # re-resolves the actor every cadence and yanks a dead session's
+    # tab to /sign-in, bounding the residue the seam measured (the
+    # cid-targeted table controls that push_patch and re-run
+    # handle_params ungated) to one cadence. Business telemetry (Telemetry.Metric
+    # definitions in FluxValeWeb.Telemetry) renders here;
+    # alert-worthy metrics ALSO flow to Grafana where the alert rules
+    # live.
     #
     # ORDER MATTERS: this mount must precede ash_admin — AshAdmin's
     # page routes end in a segment wildcard, and router clauses compile
@@ -677,6 +679,7 @@ defmodule FluxValeWeb.Router do
       ecto_repos: [FluxVale.Repo],
       on_mount: [
         {FluxValeWeb.AdminGate, :ensure_admin},
+        {FluxValeWeb.AdminDemotionRecheck, :attach},
         {FluxValeWeb.AdminDemotionGate, :attach}
       ]
     )
@@ -689,12 +692,15 @@ defmodule FluxValeWeb.Router do
     # toggle, actor/tenant ops), while the rest of AshAdmin's
     # component-level UI — the save/destroy forms, generic actions,
     # table filters — targets its own LiveComponents
-    # (`phx-target={@myself}`) and no view-level hook can see those;
-    # the residue and its socket-level follow-up decision are
-    # disclosed on #671.
+    # (`phx-target={@myself}`) and no view-level hook can see those.
+    # The AdminDemotionRecheck tick (Am. 6) bounds that residue from
+    # the socket side — a dead session's tab redirects within the
+    # cadence — and sits BETWEEN AdminGate and the seam so its
+    # redirect wins on the tick message.
     ash_admin("/ash",
       on_mount: [
         {FluxValeWeb.AdminGate, :ensure_admin},
+        {FluxValeWeb.AdminDemotionRecheck, :attach},
         {FluxValeWeb.AdminDemotionGate, :attach}
       ]
     )
