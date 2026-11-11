@@ -138,3 +138,27 @@ or explained. The per-merge post-deploy smoke retired with #556 (the
 readiness gate that replaced it runs no behavioral suite); the
 nightly workflow (`.github/workflows/e2e-nightly.yml`) runs the full suite at the real
 1h + */5 cadence on main, daily.
+
+## Captures
+
+PR screenshots and GIF source material go through the ONE canonical
+tool, `capture.mjs` (#510). One-off capture scratch NEVER merges —
+route lists and bespoke scripts live outside the repo (e.g.
+/tmp/opencode, swept at lane close); loop the tool in shell instead.
+It replaces the retired per-surface kernels (`screenshot.mjs`,
+`access_wake_screenshot.mjs`) with their behaviors: the real
+`/auth/session` sign-in for authenticated pages (mint a token the
+`*_seed.exs` way — no test backdoors), the `phx:theme` flip plus
+`prefers-color-scheme`, networkidle + settle, full-page stills at
+1440x900. `node capture.mjs --help` for every flag.
+
+```sh
+npx playwright install chromium                       # once per machine
+node capture.mjs https://app.fluxvale.lvh.me/about     # public page, light+dark
+FV_TOKEN=<jwt> node capture.mjs https://app.fluxvale.lvh.me/ --name dashboard
+node capture.mjs https://app.fluxvale.lvh.me/apps --click 'text=New app'   # click-through state
+node capture.mjs https://app.fluxvale.lvh.me/billing --mask 'input[type=email]'  # never capture a secret
+```
+
+Works against any deployed environment — the URL picks the target; self-signed TLS (the local stack) is accepted. The older per-surface scripts still in this directory are stranded instruments riding their surfaces' deletions — don't extend them, new captures go through the tool. GIFs: stills from the tool, motion via Playwright `recordVideo` → ffmpeg (the screenshot convention in
+[`apps/platform/AGENTS.md`](../platform/AGENTS.md) has the mechanics).
