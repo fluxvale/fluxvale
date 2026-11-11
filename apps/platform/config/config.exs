@@ -553,12 +553,17 @@ config :opentelemetry,
 # env-dependent lives in runtime.exs.
 # The source-context keys feed error-tracing stack frames and are read
 # from the :posthog app env by `mix posthog.package_source_code` (the
-# Dockerfile runs it before `mix release`).
+# Dockerfile runs it before `mix release`). The exclude patterns are
+# set explicitly to keep the packaged map to OUR source: the builder
+# carries the full deps/ tree, and the SDK default sweep (`**/*.ex`,
+# excluding only _build/priv/test) would bake third-party source into
+# the release for frames in_app_modules already marks out-of-app.
 config :posthog,
   enable: false,
   enable_source_code_context: true,
   root_source_code_paths: [File.cwd!()],
-  context_lines: 5
+  context_lines: 5,
+  source_code_exclude_patterns: [~r"^_build/", ~r"^deps/", ~r"^priv/", ~r"^test/"]
 
 # Use Jason for JSON parsing in Phoenix
 config :phoenix, :json_library, Jason

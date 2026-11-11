@@ -203,6 +203,11 @@ defmodule FluxVale.ObservabilityTest do
         assert config.enable_source_code_context
         assert config.root_source_code_paths == [File.cwd!()]
         assert config.context_lines == 5
+        # Same excludes the packaging task used — app source only, the
+        # deps/ tree never enters the map (fresh-eyes finding).
+        assert Enum.map(config.source_code_exclude_patterns, &Regex.source/1) ==
+                 ["^_build/", "^deps/", "^priv/", "^test/"]
+
         # in_app_modules is what validate!/1 computes from in_app_otp_apps.
         assert MapSet.member?(config.in_app_modules, FluxVale.Observability)
         # The convenience key never reaches the supervisor options.

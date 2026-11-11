@@ -20,12 +20,15 @@ defmodule FluxVale.Observability do
   # dropped before PostHog.Config.validate!/1 sees the assembled options.
   @posthog_convenience_keys [:enable_error_tracking]
   # The source-context keys live in the :posthog app env (config.exs) —
-  # the same keys `mix posthog.package_source_code` reads. validate!/1 is
-  # the authority on the assembled map (ADR-0049).
+  # the same keys `mix posthog.package_source_code` reads; the supervisor
+  # carries the identical values so the packaged map and the runtime
+  # lookup agree. validate!/1 is the authority on the assembled map
+  # (ADR-0049).
   @posthog_source_context_keys [
     :enable_source_code_context,
     :root_source_code_paths,
-    :context_lines
+    :context_lines,
+    :source_code_exclude_patterns
   ]
 
   @doc """
