@@ -123,10 +123,12 @@ defmodule FluxVale.Infrastructure.Operations.DeployInstance do
              ) do
           {:ok, starting} ->
             # ADR-0049 S1b: the deploy trigger is a background worker and
-            # the instance carries no user FK — the event is anonymous.
-            # Fired on the landed status write (the wake site's gating),
-            # never before it.
-            FluxVale.Analytics.capture("instance deployed", nil, %{
+            # the instance carries no user FK, so the event carries the
+            # org id — the row's single ownership axis. Fired on the
+            # landed status write (the wake site's former gating), never
+            # before it; named "deploy started" because readiness
+            # (:running) belongs to the reconciler, a different flow.
+            FluxVale.Analytics.capture("instance deploy started", instance.organization_id, %{
               instance_slug: instance.slug
             })
 

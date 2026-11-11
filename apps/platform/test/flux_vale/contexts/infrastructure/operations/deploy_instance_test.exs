@@ -168,8 +168,12 @@ defmodule FluxVale.Infrastructure.Operations.DeployInstanceTest do
       end)
 
       # ADR-0049 S1b: the deploy trigger is a background worker — the
-      # capture is anonymous (nil), and the slug is the only prop.
-      expect(FluxVale.Analytics, :capture, fn "instance deployed", nil, props ->
+      # org id is the distinct_id (instances have no user FK) and the
+      # slug is the only prop. The event names what it is: deploy
+      # started (:starting), readiness belongs to the reconciler.
+      org_id = instance.organization_id
+
+      expect(FluxVale.Analytics, :capture, fn "instance deploy started", ^org_id, props ->
         assert props == %{instance_slug: instance.slug}
 
         :ok

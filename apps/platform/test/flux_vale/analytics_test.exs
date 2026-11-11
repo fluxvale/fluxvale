@@ -40,7 +40,8 @@ defmodule FluxVale.AnalyticsTest do
     test "inert (the suite's shape): :ok, and the SDK is never called" do
       Application.delete_env(:flux_vale, :posthog)
 
-      assert :ok = Analytics.capture("instance deployed", "user-1", %{instance_slug: "acme"})
+      assert :ok =
+               Analytics.capture("instance deploy started", "user-1", %{instance_slug: "acme"})
 
       # Nothing reached the SDK — the tree is running in test_mode, so
       # a stray capture would have landed here.
@@ -50,11 +51,14 @@ defmodule FluxVale.AnalyticsTest do
     test "armed: the event reaches the SDK with the id from the argument and the props" do
       Application.put_env(:flux_vale, :posthog, %{:api_key => "phc_test_posthog_key"})
 
-      assert :ok = Analytics.capture("instance deployed", "user-1", %{instance_slug: "acme"})
+      assert :ok =
+               Analytics.capture("instance deploy started", "user-1", %{
+                 instance_slug: "acme"
+               })
 
       assert [
                %{
-                 event: "instance deployed",
+                 event: "instance deploy started",
                  distinct_id: "user-1",
                  properties: %{instance_slug: "acme"}
                }
@@ -64,15 +68,18 @@ defmodule FluxVale.AnalyticsTest do
     test "armed: props can never override the distinct id — the argument wins" do
       Application.put_env(:flux_vale, :posthog, %{:api_key => "phc_test_posthog_key"})
 
-      assert :ok = Analytics.capture("wallet topped up", "actor-1", %{distinct_id: "spoofed-1"})
+      assert :ok = Analytics.capture("wallet topped up", "org-1", %{distinct_id: "spoofed-1"})
 
-      assert [%{distinct_id: "actor-1", properties: %{}}] = PostHog.Test.all_captured()
+      assert [%{distinct_id: "org-1", properties: %{}}] = PostHog.Test.all_captured()
     end
 
-    test "armed, anonymous (nil id): :ok — the SDK drops events without a distinct id" do
+    test "armed, anonymous (nil id): props carrying a distinct id cannot win either" do
       Application.put_env(:flux_vale, :posthog, %{:api_key => "phc_test_posthog_key"})
 
-      assert :ok = Analytics.capture("instance wake triggered", nil, %{app_slug: "kavita"})
+      # The nil arm strips a props-carried id — anonymous means
+      # anonymous, and the SDK drops the event.
+      assert :ok =
+               Analytics.capture("some future anonymous event", nil, %{distinct_id: "spoofed-1"})
 
       assert PostHog.Test.all_captured() == []
     end

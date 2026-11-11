@@ -59,11 +59,13 @@ defmodule FluxVale.Billing.Operations.CompleteTopupTest do
 
     outcome = outcome(topup)
 
-    # ADR-0049 S1b: the webhook path has no actor — nil id; the amount
-    # is the net credit in major units and the provider is the
-    # idempotency key's prefix (never the payment reference).
-    expect(FluxVale.Analytics, :capture, fn "wallet topped up", nil, props ->
-      assert props == %{amount: 5.0, provider: "hitpay"}
+    # ADR-0049 S1b: the webhook path has no actor and the row carries no
+    # user id — the org id is the distinct_id. Provider is the only prop
+    # (the ADR-0049 disclosure covers usage, not billing amounts).
+    org_id = topup.organization_id
+
+    expect(FluxVale.Analytics, :capture, fn "wallet topped up", ^org_id, props ->
+      assert props == %{provider: "hitpay"}
 
       :ok
     end)
@@ -76,15 +78,42 @@ defmodule FluxVale.Billing.Operations.CompleteTopupTest do
     assert {:ok, 500} = Billing.balance(wallet, authorize?: false)
   end
 
-  test "a replayed outcome credits nothing more" do
+  test "a replayed outcome credits nothing more — and fires the event exactly once" do
     topup = topup!(500, payment_request_id: "pr_1")
 
     outcome = outcome(topup)
+
+    # The second (already-completed) answer must not re-fire the event.
+    org_id = topup.organization_id
+
+    expect(FluxVale.Analytics, :capture, 1, fn "wallet topped up", ^org_id, _props ->
+      :ok
+    end)
+
     assert {:ok, _completed} = Billing.complete_topup(outcome)
     assert {:ok, :already_completed} = Billing.complete_topup(outcome)
 
     wallet = wallet_of(topup)
     assert {:ok, 500} = Billing.balance(wallet, authorize?: false)
+  end
+
+  test "a colon-less idempotency key degrades to a provider-less event" do
+    topup = topup!(500, payment_request_id: "pr_1")
+
+    outcome = outcome(topup, idempotency_key: "pr_1")
+
+    # Future-provider drift must not leak the bare reference as a
+    # "provider" — the event rides with no provider prop instead.
+    org_id = topup.organization_id
+
+    expect(FluxVale.Analytics, :capture, fn "wallet topped up", ^org_id, props ->
+      assert props == %{}
+
+      :ok
+    end)
+
+    assert {:ok, completed} = Billing.complete_topup(outcome)
+    assert completed.status == :completed
   end
 
   test "a matching payment_request_id resolves without topup_id" do
