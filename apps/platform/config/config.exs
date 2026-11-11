@@ -345,6 +345,16 @@ config :flux_vale, :device_flow_client_id, "fluxvale-cli"
 # (FluxValeWeb.SiteAnalytics), never at compile time.
 config :flux_vale, :site_analytics, nil
 
+# #671's residue close (ADR-0027 Am. 6): the periodic demotion
+# re-resolve cadence on the generated admin tools (ash_admin +
+# live_dashboard live_sessions) — a demoted platform admin's open tab
+# redirects to /sign-in within this window because its cid-targeted
+# events can never cross a view-level hook. 30s is the owner's Nov 11,
+# 2026 call. Read per arm (FluxValeWeb.AdminDemotionRecheck), so a
+# put_env on a live node applies within one tick; an env-var override
+# in runtime.exs can be added when a deployment actually needs one.
+config :flux_vale, :admin_demotion_recheck_ms, 30_000
+
 # Configure the endpoint
 config :flux_vale, FluxValeWeb.Endpoint,
   url: [host: "localhost"],

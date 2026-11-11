@@ -101,14 +101,17 @@ lands the mechanism and the gate.
    route pipeline plus the AdminGate socket re-check — a pre-existing
    posture this doctrine widens in scope, since a demoted admin's
    already-mounted live tab displays stale cross-org data until its
-   next interaction or reconnect), while writes re-resolve the actor
-   per event (#571/#617) — today satisfied by the WalletDetail surface
-   and the console engine's write path, and the AdminChrome
-   `handle_event` attach_hook (A1-S2; extracted into
-   `FluxValeWeb.AdminDemotionGate` by #671, which also mounted it on
-   the generated tools' sessions — view-level events only there; the
-   component-targeted residue stays disclosed on #671) closes the
-   interactive part for every admin LiveView.
+   next interaction or reconnect — on the generated tools, bounded
+   to one cadence by ADR-0027 Am. 6's periodic redirect), while
+   writes re-resolve the actor per event (#571/#617) — today
+   satisfied by the WalletDetail surface and the console engine's
+   write path, and the AdminChrome `handle_event` attach_hook
+   (A1-S2; extracted into `FluxValeWeb.AdminDemotionGate` by #671,
+   which also mounted it on the generated tools' sessions —
+   view-level events only there; the component-targeted residue
+   those sessions kept is bounded to one cadence by ADR-0027 Am.
+   6's periodic re-resolve + redirect, not gated per-event) closes
+   the interactive part for every admin LiveView.
 
 5. **The two-tier role model — both tiers already in the schema.**
    Platform admin (`PlatformRole :admin`, FluxVale as a whole,

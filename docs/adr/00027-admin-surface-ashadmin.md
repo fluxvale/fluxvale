@@ -180,3 +180,44 @@ socket-level answer (a periodic re-resolve that redirects, a
 demotion broadcast, or a :handle_params gate), a posture decision
 for the owner, not this slice. The seam's resolve cost is accepted:
 a few queries per info message, including the dashboard's tick.
+That decision lands as Am. 6 below, which adds the recheck as a
+fifth arm on the generated sessions.
+
+## Amendment 6 (2026-11-11): the residue's answer — periodic re-resolve + redirect, generated sessions only
+
+Am. 5's open posture question is decided (the owner, morning of
+Nov 11, 2026): the **periodic re-resolve that redirects** — 30s
+cadence, on the two GENERATED live_sessions only. A demoted actor's
+ash_admin or live_dashboard tab redirects out of the admin area
+within the cadence; the custom console keeps its per-event posture
+(ADR-0047 D4) and the seam's quiet info halt (Am. 5) — the doctrine
+that already covers its own writes. The demotion broadcast and the
+:handle_params gate — Am. 5's other two candidate answers — are not
+built; role changes stay data-layer.
+
+`FluxValeWeb.AdminDemotionRecheck` owns the mechanism: mounted
+after AdminGate and before the AdminDemotionGate seam (the seam's
+info halt is quiet, so the recheck must see the tick first or its
+redirect never runs), it arms a `Process.send_after` tick against
+the view's own process on connected mounts, re-resolves the actor
+from the session every cadence, and redirects to /sign-in —
+AdminGate's own mount answer — the moment the role check fails
+(the channel honors a redirect set in a halted info hook). The
+tick dies with the socket's mailbox, so nothing leaks and at most
+one tick is outstanding. The cadence is app env
+(`:admin_demotion_recheck_ms`, default 30_000), read per arm —
+a runtime override applies within one tick.
+
+Accepted costs, on record: one timer and one resolve per cadence
+per open generated-tools socket (a passing tick halts inside the
+recheck, so the seam behind it never sees it — one resolve per
+tick, total); a UX change for the demoted admin — a working tab is
+yanked to /sign-in within 30s rather than freezing quietly; and the
+redirect is fail-closed like AdminGate's mount answer — ANY resolve
+failure (a token-store or DB blip, not just a demotion) reads as
+"not signed in" and ejects every open generated-tools tab within
+one cadence, where the seam alone would have quiet-frozen through
+the blip. #671's bound, restated: the window is per-event on custom
+surfaces and at most one cadence on the generated ones — bounded,
+not closed; a cid-targeted save still runs if it wins the race
+against the next tick.

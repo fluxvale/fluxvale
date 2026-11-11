@@ -19,22 +19,21 @@ defmodule FluxValeWeb.AdminToolsDemotionTest do
   # applied (the select shows the user's pick) while the server
   # ignores it — the seam's honesty lives server-side.
   #
-  # Honest boundary, stated where it matters: the seam sees
-  # VIEW-targeted events only. AshAdmin's forms and table controls
-  # and LiveDashboard's table controls target their own
-  # LiveComponents (`phx-target={@myself}`) or patch the URL, and
-  # LiveView routes both straight to the component/handler — no
-  # view-level hook sees them. That residue is disclosed on #671,
-  # not covered here.
+  # The generated tools' demotion residue, BOUNDED (#671, ADR-0027
+  # Am. 6): the per-event seam cannot see cid-targeted events, so a
+  # demoted platform admin's already-open /admin/ash or dashboard tab
+  # kept acting until the socket reconnected. The periodic re-resolve
+  # bounds the window to one cadence; its own suite
+  # (admin_tools_recheck_test.exs) pins that side.
 
   use FluxValeWeb.ConnCase, async: false
 
-  import Ecto.Query, only: [from: 2]
   import Phoenix.LiveViewTest
 
   alias AshAuthentication.Jwt
   alias AshAuthentication.TokenResource.Actions
   alias FluxVale.Identity.User
+  alias FluxVale.TestSupport.AdminDemotion
   alias FluxVale.TestSupport.SessionHelpers
 
   # A fresh admin per test: the demotion persists in the row, so a
@@ -68,7 +67,7 @@ defmodule FluxValeWeb.AdminToolsDemotionTest do
       assert has_element?(view, "aside.translate-x-0")
       refute has_element?(view, "aside.-translate-x-full")
 
-      demote!(admin)
+      AdminDemotion.demote!(admin)
 
       # The same event is refused: the seam re-resolves the actor from
       # the session, finds no platform admin, and halts the event
@@ -76,7 +75,6 @@ defmodule FluxValeWeb.AdminToolsDemotionTest do
       # the vendor layout); the server keeps the state the last
       # permitted event left.
       render_click(view, "toggle_sidebar", %{})
-
       assert has_element?(view, "aside.translate-x-0")
       refute has_element?(view, "aside.-translate-x-full")
     end
@@ -104,7 +102,7 @@ defmodule FluxValeWeb.AdminToolsDemotionTest do
 
       assert has_element?(view, "#refresher option[value='5'][selected]")
 
-      demote!(admin)
+      AdminDemotion.demote!(admin)
 
       # The same event is refused — silently; the menu keeps the last
       # permitted rate, and the tick (an info message) halts the same
@@ -181,16 +179,5 @@ defmodule FluxValeWeb.AdminToolsDemotionTest do
 
       assert has_element?(view, "#refresher option[value='15'][selected]")
     end
-  end
-
-  # Demote the actor under the live session. User carries no role-write
-  # action and Ash.Seed is create-only, so this one precondition rides
-  # the data layer directly (tests own their preconditions; the
-  # per-event gate is what the tests pin) — the wallet surface's
-  # demotion-suite idiom.
-  defp demote!(admin) do
-    query = from(u in "users", where: u.id == ^Ecto.UUID.dump!(admin.id))
-    {updated, nil} = FluxVale.Repo.update_all(query, set: [platform_role: "user"])
-    assert updated == 1
   end
 end
