@@ -2,6 +2,12 @@
 
 Status: Accepted (see [adr/](adr/) — [ADR-0012](adr/00012-observability-grafana-cloud.md), as amended).
 
+> **Decided, not yet running** ([ADR-0049](adr/00049-posthog-app-observability-split.md),
+> Proposed): product analytics + error tracking + trace dual-export move
+> to PostHog Cloud EU (cookieless, replay off); metrics, synthetics, and
+> logs stay on the stack below until that ADR's phases land. This page
+> still describes what runs today; each phase's PR updates its rows.
+
 ## Stack
 
 - **Grafana Alloy agent** in-cluster (~100 MB) shipping to **Grafana

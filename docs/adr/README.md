@@ -57,6 +57,7 @@ already ruled out.
 | [ADR-0046](0046-storage-beyond-threshold.md) | Storage beyond the self-service threshold: request → operator approval queue, online storage-only growth, configured marginal overage rate (pass-through + margin, 3¢/GB ratified 2026-11-10 with a $5 wallet floor) | Accepted (amended — Am. 1) |
 | [ADR-0047](00047-platform-admin-authority.md) | Blanket platform-admin authority: the existing platform admin sees and does everything on the 31-resource business set through one condition-pair bypass, never on a PAT, enforced by a doctrine gate that fails CI on undecided resources | Accepted (amended — see Amendment 1) |
 | [ADR-0048](00048-ash-paper-trail-audit.md) | Audit trail: AshPaperTrail over the business set — one config posture, attributed surviving versions, actor-label tombstone, retention forever (flagged deliberate) | Accepted |
+| [ADR-0049](00049-posthog-app-observability-split.md) | Observability split: PostHog for the app surface (analytics + error tracking + trace dual-export; EU; cookieless; replay off) — Grafana keeps metrics, synthetics, logs (Phase-3 gate) | Proposed |
 
 ## Conventions
 
