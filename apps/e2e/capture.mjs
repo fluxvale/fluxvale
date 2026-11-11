@@ -17,7 +17,7 @@
  *   node capture.mjs <url>... [options]
  *   node capture.mjs https://127.0.0.1:4000/about --theme dark
  *   node capture.mjs https://app.fluxvale.lvh.me/ --token "$FV_TOKEN"
- *   node capture.mjs https://app.fluxvale.lvh.me/apps --click "text=New app" --name apps-new
+ *   node capture.mjs https://app.fluxvale.lvh.me/ --click "text=Sign in" --name sign-in
  *
  * Options:
  *   --out <dir>       output directory (default /tmp/opencode/capture)
