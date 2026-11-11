@@ -16,6 +16,11 @@ output "instance_ids" {
   value       = { for k, i in fluxvale_instance.apps : k => i.id }
 }
 
+output "domain_states" {
+  description = "Verification state per registered custom domain (verified = issuance, NOT resolution — personal-stack's README). Empty until the dogfood pairings land."
+  value       = { for k, d in fluxvale_custom_domain.apps : k => d.state }
+}
+
 output "backups_bucket" {
   description = "The R2 bucket every instance's backups land in."
   value       = cloudflare_r2_bucket.backups.name

@@ -68,6 +68,7 @@ variable "instances" {
     The instances, keyed by instance name (the key is the name and the backups prefix). Defaults are three representative shapes: a public always-on forgejo, memos and kavita private behind the gateway. Override the whole map in terraform.tfvars to differ.
     version: null tracks the catalog's newest; pin a string to freeze it. A version change replaces the instance (create-only identity).
     retention_keep: days of backups per instance; null is the server's default.
+    domain: registers a fluxvale_custom_domain for the instance when set — the dogfood pairings (forgejo → git.fluxvale.com, umami → analytics.fluxvale.com) are pending the dogfood plan; the null default registers nothing.
   EOT
   type = map(object({
     app            = string
@@ -79,11 +80,15 @@ variable "instances" {
     always_on      = bool
     running        = bool
     retention_keep = optional(number)
+    domain         = optional(string)
   }))
+  # The skeleton's three shapes — every domain null on purpose: an
+  # apply registers no custom domain until the dogfood plan's pairings
+  # are filled in (see terraform.tfvars.example).
   default = {
-    forgejo = { app = "forgejo", version = null, cpu_cores = 1.0, memory_mb = 1024, storage_gb = 5, exposure = "public", always_on = true, running = true, retention_keep = 14 }
-    memos   = { app = "memos", version = null, cpu_cores = 0.25, memory_mb = 512, storage_gb = 5, exposure = "private", always_on = false, running = true, retention_keep = null }
-    kavita  = { app = "kavita", version = null, cpu_cores = 0.5, memory_mb = 512, storage_gb = 10, exposure = "private", always_on = false, running = true, retention_keep = null }
+    forgejo = { app = "forgejo", version = null, cpu_cores = 1.0, memory_mb = 1024, storage_gb = 5, exposure = "public", always_on = true, running = true, retention_keep = 14, domain = null }
+    memos   = { app = "memos", version = null, cpu_cores = 0.25, memory_mb = 512, storage_gb = 5, exposure = "private", always_on = false, running = true, retention_keep = null, domain = null }
+    kavita  = { app = "kavita", version = null, cpu_cores = 0.5, memory_mb = 512, storage_gb = 10, exposure = "private", always_on = false, running = true, retention_keep = null, domain = null }
   }
   validation {
     condition     = alltrue([for k, v in var.instances : contains(["public", "private"], v.exposure)])

@@ -25,6 +25,12 @@ lives next door in
 - **The access gateway** — joins the tailnet, attaches every
   `exposure = "private"` instance (the attach waits for the gateway
   to become active).
+- **Custom domains per instance** (`var.instances.<name>.domain`) —
+  set a domain and it registers on the private-access edge. The
+  dogfood pairings — forgejo → `git.fluxvale.com`, umami →
+  `analytics.fluxvale.com` — ride as documented placeholder rows,
+  pending the dogfood plan (which owns the domain/OIDC/money-gate
+  decisions); the defaults register nothing.
 
 The dependency graph IS the apply order: bucket + gateway create +
 instances first, then backups rows and the attach calls. One
@@ -42,6 +48,7 @@ instances first, then backups rows and the attach calls. One
 | `tailnet_domain` | Tailscale admin console — the MagicDNS suffix (`<tailnet>.ts.net`) | `terraform.tfvars` |
 | `tailscale_auth_key` | Tailscale admin console → Settings → Keys (an auth key that can enroll a device) | `terraform.tfvars` |
 | `instances` | the catalog (listing one-liner below) + app/version/size choices | optional, `terraform.tfvars` |
+| `instances[].domain` | the dogfood plan — `git.fluxvale.com` (forgejo) and `analytics.fluxvale.com` (umami) are the placeholder pairings | optional, `terraform.tfvars` — left unset until that plan lands |
 
 The token scopes match the workflow's acceptance preflight
 (`.github/workflows/tfprovider-acceptance.yml`); mint once, reuse.
@@ -105,9 +112,15 @@ opt out via the panel's Access tab (adopt an existing one with
 And **backups need the org to have paid once** — a 403 on the first
 backups save is the wallet, not a bug.
 
-## Deliberately not here
+## Deliberately not decided here
 
-The custom domain (`fluxvale_custom_domain`) — the payment gate and
-the subdomain decision are still open, and
-[examples/personal-stack](../personal-stack/custom-domain.tf)
-already demonstrates the resource. Add it here once those land.
+The custom-domain resource IS composed (per-instance `domain`
+attribute) — what's pending is the dogfood initiative's decisions
+(domains, OIDC, money gates; a separate lane). Until it lands the
+pairings stay placeholder rows: no domain registers on apply. Two
+known platform facts for that conversation: the first
+`fluxvale_custom_domain` create passes the org-wallet gate
+(`ActorOrgHasPaid`), and `verified` is NOT resolution — the
+split-DNS claim has no API surface yet
+([examples/personal-stack](../personal-stack/README.md) documents
+both).

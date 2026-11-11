@@ -1,6 +1,7 @@
 # The owner's production stack as one root module (#482's rider): one
 # R2 bucket feeding every instance's backups, the tailnet access
-# gateway for the private ones, and the instances tying it together.
+# gateway for the private ones, the instances tying it together, and
+# the dogfood custom-domain pairings carried as placeholders.
 # SKELETON — placeholder variables only. The real values arrive at the
 # pairing step (README.md) and live in a gitignored terraform.tfvars;
 # nothing applies until the owner fills them in and runs it himself.
@@ -101,6 +102,26 @@ resource "fluxvale_instance_backups" "apps" {
   secret_access_key = var.r2_secret_access_key
   prefix            = "fluxvale/${each.key}"
   retention_keep    = each.value.retention_keep
+}
+
+# Custom domains per instance, for the dogfood pairings: setting an
+# instance's `domain` (var.instances) registers it on the
+# private-access edge. The skeleton's defaults leave every domain
+# null — forgejo → git.fluxvale.com and umami → analytics.fluxvale.com
+# ride as documented placeholders (terraform.tfvars.example), pending
+# the dogfood plan, which owns the domain/OIDC/money-gate decisions.
+# verified is NOT resolution, and the create waits out DNS-01 (45m) —
+# see examples/personal-stack's custom-domain.tf for the full notes.
+resource "fluxvale_custom_domain" "apps" {
+  for_each = { for k, v in var.instances : k => v if v.domain != null }
+
+  domain = each.value.domain
+
+  wait_for_verification = true
+
+  timeouts {
+    create = "45m"
+  }
 }
 
 # The org's private access: the gateway joins the owner's tailnet and
