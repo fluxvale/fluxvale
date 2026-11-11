@@ -95,6 +95,8 @@ defmodule FluxValeWeb.Layouts do
 
   def app(assigns) do
     ~H"""
+    <%!-- ADR-0049: the in-app PostHog hook rides the signed-in chrome only — the public surface is Umami's (SiteAnalytics), emails carry no client. --%>
+    <FluxValeWeb.AppAnalytics.app_analytics current_user={@current_user} />
     <.chrome
       flash={@flash}
       current_user={@current_user}

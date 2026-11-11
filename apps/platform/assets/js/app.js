@@ -24,6 +24,12 @@ import {Socket} from "phoenix"
 import {LiveSocket} from "phoenix_live_view"
 import {hooks as colocatedHooks} from "phoenix-colocated/flux_vale"
 import topbar from "../vendor/topbar"
+// The PostHog imports are inert until #posthog-config boots them (init
+// is the network boundary) — but the ~390KB of SDK bytes ride every
+// bundle, public pages included. Accepted for now; revisit at the
+// esm/splitting migration or a bundle-size budget.
+import "../vendor/posthog-js-tracing-headers"
+import posthog from "../vendor/posthog-js"
 
 const csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content")
 
@@ -92,6 +98,123 @@ window.addEventListener("phx:page-loading-stop", _info => topbar.hide())
 
 // connect if there are any LiveViews on the page
 liveSocket.connect()
+
+// In-app PostHog (ADR-0049), gated on the server-rendered hook: absent,
+// nothing here runs — no init, no network. Armed, the cookieless
+// posture: memory persistence and person_profiles "never" (nothing
+// persists on the visitor's device — no data, no identifiers; the
+// SDK's boot probes storage support with two anonymous write-and-
+// immediately-remove keys, and this version has no toolbar-disable
+// config to kill the second one: only advanced_disable_toolbar_metrics
+// exists at 1.447.12 — it gates toolbar metrics, not the module's
+// probe — while ph_toolbar_state's hash-path state rides memory
+// persistence, so it dies with the tab and never touches the device),
+// session recording off (replay is off at launch), autocapture on but
+// element text dropped by mask_all_text ("which buttons you press",
+// never surrounding copy). capture_pageview "history_change" tracks
+// LiveView's pushState navigations — the SPA pageview guarantee this
+// SDK version documents, so no phx:navigate listener on top (it would
+// double-capture). tracing_headers marks our own origin, so same-origin
+// fetch/XHR calls carry x-posthog-distinct-id/-session-id for the
+// server plug to correlate backend errors to this browser session —
+// the patcher covers the app's JS HTTP calls as they appear; LiveView
+// itself rides the WebSocket, which the patcher does not touch.
+// disable_external_dependency_loading keeps the client fully bundled:
+// the SDK would otherwise fetch feature scripts (recorder, surveys,
+// the tracing-headers patch) from its asset CDN at runtime — the
+// tracing-headers patch is vendored beside it instead, and everything
+// else is off in this posture.
+// before_send is #408's client half: this app's query strings carry
+// auth-boundary tokens (the invitation accept token IS the credential),
+// and the server plug already strips them from its own captures — the
+// client half must not ship them either. The path is the event's URL;
+// the query never leaves the tab.
+//
+// Covered keys, enumerated by grepping the vendored dist
+// (posthog-js 1.447.12): the top-level event URLs ($current_url,
+// $referrer, $initial_referrer, $initial_current_url — the persistence
+// layer's get_initial_props expands $initial_person_info.u into it),
+// $session_entry_url (getSessionProps's set-once expansion),
+// $external_click_url (autocapture's external-link clicks), the
+// attr__href inside each $elements entry, the href="…" fragments
+// serialized into $elements_chain, and the {r, u} pair inside
+// $initial_person_info. $host, $pathname and the referring-domain
+// props carry no query — safe by construction.
+const URL_PROPS = new Set([
+  "$current_url",
+  "$referrer",
+  "$initial_referrer",
+  "$initial_current_url",
+  "$session_entry_url",
+  "$external_click_url",
+  "attr__href",
+  "r",
+  "u",
+])
+
+const stripQuery = (url) => {
+  const at = url.indexOf("?")
+  return at === -1 ? url : url.slice(0, at)
+}
+
+// Depth-first: wherever a URL-bearing key nests (top-level props, the
+// $initial_person_info pair, $elements entries), its string value loses
+// the query. $elements_chain is serialized, not structured — its
+// href="…" fragments get the same treatment in place.
+const stripUrlQueries = (event) => {
+  const props = event?.properties
+  if (!props) return event
+
+  const chain = props["$elements_chain"]
+  if (typeof chain === "string") {
+    props["$elements_chain"] = chain.replace(/href="([^"]*)"/g, (_, value) => `href="${stripQuery(value)}"`)
+  }
+
+  const walk = (node) => {
+    for (const [key, item] of Object.entries(node)) {
+      if (typeof item === "string") {
+        if (URL_PROPS.has(key)) node[key] = stripQuery(item)
+      } else if (item && typeof item === "object") {
+        walk(item)
+      }
+    }
+  }
+  walk(props)
+
+  return event
+}
+
+const analyticsConfig = document.getElementById("posthog-config")
+
+if (analyticsConfig) {
+  const distinctId = analyticsConfig.getAttribute("data-distinct-id")
+
+  posthog.init(analyticsConfig.getAttribute("data-api-key"), {
+    api_host: analyticsConfig.getAttribute("data-api-host"),
+    persistence: "memory",
+    person_profiles: "never",
+    // No flags at launch (ADR-0049's posture: analytics only — no
+    // replay, surveys, or toolbar, all of which hang off /flags). The
+    // flags request is also a leak channel before_send cannot reach:
+    // its person_properties carry the session's $initial_current_url,
+    // and the version's URL masking misses a bare non-allowlisted param
+    // (traced: Nl's allowlist loop falls through unmasked), so the
+    // invitation token would ride /flags verbatim. The request dies
+    // with the feature; autocapture and pageviews run on local config.
+    advanced_disable_flags: true,
+    disable_session_recording: true,
+    disable_external_dependency_loading: true,
+    autocapture: true,
+    mask_all_text: true,
+    capture_pageview: "history_change",
+    tracing_headers: [window.location.hostname],
+    before_send: stripUrlQueries,
+    // Server-known identity (the hook's data-distinct-id): the
+    // documented bootstrapping shape. Absent — anonymous surfaces —
+    // no identity at all.
+    ...(distinctId ? {bootstrap: {distinctID: distinctId, isIdentifiedID: true}} : {}),
+  })
+}
 
 // expose liveSocket on window for web console debug logs and latency simulation:
 // >> liveSocket.enableDebug()

@@ -42,17 +42,18 @@ defmodule FluxValeWeb.Plugs.PostHogRequestContextTest do
 
       conn =
         base
-        |> put_req_header("x-posthog-distinct-id", "spoofed-distinct-id")
-        |> put_req_header("x-posthog-session-id", "spoofed-session-id")
+        |> put_req_header("x-posthog-distinct-id", "sdk-distinct-id")
+        |> put_req_header("x-posthog-session-id", "sdk-session-id")
         |> PostHogRequestContext.call(opts)
 
       context = PostHog.get_context()
 
-      # The client-supplied tracing headers are stripped from the SDK's
-      # view — attribution is not caller-controlled until the client
-      # slice wires the real ones.
-      refute Map.has_key?(context, :distinct_id)
-      refute Map.has_key?(context, :"$session_id")
+      # The tracing headers land in the context: the bundled client
+      # (S2) sends them deliberately, and the server plug correlates
+      # backend errors to the browser session they name. Attribution
+      # only — never auth (the SDK's own docs stance).
+      assert context[:distinct_id] == "sdk-distinct-id"
+      assert context[:"$session_id"] == "sdk-session-id"
       assert context[:"$pathname"] == "/pricing"
       assert context[:"$request_method"] == "GET"
       assert context[:"$current_url"] == "http://www.example.com/pricing"
@@ -60,7 +61,7 @@ defmodule FluxValeWeb.Plugs.PostHogRequestContextTest do
       # The REAL conn continues downstream untouched: headers, query and
       # path survive (MaybeResolveUser.return_to reads the query).
       assert conn.query_string == "plan=storage"
-      assert get_req_header(conn, "x-posthog-distinct-id") == ["spoofed-distinct-id"]
+      assert get_req_header(conn, "x-posthog-distinct-id") == ["sdk-distinct-id"]
       assert conn.request_path == "/pricing"
     end
 
