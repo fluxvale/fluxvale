@@ -49,9 +49,29 @@ defmodule FluxValeWeb.Plugs.PostHogRequestContextTest do
 
       assert context[:"$pathname"] == "/pricing"
       assert context[:"$request_method"] == "GET"
-      assert context[:"$current_url"] =~ "/pricing?plan=storage"
+      assert context[:"$current_url"] == "http://www.example.com/pricing"
       assert context[:distinct_id] == "frontend-distinct-id"
       assert conn.request_path == "/pricing"
+    end
+
+    test "the query string never reaches the context — auth-boundary tokens stay out" do
+      # #408: the invitation accept route rides ?token=… and the raw
+      # token IS the invitee-side credential (CodeRabbit finding) — the
+      # shipped context is path-only.
+      Application.put_env(:flux_vale, :posthog, %{:api_key => "phc_test_posthog_key"})
+
+      base = build_conn(:get, "/invitations/accept?token=supersecret-invite-token")
+      opts = PostHogRequestContext.init([])
+
+      _conn = PostHogRequestContext.call(base, opts)
+
+      context = PostHog.get_context()
+
+      assert context[:"$current_url"] == "http://www.example.com/invitations/accept"
+      refute context[:"$current_url"] =~ "supersecret"
+      assert context[:"$pathname"] == "/invitations/accept"
+      # The caller's conn is untouched — only the SDK's view is stripped.
+      assert base.query_string == "token=supersecret-invite-token"
     end
   end
 end

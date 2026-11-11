@@ -13,12 +13,12 @@ defmodule FluxValeWeb.Plugs.PostHogRequestContext do
   Accepted with the ADR-0049 delegation: the SDK plug trusts the
   client-supplied x-posthog-distinct-id / x-posthog-session-id tracing
   headers (unsent by our frontend today, so today it is only spoof
-  surface into our own project's error attribution) and ships
-  $current_url (full query string) and the leftmost X-Forwarded-For
-  entry to PostHog Cloud EU. Revisit trigger: S1b's facade wiring, or
-  the first auth-token-bearing query string, is when the header trust
-  and the URL/IP payload get a deliberate look rather than the SDK
-  default.
+  surface into our own project's error attribution) and ships the
+  leftmost X-Forwarded-For entry as $ip to PostHog Cloud EU. The query
+  string is NOT shipped (see call/2): this app's query strings carry
+  auth-boundary tokens (#408's invitation accept). Revisit trigger:
+  S1b's facade wiring is when the header trust and the $ip payload get
+  a deliberate look rather than the SDK default.
   """
 
   # The SDK's request-context plug — via attribute so neither the
@@ -37,7 +37,16 @@ defmodule FluxValeWeb.Plugs.PostHogRequestContext do
         conn
 
       _armed ->
-        @posthog_plug.call(conn, opts)
+        # The query string routinely carries auth-boundary tokens
+        # (#408: the invitation accept route rides ?token=… and that
+        # token IS the credential) — the context keeps the path, never
+        # the query. A key denylist would miss the next token-bearing
+        # param; dropping the query is the posture that doesn't need
+        # revisiting. The real conn continues downstream untouched —
+        # only the clone the SDK plug reads is stripped.
+        conn_without_query = %{conn | query_string: ""}
+
+        @posthog_plug.call(conn_without_query, opts)
     end
   end
 end
