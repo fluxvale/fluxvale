@@ -1119,17 +1119,22 @@ jobs:
       # The platform pod's log is the only place a failed deploy's raw
       # error lives (the page and trace carry only status_message's
       # friendly copy — the 888195a lifecycle-leg red lost its evidence
-      # exactly there). Dump it before the runner dies; failure-only,
-      # one artifact per leg.
+      # exactly there). Dump it before the runner dies; one artifact per
+      # leg. failure() || cancelled(): a leg that hits its
+      # timeout-minutes ceiling is cancelled, not failed — a timed-out
+      # leg is precisely the run whose evidence must survive (the
+      # nightly's shape, e2e-nightly.yml).
       - name: Upload platform log (failure evidence)
-        if: failure()
+        if: failure() || cancelled()
         run: |
           # stderr too: a deployment with no available pod fails kubectl logs,
-          # and the reason is then the only evidence there is
-          mise x -- kubectl -n fluxvale-dev logs deployment/fluxvale-platform --tail=5000 \
+          # and the reason is then the only evidence there is. timeout 120
+          # bounds the dump: a hung kubectl must not eat the ~5 min
+          # cancellation grace window the artifact upload needs
+          timeout 120 mise x -- kubectl -n fluxvale-dev logs deployment/fluxvale-platform --tail=5000 \
             > platform-log-${{ matrix.leg.name }}.txt 2>&1 || true
       - name: Upload platform log artifact
-        if: failure()
+        if: failure() || cancelled()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: platform-log-${{ matrix.leg.name }}
