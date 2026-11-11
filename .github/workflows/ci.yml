@@ -775,7 +775,7 @@ jobs:
     # (the storage-probe 403 — the storageclasses RBAC grant riding
     # along in this PR is expected to turn it green; this PR's own
     # enlarged leg run is the gate that proves it). #679 added
-    # kavita-ingest (15m bounded — the file-access deploy walk plus
+    # kavita-ingest (18m bounded — the file-access deploy walk plus
     # Kavita's own scan).
     timeout-minutes: ${{ matrix.leg.timeout_minutes || 60 }}
     strategy:

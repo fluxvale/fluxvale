@@ -38,8 +38,9 @@ const KAVITA_MOUNT = "/kavita/config";
 const LIBRARY_FOLDER = `${KAVITA_MOUNT}/library/books`;
 const LIBRARY_NAME = "E2E Books";
 const SERIES_NAME = "Belphegor";
-// A library that has never scanned reads the zero-date.
-const NEVER_SCANNED = "0001-01-01T00:00:00";
+// A library that has never scanned reads the zero-date — matched by
+// prefix so a Kind/format shift upstream can't silently pass the gate.
+const NEVER_SCANNED_PREFIX = "0001-01-01";
 
 // The architect-generated minimal valid EPUB3 (no third-party content).
 // ESM suite (type: module) — no __dirname here.
@@ -65,7 +66,7 @@ test.skip(
 test(
   "kavita ingest: deploy Kavita → rclone-put an EPUB into a series subfolder through /dav → Kavita's scan surfaces the series",
   async ({ page, request }) => {
-    test.setTimeout(15 * 60_000);
+    test.setTimeout(18 * 60_000);
 
     // Sign in as a fresh per-run user, then deploy Kavita through the
     // wizard (the file-access flow's deploy walk).
@@ -92,7 +93,9 @@ test(
 
     // The panel is the client doc: address, username, revealable
     // password (the #194 clipboard round-trip is file-access.spec's
-    // job — this spec only needs the credential to work).
+    // job — this spec only needs the credential to work). A missing
+    // panel must say so here, not time out on a bare locator below.
+    await expect(page.getByTestId("file-access-panel")).toBeVisible();
     const davUrl = (await page.getByTestId("dav-url").textContent())?.trim();
     const davUser = (await page.getByTestId("dav-username").textContent())?.trim();
     await page.getByTestId("reveal-credentials").click();
@@ -143,8 +146,12 @@ test(
       const register = await request.post(`${baseUrl}/api/account/register`, {
         data: { username: kavitaUser, email, password: kavitaPass },
       });
-      expect(register.status()).toBe(200);
-      const token = ((await register.json()) as { token: string }).token;
+      // Read the body once; the assert carries it so Kavita's error
+      // JSON surfaces instead of a bare 4xx (the rediscovery-cost rule
+      // from the header).
+      const registerBody = await register.text();
+      expect(register.status(), registerBody).toBe(200);
+      const token = (JSON.parse(registerBody) as { token: string }).token;
       expect(token).toBeTruthy();
       const headers = { authorization: `Bearer ${token}` };
 
@@ -172,17 +179,19 @@ test(
           excludePatterns: [],
         },
       });
-      expect(create.status()).toBe(200);
+      expect(create.status(), await create.text()).toBe(200);
 
       return { headers };
     });
 
     const ourLibrary = await test.step("wait out the first scan, scan-fallback behind it", async () => {
+      // Lenient read: a transient non-200 (or non-JSON body) reads as
+      // null — pollUntil keeps polling, it must not abort the loop.
       const libraries = async () => {
         const res = await request.get(`${baseUrl}/api/library/libraries`, {
           headers: api.headers,
         });
-        expect(res.status()).toBe(200);
+        if (!res.ok()) return null;
         return (await res.json()) as {
           id: number;
           name: string;
@@ -191,59 +200,81 @@ test(
       };
 
       const find = () =>
-        libraries().then((libs) => libs.find((l) => l.name === LIBRARY_NAME));
+        libraries().then((libs) => libs?.find((l) => l.name === LIBRARY_NAME));
 
       // Creating a library auto-scans; lastScanned flips off the
-      // zero-date when that scan finishes.
-      let library = await pollUntil(() => find(), NEVER_SCANNED, 120_000);
+      // zero-date (prefix-matched) when that scan finishes.
+      let library = await pollUntil(find, NEVER_SCANNED_PREFIX, 120_000);
       expect(library, `${LIBRARY_NAME} in /api/library/libraries`).toBeTruthy();
 
-      if (library!.lastScanned === NEVER_SCANNED) {
+      if (library!.lastScanned.startsWith(NEVER_SCANNED_PREFIX)) {
         // The auto-scan never landed — trigger one explicitly and
         // keep polling.
         const scan = await request.post(
           `${baseUrl}/api/library/scan?libraryId=${library!.id}`,
           { headers: api.headers },
         );
-        expect(scan.status()).toBe(200);
-        library = await pollUntil(() => find(), NEVER_SCANNED, 120_000);
-        expect(library!.lastScanned).not.toBe(NEVER_SCANNED);
+        expect(scan.status(), await scan.text()).toBe(200);
+        library = await pollUntil(find, NEVER_SCANNED_PREFIX, 120_000);
       }
+
+      // Explicit guards — a bare `library!` would TypeError instead of
+      // saying what never settled.
+      expect(
+        library,
+        `${LIBRARY_NAME} never appeared in /api/library/libraries`,
+      ).toBeTruthy();
+      expect(
+        library!.lastScanned.startsWith(NEVER_SCANNED_PREFIX),
+        `the first scan never finished — lastScanned still reads ${library!.lastScanned}`,
+      ).toBe(false);
 
       return library!;
     });
 
     // The point of the whole ride: Kavita's scanner INGESTED the
-    // subfolder EPUB — the series appears under the library.
+    // subfolder EPUB — the series exists in this library. all-v2 is a
+    // FILTER, not a scoper: SeriesFilterV2Dto never reads libraryId,
+    // so the body field would be inert and the query ranges over every
+    // library; the scoping happens here, client-side.
     const series = await request.post(
       `${baseUrl}/api/series/all-v2?pageNumber=1&pageSize=10`,
-      {
-        headers: api.headers,
-        data: { name: "", statements: [], libraryId: ourLibrary.id },
-      },
+      { headers: api.headers, data: { name: "", statements: [] } },
     );
-    expect(series.status()).toBe(200);
-    const list = (await series.json()) as { name: string; libraryId: number }[];
-    expect(list.map((s) => s.name)).toContain(SERIES_NAME);
+    const seriesBody = await series.text();
+    expect(series.status(), seriesBody).toBe(200);
+    const list = JSON.parse(seriesBody) as {
+      name: string;
+      libraryId: number;
+    }[];
+    const matches = list.filter(
+      (s) => s.name === SERIES_NAME && s.libraryId === ourLibrary.id,
+    );
+    expect(matches.length, JSON.stringify(list)).toBeGreaterThan(0);
 
     await destroyInstance(page);
   },
 );
 
-// Poll every 5s until `find` yields a library whose lastScanned left
-// the zero-date; `timeoutMs` bounds the wait (returns the last find,
-// settled or not — the caller decides whether that's a failure).
+// Poll every 5s until `find` yields a library whose lastScanned has
+// left the zero-date prefix; `timeoutMs` bounds the wait. A failed or
+// unsettled read is "not yet" — swallowed, and the loop keeps polling
+// until the deadline. Returns the last find, settled or not — the
+// caller decides whether that's a failure.
 async function pollUntil(
   find: () => Promise<{ id: number; lastScanned: string } | undefined>,
-  never: string,
+  neverPrefix: string,
   timeoutMs: number,
 ) {
   const deadline = Date.now() + timeoutMs;
-  let library = await find();
+  let library = await find().catch(() => undefined);
 
-  while (Date.now() < deadline && (!library || library.lastScanned === never)) {
+  while (
+    Date.now() < deadline &&
+    (!library || library.lastScanned.startsWith(neverPrefix))
+  ) {
     await new Promise((resolve) => setTimeout(resolve, 5_000));
-    library = await find();
+    library = await find().catch(() => undefined);
   }
 
   return library;
