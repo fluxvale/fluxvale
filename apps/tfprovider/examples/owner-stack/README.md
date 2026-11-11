@@ -53,7 +53,7 @@ instance.
 | `r2_access_key_id` / `r2_secret_access_key` | Cloudflare dashboard → R2 → Manage API Tokens (object read/write) | `terraform.tfvars` |
 | `r2_bucket_name` | decision — default `fluxvale-backups`, unique in the account | optional, `terraform.tfvars` |
 | `tailnet_domain` | Tailscale admin console — the MagicDNS suffix (`<tailnet>.ts.net`) | `terraform.tfvars` |
-| `tailscale_auth_key` | Tailscale admin console → Settings → Keys (an auth key that can enroll a device) | `terraform.tfvars` — set when ENABLING the gateway; leave null when adopting an existing one by import |
+| `tailscale_auth_key` | Tailscale admin console → Settings → Keys (an auth key that can enroll a device) | `terraform.tfvars` — set BEFORE the first apply when enabling (with it null, the apply half-lands: bucket, instances, backups, then fails at the gateway create); leave null only when adopting an existing gateway by import |
 | `instances` | the catalog (listing one-liner below) + app/version/size choices | optional, `terraform.tfvars` |
 | `instances[].domain` | the dogfood plan — `git.fluxvale.com` (forgejo) and `analytics.fluxvale.com` (umami) are the placeholder pairings | optional, `terraform.tfvars` — left unset until that plan lands |
 
@@ -111,6 +111,14 @@ Verified when:
 
 - `tofu plan` shows 1 bucket, N instances, N backup rows, the
   gateway (or an adoption import — see below), nothing unexpected.
+  One known wart from the SECOND plan onward: once the gateway
+  exists, its unset `organization` attribute re-plans unknown against
+  the stored id and the plan shows a spurious gateway replacement
+  (provider bug, [fluxvale#693](https://github.com/fluxvale/fluxvale/issues/693));
+  the plan cannot actually replace the singleton. Naming the org
+  explicitly — uncomment `organization` on the gateway resource and
+  set your org slug — makes it stop. The same class can show as
+  in-place churn on registered custom-domain rows.
 - `tofu apply` completes; `tofu output` prints the public URLs and
   the gateway host.
 - The panel shows the instances running, backups rows enabled, and

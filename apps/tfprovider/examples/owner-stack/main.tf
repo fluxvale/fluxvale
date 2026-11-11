@@ -159,6 +159,12 @@ resource "fluxvale_access_gateway" "owner" {
   tailnet_domain = var.tailnet_domain
   auth_key       = var.tailscale_auth_key
 
+  # Uncomment once the gateway exists (org slug or id): an unset
+  # organization re-plans unknown against the stored id and shows a
+  # spurious replacement every plan — see the README and the
+  # provider issue linked there.
+  # organization = "your-org-slug"
+
   instances = [
     for k, i in fluxvale_instance.apps : i.id
     if i.exposure == "private"
