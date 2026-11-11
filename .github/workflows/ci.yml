@@ -801,8 +801,8 @@ jobs:
             # pre-pulled by the warm-up below. instance-resize joined
             # late (#518 shipped it legless; red since birth on the
             # storage-probe 403 — the storageclasses RBAC grant in
-            # this PR is what unreds it); it deploys Forgejo, already
-            # in warm_apps.
+            # this PR is what turns it green); it deploys Forgejo,
+            # already in warm_apps.
             specs: tests/forgejo-lifecycle.spec.ts tests/actual-lifecycle.spec.ts tests/vaultwarden-lifecycle.spec.ts tests/memos-lifecycle.spec.ts tests/vikunja-lifecycle.spec.ts tests/pocket-id-lifecycle.spec.ts tests/umami-lifecycle.spec.ts tests/docmost-lifecycle.spec.ts tests/file-access.spec.ts tests/backups.spec.ts tests/instance-resize.spec.ts
             warm_apps: forgejo actualbudget vaultwarden memos vikunja pocket-id kavita umami docmost
           # #210 part 3: threshold 45s + probe window 150s are safe
