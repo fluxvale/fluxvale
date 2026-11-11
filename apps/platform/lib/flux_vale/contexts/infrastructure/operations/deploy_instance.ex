@@ -116,11 +116,33 @@ defmodule FluxVale.Infrastructure.Operations.DeployInstance do
 
     case apply_resources(kubeconfig, namespace, instance) do
       :ok ->
-        InstanceK8s.update_status(
-          instance,
-          :starting,
-          "Deployed to Kubernetes; awaiting readiness"
-        )
+        case InstanceK8s.update_status(
+               instance,
+               :starting,
+               "Deployed to Kubernetes; awaiting readiness"
+             ) do
+          {:ok, starting} ->
+            # ADR-0049 S1b: the deploy trigger is a background worker and
+            # the instance carries no user FK, so the event carries the
+            # org id — the row's single ownership axis. Fired on the
+            # landed status write (the wake site's former gating), never
+            # before it; named "deploy started" because readiness
+            # (:running) belongs to the reconciler, a different flow.
+            FluxVale.Analytics.capture("instance deploy started", instance.organization_id, %{
+              instance_slug: instance.slug
+            })
+
+            {:ok, starting}
+
+          # coveralls-ignore-start - defensive: the status write's
+          # DB-outage class, ExUnit cannot stage it (DBConnection
+          # reconnects by design). A missed event beats one asserting a
+          # write that never landed.
+          {:error, _failed} = error ->
+            error
+
+            # coveralls-ignore-stop
+        end
 
       {:error, error} ->
         deploy_failed(instance, error)

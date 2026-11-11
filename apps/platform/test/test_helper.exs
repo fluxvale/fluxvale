@@ -87,6 +87,11 @@ if Mix.env() == :test do
   Mimic.copy(FluxVale.Infrastructure.Operations.RenderAccessDNS)
   Mimic.copy(FluxVale.Clients.K8s.Resources.Pod)
   Mimic.copy(FluxVale.Clients.K8s.Resources.ConfigMap)
+  # S1b of the PostHog split (ADR-0049): the product-event seam.
+  # Operation tests expect the capture at the seam (args-in asserts);
+  # the facade's own suite runs the real module against the SDK's
+  # test_mode tree.
+  Mimic.copy(FluxVale.Analytics)
 
   Ecto.Adapters.SQL.Sandbox.mode(FluxVale.Repo, :manual)
 

@@ -158,6 +158,23 @@ defmodule FluxVale.Billing.Operations.CompleteTopup do
     }
   end
 
+  # The provider name from the key's "<provider>:<reference>" shape —
+  # both providers mint it (HitPay/Polar idempotency_key/1). A drifted
+  # key degrades to a provider-less event instead of leaking the
+  # reference — analytics never fail the credit (the wake posture).
+  @spec idempotency_provider(String.t()) :: String.t() | nil
+  defp idempotency_provider(idempotency_key) do
+    case String.split(idempotency_key, ":", parts: 2) do
+      [provider, _reference] ->
+        provider
+
+      # coveralls-ignore-next-line - defensive: untriggerable today —
+      # both providers prefix the key; fires only on format drift.
+      _referenceless ->
+        nil
+    end
+  end
+
   # Terminal-once: the status filter rides the UPDATE's WHERE, so an
   # out-of-order delivery racing this write loses (zero rows) instead
   # of flipping an already-terminal row. :expired rides along (#364):
@@ -180,6 +197,23 @@ defmodule FluxVale.Billing.Operations.CompleteTopup do
 
     case result do
       %Ash.BulkResult{status: :success, records: [completed]} ->
+        # ADR-0049 S1b: the webhook/reconciliation path has no actor, and
+        # the Topup row carries no user id — the owning org's id is the
+        # distinct_id (the row's single ownership axis; the buyer's email
+        # never rides). Props keep only the provider enum: the ADR-0049
+        # disclosure covers usage events, not billing amounts — money
+        # questions live in the Grafana domain dashboards (ADR-0012's
+        # domain sight). The provider name is the idempotency key's
+        # prefix; the payment reference after it never rides (the
+        # PostHogRequestContext posture).
+        props =
+          case idempotency_provider(outcome.idempotency_key) do
+            nil -> %{}
+            provider -> %{provider: provider}
+          end
+
+        FluxVale.Analytics.capture("wallet topped up", topup.organization_id, props)
+
         {:ok, completed}
 
       %Ash.BulkResult{status: :success, records: []} ->
