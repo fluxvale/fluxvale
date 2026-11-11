@@ -1,9 +1,10 @@
 # Plan: PostHog observability split — Phase 1 + Phase 2 slices
 
-Status: **PLAN AT GATE** — waiting on the owner's go (relayed via PA).
+Status: **ACCEPTED — go relayed 2026-11-11** (implementation in flight,
+slices in order; the prod flip is deferred with the prod project, so
+Phase 2's "Phase 1 verified" gate means *staging* verification).
 Decision record: [ADR-0049](../adr/00049-posthog-app-observability-split.md)
-(draft, Proposed). Implementation starts only after the go; nothing
-below is wired yet.
+(Proposed; flips to Accepted when Phase 1 lands).
 
 Repos: **app** = `fluxvale/fluxvale` (branch off `main`, github-flow),
 **fleet** = `fluxvale/infrastructure` (private, same flow). Worktree
@@ -72,11 +73,12 @@ settings) and **billing limits set to $0** on analytics + replay
 
 ## Slices
 
-Order: S0 → S1 → S1b → (S2 ∥ S3) → S4 (staging flip → verify → prod
-flip). Phase 2 after Phase 1 is verified in prod: S5 → S6. Umbrella
-issues open at the go (one per phase, referencing ADR-0049 + this
-plan); slice PRs reference the umbrella without a closing keyword —
-except S3 (closes the Phase 1 issue) and S6 (closes Phase 2).
+Order: S0 → S1 → S1b → (S2 ∥ S3) → S4 (staging flip → verify; the prod
+flip waits for the production project at billing setup). Phase 2 after
+Phase 1 is **staging**-verified: S5 → S6. Umbrella issues open at the
+go (one per phase, referencing ADR-0049 + this plan); slice PRs
+reference the umbrella without a closing keyword — except S3 (closes
+the Phase 1 issue) and S6 (closes Phase 2).
 
 ### S0 (app) — decision record
 
@@ -313,8 +315,13 @@ code stays, inert).
   Tempo), Tempo never stops.
 - **Cluster-wide by construction** (one Alloy serves both app envs —
   no staging-first split for traces without an app-side resource
-  attribute; not worth one). Mitigation: the instant revert (delete
-  the exporter + the fan-out edge) and the $0 billing limit.
+  attribute; not worth one). **One-project consequence**: until the
+  production project exists (billing setup), prod and staging traces
+  alike land in the "FluxVale - Staging" project — accepted with the
+  go (traces are internal, redacted telemetry; revert is one block;
+  the $0 billing limit caps the meter). Mitigation: the instant
+  revert (delete the exporter + the fan-out edge) and the $0 billing
+  limit.
 - Evidence: PostHog traces tab shows fresh app spans (screenshot);
   the same span still queries in Tempo via Grafana Explore
   (screenshot or query URL). App binary unchanged.
