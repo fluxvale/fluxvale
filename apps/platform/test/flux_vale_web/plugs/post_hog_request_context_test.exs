@@ -42,15 +42,25 @@ defmodule FluxValeWeb.Plugs.PostHogRequestContextTest do
 
       conn =
         base
-        |> put_req_header("x-posthog-distinct-id", "frontend-distinct-id")
+        |> put_req_header("x-posthog-distinct-id", "spoofed-distinct-id")
+        |> put_req_header("x-posthog-session-id", "spoofed-session-id")
         |> PostHogRequestContext.call(opts)
 
       context = PostHog.get_context()
 
+      # The client-supplied tracing headers are stripped from the SDK's
+      # view — attribution is not caller-controlled until the client
+      # slice wires the real ones.
+      refute Map.has_key?(context, :distinct_id)
+      refute Map.has_key?(context, :"$session_id")
       assert context[:"$pathname"] == "/pricing"
       assert context[:"$request_method"] == "GET"
       assert context[:"$current_url"] == "http://www.example.com/pricing"
-      assert context[:distinct_id] == "frontend-distinct-id"
+
+      # The REAL conn continues downstream untouched: headers, query and
+      # path survive (MaybeResolveUser.return_to reads the query).
+      assert conn.query_string == "plan=storage"
+      assert get_req_header(conn, "x-posthog-distinct-id") == ["spoofed-distinct-id"]
       assert conn.request_path == "/pricing"
     end
 
@@ -63,15 +73,20 @@ defmodule FluxValeWeb.Plugs.PostHogRequestContextTest do
       base = build_conn(:get, "/invitations/accept?token=supersecret-invite-token")
       opts = PostHogRequestContext.init([])
 
-      _conn = PostHogRequestContext.call(base, opts)
+      conn = PostHogRequestContext.call(base, opts)
 
       context = PostHog.get_context()
 
+      # The side effect fired: the request's context landed…
+      assert context[:"$pathname"] == "/invitations/accept"
+      assert context[:"$request_method"] == "GET"
+      # …with no token in it…
       assert context[:"$current_url"] == "http://www.example.com/invitations/accept"
       refute context[:"$current_url"] =~ "supersecret"
-      assert context[:"$pathname"] == "/invitations/accept"
-      # The caller's conn is untouched — only the SDK's view is stripped.
-      assert base.query_string == "token=supersecret-invite-token"
+      # …and the RETURNED conn (what MaybeResolveUser/UserAuth read
+      # downstream) keeps the query the stripped view dropped.
+      assert conn.query_string == "token=supersecret-invite-token"
+      assert conn.request_path == "/invitations/accept"
     end
   end
 end

@@ -14,11 +14,6 @@ defmodule FluxVale.Observability do
   alias OpentelemetryEcto
   alias OpentelemetryPhoenix
 
-  # `enable_error_tracking` is a *convenience* option — only the SDK's own
-  # auto-start reads it, and `config :posthog, enable: false` (config.exs)
-  # keeps that off; the supervisor schema rejects unknown keys, so it is
-  # dropped before PostHog.Config.validate!/1 sees the assembled options.
-  @posthog_convenience_keys [:enable_error_tracking]
   # The source-context keys live in the :posthog app env (config.exs) —
   # the same keys `mix posthog.package_source_code` reads; the supervisor
   # carries the identical values so the packaged map and the runtime
@@ -73,13 +68,15 @@ defmodule FluxVale.Observability do
   arms everything — the supervision tree, the Logger handler, and the
   request plugs.
 
-  `nil` or `""` (the classic empty-Secret shape) is `:unset`: nothing
-  starts at all, and that is the deliberate default in every environment
-  until the fleet repo flips the var (this slice ships inert). The api
-  host is the EU cloud per the ADR's region decision. Error tracking is
-  default-on via the Logger handler at the SDK's default capture level
-  (:error) — that is the DECISION, so there is deliberately no disable
-  dial here.
+  `nil`, `""`, or whitespace-only (the classic empty-Secret shapes) is
+  `:unset`: nothing starts at all, and that is the deliberate default
+  in every environment until the fleet repo flips the var (this slice
+  ships inert). The trim matters: the SDK trims the key itself, so a
+  whitespace-only value would half-arm the tree while sending nothing.
+  The api host is the EU cloud per the ADR's region decision. Error
+  tracking is default-on via the Logger handler at the SDK's default
+  capture level (:error) — that is the DECISION, so there is
+  deliberately no disable dial here.
   """
   @spec posthog_config() :: :unset | {:ok, map()}
   def posthog_config do
@@ -88,18 +85,21 @@ defmodule FluxVale.Observability do
         :unset
 
       api_key ->
-        {:ok,
-         %{
-           api_host: "https://eu.i.posthog.com",
-           api_key: api_key,
-           in_app_otp_apps: [:flux_vale],
-           capture_level: :error,
-           metadata: [:request_id],
-           # Documents the always-on error-tracking decision; dropped at
-           # assembly time (see @posthog_convenience_keys).
-           enable_error_tracking: true
-         }}
+        case String.trim(api_key) do
+          "" -> :unset
+          trimmed -> {:ok, armed_config(trimmed)}
+        end
     end
+  end
+
+  defp armed_config(api_key) do
+    %{
+      api_host: "https://eu.i.posthog.com",
+      api_key: api_key,
+      in_app_otp_apps: [:flux_vale],
+      capture_level: :error,
+      metadata: [:request_id]
+    }
   end
 
   @doc """
@@ -148,18 +148,23 @@ defmodule FluxVale.Observability do
         :ok
 
       _armed ->
+        # Deliberate discard wrapping to :ok — :logger.add_handler/3 can
+        # answer {error, _}; an attach failure on a misconfigured armed
+        # boot surfaces in the handler-config probe (test) and review,
+        # not as a boot crash on the happy path.
         :logger.add_handler(:posthog, PostHog.Handler, %{config: posthog_runtime_config()})
+
+        :ok
     end
   end
 
   # The supervisor-facing assembly: the armed map (runtime.exs) with
-  # config.exs's :posthog source-context keys merged in and the
-  # convenience-only key dropped, then validate!/1 — it rejects unknown
-  # keys and nil values alike, so only keys actually set are merged.
+  # config.exs's :posthog source-context keys merged in, then validate!/1
+  # — it rejects unknown keys and nil values alike, so only keys actually
+  # set are merged.
   defp posthog_runtime_config do
     armed = Application.fetch_env!(:flux_vale, :posthog)
-    supervisor_only = Map.drop(armed, @posthog_convenience_keys)
-    options = Map.to_list(supervisor_only) ++ posthog_source_context_opts()
+    options = Map.to_list(armed) ++ posthog_source_context_opts()
 
     PostHog.Config.validate!(options)
   end

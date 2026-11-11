@@ -10,20 +10,22 @@ defmodule FluxValeWeb.Plugs.PostHogRequestContext do
   wrapper re-reads the app env per request and passes the conn through
   untouched while PostHog is unarmed.
 
-  Accepted with the ADR-0049 delegation: the SDK plug trusts the
-  client-supplied x-posthog-distinct-id / x-posthog-session-id tracing
-  headers (unsent by our frontend today, so today it is only spoof
-  surface into our own project's error attribution) and ships the
-  leftmost X-Forwarded-For entry as $ip to PostHog Cloud EU. The query
-  string is NOT shipped (see call/2): this app's query strings carry
-  auth-boundary tokens (#408's invitation accept). Revisit trigger:
-  S1b's facade wiring is when the header trust and the $ip payload get
-  a deliberate look rather than the SDK default.
+  Accepted with the ADR-0049 delegation: the SDK plug ships the
+  leftmost X-Forwarded-For entry as $ip to PostHog Cloud EU (documented
+  acceptance; the project-level IP-off posture in the PostHog project
+  settings is the real gate — revisit at S1b). The client-supplied
+  x-posthog-distinct-id/-session-id tracing headers and the query
+  string are NOT forwarded (see call/2): the headers are spoofable
+  attribution until the client slice wires the real ones deliberately,
+  and this app's query strings carry auth-boundary tokens (#408's
+  invitation accept).
   """
 
   # The SDK's request-context plug — via attribute so neither the
   # nested-module-alias check nor an `:as` alias is needed.
   @posthog_plug PostHog.Integrations.Plug
+  # Client-supplied tracing headers the SDK plug would trust verbatim.
+  @spoofable_tracing_headers ["x-posthog-distinct-id", "x-posthog-session-id"]
 
   @doc false
   @spec init(keyword()) :: keyword()
@@ -37,16 +39,22 @@ defmodule FluxValeWeb.Plugs.PostHogRequestContext do
         conn
 
       _armed ->
-        # The query string routinely carries auth-boundary tokens
-        # (#408: the invitation accept route rides ?token=… and that
-        # token IS the credential) — the context keeps the path, never
-        # the query. A key denylist would miss the next token-bearing
-        # param; dropping the query is the posture that doesn't need
-        # revisiting. The real conn continues downstream untouched —
-        # only the clone the SDK plug reads is stripped.
-        conn_without_query = %{conn | query_string: ""}
+        # The SDK plug's only effect is process-scoped context-setting
+        # (PostHog.Context.set -> logger metadata); it returns the conn
+        # it was handed. So hand it a stripped VIEW and return the REAL
+        # conn downstream untouched: the query string routinely carries
+        # auth-boundary tokens (#408: invitation accept rides ?token=…
+        # and that token IS the credential), and the x-posthog-* tracing
+        # headers are client-supplied and spoofable until the client
+        # slice wires the real ones.
+        view =
+          Enum.reduce(@spoofable_tracing_headers, conn, fn header, acc ->
+            Plug.Conn.delete_req_header(acc, header)
+          end)
 
-        @posthog_plug.call(conn_without_query, opts)
+        @posthog_plug.call(%{view | query_string: ""}, opts)
+
+        conn
     end
   end
 end

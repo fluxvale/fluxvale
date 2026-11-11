@@ -150,8 +150,14 @@ defmodule FluxVale.ObservabilityTest do
       end)
     end
 
+    test "unset when POSTHOG_API_KEY is whitespace-only (the SDK trims — half-arming is not arming)" do
+      with_env("POSTHOG_API_KEY", "   ", fn ->
+        assert Observability.posthog_config() == :unset
+      end)
+    end
+
     test "armed: the EU host, the app's OTP modules, error-level capture" do
-      with_env("POSTHOG_API_KEY", "phc_test_posthog_key", fn ->
+      with_env("POSTHOG_API_KEY", "  phc_test_posthog_key  ", fn ->
         assert Observability.posthog_config() ==
                  {:ok,
                   %{
@@ -159,8 +165,7 @@ defmodule FluxVale.ObservabilityTest do
                     api_key: "phc_test_posthog_key",
                     in_app_otp_apps: [:flux_vale],
                     capture_level: :error,
-                    metadata: [:request_id],
-                    enable_error_tracking: true
+                    metadata: [:request_id]
                   }}
       end)
     end
@@ -210,8 +215,6 @@ defmodule FluxVale.ObservabilityTest do
 
         # in_app_modules is what validate!/1 computes from in_app_otp_apps.
         assert MapSet.member?(config.in_app_modules, FluxVale.Observability)
-        # The convenience key never reaches the supervisor options.
-        refute Map.has_key?(config, :enable_error_tracking)
       end)
     end
 
