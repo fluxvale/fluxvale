@@ -135,6 +135,11 @@ body by `gh pr edit --body-file` when produced, and the gap is reported
 honestly. Nothing on the page itself embeds media (page-weight discipline,
 screenshot-staleness risk from the catalog plan).
 
+Capture verification (a vision pass over every still and GIF against the
+claimed behavior) and any UI QA ride `synthetic/hf:deepseek-ai/DeepSeek-V4.1-Flash-1017`
+(fleet routing note, Nov 11: burn the Synthetic pool there before its
+Nov 16 sunset).
+
 ## D5. Slices
 
 1. **Copy PR** (the whole lane if the owner approves the words as drafted):
@@ -153,6 +158,13 @@ screenshot-staleness risk from the catalog plan).
    nav row or hero sentence ride the same copy PR anyway — they are one line
    each, not slices. Anything beyond (a dedicated `/automation` marketing
    page, GIFs on the page) is out of scope and a new issue.
+
+Review routing (fleet note, Nov 11): this PR is copy and visual by weight,
+so the hostile review and the capture verification ride
+`synthetic/hf:deepseek-ai/DeepSeek-V4.1-Flash-1017` by preference;
+`syn:large:text` stays the lane for code-depth review if the diff demands
+it. Implementer host follows the cross-host rule (Z.AI implementers,
+Synthetic reviewer).
 
 ## D6. Out of scope
 
