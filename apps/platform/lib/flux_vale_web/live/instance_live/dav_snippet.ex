@@ -178,6 +178,12 @@ defmodule FluxValeWeb.InstanceLive.DavSnippet do
 
   attr(:remote, :string, required: true, doc: "the rclone remote name, e.g. fluxvale-<slug>")
 
+  attr(:mount_path, :string,
+    required: true,
+    doc:
+      "the instance's storage_mount_path snapshot (the app-scan note names <mount>/library/books)"
+  )
+
   attr(:on_select, :string,
     default: nil,
     doc: "tab-click event name for the host LiveView; unset renders inert tabs"
@@ -317,8 +323,9 @@ defmodule FluxValeWeb.InstanceLive.DavSnippet do
         </p>
         <p>
           <span class="font-medium text-ink-muted">After uploading:</span>
-          tell the app. Register the folder in its settings and trigger a scan (Kavita:
-          Settings → Libraries → add the path, then Scan).
+          tell the app. In Kavita: Settings → Libraries → add {@mount_path}/library/books, then
+          Scan. Books must sit in subfolders of that folder, one per book or series. Loose files
+          at the folder's root are skipped by every scan.
         </p>
       </div>
 
@@ -376,6 +383,6 @@ defmodule FluxValeWeb.InstanceLive.DavSnippet do
   end
 
   defp source_note do
-    "Books is an example. Any local folder works, and the copy step uses the same one."
+    "Books is an example. Any local folder works. Keep one subfolder per book or series inside it, since Kavita scans subfolders, not loose files at a folder's root."
   end
 end

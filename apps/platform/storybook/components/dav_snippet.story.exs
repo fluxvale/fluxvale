@@ -57,7 +57,8 @@ defmodule FluxValeWeb.Storybook.Components.DavSnippet do
       url: @url,
       username: "fluxvale",
       password: nil,
-      remote: "fluxvale-empty-dust-9937"
+      remote: "fluxvale-empty-dust-9937",
+      mount_path: "/kavita/config"
     }
     |> Map.merge(Map.new(overrides))
   end
