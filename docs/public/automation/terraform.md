@@ -20,7 +20,7 @@ Offline and air-gapped machines cannot reach the registry. For those, mirror a r
 1. Download the zip for your platform from the [releases page](https://github.com/fluxvale/terraform-provider-fluxvale/releases) — adjust the file names below to the platform and version you took — together with the versioned checksums `terraform-provider-fluxvale_0.2.1_SHA256SUMS`. Verify the archive:
 
    ```sh
-   grep terraform-provider-fluxvale_0.2.1_linux_amd64.zip terraform-provider-fluxvale_0.2.1_SHA256SUMS | sha256sum -c -   # macOS: shasum -a 256
+   grep terraform-provider-fluxvale_0.2.1_linux_amd64.zip terraform-provider-fluxvale_0.2.1_SHA256SUMS | sha256sum -c -   # macOS: shasum -a 256 -c -
    ```
 
 2. Create the mirror tree and place the zip:

@@ -59,7 +59,7 @@ already ruled out.
 | [ADR-0048](00048-ash-paper-trail-audit.md) | Audit trail: AshPaperTrail over the business set — one config posture, attributed surviving versions, actor-label tombstone, retention forever (flagged deliberate) | Accepted |
 | [ADR-0049](00049-posthog-app-observability-split.md) | Observability split: PostHog for the app surface (analytics + error tracking + trace dual-export; EU; cookieless; replay off) — Grafana keeps metrics, synthetics, logs (Phase-3 gate) | Proposed |
 | [ADR-0050](00050-operational-console.md) | Operational console: curated at-a-glance health section, linked-not-embedded, no widget without a real source; server-side whitelisted proxies for third-party reads | Accepted |
-| [ADR-0051](00051-tfprovider-repo-extraction.md) | The Terraform/OpenTofu provider leaves the monorepo: fluxvale/terraform-provider-fluxvale, history kept via filter-repo, plain vX.Y.Z tags, versioned registry assets (manifest, SHA256SUMS, binary .sig) on GPG-signed releases — registry-ready | Accepted |
+| [ADR-0051](00051-tfprovider-repo-extraction.md) | The Terraform/OpenTofu provider leaves the monorepo: fluxvale/terraform-provider-fluxvale, history kept via filter-repo, plain vX.Y.Z tags, versioned registry assets (manifest, SHA256SUMS, binary .sig) on GPG-signed releases — registry-ready | Accepted (amended — see Amendment 1) |
 
 ## Conventions
 
