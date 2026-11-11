@@ -1043,12 +1043,11 @@ jobs:
 
   # PR-side twin of deploy-image below — the same release build, minus
   # the push. `mix release` serializes config terms no PR job executes
-  # in that shape: #713 shipped a Regex without the /E modifier, every
-  # PR check was green, and main's release build went red until #724
-  # fixed it — the exact docker build this job runs, moved to the PR
-  # where the break belongs. No GHCR login, no packages:write,
-  # push: false: a forked PR event holds no registry credentials and
-  # spends no quota.
+  # in that shape (#713 shipped a Regex without the /E modifier, green
+  # PRs, red main, #724 fixed it) — the exact docker build this job
+  # runs, moved to the PR where the break belongs. No GHCR login, no
+  # packages:write, push: false: a forked PR event holds no registry
+  # credentials and spends no quota.
   #
   # Fires on the platform filter, which covers the image's inputs: the
   # app tree (the build context), the synced content trees and the
@@ -1057,8 +1056,8 @@ jobs:
   # gate self-tests on its own changes). A docs-only PR — docs/**
   # minus docs/public and docs/blog — pays nothing. NB the filter is
   # also the gate's reachability: a rename that stops firing it
-  # removes the check silently (skipped passes in wait-for-ci — the
-  # umbrella's standing shape for every lane, see the header).
+  # removes the check silently — wait-for-ci's comment documents that
+  # skipped passes, the umbrella's shape for every lane.
   #
   # Needs platform like mcp-image needs mcp-gates: never burn a
   # release build on a PR the vetting lane already reddened.
@@ -1081,7 +1080,7 @@ jobs:
       # so the push job stays untouched — any fix here lands in BOTH
       # copies. A BASE_IMAGE pin drift used to cost a red main deploy
       # to discover; now it reds the PR that caused it (the Tiltfile
-      # and prebuilt entries in the platform filter exist for this).
+      # entry in the platform filter exists for this).
       - name: Assert BASE_IMAGE matches Tiltfile + mise.toml pins
         run: |
           otp="$(sed -n 's/^erlang *= *"\([^"]*\)".*/\1/p' mise.toml)"
@@ -1115,11 +1114,11 @@ jobs:
       # v7.4.0 — pinned to commit (repo rule above). Same build inputs
       # as deploy-image (context, BUILD_SHA), stopping before the
       # registry: push: false. Restore-only gha cache: PR runs read
-      # main's layers (deploy-image stays the sole writer of the
-      # scope — no export collisions with the other image jobs), and
-      # a PR has nothing worth exporting: a mode=max dump is readable
-      # only by this PR's own re-runs while it burns the repo-wide
-      # 10 GB cache quota against the layers main's deploy depends on.
+      # main's layers and add no PR-side writer to the scope (mcp-image
+      # remains one, pre-existing), and a PR has nothing worth
+      # exporting: a mode=max dump is readable only by this PR's own
+      # re-runs while it burns the repo-wide 10 GB cache quota against
+      # the layers main's deploy depends on.
       - name: Build the release image (no push)
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc
         with:
