@@ -101,8 +101,15 @@ defmodule FluxValeWeb.PageControllerTest do
     html = html_response(conn, 200)
 
     assert html =~ ~s(class="path">fluxvale.com</span>)
-    assert html =~ ~s(src="/images/landing/hero-app-page-light.png")
-    assert html =~ ~s(src="/images/landing/hero-app-page-dark.png")
+    # The full attribute runs pin src to theme slot: the light file
+    # rides block dark:hidden, the dark one hidden dark:block — a
+    # swapped pair (light theme rendering the dark capture) fails here.
+    assert html =~
+             ~s(src="/images/landing/hero-app-page-light.png" width="1040" height="605" alt="" class="block dark:hidden")
+
+    assert html =~
+             ~s(src="/images/landing/hero-app-page-dark.png" width="1040" height="605" alt="" class="hidden dark:block")
+
     assert html =~ "real apps · real prices"
 
     refute html =~ "app.fluxvale.app"

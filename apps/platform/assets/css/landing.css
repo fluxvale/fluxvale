@@ -94,7 +94,7 @@ body:has(.landing) {
 /* ---- Hero: four calm layers.
  * z0 the sunken circle wash (parallax drifts slowest)
  * z1 the product panel (offset right+down; drifts less)
- * z1.5 the deploy chip, below-left of the hero box (the panel edge at
+ * z1.5 the float chip, below-left of the hero box (the panel edge at
  *   <=900px — see the chip note)
  * z2 the display headline, over the panel's top-left corner.
  * The overlap exists ONLY >=900px; below that everything stacks. ---- */
@@ -246,7 +246,7 @@ body:has(.landing) {
   letter-spacing: 0.04em;
 }
 
-/* The one floating element: a deploy chip offset below-left of its
+/* The one floating element: a float chip offset below-left of its
  * anchor's corner (the hero box on desktop, the panel itself on the
  * stacked <=900px layout — see the chip note at .hero-panel). The
  * offset rides the `translate` property (not `transform`) so the drop

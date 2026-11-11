@@ -6,8 +6,8 @@
  * downsample to the exact og:image size (ImageMagick, `-strip` keeps
  * reruns byte-stable — don't ship the 2x). A 125px scroll seats the
  * full copy block + CTAs inside the frame — retune it if the hero's
- * clamps or header height change; the in-frame guard below fails the
- * run instead of shipping a clipped card. Captures force the
+ * clamps, header height, or panel height change; the in-frame guard
+ * below fails the run instead of shipping a clipped card. Captures force the
  * post-animation resting state (the landing's own prefers-reduced-motion
  * override) and pin both themes; dark ships (brand preference), light
  * rides along as evidence.
