@@ -1,13 +1,16 @@
 defmodule FluxVale.Observability.WakeStats do
   @moduledoc """
   Per-app wake-time estimates derived from the live metric (#232) —
-  the catalog badge's data source.
+  the catalog badge's and the console wake widget's data source.
 
   Reads the exact series Prometheus scrapes (`PromEx.get_metrics/1` —
   the point: the user-facing number and the SLO dashboard quote one
-  source) and computes each app's median total wake time by
-  PromQL's histogram_quantile interpolation over the cumulative
-  buckets of `flux_vale_wake_total_seconds`.
+  source) and computes two per-app estimates by PromQL's
+  histogram_quantile interpolation over the cumulative buckets: the
+  median total wake time (`flux_vale_wake_total_seconds` — the
+  catalog badge) and the p95 promotion wait
+  (`flux_vale_wake_promotion_wait_seconds` — the console widget,
+  #702, the SLO's own series).
 
   Deliberate honesty guards:
 
@@ -26,11 +29,14 @@ defmodule FluxVale.Observability.WakeStats do
   use GenServer
 
   @min_samples 5
-  # The total histogram's exposition prefix — keep in lockstep with
-  # FluxVale.PromEx.Plugins.Wake.
+  # The histograms' exposition prefixes — keep in lockstep with
+  # FluxVale.PromEx.Plugins.Wake (total feeds the medians,
+  # promotion-wait the p95s).
   @total_bucket_prefix "flux_vale_wake_total_seconds_bucket{"
+  @promotion_bucket_prefix "flux_vale_wake_promotion_wait_seconds_bucket{"
   @label_pattern ~r/(\w+)="([^"]*)"/
-  @quantile 0.5
+  @median_quantile 0.5
+  @p95_quantile 0.95
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []) do
@@ -39,17 +45,30 @@ defmodule FluxVale.Observability.WakeStats do
 
   @impl GenServer
   def init(_opts) do
-    {:ok, %{computed_at: nil, medians: %{}}}
+    {:ok, %{computed_at: nil, medians: %{}, p95_promotions: %{}}}
   end
 
   @impl GenServer
   def handle_call(:medians, _from, state) do
-    if fresh?(state) do
-      {:reply, state.medians, state}
-    else
-      medians = compute()
+    {reply, state} = refresh(state, :medians)
+    {:reply, reply, state}
+  end
 
-      {:reply, medians, %{computed_at: DateTime.utc_now(), medians: medians}}
+  @impl GenServer
+  def handle_call(:p95_promotions, _from, state) do
+    {reply, state} = refresh(state, :p95_promotions)
+    {:reply, reply, state}
+  end
+
+  # The TTL cache's one refill: both families come out of a single
+  # compute() (one scrape walk), so a stale read of either key
+  # refreshes the shared stamp and the other family rides along.
+  defp refresh(state, key) do
+    if fresh?(state) do
+      {Map.fetch!(state, key), state}
+    else
+      computed = Map.put(compute(), :computed_at, DateTime.utc_now())
+      {Map.fetch!(computed, key), computed}
     end
   end
 
@@ -84,6 +103,36 @@ defmodule FluxVale.Observability.WakeStats do
       # coveralls-ignore-stop
   end
 
+  @doc """
+  The p95 promotion-wait seconds per app slug — the console wake
+  widget's number (#702, the SLO's own series). `%{}` when the
+  metrics tree is down or no app has enough samples yet.
+  """
+  @spec p95_promotion_by_app() :: %{optional(String.t()) => float()}
+  def p95_promotion_by_app do
+    GenServer.call(__MODULE__, :p95_promotions)
+  end
+
+  @doc """
+  `p95_promotion_by_app/0` behind the same safety wrapper as the
+  medians — a derived widget must never take its page down.
+  """
+  @spec p95_promotion_by_app_safe() :: %{optional(String.t()) => float()}
+  def p95_promotion_by_app_safe do
+    p95_promotion_by_app()
+  rescue
+    # coveralls-ignore-start - both arms answer {} so the widget can't
+    # take the console down; the named server is alive under the app
+    # tree for the whole suite (a call exits only in the supervisor's
+    # restart gap, which no test can hold open).
+    _exception ->
+      %{}
+  catch
+    :exit, _reason ->
+      %{}
+      # coveralls-ignore-stop
+  end
+
   defp fresh?(%{computed_at: nil}), do: false
 
   defp fresh?(%{computed_at: computed_at}) do
@@ -94,23 +143,35 @@ defmodule FluxVale.Observability.WakeStats do
   defp compute do
     case PromEx.get_metrics(FluxVale.PromEx) do
       metrics when is_binary(metrics) ->
-        metrics
-        |> bucket_counts()
-        |> Map.new(fn {app, buckets} -> {app, median(buckets)} end)
-        |> Enum.reject(fn {_app, estimate} -> is_nil(estimate) end)
-        |> Map.new()
+        totals = bucket_counts(metrics, @total_bucket_prefix)
+        promotions = bucket_counts(metrics, @promotion_bucket_prefix)
+
+        %{
+          medians: estimates(totals, &median/1),
+          p95_promotions: estimates(promotions, &p95/1)
+        }
 
       :prom_ex_down ->
-        %{}
+        %{medians: %{}, p95_promotions: %{}}
     end
   end
 
+  # app slug → estimate, dropping the apps the honesty guard silences.
+  defp estimates(buckets_by_app, estimator) do
+    buckets_by_app
+    |> Map.new(fn {app, buckets} -> {app, estimator.(buckets)} end)
+    |> Enum.reject(fn {_app, estimate} -> is_nil(estimate) end)
+    |> Map.new()
+  end
+
   # app slug → cumulative bucket counts, off the scrape's bucket lines
-  # only (the _count line is redundant with +Inf and skipped).
-  defp bucket_counts(metrics) do
+  # only (the _count line is redundant with +Inf and skipped). The
+  # prefix selects the family: total lines feed the medians,
+  # promotion lines the p95s — a line parses for exactly one family.
+  defp bucket_counts(metrics, prefix) do
     metrics
     |> String.split("\n", trim: true)
-    |> Enum.flat_map(&bucket_line/1)
+    |> Enum.flat_map(&bucket_line(&1, prefix))
     |> Enum.group_by(fn {app, _bound, _count} -> app end, fn {_app, bound, count} ->
       {bound, count}
     end)
@@ -118,24 +179,30 @@ defmodule FluxVale.Observability.WakeStats do
   end
 
   # Anything that isn't exactly our bucket shape falls to the catch-all —
-  # a derived badge must never crash the catalog. The else arms below
-  # are coveralls-ignored: a real scrape (the only input path) either
-  # matches our family exactly or takes the second clause, so the
-  # with-else is reachable only on malformed text the exporter can't
-  # produce.
-  defp bucket_line(@total_bucket_prefix <> _labels = line) do
+  # a derived badge must never crash the catalog. The else arm in the
+  # parse is coveralls-ignored: a real scrape (the only input path)
+  # either carries the family's prefix and parses, or lacks it and
+  # skips; the else is reachable only on malformed text the exporter
+  # can't produce.
+  defp bucket_line(line, prefix) do
+    if String.starts_with?(line, prefix) do
+      parse_bucket_line(line)
+    else
+      []
+    end
+  end
+
+  defp parse_bucket_line(line) do
     with [label_section, value] <- String.split(line, "} "),
          %{"app" => app, "le" => le} <- parse_labels(label_section),
          {count, ""} <- Float.parse(value),
          bound <- parse_bound(le) do
       [{app, bound, count}]
     else
-      # coveralls-ignore-next-line - see above
+      # coveralls-ignore-next-line - see bucket_line/2
       _not_ours -> []
     end
   end
-
-  defp bucket_line(_other_line), do: []
 
   defp parse_labels(label_section) do
     pairs =
@@ -157,12 +224,17 @@ defmodule FluxVale.Observability.WakeStats do
   end
 
   # histogram_quantile's linear interpolation over cumulative buckets;
-  # nil below @min_samples (the honesty guard).
-  defp median(buckets) do
+  # nil below @min_samples (the honesty guard). Median and p95 are the
+  # same walk at their quantiles.
+  defp median(buckets), do: quantile_at(buckets, @median_quantile)
+
+  defp p95(buckets), do: quantile_at(buckets, @p95_quantile)
+
+  defp quantile_at(buckets, q) do
     total = Map.get(buckets, :inf, 0.0)
 
     if total >= @min_samples do
-      quantile(buckets, @quantile * total)
+      quantile(buckets, q * total)
     end
   end
 
@@ -189,11 +261,11 @@ defmodule FluxVale.Observability.WakeStats do
   defp walk_buckets([{bound, count} | rest], prev_bound, prev_count, target) do
     if count >= target do
       # coveralls-ignore-start - unreachable while target > 0 (which
-      # @min_samples guarantees: target = 0.5 × total ≥ 2.5): a
-      # zero-increment bucket covering the target would need its
-      # cumulative — the previous bucket's — to already be ≥ target,
-      # and that earlier bucket would have covered first. Kept as the
-      # division-by-zero guard for future parameter changes.
+      # @min_samples guarantees for both quantiles: target = q × total
+      # ≥ 0.5 × 5 = 2.5): a zero-increment bucket covering the target
+      # would need its cumulative — the previous bucket's — to already
+      # be ≥ target, and that earlier bucket would have covered first.
+      # Kept as the division-by-zero guard for future parameter changes.
       in_bucket = count - prev_count
 
       if in_bucket == 0 do

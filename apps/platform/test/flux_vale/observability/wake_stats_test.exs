@@ -1,7 +1,8 @@
 defmodule FluxVale.Observability.WakeStatsTest do
   @moduledoc """
   The catalog badge's derivation (#232): median total per app off the
-  live scrape, PromQL-interpolated; the min-samples honesty guard; the
+  live scrape, PromQL-interpolated; the console wake widget's too
+  (#702): p95 promotion per app. The min-samples honesty guard; the
   TTL cache; the down-tree {} posture.
 
   async: false — the scrape tests start the module-named PromEx tree
@@ -26,8 +27,13 @@ defmodule FluxVale.Observability.WakeStatsTest do
     :telemetry.execute([:flux_vale, :wake, :total], %{duration: duration}, %{app: app})
   end
 
+  defp emit_promotion(app, duration) do
+    :telemetry.execute([:flux_vale, :wake, :promotion], %{duration: duration}, %{app: app})
+  end
+
   test "{} while the metrics tree is down" do
     assert WakeStats.median_total_by_app() == %{}
+    assert WakeStats.p95_promotion_by_app() == %{}
   end
 
   # #611 S2: the public app page reads the same safe wrapper the
@@ -36,6 +42,7 @@ defmodule FluxVale.Observability.WakeStatsTest do
   # justification in the source.
   test "the safe wrapper answers the plain call's posture" do
     assert WakeStats.median_total_by_app_safe() == %{}
+    assert WakeStats.p95_promotion_by_app_safe() == %{}
   end
 
   test "an app with enough samples gets the interpolated median" do
@@ -59,6 +66,45 @@ defmodule FluxVale.Observability.WakeStatsTest do
     assert WakeStats.median_total_by_app() == %{}
   end
 
+  test "an app with enough samples gets the interpolated p95 promotion" do
+    start_supervised!(FluxVale.PromEx)
+
+    # Five identical 3s promotions: everything lands in le=3, so the
+    # interpolation walks (2, 3] — target rank 4.75 of 5 lands at
+    # 2 + (3-2) * 4.75/5 = 2.95.
+    for _wake <- 1..5, do: emit_promotion("kavita", 3.0)
+
+    p95s = WakeStats.p95_promotion_by_app()
+
+    assert_in_delta Map.fetch!(p95s, "kavita"), 2.95, 0.01
+  end
+
+  test "below min samples there is no p95 either" do
+    start_supervised!(FluxVale.PromEx)
+
+    for _wake <- 1..4, do: emit_promotion("forgejo", 3.0)
+
+    assert WakeStats.p95_promotion_by_app() == %{}
+  end
+
+  test "one refresh fills both maps — medians from total, p95s from promotion" do
+    start_supervised!(FluxVale.PromEx)
+
+    # The families must not cross: an app with only promotion samples
+    # can never surface in the medians (its buckets never enter the
+    # total pass), and kavita's numbers come from different series.
+    for _wake <- 1..5, do: emit_promotion("promotion-only", 3.0)
+    for _wake <- 1..5, do: emit_total("kavita", 6.0)
+    for _wake <- 1..5, do: emit_promotion("kavita", 3.0)
+
+    medians = WakeStats.median_total_by_app()
+    assert_in_delta Map.fetch!(medians, "kavita"), 6.5, 0.01
+    refute Map.has_key?(medians, "promotion-only")
+
+    p95s = WakeStats.p95_promotion_by_app()
+    assert_in_delta Map.fetch!(p95s, "kavita"), 2.95, 0.01
+  end
+
   test "everything past the last bucket reports that bucket — the honest floor" do
     start_supervised!(FluxVale.PromEx)
 
@@ -74,8 +120,11 @@ defmodule FluxVale.Observability.WakeStatsTest do
 
     # The named server outlives the test — a sibling test's fresh map
     # is legitimately servable under the raised TTL. Start from a
-    # known-cold cache (OTP tooling, not an app backdoor).
-    :sys.replace_state(WakeStats, fn _state -> %{computed_at: nil, medians: %{}} end)
+    # known-cold cache (OTP tooling, not an app backdoor); the state
+    # carries both families since the shared-refill refactor.
+    :sys.replace_state(WakeStats, fn _state ->
+      %{computed_at: nil, medians: %{}, p95_promotions: %{}}
+    end)
 
     start_supervised!(FluxVale.PromEx)
 
@@ -93,6 +142,11 @@ defmodule FluxVale.Observability.WakeStatsTest do
     medians = WakeStats.median_total_by_app()
 
     refute Map.has_key?(medians, "forgejo")
+    assert %{computed_at: ^computed_at} = :sys.get_state(WakeStats)
+
+    # The refill is shared: the p95 call rides the same cached
+    # computation — no second scrape walk, same stamp.
+    assert WakeStats.p95_promotion_by_app() == %{}
     assert %{computed_at: ^computed_at} = :sys.get_state(WakeStats)
   end
 end

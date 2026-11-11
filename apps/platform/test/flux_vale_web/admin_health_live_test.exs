@@ -14,6 +14,7 @@ defmodule FluxValeWeb.AdminHealthLiveTest do
 
   alias FluxVale.Identity.User
   alias FluxVale.Infrastructure.Instance
+  alias FluxVale.Observability.WakeStats
   alias FluxVale.TestSupport.AccountsFixtures
   alias FluxVale.TestSupport.InstanceFixtures
   alias FluxVale.TestSupport.SessionHelpers
@@ -96,6 +97,32 @@ defmodule FluxValeWeb.AdminHealthLiveTest do
     |> LazyHTML.from_fragment()
     |> LazyHTML.text()
     |> String.trim()
+  end
+
+  # The wake maps come from WakeStats — the app tree's named server
+  # fed by PromEx, which this suite never starts. The stub rides the
+  # wake_stats test's own tooling: raise the TTL so an injected cache
+  # is served (capture-and-restore), then inject both maps through
+  # :sys.replace_state (OTP tooling, not an app backdoor). On exit the
+  # TTL returns to test's 0, where every read recomputes — the
+  # injected maps can never be served again, so no state restore.
+  defp wake_stub!(p95_promotion, median_total) do
+    original_ttl = Application.get_env(:flux_vale, :wake_stats_ttl_seconds)
+    Application.put_env(:flux_vale, :wake_stats_ttl_seconds, 3600)
+
+    on_exit(fn ->
+      if original_ttl == nil do
+        Application.delete_env(:flux_vale, :wake_stats_ttl_seconds)
+      else
+        Application.put_env(:flux_vale, :wake_stats_ttl_seconds, original_ttl)
+      end
+    end)
+
+    computed_at = DateTime.utc_now()
+
+    :sys.replace_state(WakeStats, fn _state ->
+      %{computed_at: computed_at, medians: median_total, p95_promotions: p95_promotion}
+    end)
   end
 
   describe "the fleet surface" do
@@ -208,6 +235,35 @@ defmodule FluxValeWeb.AdminHealthLiveTest do
 
   defp ngettext_exact(count, _singular, plural),
     do: String.replace(plural, "%{count}", Integer.to_string(count))
+
+  describe "the wake surface" do
+    test "the wake rows render per app with both families' seconds", %{conn: conn} do
+      # kavita rides both families; forgejo is in the promotion family
+      # only, so its median renders the honest dash. The injected cache
+      # is the row set's only source — an app in neither family can
+      # never render, so the absence below is this test's own.
+      wake_stub!(%{"kavita" => 2.95, "forgejo" => 4.1}, %{"kavita" => 6.5})
+
+      {:ok, view, _html} = live(conn, "/admin/health")
+
+      assert has_element?(view, "[data-testid='wake-panel']")
+      assert has_element?(view, "[data-testid='wake-title']", "Wakes")
+
+      # The numbers, exact for the stubbed estimates.
+      kavita = text_of(view, "[data-testid='wake-kavita']")
+      assert kavita =~ "p95 promotion 2.95s"
+      assert kavita =~ "median total 6.5s"
+
+      forgejo = text_of(view, "[data-testid='wake-forgejo']")
+      assert forgejo =~ "p95 promotion 4.1s"
+      assert forgejo =~ "median total -"
+
+      # The caveat line: the widget's honesty note rides every render.
+      assert text_of(view, "[data-testid='wake-caveat']") =~ "reset on every deploy"
+
+      refute has_element?(view, "[data-testid='wake-promnesia']")
+    end
+  end
 
   describe "the gates" do
     test "anonymous bounces to /sign-in", %{bare_conn: conn} do

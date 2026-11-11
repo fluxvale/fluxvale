@@ -3,12 +3,15 @@ defmodule FluxValeWeb.AdminLive.Health do
   The Health section (#702, ADR-0050 — the operational console): the
   instance fleet at a glance. The build stamp (env chip when the
   platform names its env, the version always), the status spread with
-  the always-on count, and the five newest deploys with their recorded
-  actor tombstones.
+  the always-on count, the five newest deploys with their recorded
+  actor tombstones, and the wake widget — per-app p95 promotion-wait
+  and median total seconds off WakeStats' in-memory scrape (numbers
+  reset on every deploy).
 
-  The data comes from `FluxValeWeb.AdminHealth.fleet/1` — the section's
-  widget seam — read with the mount-resolved admin actor and
-  authorization ON (repo default): the policies decide, never the UI.
+  The data comes from `FluxValeWeb.AdminHealth` — the section's
+  widget seam — the fleet read with the mount-resolved admin actor
+  and authorization ON (repo default): the policies decide, never the
+  UI.
   """
 
   use FluxValeWeb, :live_view
@@ -23,7 +26,10 @@ defmodule FluxValeWeb.AdminLive.Health do
 
   @impl Phoenix.LiveView
   def handle_params(_params, _uri, socket) do
-    {:noreply, assign(socket, :fleet, AdminHealth.fleet(socket.assigns.current_user))}
+    {:noreply,
+     socket
+     |> assign(:fleet, AdminHealth.fleet(socket.assigns.current_user))
+     |> assign(:wake, AdminHealth.wake())}
   end
 
   @impl Phoenix.LiveView
@@ -111,6 +117,39 @@ defmodule FluxValeWeb.AdminLive.Health do
                 </div>
               </div>
 
+              <%!-- The wake widget (#702): per-app p95 promotion-wait
+              and median total seconds off WakeStats' in-memory
+              scrape. A row renders for every app either family knows;
+              a family an app lacks renders the honest dash. No
+              external link — the Grafana wake dashboard is fleet-repo
+              owned; links arrive with the Tier-2 proxy config. --%>
+              <div
+                class="rounded-panel border border-line bg-panel px-4 py-4 text-ink"
+                data-testid="wake-panel"
+              >
+                <h2 class="text-sm font-medium" data-testid="wake-title">
+                  {gettext("Wakes")}
+                </h2>
+                <ul class="mt-2" id="wake-apps" data-testid="wake-apps">
+                  <li
+                    :for={slug <- wake_apps(@wake)}
+                    data-testid={"wake-#{slug}"}
+                    class="flex flex-wrap items-center gap-2 border-b border-line py-2 text-sm text-ink last:border-0"
+                  >
+                    <span class="font-mono text-xs">{slug}</span>
+                    <span aria-hidden="true">-</span>
+                    <span>{gettext("p95 promotion")} {wake_seconds(@wake.p95_promotion, slug)}</span>
+                    <span aria-hidden="true">-</span>
+                    <span>{gettext("median total")} {wake_seconds(@wake.median_total, slug)}</span>
+                  </li>
+                </ul>
+                <p class="mt-2 text-xs text-ink-muted" data-testid="wake-caveat">
+                  {gettext(
+                    "In-memory numbers covering the time since this deployment started — they reset on every deploy."
+                  )}
+                </p>
+              </div>
+
               <div class="rounded-panel border border-line bg-panel px-4 py-4 text-ink">
                 <h2 class="text-sm font-medium" data-testid="fleet-deploys-title">
                   {gettext("Recent deploys")}
@@ -180,4 +219,23 @@ defmodule FluxValeWeb.AdminLive.Health do
   # system attribution (the audit section's same grammar).
   defp deploy_actor(nil), do: gettext("System")
   defp deploy_actor(actor), do: actor
+
+  # The union of the two families' app slugs, sorted for a stable row
+  # order (map iteration order is unspecified).
+  defp wake_apps(%{p95_promotion: p95, median_total: medians}) do
+    p95
+    |> Map.keys()
+    |> Enum.concat(Map.keys(medians))
+    |> Enum.uniq()
+    |> Enum.sort()
+  end
+
+  # A family an app lacks (its other series below the min-samples
+  # guard) renders the honest dash; a number renders in seconds.
+  defp wake_seconds(family, slug) do
+    case Map.get(family, slug) do
+      nil -> "-"
+      seconds -> Float.to_string(seconds) <> "s"
+    end
+  end
 end
