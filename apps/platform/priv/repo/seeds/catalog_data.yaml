@@ -195,9 +195,11 @@
       docs_url: https://wiki.kavitareader.com
       # #611 S1 retro-fill (plan §8.2): the file-ingest and scan facts
       # from the entry's own packaging notes, plus the first-open claim
-      # posture the contract below carries.
+      # posture the contract below carries. #679 adds the folder-layout
+      # fact the scanner enforces.
       caveats:
         - Library files move in over WebDAV file access. There is no in-app upload path.
+        - Library files must sit in subfolders of the library folder, one per book or series. Loose files at the folder's root never appear in scans.
         - First library scans generate covers with image processing, so a big library takes time.
         - The first account registered becomes the admin. Claim the instance right after deploying.
       alternatives:
@@ -236,7 +238,7 @@
         - question: How do files get in?
           answer: Library files move in over WebDAV file access. There is no in-app upload path.
         - question: Why is my series grid empty?
-          answer: A scan only sees files that are in the library's folder and that the instance can read. Upload over WebDAV, then check the folder under Server settings before you scan.
+          answer: A scan only sees files inside subfolders of the library's folder, one per book or series. Upload over WebDAV into subfolders, then scan again from Server settings.
       # File access (#190, ADR-0035): Kavita is the flagship file-access
       # app — the whole point is loading your own library. The sidecar
       # serves the volume at the app's declared mount path, so libraries
@@ -299,6 +301,9 @@
               becomes the admin. Kavita is then yours to configure in
               its own admin settings. A library scan needs files on the
               server first, which file access over WebDAV provides.
+              Uploaded books must sit in subfolders of the library
+              folder, one per book or series, or scans will not see
+              them.
 
 - category:
     name: Productivity

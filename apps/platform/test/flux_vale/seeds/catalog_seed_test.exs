@@ -137,6 +137,10 @@ defmodule FluxVale.Seeds.CatalogSeedTest do
       # #190: Kavita ships with file access on
       assert app.file_access == true
 
+      # #679: the layout caveat rides the seeded caveats.
+      assert length(app.caveats) == 4
+      assert Enum.any?(app.caveats, &String.contains?(&1, "subfolders of the library folder"))
+
       version = version_for!("kavita")
       assert version.version == "0.9.1"
       assert version.image == "ghcr.io/kareadita/kavita:0.9.1"

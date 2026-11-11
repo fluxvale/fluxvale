@@ -929,6 +929,8 @@ defmodule FluxValeWeb.CatalogControllerTest do
       assert kavita =~ "Move files in over WebDAV"
       assert kavita =~ ~s(data-testid="fact-file-access")
       assert kavita =~ "How do I move files in?"
+      # #679: the layout caveat renders in the caveats list.
+      assert kavita =~ "subfolders of the library folder"
 
       pocket_id = html_response(get(conn, ~p"/catalog/pocket-id"), 200)
       refute pocket_id =~ ~s(data-testid="check-sso")
