@@ -134,8 +134,7 @@ otherwise, and `scripts/lint-e2e-legs.sh` (an early step of the e2e
 job) reds on a spec no leg lists. A spec waiting on a fix before
 joining its leg is declared inline in that script's gap list (empty
 when nothing is parked), so an unlegged spec is always either gated
-or explained. The
-per-merge post-deploy smoke retired with #556 (the readiness gate
-that replaced it runs no behavioral suite); the nightly workflow
-(`.github/workflows/e2e-nightly.yml`) runs the full suite at the real
+or explained. The per-merge post-deploy smoke retired with #556 (the
+readiness gate that replaced it runs no behavioral suite); the
+nightly workflow (`.github/workflows/e2e-nightly.yml`) runs the full suite at the real
 1h + */5 cadence on main, daily.

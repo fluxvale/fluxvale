@@ -8,10 +8,11 @@ import { TestInbox } from "./helpers/test-inbox";
 // #493: the guided stop→resize→start through the real UI — sign in via
 // TestInbox → deploy Forgejo at its small recommendation → running →
 // stop → resize (storage locked: local-path can't expand; CPU reprices
-// live through the formula) → confirm → start again at the new size.
-// It crosses the real cluster like forgejo-lifecycle (`running` lands
-// on the reconcile cron's tick after pod readiness), so the waits are
-// generous (ADR-00024 §6).
+// live through the formula) → confirm → cancel (closes the panel) →
+// reopen from the stopped row → confirm → start again at the new size
+// → destroy. It crosses the real cluster like forgejo-lifecycle
+// (`running` lands on the reconcile cron's tick after pod readiness),
+// so the waits are generous (ADR-00024 §6).
 
 const testInboxToken = process.env.E2E_TESTINBOX_TOKEN;
 const runId = process.env.E2E_RUN_ID ?? `run${Date.now()}`;
@@ -33,9 +34,11 @@ test("resize: stop → panel reprices → confirm → resized → running again"
   page,
   request,
 }) => {
-  // Cap above the wait sum (12m deploy + 1m stop + 6m start = 19m),
-  // the sibling discipline — a cap under the waits cuts the flow
-  // mid-test on a slow (but legitimate) deploy.
+  // Cap above the wait sum (12m deploy + 1m stop + 6m start = 19m,
+  // plus the sign-in and destroy tails), the sibling discipline — a
+  // cap under the waits cuts the flow mid-test on a legitimately
+  // slow deploy. Observed end-to-end: ~2m; the waits are emergency
+  // bounds, the cap is their sum.
   test.setTimeout(20 * 60_000);
 
   // Fresh per-run user (JIT-provisioned; nobody's data gets touched).
@@ -85,8 +88,10 @@ test("resize: stop → panel reprices → confirm → resized → running again"
   // lock is what CI asserts. A Tilt dev stack is NOT that shape:
   // #250's local enabler (ADR-0046 D8) patches local-path expandable,
   // so the probe answers true there and the slider correctly unlocks —
-  // don't run this branch's assertions against a Tilt stack. Other
-  // runtimes may run an expandable class too; the probe decides there.
+  // don't run this branch's assertions against a Tilt stack (the
+  // guard below is runtime-shaped, not probe-shaped: .lvh.me is
+  // "local" for both stacks and cannot tell them apart). On staging
+  // the probe's live answer decides, and this branch stays out.
   if (runtime === "local") {
     await expect(page.getByTestId("resource-storage")).toBeDisabled();
     await expect(page.getByTestId("slider-locked-note")).toContainText(
@@ -98,11 +103,13 @@ test("resize: stop → panel reprices → confirm → resized → running again"
   await expect(page.getByTestId("resource-cpu")).toBeEnabled();
 
   // Move CPU up a rung (0.5 → 1 core): the candidate leaves the
-  // recommendation and reprices through the formula, live.
+  // row and reprices through the formula, live. The poll IS the
+  // assertion — a bare innerText read races the LiveView reprice
+  // event (attempt 1 of the first leg run read the old line; the
+  // auto-wait is what makes the repricing a checked fact).
   const priceBefore = (await price.innerText()).trim();
   await page.getByTestId("resource-cpu").fill("2");
-  await expect(price).toContainText(/to \$[\d.]+\/mo/);
-  expect((await price.innerText()).trim()).not.toBe(priceBefore);
+  await expect(price).not.toHaveText(priceBefore);
 
   // Continue → the confirm states the consequence before the submit
   // exists (the backups panel's two-step shape, in-page).
@@ -121,9 +128,10 @@ test("resize: stop → panel reprices → confirm → resized → running again"
   await page.getByTestId("resize-cancel").click();
   await expect(panel).toBeHidden();
 
-  // Reopen from the stopped row. The panel restarts at the row's
-  // recommendation (the cancel reset cleared the candidate), so the
-  // CPU rung moves again before the confirm.
+  // Reopen from the stopped row. The panel reseeds from the
+  // instance's own rungs (nearest_rung of its CPU/memory — here the
+  // row, because the deploy took it; the cancel reset cleared the
+  // candidate), so the CPU rung moves again before the confirm.
   await page.getByTestId("resize-button").click();
   await expect(panel).toBeVisible();
   await page.getByTestId("resource-cpu").fill("2");
