@@ -105,6 +105,16 @@ defmodule FluxVale.Seeds.CatalogDataTest do
       assert version.first_run["env"] == %{}
       assert version.first_run["forbidden_env"] == []
       assert version.first_run["guidance"] =~ "first account becomes the admin"
+
+      # #679: the layout fact rides the caveats and the guidance.
+      assert Enum.any?(app.caveats, &String.contains?(&1, "subfolders of the library folder"))
+      assert Enum.any?(app.caveats, &String.contains?(&1, "never appear in scans"))
+      assert version.first_run["guidance"] =~ "subfolders of the library folder"
+
+      assert Enum.any?(
+               app.faq,
+               &String.contains?(&1["answer"], "scan again from Server settings")
+             )
     end
 
     # #492 gate: the admin panel is disabled in packaging. ADMIN_TOKEN
