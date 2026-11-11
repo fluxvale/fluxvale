@@ -9,15 +9,27 @@ defmodule FluxValeWeb.AdminHealthLiveTest do
   # alone).
 
   use FluxValeWeb.ConnCase, async: false
+  use Mimic
 
   import Phoenix.LiveViewTest
 
+  setup :verify_on_exit!
+  # The runway-unknown test stubs the projection operation and needs
+  # the stub visible from the LiveView process, not just the test
+  # process — global mode (safe here: the module is sync, ExUnit runs
+  # it alone).
+  setup :set_mimic_global
+
+  alias FluxVale.Billing
+  alias FluxVale.Billing.Operations.ComputeRunway
   alias FluxVale.Identity.User
   alias FluxVale.Infrastructure.Instance
   alias FluxVale.Observability.WakeStats
   alias FluxVale.TestSupport.AccountsFixtures
+  alias FluxVale.TestSupport.BillingFixtures
   alias FluxVale.TestSupport.InstanceFixtures
   alias FluxVale.TestSupport.SessionHelpers
+  alias FluxVale.TestSupport.StorageRequestFixtures
   alias FluxValeWeb.AdminHealth
 
   @n :erlang.unique_integer([:positive])
@@ -130,6 +142,33 @@ defmodule FluxValeWeb.AdminHealthLiveTest do
     :sys.replace_state(WakeStats, fn _state ->
       %{computed_at: computed_at, medians: median_total, p95_promotions: p95_promotion}
     end)
+  end
+
+  # The burning wallet of the seam tests' shape: a grant-free org's
+  # wallet funded to exactly 1¢ through the posting action, its owner's
+  # instance walked to :running on the fixture version — 140¢/mo of
+  # burn (the compute class plus the 10 GB storage axis) against a 1¢
+  # balance, ≈ 5.2 hours of runway under the default one-week gate.
+  defp burning_wallet! do
+    version = InstanceFixtures.app_version!(monthly_cents: 100, default_storage_gb: 10)
+    {org, owner} = BillingFixtures.grant_free_org!()
+    {:ok, wallet} = Billing.ensure_wallet(org)
+    {:ok, _grant} = Billing.grant_credits(wallet, 1, reason: :adjustment)
+
+    instance =
+      Instance.create!(
+        %{
+          name: "Burner #{System.unique_integer([:positive])}",
+          app_version_id: version.id,
+          env_vars: %{}
+        },
+        actor: owner
+      )
+
+    running = InstanceFixtures.walk_to!(instance, :running)
+    InstanceFixtures.pin!(running, namespace: "fluxvale-app-#{instance.id}")
+
+    {org, wallet}
   end
 
   describe "the fleet surface" do
@@ -294,6 +333,110 @@ defmodule FluxValeWeb.AdminHealthLiveTest do
       assert text_of(view, "[data-testid='wake-caveat']") =~ "reset on every deploy"
 
       refute has_element?(view, "[data-testid='wake-kavita']")
+    end
+  end
+
+  describe "the storage surface" do
+    test "the chips render the seam's numbers and the queue deep-link", %{
+      conn: conn,
+      admin: admin
+    } do
+      # One instance (+20 GB) and one request (+1 requested) of this
+      # test's own, then the post-fixture seam read is what the chips
+      # must render — the exact ngettext strings, not element presence.
+      version = InstanceFixtures.app_version!(default_storage_gb: 10, monthly_cents: 100)
+      member = AccountsFixtures.user!()
+
+      instance =
+        Instance.create!(
+          %{
+            name: "Chips #{System.unique_integer([:positive])}",
+            app_version_id: version.id,
+            env_vars: %{},
+            storage_gb: 20
+          },
+          actor: member
+        )
+
+      StorageRequestFixtures.request!(instance, member, %{requested_gb: 150})
+
+      expected = AdminHealth.storage(admin)
+      {:ok, view, _html} = live(conn, "/admin/health")
+
+      assert has_element?(view, "[data-testid='storage-panel']")
+      assert has_element?(view, "[data-testid='storage-title']", "Storage")
+
+      assert text_of(view, "[data-testid='storage-allocated']") ==
+               ngettext_exact(expected.allocated_gb, "1 GB allocated", "%{count} GB allocated")
+
+      assert text_of(view, "[data-testid='storage-requested']") ==
+               ngettext_exact(expected.requested, "1 requested", "%{count} requested")
+
+      assert text_of(view, "[data-testid='storage-approved']") ==
+               ngettext_exact(expected.approved, "1 approved", "%{count} approved")
+
+      assert text_of(view, "[data-testid='storage-applied']") ==
+               ngettext_exact(expected.applied, "1 applied", "%{count} applied")
+
+      # The runbook note is text, not a link — the runbook is not served.
+      assert text_of(view, "[data-testid='storage-runbook']") =~ "block-storage runbook"
+
+      assert render(element(view, "[data-testid='storage-link']")) =~
+               "href=\"/admin/storage-requests\""
+    end
+  end
+
+  describe "the runway surface" do
+    test "the gate line, the low row, and the deep link render", %{conn: conn, admin: admin} do
+      # The burning wallet of the seam tests' shape: 1¢ against the
+      # fixture's 140¢/mo burn — the one low row this test owns.
+      {org, _wallet} = burning_wallet!()
+
+      expected = AdminHealth.runway(admin)
+      {:ok, view, _html} = live(conn, "/admin/health")
+
+      assert has_element?(view, "[data-testid='runway-panel']")
+      assert has_element?(view, "[data-testid='runway-title']", "Org runway")
+      assert text_of(view, "[data-testid='runway-gate']") == "Wallets under 168h of runway"
+
+      # The low row: the org's name and the formatted hours through the
+      # billing display seam's one formatter (10_000 µ¢ ÷ 1916 µ¢/h
+      # rounds to "≈ 5 hours").
+      low = text_of(view, "[data-testid='runway-low']")
+      assert low =~ org.name
+      assert low =~ "≈ 5 hours"
+      assert expected.threshold_hours == 168
+
+      assert render(element(view, "[data-testid='runway-link']")) =~ "href=\"/admin/billing\""
+
+      # No stubbed errors here — the unknown count stays quiet.
+      refute has_element?(view, "[data-testid='runway-unknown']")
+    end
+
+    test "unknown projections render the honest count and never a row", %{
+      conn: conn,
+      admin: admin
+    } do
+      # Every projection errors — the unknown count is every wallet,
+      # the low list renders nothing (the honest empty line instead).
+      Mimic.copy(ComputeRunway)
+      stub(ComputeRunway, :call, fn _wallet -> {:error, :projection_dead} end)
+
+      expected = AdminHealth.runway(admin)
+      {:ok, view, _html} = live(conn, "/admin/health")
+
+      assert expected.unknown == expected.wallets
+      assert expected.unknown >= 1
+
+      assert text_of(view, "[data-testid='runway-unknown']") ==
+               ngettext_exact(
+                 expected.unknown,
+                 "1 projection unknown",
+                 "%{count} projections unknown"
+               )
+
+      refute has_element?(view, "[data-testid='runway-low']")
+      assert text_of(view, "[data-testid='runway-empty']") =~ "above the gate"
     end
   end
 

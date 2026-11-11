@@ -134,18 +134,29 @@ defmodule FluxValeWeb.BillingComponents do
 
   # The runway copy is the dashboard's formatter shape (S4), owned at
   # the billing display seam: a spent wallet is out of runway — "under
-  # an hour" would read as nearly-there — and :infinity (no burn) reads
-  # as itself. The divisor is the average Gregorian month (Billing.Month),
-  # the same constant the projection and the settles use.
+  # an hour" would read as nearly-there. The hours shapes live in the
+  # public format_runway_hours/1 below; this wrapper adds only the
+  # spent arm, which needs the balance the hours alone can't carry.
   defp format_runway(%{balance_cents: cents}) when cents < 0, do: "Depleted"
-  defp format_runway(%{runway_hours: :infinity}), do: "No active burn"
+  defp format_runway(%{runway_hours: hours}), do: format_runway_hours(hours)
 
-  defp format_runway(%{runway_hours: hours}) when hours < 1, do: "under an hour"
+  @doc """
+  The runway figure for a projection's hours — the one hours-shape
+  formatter, the same rule as `format_balance/1` above: "No active
+  burn" for `:infinity`, "under an hour", then rounded hours and days
+  over the average Gregorian month (`Billing.Month`, the constant the
+  projection and the settles use). Public since the #702 console's
+  runway widget renders through it.
+  """
+  @spec format_runway_hours(float() | :infinity) :: String.t()
+  def format_runway_hours(:infinity), do: "No active burn"
 
-  defp format_runway(%{runway_hours: hours}) when hours < 48,
+  def format_runway_hours(hours) when hours < 1, do: "under an hour"
+
+  def format_runway_hours(hours) when hours < 48,
     do: "≈ #{round(hours)} #{plural(round(hours), "hour")}"
 
-  defp format_runway(%{runway_hours: hours}) do
+  def format_runway_hours(hours) do
     days = hours / 24
 
     if days < 60 do
