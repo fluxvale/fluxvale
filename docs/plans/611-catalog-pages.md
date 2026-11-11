@@ -104,7 +104,14 @@ exists.
 | `features` | array of maps | 1-4 items: `icon` (allowlist), `title` 3-60, `body` 20-220 | The app's own capabilities. The 2x2 shape caps it at 4. |
 | `faq` | array of maps | 0-4 items: `question` 8-120 ending "?", `answer` 20-600 | App-specific objections (SSH support, licensing, multi-user). |
 | `community_url` | string | https URL | Community link row entry. |
-| `icon_url` | string | same-origin path under `/images/catalog/<slug>/` (`.png` or `.svg`), vendored with a provenance comment in the seed YAML — never a third-party URL (a hotlinked icon whose host hangs holds the page's `load` event hostage, #716) | The tile mark. Same storage rule as `screenshots`, Am. 2026-11-11. |
+
+Amendment (2026-11-11, #716): `icon_url` predates this plan — it shipped
+with the catalog domain itself. Its storage rule is amended here: icons
+vendored under `/images/catalog/<slug>/` (`.png` or `.svg`), same-origin
+like the screenshots but with their own format rule, and never a
+third-party URL — a hotlinked icon whose host hangs holds the public
+page's `load` event hostage. The seed value carries a provenance comment
+naming where the bytes came from.
 
 ### 4.2 New Category field
 

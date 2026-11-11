@@ -42,7 +42,7 @@
       # Icons ship vendored under /images/catalog/<slug>/ and load
       # same-origin, like the screenshots — a hotlinked icon whose
       # host hangs holds the public page's load event hostage (#716).
-      # Provenance: https://codeberg.org/forgejo/forgejo/raw/branch/forgejo/assets/logo.svg
+      # Provenance: https://codeberg.org/forgejo/forgejo/raw/tag/v16.0.5/assets/logo.svg
       icon_url: /images/catalog/forgejo/icon.svg
       source_url: https://codeberg.org/forgejo/forgejo
       docs_url: https://forgejo.org/docs/latest/
@@ -194,7 +194,7 @@
         per-user reading progress, OPDS support for third-party clients, and
         OIDC SSO. All configuration happens in the web UI and no environment
         variables are needed to boot.
-      # Icon vendored (#716) — upstream: https://raw.githubusercontent.com/Kareadita/Kavita/develop/Logo/kavita.svg
+      # Icon vendored (#716) — upstream: https://raw.githubusercontent.com/Kareadita/Kavita/develop/Logo/kavita.svg (develop: no tag carries this path, so the ref floats)
       icon_url: /images/catalog/kavita/icon.svg
       source_url: https://github.com/Kareadita/Kavita
       docs_url: https://wiki.kavitareader.com
@@ -331,7 +331,7 @@
         and are searchable by tag and date. The web UI is at home on
         phones and desktops, and everything is stored in a single
         SQLite database on the instance volume.
-      # Icon vendored (#716) — upstream: https://raw.githubusercontent.com/usememos/memos/main/web/public/logo.svg
+      # Icon vendored (#716) — upstream: https://raw.githubusercontent.com/usememos/memos/main/web/public/logo.svg (main: no tag carries this path, so the ref floats)
       icon_url: /images/catalog/memos/icon.svg
       source_url: https://github.com/usememos/memos
       docs_url: https://usememos.com/docs
@@ -833,7 +833,7 @@
         while it wakes. Keep the instance public so your apps can reach
         it, and save the encryption key, because restoring a backup
         needs it.
-      # Icon vendored (#716) — upstream: https://raw.githubusercontent.com/pocket-id/pocket-id/main/frontend/static/img/static-logo.svg
+      # Icon vendored (#716) — upstream: https://raw.githubusercontent.com/pocket-id/pocket-id/v2.19.2/frontend/static/img/static-logo.svg
       icon_url: /images/catalog/pocket-id/icon.svg
       source_url: https://github.com/pocket-id/pocket-id
       docs_url: https://pocket-id.org/docs/introduction
