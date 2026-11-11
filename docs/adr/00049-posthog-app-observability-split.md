@@ -111,9 +111,15 @@ dashboards), not dollars.
 design; client libs use it) — per-env in 1Password via the fleet's
 references-only flow ([ADR-0021](00021-secrets-bws-operator.md) Am. 3),
 never in either repo. The `phx_` personal API token stays owner-side
-for account operations and never enters fleet or app wiring. One
-PostHog project serves both envs (the free tier is one project); the
-`$host` event property separates staging from prod.
+for account operations and never enters fleet or app wiring.
+**Staging-first at the account level too** (owner ruling 2026-11-11,
+confirmed EU): the free tier (no card yet) allows a single project —
+"FluxVale - Staging" — so staging runs there; production gets its own
+project when billing is added (an account step, not a technical one),
+and the prod 1Password item stays empty until that project's key
+exists. Until then the `$host` event property keeps envs
+distinguishable inside the one project; after the split they are
+separate projects outright.
 
 Implementation plan (slices S0–S6, rollout order, operator checklist):
 [../plans/posthog-observability-split.md](../plans/posthog-observability-split.md).

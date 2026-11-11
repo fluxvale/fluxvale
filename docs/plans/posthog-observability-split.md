@@ -38,10 +38,18 @@ One gate, one value, one flow:
   (`fluxvale-staging`, `fluxvale-production`), item `posthog-api-key`,
   tofu-owned (`tofu/onepassword-items.tf`, values only through the
   seed script's write-only fields — the ADR-0021 Am. 3
-  references-only flow). Never in either repo. One PostHog project
-  serves both envs (free tier = 1 project) — same token value seeded
-  to both items; the `$host` event property separates staging from
-  prod. No rotation coupling beyond the item itself.
+  references-only flow). Never in either repo. The staging item is
+  already filed by the owner (2026-11-11); **verify its field
+  category at wiring time with a read attempt before assuming the
+  rendered Secret key** — password-category items read `password`,
+  login-category read `credential` (an owner-stack lane finding) — and
+  pin what the read proves in S4's PR. **One project for now**
+  (owner ruling): the free tier's single project is "FluxVale -
+  Staging"; the prod item stays **empty** until production gets its
+  own project at billing setup (an account step, not a technical one)
+  — the prod flip seeds the prod item with the *production project's*
+  key, never a copy of staging's. `$host` separates envs inside the
+  one project meanwhile. No rotation coupling beyond each item itself.
 - **The `phx_` personal API token never enters fleet or app wiring** —
   owner-side only, for account-level operations.
 - **Rollout**: code lands flag-off (no env set anywhere) → flip
@@ -49,15 +57,18 @@ One gate, one value, one flow:
   verify → flip prod (fill the prod item, restart). Every flip is
   value-only; every revert is unset.
 
-## Owner checklist (account setup, once — no code)
+## Owner checklist (account setup — mostly done)
 
-Already created by the owner; verify at kickoff: region **EU**
-(ingestion host `eu.i.posthog.com`), **IP capture off** (EU default
-for new projects — confirm), **billing limits set to $0** on analytics
-+ replay (independent hard stops per product), autocapture left
-on at the project level. Then hand the `phc_` project token to the PA
-(seeded into 1Password staging first, prod item left empty until the
-prod flip).
+Confirmed by the owner (2026-11-11): region **EU** (ingestion host
+`https://eu.i.posthog.com`), the single free-tier project named
+"FluxVale - Staging", and the staging `phc_` token filed to 1Password
+(`fluxvale-staging` vault, `posthog-api-key` item — its field category
+is verified at wiring time, not assumed). Still to verify at kickoff:
+**IP capture off** (EU default for new projects — confirm in project
+settings) and **billing limits set to $0** on analytics + replay
+(independent hard stops per product). Deferred until billing setup
+(owner, no code): the **production project** — its key seeds the prod
+1Password item and flips prod; until then the item stays empty.
 
 ## Slices
 
@@ -244,22 +255,31 @@ Captures: before/after, light+dark (public page, user-visible).
 - `tofu/onepassword-items.tf` `password_items`: add
   `"fluxvale-staging/posthog-api-key"` and
   `"fluxvale-production/posthog-api-key"` (titles `posthog-api-key`;
-  same value in both — one project).
+  **separate values** — staging's project now, production's own
+  project later; the empty-prod guard below covers the gap).
 - `apps/staging/onepassworditem-posthog.yaml` +
   `apps/production/onepassworditem-posthog.yaml` (the polar-file
   pattern): CR `posthog-api-key`, `itemPath` into each env vault.
+  **First wiring step: a read attempt against the staging item to
+  pin its field category** — password-category renders Secret key
+  `password`, login-category renders `credential` (an owner-stack
+  lane finding; do not assume). The `secretKeyRef.key` below and any
+  docs note carry the proven key.
 - `apps/base/deployment.yaml` env anchor: `POSTHOG_API_KEY`
-  `secretKeyRef: posthog-api-key / password`. **Both-envs trap**: the
-  anchor flips both envs — the prod item must exist from this PR on.
-  Preferred shape: prod item seeded **empty** from day one (the app
-  treats `""` as unset — inert until the flip fills it). If the seed
-  script rejects empty values (verify `scripts/onepassword-seed.sh`),
-  fall back to: staging overlay carries the env var, moved into the
-  base anchor at the prod flip. Either way staging-first holds.
-- Flips (value-only, after S1+S2+S3 are merged): seed the staging
-  item → restart the staging rollout (`kubectl -n fluxvale-staging
-  rollout restart deploy/fluxvale-platform`) → verify → fill the prod
-  item → restart prod.
+  `secretKeyRef: posthog-api-key / <proven key>`. **Both-envs trap**:
+  the anchor flips both envs — the prod item must exist from this PR
+  on. Preferred shape: prod item seeded **empty** from day one (the
+  app treats `""` as unset — inert until the flip fills it). If the
+  seed script rejects empty values (verify
+  `scripts/onepassword-seed.sh`), fall back to: staging overlay
+  carries the env var, moved into the base anchor at the prod flip.
+  Either way staging-first holds.
+- Flips (value-only, after S1+S2+S3 are merged): the staging item is
+  already filed by the owner — the staging flip is this PR landing
+  (CR renders the value) + `kubectl -n fluxvale-staging rollout
+  restart deploy/fluxvale-platform` → verify. The **prod flip waits
+  for the production project** (owner creates it at billing setup):
+  seed the prod item with *that project's* key → restart prod.
 - Verify at each flip (evidence for the report): staging — PostHog
   Live events show `$pageview` from a staging browse and a
   `$exception`/error event from a deliberate `Logger.error` via
