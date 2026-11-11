@@ -751,30 +751,31 @@ jobs:
     needs: check-changes
     if: needs.check-changes.outputs.e2e == 'true'
     runs-on: ubuntu-24.04
-    # (#578) 60, not 45: the ceiling must sit above the SUM of bounded
-    # work or it cancels legitimate runs mid-suite. Old worst observed
-    # leg ≈ 28.5m (timers, both attempts pull-bound) under a 45
-    # ceiling (16.5m slack); the warm-up (+≤8m TOTAL — pulls and
-    # imports share one deadline) and the bootstrap's one bounded
-    # retry (+≤12m worst: attempt 1 dies ~12m in at the rollout wait,
-    # then the idempotent re-run rebuilds a fresh cached tag and
-    # re-waits up to 600s) push the legitimate worst to ≈ 48.5m — 60
-    # leaves ~11.5m hang slack. Tighter than the old slack on purpose:
-    # the new worst already carries congestion padding the old one
-    # didn't. The waits themselves are unchanged. #587 added
-    # umami-lifecycle (20m bounded) as the lifecycle leg's seventh
-    # spec. #610 added vikunja-lifecycle (20m bounded, a memos-shape
-    # SQLite-PVC deploy). #609 added docmost-lifecycle (also 20m
-    # bounded). instance-resize joined after its RBAC fix (the
-    # storageclasses grant) — it is 15m-bounded per attempt, and with
-    # Playwright's one CI retry the leg's worst is the observed
-    # 21m55s green (run 42844965176) plus 2x15m plus the bootstrap's
-    # bounded 12m retry ≈ 64m — over the old 60, so the ceiling moves
-    # to 75 (~11m hang slack, the #578 discipline: above the sum of
-    # bounded work, never cutting a legitimate run mid-suite). The
-    # docmost spec's per-run Redis pod is warmed below with the
-    # config pins.
-    timeout-minutes: 75
+    # (#578 discipline): a leg's ceiling must sit above the SUM of
+    # its bounded work or it cancels legitimate runs mid-suite — but
+    # only the leg that grew pays for the growth. Default 60: worst
+    # observed leg ≈ 28.5m (timers, both attempts pull-bound), the
+    # warm-up adds +≤8m TOTAL (pulls and imports share one deadline),
+    # and the bootstrap's one bounded retry adds +≤12m worst (attempt
+    # 1 dies at the rollout wait, the idempotent re-run rebuilds a
+    # cached tag and re-waits up to 600s) — 60 carries that with hang
+    # slack to spare. Lifecycle overrides to 80 (matrix key below):
+    # the leg observed 21m55s green at ten specs (run 42844965176)
+    # and instance-resize joined as its eleventh (20m-bounded per
+    # attempt, cap above its 12m+1m+6m wait sum like every sibling);
+    # with Playwright's one CI retry that join adds 2x20m, and with
+    # the bootstrap retry the increment-bound is 21m55s + 40m + 12m ≈
+    # 74m — 80 covers it with ~6m slack. Not "the leg's worst": any
+    # retried spec adds 2x its own bound (umami's cap is 30m, backups
+    # 25m), so a full sum over all caps is not a ceiling anyone
+    # budgets — the increment of THIS join is what moved the number.
+    # #587 added umami, #610 vikunja (20m), #609 docmost (20m, its
+    # per-run Redis pod warmed below with the config pins).
+    # instance-resize shipped legless in #518 and was red since birth
+    # (the storage-probe 403 — the storageclasses RBAC grant riding
+    # along in this PR is expected to turn it green; this PR's own
+    # enlarged leg run is the gate that proves it).
+    timeout-minutes: ${{ matrix.leg.timeout_minutes || 60 }}
     strategy:
       # A red leg must not cancel the others — its report is triage
       # data (legs stay independent, never sharing state)
@@ -800,10 +801,14 @@ jobs:
             # joined at birth (#609) — its per-run Redis pod's pin is
             # pre-pulled by the warm-up below. instance-resize joined
             # late (#518 shipped it legless; red since birth on the
-            # storage-probe 403 — the storageclasses RBAC grant in
-            # this PR is what turns it green); it deploys Forgejo,
+            # storage-probe 403 — the storageclasses RBAC grant riding
+            # along in this PR is expected to turn it green, and this
+            # PR's own leg run is the proof); it deploys Forgejo,
             # already in warm_apps.
             specs: tests/forgejo-lifecycle.spec.ts tests/actual-lifecycle.spec.ts tests/vaultwarden-lifecycle.spec.ts tests/memos-lifecycle.spec.ts tests/vikunja-lifecycle.spec.ts tests/pocket-id-lifecycle.spec.ts tests/umami-lifecycle.spec.ts tests/docmost-lifecycle.spec.ts tests/file-access.spec.ts tests/backups.spec.ts tests/instance-resize.spec.ts
+            # the eleventh spec's retry bound is what pushed this leg
+            # past the 60m default (comment at the job's timeout)
+            timeout_minutes: 80
             warm_apps: forgejo actualbudget vaultwarden memos vikunja pocket-id kavita umami docmost
           # #210 part 3: threshold 45s + probe window 150s are safe
           # HERE only — this leg's instance gets no traffic, so the

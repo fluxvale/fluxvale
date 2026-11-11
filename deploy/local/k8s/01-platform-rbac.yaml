@@ -1,8 +1,8 @@
 # Platform RBAC — operator pattern, split in two (settled on #69):
 #
 # 1. fluxvale-platform (bootstrap, bound cluster-wide): Namespace lifecycle,
-#    Node reads, and RoleBinding creation — the SA's machinery for creating
-#    and tearing down instance namespaces.
+#    Node and StorageClass reads, and RoleBinding creation — the SA's
+#    machinery for creating and tearing down instance namespaces.
 # 2. fluxvale-platform-workload (NOT bound here): namespaced resource verbs.
 #    #73's deploy trigger binds it per fluxvale-app-* namespace via
 #    RoleBindings — workload permissions exist ONLY inside instance
@@ -25,13 +25,25 @@ kind: ClusterRole
 metadata:
   name: fluxvale-platform
 rules:
-  # Cluster-scoped: Namespace (lifecycle) + Node (capacity reads)
+  # Cluster-scoped: Namespace (lifecycle), Node (capacity reads),
+  # StorageClass (the resize guard's expansion probe)
   - apiGroups: [""]
     resources: ["namespaces"]
     verbs: ["create", "get", "list", "patch", "delete"]
   - apiGroups: [""]
     resources: ["nodes"]
     verbs: ["get", "list"]
+  # ADR-0043's storage-expansion probe: the resize guard lists
+  # StorageClasses to read the default class's allowVolumeExpansion.
+  # Cluster-scoped resource, so it lives here and not in the
+  # namespaced workload role. `list` only — the probe lists and
+  # nothing else touches the type. Without it the probe 403s and the
+  # resize panel shows its "try again" error copy everywhere the
+  # storage lock should render (found via instance-resize.spec, red
+  # since #518 for exactly this).
+  - apiGroups: ["storage.k8s.io"]
+    resources: ["storageclasses"]
+    verbs: ["list"]
   # The operator pattern's own machinery (#73): per-namespace RoleBindings
   # referencing the workload role below — SSA-applied like everything else
   # (patch covers apply-on-existing re-runs)
@@ -46,17 +58,6 @@ rules:
     resources: ["clusterroles"]
     resourceNames: ["fluxvale-platform-workload"]
     verbs: ["bind"]
-  # ADR-0043's storage-expansion probe: the resize guard lists
-  # StorageClasses to read the default class's allowVolumeExpansion.
-  # Cluster-scoped resource, so it lives here and not in the
-  # namespaced workload role. `list` only — the probe lists and
-  # nothing else touches the type. Without it the probe 403s and the
-  # resize panel shows its "try again" error copy everywhere the
-  # storage lock should render (found via instance-resize.spec, red
-  # since #518 for exactly this).
-  - apiGroups: ["storage.k8s.io"]
-    resources: ["storageclasses"]
-    verbs: ["list"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
