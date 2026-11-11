@@ -153,12 +153,12 @@ It replaces the retired per-surface kernels (`screenshot.mjs`,
 1440x900. `node capture.mjs --help` for every flag.
 
 ```sh
-npx playwright install chromium                       # once per machine
+cd apps/e2e && npm ci && npx playwright install chromium   # once per machine
 node capture.mjs https://app.fluxvale.lvh.me/about     # public page, light+dark
 FV_TOKEN=<jwt> node capture.mjs https://app.fluxvale.lvh.me/ --name dashboard
 node capture.mjs https://app.fluxvale.lvh.me/ --click 'text=Sign in' --name sign-in   # click-through state
 FV_TOKEN=<jwt> node capture.mjs https://app.fluxvale.lvh.me/billing/topup --mask 'input[type=email]'  # never capture a secret
 ```
 
-Authenticated and anonymous surfaces are separate invocations — never present a signed-in capture as the visitor's page (#312's rule); each run logs its auth state. Self-signed TLS is accepted for local origins only (localhost, `*.lvh.me`) — deployed environments must present a valid cert. The older per-surface scripts still in this directory are stranded instruments riding their surfaces' deletions — don't extend them, new captures go through the tool. GIFs: stills from the tool, motion via Playwright `recordVideo` → ffmpeg (the screenshot convention in
+A token in the environment (`FV_TOKEN`) signs every run in — unset it for public captures; each run logs its auth state. Authenticated and anonymous surfaces are separate invocations — never present a signed-in capture as the visitor's page (#312's rule). Self-signed TLS is accepted for local origins only (localhost, `*.lvh.me`) — deployed environments must present a valid cert. The older per-surface scripts still in this directory are stranded instruments riding their surfaces' deletions — don't extend them, new captures go through the tool. GIFs: stills from the tool, motion via Playwright `recordVideo` → ffmpeg (the screenshot convention in
 [`apps/platform/AGENTS.md`](../platform/AGENTS.md) has the mechanics).

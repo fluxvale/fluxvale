@@ -130,6 +130,15 @@ if (token) {
     console.error(`token given with ${origins.size} distinct origins — session cookies are per-origin; run once per origin`);
     process.exit(1);
   }
+  // The token rides the sign-in POST; plain http off-loopback would
+  // send it in the clear. Local http is the dev-server posture,
+  // remote must be https.
+  for (const url of urls) {
+    if (new URL(url).protocol === "http:" && !isLocalOrigin(url)) {
+      console.error(`token over plain http to a non-local origin (${url}) — use https`);
+      process.exit(1);
+    }
+  }
 }
 
 const modes = values.theme === "both" ? ["light", "dark"] : [values.theme];
@@ -227,7 +236,9 @@ try {
           process.exit(1);
         }
       }
-      const masks = (values.mask ?? []).map((selector) => page.locator(selector).first());
+      // Mask EVERY match, not the first — a page with two email
+      // inputs must not leak the second.
+      const masks = (values.mask ?? []).map((selector) => page.locator(selector));
       const file = `${outdir}/${name}-${mode}.png`;
       await page.screenshot({
         path: file,
