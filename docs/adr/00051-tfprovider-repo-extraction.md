@@ -75,3 +75,14 @@ Rejected: the thin mirror (a stub repo pointing at monorepo releases —
 the registries' listing requirement makes it the worst of both), and a
 fresh-import history cut (needlessly discards provenance for a path
 with 9 clean commits).
+
+## Amendment 1 (2026-11-11): the registry listing is live — the install story is registry-first
+
+The owner step landed the same day: registry.terraform.io lists
+`fluxvale/fluxvale` (v0.2.1, signed — the planned v0.2.0 was never
+tagged publicly; the first public release shipped as v0.2.1). The
+"until then" clause above is
+history — `/docs/automation/terraform` now teaches `terraform init`
+(and `tofu init`, which honors the explicit `registry.terraform.io`
+source the same way — verified against OpenTofu 1.13.1 and 1.13.9)
+with the filesystem mirror demoted to the offline and air-gapped path.

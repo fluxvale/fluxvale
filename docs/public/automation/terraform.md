@@ -7,26 +7,30 @@ slug: terraform
 
 The FluxVale provider manages your apps with Terraform or OpenTofu. It covers the same ground as the panel: instances, backups, private-access gateways, and custom domains.
 
-The provider is not on the public registry yet. You install it from a release archive into a local filesystem mirror, and the usual Terraform flow takes over from there.
+The provider is on the public registry at [registry.terraform.io/fluxvale/fluxvale](https://registry.terraform.io/providers/fluxvale/fluxvale/latest). Declare it under Configure and run `terraform init` — or `tofu init`: OpenTofu honors the explicit `registry.terraform.io` source the same way, signed downloads included.
 
 ## Install the provider
 
 The provider's source and releases live in [fluxvale/terraform-provider-fluxvale](https://github.com/fluxvale/terraform-provider-fluxvale).
 
-1. Download the zip for your platform from the [releases page](https://github.com/fluxvale/terraform-provider-fluxvale/releases), tagged `v*`, together with the versioned checksums `terraform-provider-fluxvale_0.2.0_SHA256SUMS` and their signature `terraform-provider-fluxvale_0.2.0_SHA256SUMS.sig`. Verify the archive:
+There is no manual install step. The `required_providers` block under Configure names the registry source, and `terraform init` or `tofu init` pulls the signed provider from it.
+
+Offline and air-gapped machines cannot reach the registry. For those, mirror a release archive locally and point the tool at it:
+
+1. Download the zip for your platform from the [releases page](https://github.com/fluxvale/terraform-provider-fluxvale/releases) — adjust the file names below to the platform and version you took — together with the versioned checksums `terraform-provider-fluxvale_0.2.1_SHA256SUMS`. Verify the archive:
 
    ```sh
-   grep terraform-provider-fluxvale_0.2.0_linux_amd64.zip terraform-provider-fluxvale_0.2.0_SHA256SUMS | sha256sum -c -
+   grep terraform-provider-fluxvale_0.2.1_linux_amd64.zip terraform-provider-fluxvale_0.2.1_SHA256SUMS | sha256sum -c -   # macOS: shasum -a 256 -c -
    ```
 
-2. Place the zip in a local mirror:
+2. Create the mirror tree and place the zip:
 
-   ```
-   ~/.tfplugins-mirror/
-     registry.terraform.io/fluxvale/fluxvale/terraform-provider-fluxvale_0.2.0_linux_amd64.zip
+   ```sh
+   mkdir -p ~/.tfplugins-mirror/registry.terraform.io/fluxvale/fluxvale
+   cp terraform-provider-fluxvale_0.2.1_linux_amd64.zip ~/.tfplugins-mirror/registry.terraform.io/fluxvale/fluxvale/
    ```
 
-3. Point Terraform at the mirror in `~/.terraformrc`, or `~/.tofurc` for OpenTofu:
+3. Point the tool at the mirror in `~/.terraformrc` for Terraform or `~/.tofurc` for OpenTofu, with the absolute path to your mirror:
 
    ```hcl
    provider_installation {
@@ -38,13 +42,16 @@ The provider's source and releases live in [fluxvale/terraform-provider-fluxvale
    }
    ```
 
+The mirror path skips the registry's signed-manifest verification. Releases also carry detached signatures (`_SHA256SUMS.sig`); the provider repository documents how to verify them against its public key.
+
 ## Configure
 
 ```hcl
 terraform {
   required_providers {
     fluxvale = {
-      source = "registry.terraform.io/fluxvale/fluxvale"
+      source  = "registry.terraform.io/fluxvale/fluxvale"
+      version = "~> 0.2"
     }
   }
 }
