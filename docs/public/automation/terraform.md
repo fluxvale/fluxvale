@@ -76,6 +76,11 @@ resource "fluxvale_instance" "reading" {
 }
 ```
 
+The versions data source lists the app's versions newest first
+(semver — a pre-release like `3.4.1-bundled` sits below its release),
+so `app_versions[0]` is the newest. Pinning a specific version id
+instead keeps deploys on one release as the catalog grows.
+
 The full resource set:
 
 - `fluxvale_instance` deploys an app, with allocation, environment inputs, run state, and exposure.

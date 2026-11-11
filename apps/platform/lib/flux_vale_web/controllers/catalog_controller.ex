@@ -198,8 +198,7 @@ defmodule FluxValeWeb.CatalogController do
 
   defp feature_list(features), do: Enum.map(features, & &1.title)
 
-  # Lexicographic on the version string — mirrors CatalogLive.Show (exact
-  # while a seed carries one version per app; semver-aware sorting is a
-  # #70-era non-problem).
-  defp sorted_desc(versions), do: Enum.sort_by(versions, & &1.version, :desc)
+  # #700: newest-first on the maintained semver key (SetSortKey owns
+  # the encoding) — the :list_for_app sort, mirrored.
+  defp sorted_desc(versions), do: Enum.sort_by(versions, & &1.sort_key, :desc)
 end

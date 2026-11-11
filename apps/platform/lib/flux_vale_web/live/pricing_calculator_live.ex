@@ -624,11 +624,11 @@ defmodule FluxValeWeb.PricingCalculatorLive do
     end)
   end
 
-  # The wizard's version sort (string descending) — the same "latest"
-  # the version step shows first.
+  # #700: the wizard's version order (semver on the maintained sort
+  # key) — the same "latest" the version step shows first.
   defp latest_version(app) do
     app.app_versions
-    |> Enum.sort_by(& &1.version, :desc)
+    |> Enum.sort_by(& &1.sort_key, :desc)
     |> List.first()
   end
 

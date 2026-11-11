@@ -6,6 +6,7 @@ defmodule FluxValeWeb.CatalogLive.ShowTest do
   import Phoenix.LiveViewTest
 
   alias FluxVale.Catalog.App
+  alias FluxVale.Catalog.AppVersion.SetSortKey
   alias FluxVale.Catalog.Category
   alias FluxVale.Pricing
   alias FluxVale.TestSupport.InstanceFixtures
@@ -23,6 +24,39 @@ defmodule FluxValeWeb.CatalogLive.ShowTest do
       {index, _length} -> index
       :nomatch -> flunk("expected #{marker} on the page")
     end
+  end
+
+  test "the version list is semver-newest-first and the hero prices the bare release (#700)",
+       %{conn: conn} do
+    release =
+      InstanceFixtures.app_version!(%{version: "3.4.1", monthly_cents: 100})
+
+    bundled =
+      InstanceFixtures.app_version!(%{
+        app_id: release.app_id,
+        version: "3.4.1-bundled",
+        # a distinct rate so the hero's pick is asserted, not assumed
+        monthly_cents: 295
+      })
+
+    older = InstanceFixtures.app_version!(%{app_id: release.app_id, version: "3.4.0"})
+
+    app = Ash.load!(release, :app, authorize?: false).app
+
+    {:ok, view, html} = live(conn, ~p"/apps/#{app.slug}")
+
+    # String order would list "-bundled" above its release; semver
+    # puts the pre-release below it, and 3.4.0 last.
+    assert index_of(html, "id=\"version-#{release.id}\"") <
+             index_of(html, "id=\"version-#{bundled.id}\"")
+
+    assert index_of(html, "id=\"version-#{bundled.id}\"") <
+             index_of(html, "id=\"version-#{older.id}\"")
+
+    # newest_version drives the hero's pricing card — the bare
+    # release's rate, never the bundled row's.
+    assert has_element?(view, "#pricing-card", "$1.00")
+    refute has_element?(view, "#pricing-card", "$2.95")
   end
 
   test "shows the marketing page and the version cards below it", %{conn: conn} do
@@ -198,6 +232,7 @@ defmodule FluxValeWeb.CatalogLive.ShowTest do
     # States actions can't produce: the pre-#125 shape — nil size.
     Ash.Seed.seed!(FluxVale.Catalog.AppVersion, %{
       version: "0.9.0",
+      sort_key: SetSortKey.key("0.9.0"),
       image: "test/image:0.9",
       port: 3000,
       app_id: app.id

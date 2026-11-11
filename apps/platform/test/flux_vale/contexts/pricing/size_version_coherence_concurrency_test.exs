@@ -216,7 +216,10 @@ defmodule FluxVale.Pricing.SizeVersionCoherenceConcurrencyTest do
         spawn_worker(:create, fn ->
           AppVersion.create(
             %{
-              version: "2.0.#{System.unique_integer()}",
+              # :positive + rem — the grammar (#700) rejects negative
+              # patches and patches beyond 6 digits, both of which a
+              # bare unique_integer can print.
+              version: "2.0.#{rem(System.unique_integer([:positive]), 1000)}",
               image: "registry.example.com/app:2.0",
               port: 3000,
               default_cpu_cores: Decimal.new("0.5"),

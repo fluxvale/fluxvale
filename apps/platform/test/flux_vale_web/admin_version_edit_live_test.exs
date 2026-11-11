@@ -14,6 +14,8 @@ defmodule FluxValeWeb.AdminVersionEditLiveTest do
   import Phoenix.LiveViewTest
 
   alias FluxVale.Catalog.AppVersion
+
+  alias FluxVale.Catalog.AppVersion.SetSortKey
   alias FluxVale.Identity.User
   alias FluxVale.Pricing.Size
   alias FluxVale.TestSupport.InstanceFixtures
@@ -408,6 +410,7 @@ defmodule FluxValeWeb.AdminVersionEditLiveTest do
       seeded =
         Ash.Seed.seed!(AppVersion, %{
           version: "9.9.#{rem(@n, 100)}",
+          sort_key: SetSortKey.key("9.9.#{rem(@n, 100)}"),
           image: "registry.example.com/app:9.9",
           port: 3000,
           app_id: app.id,
@@ -508,6 +511,7 @@ defmodule FluxValeWeb.AdminVersionEditLiveTest do
       seeded =
         Ash.Seed.seed!(FluxVale.Catalog.AppVersion, %{
           version: "8.8.#{rem(@n, 100)}",
+          sort_key: SetSortKey.key("8.8.#{rem(@n, 100)}"),
           image: "registry.example.com/app:8.8",
           port: 3000,
           app_id: app.id,
@@ -562,6 +566,7 @@ defmodule FluxValeWeb.AdminVersionEditLiveTest do
       seeded =
         Ash.Seed.seed!(FluxVale.Catalog.AppVersion, %{
           version: "8.7.#{rem(@n, 100)}",
+          sort_key: SetSortKey.key("8.7.#{rem(@n, 100)}"),
           image: "registry.example.com/app:8.7",
           port: 3000,
           app_id: app.id,
@@ -620,6 +625,7 @@ defmodule FluxValeWeb.AdminVersionEditLiveTest do
       seeded =
         Ash.Seed.seed!(FluxVale.Catalog.AppVersion, %{
           version: "8.6.#{rem(@n, 100)}",
+          sort_key: SetSortKey.key("8.6.#{rem(@n, 100)}"),
           image: "registry.example.com/app:8.6",
           port: 3000,
           app_id: app.id,

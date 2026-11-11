@@ -10,6 +10,7 @@ defmodule FluxVale.Infrastructure.InstanceAllocationSnapshotTest do
 
   alias FluxVale.Catalog.App
   alias FluxVale.Catalog.AppVersion
+  alias FluxVale.Catalog.AppVersion.SetSortKey
   alias FluxVale.Catalog.Category
   alias FluxVale.Identity.User
   alias FluxVale.Infrastructure.Instance
@@ -99,6 +100,7 @@ defmodule FluxVale.Infrastructure.InstanceAllocationSnapshotTest do
     version =
       Ash.Seed.seed!(AppVersion, %{
         version: "1.0.0",
+        sort_key: SetSortKey.key("1.0.0"),
         image: "registry.example.com/app:1.0",
         port: 3000,
         default_cpu_cores: Decimal.new("0.5"),

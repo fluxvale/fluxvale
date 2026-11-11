@@ -74,6 +74,28 @@ defmodule FluxValeWeb.Api.CatalogRouteTest do
       assert row["attributes"]["image"] == "registry.example.com/app:1.0"
       assert row["attributes"]["port"] == 3000
     end
+
+    # #700: the route sorts semver-newest-first — the order the
+    # Terraform provider's catalog data source inherits. One fixture
+    # app, the issue's reproduction set: 10.x above 9.x, the
+    # -bundled pre-release below its bare release.
+    test "orders versions semver-newest first (#700)", %{conn: conn, pat: pat} do
+      app = InstanceFixtures.app_version!(%{version: "3.4.1"})
+
+      for version <- ["3.4.1-bundled", "9.2.0", "10.0.0"] do
+        InstanceFixtures.app_version!(%{app_id: app.app_id, version: version})
+      end
+
+      conn =
+        conn
+        |> auth(pat)
+        |> get("/api/v1/apps/#{app.app_id}/versions")
+
+      assert %{"data" => rows} = json_response(conn, 200)
+
+      assert Enum.map(rows, & &1["attributes"]["version"]) ==
+               ["10.0.0", "9.2.0", "3.4.1", "3.4.1-bundled"]
+    end
   end
 
   describe "GET /api/v1/app-versions/:id" do

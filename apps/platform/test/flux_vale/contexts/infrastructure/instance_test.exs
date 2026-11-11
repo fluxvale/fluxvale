@@ -7,6 +7,7 @@ defmodule FluxVale.Infrastructure.InstanceTest do
   alias FluxVale.Accounts
   alias FluxVale.Catalog.App
   alias FluxVale.Catalog.AppVersion
+  alias FluxVale.Catalog.AppVersion.SetSortKey
   alias FluxVale.Catalog.Category
   alias FluxVale.Catalog.Types.FirstRunContract
   alias FluxVale.Clients.K8s
@@ -356,6 +357,7 @@ defmodule FluxVale.Infrastructure.InstanceTest do
       drifted =
         Ash.Seed.seed!(AppVersion, %{
           version: "9.9.9",
+          sort_key: SetSortKey.key("9.9.9"),
           image: "test/image:9.9",
           port: 3000,
           default_env_vars: %{"APP__security__INSTALL_LOCK" => "false"},
@@ -419,6 +421,7 @@ defmodule FluxVale.Infrastructure.InstanceTest do
       drifted =
         Ash.Seed.seed!(AppVersion, %{
           version: "9.9.9",
+          sort_key: SetSortKey.key("9.9.9"),
           image: "test/image:9.9",
           port: 3000,
           default_env_vars: %{},
@@ -449,6 +452,7 @@ defmodule FluxVale.Infrastructure.InstanceTest do
       drifted =
         Ash.Seed.seed!(AppVersion, %{
           version: "8.8.8",
+          sort_key: SetSortKey.key("8.8.8"),
           image: "test/image:8.8",
           port: 3000,
           default_env_vars: %{},
@@ -787,6 +791,7 @@ defmodule FluxVale.Infrastructure.InstanceTest do
       version =
         Ash.Seed.seed!(AppVersion, %{
           version: "1.0.0",
+          sort_key: SetSortKey.key("1.0.0"),
           image: "registry.example.com/app:1.0",
           port: 3000,
           default_cpu_cores: Decimal.new("0.5"),

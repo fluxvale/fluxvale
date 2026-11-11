@@ -13,6 +13,8 @@ defmodule FluxValeWeb.AdminCatalogLiveTest do
   import Phoenix.LiveViewTest
 
   alias FluxVale.Catalog.AppVersion
+
+  alias FluxVale.Catalog.AppVersion.SetSortKey
   alias FluxVale.Identity.User
   alias FluxVale.Pricing.Size
   alias FluxVale.TestSupport.InstanceFixtures
@@ -95,12 +97,11 @@ defmodule FluxValeWeb.AdminCatalogLiveTest do
              )
     end
 
-    # The rows follow the app page's own :list_for_app order — the
-    # version string descending, string-sort (so "1.0.9" sorts above
-    # "1.0.10", exactly as the public detail page renders them). Pinned
-    # with the pair that kills any accidental numeric or
-    # insertion-order sort.
-    test "a version's siblings follow the catalog's own string-desc order", %{conn: conn} do
+    # The rows follow the app page's own :list_for_app order —
+    # semver-newest-first on the sort key (#700), so "1.0.10" sorts
+    # above "1.0.9". Pinned with the pair that kills any accidental
+    # string or insertion-order sort.
+    test "a version's siblings follow the catalog's own semver-desc order (#700)", %{conn: conn} do
       v9 = InstanceFixtures.app_version!(%{version: "1.0.9"})
 
       # Local: PricingFixtures.size! still passes #558-removed keys, so
@@ -143,7 +144,7 @@ defmodule FluxValeWeb.AdminCatalogLiveTest do
           String.trim(text)
         end
 
-      assert names == ["1.0.9", "1.0.10"]
+      assert names == ["1.0.10", "1.0.9"]
     end
 
     test "a version no action can produce (nil size, the pre-#125 drift shape) reads honestly", %{
@@ -158,6 +159,7 @@ defmodule FluxValeWeb.AdminCatalogLiveTest do
       sizeless =
         Ash.Seed.seed!(AppVersion, %{
           version: "0.0.#{rem(@n, 100)}",
+          sort_key: SetSortKey.key("0.0.#{rem(@n, 100)}"),
           image: "registry.example.com/app:0.0",
           port: 3000,
           app_id: version.app_id

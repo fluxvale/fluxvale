@@ -69,7 +69,10 @@ defmodule FluxVale.TestSupport.InstanceFixtures do
     version_attrs =
       Map.merge(
         %{
-          version: "1.0.#{rem(n, 100)}",
+          # #700: the version grammar (SetSortKey) rejects negative
+          # patch segments — abs keeps the fixture inside it (n is
+          # System.unique_integer(), which counts negative).
+          version: "1.0.#{rem(abs(n), 100)}",
           image: "registry.example.com/app:1.0",
           port: 3000,
           default_cpu_cores: Decimal.new("0.5"),

@@ -14,6 +14,7 @@ defmodule FluxValeWeb.PricingCalculatorLiveTest do
 
   alias FluxVale.Catalog.App
   alias FluxVale.Catalog.AppVersion
+  alias FluxVale.Catalog.AppVersion.SetSortKey
   alias FluxVale.Catalog.Category
   alias FluxVale.Infrastructure.AccessGateway
   alias FluxVale.Pricing
@@ -312,11 +313,12 @@ defmodule FluxValeWeb.PricingCalculatorLiveTest do
     app = Ash.load!(fixture, :app, authorize?: false).app
 
     Ash.Seed.seed!(AppVersion, %{
-      # "9.0.0" sorts above the fixture's "1.0.N" — the nil-size version
-      # must be the app's latest, the one whose recommendation the
-      # chooser reads.
-      version: "9.0.0",
-      image: "registry.example.com/app:9.0.0",
+      # "10.0.0" sorts above the fixture's "1.0.N" only under semver
+      # (#700) — the nil-size version must be the app's latest, the
+      # one whose recommendation the chooser reads.
+      version: "10.0.0",
+      sort_key: SetSortKey.key("10.0.0"),
+      image: "registry.example.com/app:10.0.0",
       port: 3000,
       default_cpu_cores: Decimal.new("1"),
       default_memory_mb: 1024,
@@ -351,8 +353,11 @@ defmodule FluxValeWeb.PricingCalculatorLiveTest do
 
     AppVersion.create!(
       %{
-        version: "9.0.0",
-        image: "registry.example.com/app:9.0.0",
+        # "10.0.0" — crosses the fixture's "1.0.N" the way a string
+        # sort gets WRONG ("1.0.N" > "10.0.0" as strings), so this
+        # test pins the semver latest (#700), not just "a bigger one".
+        version: "10.0.0",
+        image: "registry.example.com/app:10.0.0",
         port: 3000,
         default_cpu_cores: Decimal.new("1"),
         default_memory_mb: 2048,

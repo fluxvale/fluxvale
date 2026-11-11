@@ -234,7 +234,7 @@ msgstr ""
 msgid "Terms"
 msgstr ""
 
-#: lib/flux_vale_web/live/catalog_live/show.ex:184
+#: lib/flux_vale_web/live/catalog_live/show.ex:183
 #: lib/flux_vale_web/live/pricing_calculator_live.ex:289
 #: lib/flux_vale_web/live/pricing_calculator_live.ex:435
 #, elixir-autogen, elixir-format

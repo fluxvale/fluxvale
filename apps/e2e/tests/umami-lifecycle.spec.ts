@@ -68,10 +68,10 @@ test(
     const email = `test+e2e-${runId}@fluxvale.com`;
     await signIn(page, new TestInbox(request, testInboxToken!), email);
 
-    // Catalog → Umami. `medium` + 10 GB — the bundled row's honest
-    // recommendation (the app idles ~123 MiB measured; the bundled
-    // PostgreSQL carves 0.10 CPU / 256 MB of the envelope) — $4.09/mo,
-    // stated as a monthly-equivalent, billed hourly.
+    // Catalog → Umami. The hero prices the newest version — the plain
+    // `3.4.1` BYO row (#700: the semver sort puts a suffixed row below
+    // its release), `micro` + 0 GB — $2.59/mo, stated as a
+    // monthly-equivalent, billed hourly.
     await page.goto("/apps");
     await waitForLiveViewJoin(page);
     await expect(page.getByRole("heading", { name: "Catalog" })).toBeVisible();
@@ -81,24 +81,32 @@ test(
     ).toBeVisible();
     await waitForLiveViewJoin(page);
     await expect(page.locator("[data-testid^='price-']").first()).toContainText(
-      "$4.09/mo · billed hourly",
+      "$2.59/mo · billed hourly",
     );
 
-    // Deploy stepper: version (the bundled row sorts first —
-    // "3.4.1-bundled" > "3.4.1" as a string) → configuration (the
-    // bundled note INSTEAD of the two platform-owned inputs; APP_SECRET
-    // the one fill; the optional 2FA key stays empty) → resources at
-    // the floored recommendation → name.
+    // Deploy stepper: version (the plain 3.4.1 sorts first — #700's
+    // semver order; the bundled row is picked by its label below) →
+    // configuration (the bundled note INSTEAD of the two
+    // platform-owned inputs; APP_SECRET the one fill; the optional 2FA
+    // key stays empty) → resources at the floored recommendation →
+    // name.
     await page.locator("[data-testid^='deploy-']").first().click();
     await waitForLiveViewJoin(page);
-    await page.getByTestId("version-option").first().check();
     // The version text rides the wrapping <label> — an input carries
     // no text, so toContainText on the radio itself can only read ""
     // (found the hard way: this spec's first CI run was its first
     // execution anywhere; every locator here is now markup-verified).
     await expect(
       page.locator("label:has(> input[data-testid='version-option'])").first(),
-    ).toContainText("3.4.1-bundled");
+    ).toContainText("3.4.1");
+    // "3.4.1" is a substring of "3.4.1-bundled" — the not-bundled
+    // check is what actually pins the semver order (#700).
+    await expect(
+      page.locator("label:has(> input[data-testid='version-option'])").first(),
+    ).not.toContainText("bundled");
+    await page
+      .locator("label:has-text('3.4.1-bundled') input[data-testid='version-option']")
+      .check();
     await page.getByTestId("continue-version").click();
     await page.locator("#bundled-env-note").waitFor();
     await expect(page.getByTestId("bundled-env-note")).toContainText(
