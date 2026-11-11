@@ -146,8 +146,9 @@ defmodule FluxValeWeb.PolicyControllerTest do
   describe "GET /policies/privacy" do
     # fv332 D5: the privacy text of record. The load-bearing wording is
     # asserted verbatim: the entity, the measurement claim (verified
-    # against the code — analytics is the self-hosted, cookieless
-    # Umami tag of FluxValeWeb.SiteAnalytics, public pages only), the
+    # against the code — Umami is the self-hosted, cookieless tag of
+    # FluxValeWeb.SiteAnalytics, public pages only, and #706/ADR-0049
+    # names PostHog for the signed-in app ahead of its env flip), the
     # never-collect claims (card data never touches the platform), the
     # BYO-backup posture, the financial-records retention stance
     # (docs/data-deletion.md), and the PH-law framing consistent with
@@ -165,11 +166,31 @@ defmodule FluxValeWeb.PolicyControllerTest do
       assert flat =~ "FLUXVALE INFORMATION SOLUTIONS OPC"
 
       # The measurement claim and the never-collect claims, stated as
-      # facts about the platform (#576: SiteAnalytics carries the tag).
+      # facts about the platform (#576: SiteAnalytics carries the
+      # Umami tag; #706: PostHog is named for the signed-in app ahead
+      # of its env flip — the policy leads, ADR-0049).
       assert flat =~ "never see your card details"
+
+      # Umami: still self-run, still public-pages only.
+      assert flat =~ "public pages with Umami"
       assert flat =~ "cookieless analytics service we run ourselves"
-      assert flat =~ "stores nothing on your device"
+      assert flat =~ "It never loads on the signed-in app"
+
+      # PostHog: the named operator (PostHog, Inc.), the in-app scope,
+      # what it records (pages, buttons, errors), the account
+      # identifier, cookieless, instance-blind (#712 fix round).
+      assert flat =~ "Inside the signed-in app we use PostHog"
+      assert flat =~ "analytics service run by PostHog, Inc."
+      assert flat =~ "PostHog records which pages you open and which buttons you press"
+      assert flat =~ "collects errors you hit"
+      assert flat =~ "Events are tied to your account with an identifier our server supplies"
+      assert flat =~ "sets no cookies and stores nothing on your device"
+      assert flat =~ "cannot read the data inside your instances"
       assert flat =~ "No advertising trackers ride our pages"
+      # The old promise dies with the third-party tag: it must not
+      # survive the PostHog rider.
+      refute flat =~ "we run no tracker we do not own"
+
       assert flat =~ "do not read, scan, or mine"
 
       # App data: isolated per instance, backups go to storage the
@@ -206,10 +227,16 @@ defmodule FluxValeWeb.PolicyControllerTest do
       assert flat =~ "Postmark"
 
       # Logs: honest about IP addresses, bounded retention, named
-      # monitoring service.
+      # monitoring services. PostHog rides beside Grafana Cloud
+      # (#706); traces are disclosed at their activation in the
+      # later phase, not here.
       assert flat =~ "IP addresses"
       assert flat =~ "limited window"
       assert flat =~ "Grafana Cloud"
+      assert flat =~ "also go to PostHog, a second analytics service"
+      # PostHog-only fragment: Grafana's sentence does not carry it.
+      assert flat =~ "carry no cookies and no advertising trackers"
+      assert flat =~ "advertise to you or to profile you"
 
       # Retention: the one category that outlives an account, said
       # plainly (the data-deletion stance).
