@@ -134,47 +134,82 @@ defmodule FluxValeWeb.AdminHealth do
   The org runway widget (#702): every wallet projected through the
   billing domain's `compute_runway` (balance ÷ burn). Low = a float
   runway below the configured gate (`:low_runway_hours`, one week by
-  default); `:infinity` — a wallet with nothing burning — never reads
-  low. A projection that errors counts as unknown and renders as such:
-  the widget never hides a wallet it could not read.
+  default), sorted most-urgent first (hours ascending, slug
+  tiebreak). `:infinity` — a wallet with nothing burning — never reads
+  low; an overdrawn wallet with nothing burning counts as depleted
+  (the escapees: burning overdrawn wallets land in low via their
+  negative hours). A projection that errors counts as unknown and
+  renders as such, and a failure of the wallet read or the name
+  lookup marks the whole widget unavailable — the widget degrades, it
+  never takes the page down. A read the policies refuse is NOT
+  degradation: the Forbidden re-raises (the fleet's admin-only
+  grammar).
   """
   @spec runway(FluxVale.Identity.User.t()) :: %{
           threshold_hours: pos_integer(),
-          low: [%{org: String.t() | nil, hours: float()}],
+          low: [
+            %{org: String.t() | nil, slug: String.t() | nil, projection: term()}
+          ],
+          depleted: non_neg_integer(),
           unknown: non_neg_integer(),
-          wallets: non_neg_integer()
+          wallets: non_neg_integer(),
+          unavailable: boolean()
         }
   def runway(actor) do
     threshold_hours = Application.get_env(:flux_vale, :low_runway_hours, 168)
-    wallets = read_wallets(actor)
-    org_names = org_names(actor, wallets)
 
-    # The projection reads each org's instances itself (the operation's
-    # own contract) — fine at beta scale; the revisit trigger is this
-    # line showing up in the console's query budget, at which point a
-    # cache (or an org-batched burn read) lands.
-    {low, unknown} =
-      Enum.reduce(wallets, {[], 0}, fn wallet, {low_acc, unknown_acc} ->
+    case runway_inputs(actor) do
+      {:ok, {wallets, org_names}} ->
+        runway_result(threshold_hours, wallets, org_names)
+
+      {:error, :unavailable} ->
+        %{
+          threshold_hours: threshold_hours,
+          low: [],
+          depleted: 0,
+          unknown: 0,
+          wallets: 0,
+          unavailable: true
+        }
+    end
+  end
+
+  # The projection reads each org's instances itself (the operation's
+  # own contract) — fine at beta scale; the revisit trigger is this
+  # line showing up in the console's query budget, at which point a
+  # cache (or an org-batched burn read) lands.
+  defp runway_result(threshold_hours, wallets, org_names) do
+    {low, depleted, unknown} =
+      Enum.reduce(wallets, {[], 0, 0}, fn wallet, {low_acc, depleted_acc, unknown_acc} ->
         case projection(wallet) do
-          {:ok, %{runway_hours: :infinity}} ->
-            {low_acc, unknown_acc}
+          # A spent wallet with nothing burning: no hours to show,
+          # never low — counted so the panel can say it. A burning
+          # overdrawn wallet instead lands in low below, via its
+          # negative hours.
+          {:ok, %{balance_cents: cents, runway_hours: :infinity}} when cents < 0 ->
+            {low_acc, depleted_acc + 1, unknown_acc}
 
-          {:ok, %{runway_hours: hours}} when hours < threshold_hours ->
-            {[low_row(org_names, wallet, hours) | low_acc], unknown_acc}
+          {:ok, %{runway_hours: :infinity}} ->
+            {low_acc, depleted_acc, unknown_acc}
+
+          {:ok, %{runway_hours: hours} = matched} when hours < threshold_hours ->
+            {[low_row(org_names, wallet, matched) | low_acc], depleted_acc, unknown_acc}
 
           {:ok, _projection} ->
-            {low_acc, unknown_acc}
+            {low_acc, depleted_acc, unknown_acc}
 
           {:error, _reason} ->
-            {low_acc, unknown_acc + 1}
+            {low_acc, depleted_acc, unknown_acc + 1}
         end
       end)
 
     %{
       threshold_hours: threshold_hours,
-      low: Enum.reverse(low),
+      low: sort_low(Enum.reverse(low)),
+      depleted: depleted,
       unknown: unknown,
-      wallets: length(wallets)
+      wallets: length(wallets),
+      unavailable: false
     }
   end
 
@@ -237,18 +272,41 @@ defmodule FluxValeWeb.AdminHealth do
   end
 
   # The queue read paginates (countable by default), so the code
-  # interface returns a page whose `count` is the full filtered total.
-  # The error arm re-raises the Ash error — a member actor is refused
-  # by the queue's admin-only policy, and the seam must raise the
-  # Forbidden, not pattern-match-crash on it (fleet's grammar).
+  # interface returns a page whose `count` is the full filtered total —
+  # guarded the sidebar badge's way (admin_chrome's same `|| 0`), since
+  # the page struct is the count's only carrier. The error arm
+  # re-raises the Ash error — a member actor is refused by the queue's
+  # admin-only policy, and the seam must raise the Forbidden, not
+  # pattern-match-crash on it (fleet's grammar).
   defp storage_queue_count(status, actor) do
     case StorageRequest.queue(%{status: status}, actor: actor) do
       {:ok, page} ->
-        page.count
+        page.count || 0
 
       {:error, error} ->
         raise error
     end
+  end
+
+  # The wallet read and the name lookup are the runway widget's one
+  # unguarded surface — any failure here lands the widget in its
+  # unavailable shape (the panel says so) instead of taking the page
+  # down; the 250-org dev DB proved the failure mode is real. A
+  # refusal is not infrastructure: the Forbidden re-raises, loud
+  # (fleet's admin-only grammar).
+  defp runway_inputs(actor) do
+    wallets = read_wallets(actor)
+    org_names = org_names(actor, wallets)
+    {:ok, {wallets, org_names}}
+  rescue
+    error in Ash.Error.Forbidden ->
+      reraise error, __STACKTRACE__
+
+    _error ->
+      {:error, :unavailable}
+  catch
+    :exit, _reason ->
+      {:error, :unavailable}
   end
 
   # The billing section's own wallet read (billing.ex refresh_rows):
@@ -279,7 +337,7 @@ defmodule FluxValeWeb.AdminHealth do
       |> Enum.chunk_every(@lookup_batch)
       |> Enum.flat_map(&org_lookup!(actor, &1))
 
-    Map.new(orgs, fn org -> {org.id, org.name} end)
+    Map.new(orgs, fn org -> {org.id, org} end)
   end
 
   defp org_lookup!(actor, ids) do
@@ -288,11 +346,23 @@ defmodule FluxValeWeb.AdminHealth do
     |> Ash.run_action!()
   end
 
-  # A vanished org's row renders without a name — impossible while the
+  # Most urgent first: fewest hours of runway at the top, the slug as
+  # the stable tiebreak (same-figure wallets hold one order between
+  # reads). A vanished org sorts on an empty slug — impossible while
+  # the wallet FK stands (the wallets surface's same stance).
+  defp sort_low(rows) do
+    Enum.sort_by(rows, fn row -> {row.projection.runway_hours, row.slug || ""} end)
+  end
+
+  # The row carries the whole projection: the phrase formatter rules on
+  # the balance first, so hours alone cannot name the state. A vanished
+  # org renders the row without name or slug — impossible while the
   # wallet FK stands (the wallets surface's same stance); nil renders
   # as the honest blank, never a crash.
-  defp low_row(org_names, wallet, hours) do
-    %{org: Map.get(org_names, wallet.organization_id), hours: hours}
+  defp low_row(org_names, wallet, projection) do
+    org = Map.get(org_names, wallet.organization_id)
+
+    %{org: org && org.name, slug: org && org.slug, projection: projection}
   end
 
   # The projection's own wrapper: the operation's bang reads (the

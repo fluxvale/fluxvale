@@ -3666,7 +3666,7 @@ msgstr ""
 
 #: lib/flux_vale_web/live/admin_live/audit.ex:518
 #: lib/flux_vale_web/live/admin_live/audit.ex:523
-#: lib/flux_vale_web/live/admin_live/health.ex:366
+#: lib/flux_vale_web/live/admin_live/health.ex:396
 #, elixir-autogen, elixir-format
 msgid "System"
 msgstr ""
@@ -3822,7 +3822,7 @@ msgstr ""
 msgid "Health"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/health.ex:301
+#: lib/flux_vale_web/live/admin_live/health.ex:327
 #, elixir-autogen, elixir-format
 msgid "Recent deploys"
 msgstr ""
@@ -3832,7 +3832,7 @@ msgstr ""
 msgid "The instance fleet at a glance — the build this platform runs, the status spread, and the newest deploys."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/health.ex:312
+#: lib/flux_vale_web/live/admin_live/health.ex:338
 #, elixir-autogen, elixir-format
 msgid "No deploys recorded yet."
 msgstr ""
@@ -3893,7 +3893,7 @@ msgid_plural "%{count} approved"
 msgstr[0] ""
 msgstr[1] ""
 
-#: lib/flux_vale_web/live/admin_live/health.ex:282
+#: lib/flux_vale_web/live/admin_live/health.ex:298
 #, elixir-autogen, elixir-format
 msgid "1 projection unknown"
 msgid_plural "%{count} projections unknown"
@@ -3907,7 +3907,7 @@ msgid_plural "%{count} requested"
 msgstr[0] ""
 msgstr[1] ""
 
-#: lib/flux_vale_web/live/admin_live/health.ex:275
+#: lib/flux_vale_web/live/admin_live/health.ex:312
 #, elixir-autogen, elixir-format
 msgid "Every wallet is above the gate."
 msgstr ""
@@ -3917,12 +3917,12 @@ msgstr ""
 msgid "Open the storage queue"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/health.ex:294
+#: lib/flux_vale_web/live/admin_live/health.ex:320
 #, elixir-autogen, elixir-format
 msgid "Open wallets and billing"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/health.ex:248
+#: lib/flux_vale_web/live/admin_live/health.ex:252
 #, elixir-autogen, elixir-format
 msgid "Org runway"
 msgstr ""
@@ -3932,12 +3932,26 @@ msgstr ""
 msgid "Pool headroom lives in the block-storage runbook — not served from here."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/health.ex:251
+#: lib/flux_vale_web/live/admin_live/health.ex:255
 #, elixir-autogen, elixir-format
 msgid "Wallets under %{hours}h of runway"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/health.ex:261
+#: lib/flux_vale_web/live/admin_live/health.ex:291
 #, elixir-autogen, elixir-format
-msgid "runway %{runway}"
+msgid "1 depleted wallet"
+msgid_plural "%{count} depleted wallets"
+msgstr[0] ""
+msgstr[1] ""
+
+#: lib/flux_vale_web/live/admin_live/health.ex:262
+#, elixir-autogen, elixir-format
+msgid "Runway data unavailable."
 msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/health.ex:280
+#, elixir-autogen, elixir-format
+msgid "and 1 more"
+msgid_plural "and %{count} more"
+msgstr[0] ""
+msgstr[1] ""

@@ -132,35 +132,32 @@ defmodule FluxValeWeb.BillingComponents do
     Pricing.format_usd(cents)
   end
 
-  # The runway copy is the dashboard's formatter shape (S4), owned at
-  # the billing display seam: a spent wallet is out of runway — "under
-  # an hour" would read as nearly-there. The hours shapes live in the
-  # public format_runway_hours/1 below; this wrapper adds only the
-  # spent arm, which needs the balance the hours alone can't carry.
-  defp format_runway(%{balance_cents: cents}) when cents < 0, do: "Depleted"
-  defp format_runway(%{runway_hours: hours}), do: format_runway_hours(hours)
-
+  # The runway copy is owned at the billing display seam. One rule
+  # ordering decides the phrase: an overdrawn balance reads Depleted
+  # before the hours get a vote (a spent wallet is out of runway —
+  # "under an hour" would read as nearly-there), a wallet with nothing
+  # burning reads No active burn, then the rounded hours and days over
+  # the average Gregorian month (Billing.Month, the same constant the
+  # projection and the settles use). Public since the #702 console's
+  # runway widget renders the same phrase.
   @doc """
-  The runway figure for a projection's hours — the one hours-shape
-  formatter, the same rule as `format_balance/1` above: "No active
-  burn" for `:infinity`, "under an hour", then rounded hours and days
-  over the average Gregorian month (`Billing.Month`, the constant the
-  projection and the settles use). Public since the #702 console's
-  runway widget renders through it.
+  The runway phrase for a projection: "Depleted" for an overdrawn
+  balance, "No active burn" for `:infinity`, "under an hour", then
+  rounded hours and days over the average Gregorian month
+  (`Billing.Month`, the constant the projection and the settles use).
   """
-  @spec format_runway_hours(float() | :infinity) :: String.t()
-  def format_runway_hours(:infinity), do: "No active burn"
+  @spec format_runway(%{balance_cents: integer(), runway_hours: float() | :infinity}) ::
+          String.t()
+  def format_runway(%{balance_cents: cents}) when cents < 0, do: "Depleted"
 
-  # A burning wallet with an overdrawn balance projects negative hours;
-  # the product's word for that state is the balance formatter's own.
-  def format_runway_hours(hours) when hours < 0, do: "Depleted"
+  def format_runway(%{runway_hours: :infinity}), do: "No active burn"
 
-  def format_runway_hours(hours) when hours < 1, do: "under an hour"
+  def format_runway(%{runway_hours: hours}) when hours < 1, do: "under an hour"
 
-  def format_runway_hours(hours) when hours < 48,
+  def format_runway(%{runway_hours: hours}) when hours < 48,
     do: "≈ #{round(hours)} #{plural(round(hours), "hour")}"
 
-  def format_runway_hours(hours) do
+  def format_runway(%{runway_hours: hours}) do
     days = hours / 24
 
     if days < 60 do

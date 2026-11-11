@@ -235,11 +235,15 @@ defmodule FluxValeWeb.AdminLive.Health do
 
               <%!-- The org runway widget (#702): the wallets below the
               configured gate (the seam's threshold, restated so the
-              list has its context), one row per low wallet — the
-              formatted runway rides the billing display seam's one
-              hours formatter, never a raw float. Unknown projections
-              render their count when there are any: a wallet the
-              widget could not read is never silently missing. --%>
+              list has its context), sorted most-urgent first, one row
+              per low wallet — the phrase rides the billing display
+              seam's projection formatter, never a raw float, and the
+              row names the org twice (name, then the slug in mono —
+              the deploy-row idiom, since names are not unique). The
+              list caps at ten with an honest overflow count.
+              Depleted-with-no-burn wallets, unknown projections and a
+              failed widget read each render their own honest line:
+              "above the gate" speaks only when it is true. --%>
               <div
                 class="rounded-panel border border-line bg-panel px-4 py-4 text-ink"
                 data-testid="runway-panel"
@@ -250,29 +254,41 @@ defmodule FluxValeWeb.AdminLive.Health do
                 <p class="mt-2 text-sm text-ink-muted" data-testid="runway-gate">
                   {gettext("Wallets under %{hours}h of runway", hours: @runway.threshold_hours)}
                 </p>
+                <p
+                  :if={@runway.unavailable}
+                  class="mt-2 text-sm text-ink-muted"
+                  data-testid="runway-unavailable"
+                >
+                  {gettext("Runway data unavailable.")}
+                </p>
                 <ul :if={@runway.low != []} class="mt-2" id="runway-low" data-testid="runway-low">
                   <li
-                    :for={row <- @runway.low}
+                    :for={row <- Enum.take(@runway.low, runway_cap())}
                     class="flex flex-wrap items-center gap-2 border-b border-line py-2 text-sm text-ink last:border-0"
                   >
                     <span class="font-medium">{row.org}</span>
+                    <span class="font-mono text-xs text-ink-muted">{row.slug}</span>
                     <span aria-hidden="true">-</span>
-                    <span>
-                      {gettext("runway %{runway}",
-                        runway: BillingComponents.format_runway_hours(row.hours)
-                      )}
-                    </span>
+                    <span>{BillingComponents.format_runway(row.projection)}</span>
                   </li>
                 </ul>
-                <%!-- The empty line speaks only when every projection
-                is known: with unknowns on the page, the count below
-                carries the story and "above the gate" would lie. --%>
                 <p
-                  :if={@runway.low == [] and @runway.unknown == 0}
-                  class="mt-2 text-sm text-ink-muted"
-                  data-testid="runway-empty"
+                  :if={length(@runway.low) > runway_cap()}
+                  class="mt-2 text-xs text-ink-muted"
+                  data-testid="runway-more"
                 >
-                  {gettext("Every wallet is above the gate.")}
+                  {ngettext(
+                    "and 1 more",
+                    "and %{count} more",
+                    length(@runway.low) - runway_cap()
+                  )}
+                </p>
+                <p
+                  :if={@runway.depleted > 0}
+                  class="mt-2 text-xs text-ink-muted"
+                  data-testid="runway-depleted"
+                >
+                  {ngettext("1 depleted wallet", "%{count} depleted wallets", @runway.depleted)}
                 </p>
                 <p
                   :if={@runway.unknown > 0}
@@ -284,6 +300,16 @@ defmodule FluxValeWeb.AdminLive.Health do
                     "%{count} projections unknown",
                     @runway.unknown
                   )}
+                </p>
+                <p
+                  :if={
+                    @runway.low == [] and @runway.unknown == 0 and @runway.depleted == 0 and
+                      not @runway.unavailable
+                  }
+                  class="mt-2 text-sm text-ink-muted"
+                  data-testid="runway-empty"
+                >
+                  {gettext("Every wallet is above the gate.")}
                 </p>
                 <p class="mt-2">
                   <.link
@@ -332,6 +358,10 @@ defmodule FluxValeWeb.AdminLive.Health do
     </Layouts.app>
     """
   end
+
+  # The low list renders its ten most-urgent rows; the seam's honest
+  # overflow count covers the rest.
+  defp runway_cap, do: 10
 
   # The lifecycle arc, in InstanceStatus's documented order.
   @status_arc [
