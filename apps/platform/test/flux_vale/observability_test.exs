@@ -206,12 +206,15 @@ defmodule FluxVale.ObservabilityTest do
         assert config.capture_level == :error
         assert config.metadata == [:request_id]
         assert config.enable_source_code_context
-        assert config.root_source_code_paths == [File.cwd!()]
+        # lib/ only, resolved from config.exs's directory (#714: the root
+        # is scoped instead of exclude regexes — mix release cannot
+        # serialize Regex terms into the release config).
+        assert config.root_source_code_paths == [Path.expand("lib", File.cwd!())]
         assert config.context_lines == 5
-        # Same excludes the packaging task used — app source only, the
-        # deps/ tree never enters the map (fresh-eyes finding).
+        # The SDK's own defaults fill in (we set no override — the same
+        # #714 lesson: our custom excludes carried regexes into config).
         assert Enum.map(config.source_code_exclude_patterns, &Regex.source/1) ==
-                 ["^_build/", "^deps/", "^priv/", "^test/"]
+                 ["^_build/", "^priv/", "^test/"]
 
         # in_app_modules is what validate!/1 computes from in_app_otp_apps.
         assert MapSet.member?(config.in_app_modules, FluxVale.Observability)
