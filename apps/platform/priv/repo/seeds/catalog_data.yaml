@@ -1214,9 +1214,11 @@
           # The OQ #3 takeover row (#612 S4): same upstream image as
           # 3.4.1, plus the bundled PostgreSQL. A NEW row on purpose —
           # instances pin their version at create, so the pinned BYO
-          # row (below) is never retconned; the string sorts above
-          # "3.4.1", making the bundled shape the wizard's default for
-          # new instances. Upstream tags carry no v prefix (verified
+          # row (below) is never retconned; the semver sort (#700)
+          # places the suffixed row below the bare 3.4.1 (a pre-release
+          # sorts below its release), so the wizard's picker lists the
+          # plain release first and picks nothing for the user.
+          # Upstream tags carry no v prefix (verified
           # against the GHCR v2 API at #576); the suffix is ours, the
           # only way the per-app unique-version identity allows a
           # second row of the same release.

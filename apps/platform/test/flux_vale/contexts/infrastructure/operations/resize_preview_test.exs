@@ -10,6 +10,8 @@ defmodule FluxVale.Infrastructure.Operations.ResizePreviewTest do
   use Mimic
 
   alias FluxVale.Catalog.AppVersion
+
+  alias FluxVale.Catalog.AppVersion.SetSortKey
   alias FluxVale.Infrastructure
   alias FluxVale.Infrastructure.Instance
   alias FluxVale.Pricing
@@ -120,6 +122,7 @@ defmodule FluxVale.Infrastructure.Operations.ResizePreviewTest do
 
     Ash.Seed.seed!(AppVersion, %{
       version: "0.9.#{n}",
+      sort_key: SetSortKey.key("0.9.#{n}"),
       image: "test/image:0.9",
       port: 3000,
       app_id: app.id

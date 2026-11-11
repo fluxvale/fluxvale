@@ -11,6 +11,7 @@ defmodule FluxVale.Infrastructure.StorageRequestTest do
   use Mimic
 
   alias FluxVale.Accounts
+  alias FluxVale.Catalog.AppVersion.SetSortKey
   alias FluxVale.Clients.K8s
   alias FluxVale.Clients.K8s.Error
   alias FluxVale.Clients.K8s.Resources.PersistentVolumeClaim
@@ -73,6 +74,7 @@ defmodule FluxVale.Infrastructure.StorageRequestTest do
 
     Ash.Seed.seed!(FluxVale.Catalog.AppVersion, %{
       version: "0.9.#{n}",
+      sort_key: SetSortKey.key("0.9.#{n}"),
       image: "test/image:0.9",
       port: 3000,
       app_id: app.id

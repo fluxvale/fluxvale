@@ -147,10 +147,9 @@ defmodule FluxValeWeb.CatalogLive.Show do
     """
   end
 
-  # Lexicographic on the version string — exact while the seed carries
-  # one version per app; semver-aware sorting arrives with multi-version
-  # apps (a #70-era non-problem, noted here so nobody trusts it early).
-  defp sorted_desc(versions), do: Enum.sort_by(versions, & &1.version, :desc)
+  # #700: newest-first on the maintained semver key (SetSortKey owns
+  # the encoding) — the :list_for_app sort, mirrored.
+  defp sorted_desc(versions), do: Enum.sort_by(versions, & &1.sort_key, :desc)
 
   # ADR-0028's live estimate. #558: the recommended compute class's
   # rate plus the storage axis at the version's own default — priced

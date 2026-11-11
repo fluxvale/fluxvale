@@ -31,6 +31,7 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
 
   alias Decimal
   alias FluxVale.Catalog.AppVersion
+  alias FluxVale.Catalog.AppVersion.SetSortKey
   alias FluxVale.Identity.User
   alias FluxVale.Infrastructure.AccessProviders.Tailscale
   alias FluxVale.Infrastructure.AccessRoute
@@ -133,6 +134,7 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
     unsized =
       Ash.Seed.seed!(AppVersion, %{
         version: "0.9.0",
+        sort_key: SetSortKey.key("0.9.0"),
         image: "test/image:0.9",
         port: 3000,
         app_id: app.id
@@ -2228,6 +2230,7 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
       unsized =
         Ash.Seed.seed!(AppVersion, %{
           version: "0.9.0",
+          sort_key: SetSortKey.key("0.9.0"),
           image: "test/image:0.9",
           port: 3000,
           app_id: app.id
@@ -2298,6 +2301,7 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
       unsized =
         Ash.Seed.seed!(AppVersion, %{
           version: "0.9.1",
+          sort_key: SetSortKey.key("0.9.1"),
           image: "test/image:0.9",
           port: 3000,
           app_id: app.id,
@@ -2340,6 +2344,7 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
       unsized =
         Ash.Seed.seed!(AppVersion, %{
           version: "0.9.3",
+          sort_key: SetSortKey.key("0.9.3"),
           image: "test/image:0.9",
           port: 3000,
           app_id: app.id,
@@ -2427,6 +2432,7 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
       unsized =
         Ash.Seed.seed!(AppVersion, %{
           version: "0.9.2",
+          sort_key: SetSortKey.key("0.9.2"),
           image: "test/image:0.9",
           port: 3000,
           app_id: app.id,

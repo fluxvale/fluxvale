@@ -132,6 +132,29 @@ defmodule FluxValeWeb.CatalogLive.DeployTest do
     assert html =~ "published"
   end
 
+  # #700: the picker lists the semver-newest first — the plain release
+  # above its suffixed row, both above the setup's 1.0.x fixture row.
+  # Pinned here (not just in the API/admin tests) because the wizard
+  # sorts its loaded relationship itself.
+  test "the version picker lists semver-newest-first (#700)", %{conn: conn, app: app} do
+    bundled = InstanceFixtures.app_version!(%{app_id: app.id, version: "3.4.1-bundled"})
+    release = InstanceFixtures.app_version!(%{app_id: app.id, version: "3.4.1"})
+
+    {:ok, _view, html} = live(conn, ~p"/apps/#{app.slug}/deploy")
+
+    assert radio_index(html, release.id) < radio_index(html, bundled.id)
+  end
+
+  # The DOM position of a version radio — the picker's order is the
+  # @versions order, so position is the assertion (show_test's
+  # index_of, shaped for the radio ids).
+  defp radio_index(html, version_id) do
+    case :binary.match(html, "id=\"version-#{version_id}\"") do
+      {index, _length} -> index
+      :nomatch -> flunk("expected version radio for #{version_id} on the page")
+    end
+  end
+
   # #179's surface audit: the stepper renders across all three steps
   # and flashes after events — none of it may name the platform under
   # the hood.

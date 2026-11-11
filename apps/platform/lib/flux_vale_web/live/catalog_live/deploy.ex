@@ -112,7 +112,9 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
     case Catalog.App.get_by_slug(slug, actor: user) do
       {:ok, app} ->
         app = Ash.load!(app, [app_versions: :recommended_size], actor: user)
-        versions = Enum.sort_by(app.app_versions, & &1.version, :desc)
+        # #700: newest-first on the semver sort key — the :list_for_app
+        # sort, mirrored for the relationship load.
+        versions = Enum.sort_by(app.app_versions, & &1.sort_key, :desc)
         org_options = org_options(socket.assigns)
 
         socket =

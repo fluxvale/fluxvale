@@ -16,6 +16,10 @@ defmodule FluxVale.Catalog.AppVersion do
     authorizers: [Ash.Policy.Authorizer],
     extensions: [AshJsonApi.Resource, AshPaperTrail.Resource]
 
+  # #700: the sort-key seam — the grammar pattern and the create change
+  # live in the child module; aliased so both read short below.
+  alias FluxVale.Catalog.AppVersion.SetSortKey
+
   # #360 (ADR-0019 §1): the version family's wire contract — the detail
   # page's blueprint summary, same public surface the page renders.
   json_api do
@@ -140,9 +144,21 @@ defmodule FluxVale.Catalog.AppVersion do
     create_timestamp(:created_at)
     update_timestamp(:updated_at)
 
+    # The grammar (X.Y.Z triples + one optional -suffix) lives in
+    # SetSortKey — the constraint is what makes every stored version
+    # keyable (#700).
     attribute :version, :string do
       allow_nil?(false)
       public?(true)
+      constraints(match: SetSortKey.pattern())
+    end
+
+    # #700: the semver-newest-first sort column — lexicographic on
+    # this key equals semantic order (SetSortKey owns the encoding
+    # and the grammar decision). Written once at create; version is
+    # immutable after, so it can never drift.
+    attribute :sort_key, :string do
+      allow_nil?(false)
     end
 
     attribute :image, :string do
@@ -346,6 +362,9 @@ defmodule FluxVale.Catalog.AppVersion do
 
       validate(present(:recommended_size_id))
 
+      # #700: stamp the sort key from the (grammar-conforming) version.
+      change(SetSortKey)
+
       # before_action?: the locked size read must run inside the
       # transaction or its FOR UPDATE evaporates at statement end
       # (#543).
@@ -403,8 +422,7 @@ defmodule FluxVale.Catalog.AppVersion do
     # #360: the detail page reads versions through the app relationship;
     # the resource itself had no by-id or per-app list read. Both mirror
     # the read policy's own posture exactly (action_type(:read) → public
-    # browse): no policy added or widened. The sort is the page's own
-    # (version string descending).
+    # browse): no policy added or widened.
     read :get_by_id do
       description("Get a version by id")
       get?(true)
@@ -416,7 +434,10 @@ defmodule FluxVale.Catalog.AppVersion do
       description("The app's versions, newest first")
       argument(:app_id, :uuid, allow_nil?: false)
       filter(expr(app_id == ^arg(:app_id)))
-      prepare(build(sort: [version: :desc]))
+      # #700: semver-newest-first via the maintained key — every
+      # surface that reads versions orders on sort_key (SetSortKey
+      # owns the grammar and the encoding).
+      prepare(build(sort: [sort_key: :desc]))
     end
   end
 

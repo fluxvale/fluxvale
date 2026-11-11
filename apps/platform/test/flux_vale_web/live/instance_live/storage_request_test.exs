@@ -11,6 +11,7 @@ defmodule FluxValeWeb.InstanceLive.StorageRequestTest do
 
   import Phoenix.LiveViewTest
 
+  alias FluxVale.Catalog.AppVersion.SetSortKey
   alias FluxVale.Clients.K8s
   alias FluxVale.Clients.K8s.Resources.StorageClass
   alias FluxVale.Infrastructure
@@ -718,8 +719,13 @@ defmodule FluxValeWeb.InstanceLive.StorageRequestTest do
     version = InstanceFixtures.app_version!()
     app = Ash.load!(version, :app, authorize?: false).app
 
+    # rem keeps the fabricated version inside the grammar (#700) and
+    # one binding keeps version and key the same string.
+    seed_version = "0.9.#{rem(System.unique_integer([:positive]), 1000)}"
+
     Ash.Seed.seed!(FluxVale.Catalog.AppVersion, %{
-      version: "0.9.#{System.unique_integer([:positive])}",
+      version: seed_version,
+      sort_key: SetSortKey.key(seed_version),
       image: "test/image:0.9",
       port: 3000,
       app_id: app.id

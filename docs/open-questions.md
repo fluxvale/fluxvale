@@ -47,6 +47,11 @@ the decision.
    (platform-owned spec, hidden input, deploy-composed URL, user
    values rejected at create: the D6 stance); the pinned v3.4.1 BYO
    row ships unchanged and no existing instance is retconned.
+   Ordering note (#700, 2026-11-11): the catalog sorts semver now, so
+   the bundled row lists BELOW the bare 3.4.1 (a pre-release sorts
+   below its release) and the app page's hero prices the BYO row —
+   the takeover is a data/ownership decision, not a list-position
+   one; reopen if the bundled shape should headline again.
    Remaining dogfood apps TBD (v1 queued: SilverBullet, +1). Still
    open: per-app *command* overrides in the deployer (v1 #360) — mount
    path is now catalog data, command is not.

@@ -5,6 +5,7 @@ defmodule FluxVale.Catalog.AppVersionTest do
 
   alias FluxVale.Catalog.App
   alias FluxVale.Catalog.AppVersion
+  alias FluxVale.Catalog.AppVersion.SetSortKey
   alias FluxVale.Catalog.Category
   alias FluxVale.Catalog.Types.BackingService
   alias FluxVale.Catalog.Types.EnvVarSpec
@@ -181,6 +182,80 @@ defmodule FluxVale.Catalog.AppVersionTest do
       assert {:error, %Ash.Error.Invalid{}} =
                Ash.update(version, %{version: "9.9.9"}, authorize?: false)
     end
+
+    test "rejects versions outside the grammar (#700)" do
+      # v-prefixed, two-segment, four-segment, build metadata, an
+      # uppercase suffix, a dotted suffix — the sort key has no band
+      # for any of them (uppercase/dots would collate differently in
+      # SQL than in Elixir).
+      for bad <- ["v3.4.1", "3.4", "3.4.1.1", "3.4.1+bundled", "3.4.1-Bundled", "3.4.1-rc.1"] do
+        attrs = version_attrs(app(), %{version: bad})
+
+        assert {:error, %Ash.Error.Invalid{}} = AppVersion.create(attrs, authorize?: false)
+      end
+    end
+
+    test "derives the sort key at create (#700)" do
+      attrs = version_attrs(app(), %{version: "10.4.1-bundled"})
+      version = AppVersion.create!(attrs, authorize?: false)
+
+      assert version.sort_key == "000010.000004.000001.0-bundled"
+    end
+  end
+
+  describe "list_for_app/2 (#700)" do
+    test "orders versions semver-newest first, pre-release below its release" do
+      app = app()
+
+      for version <- ["3.4.0", "3.4.1-bundled", "3.4.1", "10.0.0", "3.10.0", "9.2.0"] do
+        attrs = version_attrs(app, %{version: version})
+        AppVersion.create!(attrs, authorize?: false)
+      end
+
+      versions = AppVersion.list_for_app!(app.id, authorize?: false)
+
+      # 10.x above 9.x (never string order); 3.10.0 above 3.4.x;
+      # the -bundled pre-release below its bare 3.4.1.
+      assert Enum.map(versions, & &1.version) ==
+               ["10.0.0", "9.2.0", "3.10.0", "3.4.1", "3.4.1-bundled", "3.4.0"]
+    end
+
+    test "the same version string on another app sorts independently" do
+      app_a = app()
+      app_b = app()
+
+      for {app, version} <- [{app_a, "9.2.0"}, {app_a, "10.0.0"}, {app_b, "10.0.0"}] do
+        attrs = version_attrs(app, %{version: version})
+        AppVersion.create!(attrs, authorize?: false)
+      end
+
+      listed_a = AppVersion.list_for_app!(app_a.id, authorize?: false)
+      listed_b = AppVersion.list_for_app!(app_b.id, authorize?: false)
+
+      assert Enum.map(listed_a, & &1.version) == ["10.0.0", "9.2.0"]
+      assert Enum.map(listed_b, & &1.version) == ["10.0.0"]
+    end
+  end
+
+  describe "SetSortKey.key/1 (#700)" do
+    test "numeric segments beat string order at every crossing" do
+      # String order would flip both pairs ("9…" > "10…", "4…" > "10…").
+      assert SetSortKey.key("9.2.0") < SetSortKey.key("10.0.0")
+      assert SetSortKey.key("3.4.1") < SetSortKey.key("3.10.0")
+      assert SetSortKey.key("3.4.1") < SetSortKey.key("3.4.2")
+    end
+
+    test "a suffixed version keys below its release, suffixes compare as strings" do
+      assert SetSortKey.key("3.4.1-bundled") < SetSortKey.key("3.4.1")
+      assert SetSortKey.key("3.4.1-bundled") > SetSortKey.key("3.4.0")
+      assert SetSortKey.key("3.4.1-alpha") < SetSortKey.key("3.4.1-bundled")
+    end
+
+    test "raises outside the grammar — the constraint's backstop" do
+      assert_raise ArgumentError,
+                   ~r/outside the catalog grammar/,
+                   fn -> SetSortKey.key("not-a-version") end
+    end
   end
 
   describe "recommended_size (#125)" do
@@ -284,6 +359,7 @@ defmodule FluxVale.Catalog.AppVersionTest do
   defp unsized_version! do
     Ash.Seed.seed!(AppVersion, %{
       version: "0.9.0",
+      sort_key: SetSortKey.key("0.9.0"),
       image: "test/image:0.9",
       port: 8080,
       default_cpu_cores: Decimal.new("0.5"),

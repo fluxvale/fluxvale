@@ -151,13 +151,13 @@ defmodule FluxValeWeb.AdminLive.Catalog do
   end
 
   # The table's flat rows: {app, version} pairs in the app page's own
-  # order — apps by name, each app's versions newest-first (the
-  # :list_for_app sort).
+  # order — apps by name, each app's versions newest-first on the
+  # semver sort key (#700, the :list_for_app sort).
   defp rows(apps) do
     for app <- apps, version <- sorted_versions(app), do: %{app: app, version: version}
   end
 
   defp sorted_versions(app) do
-    Enum.sort_by(app.app_versions, & &1.version, :desc)
+    Enum.sort_by(app.app_versions, & &1.sort_key, :desc)
   end
 end

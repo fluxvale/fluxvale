@@ -6,6 +6,7 @@ defmodule FluxValeWeb.CatalogControllerTest do
 
   alias FluxVale.Accounts
   alias FluxVale.Catalog.App
+  alias FluxVale.Catalog.AppVersion.SetSortKey
   alias FluxVale.Catalog.Category
   alias FluxVale.Pricing
   alias FluxVale.Pricing.Size
@@ -462,6 +463,7 @@ defmodule FluxValeWeb.CatalogControllerTest do
       # States actions can't produce: the pre-#125 shape — nil size.
       Ash.Seed.seed!(FluxVale.Catalog.AppVersion, %{
         version: "9.9.9",
+        sort_key: SetSortKey.key("9.9.9"),
         image: "test/image:9.9",
         port: 3000,
         app_id: app.id
