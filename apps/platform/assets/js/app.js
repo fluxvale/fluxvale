@@ -24,6 +24,7 @@ import {Socket} from "phoenix"
 import {LiveSocket} from "phoenix_live_view"
 import {hooks as colocatedHooks} from "phoenix-colocated/flux_vale"
 import topbar from "../vendor/topbar"
+import "../vendor/posthog-js-tracing-headers"
 import posthog from "../vendor/posthog-js"
 
 const csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content")
@@ -103,9 +104,16 @@ liveSocket.connect()
 // never surrounding copy). capture_pageview "history_change" tracks
 // LiveView's pushState navigations — the SPA pageview guarantee this
 // SDK version documents, so no phx:navigate listener on top (it would
-// double-capture). tracing_headers marks our own origin, so the app's
+// double-capture). tracing_headers marks our own origin, so same-origin
 // fetch/XHR calls carry x-posthog-distinct-id/-session-id for the
-// server plug to correlate backend errors to this browser session.
+// server plug to correlate backend errors to this browser session —
+// the patcher covers the app's JS HTTP calls as they appear; LiveView
+// itself rides the WebSocket, which the patcher does not touch.
+// disable_external_dependency_loading keeps the client fully bundled:
+// the SDK would otherwise fetch feature scripts (recorder, surveys,
+// the tracing-headers patch) from its asset CDN at runtime — the
+// tracing-headers patch is vendored beside it instead, and everything
+// else is off in this posture.
 const analyticsConfig = document.getElementById("posthog-config")
 
 if (analyticsConfig) {
@@ -116,6 +124,7 @@ if (analyticsConfig) {
     persistence: "memory",
     person_profiles: "never",
     disable_session_recording: true,
+    disable_external_dependency_loading: true,
     autocapture: true,
     mask_all_text: true,
     capture_pageview: "history_change",

@@ -10,10 +10,12 @@ defmodule FluxValeWeb.AppAnalytics do
 
   Unset config renders nothing at all — no element, no posthog boot,
   the kill switch's client half. There is no script tag here (the SDK
-  rides the app.js bundle), so Umami stays the ONLY external script
-  (#576's exception). The hook renders from the app chrome
-  (`Layouts.app`) alone: the public surface is Umami's per ADR-0049's
-  layering, and emails carry no client at all.
+  and its tracing-headers patch ride the app.js bundle, and external
+  dependency loading is disabled — nothing loads from third-party hosts
+  at runtime), so Umami stays the ONLY external script (#576's
+  exception). The hook renders from the app chrome (`Layouts.app`)
+  alone: the public surface is Umami's per ADR-0049's layering, and
+  emails carry no client at all.
   """
 
   use FluxValeWeb, :html
@@ -51,12 +53,13 @@ defmodule FluxValeWeb.AppAnalytics do
   end
 
   # Attribution only, never auth (the SDK's own stance): the resolved
-  # user's id — the same value PostHogIdentity hands server-side
-  # captures — so client and server events correlate on one id. The id
-  # is not a secret; it already rides every server-side error event.
-  # Map.get, not .id: the layout attr is a plain :map and only the id
-  # is read here (chrome probes render partial users) — a user without
-  # an id renders the hook without the attribute.
+  # user's id, the same value PostHogIdentity stamps as distinct_id
+  # server-side (public pipelines today; the LiveView facade is S1b's),
+  # so client and server events can correlate on one id. The id is not
+  # a secret; it already rides every server-side error event. Map.get,
+  # not .id: the layout attr is a plain :map and only the id is read
+  # here (chrome probes render partial users) — a user without an id
+  # renders the hook without the attribute.
   defp distinct_id(nil), do: nil
   defp distinct_id(user), do: Map.get(user, :id)
 end
