@@ -32,8 +32,8 @@ opposite shape Nov 11, 2026: FluxVale's own at-a-glance surface.
    wake numbers are in-memory and say "since this deployment
    started"). Where no source exists yet — error counts until the
    PostHog split (ADR-0049, Proposed) flips, synthetic verdicts which
-   have no in-app seam — the slot says so in place (the console's
-   Coming grammar) and never fabricates a number.
+   have no in-app seam — the slot renders its not-configured state in
+   place: an honest placeholder, never a fabricated number.
 4. **Third-party reads are server-side, fixed, and cached.** The
    Tier-2 proxies (PostHog insights, Grafana hosted Prometheus) serve
    a whitelist of named queries only — a proxy that forwards
