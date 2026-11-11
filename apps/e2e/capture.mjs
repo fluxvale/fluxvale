@@ -9,9 +9,9 @@
  * the real sign-in POST for auth (no test backdoors — mint a session
  * token the *_seed.exs way), the phx:theme localStorage flip AND the
  * prefers-color-scheme context, networkidle + settle, full-page
- * stills, 1440x900. Self-signed TLS is ignored — the local stack
- * serves its own cert, and the tool captures whatever origin you
- * point it at.
+ * stills, 1440x900. Self-signed TLS is accepted for local origins
+ * only (localhost, *.lvh.me); deployed environments must present a
+ * valid cert.
  *
  * Usage:
  *   node capture.mjs <url>... [options]
@@ -110,6 +110,20 @@ if (values.token === "") {
   process.exit(1);
 }
 const token = values.token ?? process.env.FV_TOKEN ?? "";
+
+// The local stack serves self-signed Traefik TLS; everywhere else a
+// valid cert is part of the capture's honesty. Same gate as the
+// suite's config (ignoreHTTPSErrors: isLocal).
+const isLocalOrigin = (url) => {
+  const host = new URL(url).hostname;
+  return (
+    host === "localhost" ||
+    host === "127.0.0.1" ||
+    host === "[::1]" ||
+    host.endsWith(".lvh.me")
+  );
+};
+const insecure = urls.every(isLocalOrigin);
 if (token) {
   const origins = new Set(urls.map((url) => new URL(url).origin));
   if (origins.size > 1) {
@@ -154,7 +168,7 @@ try {
     const ctx = await browser.newContext({
       viewport: { width: Number(viewport[1]), height: Number(viewport[2]) },
       colorScheme: mode,
-      ignoreHTTPSErrors: true,
+      ignoreHTTPSErrors: insecure,
     });
     const page = await ctx.newPage();
 
@@ -176,6 +190,10 @@ try {
         process.exit(1);
       }
       console.log(`signed in (${mode})`);
+    } else {
+      // Always say which auth state the captures ride — an anonymous
+      // run must never read as authenticated pages (#312's rule).
+      console.log(`anonymous context, no token (${mode})`);
     }
 
     for (const { url, name } of names) {
@@ -199,6 +217,16 @@ try {
       }, mode);
       await page.waitForTimeout(settle);
 
+      // A mask selector that matches nothing masks nothing — Playwright
+      // is fail-open here, and this tool's mask exists for the
+      // never-capture-a-secret rule. A typo must fail loudly, not ship
+      // the secret.
+      for (const selector of values.mask ?? []) {
+        if ((await page.locator(selector).count()) === 0) {
+          console.error(`--mask "${selector}" matches nothing on ${url} — refusing to capture unmasked`);
+          process.exit(1);
+        }
+      }
       const masks = (values.mask ?? []).map((selector) => page.locator(selector).first());
       const file = `${outdir}/${name}-${mode}.png`;
       await page.screenshot({
