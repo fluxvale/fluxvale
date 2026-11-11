@@ -24,11 +24,6 @@ specs_dir="apps/e2e/tests"
 # not extended; one that goes stale (the spec joined a leg, or the
 # file is gone) fails this lint instead of rotting.
 known_gaps="$(cat <<'GAPS'
-# instance-resize.spec.ts joins a leg together with the fix it needs
-# first: chronically red since #518 (storage-probe 403 on k3d — the
-# local platform role lacks the storageclasses grant, so the panel
-# shows the probe-error copy the spec doesn't assert).
-instance-resize.spec.ts #510
 GAPS
 )"
 
