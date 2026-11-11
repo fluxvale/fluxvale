@@ -101,12 +101,15 @@ This is a web application written using the Phoenix web framework.
   The embeds must RENDER in the description; captures committed to the
   branch but not embedded do not satisfy the rule. Post-merge the PA's
   audit flips the URLs to `raw/main` so they survive branch deletion.
-  Tooling: adapt the
-  capture pattern in `apps/e2e/screenshot.mjs` or its #301 sibling
-  `access_wake_screenshot.mjs` — the route lists are per-surface,
-  never generic (Playwright; `npm install` + `npx playwright install
-  chromium` in `apps/e2e`, local dev server). Never capture a secret —
-  mask key fields.
+  Tooling: the ONE canonical capture tool,
+  `apps/e2e/capture.mjs` — URL, viewport, theme, auth token, settle,
+  click-through steps, output dir (`node apps/e2e/capture.mjs
+  --help`; Playwright; `npm install` + `npx playwright install
+  chromium` in `apps/e2e`, local dev server). One-off capture scratch
+  NEVER merges — per-surface route lists and bespoke scripts live
+  outside the repo (e.g. /tmp/opencode, swept at lane close); the
+  scratch class this rule retires regrew 19 dead scripts in 4 days
+  (#510). Never capture a secret — mask key fields (`--mask`).
   - **GIF when the change is motion** (owner rule, Oct 29 2026):
     transitions, hover/focus states, toasts, spinners, animated
     reveals — a short GIF rides the stills in the same folder, embedded
