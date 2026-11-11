@@ -544,6 +544,22 @@ config :logger, :default_formatter,
 config :opentelemetry,
   processors: [{:otel_batch_processor, %{exporter: :none}}]
 
+# PostHog (ADR-0049): error tracking + server-side product events. The
+# SDK's own auto-start stays off — the app owns the supervision tree
+# (FluxVale.Application starts PostHog.Supervisor and the Logger handler
+# itself, only when runtime.exs saw POSTHOG_API_KEY), so the kill switch
+# is structural: unset means nothing starts. `enable` is a static
+# never-auto-start decision, safe at compile time; everything
+# env-dependent lives in runtime.exs.
+# The source-context keys feed error-tracing stack frames and are read
+# from the :posthog app env by `mix posthog.package_source_code` (the
+# Dockerfile runs it before `mix release`).
+config :posthog,
+  enable: false,
+  enable_source_code_context: true,
+  root_source_code_paths: [File.cwd!()],
+  context_lines: 5
+
 # Use Jason for JSON parsing in Phoenix
 config :phoenix, :json_library, Jason
 

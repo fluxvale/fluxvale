@@ -49,8 +49,11 @@ ENV RUSTLER_PRECOMPILED_GLOBAL_CACHE_PATH=/app/.prebuilt
 COPY .prebuilt/tailwind/ /app/_build/
 
 # Assets: Hex-managed tailwind/esbuild — no Node. phx.digest writes the
-# cache manifest prod.exs configures.
-RUN mix compile && mix assets.deploy && mix release
+# cache manifest prod.exs configures. posthog.package_source_code packs
+# the error-tracing source map into PostHog's priv (it reads the
+# :posthog source-context keys from config.exs) before `mix release`
+# bundles it — PostHog error-tracking source context (ADR-0049).
+RUN mix compile && mix assets.deploy && mix posthog.package_source_code && mix release
 
 # Runtime alpine matches the builder image's (3.24.3): the release's
 # NIFs and the musl the release tree expects must stay in lockstep.

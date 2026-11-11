@@ -28,6 +28,9 @@ defmodule FluxValeWeb.Router do
   # the auth-gated /apps/:slug/deploy route).
   pipeline :public_seo do
     plug(FluxValeWeb.Plugs.MaybeResolveUser)
+    # ADR-0049: the resolved user becomes the PostHog distinct_id —
+    # no-op while PostHog is unarmed or the visitor is anonymous.
+    plug(FluxValeWeb.Plugs.PostHogIdentity)
   end
 
   # #164: the sitemap — XML only, no session, no root layout. URLs are

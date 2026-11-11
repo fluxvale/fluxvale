@@ -67,5 +67,12 @@ defmodule FluxValeWeb.Endpoint do
   plug(Plug.Head)
   plug(Plug.Session, @session_options)
 
+  # PostHog request context ($current_url, $ip, tracing headers —
+  # ADR-0049) rides the SDK's plug. Hand-written glue: the endpoint's
+  # plug list is compile-static but the gate is runtime (POSTHOG_API_KEY,
+  # runtime.exs), so the wrapper re-reads the app env per request and is
+  # a no-op while unarmed.
+  plug(FluxValeWeb.Plugs.PostHogRequestContext)
+
   plug(FluxValeWeb.Router)
 end
