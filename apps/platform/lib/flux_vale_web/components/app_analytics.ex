@@ -71,7 +71,7 @@ defmodule FluxValeWeb.AppAnalytics do
     not blank?(Map.get(config, :api_host)) and not blank?(Map.get(config, :api_key))
   end
 
-  defp armed?(_), do: false
+  defp armed?(_config), do: false
 
   defp blank?(value), do: value in [nil, ""]
 end

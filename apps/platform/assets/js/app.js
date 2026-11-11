@@ -193,6 +193,15 @@ if (analyticsConfig) {
     api_host: analyticsConfig.getAttribute("data-api-host"),
     persistence: "memory",
     person_profiles: "never",
+    // No flags at launch (ADR-0049's posture: analytics only — no
+    // replay, surveys, or toolbar, all of which hang off /flags). The
+    // flags request is also a leak channel before_send cannot reach:
+    // its person_properties carry the session's $initial_current_url,
+    // and the version's URL masking misses a bare non-allowlisted param
+    // (traced: Nl's allowlist loop falls through unmasked), so the
+    // invitation token would ride /flags verbatim. The request dies
+    // with the feature; autocapture and pageviews run on local config.
+    advanced_disable_flags: true,
     disable_session_recording: true,
     disable_external_dependency_loading: true,
     autocapture: true,
