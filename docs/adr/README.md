@@ -20,7 +20,7 @@ already ruled out.
 | [ADR-00009](00009-single-cnpg-cluster.md) | One shared CNPG cluster; managed PostgreSQL is the scaling path | Accepted |
 | [ADR-00010](00010-staging-namespace-flag-gated.md) | Staging = same-box namespace, feature-flag gated | Accepted |
 | [ADR-00011](00011-simultaneous-deploy-post-deploy-smoke.md) | Simultaneous deploy + post-deploy smoke; gate-on-demand | Accepted (amended — see Amendment 1) |
-| [ADR-00012](00012-observability-grafana-cloud.md) | Observability: Alloy → Grafana Cloud free tier | Accepted (amended — see Amendments 1–3) |
+| [ADR-00012](00012-observability-grafana-cloud.md) | Observability: Alloy → Grafana Cloud free tier | Accepted (amended — see Amendments 1–4) |
 | [ADR-00013](00013-additive-migrations.md) | Migration discipline: additive-only per release | Accepted (amended — see Amendment 1) |
 | [ADR-00014](00014-rollback-protocol.md) | Rollback protocol: revert PRs + counter-migrations | Accepted (amended — see Amendment 1) |
 | [ADR-00015](00015-no-auto-remediation.md) | No auto-remediation: alert + prepared revert PR | Accepted |
@@ -57,6 +57,7 @@ already ruled out.
 | [ADR-0046](0046-storage-beyond-threshold.md) | Storage beyond the self-service threshold: request → operator approval queue, online storage-only growth, configured marginal overage rate (pass-through + margin, 3¢/GB ratified 2026-11-10 with a $5 wallet floor) | Accepted (amended — Am. 1) |
 | [ADR-0047](00047-platform-admin-authority.md) | Blanket platform-admin authority: the existing platform admin sees and does everything on the 31-resource business set through one condition-pair bypass, never on a PAT, enforced by a doctrine gate that fails CI on undecided resources | Accepted (amended — see Amendment 1) |
 | [ADR-0048](00048-ash-paper-trail-audit.md) | Audit trail: AshPaperTrail over the business set — one config posture, attributed surviving versions, actor-label tombstone, retention forever (flagged deliberate) | Accepted |
+| [ADR-0049](00049-posthog-app-observability-split.md) | Observability split: PostHog for the app surface (analytics + error tracking + trace dual-export; EU; cookieless; replay off) — Grafana keeps metrics, synthetics, logs (Phase-3 gate) | Proposed |
 
 ## Conventions
 

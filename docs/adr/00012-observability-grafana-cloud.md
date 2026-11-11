@@ -95,3 +95,15 @@ budget burned → extra deploy scrutiny, gate-on-demand default). Burn-rate
 alerting deferred to the traffic trigger (same family as the Flagger canary);
 publishing SLOs publicly is status-page era. New wiring forced by this:
 Traefik metrics + two domain counters (deploy success, time-to-running).
+
+## Amendment 4 (2026-11-11)
+
+**Error tracking and product analytics move to PostHog; this ADR's
+Grafana spine keeps metrics, logs, and synthetics.**
+[ADR-0049](00049-posthog-app-observability-split.md) records the split
+decision — Am. 2's "dedicated tracker deferred" stance is resolved by
+adopting PostHog (resolving [ADR-0016](00016-deferred-triggers.md)'s
+trigger), and app traces dual-export from Alloy so PostHog gains
+person/session correlation while Tempo keeps history. Nothing here is
+re-litigated: the Alloy→Grafana Cloud free-tier spine, the data rule,
+and the PromEx split stand exactly as written.
