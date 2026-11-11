@@ -58,6 +58,7 @@ already ruled out.
 | [ADR-0047](00047-platform-admin-authority.md) | Blanket platform-admin authority: the existing platform admin sees and does everything on the 31-resource business set through one condition-pair bypass, never on a PAT, enforced by a doctrine gate that fails CI on undecided resources | Accepted (amended — see Amendment 1) |
 | [ADR-0048](00048-ash-paper-trail-audit.md) | Audit trail: AshPaperTrail over the business set — one config posture, attributed surviving versions, actor-label tombstone, retention forever (flagged deliberate) | Accepted |
 | [ADR-0049](00049-posthog-app-observability-split.md) | Observability split: PostHog for the app surface (analytics + error tracking + trace dual-export; EU; cookieless; replay off) — Grafana keeps metrics, synthetics, logs (Phase-3 gate) | Proposed |
+| [ADR-0051](00051-tfprovider-repo-extraction.md) | The Terraform/OpenTofu provider leaves the monorepo: fluxvale/terraform-provider-fluxvale, history kept via filter-repo, plain vX.Y.Z tags, versioned registry assets (manifest, SHA256SUMS, binary .sig) on GPG-signed releases — registry-ready | Accepted |
 
 ## Conventions
 

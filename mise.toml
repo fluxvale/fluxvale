@@ -25,17 +25,6 @@ elixir = "1.20.4-otp-29"
 # apps/e2e Playwright + apps/smoke Bruno suites (ADR-0024)
 node = "26.8.1"
 
-# Terraform/OpenTofu provider lane (apps/tfprovider) — same pin
-# discipline as the BEAM/Node entries (ADR-0019 Am. 4).
-go = "1.26.10"
-
-# OpenTofu CLI (the `tofu` binary) — the provider lane's real-tofu
-# smoke gate (ci.yml, in-process framework tests can't catch a real
-# CLI's rejects) and the acceptance lane's driver
-# (tfprovider-acceptance.yml). Backend aqua:opentofu/opentofu (GitHub
-# release binaries), checksummed in mise.lock like everything else.
-opentofu = "1.13.9"
-
 # Local k3d + Tilt stack (ADR-0020)
 k3d = "5.9.0"
 tilt = "0.37.7"

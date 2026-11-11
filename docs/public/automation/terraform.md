@@ -11,17 +11,19 @@ The provider is not on the public registry yet. You install it from a release ar
 
 ## Install the provider
 
-1. Download the zip for your platform from the releases page, tagged `tf-v*`, together with `SHA256SUMS`. Verify the archive:
+The provider's source and releases live in [fluxvale/terraform-provider-fluxvale](https://github.com/fluxvale/terraform-provider-fluxvale).
+
+1. Download the zip for your platform from the [releases page](https://github.com/fluxvale/terraform-provider-fluxvale/releases), tagged `v*`, together with `SHA256SUMS` and its signature `SHA256SUMS.sig`. Verify the archive:
 
    ```sh
-   grep terraform-provider-fluxvale_0.1.1_linux_amd64.zip SHA256SUMS | sha256sum -c -
+   grep terraform-provider-fluxvale_0.2.0_linux_amd64.zip SHA256SUMS | sha256sum -c -
    ```
 
 2. Place the zip in a local mirror:
 
    ```
    ~/.tfplugins-mirror/
-     registry.terraform.io/fluxvale/fluxvale/terraform-provider-fluxvale_0.1.1_linux_amd64.zip
+     registry.terraform.io/fluxvale/fluxvale/terraform-provider-fluxvale_0.2.0_linux_amd64.zip
    ```
 
 3. Point Terraform at the mirror in `~/.terraformrc`, or `~/.tofurc` for OpenTofu:
@@ -89,8 +91,8 @@ The full resource set:
 - `fluxvale_custom_domain` registers your own domain on the private edge. See the [custom domains guide](/docs/guides/custom-domains) for what verification means.
 - Data sources `fluxvale_apps` and `fluxvale_app_versions` read the catalog.
 
-The worked example in the provider's repository, under `examples/personal-stack`, composes all of them into one stack.
+The worked example in the provider's repository, under [`examples/personal-stack`](https://github.com/fluxvale/terraform-provider-fluxvale/tree/main/examples/personal-stack), composes all of them into one stack.
 
 ## Compatibility
 
-The provider follows the platform's API, and 0.x may still adjust computed fields and add attributes. The published [compatibility notes](https://github.com/fluxvale/fluxvale/blob/main/apps/tfprovider/docs/compatibility.md) state which names are stable from day one: the provider configuration, the `FLUXVALE_PAT` variable, and every resource and data source name listed above. Config you write against those names keeps working.
+The provider follows the platform's API, and 0.x may still adjust computed fields and add attributes. The published [compatibility notes](https://github.com/fluxvale/terraform-provider-fluxvale/blob/main/docs/guides/compatibility.md) state which names are stable from day one: the provider configuration, the `FLUXVALE_PAT` variable, and every resource and data source name listed above. Config you write against those names keeps working.
