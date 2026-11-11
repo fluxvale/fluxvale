@@ -5,10 +5,14 @@ nothing ships until the words are approved.
 
 Survey: ADR-0019 ([Am. 3](../adr/00019-machine-first-api-cli-mcp.md) CLI,
 [Am. 4](../adr/00019-machine-first-api-cli-mcp.md) provider, Am. 5 the Rust
-MCP server), the agent quickstart (#640, `/settings/agents`),
-`apps/tfprovider/docs/install.md`, `apps/cli/README.md`, the public docs
-pages (`docs/public/automation/{mcp,terraform,cli}.md`), and the landing
-itself (`apps/platform/lib/flux_vale_web/controllers/page_html/home.html.heex`).
+MCP server), [ADR-0051](../adr/00051-tfprovider-repo-extraction.md) (the
+provider's own repo, registry-ready), the agent quickstart (#640,
+`/settings/agents`), the provider repo
+(`fluxvale/terraform-provider-fluxvale`, v0.2.1 live on
+`registry.terraform.io/fluxvale/fluxvale`), `apps/cli/README.md`, the public
+docs pages (`docs/public/automation/{mcp,terraform,cli}.md`), and the
+landing itself
+(`apps/platform/lib/flux_vale_web/controllers/page_html/home.html.heex`).
 
 ## D1. Where the pitch lands
 
@@ -52,8 +56,12 @@ Card 2 — Terraform (the codified track):
 
 - Kicker: `For your stack`
 - Title: `Terraform provider`
-- Body: `Instances, backups, gateways, and custom domains become resources. Plan the stack, apply it, keep it in git.`
+- Body: `Instances, backups, gateways, and custom domains become resources. Install from the Terraform registry and terraform init just works. Plan the stack, apply it, keep it in git.`
 - Link: `Provider guide` → `/docs/automation/terraform`
+
+  Earlier draft (pre-registry, for the record): the install sentence was
+  absent and the ledger barred the registry claim. The listing went live
+  Nov 11 (v0.2.1) and the claim is now grounded.
 
 Card 3 — CLI (the lazy track):
 
@@ -91,15 +99,21 @@ so they cannot drift:
 | Agent browses catalog, deploys, pauses, reads wallet | MCP tools `apps_list`, `instances_deploy`, `instances_stop`, `wallet_*` (`docs/mcp.md`) |
 | Destructive actions ask first | confirm-gated `instances_destroy`, `backups_restore` (ADR-0019 Am. 5) |
 | Scoped token, revocable, token limits reach | PAT scopes + revocation (#360, Am. 1); `tools/list` filtered by grants |
-| Instances, backups, gateways, custom domains as resources | `tf-v0.1.1` resource set (`docs/public/automation/terraform.md`) |
+| Instances, backups, gateways, custom domains as resources | provider resource set (`docs/public/automation/terraform.md`, repo `fluxvale/terraform-provider-fluxvale`) |
+| Install from the Terraform registry, `terraform init` just works | `registry.terraform.io/fluxvale/fluxvale` lists v0.2.1 (protocol 6.0, 4 platforms, GPG-signed checksums per ADR-0051), checked against the live registry API Nov 11 |
 | One self-contained binary, deploy/backup/runway commands | `cli-v0.1.0` (`apps/cli/README.md`) |
 | One API underneath | JSON:API is the substrate for all three clients (ADR-0019 §1) |
 
 Not claimed anywhere: the `mcp.fluxvale.com` URL resolving today (DNS
 pending rollout — the landing never prints the URL, it links the quickstart
-and docs, which carry the note), a public Terraform registry install
-(install doc teaches the release mirror), CLI version numbers, and any
-`resize` verb on MCP (provider resizes; MCP scales to zero).
+and docs, which carry the note), CLI version numbers, and any `resize` verb
+on MCP (provider resizes; MCP scales to zero).
+
+Dependency flag: the linked guide (`/docs/automation/terraform`) still
+teaches the release-mirror install as of Nov 11 evening — it predates the
+live listing. The registry-flow rewrite of that page must land before or
+with this lane's PR, or the landing contradicts its own link target.
+Flagged to the PA (the docs page is the docs lane's file, not this lane's).
 
 ## D4. Visual plan (captures)
 
@@ -123,11 +137,11 @@ real product flows on the local k3d stack, nothing staged or faked:
    on a terminal or `ffmpeg` on a screen region), then `fps=12,scale=720:-1`
    per the GIF mechanics. Under 15s, trimmed to the conversation and the
    "Live at" line.
-2. **The tofu apply flow** — terminal GIF. Recipe: provider `tf-v0.1.1`
-   installed per `apps/tfprovider/docs/install.md` (release zip into the
-   mirror, `~/.tofurc`), `FLUXVALE_PAT` minted locally, `api_url` pointed at
-   the local stack, `examples/` shape .tf file, record `tofu apply` from plan
-   to `Creation complete`. Same size discipline.
+2. **The tofu apply flow** — terminal GIF. Recipe: a plain `tofu init` —
+   the registry listing is live (v0.2.1), so no mirror and no `~/.tofurc` —
+   a small `.tf` in the provider repo's `examples/` shape, `FLUXVALE_PAT`
+   minted locally, `api_url` pointed at the local stack, record `tofu
+   apply` from plan to `Creation complete`. Same size discipline.
 
 Fallback if the local cluster cannot run that day: the page stills satisfy
 the capture rule (the change is a static section), the GIFs land in the PR
@@ -168,6 +182,8 @@ Synthetic reviewer).
 
 ## D6. Out of scope
 
-Registry listing, MCP DNS rollout, CLI/provider releases (all tracked on
-their lanes), the pricing page, the docs pages' content, i18n beyond the
+MCP DNS rollout, CLI and provider releases (the provider tracks in its own
+repo since [ADR-0051](../adr/00051-tfprovider-repo-extraction.md)), the
+pricing page, the docs pages' content (including the terraform guide's
+registry-flow rewrite — flagged to the PA as a dependency), i18n beyond the
 gettext workflow.
