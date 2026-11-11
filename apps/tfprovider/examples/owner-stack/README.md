@@ -60,7 +60,9 @@ instance.
 The token scopes match the workflow's acceptance preflight
 (`.github/workflows/tfprovider-acceptance.yml`); mint once, reuse.
 
-To see the catalog while picking apps and version pins:
+To see the catalog while picking apps and version pins (after
+`tofu init` and with `FLUXVALE_PAT` exported — the console reads the
+live catalog):
 
 ```sh
 tofu console
@@ -75,10 +77,11 @@ not a newest-first ranking.
 ## Install the providers (once)
 
 This module composes two providers, so it needs the
-[filesystem mirror](../../docs/install.md) setup — `dev_overrides`
-alone cannot get you there, because `tofu init` still queries the
-registry for the unpublished fluxvale provider and refuses to install
-cloudflare. Two cases:
+[filesystem mirror](../../docs/install.md) setup. With
+`dev_overrides` alone, `tofu init` queries the registry for the
+unpublished fluxvale provider and fails on that lookup (cloudflare
+itself installs fine) — the mirror is what makes init fully green.
+Two cases:
 
 - **Release zips exist** (GitHub Releases, tag `tf-v*`): follow
   docs/install.md §1–3 — download the zip + `SHA256SUMS`, verify,
