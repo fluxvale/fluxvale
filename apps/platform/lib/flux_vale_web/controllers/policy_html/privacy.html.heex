@@ -6,7 +6,7 @@
     </.header>
 
     <p class="text-xs text-ink-subtle">
-      Last updated: November 9, 2026
+      Last updated: November 11, 2026
       <%!-- set at the pre-merge push; the
       final push after sign-off re-verifies the date --%>
     </p>
@@ -16,7 +16,9 @@
         terms. Every statement below describes what the platform
         actually does today (verified against the code, Nov 8 2026:
         the analytics claim matches FluxValeWeb.SiteAnalytics —
-        self-hosted Umami, cookieless, public pages only). Advisory
+        self-hosted Umami, cookieless, public pages only), with one
+        deliberate lead: #706 names PostHog (ADR-0049) before its
+        env flip, so the policy is never behind the tag. Advisory
         edits land here. The copy rules apply: plain sentences, no
         em-dashes, no semicolons. --%>
     <.card class="space-y-4" data-testid="privacy-policy">
@@ -98,12 +100,16 @@
       </p>
       <p class="text-sm text-ink-muted">
         We measure traffic on our public pages with Umami, a cookieless
-        analytics service we run ourselves on FluxVale. It sets no
-        cookies and stores nothing on your device, and it never loads
-        on the signed-in app. No advertising trackers ride our pages,
-        and we run no tracker we do not own. The everyday cookies are
-        your signed-in session and the standard request token that
-        protects forms.
+        analytics service we run ourselves on FluxVale. It never loads
+        on the signed-in app. Inside the signed-in app we measure how
+        the product is used with PostHog, an analytics service run by
+        PostHog Inc. It records which pages you open and which buttons
+        you press, and it collects errors you hit so we can fix them.
+        Both set no cookies and store nothing on your device, and
+        neither can read the data inside your instances. No advertising
+        trackers ride our pages. The everyday cookies are your
+        signed-in session and the standard request token that protects
+        forms.
       </p>
       <p class="text-sm text-ink-muted">
         We do not read, scan, or mine the data inside your apps. Your
@@ -157,6 +163,17 @@
         Operational metrics and logs are sent to Grafana Cloud, our
         monitoring service, for the same purpose. We do not use them
         to profile you.
+      </p>
+      <p class="text-sm text-ink-muted">
+        Error reports and product usage events from the signed-in app
+        also go to PostHog, a second analytics service. They carry no
+        cookies and no advertising trackers, and we do not use them to
+        profile you.
+      </p>
+      <p class="text-sm text-ink-muted">
+        Technical traces of requests in the signed-in app also go to
+        PostHog, so we can follow a problem from your click to the
+        code that served it.
       </p>
     </.card>
 
