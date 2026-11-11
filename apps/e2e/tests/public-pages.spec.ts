@@ -36,6 +36,52 @@ test("clicking a catalog card opens the public app detail", async ({ page }) => 
   await expect(page.locator("[data-testid^='deploy-']").first()).toBeVisible();
 });
 
+// #716: catalog icons ship vendored and load same-origin. A hotlinked
+// third-party icon whose host hangs never errors — it silently holds
+// the page's load event hostage (the Nov 11 fleet-wide pages-leg
+// outage: one hanging icon host timed every /catalog navigation out).
+test("catalog pages carry no third-party image sources", async ({ page }) => {
+  // Origins, not strings: currentSrc is the browser-resolved URL, so
+  // protocol-relative and malformed srcs cannot slip a string sniff.
+  const foreignImgSrcs = () =>
+    page.locator("img").evaluateAll((imgs) =>
+      imgs
+        .map((img) => img.currentSrc)
+        .filter((src) => {
+          if (src === "") return false;
+          try {
+            return new URL(src).origin !== window.location.origin;
+          } catch {
+            return true;
+          }
+        }),
+    );
+  // Icon tiles only, never the whole page: the detail page's
+  // screenshots are loading="lazy", so below the fold they sit
+  // undecoded by design — polling them would mint a flake. An icon
+  // tile that fails to decode is exactly the silent break this guard
+  // exists for (a vendored file 404s quietly under Plug.Static).
+  const iconImgs = () => page.locator("[data-testid='app-icon'] img, [data-testid^='app-'] img");
+  const undecodedIconSrcs = () =>
+    iconImgs().evaluateAll((imgs) =>
+      imgs
+        .filter((img) => !(img.complete && img.naturalWidth > 0))
+        .map((img) => img.getAttribute("src") ?? "(no src)"),
+    );
+
+  await page.goto("/catalog");
+  await expect(page.locator("[data-testid^='app-']").first()).toBeVisible();
+  expect(await foreignImgSrcs()).toEqual([]);
+  expect(await iconImgs().count()).toBeGreaterThan(0);
+  await expect.poll(undecodedIconSrcs).toEqual([]);
+
+  await page.locator("[data-testid^='app-']").first().click();
+  await expect(page).toHaveURL(/\/catalog\//);
+  expect(await foreignImgSrcs()).toEqual([]);
+  expect(await iconImgs().count()).toBeGreaterThan(0);
+  await expect.poll(undecodedIconSrcs).toEqual([]);
+});
+
 test("an anonymous deploy CTA lands on /sign-in — the auth boundary", async ({ page }) => {
   await page.goto("/catalog");
   const cardHref = await page.locator("[data-testid^='app-']").first().getAttribute("href");

@@ -105,6 +105,14 @@ exists.
 | `faq` | array of maps | 0-4 items: `question` 8-120 ending "?", `answer` 20-600 | App-specific objections (SSH support, licensing, multi-user). |
 | `community_url` | string | https URL | Community link row entry. |
 
+Amendment (2026-11-11, #716): `icon_url` predates this plan — it shipped
+with the catalog domain itself. Its storage rule is amended here: icons
+vendored under `/images/catalog/<slug>/` (`.png` or `.svg`), same-origin
+like the screenshots but with their own format rule, and never a
+third-party URL — a hotlinked icon whose host hangs holds the public
+page's `load` event hostage. The seed value carries a provenance comment
+naming where the bytes came from.
+
 ### 4.2 New Category field
 
 | Field | Type | Shape | Why |

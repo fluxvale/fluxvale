@@ -39,7 +39,11 @@
         Repositories, issues, pull requests, wiki, and Forgejo Actions CI in
         a lightweight, 100% free-software package. Git over HTTPS only, with
         repositories and metadata living on a dedicated volume.
-      icon_url: https://codeberg.org/forgejo/forgejo/raw/branch/forgejo/assets/logo.svg
+      # Icons ship vendored under /images/catalog/<slug>/ and load
+      # same-origin, like the screenshots — a hotlinked icon whose
+      # host hangs holds the public page's load event hostage (#716).
+      # Provenance: https://codeberg.org/forgejo/forgejo/raw/tag/v16.0.5/assets/logo.svg
+      icon_url: /images/catalog/forgejo/icon.svg
       source_url: https://codeberg.org/forgejo/forgejo
       docs_url: https://forgejo.org/docs/latest/
       # #611 S1 retro-fill (plan §8.2): facts promoted from the
@@ -190,7 +194,8 @@
         per-user reading progress, OPDS support for third-party clients, and
         OIDC SSO. All configuration happens in the web UI and no environment
         variables are needed to boot.
-      icon_url: https://raw.githubusercontent.com/Kareadita/Kavita/develop/Logo/kavita.svg
+      # Icon vendored (#716) — upstream: https://raw.githubusercontent.com/Kareadita/Kavita/develop/Logo/kavita.svg (develop: no tag carries this path, so the ref floats)
+      icon_url: /images/catalog/kavita/icon.svg
       source_url: https://github.com/Kareadita/Kavita
       docs_url: https://wiki.kavitareader.com
       # #611 S1 retro-fill (plan §8.2): the file-ingest and scan facts
@@ -326,7 +331,8 @@
         and are searchable by tag and date. The web UI is at home on
         phones and desktops, and everything is stored in a single
         SQLite database on the instance volume.
-      icon_url: https://raw.githubusercontent.com/usememos/memos/main/web/public/logo.svg
+      # Icon vendored (#716) — upstream: https://raw.githubusercontent.com/usememos/memos/main/web/public/logo.svg (main: no tag carries this path, so the ref floats)
+      icon_url: /images/catalog/memos/icon.svg
       source_url: https://github.com/usememos/memos
       docs_url: https://usememos.com/docs
       # #611 S1 retro-fill (plan §8.2): the storage and first-open facts
@@ -440,7 +446,8 @@
       # ActualBudget/Umami lesson): the llama glyph on a solid blue
       # field, so it reads on the icon tile in both themes. The
       # originalMedia logo.svg is the glyph alone on transparency.
-      icon_url: https://raw.githubusercontent.com/go-vikunja/vikunja/v2.8.0/frontend/originalMedia/icons/apple-touch-icon.png
+      # Icon vendored (#716) — upstream: https://raw.githubusercontent.com/go-vikunja/vikunja/v2.8.0/frontend/originalMedia/icons/apple-touch-icon.png
+      icon_url: /images/catalog/vikunja/icon.png
       source_url: https://github.com/go-vikunja/vikunja
       docs_url: https://vikunja.io/docs
       # #610 (D1 tier from the first commit): facts promoted from the
@@ -650,7 +657,8 @@
         The admin panel is disabled in this packaging and sign-ups stay
         open on the instance URL, so create your account soon after
         deploying.
-      icon_url: https://raw.githubusercontent.com/dani-garcia/vaultwarden/1.37.5/resources/vaultwarden-icon.svg
+      # Icon vendored (#716) — upstream: https://raw.githubusercontent.com/dani-garcia/vaultwarden/1.37.5/resources/vaultwarden-icon.svg
+      icon_url: /images/catalog/vaultwarden/icon.svg
       source_url: https://github.com/dani-garcia/vaultwarden
       docs_url: https://github.com/dani-garcia/vaultwarden/wiki
       # #611 S1 retro-fill (plan §8.2): the packaging facts — admin
@@ -825,7 +833,8 @@
         while it wakes. Keep the instance public so your apps can reach
         it, and save the encryption key, because restoring a backup
         needs it.
-      icon_url: https://raw.githubusercontent.com/pocket-id/pocket-id/main/frontend/static/img/static-logo.svg
+      # Icon vendored (#716) — upstream: https://raw.githubusercontent.com/pocket-id/pocket-id/v2.19.2/frontend/static/img/static-logo.svg
+      icon_url: /images/catalog/pocket-id/icon.svg
       source_url: https://github.com/pocket-id/pocket-id
       docs_url: https://pocket-id.org/docs/introduction
       # #611 S1 retro-fill (plan §8.2): the availability, custody, and
@@ -975,7 +984,8 @@
       # (both paths fill="white") — invisible on the light icon tile.
       # The apple-touch icon is the same mark, self-contained: white
       # glyph on the solid purple field (#5D3DBA).
-      icon_url: https://raw.githubusercontent.com/actualbudget/actual/v26.11.0/packages/desktop-client/public/apple-touch-icon.png
+      # Icon vendored (#716) — upstream: https://raw.githubusercontent.com/actualbudget/actual/v26.11.0/packages/desktop-client/public/apple-touch-icon.png
+      icon_url: /images/catalog/actualbudget/icon.png
       source_url: https://github.com/actualbudget/actual
       docs_url: https://actualbudget.org/docs/
       # #611 S1 retro-fill (plan §8.2): the shared-password and bank
@@ -1159,7 +1169,8 @@
       # it reads on the icon tile in both themes. The repo's other
       # assets (favicon PNGs, safari-pinned-tab.svg) are black-on-
       # transparent and vanish on the dark tile.
-      icon_url: https://raw.githubusercontent.com/umami-software/umami/v3.4.1/public/apple-touch-icon.png
+      # Icon vendored (#716) — upstream: https://raw.githubusercontent.com/umami-software/umami/v3.4.1/public/apple-touch-icon.png
+      icon_url: /images/catalog/umami/icon.png
       source_url: https://github.com/umami-software/umami
       docs_url: https://umami.is/docs
       # #611's recommended tier for the wave-5 entry (#576), same rule
@@ -1451,7 +1462,8 @@
       # The PWA app-icon is the self-contained mark (the ActualBudget
       # lesson): a white glyph on a fully opaque black field, so it
       # reads on the icon tile in both themes. Pinned to the tag.
-      icon_url: https://raw.githubusercontent.com/docmost/docmost/v0.97.0/apps/client/public/icons/app-icon-512x512.png
+      # Icon vendored (#716) — upstream: https://raw.githubusercontent.com/docmost/docmost/v0.97.0/apps/client/public/icons/app-icon-512x512.png
+      icon_url: /images/catalog/docmost/icon.png
       source_url: https://github.com/docmost/docmost
       docs_url: https://docmost.com/docs
       # #611's recommended tier (#609), same rule as Umami: facts
