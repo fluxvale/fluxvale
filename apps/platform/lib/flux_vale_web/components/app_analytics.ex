@@ -2,11 +2,13 @@ defmodule FluxValeWeb.AppAnalytics do
   @moduledoc """
   In-app analytics (ADR-0049): one hidden hook element carrying the
   armed PostHog config to app.js, which inits the bundled posthog-js
-  only when the element is present. Cookieless posture: the client
-  writes nothing to the visitor's device (memory persistence, no person
-  profiles), session recording is off, and identity rides events as an
-  attribute only — app.js owns those switches; this component hands
-  over nothing but what the server already knows.
+  only when the element is present. Cookieless posture: nothing
+  persists on the visitor's device (memory persistence, no person
+  profiles — the SDK's boot probes storage support with two anonymous
+  write-and-immediately-remove keys, which no config gates), session
+  recording is off, and identity rides events as an attribute only —
+  app.js owns those switches; this component hands over nothing but
+  what the server already knows.
 
   Unset config renders nothing at all — no element, no posthog boot,
   the kill switch's client half. There is no script tag here (the SDK

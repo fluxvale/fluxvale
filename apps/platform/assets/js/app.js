@@ -97,11 +97,13 @@ liveSocket.connect()
 
 // In-app PostHog (ADR-0049), gated on the server-rendered hook: absent,
 // nothing here runs — no init, no network. Armed, the cookieless
-// posture: memory persistence and person_profiles "never" (nothing is
-// written to the visitor's device; identity is an event attribute),
-// session recording off (replay is off at launch), autocapture on but
-// element text dropped by mask_all_text ("which buttons you press",
-// never surrounding copy). capture_pageview "history_change" tracks
+// posture: memory persistence and person_profiles "never" (nothing
+// persists on the visitor's device — no data, no identifiers; the
+// SDK's boot probes storage support with two write-and-immediately-
+// remove anonymous keys, which no config gates), session recording
+// off (replay is off at launch), autocapture on but element text
+// dropped by mask_all_text ("which buttons you press", never
+// surrounding copy). capture_pageview "history_change" tracks
 // LiveView's pushState navigations — the SPA pageview guarantee this
 // SDK version documents, so no phx:navigate listener on top (it would
 // double-capture). tracing_headers marks our own origin, so same-origin
@@ -114,6 +116,19 @@ liveSocket.connect()
 // the tracing-headers patch) from its asset CDN at runtime — the
 // tracing-headers patch is vendored beside it instead, and everything
 // else is off in this posture.
+// before_send is #408's client half: this app's query strings carry
+// auth-boundary tokens (the invitation accept token IS the
+// credential), and the server plug already strips them from its own
+// captures — the client half must not ship them either. The path is
+// the event's URL; the query never leaves the tab.
+const stripUrlQueries = (event) => {
+  for (const key of ["$current_url", "$referrer", "$initial_referrer", "$session_entry_url"]) {
+    const url = event?.properties?.[key]
+    if (typeof url === "string" && url.includes("?")) event.properties[key] = url.split("?")[0]
+  }
+  return event
+}
+
 const analyticsConfig = document.getElementById("posthog-config")
 
 if (analyticsConfig) {
@@ -129,6 +144,7 @@ if (analyticsConfig) {
     mask_all_text: true,
     capture_pageview: "history_change",
     tracing_headers: [window.location.hostname],
+    before_send: stripUrlQueries,
     // Server-known identity (the hook's data-distinct-id): the
     // documented bootstrapping shape. Absent — anonymous surfaces —
     // no identity at all.
