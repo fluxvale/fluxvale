@@ -1,19 +1,26 @@
 defmodule FluxVale.Observability.WakeStats do
   @moduledoc """
   Per-app wake-time estimates derived from the live metric (#232) —
-  the catalog badge's data source.
+  the catalog badge's and the console wake widget's data source.
 
   Reads the exact series Prometheus scrapes (`PromEx.get_metrics/1` —
   the point: the user-facing number and the SLO dashboard quote one
-  source) and computes each app's median total wake time by
-  PromQL's histogram_quantile interpolation over the cumulative
-  buckets of `flux_vale_wake_total_seconds`.
+  source) and computes two per-app estimates by PromQL's
+  histogram_quantile interpolation over the cumulative buckets: the
+  median total wake time (`flux_vale_wake_total_seconds` — the
+  catalog badge) and the p95 promotion wait
+  (`flux_vale_wake_promotion_wait_seconds` — the console widget,
+  #702, the SLO's own series).
 
   Deliberate honesty guards:
 
-  - `@min_samples`: an app shows a number only once N wakes are
-    recorded — a single-sample median is one wake dressed up as a
-    statistic ("never a raw single sample", #232).
+  - Two sample floors, one per quantile: an app shows its median only
+    once 5 wakes are recorded — a single-sample median is one wake
+    dressed up as a statistic ("never a raw single sample", #232) —
+    and its p95 only once 20 are. The floors differ because a tail
+    quantile is greedier: at n=5 the 0.95 target rank lands in the
+    bucket holding the single largest observation, so the "p95" would
+    be one wake in costume.
   - Cached with a TTL (default 60s): the catalog re-renders far more
     often than wakes land, and the scrape walk is O(series); a
     minute-stale estimate is exactly as true as a fresh one. Test env
@@ -26,11 +33,16 @@ defmodule FluxVale.Observability.WakeStats do
   use GenServer
 
   @min_samples 5
-  # The total histogram's exposition prefix — keep in lockstep with
-  # FluxVale.PromEx.Plugins.Wake.
+  # The tail quantile's own honesty floor — see the moduledoc.
+  @p95_min_samples 20
+  # The histograms' exposition prefixes — keep in lockstep with
+  # FluxVale.PromEx.Plugins.Wake (total feeds the medians,
+  # promotion-wait the p95s).
   @total_bucket_prefix "flux_vale_wake_total_seconds_bucket{"
+  @promotion_bucket_prefix "flux_vale_wake_promotion_wait_seconds_bucket{"
   @label_pattern ~r/(\w+)="([^"]*)"/
-  @quantile 0.5
+  @median_quantile 0.5
+  @p95_quantile 0.95
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []) do
@@ -39,17 +51,36 @@ defmodule FluxVale.Observability.WakeStats do
 
   @impl GenServer
   def init(_opts) do
-    {:ok, %{computed_at: nil, medians: %{}}}
+    {:ok, %{computed_at: nil, medians: %{}, p95_promotions: %{}}}
   end
 
   @impl GenServer
   def handle_call(:medians, _from, state) do
-    if fresh?(state) do
-      {:reply, state.medians, state}
-    else
-      medians = compute()
+    state = refresh(state)
+    {:reply, state.medians, state}
+  end
 
-      {:reply, medians, %{computed_at: DateTime.utc_now(), medians: medians}}
+  @impl GenServer
+  def handle_call(:p95_promotions, _from, state) do
+    state = refresh(state)
+    {:reply, state.p95_promotions, state}
+  end
+
+  @impl GenServer
+  def handle_call(:snapshot, _from, state) do
+    state = refresh(state)
+    {:reply, %{medians: state.medians, p95_promotions: state.p95_promotions}, state}
+  end
+
+  # The TTL cache's one refill: both families come out of a single
+  # compute() (one fetch, one partition pass), so a stale read of
+  # anything — a single key or the pair — refreshes the shared stamp
+  # and answers from that one computation.
+  defp refresh(state) do
+    if fresh?(state) do
+      state
+    else
+      Map.put(compute(), :computed_at, DateTime.utc_now())
     end
   end
 
@@ -84,6 +115,68 @@ defmodule FluxVale.Observability.WakeStats do
       # coveralls-ignore-stop
   end
 
+  @doc """
+  The p95 promotion-wait seconds per app slug — the console wake
+  widget's number (#702, the SLO's own series). `%{}` when the
+  metrics tree is down or no app has enough samples yet.
+  """
+  @spec p95_promotion_by_app() :: %{optional(String.t()) => float()}
+  def p95_promotion_by_app do
+    GenServer.call(__MODULE__, :p95_promotions)
+  end
+
+  @doc """
+  `p95_promotion_by_app/0` behind the same safety wrapper as the
+  medians — a derived widget must never take its page down.
+  """
+  @spec p95_promotion_by_app_safe() :: %{optional(String.t()) => float()}
+  def p95_promotion_by_app_safe do
+    p95_promotion_by_app()
+  rescue
+    # coveralls-ignore-start - both arms answer {} so the widget can't
+    # take the console down; the named server is alive under the app
+    # tree for the whole suite (a call exits only in the supervisor's
+    # restart gap, which no test can hold open).
+    _exception ->
+      %{}
+  catch
+    :exit, _reason ->
+      %{}
+      # coveralls-ignore-stop
+  end
+
+  @doc """
+  Both families in one read — the console widget's seam (#702). One
+  `GenServer.call` answers the pair from one state read, so the two
+  maps always quote the same computation (the TTL can't lapse between
+  them the way two separate calls would).
+  """
+  @spec snapshot() :: %{
+          medians: %{optional(String.t()) => float()},
+          p95_promotions: %{optional(String.t()) => float()}
+        }
+  def snapshot do
+    GenServer.call(__MODULE__, :snapshot)
+  end
+
+  @doc """
+  The badges' wake-copy formatter: shared by the catalog and the
+  console widget so the same series renders under one convention.
+  """
+  # The badge's copy: an honest ~estimate (median of N wakes, the same
+  # series the SLO dashboard charts — WakeStats), rounded to the
+  # second; over a minute, minutes-and-seconds reads truer than "74s".
+  @spec format_estimate(number()) :: String.t()
+  def format_estimate(seconds) do
+    rounded = round(seconds)
+
+    if rounded < 60 do
+      "~#{rounded}s"
+    else
+      "~#{div(rounded, 60)}m #{rem(rounded, 60)}s"
+    end
+  end
+
   defp fresh?(%{computed_at: nil}), do: false
 
   defp fresh?(%{computed_at: computed_at}) do
@@ -94,48 +187,68 @@ defmodule FluxVale.Observability.WakeStats do
   defp compute do
     case PromEx.get_metrics(FluxVale.PromEx) do
       metrics when is_binary(metrics) ->
-        metrics
-        |> bucket_counts()
-        |> Map.new(fn {app, buckets} -> {app, median(buckets)} end)
-        |> Enum.reject(fn {_app, estimate} -> is_nil(estimate) end)
-        |> Map.new()
+        # ONE walk over the exposition: the split happens once and each
+        # line is classified into its family in the same pass — both
+        # families come out of a single fetch AND a single parse.
+        {totals, promotions} =
+          metrics
+          |> String.split("\n", trim: true)
+          |> Enum.reduce({%{}, %{}}, &partition_line/2)
+
+        %{
+          medians: estimates(totals, &median/1),
+          p95_promotions: estimates(promotions, &p95/1)
+        }
 
       :prom_ex_down ->
-        %{}
+        %{medians: %{}, p95_promotions: %{}}
     end
   end
 
-  # app slug → cumulative bucket counts, off the scrape's bucket lines
-  # only (the _count line is redundant with +Inf and skipped).
-  defp bucket_counts(metrics) do
-    metrics
-    |> String.split("\n", trim: true)
-    |> Enum.flat_map(&bucket_line/1)
-    |> Enum.group_by(fn {app, _bound, _count} -> app end, fn {_app, bound, count} ->
-      {bound, count}
-    end)
-    |> Map.new(fn {app, bounds} -> {app, Map.new(bounds)} end)
+  # app slug → estimate, dropping the apps the honesty floors silence.
+  defp estimates(buckets_by_app, estimator) do
+    buckets_by_app
+    |> Map.new(fn {app, buckets} -> {app, estimator.(buckets)} end)
+    |> Enum.reject(fn {_app, estimate} -> is_nil(estimate) end)
+    |> Map.new()
   end
 
-  # Anything that isn't exactly our bucket shape falls to the catch-all —
-  # a derived badge must never crash the catalog. The else arms below
-  # are coveralls-ignored: a real scrape (the only input path) either
-  # matches our family exactly or takes the second clause, so the
-  # with-else is reachable only on malformed text the exporter can't
+  # Classify one exposition line into exactly one family's accumulator
+  # (total lines feed the medians, promotion lines the p95s — a line
+  # parses for at most one family); everything else (_sum/_count/HELP,
+  # other plugins' series) falls through untouched.
+  defp partition_line(line, {totals, promotions}) do
+    cond do
+      String.starts_with?(line, @total_bucket_prefix) ->
+        {into_family(totals, line), promotions}
+
+      String.starts_with?(line, @promotion_bucket_prefix) ->
+        {totals, into_family(promotions, line)}
+
+      true ->
+        {totals, promotions}
+    end
+  end
+
+  # Fold the line's {app, bound, cumulative count} into the family's
+  # app → bounds map (the _count line is redundant with +Inf and never
+  # carries a family prefix). Anything that isn't exactly our bucket
+  # shape falls out unchanged in the else — a derived badge must never
+  # crash the catalog; the arm is coveralls-ignored because a real
+  # scrape (the only input path) that carries the prefix parses, and
+  # the else is reachable only on malformed text the exporter can't
   # produce.
-  defp bucket_line(@total_bucket_prefix <> _labels = line) do
+  defp into_family(acc, line) do
     with [label_section, value] <- String.split(line, "} "),
          %{"app" => app, "le" => le} <- parse_labels(label_section),
          {count, ""} <- Float.parse(value),
          bound <- parse_bound(le) do
-      [{app, bound, count}]
+      Map.update(acc, app, %{bound => count}, fn bounds -> Map.put(bounds, bound, count) end)
     else
       # coveralls-ignore-next-line - see above
-      _not_ours -> []
+      _not_ours -> acc
     end
   end
-
-  defp bucket_line(_other_line), do: []
 
   defp parse_labels(label_section) do
     pairs =
@@ -157,12 +270,18 @@ defmodule FluxVale.Observability.WakeStats do
   end
 
   # histogram_quantile's linear interpolation over cumulative buckets;
-  # nil below @min_samples (the honesty guard).
-  defp median(buckets) do
+  # nil below the quantile's sample floor (the honesty guards — see the
+  # moduledoc: 5 for the median, 20 for the tail quantile). Median and
+  # p95 are the same walk at their quantiles.
+  defp median(buckets), do: quantile_at(buckets, @median_quantile, @min_samples)
+
+  defp p95(buckets), do: quantile_at(buckets, @p95_quantile, @p95_min_samples)
+
+  defp quantile_at(buckets, q, min_samples) do
     total = Map.get(buckets, :inf, 0.0)
 
-    if total >= @min_samples do
-      quantile(buckets, @quantile * total)
+    if total >= min_samples do
+      quantile(buckets, q * total)
     end
   end
 
@@ -188,12 +307,13 @@ defmodule FluxVale.Observability.WakeStats do
 
   defp walk_buckets([{bound, count} | rest], prev_bound, prev_count, target) do
     if count >= target do
-      # coveralls-ignore-start - unreachable while target > 0 (which
-      # @min_samples guarantees: target = 0.5 × total ≥ 2.5): a
-      # zero-increment bucket covering the target would need its
-      # cumulative — the previous bucket's — to already be ≥ target,
-      # and that earlier bucket would have covered first. Kept as the
-      # division-by-zero guard for future parameter changes.
+      # coveralls-ignore-start - the guard protects the division below,
+      # not the reader: an in_bucket of 0 would divide by zero. It is
+      # unreachable today (a zero-increment bucket covering the target
+      # would need its cumulative — the previous bucket's — to already
+      # be ≥ target, and that earlier bucket would have covered first),
+      # but it stays for future parameter changes, which is exactly
+      # when it would silently matter.
       in_bucket = count - prev_count
 
       if in_bucket == 0 do

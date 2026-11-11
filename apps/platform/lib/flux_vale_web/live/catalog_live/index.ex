@@ -143,7 +143,7 @@ defmodule FluxValeWeb.CatalogLive.Index do
                       data-testid={"wake-estimate-#{app.slug}"}
                     >
                       <.icon name="hero-bolt" class="size-3.5 inline-block align-text-bottom" />
-                      Wakes in {format_estimate(estimate)}
+                      Wakes in {WakeStats.format_estimate(estimate)}
                     </p>
                   <% end %>
                 </div>
@@ -164,17 +164,4 @@ defmodule FluxValeWeb.CatalogLive.Index do
   end
 
   defp sort_by_name(apps), do: Enum.sort_by(apps, & &1.name)
-
-  # The badge's copy: an honest ~estimate (median of N wakes, the same
-  # series the SLO dashboard charts — WakeStats), rounded to the
-  # second; over a minute, minutes-and-seconds reads truer than "74s".
-  defp format_estimate(seconds) do
-    rounded = round(seconds)
-
-    if rounded < 60 do
-      "~#{rounded}s"
-    else
-      "~#{div(rounded, 60)}m #{rem(rounded, 60)}s"
-    end
-  end
 end
