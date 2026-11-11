@@ -176,13 +176,16 @@ defmodule FluxValeWeb.PolicyControllerTest do
       assert flat =~ "cookieless analytics service we run ourselves"
       assert flat =~ "It never loads on the signed-in app"
 
-      # PostHog: the named operator (PostHog Inc), what it records
-      # (pages, buttons, errors), cookieless, instance-blind.
-      assert flat =~ "analytics service run by PostHog Inc"
-      assert flat =~ "records which pages you open and which buttons you press"
+      # PostHog: the named operator (PostHog, Inc.), the in-app scope,
+      # what it records (pages, buttons, errors), the account
+      # identifier, cookieless, instance-blind (#712 fix round).
+      assert flat =~ "Inside the signed-in app we use PostHog"
+      assert flat =~ "analytics service run by PostHog, Inc."
+      assert flat =~ "PostHog records which pages you open and which buttons you press"
       assert flat =~ "collects errors you hit"
-      assert flat =~ "set no cookies and store nothing on your device"
-      assert flat =~ "neither can read the data inside your instances"
+      assert flat =~ "Events are tied to your account with an identifier our server supplies"
+      assert flat =~ "sets no cookies and stores nothing on your device"
+      assert flat =~ "cannot read the data inside your instances"
       assert flat =~ "No advertising trackers ride our pages"
       # The old promise dies with the third-party tag: it must not
       # survive the PostHog rider.
@@ -225,16 +228,15 @@ defmodule FluxValeWeb.PolicyControllerTest do
 
       # Logs: honest about IP addresses, bounded retention, named
       # monitoring services. PostHog rides beside Grafana Cloud
-      # (#706) — errors, usage events, and traces are all named
-      # ahead of their switches flipping on (ADR-0049).
+      # (#706); traces are disclosed at their activation in the
+      # later phase, not here.
       assert flat =~ "IP addresses"
       assert flat =~ "limited window"
       assert flat =~ "Grafana Cloud"
       assert flat =~ "also go to PostHog, a second analytics service"
+      # PostHog-only fragment: Grafana's sentence does not carry it.
       assert flat =~ "carry no cookies and no advertising trackers"
-      assert flat =~ "we do not use them to profile you"
-      assert flat =~ "Technical traces of requests in the signed-in app"
-      assert flat =~ "from your click to the code that served it"
+      assert flat =~ "advertise to you or to profile you"
 
       # Retention: the one category that outlives an account, said
       # plainly (the data-deletion stance).

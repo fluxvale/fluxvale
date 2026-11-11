@@ -14,13 +14,15 @@
     <%!-- fv332 D5: the privacy text of record. Plain English, not
         gettext — this template is the policy's wording, same as the
         terms. Every statement below describes what the platform
-        actually does today (verified against the code, Nov 8 2026:
-        the analytics claim matches FluxValeWeb.SiteAnalytics —
-        self-hosted Umami, cookieless, public pages only), with one
-        deliberate lead: #706 names PostHog (ADR-0049) before its
-        env flip, so the policy is never behind the tag. Advisory
-        edits land here. The copy rules apply: plain sentences, no
-        em-dashes, no semicolons. --%>
+        actually does today (verified against the code, Nov 8 2026 —
+        that pass covers the pre-PostHog claims only: the analytics
+        claim matched FluxValeWeb.SiteAnalytics, self-hosted Umami,
+        cookieless, public pages only). The PostHog analytics and
+        error sentences deliberately lead their env flip (#706,
+        ADR-0049, the same arc): the policy is never behind the tag.
+        Traces are disclosed at their activation in the later phase.
+        Advisory edits land here. The copy rules apply: plain
+        sentences, no em-dashes, no semicolons. --%>
     <.card class="space-y-4" data-testid="privacy-policy">
       <h2 class="text-base font-medium text-ink">About this policy</h2>
       <p class="text-sm text-ink-muted">
@@ -68,6 +70,11 @@
         They include IP addresses, browser details, timestamps, and
         the pages and paths requested.
       </p>
+      <p class="text-sm text-ink-muted">
+        Product usage data: inside the signed-in app, PostHog records
+        which pages you open and which buttons you press, and it
+        collects errors you hit so we can fix them.
+      </p>
     </.card>
 
     <%!-- #642: Google as an identity provider for sign-in. The card
@@ -101,15 +108,18 @@
       <p class="text-sm text-ink-muted">
         We measure traffic on our public pages with Umami, a cookieless
         analytics service we run ourselves on FluxVale. It never loads
-        on the signed-in app. Inside the signed-in app we measure how
-        the product is used with PostHog, an analytics service run by
-        PostHog Inc. It records which pages you open and which buttons
-        you press, and it collects errors you hit so we can fix them.
-        Both set no cookies and store nothing on your device, and
-        neither can read the data inside your instances. No advertising
-        trackers ride our pages. The everyday cookies are your
-        signed-in session and the standard request token that protects
-        forms.
+        on the signed-in app.
+      </p>
+      <p class="text-sm text-ink-muted">
+        Inside the signed-in app we use PostHog, an analytics service
+        run by PostHog, Inc. It sets no cookies and stores nothing on
+        your device, and it cannot read the data inside your
+        instances. Events are tied to your account with an identifier
+        our server supplies. No advertising trackers ride our pages.
+      </p>
+      <p class="text-sm text-ink-muted">
+        The everyday cookies are your signed-in session and the
+        standard request token that protects forms.
       </p>
       <p class="text-sm text-ink-muted">
         We do not read, scan, or mine the data inside your apps. Your
@@ -168,12 +178,7 @@
         Error reports and product usage events from the signed-in app
         also go to PostHog, a second analytics service. They carry no
         cookies and no advertising trackers, and we do not use them to
-        profile you.
-      </p>
-      <p class="text-sm text-ink-muted">
-        Technical traces of requests in the signed-in app also go to
-        PostHog, so we can follow a problem from your click to the
-        code that served it.
+        advertise to you or to profile you.
       </p>
     </.card>
 
