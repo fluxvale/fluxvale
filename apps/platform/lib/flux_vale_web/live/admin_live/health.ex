@@ -111,7 +111,17 @@ defmodule FluxValeWeb.AdminLive.Health do
                 <h2 class="text-sm font-medium" data-testid="fleet-deploys-title">
                   {gettext("Recent deploys")}
                 </h2>
+                <%!-- The trail caps at five by the seam — a plain assign,
+                not a stream: the cap makes ballooning impossible. The
+                empty line is the audit section's honest-empty grammar. --%>
                 <ul class="mt-2" id="fleet-deploys" data-testid="fleet-deploys">
+                  <li
+                    :if={@fleet.recent_deploys == []}
+                    data-testid="fleet-deploys-empty"
+                    class="py-2 text-sm text-ink-muted"
+                  >
+                    {gettext("No deploys recorded yet.")}
+                  </li>
                   <li
                     :for={deploy <- @fleet.recent_deploys}
                     class="flex flex-wrap items-center gap-2 border-b border-line py-2 text-sm text-ink last:border-0"

@@ -3670,7 +3670,7 @@ msgstr ""
 
 #: lib/flux_vale_web/live/admin_live/audit.ex:518
 #: lib/flux_vale_web/live/admin_live/audit.ex:523
-#: lib/flux_vale_web/live/admin_live/health.ex:143
+#: lib/flux_vale_web/live/admin_live/health.ex:153
 #, elixir-autogen, elixir-format
 msgid "System"
 msgstr ""
@@ -3834,4 +3834,9 @@ msgstr ""
 #: lib/flux_vale_web/live/admin_live/health.ex:52
 #, elixir-autogen, elixir-format
 msgid "The instance fleet at a glance — the build this platform runs, the status spread, and the newest deploys."
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/health.ex:123
+#, elixir-autogen, elixir-format
+msgid "No deploys recorded yet."
 msgstr ""

@@ -56,7 +56,7 @@ defmodule FluxValeWeb.AdminHealth do
   defp read_instances(actor) do
     FluxVale.Infrastructure.Instance
     |> Ash.Query.for_read(:read, %{}, actor: actor)
-    |> Ash.Query.select([:name, :status, :always_on, :deployed_at])
+    |> Ash.Query.select([:status, :always_on])
     |> Ash.read!()
   end
 

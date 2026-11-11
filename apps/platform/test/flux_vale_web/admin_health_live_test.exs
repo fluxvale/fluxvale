@@ -32,15 +32,27 @@ defmodule FluxValeWeb.AdminHealthLiveTest do
 
   # A fleet instance through actions (the fixture user's funded
   # personal org owns it; the admin reads it through the blanket
-  # bypass) plus a fabricated deploy version row — Ash.Seed is the
+  # bypass) plus fabricated deploy version rows — Ash.Seed is the
   # sanctioned bypass: the real :deploy action enqueues k8s/Oban work
-  # a test must not run.
+  # a test must not run. One row carries an actor label, one the nil
+  # tombstone, so both render arms are exercised.
   defp fleet_fixtures! do
     version = InstanceFixtures.app_version!(configurable_env_vars: %{})
     member = AccountsFixtures.user!()
     instance = InstanceFixtures.instance!(version, member)
 
     source = Ecto.UUID.generate()
+    now = DateTime.utc_now()
+
+    Ash.Seed.seed!(FluxVale.Infrastructure.Instance.Version, %{
+      version_action_type: :update,
+      version_action_name: :deploy,
+      version_action_inputs: %{},
+      version_source_id: source,
+      actor_label: "deployer",
+      version_inserted_at: now,
+      changes: %{}
+    })
 
     Ash.Seed.seed!(FluxVale.Infrastructure.Instance.Version, %{
       version_action_type: :update,
@@ -48,7 +60,7 @@ defmodule FluxValeWeb.AdminHealthLiveTest do
       version_action_inputs: %{},
       version_source_id: source,
       actor_label: nil,
-      version_inserted_at: DateTime.utc_now(),
+      version_inserted_at: DateTime.add(now, -60, :second),
       changes: %{}
     })
 
@@ -88,11 +100,15 @@ defmodule FluxValeWeb.AdminHealthLiveTest do
       assert has_element?(view, "[data-testid='fleet-total']")
       assert has_element?(view, "[data-testid='fleet-always-on']")
 
-      # The trail row: the engine's short id, and the nil tombstone's
-      # honest System attribution.
+      # The trail rows: the engine's short id, the recorded actor
+      # label, and the nil tombstone's honest System attribution.
       deploys_text = text_of(view, "[data-testid='fleet-deploys']")
       assert deploys_text =~ String.slice(source, 0, 8)
+      assert deploys_text =~ "deployer"
       assert deploys_text =~ "System"
+
+      # The empty line stays quiet while the trail has rows.
+      refute has_element?(view, "[data-testid='fleet-deploys-empty']")
 
       # The section's sidebar entry is the page; siblings stay quiet.
       assert has_element?(view, "[data-testid='admin-nav-health'][aria-current='page']")
@@ -105,9 +121,20 @@ defmodule FluxValeWeb.AdminHealthLiveTest do
       original = Application.get_env(:flux_vale, :platform_env)
       Application.put_env(:flux_vale, :platform_env, nil)
 
-      on_exit(fn -> Application.put_env(:flux_vale, :platform_env, original) end)
+      on_exit(fn ->
+        if original == nil do
+          Application.delete_env(:flux_vale, :platform_env)
+        else
+          Application.put_env(:flux_vale, :platform_env, original)
+        end
+      end)
 
       {:ok, view, _html} = live(conn, "/admin/health")
+
+      # This test seeds no deploy rows and no committed stray can
+      # carry one (the real :deploy action enqueues k8s/Oban work no
+      # test lane runs), so the trail renders its honest empty line.
+      assert has_element?(view, "[data-testid='fleet-deploys-empty']", "No deploys recorded yet.")
 
       refute has_element?(view, "[data-testid='fleet-env']")
       assert has_element?(view, "[data-testid='fleet-version']")
