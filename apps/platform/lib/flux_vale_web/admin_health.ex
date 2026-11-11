@@ -69,17 +69,29 @@ defmodule FluxValeWeb.AdminHealth do
   @doc """
   The wake widget's data (#702): per-app p95 promotion-wait and
   median total wake seconds, both through WakeStats' safety wrappers —
-  a derived widget can never take the console down.
+  a derived widget can never take the console down. The pair comes
+  from one `WakeStats.snapshot/0` read, so both maps quote the same
+  computation.
   """
   @spec wake() :: %{
           p95_promotion: %{optional(String.t()) => float()},
           median_total: %{optional(String.t()) => float()}
         }
   def wake do
-    %{
-      p95_promotion: WakeStats.p95_promotion_by_app_safe(),
-      median_total: WakeStats.median_total_by_app_safe()
-    }
+    snapshot = WakeStats.snapshot()
+    %{p95_promotion: snapshot.p95_promotions, median_total: snapshot.medians}
+  rescue
+    # coveralls-ignore-start - the catalog badges' same wrapper
+    # grammar: the widget answers empty rather than take the console
+    # down; the named server is alive under the app tree for the whole
+    # suite (a call exits only in the supervisor's restart gap, which
+    # no test can hold open).
+    _exception ->
+      %{p95_promotion: %{}, median_total: %{}}
+  catch
+    :exit, _reason ->
+      %{p95_promotion: %{}, median_total: %{}}
+      # coveralls-ignore-stop
   end
 
   defp recent_deploys(actor) do

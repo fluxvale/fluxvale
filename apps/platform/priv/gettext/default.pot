@@ -702,7 +702,7 @@ msgstr ""
 #: lib/flux_vale_web/live/admin_live/catalog.ex:52
 #: lib/flux_vale_web/live/admin_live/gateway_detail.ex:320
 #: lib/flux_vale_web/live/admin_live/gateways.ex:361
-#: lib/flux_vale_web/live/admin_live/health.ex:52
+#: lib/flux_vale_web/live/admin_live/health.ex:53
 #: lib/flux_vale_web/live/admin_live/moderation.ex:1177
 #: lib/flux_vale_web/live/admin_live/org_detail.ex:441
 #: lib/flux_vale_web/live/admin_live/orgs.ex:346
@@ -1075,7 +1075,7 @@ msgstr ""
 
 #: lib/flux_vale_web/components/catalog_page_components.ex:294
 #: lib/flux_vale_web/live/admin_live/catalog.ex:98
-#: lib/flux_vale_web/live/admin_live/health.ex:86
+#: lib/flux_vale_web/live/admin_live/health.ex:87
 #, elixir-autogen, elixir-format
 msgid "Version"
 msgstr ""
@@ -3665,7 +3665,7 @@ msgstr ""
 
 #: lib/flux_vale_web/live/admin_live/audit.ex:518
 #: lib/flux_vale_web/live/admin_live/audit.ex:523
-#: lib/flux_vale_web/live/admin_live/health.ex:220
+#: lib/flux_vale_web/live/admin_live/health.ex:246
 #, elixir-autogen, elixir-format
 msgid "System"
 msgstr ""
@@ -3796,42 +3796,42 @@ msgstr ""
 msgid "status"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/health.ex:99
+#: lib/flux_vale_web/live/admin_live/health.ex:100
 #, elixir-autogen, elixir-format
 msgid "1 always-on"
 msgid_plural "%{count} always-on"
 msgstr[0] ""
 msgstr[1] ""
 
-#: lib/flux_vale_web/live/admin_live/health.ex:96
+#: lib/flux_vale_web/live/admin_live/health.ex:97
 #, elixir-autogen, elixir-format
 msgid "1 instance"
 msgid_plural "%{count} instances"
 msgstr[0] ""
 msgstr[1] ""
 
-#: lib/flux_vale_web/live/admin_live/health.ex:80
+#: lib/flux_vale_web/live/admin_live/health.ex:81
 #, elixir-autogen, elixir-format
 msgid "Env"
 msgstr ""
 
 #: lib/flux_vale_web/components/admin_shell.ex:274
-#: lib/flux_vale_web/live/admin_live/health.ex:54
+#: lib/flux_vale_web/live/admin_live/health.ex:55
 #, elixir-autogen, elixir-format
 msgid "Health"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/health.ex:155
+#: lib/flux_vale_web/live/admin_live/health.ex:181
 #, elixir-autogen, elixir-format
 msgid "Recent deploys"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/health.ex:57
+#: lib/flux_vale_web/live/admin_live/health.ex:58
 #, elixir-autogen, elixir-format
 msgid "The instance fleet at a glance — the build this platform runs, the status spread, and the newest deploys."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/health.ex:166
+#: lib/flux_vale_web/live/admin_live/health.ex:192
 #, elixir-autogen, elixir-format
 msgid "No deploys recorded yet."
 msgstr ""
@@ -3846,22 +3846,27 @@ msgstr ""
 msgid "A screenshot of the app catalog as it runs on fluxvale.com."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/health.ex:147
+#: lib/flux_vale_web/live/admin_live/health.ex:173
 #, elixir-autogen, elixir-format
 msgid "In-memory numbers covering the time since this deployment started — they reset on every deploy."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/health.ex:131
+#: lib/flux_vale_web/live/admin_live/health.ex:137
 #, elixir-autogen, elixir-format
 msgid "Wakes"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/health.ex:143
+#: lib/flux_vale_web/live/admin_live/health.ex:170
 #, elixir-autogen, elixir-format
-msgid "median total"
+msgid "No wake data yet — the metrics tree is off or no app has enough samples."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/health.ex:141
+#: lib/flux_vale_web/live/admin_live/health.ex:159
 #, elixir-autogen, elixir-format
-msgid "p95 promotion"
+msgid "median total %{seconds}"
+msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/health.ex:153
+#, elixir-autogen, elixir-format
+msgid "p95 promotion %{seconds}"
 msgstr ""

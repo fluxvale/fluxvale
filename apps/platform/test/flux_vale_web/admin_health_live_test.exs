@@ -245,30 +245,55 @@ defmodule FluxValeWeb.AdminHealthLiveTest do
 
   describe "the wake surface" do
     test "the wake rows render per app with both families' seconds", %{conn: conn} do
-      # kavita rides both families; forgejo is in the promotion family
-      # only, so its median renders the honest dash. The injected cache
-      # is the row set's only source — an app in neither family can
-      # never render, so the absence below is this test's own.
-      wake_stub!(%{"kavita" => 2.95, "forgejo" => 4.1}, %{"kavita" => 6.5})
+      # kavita rides both families; forgejo is known only by its p95
+      # (median renders the honest dash); gerbera only by its median
+      # (the p95 dash). The injected cache is the row set's only
+      # source — an app in neither family can never render, so the
+      # absence below is this test's own.
+      wake_stub!(
+        %{"kavita" => 2.95, "forgejo" => 4.1},
+        %{"kavita" => 6.5, "gerbera" => 90.5}
+      )
 
       {:ok, view, _html} = live(conn, "/admin/health")
 
       assert has_element?(view, "[data-testid='wake-panel']")
       assert has_element?(view, "[data-testid='wake-title']", "Wakes")
 
-      # The numbers, exact for the stubbed estimates.
+      # The numbers, exact for the stubbed estimates through the
+      # catalog badge's one formatter (~-rounded seconds, minutes over
+      # a minute).
       kavita = text_of(view, "[data-testid='wake-kavita']")
-      assert kavita =~ "p95 promotion 2.95s"
-      assert kavita =~ "median total 6.5s"
+      assert kavita =~ "p95 promotion ~3s"
+      assert kavita =~ "median total ~7s"
 
       forgejo = text_of(view, "[data-testid='wake-forgejo']")
-      assert forgejo =~ "p95 promotion 4.1s"
+      assert forgejo =~ "p95 promotion ~4s"
       assert forgejo =~ "median total -"
 
-      # The caveat line: the widget's honesty note rides every render.
-      assert text_of(view, "[data-testid='wake-caveat']") =~ "reset on every deploy"
+      gerbera = text_of(view, "[data-testid='wake-gerbera']")
+      assert gerbera =~ "p95 promotion -"
+      assert gerbera =~ "median total ~1m 31s"
+
+      # Rows present means the empty line stays quiet.
+      refute has_element?(view, "[data-testid='wake-empty']")
 
       refute has_element?(view, "[data-testid='wake-promnesia']")
+    end
+
+    test "the wake panel renders the honest empty line when no app has numbers", %{conn: conn} do
+      # PromEx off is the default local state — the injected empty pair
+      # is the row set's only source, so the no-rows claim is this
+      # test's own.
+      wake_stub!(%{}, %{})
+
+      {:ok, view, _html} = live(conn, "/admin/health")
+
+      assert has_element?(view, "[data-testid='wake-panel']")
+      assert text_of(view, "[data-testid='wake-empty']") =~ "No wake data yet"
+      assert text_of(view, "[data-testid='wake-caveat']") =~ "reset on every deploy"
+
+      refute has_element?(view, "[data-testid='wake-kavita']")
     end
   end
 

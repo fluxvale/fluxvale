@@ -16,6 +16,7 @@ defmodule FluxValeWeb.AdminLive.Health do
 
   use FluxValeWeb, :live_view
 
+  alias FluxVale.Observability.WakeStats
   alias FluxValeWeb.AdminHealth
   alias FluxValeWeb.AdminShell
 
@@ -120,9 +121,14 @@ defmodule FluxValeWeb.AdminLive.Health do
               <%!-- The wake widget (#702): per-app p95 promotion-wait
               and median total seconds off WakeStats' in-memory
               scrape. A row renders for every app either family knows;
-              a family an app lacks renders the honest dash. No
-              external link — the Grafana wake dashboard is fleet-repo
-              owned; links arrive with the Tier-2 proxy config. --%>
+              a family an app lacks renders the honest dash, and no
+              numbers at all render the honest empty line (the deploys
+              trail's same grammar) — PromEx off is the default local
+              state, and a hollow box would lie about it. Values render
+              through WakeStats.format_estimate/1 — the catalog badge's
+              one formatter. No external link — the Grafana wake
+              dashboard is fleet-repo owned; links arrive with the
+              Tier-2 proxy config. --%>
               <div
                 class="rounded-panel border border-line bg-panel px-4 py-4 text-ink"
                 data-testid="wake-panel"
@@ -130,7 +136,12 @@ defmodule FluxValeWeb.AdminLive.Health do
                 <h2 class="text-sm font-medium" data-testid="wake-title">
                   {gettext("Wakes")}
                 </h2>
-                <ul class="mt-2" id="wake-apps" data-testid="wake-apps">
+                <ul
+                  :if={wake_apps(@wake) != []}
+                  class="mt-2"
+                  id="wake-apps"
+                  data-testid="wake-apps"
+                >
                   <li
                     :for={slug <- wake_apps(@wake)}
                     data-testid={"wake-#{slug}"}
@@ -138,11 +149,26 @@ defmodule FluxValeWeb.AdminLive.Health do
                   >
                     <span class="font-mono text-xs">{slug}</span>
                     <span aria-hidden="true">-</span>
-                    <span>{gettext("p95 promotion")} {wake_seconds(@wake.p95_promotion, slug)}</span>
+                    <span>
+                      {gettext("p95 promotion %{seconds}",
+                        seconds: wake_seconds(@wake.p95_promotion, slug)
+                      )}
+                    </span>
                     <span aria-hidden="true">-</span>
-                    <span>{gettext("median total")} {wake_seconds(@wake.median_total, slug)}</span>
+                    <span>
+                      {gettext("median total %{seconds}",
+                        seconds: wake_seconds(@wake.median_total, slug)
+                      )}
+                    </span>
                   </li>
                 </ul>
+                <p
+                  :if={wake_apps(@wake) == []}
+                  class="mt-2 text-sm text-ink-muted"
+                  data-testid="wake-empty"
+                >
+                  {gettext("No wake data yet — the metrics tree is off or no app has enough samples.")}
+                </p>
                 <p class="mt-2 text-xs text-ink-muted" data-testid="wake-caveat">
                   {gettext(
                     "In-memory numbers covering the time since this deployment started — they reset on every deploy."
@@ -230,12 +256,13 @@ defmodule FluxValeWeb.AdminLive.Health do
     |> Enum.sort()
   end
 
-  # A family an app lacks (its other series below the min-samples
-  # guard) renders the honest dash; a number renders in seconds.
+  # A family an app lacks (its other series below its sample floor)
+  # renders the honest dash; a number renders through the catalog
+  # badge's one formatter — same series, one convention.
   defp wake_seconds(family, slug) do
     case Map.get(family, slug) do
       nil -> "-"
-      seconds -> Float.to_string(seconds) <> "s"
+      seconds -> WakeStats.format_estimate(seconds)
     end
   end
 end
