@@ -154,7 +154,8 @@ defmodule FluxValeWeb.InstanceLive.DavSnippetTest do
           platform: :linux,
           url: @values.url,
           username: @values.username,
-          remote: @values.remote
+          remote: @values.remote,
+          mount_path: "/kavita/config"
         )
 
       assert html =~ "/kavita/config/library/books"

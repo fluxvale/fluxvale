@@ -859,6 +859,7 @@ defmodule FluxValeWeb.InstanceLive.Show do
                   username={dav_username()}
                   password={@dav_password}
                   remote={"fluxvale-#{@instance.slug}"}
+                  mount_path={@instance.storage_mount_path}
                   on_select="set-dav-platform"
                   on_detect="detect-dav-platform"
                 />

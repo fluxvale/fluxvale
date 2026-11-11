@@ -278,6 +278,11 @@ update-semantics and app-scan notes render under every tab.
 
 ## Amendment 4 — the quick-start states the folder-layout contract (2026-11-11)
 
+The quick-start now states the contract where the user acts: the
+source-folder note says keep one subfolder per book or series inside
+it, and the after-upload note names the concrete Kavita path
+(`/kavita/config/library/books`) plus the subfolder rule.
+
 #679 chased "uploads invisible to Kavita's scanner" from staging through
 a local reproduction: no permissions fault exists (the app image runs as
 root; the sidecar writes 0755/0644 root:gid-2000). The cause was layout
@@ -288,9 +293,3 @@ contains files at the root. Kavita does not support this."). The
 quick-start's own example (a flat `~/Books` copied to `library/books`)
 steered a flat-library user straight into the unsupported shape: the
 upload succeeds, the scan "finishes," the library stays empty.
-
-The quick-start now carries the contract where the user acts: the
-source-folder note says one subfolder per book or series, and the
-after-upload note names the concrete Kavita path
-(`/kavita/config/library/books`) plus the subfolder rule. The e2e
-regression pins the ingest path end to end.

@@ -1369,13 +1369,14 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
       refute has_element?(view, "[data-testid='dav-password']")
 
       # #679: the quick-start states the layout contract — the concrete
-      # Kavita path to register, and the subfolder rule behind it.
+      # path to register (the instance's own mount snapshot) and the
+      # subfolder rule behind it.
       panel =
         view
         |> element("[data-testid='file-access-panel']")
         |> render()
 
-      assert panel =~ "/kavita/config/library/books"
+      assert panel =~ "#{instance.storage_mount_path}/library/books"
       assert panel =~ "one per book or series"
     end
 
