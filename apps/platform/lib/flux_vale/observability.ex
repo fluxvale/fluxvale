@@ -18,12 +18,13 @@ defmodule FluxVale.Observability do
   # the same keys `mix posthog.package_source_code` reads; the supervisor
   # carries the identical values so the packaged map and the runtime
   # lookup agree. validate!/1 is the authority on the assembled map
-  # (ADR-0049).
+  # (ADR-0049). No exclude-pattern key: mix release cannot serialize
+  # Regex config terms, so config.exs scopes the root to lib/ instead
+  # (#714, the red-main lesson).
   @posthog_source_context_keys [
     :enable_source_code_context,
     :root_source_code_paths,
-    :context_lines,
-    :source_code_exclude_patterns
+    :context_lines
   ]
 
   @doc """
