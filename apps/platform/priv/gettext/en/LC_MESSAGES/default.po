@@ -183,7 +183,7 @@ msgstr ""
 
 #: lib/flux_vale_web/controllers/page_html/home.html.heex:167
 #, elixir-autogen, elixir-format
-msgid "wiki · rolling out v1.1"
+msgid "real apps · real prices"
 msgstr ""
 
 #: lib/flux_vale_web/controllers/page_html/home.html.heex:339

@@ -93,7 +93,7 @@ body:has(.landing) {
 
 /* ---- Hero: four calm layers.
  * z0 the sunken circle wash (parallax drifts slowest)
- * z1 the status panel (offset right+down; drifts less)
+ * z1 the product panel (offset right+down; drifts less)
  * z1.5 the deploy chip, below-left of the hero box (the panel edge at
  *   <=900px — see the chip note)
  * z2 the display headline, over the panel's top-left corner.
@@ -214,20 +214,21 @@ body:has(.landing) {
   border: 1px solid var(--line);
 }
 
-.landing .rows {
+/* The real-product capture fills the panel under the bar. The capture
+ * pair (light + dark) is re-taken through apps/e2e/capture.mjs per
+ * theme — a CSS filter can't fake the app's own dark surfaces, so two
+ * files ride and the dark: pair flips with the theme, same as the
+ * header's mark pair. The 36px bottom keeps the float chip's straddle
+ * on panel canvas, not on the shot. */
+.landing .shot {
   padding: 10px 10px 36px;
-  display: grid;
-  gap: 8px;
 }
 
-.landing .row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
+.landing .shot img {
+  width: 100%;
+  height: auto;
   border: 1px solid var(--line);
   border-radius: var(--radius-control);
-  background: var(--canvas);
-  padding: 12px 14px;
 }
 
 .landing .chip {
@@ -243,60 +244,6 @@ body:has(.landing) {
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.04em;
-}
-
-.landing .row .who {
-  min-width: 0;
-  flex: 1;
-}
-
-.landing .row .name {
-  display: block;
-  font-size: 14px;
-  font-weight: 600;
-  letter-spacing: -0.01em;
-}
-
-.landing .row .meta {
-  display: block;
-  font-size: 12px;
-  color: var(--ink-subtle);
-}
-
-.landing .badge {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 11.5px;
-  font-weight: 600;
-  border-radius: var(--radius-pill);
-  padding: 3px 10px;
-}
-
-.landing .badge i {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: currentColor;
-}
-
-.landing .badge-live {
-  color: var(--success);
-  background: var(--success-muted);
-  border: 1px solid var(--border-success);
-}
-
-.landing .badge-deploy {
-  color: var(--link);
-  background: var(--primary-muted);
-  border: 1px solid var(--border-warning);
-}
-
-.landing .badge-ready {
-  color: var(--warning);
-  background: var(--warning-muted);
-  border: 1px solid var(--border-warning);
 }
 
 /* The one floating element: a deploy chip offset below-left of its

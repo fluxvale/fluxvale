@@ -91,18 +91,23 @@ defmodule FluxValeWeb.PageControllerTest do
     assert chrome_html =~ ~s(aria-label="FluxVale")
   end
 
-  # The Offset rebuild: the hero's status panel is a real element group
-  # (mock window + the floating deploy chip) — assert the content, not
-  # class strings.
+  # The hero panel is the real product: FluxVale chrome (the address
+  # bar names the product origin) around a captured app page — the
+  # dummy-instance mock (ghostboard/wiki/forum) is gone for good, so
+  # its names must never render again. The float chip states the
+  # capture's honesty in mono text.
   test "GET / renders the hero panel with its float chip", %{conn: conn} do
     conn = get(conn, ~p"/")
     html = html_response(conn, 200)
 
-    # The chip's mono text is a lowercase echo of the wiki row.
-    assert html =~ "wiki · rolling out v1.1"
-    assert html =~ "app.fluxvale.app"
-    assert html =~ "ghostboard"
-    assert html =~ "Update to v3.0 ready"
+    assert html =~ ~s(class="path">fluxvale.com</span>)
+    assert html =~ ~s(src="/images/landing/hero-app-page-light.png")
+    assert html =~ ~s(src="/images/landing/hero-app-page-dark.png")
+    assert html =~ "real apps · real prices"
+
+    refute html =~ "app.fluxvale.app"
+    refute html =~ "ghostboard"
+    refute html =~ "Update to v3.0 ready"
   end
 
   # The catalog band carries the two app cards — assert the content,
