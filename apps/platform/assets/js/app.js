@@ -24,6 +24,10 @@ import {Socket} from "phoenix"
 import {LiveSocket} from "phoenix_live_view"
 import {hooks as colocatedHooks} from "phoenix-colocated/flux_vale"
 import topbar from "../vendor/topbar"
+// The PostHog imports are inert until #posthog-config boots them (init
+// is the network boundary) — but the ~390KB of SDK bytes ride every
+// bundle, public pages included. Accepted for now; revisit at the
+// esm/splitting migration or a bundle-size budget.
 import "../vendor/posthog-js-tracing-headers"
 import posthog from "../vendor/posthog-js"
 
@@ -99,11 +103,15 @@ liveSocket.connect()
 // nothing here runs — no init, no network. Armed, the cookieless
 // posture: memory persistence and person_profiles "never" (nothing
 // persists on the visitor's device — no data, no identifiers; the
-// SDK's boot probes storage support with two write-and-immediately-
-// remove anonymous keys, which no config gates), session recording
-// off (replay is off at launch), autocapture on but element text
-// dropped by mask_all_text ("which buttons you press", never
-// surrounding copy). capture_pageview "history_change" tracks
+// SDK's boot probes storage support with two anonymous write-and-
+// immediately-remove keys, and this version has no toolbar-disable
+// config to kill the second one: only advanced_disable_toolbar_metrics
+// exists at 1.447.12 — it gates toolbar metrics, not the module's
+// probe — while ph_toolbar_state's hash-path state rides memory
+// persistence, so it dies with the tab and never touches the device),
+// session recording off (replay is off at launch), autocapture on but
+// element text dropped by mask_all_text ("which buttons you press",
+// never surrounding copy). capture_pageview "history_change" tracks
 // LiveView's pushState navigations — the SPA pageview guarantee this
 // SDK version documents, so no phx:navigate listener on top (it would
 // double-capture). tracing_headers marks our own origin, so same-origin
@@ -117,15 +125,62 @@ liveSocket.connect()
 // tracing-headers patch is vendored beside it instead, and everything
 // else is off in this posture.
 // before_send is #408's client half: this app's query strings carry
-// auth-boundary tokens (the invitation accept token IS the
-// credential), and the server plug already strips them from its own
-// captures — the client half must not ship them either. The path is
-// the event's URL; the query never leaves the tab.
+// auth-boundary tokens (the invitation accept token IS the credential),
+// and the server plug already strips them from its own captures — the
+// client half must not ship them either. The path is the event's URL;
+// the query never leaves the tab.
+//
+// Covered keys, enumerated by grepping the vendored dist
+// (posthog-js 1.447.12): the top-level event URLs ($current_url,
+// $referrer, $initial_referrer, $initial_current_url — the persistence
+// layer's get_initial_props expands $initial_person_info.u into it),
+// $session_entry_url (getSessionProps's set-once expansion),
+// $external_click_url (autocapture's external-link clicks), the
+// attr__href inside each $elements entry, the href="…" fragments
+// serialized into $elements_chain, and the {r, u} pair inside
+// $initial_person_info. $host, $pathname and the referring-domain
+// props carry no query — safe by construction.
+const URL_PROPS = new Set([
+  "$current_url",
+  "$referrer",
+  "$initial_referrer",
+  "$initial_current_url",
+  "$session_entry_url",
+  "$external_click_url",
+  "attr__href",
+  "r",
+  "u",
+])
+
+const stripQuery = (url) => {
+  const at = url.indexOf("?")
+  return at === -1 ? url : url.slice(0, at)
+}
+
+// Depth-first: wherever a URL-bearing key nests (top-level props, the
+// $initial_person_info pair, $elements entries), its string value loses
+// the query. $elements_chain is serialized, not structured — its
+// href="…" fragments get the same treatment in place.
 const stripUrlQueries = (event) => {
-  for (const key of ["$current_url", "$referrer", "$initial_referrer", "$session_entry_url"]) {
-    const url = event?.properties?.[key]
-    if (typeof url === "string" && url.includes("?")) event.properties[key] = url.split("?")[0]
+  const props = event?.properties
+  if (!props) return event
+
+  const chain = props["$elements_chain"]
+  if (typeof chain === "string") {
+    props["$elements_chain"] = chain.replace(/href="([^"]*)"/g, (_, value) => `href="${stripQuery(value)}"`)
   }
+
+  const walk = (node) => {
+    for (const [key, item] of Object.entries(node)) {
+      if (typeof item === "string") {
+        if (URL_PROPS.has(key)) node[key] = stripQuery(item)
+      } else if (item && typeof item === "object") {
+        walk(item)
+      }
+    }
+  }
+  walk(props)
+
   return event
 }
 

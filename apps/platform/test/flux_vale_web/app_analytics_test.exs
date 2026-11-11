@@ -17,6 +17,21 @@ defmodule FluxValeWeb.AppAnalyticsTest do
       assert html == ""
     end
 
+    test "a partial armed map renders nothing (the pair is atomic)" do
+      # runtime.exs drops half-armed env shapes, but a stray overlay can
+      # set exactly one key — the component's own guard is the backstop
+      # (the SiteAnalytics stance): the hook must never render a client
+      # that cannot report.
+      stub_posthog(%{api_key: "phc_test_app_analytics"})
+      assert render_app_analytics(nil) == ""
+
+      stub_posthog(%{api_host: "https://eu.i.posthog.com"})
+      assert render_app_analytics(nil) == ""
+
+      stub_posthog(%{api_host: "", api_key: ""})
+      assert render_app_analytics(nil) == ""
+    end
+
     test "renders the hook with the armed config, no distinct id without a user" do
       stub_posthog(%{api_host: "https://eu.i.posthog.com", api_key: "phc_test_app_analytics"})
 

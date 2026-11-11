@@ -25,8 +25,10 @@ defmodule FluxValeWeb.AppAnalytics do
   attr(:current_user, :map, default: nil)
 
   @doc """
-  The hook element, rendered only while the :posthog app env is armed.
-  Read at render time (runtime config, never compile-time).
+  The hook element, rendered only while the :posthog app env is armed
+  with BOTH halves — a partial map (either key missing or blank)
+  renders nothing, same atomic-pair stance as SiteAnalytics. Read at
+  render time (runtime config, never compile-time).
   """
   @spec app_analytics(map()) :: Phoenix.LiveView.Rendered.t()
   def app_analytics(assigns) do
@@ -34,7 +36,7 @@ defmodule FluxValeWeb.AppAnalytics do
 
     assigns =
       assign(assigns,
-        armed?: config != nil,
+        armed?: armed?(config),
         api_host: config && Map.get(config, :api_host),
         api_key: config && Map.get(config, :api_key),
         distinct_id: distinct_id(assigns[:current_user])
@@ -64,4 +66,12 @@ defmodule FluxValeWeb.AppAnalytics do
   # renders the hook without the attribute.
   defp distinct_id(nil), do: nil
   defp distinct_id(user), do: Map.get(user, :id)
+
+  defp armed?(%{} = config) do
+    not blank?(Map.get(config, :api_host)) and not blank?(Map.get(config, :api_key))
+  end
+
+  defp armed?(_), do: false
+
+  defp blank?(value), do: value in [nil, ""]
 end
