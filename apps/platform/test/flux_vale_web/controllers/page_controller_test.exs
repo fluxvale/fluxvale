@@ -111,6 +111,8 @@ defmodule FluxValeWeb.PageControllerTest do
              ~s(src="/images/landing/hero-app-page-dark.png" width="1040" height="605" alt="" class="hidden dark:block")
 
     assert html =~ "real apps · real prices"
+    # The capture's spoken equivalent (the panel itself is aria-hidden).
+    assert html =~ "A screenshot of the app catalog as it runs on fluxvale.com."
 
     refute html =~ "app.fluxvale.app"
     refute html =~ "ghostboard"

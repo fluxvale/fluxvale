@@ -162,9 +162,15 @@ layout's flex contract while scoping the landing styles. --%>
               </div>
             </div>
             <%!-- Outside .px-panel on purpose: its parallax transform
-            would trap the chip on the panel (see landing.css). --%>
+            would trap the chip on the panel (see landing.css). The
+            sr-only line gives the aria-hidden capture a spoken
+            equivalent — written so it survives re-captures (no app
+            name, no price to drift). --%>
             <div class="float-chip drop d5">
               <span class="dot"></span>{gettext("real apps · real prices")}
+              <span class="sr-only">
+                {gettext("A screenshot of the app catalog as it runs on fluxvale.com.")}
+              </span>
             </div>
           </div>
         </div>
