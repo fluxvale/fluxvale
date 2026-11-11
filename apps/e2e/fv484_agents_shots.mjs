@@ -2,10 +2,9 @@
 // page and the developer settings page that links it one click from
 // the mint (#638 moved the API tokens section to /settings/developer).
 // Light + dark, authenticated session through the real sign-in POST
-// (FV_TOKEN from fv484_agents_session.exs).
-// Adapted from apps/e2e/screenshot.mjs's capture pattern
-// (per-surface route list, never generic). Committed artifacts live
-// under docs/screenshots/<PR>/.
+// (FV_TOKEN from fv484_agents_session.exs, minted the *_seed.exs
+// way). Per-surface route list, never generic. Committed artifacts
+// live under docs/screenshots/<PR>/.
 import { chromium } from "@playwright/test";
 import { mkdirSync } from "node:fs";
 
