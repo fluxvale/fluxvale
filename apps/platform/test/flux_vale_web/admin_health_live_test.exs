@@ -102,10 +102,11 @@ defmodule FluxValeWeb.AdminHealthLiveTest do
   # The wake maps come from WakeStats — the app tree's named server
   # fed by PromEx, which this suite never starts. The stub rides the
   # wake_stats test's own tooling: raise the TTL so an injected cache
-  # is served (capture-and-restore), then inject both maps through
-  # :sys.replace_state (OTP tooling, not an app backdoor). On exit the
-  # TTL returns to test's 0, where every read recomputes — the
-  # injected maps can never be served again, so no state restore.
+  # is served, then inject both maps through :sys.replace_state (OTP
+  # tooling, not an app backdoor). On exit BOTH pieces of app-owned
+  # state go back — the TTL (capture-and-restore) and the cache itself
+  # — so no fabricated map can outlive the test even for a later
+  # TTL-raising reader.
   defp wake_stub!(p95_promotion, median_total) do
     original_ttl = Application.get_env(:flux_vale, :wake_stats_ttl_seconds)
     Application.put_env(:flux_vale, :wake_stats_ttl_seconds, 3600)
@@ -116,6 +117,12 @@ defmodule FluxValeWeb.AdminHealthLiveTest do
       else
         Application.put_env(:flux_vale, :wake_stats_ttl_seconds, original_ttl)
       end
+    end)
+
+    previous_state = :sys.get_state(WakeStats)
+
+    on_exit(fn ->
+      :sys.replace_state(WakeStats, fn _state -> previous_state end)
     end)
 
     computed_at = DateTime.utc_now()
