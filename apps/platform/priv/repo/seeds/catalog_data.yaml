@@ -238,7 +238,7 @@
         - question: How do files get in?
           answer: Library files move in over WebDAV file access. There is no in-app upload path.
         - question: Why is my series grid empty?
-          answer: A scan only sees files inside subfolders of the library's folder, one per book or series. Upload over WebDAV into subfolders, then scan again from Server settings.
+          answer: A scan only sees files inside subfolders of the library folder, one per book or series. Upload over WebDAV into subfolders, then scan again from Server settings.
       # File access (#190, ADR-0035): Kavita is the flagship file-access
       # app — the whole point is loading your own library. The sidecar
       # serves the volume at the app's declared mount path, so libraries

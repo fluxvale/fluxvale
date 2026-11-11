@@ -4,6 +4,9 @@
  * own list item after the goto: a stale seed or a 500 can never
  * masquerade as evidence.
  *
+ * Port 4181 (not the 4000 default): sibling dev servers on this box
+ * claim 4000 and 4179.
+ *
  * Usage: node fv679s2_shots.mjs <outdir>
  */
 import { chromium } from "@playwright/test";
@@ -25,7 +28,10 @@ async function setTheme(page, mode) {
   await page.waitForTimeout(300);
 }
 
-const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+const ctx = await browser.newContext({
+  viewport: { width: 1440, height: 900 },
+  userAgent: "fluxvale-capture/679",
+});
 const page = await ctx.newPage();
 
 for (const mode of ["light", "dark"]) {
