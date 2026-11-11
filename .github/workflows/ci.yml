@@ -55,6 +55,17 @@ jobs:
               - "scripts/sync-content.sh"
               - "mise.toml"
               - ".github/workflows/ci.yml"
+              # The image gate's parity assert reads the Tiltfile's
+              # BASE_IMAGE pin — a Tiltfile-only pin bump must fire the
+              # lane that asserts it, or the drift reds only main's
+              # deploy (and then the next platform PR, the cli-filter
+              # drift lesson).
+              - "Tiltfile"
+              # The prebuilt staging feeds this lane's own runner (the
+              # glibc mdex seed) and the image build context — a change
+              # here could break either, and before this entry such a
+              # change fired NO lane at all.
+              - ".github/actions/prebuilt/**"
             docs:
               - "docs/**"
               - "scripts/lint-adr-index.sh"
@@ -1030,6 +1041,93 @@ jobs:
           name: platform-log-${{ matrix.leg.name }}
           path: platform-log-${{ matrix.leg.name }}.txt
 
+  # PR-side twin of deploy-image below — the same release build, minus
+  # the push. `mix release` serializes config terms no PR job executes
+  # in that shape (#713 shipped a Regex without the /E modifier, green
+  # PRs, red main, #724 fixed it) — the exact docker build this job
+  # runs, moved to the PR where the break belongs. No GHCR login, no
+  # packages:write, push: false: a forked PR event holds no registry
+  # credentials and spends no quota.
+  #
+  # Fires on the platform filter, which covers the image's inputs: the
+  # app tree (the build context), the synced content trees and the
+  # sync script, the assert's pin sources (mise.toml, Tiltfile), the
+  # prebuilt staging (.github/actions/prebuilt), and this file (the
+  # gate self-tests on its own changes). A docs-only PR — docs/**
+  # minus docs/public and docs/blog — pays nothing. NB the filter is
+  # also the gate's reachability: a rename that stops firing it
+  # removes the check silently — wait-for-ci's comment documents that
+  # skipped passes, the umbrella's shape for every lane.
+  #
+  # Needs platform like mcp-image needs mcp-gates: never burn a
+  # release build on a PR the vetting lane already reddened.
+  platform-image:
+    name: Build release image (PR)
+    needs: [check-changes, platform]
+    if: github.event_name == 'pull_request' && needs.check-changes.outputs.platform == 'true'
+    runs-on: ubuntu-24.04
+    # Same ceiling as both image siblings: the docker build is the
+    # bounded work (deps + app compile + release, ~10 min warm off
+    # main's gha layers); a hang cancels, never sits out the night.
+    timeout-minutes: 30
+    steps:
+      # v7.0.1 — pinned to commit: mutable tags execute unreviewed code
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      # Byte-identical twin of deploy-image's assert below, kept inline
+      # so the push job stays untouched — any fix here lands in BOTH
+      # copies. A BASE_IMAGE pin drift used to cost a red main deploy
+      # to discover; now it reds the PR that caused it (the Tiltfile
+      # entry in the platform filter exists for this).
+      - name: Assert BASE_IMAGE matches Tiltfile + mise.toml pins
+        run: |
+          otp="$(sed -n 's/^erlang *= *"\([^"]*\)".*/\1/p' mise.toml)"
+          elixir="$(sed -n 's/^elixir *= *"\([^"]*\)".*/\1/p' mise.toml | sed 's/-otp-.*//')"
+          base="$(sed -n 's/^ARG BASE_IMAGE=\([^ ]*\)$/\1/p' apps/platform/Dockerfile | head -1)"
+          tilt="$(sed -n "s/^BASE_IMAGE = '\(.*\)'$/\1/p" Tiltfile | head -1)"
+          echo "BASE_IMAGE=$base tilt=$tilt otp=$otp elixir=$elixir"
+          test -n "$base" && test -n "$tilt" && test -n "$otp" && test -n "$elixir"
+          [ "$base" = "$tilt" ] || { echo "::error::Dockerfile BASE_IMAGE ($base) != Tiltfile BASE_IMAGE ($tilt) — bump the pins together"; exit 1; }
+          echo "$base" | grep -qF "$elixir-erlang-$otp" || {
+            echo "::error::BASE_IMAGE ($base) does not match mise.toml (elixir $elixir, erlang $otp) — bump the pin alongside mise"; exit 1; }
+
+      # v4.4.1 — pinned to commit (repo rule above)
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069
+
+      # (#230) Same pre-seed deploy-image stages before the build: the
+      # release's deps.compile and assets.deploy must never fetch
+      # in-image through Erlang httpc's header limit (the class that
+      # reded main's deploy on #235's merge). mdex-gnu stays off —
+      # docker builds are musl-only consumers.
+      - uses: ./.github/actions/prebuilt
+
+      # ADR-0044 §2: same content staging — the build context is
+      # apps/platform and the gitignored priv copies must exist on the
+      # host before docker build, or the image ships an empty /docs
+      # and /blog.
+      - name: Sync content into the build context
+        run: scripts/sync-content.sh
+
+      # v7.4.0 — pinned to commit (repo rule above). Same build inputs
+      # as deploy-image (context, BUILD_SHA), stopping before the
+      # registry: push: false. Restore-only gha cache: PR runs read
+      # main's layers and add no PR-side writer to the scope (mcp-image
+      # remains one, pre-existing), and a PR has nothing worth
+      # exporting: a mode=max dump is readable only by this PR's own
+      # re-runs while it burns the repo-wide 10 GB cache quota against
+      # the layers main's deploy depends on.
+      - name: Build the release image (no push)
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc
+        with:
+          context: apps/platform
+          push: false
+          build-args: |
+            BUILD_SHA=${{ github.sha }}
+          cache-from: type=gha
+
   # Deploy pipeline jobs 1–2 (docs/deployment.md, #98) — main pushes with
   # platform changes only. Job 1 builds the OTP release image and pushes
   # two tags of the same manifest: sha-<github.sha> (the /health poll
@@ -1308,7 +1406,7 @@ jobs:
   # checks run — a green umbrella that proved nothing.
   wait-for-ci:
     name: Wait for CI
-    needs: [check-changes, platform, cli-gates, cli-matrix, mcp-gates, mcp-image, docs-lint, skills-lint, linked-issues, e2e, deploy-image, watch-deploy, readiness-gate]
+    needs: [check-changes, platform, cli-gates, cli-matrix, mcp-gates, mcp-image, docs-lint, skills-lint, linked-issues, e2e, platform-image, deploy-image, watch-deploy, readiness-gate]
 
     if: always()
     runs-on: ubuntu-24.04
