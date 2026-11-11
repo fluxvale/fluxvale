@@ -10,6 +10,8 @@ defmodule FluxValeWeb.InstanceLive.DavSnippetTest do
 
   use ExUnit.Case, async: true
 
+  import Phoenix.LiveViewTest, only: [render_component: 2]
+
   alias FluxValeWeb.InstanceLive.DavSnippet
 
   @values %{
@@ -124,6 +126,39 @@ defmodule FluxValeWeb.InstanceLive.DavSnippetTest do
         connect = Enum.at(steps, 2)
         assert connect.command =~ "webdav \\\n    url "
       end
+    end
+
+    # #679: Kavita's scanner ingests files only inside subdirectories of
+    # a library folder — a flat `~/Books` uploads fine, scans clean, and
+    # the library stays empty. The source step states the layout rule.
+    test "the source note states the one-subfolder-per-book layout contract" do
+      for %{key: platform} <- DavSnippet.platforms() do
+        steps = DavSnippet.steps(platform, @values)
+        source = Enum.at(steps, 1)
+
+        assert source.title == "Create the local source"
+        assert source.note =~ "one subfolder per book or series"
+        assert source.note =~ "not loose files"
+      end
+    end
+  end
+
+  describe "rendered notes" do
+    # The after-upload note is component markup, not step data — the
+    # show-page tests render it through the LiveView, this pins the
+    # component on its own.
+    test "the rendered quick-start names the Kavita path and the subfolder rule" do
+      html =
+        render_component(&DavSnippet.dav_snippet/1,
+          id: "dav-notes",
+          platform: :linux,
+          url: @values.url,
+          username: @values.username,
+          remote: @values.remote
+        )
+
+      assert html =~ "/kavita/config/library/books"
+      assert html =~ "one per book or series"
     end
   end
 end

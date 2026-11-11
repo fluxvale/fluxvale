@@ -275,3 +275,22 @@ platform is server state, so the password reveal's re-render cannot
 snap a visitor back to the default tab mid-sequence, and the copy
 button carries exactly the active platform's commands. Am. 2's
 update-semantics and app-scan notes render under every tab.
+
+## Amendment 4 — the quick-start states the folder-layout contract (2026-11-11)
+
+#679 chased "uploads invisible to Kavita's scanner" from staging through
+a local reproduction: no permissions fault exists (the app image runs as
+root; the sidecar writes 0755/0644 root:gid-2000). The cause was layout
+— Kavita's scanner ingests files only inside subdirectories of a library
+folder (`GetAllDirectories` never returns the folder itself, v0.9.1.4),
+and their library wizard warns about exactly this ("One or more folders
+contains files at the root. Kavita does not support this."). The
+quick-start's own example (a flat `~/Books` copied to `library/books`)
+steered a flat-library user straight into the unsupported shape: the
+upload succeeds, the scan "finishes," the library stays empty.
+
+The quick-start now carries the contract where the user acts: the
+source-folder note says one subfolder per book or series, and the
+after-upload note names the concrete Kavita path
+(`/kavita/config/library/books`) plus the subfolder rule. The e2e
+regression pins the ingest path end to end.

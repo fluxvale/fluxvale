@@ -317,8 +317,9 @@ defmodule FluxValeWeb.InstanceLive.DavSnippet do
         </p>
         <p>
           <span class="font-medium text-ink-muted">After uploading:</span>
-          tell the app. Register the folder in its settings and trigger a scan (Kavita:
-          Settings → Libraries → add the path, then Scan).
+          tell the app. In Kavita: Settings → Libraries → add /kavita/config/library/books, then
+          Scan. Books must sit in subfolders of that folder, one per book or series. Loose files
+          at the folder's root are skipped by every scan.
         </p>
       </div>
 
@@ -376,6 +377,6 @@ defmodule FluxValeWeb.InstanceLive.DavSnippet do
   end
 
   defp source_note do
-    "Books is an example. Any local folder works, and the copy step uses the same one."
+    "Books is an example. Any local folder works. Keep one subfolder per book or series inside it, since library apps scan subfolders, not loose files at a folder's root."
   end
 end

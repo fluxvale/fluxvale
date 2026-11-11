@@ -1367,6 +1367,16 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
       assert has_element?(view, "[data-testid='dav-rclone-snippet']")
       assert has_element?(view, "[data-testid='reveal-credentials']")
       refute has_element?(view, "[data-testid='dav-password']")
+
+      # #679: the quick-start states the layout contract — the concrete
+      # Kavita path to register, and the subfolder rule behind it.
+      panel =
+        view
+        |> element("[data-testid='file-access-panel']")
+        |> render()
+
+      assert panel =~ "/kavita/config/library/books"
+      assert panel =~ "one per book or series"
     end
 
     # #227: a browser GET on the collection 405s — the hint teaches the
