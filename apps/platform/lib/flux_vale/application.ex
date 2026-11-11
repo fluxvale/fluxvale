@@ -30,9 +30,15 @@ defmodule FluxVale.Application do
     # traffic (#98, ADR-0012 Am. 1).
     FluxVale.Observability.setup_instrumentation()
 
+    # PostHog's error-tracking Logger handler (ADR-0049) — no-op unless
+    # POSTHOG_API_KEY armed it in runtime.exs.
+    FluxVale.Observability.setup_posthog()
+
     # Business-counter zero-seed — sibling AFTER the PromEx
     # child (handlers attached by then): increase() must find
     # every closed-enum series already at 0 from boot.
+    # PostHog supervision tree (ADR-0049) — env-gated, empty until
+    # POSTHOG_API_KEY is set (runtime.exs).
     children =
       [
         FluxValeWeb.Telemetry
@@ -40,6 +46,7 @@ defmodule FluxVale.Application do
       ] ++
         FluxVale.Observability.prom_ex_child() ++
         FluxVale.Observability.seed_business_counters_child() ++
+        FluxVale.Observability.posthog_children() ++
         [
           FluxVale.Repo,
           # Job queue (must start after Repo) — janitor cron (#23) + Instance

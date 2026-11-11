@@ -212,6 +212,9 @@ defmodule FluxVale.MixProject do
       {:opentelemetry_phoenix, "2.0.1"},
       {:opentelemetry_ecto, "1.2.0"},
       {:opentelemetry_exporter, "1.11.0"},
+      # Error tracking + server-side product events (ADR-0049). Exact
+      # pin per the repo's pin rule.
+      {:posthog, "2.20.1"},
       {:gettext, "1.0.2"},
       {:jason, "1.4.5"},
       # Decimal is already in the lock as an ash transitive; this makes

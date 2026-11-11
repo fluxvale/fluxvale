@@ -83,6 +83,22 @@ if config_env() != :test do
   config :flux_vale, :site_analytics, site_analytics
 end
 
+# PostHog (ADR-0049): one env var arms everything — supervision tree,
+# Logger handler, request plugs. Unset (or "") means nothing arms; that
+# is the kill switch and it is structural (config.exs keeps the SDK's
+# own auto-start off too). A present-but-whitespace key does half-arm
+# (the tree runs, the SDK trims it to disabled and ships nothing) —
+# accepted; the fleet sets the key, not the suite. Never warn, never
+# block boot on a missing key. Test is excluded (the site_analytics
+# stance): a stray exported POSTHOG_API_KEY must not flip the suite
+# onto the armed arm.
+if config_env() != :test do
+  case FluxVale.Observability.posthog_config() do
+    {:ok, cfg} -> config :flux_vale, :posthog, cfg
+    :unset -> :ok
+  end
+end
+
 # ADR-0040 S3's runtime wiring (the INSTANCES_BASE_DOMAIN pattern): the
 # fleet overlays may still set the access edge (the gateway tunnel's
 # target) and the shared resolver IP (the advertised /32 + claim target)
