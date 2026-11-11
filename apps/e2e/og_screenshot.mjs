@@ -4,10 +4,10 @@
  *
  * Mechanics: 1200x630 viewport at deviceScaleFactor 2, then a Lanczos
  * downsample to the exact og:image size (ImageMagick, `-strip` keeps
- * reruns byte-stable — don't ship the 2x). A 110px scroll seats the
+ * reruns byte-stable — don't ship the 2x). A 125px scroll seats the
  * full copy block + CTAs inside the frame — retune it if the hero's
- * clamps or header height change; the in-frame guard below fails the
- * run instead of shipping a clipped card. Captures force the
+ * clamps, header height, or panel height change; the in-frame guard
+ * below fails the run instead of shipping a clipped card. Captures force the
  * post-animation resting state (the landing's own prefers-reduced-motion
  * override) and pin both themes; dark ships (brand preference), light
  * rides along as evidence.
@@ -71,7 +71,7 @@ for (const mode of ["dark", "light"]) {
     document.documentElement.setAttribute("data-theme-source", "user");
   }, mode);
   await page.addStyleTag({ content: RESTING_CSS });
-  await page.evaluate(() => window.scrollTo(0, 110));
+  await page.evaluate(() => window.scrollTo(0, 125));
   await page.waitForTimeout(400);
   const fail = await page.evaluate(IN_FRAME);
   if (fail.length > 0) {

@@ -43,7 +43,7 @@ defmodule FluxValeWeb.AuthLive.SignIn do
       <%!-- #409: the auth surface rides Layouts.auth — the mark over
       the panel, no marketing chrome. T3 (#277): the panel keeps the
       landing hero's gradient mat (the hero-adjacent moment, same rule
-      as the hero mock: no text sits on the gradient). --%>
+      as the hero panel: no text sits on the gradient). --%>
       <div class="bg-brand-gradient rounded-panel p-2 shadow-lg">
         <div class="overflow-hidden rounded-panel border border-line-strong bg-panel shadow-sm">
           <div class="space-y-6 p-6 sm:p-8">

@@ -9,11 +9,12 @@ permalink once / becomes the dashboard. (#551 retired the menu's About row:
 nothing links /about now, the route stays public.)
 Copy lives in gettext — the msgid is the source of truth; the wording is
 reviewed at merge (#164). Not extracted: standalone proper nouns
-(FluxVale, Forgejo, Kavita), and the aria-hidden mock status panel
-(.panel) — decorative, never read, so its contents stay literal.
+(FluxVale, Forgejo, Kavita) and the hero panel's decorative chrome —
+the address-bar path and the aria-hidden capture pair, never read
+aloud, stay literal.
 /catalog hrefs can move to ~p now that the route registers (router.ex)
 — left literal here pending that slice's cleanup.
-The Offset grammar (#277): four-layer offset hero (sunken circle wash, status
+The Offset grammar (#277): four-layer offset hero (sunken circle wash, product
 panel, float chip, display headline), uneven bento steps with the real
 catalog preview, full-bleed catalog + pricing bands with a straddling
 honesty capsule, load/scroll reveals + hover lifts in landing.css. The
@@ -82,11 +83,14 @@ layout's flex contract while scoping the landing styles. --%>
 
   <main class="flex-1">
     <%!-- Hero: four calm layers — the sunken circle wash (z0, parallax
-    slowest), the status panel (z1, offset right+down), the deploy chip
-    (z1.5, below-left of the hero box), the display headline (z2). The
-    panel is a decorative mock (aria-hidden); the float chip repeats the
-    wiki row as visible mono text. The overlap exists only >=900px
-    (landing.css). --%>
+    slowest), the product panel (z1, offset right+down), the float
+    chip (z1.5, below-left of the hero box), the display headline (z2).
+    The panel is the real product: an anon capture of a catalog app
+    page (Vikunja's), re-captured through apps/e2e/capture.mjs when
+    the surface or its prices change — never a mockup, never dummy apps. The
+    image pair is decorative (aria-hidden); the float chip states the
+    capture's honesty in visible mono text. The overlap exists only
+    >=900px (landing.css). --%>
     <section class="hero">
       <div class="wrap">
         <div class="hero-grid">
@@ -127,44 +131,46 @@ layout's flex contract while scoping the landing styles. --%>
 
           <div class="hero-panel rise d2">
             <div class="px-panel">
+              <%!-- The panel window: FluxVale's own chrome around the
+              real capture. The bar's path names the product origin the
+              shot was taken from — fluxvale.com, the deployed app. --%>
               <div class="panel" aria-hidden="true">
                 <div class="panel-bar">
                   <span class="dots"><i></i><i></i><i></i></span>
-                  <span class="path">app.fluxvale.app</span>
+                  <span class="path">fluxvale.com</span>
                   <span>&nbsp;</span>
                 </div>
-                <div class="rows">
-                  <div class="row">
-                    <span class="chip">GB</span>
-                    <span class="who">
-                      <span class="name">ghostboard</span>
-                      <span class="meta">Running v2.4.1</span>
-                    </span>
-                    <span class="badge badge-live"><i></i>Live</span>
-                  </div>
-                  <div class="row">
-                    <span class="chip">WK</span>
-                    <span class="who">
-                      <span class="name">wiki</span>
-                      <span class="meta">Rolling out v1.1</span>
-                    </span>
-                    <span class="badge badge-deploy"><i></i>Deploying</span>
-                  </div>
-                  <div class="row">
-                    <span class="chip">FM</span>
-                    <span class="who">
-                      <span class="name">forum</span>
-                      <span class="meta">Update to v3.0 ready</span>
-                    </span>
-                    <span class="badge badge-ready"><i></i>Update ready</span>
-                  </div>
+                <div class="shot">
+                  <%!-- `block` rides the utility layer with the dark:
+                  pair — a display rule in .shot img below would outrank
+                  .hidden and stack both themes at once. --%>
+                  <img
+                    src={~p"/images/landing/hero-app-page-light.png"}
+                    width="1040"
+                    height="605"
+                    alt=""
+                    class="block dark:hidden"
+                  />
+                  <img
+                    src={~p"/images/landing/hero-app-page-dark.png"}
+                    width="1040"
+                    height="605"
+                    alt=""
+                    class="hidden dark:block"
+                  />
                 </div>
               </div>
             </div>
             <%!-- Outside .px-panel on purpose: its parallax transform
-            would trap the chip on the panel (see landing.css). --%>
+            would trap the chip on the panel (see landing.css). The
+            sr-only line gives the aria-hidden capture a spoken
+            equivalent — written so it survives re-captures (no app
+            name, no price to drift). --%>
             <div class="float-chip drop d5">
-              <span class="dot"></span>{gettext("wiki · rolling out v1.1")}
+              <span class="dot"></span>{gettext("real apps · real prices")}
+              <span class="sr-only">
+                {gettext("A screenshot of the app catalog as it runs on fluxvale.com.")}
+              </span>
             </div>
           </div>
         </div>
