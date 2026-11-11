@@ -3633,7 +3633,6 @@ msgstr ""
 msgid "This org's wallet state, instances, and domains. The console reads every org, so a page like this one answers for any of them."
 msgstr ""
 
-
 #: lib/flux_vale_web/controllers/page_html/home.html.heex:167
 #, elixir-autogen, elixir-format
 msgid "real apps · real prices"
