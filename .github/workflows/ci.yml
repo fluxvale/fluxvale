@@ -55,6 +55,17 @@ jobs:
               - "scripts/sync-content.sh"
               - "mise.toml"
               - ".github/workflows/ci.yml"
+              # The image gate's parity assert reads the Tiltfile's
+              # BASE_IMAGE pin — a Tiltfile-only pin bump must fire the
+              # lane that asserts it, or the drift reds only main's
+              # deploy (and then the next platform PR, the cli-filter
+              # drift lesson).
+              - "Tiltfile"
+              # The prebuilt staging feeds this lane's own runner (the
+              # glibc mdex seed) and the image build context — a change
+              # here could break either, and before this entry such a
+              # change fired NO lane at all.
+              - ".github/actions/prebuilt/**"
             docs:
               - "docs/**"
               - "scripts/lint-adr-index.sh"
@@ -1030,21 +1041,27 @@ jobs:
           name: platform-log-${{ matrix.leg.name }}
           path: platform-log-${{ matrix.leg.name }}.txt
 
-  # PR-side twin of deploy-image below: the same release build, minus
-  # the push. The Nov 11 P0 class (#723 -> #724): `mix release`
-  # serializes config terms no PR job executes in that shape, so a
-  # Regex without the /E modifier passed every PR check and reddened
-  # main's release build minutes after merge — the exact docker build
-  # step this job runs, moved to the PR where the fix belongs. Same
-  # Dockerfile, same prebuilt staging + content sync; NO GHCR login
-  # and no packages:write — nothing to leak, no registry quota, and a
-  # forked PR event holds no credentials at all. Fires on the platform
-  # filter (every glob in it is an image-build input: app tree, the
-  # synced content trees, the sync script, mise pins, this file), so a
-  # docs-only PR — docs/** minus docs/public + docs/blog — pays
-  # nothing. Needs platform itself, like mcp-image needs mcp-gates:
-  # never burn a ~10 min release build on a PR the vetting lane
-  # already reddened (#510's queue-slot discipline).
+  # PR-side twin of deploy-image below — the same release build, minus
+  # the push. `mix release` serializes config terms no PR job executes
+  # in that shape: #713 shipped a Regex without the /E modifier, every
+  # PR check was green, and main's release build went red until #724
+  # fixed it — the exact docker build this job runs, moved to the PR
+  # where the break belongs. No GHCR login, no packages:write,
+  # push: false: a forked PR event holds no registry credentials and
+  # spends no quota.
+  #
+  # Fires on the platform filter, which covers the image's inputs: the
+  # app tree (the build context), the synced content trees and the
+  # sync script, the assert's pin sources (mise.toml, Tiltfile), the
+  # prebuilt staging (.github/actions/prebuilt), and this file (the
+  # gate self-tests on its own changes). A docs-only PR — docs/**
+  # minus docs/public and docs/blog — pays nothing. NB the filter is
+  # also the gate's reachability: a rename that stops firing it
+  # removes the check silently (skipped passes in wait-for-ci — the
+  # umbrella's standing shape for every lane, see the header).
+  #
+  # Needs platform like mcp-image needs mcp-gates: never burn a
+  # release build on a PR the vetting lane already reddened.
   platform-image:
     name: Build release image (PR)
     needs: [check-changes, platform]
@@ -1060,10 +1077,11 @@ jobs:
         with:
           persist-credentials: false
 
-      # Same assert deploy-image runs (duplicated inline, not shared:
-      # the push job stays untouched) — today a BASE_IMAGE pin drift
-      # (Dockerfile vs Tiltfile vs mise.toml) costs a red main deploy
-      # to discover; here it reds the PR that caused it.
+      # Byte-identical twin of deploy-image's assert below, kept inline
+      # so the push job stays untouched — any fix here lands in BOTH
+      # copies. A BASE_IMAGE pin drift used to cost a red main deploy
+      # to discover; now it reds the PR that caused it (the Tiltfile
+      # and prebuilt entries in the platform filter exist for this).
       - name: Assert BASE_IMAGE matches Tiltfile + mise.toml pins
         run: |
           otp="$(sed -n 's/^erlang *= *"\([^"]*\)".*/\1/p' mise.toml)"
@@ -1095,11 +1113,13 @@ jobs:
         run: scripts/sync-content.sh
 
       # v7.4.0 — pinned to commit (repo rule above). Same build inputs
-      # as deploy-image (context, BUILD_SHA, gha layer cache — PR runs
-      # restore main's layers), stopping before the registry: push:
-      # false. cache-to ignore-error: the PR cache scope is read-only,
-      # and a cache-service failure must degrade to a cold build,
-      # never red the gate (mcp-image's PR-side stance).
+      # as deploy-image (context, BUILD_SHA), stopping before the
+      # registry: push: false. Restore-only gha cache: PR runs read
+      # main's layers (deploy-image stays the sole writer of the
+      # scope — no export collisions with the other image jobs), and
+      # a PR has nothing worth exporting: a mode=max dump is readable
+      # only by this PR's own re-runs while it burns the repo-wide
+      # 10 GB cache quota against the layers main's deploy depends on.
       - name: Build the release image (no push)
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc
         with:
@@ -1108,7 +1128,6 @@ jobs:
           build-args: |
             BUILD_SHA=${{ github.sha }}
           cache-from: type=gha
-          cache-to: type=gha,mode=max,ignore-error=true
 
   # Deploy pipeline jobs 1–2 (docs/deployment.md, #98) — main pushes with
   # platform changes only. Job 1 builds the OTP release image and pushes
