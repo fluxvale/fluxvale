@@ -36,6 +36,27 @@ test("clicking a catalog card opens the public app detail", async ({ page }) => 
   await expect(page.locator("[data-testid^='deploy-']").first()).toBeVisible();
 });
 
+// #716: catalog icons ship vendored and load same-origin. A hotlinked
+// third-party icon whose host hangs never errors — it silently holds
+// the page's load event hostage (the Nov 11 fleet-wide pages-leg
+// outage: one hanging icon host timed every /catalog navigation out).
+test("catalog pages carry no third-party image sources", async ({ page }) => {
+  const absoluteSrcs = () =>
+    page.locator("img").evaluateAll((imgs) =>
+      imgs
+        .map((img) => img.getAttribute("src") ?? "")
+        .filter((src) => /^https?:\/\//i.test(src)),
+    );
+
+  await page.goto("/catalog");
+  await expect(page.locator("[data-testid^='app-']").first()).toBeVisible();
+  expect(await absoluteSrcs()).toEqual([]);
+
+  await page.locator("[data-testid^='app-']").first().click();
+  await expect(page).toHaveURL(/\/catalog\//);
+  expect(await absoluteSrcs()).toEqual([]);
+});
+
 test("an anonymous deploy CTA lands on /sign-in — the auth boundary", async ({ page }) => {
   await page.goto("/catalog");
   const cardHref = await page.locator("[data-testid^='app-']").first().getAttribute("href");
