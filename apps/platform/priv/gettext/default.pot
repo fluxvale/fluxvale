@@ -3836,7 +3836,6 @@ msgstr ""
 msgid "No deploys recorded yet."
 msgstr ""
 
-<<<<<<< HEAD
 #: lib/flux_vale_web/controllers/page_html/home.html.heex:170
 #, elixir-autogen, elixir-format
 msgid "real apps · real prices"
@@ -3845,7 +3844,8 @@ msgstr ""
 #: lib/flux_vale_web/controllers/page_html/home.html.heex:172
 #, elixir-autogen, elixir-format
 msgid "A screenshot of the app catalog as it runs on fluxvale.com."
-=======
+msgstr ""
+
 #: lib/flux_vale_web/live/admin_live/health.ex:147
 #, elixir-autogen, elixir-format
 msgid "In-memory numbers covering the time since this deployment started — they reset on every deploy."
@@ -3864,5 +3864,4 @@ msgstr ""
 #: lib/flux_vale_web/live/admin_live/health.ex:141
 #, elixir-autogen, elixir-format
 msgid "p95 promotion"
->>>>>>> bdc96aa7 (feat(platform): wake p95 joins the health console (#232 series))
 msgstr ""
