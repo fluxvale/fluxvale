@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { waitForStatus } from "./helpers/instance-ui";
+import { destroyInstance, waitForStatus } from "./helpers/instance-ui";
 import { waitForLiveViewJoin } from "./helpers/live-view";
 import { runtimeFor } from "./helpers/runtime";
 import { signIn } from "./helpers/sign-in";
@@ -124,4 +124,9 @@ test("resize: stop → panel reprices → confirm → resized → running again"
   await expect(page.getByTestId("instance-resources")).toContainText("1 CPU · 512 MB · 10 GB");
   await page.getByTestId("start-button").click();
   await waitForStatus(page, "Running", 6 * 60_000);
+
+  // Destroy like every lifecycle sibling — the leg's stack is shared
+  // by the whole suite, and a leaked runner-scoped instance doubles
+  // on retry (every other spec cleans up; this one was the holdout).
+  await destroyInstance(page);
 });

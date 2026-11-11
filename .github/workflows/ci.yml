@@ -765,12 +765,16 @@ jobs:
     # umami-lifecycle (20m bounded) as the lifecycle leg's seventh
     # spec. #610 added vikunja-lifecycle (20m bounded, a memos-shape
     # SQLite-PVC deploy). #609 added docmost-lifecycle (also 20m
-    # bounded — the retry math: playwright retries once in CI, so the
-    # leg worst is the observed 17.1m plus two bounded runs per new
-    # spec, and 20m bounds keep the sum inside the 60m ceiling with
-    # the report intact on a retry). The docmost spec's per-run Redis
-    # pod is warmed below with the config pins.
-    timeout-minutes: 60
+    # bounded). instance-resize joined after its RBAC fix (the
+    # storageclasses grant) — it is 15m-bounded per attempt, and with
+    # Playwright's one CI retry the leg's worst is the observed
+    # 21m55s green (run 42844965176) plus 2x15m plus the bootstrap's
+    # bounded 12m retry ≈ 64m — over the old 60, so the ceiling moves
+    # to 75 (~11m hang slack, the #578 discipline: above the sum of
+    # bounded work, never cutting a legitimate run mid-suite). The
+    # docmost spec's per-run Redis pod is warmed below with the
+    # config pins.
+    timeout-minutes: 75
     strategy:
       # A red leg must not cancel the others — its report is triage
       # data (legs stay independent, never sharing state)
@@ -794,8 +798,12 @@ jobs:
             # the way the backups leg reads MinIO. vikunja joined at
             # birth too (#610) — a memos-shape SQLite deploy. docmost
             # joined at birth (#609) — its per-run Redis pod's pin is
-            # pre-pulled by the warm-up below.
-            specs: tests/forgejo-lifecycle.spec.ts tests/actual-lifecycle.spec.ts tests/vaultwarden-lifecycle.spec.ts tests/memos-lifecycle.spec.ts tests/vikunja-lifecycle.spec.ts tests/pocket-id-lifecycle.spec.ts tests/umami-lifecycle.spec.ts tests/docmost-lifecycle.spec.ts tests/file-access.spec.ts tests/backups.spec.ts
+            # pre-pulled by the warm-up below. instance-resize joined
+            # late (#518 shipped it legless; red since birth on the
+            # storage-probe 403 — the storageclasses RBAC grant in
+            # this PR is what unreds it); it deploys Forgejo, already
+            # in warm_apps.
+            specs: tests/forgejo-lifecycle.spec.ts tests/actual-lifecycle.spec.ts tests/vaultwarden-lifecycle.spec.ts tests/memos-lifecycle.spec.ts tests/vikunja-lifecycle.spec.ts tests/pocket-id-lifecycle.spec.ts tests/umami-lifecycle.spec.ts tests/docmost-lifecycle.spec.ts tests/file-access.spec.ts tests/backups.spec.ts tests/instance-resize.spec.ts
             warm_apps: forgejo actualbudget vaultwarden memos vikunja pocket-id kavita umami docmost
           # #210 part 3: threshold 45s + probe window 150s are safe
           # HERE only — this leg's instance gets no traffic, so the

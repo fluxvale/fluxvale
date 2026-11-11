@@ -46,6 +46,17 @@ rules:
     resources: ["clusterroles"]
     resourceNames: ["fluxvale-platform-workload"]
     verbs: ["bind"]
+  # ADR-0043's storage-expansion probe: the resize guard lists
+  # StorageClasses to read the default class's allowVolumeExpansion.
+  # Cluster-scoped resource, so it lives here and not in the
+  # namespaced workload role. `list` only — the probe lists and
+  # nothing else touches the type. Without it the probe 403s and the
+  # resize panel shows its "try again" error copy everywhere the
+  # storage lock should render (found via instance-resize.spec, red
+  # since #518 for exactly this).
+  - apiGroups: ["storage.k8s.io"]
+    resources: ["storageclasses"]
+    verbs: ["list"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
