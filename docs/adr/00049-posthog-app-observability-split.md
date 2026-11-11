@@ -54,15 +54,19 @@ does not replace it. Five decisions, all owner-settled:
 gets a named exception): in-app posthog-js runs `persistence: "memory"`
 with the server bootstrapping `distinct_id` from the signed-in session
 — no cookies, no localStorage, nothing written to the visitor's device;
-person profiles are suppressed. The **privacy-policy update rides the
-same arc** (the Nov 5 standing obligation: name the tool, what it
-collects, cookieless or not) — it lands before any environment flips
-on.
+person profiles are suppressed, and autocapture's element-text
+capture is disabled so a click reports the control, never surrounding
+text. The **privacy-policy update rides the same arc** (the Nov 5
+standing obligation: name the tool, what it collects, cookieless or
+not) — it lands before any environment flips on, traces disclosure
+included.
 
 **Cost basis** (free allowances reset monthly: 1M analytics events,
-100k exceptions, 10 GB logs+traces, 5k replays; each product has an
-independent billing limit that *stops ingestion* — set to $0 on
-analytics + replay from day one until the Busy scenario is real):
+100k exceptions, 10 GB logs+traces, 5k replays; limits are **per
+product**, so every product that ingests gets its own $0 limit —
+analytics + replay + error tracking from the staging flip, logs+traces
+added before Phase 2; each limit independently *stops ingestion*,
+which is the whole mitigation):
 
 | Scenario (signed-in MAU) | PostHog | Grafana |
 |---|---|---|

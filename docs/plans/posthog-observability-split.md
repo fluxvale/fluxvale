@@ -66,10 +66,17 @@ Confirmed by the owner (2026-11-11): region **EU** (ingestion host
 (`fluxvale-staging` vault, `posthog-api-key` item — its field category
 is verified at wiring time, not assumed). Still to verify at kickoff:
 **IP capture off** (EU default for new projects — confirm in project
-settings) and **billing limits set to $0** on analytics + replay
-(independent hard stops per product). Deferred until billing setup
-(owner, no code): the **production project** — its key seeds the prod
-1Password item and flips prod; until then the item stays empty.
+settings) and **$0 billing limits on every product that will ingest**
+(limits are per product, not global: analytics, replay, and error
+tracking before the staging flip; logs+traces before Phase 2 — a $0
+limit hard-stops ingestion, which is the cost mitigation the plan
+leans on). Deferred until billing setup (owner, no code): the
+**production project** — its key seeds the prod 1Password item and
+flips prod; until then the item stays empty. **The production flip is
+a two-sided cutover**: the app's env item AND the fleet Alloy
+exporter's PostHog token both move to the production project in the
+same change window, so prod events and traces never live in different
+projects past that window.
 
 ## Slices
 
@@ -190,6 +197,13 @@ PR: `feat(platform): server-side product events via PostHog
   `<div id="posthog-config" data-api-host="…" data-api-key="…"
   data-distinct-id="…" hidden>` — `data-distinct-id` only when a user
   is signed in.
+- Autocapture posture: element-text capture **disabled** in the init
+  config (a click reports the control, never surrounding text — the
+  policy copy promises "which buttons you press", so the config must
+  match it). Verify the exact option against the vendored version's
+  autocapture config docs; if no disable option exists at that
+  version, stop and report — the policy sentence gains the disclosure
+  instead (a one-line S3 follow-up), it does not silently over-collect.
 - `apps/platform/lib/flux_vale_web/components/layouts.ex`: render the
   hook from `app/1` **only** (`current_user` attr supplies the id).
   Never from `public/1`, the landing page, or email layouts — public
@@ -244,8 +258,13 @@ not — **lands before any env flip** (S4 ordering).
   > instances. No advertising trackers ride our pages.
 
   (The card's other promises — no selling, no profiling — stay.)
-  Bump the page's "Last updated" date. The **traces** sentence rides
-  S6 (Phase 2), so the page stays truthful at every point in time.
+  Bump the page's "Last updated" date. The **traces sentence rides
+  this slice too** (name-before-activation, the same pattern as the
+  whole page): one more sentence in the "Logs and monitoring" card
+  after the error-reports sentence — "Technical traces of requests in
+  the signed-in app also go to PostHog, so we can follow a problem
+  from your click to the code that served it." S6 then carries no
+  policy change.
 - Tests: update the policy content assertions (existing pattern).
 
 PR: `docs(platform): privacy policy names PostHog (analytics + error
@@ -282,18 +301,29 @@ Captures: before/after, light+dark (public page, user-visible).
   restart deploy/fluxvale-platform` → verify. The **prod flip waits
   for the production project** (owner creates it at billing setup):
   seed the prod item with *that project's* key → restart prod.
-- Verify at each flip (evidence for the report): staging — PostHog
-  Live events show `$pageview` from a staging browse and a
+- Verify at the staging flip (evidence for the report): staging —
+  PostHog Live events show `$pageview` from a staging browse and a
   `$exception`/error event from a deliberate `Logger.error` via
   `bin/rpc`/IEx on the staging pod; `/health` stays green; with env
   unset (pre-flip) the rendered app HTML contains no `posthog-config`
   hook. Screenshots of the PostHog UI events embedded in the PR.
+- **Pre-flip audit (rides S4's PR)**: walk the repo's `Logger.error`
+  call sites (the Logger handler forwards message bodies —
+  `metadata: [:request_id]` limits metadata, not text) and confirm no
+  credential or payment-reference content ships un-scrubbed; the
+  top-up/webhook mismatch paths are the known suspects. Scrub at
+  source or add a PostHog ingestion filter before the flip — the
+  Alloy traces-redaction posture applied to a second surface.
 
 PR (infrastructure): `apps: POSTHOG_API_KEY env wiring (1Password,
 staging-first)`. Revert = unset the item value + restart (the app
 code stays, inert).
 
 ### S5 (fleet) — Alloy trace dual-export (Phase 2 opener)
+
+**Precondition (owner, before this lands): the logs+traces $0 billing
+limit is set** — limits are per product, and Phase 2's cost mitigation
+is that limit stopping ingestion, not the analytics limit.
 
 - `cluster/monitoring/install/alloy.yaml`: add
   `otelcol.exporter.otlphttp "posthog_traces"` beside the existing
@@ -329,7 +359,7 @@ code stays, inert).
 PR (infrastructure): `monitoring: dual-export app traces to PostHog
 (Tempo kept)`.
 
-### S6 (app) — person/session context on spans + traces policy line
+### S6 (app) — person/session context on spans
 
 - `apps/platform/config/runtime.exs` (the OTel block): when both the
   OTLP exporter is on and `:posthog` config is present, prepend
@@ -345,14 +375,12 @@ PR (infrastructure): `monitoring: dual-export app traces to PostHog
   events (S1b) set `PostHog.set_context` at job start so their spans
   correlate too — add that line beside each S1b call site if the
   worker's spans are the ones that matter (deploy/reconcile).
-- Privacy page: the one-sentence addition to "Logs and monitoring"
-  naming traces (S3 left it out on purpose).
 - Tests: processor config resolution arms (present/absent ×
-  exporter on/off — the Observability test pattern); policy content
-  assertion updates.
+  exporter on/off — the Observability test pattern).
 
 PR: `feat(platform): person/session context on spans
 (PostHog ContextSpanProcessor)` — closes the Phase 2 umbrella issue.
+No policy change rides this slice (S3 carried the traces sentence).
 
 ## Anti-goals for reviewers (do not "fix" these in review)
 

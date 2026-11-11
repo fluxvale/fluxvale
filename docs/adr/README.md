@@ -20,7 +20,7 @@ already ruled out.
 | [ADR-00009](00009-single-cnpg-cluster.md) | One shared CNPG cluster; managed PostgreSQL is the scaling path | Accepted |
 | [ADR-00010](00010-staging-namespace-flag-gated.md) | Staging = same-box namespace, feature-flag gated | Accepted |
 | [ADR-00011](00011-simultaneous-deploy-post-deploy-smoke.md) | Simultaneous deploy + post-deploy smoke; gate-on-demand | Accepted (amended — see Amendment 1) |
-| [ADR-00012](00012-observability-grafana-cloud.md) | Observability: Alloy → Grafana Cloud free tier | Accepted (amended — see Amendments 1–3) |
+| [ADR-00012](00012-observability-grafana-cloud.md) | Observability: Alloy → Grafana Cloud free tier | Accepted (amended — see Amendments 1–4) |
 | [ADR-00013](00013-additive-migrations.md) | Migration discipline: additive-only per release | Accepted (amended — see Amendment 1) |
 | [ADR-00014](00014-rollback-protocol.md) | Rollback protocol: revert PRs + counter-migrations | Accepted (amended — see Amendment 1) |
 | [ADR-00015](00015-no-auto-remediation.md) | No auto-remediation: alert + prepared revert PR | Accepted |
