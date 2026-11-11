@@ -7,6 +7,8 @@
 # nothing applies until the owner fills them in and runs it himself.
 
 terraform {
+  required_version = ">= 1.6.0" # optional()/one() want >= 1.4; 1.6 is the tested floor
+
   required_providers {
     fluxvale = {
       source  = "registry.terraform.io/fluxvale/fluxvale"
@@ -86,6 +88,9 @@ resource "fluxvale_instance" "apps" {
   always_on = each.value.always_on
   running   = each.value.running
 
+  # Write-only (kept verbatim in state; the API never echoes it).
+  env_vars = each.value.env_vars
+
   lifecycle {
     precondition {
       condition = contains([
@@ -114,13 +119,17 @@ resource "fluxvale_instance_backups" "apps" {
   retention_keep    = each.value.retention_keep
 }
 
-# Custom domains per instance, for the dogfood pairings: setting an
-# instance's `domain` (var.instances) registers it on the
-# private-access edge. The skeleton's defaults leave every domain
-# null — forgejo → git.fluxvale.com and umami → analytics.fluxvale.com
-# ride as documented placeholders (terraform.tfvars.example), pending
-# the dogfood plan, which owns the domain/OIDC/money-gate decisions.
-# verified is NOT resolution, and the create waits out DNS-01 (45m) —
+# Custom-domain registrations, for the dogfood pairings: setting an
+# instance's `domain` (var.instances) registers the NAME on the
+# private-access edge. That is all the platform can express today —
+# there is no instance-domain attachment (instance hostnames mint
+# only under the platform domain), so a registered row serves
+# NOTHING yet; linking names to instances is the dogfood plan's to
+# build. The skeleton's defaults leave every domain null — forgejo →
+# git.fluxvale.com and umami → analytics.fluxvale.com ride as
+# documented placeholders (terraform.tfvars.example), pending that
+# plan, which owns the domain/OIDC/money-gate decisions. Registration
+# passes the org-wallet gate, and the create waits out DNS-01 (45m) —
 # see examples/personal-stack's custom-domain.tf for the full notes.
 resource "fluxvale_custom_domain" "apps" {
   for_each = { for k, v in var.instances : k => v if v.domain != null }
@@ -136,10 +145,16 @@ resource "fluxvale_custom_domain" "apps" {
 
 # The org's private access: the gateway joins the owner's tailnet and
 # attaches every private instance (the attach waits the gateway to
-# :active). The gateway is an org singleton that bills monthly and
-# has NO API delete — destroy removes it from state only; opt out via
-# the panel's Access tab. If the org already has one, adopt it:
-# terraform import fluxvale_access_gateway.owner <org_id_or_slug>.
+# :active). The gateway is an org singleton that bills monthly, needs
+# the org wallet paid AND funded (its create's paywall), and has NO
+# API delete — destroy removes it from state only; opt out via the
+# panel's Access tab. It is unconditional here: even with zero
+# private instances it still creates and bills — remove this resource
+# to skip it. If the org already has one, ADOPT it: set
+# tailscale_auth_key null in terraform.tfvars first (any auth_key
+# value after an import plans a replacement, and replacements are
+# rejected at plan time), then `terraform import
+# fluxvale_access_gateway.owner <org_id_or_slug>`.
 resource "fluxvale_access_gateway" "owner" {
   tailnet_domain = var.tailnet_domain
   auth_key       = var.tailscale_auth_key
