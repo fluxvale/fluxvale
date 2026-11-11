@@ -181,3 +181,10 @@ lands the mechanism and the gate.
   ([595](../plans/595-resource-console.md)): the registry's intent
   lists keep deciding what renders; this ADR's policies decide what
   passes.
+
+## Amendment 1 (2026-11-11): the /mcp rung retired at cutover
+
+[ADR-0019 Am. 5](00019-machine-first-api-cli-mcp.md) retired the
+Phantom endpoint: the `/mcp` process-mark rung described above died
+with it. The check and the doctrine stay whole on `/api/v1` alone —
+`PutPatScopesInAshContext` remains the one writer of both rungs.

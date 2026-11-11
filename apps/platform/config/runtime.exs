@@ -37,29 +37,6 @@ case System.get_env("METRICS_TOKEN") do
   token -> config :flux_vale, :metrics_token, token
 end
 
-# MCP origin allowlist (#361, ADR-0019 §3): MCP_ORIGINS replaces the
-# canonical-prod default (config.exs) with a comma-separated list where
-# the deployment serves a non-canonical browser origin (staging, PR
-# envs). MCP clients send no Origin at all — browsers are the only
-# surface this gates. Test is excluded (the IDLE_SLEEP_AFTER_SECONDS
-# stance): a stray value in the suite's shell must not rewrite the
-# suite's own origin wiring.
-if config_env() != :test do
-  case System.get_env("MCP_ORIGINS") do
-    value when value in [nil, ""] ->
-      :ok
-
-    value ->
-      origins =
-        value
-        |> String.split(",")
-        |> Enum.map(&String.trim(&1))
-        |> Enum.reject(&(&1 == ""))
-
-      config :flux_vale, :mcp_origins, origins
-  end
-end
-
 # Instance runtime overrides (config.exs's local defaults, #116): the
 # fleet overlays set these per env — INSTANCES_BASE_DOMAIN (staging:
 # fluxvale.app, served by the edge wildcard) and INSTANCE_RBAC_SA_NAMESPACE
@@ -79,8 +56,8 @@ end
 # stays thin). Unset keeps the config nil (no script anywhere); a
 # half-configured pair warns at boot and still renders nothing, rather
 # than block a deploy on a typo (analytics is not load-bearing). Test
-# is excluded (the MCP_ORIGINS stance): the suite pins the layout's
-# render directly through config.
+# is excluded (the IDLE_SLEEP_AFTER_SECONDS stance): the suite pins the
+# layout's render directly through config.
 require Logger
 
 if config_env() != :test do

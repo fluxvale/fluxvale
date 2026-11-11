@@ -7,16 +7,16 @@
 # General application configuration
 import Config
 
-# "sse" is phantom_mcp's streaming media type (#361): the :mcp pipeline
-# negotiates it through accepts/2. Both entries share ONE types map — a
-# second config call's :types REPLACES this one (no deep merge across
-# calls), which would silently drop the JSON:API mapping Mime compiles
-# for `Accept: application/vnd.api+json`. Mime compiles this table, so
-# it must exist before the first build (adding it later needs
-# `mix deps.clean mime --build`).
+# "json" maps to the JSON:API media type (per the ash_json_api
+# installer) — the :api pipeline's accepts ["json"] negotiates
+# application/vnd.api+json through it. ONE types map per config call:
+# a second config call's :types REPLACES this one (no deep merge
+# across calls). Mime compiles this table, so it must exist before
+# the first build (adding it later needs `mix deps.clean mime
+# --build`).
 config :mime,
   extensions: %{"json" => "application/vnd.api+json"},
-  types: %{"application/vnd.api+json" => ["json"], "text/event-stream" => ["sse"]}
+  types: %{"application/vnd.api+json" => ["json"]}
 
 config :ash_json_api,
   show_public_calculations_when_loaded?: false,
@@ -325,12 +325,6 @@ canonical_origin = "https://fluxvale.com"
 config :flux_vale,
   canonical_origin: canonical_origin,
   canonical_host: "fluxvale.com"
-
-# #361 (ADR-0019 §3): the MCP endpoint's browser-origin allowlist.
-# Default: the canonical prod origin only. The deployment serves this
-# list per request (FluxValeWeb.MCP.Origins, phantom's origins MFA), so
-# a config/runtime.exs override (staging, PR envs) needs no rebuild.
-config :flux_vale, :mcp_origins, [canonical_origin]
 
 # #362 (OQ #9): the single seeded first-party device-flow client — the
 # CLI's constant. There is no client registry table (OQ #9's deferred

@@ -1,15 +1,15 @@
 defmodule FluxValeWeb.AdminAuthorityBoundaryTest do
   @moduledoc false
 
-  # The PAT refusal pinned through the REAL boundaries (#644,
+  # The PAT refusal pinned through the REAL boundary (#644,
   # ADR-0047): the blanket platform-admin authority never rides a
   # token. An admin's PAT with instances:write POSTing an instance for
   # an org the admin does not belong to is refused by the member fence
   # (the marker switches the bypass off); the same admin's PAT keeps
   # today's behavior on resources whose policies carry pure-actor arms
-  # (the #140 wallet read) — the surgical scoping D2 demands. The MCP
-  # boundary pins its own rung: the process mark require_scope/2 sets
-  # in phantom's spawned handler worker.
+  # (the #140 wallet read) — the surgical scoping D2 demands. Both
+  # rungs ride the one boundary: the Phantom /mcp writer retired with
+  # its endpoint (ADR-0019 Am. 5).
   #
   # The nested-call families (the P1 fix): generic actions re-read
   # their target through an inner get_by_id that drops the Ash request
@@ -21,8 +21,6 @@ defmodule FluxValeWeb.AdminAuthorityBoundaryTest do
 
   use FluxValeWeb.ConnCase, async: true
   use Mimic
-
-  import FluxVale.TestSupport.Mcp
 
   alias FluxVale.Clients.K8s
   alias FluxVale.Infrastructure.AccessDomain
@@ -405,24 +403,6 @@ defmodule FluxValeWeb.AdminAuthorityBoundaryTest do
         )
 
       assert :ok = Ash.run_action(detach)
-    end
-  end
-
-  describe "the MCP boundary — the process-mark rung" do
-    test "an admin's instances:read token cannot read a foreign instance", %{conn: conn} do
-      admin = AccountsFixtures.platform_admin!()
-      {_org, _wallet, owner} = foreign_org!()
-      version = InstanceFixtures.app_version!()
-      InstanceFixtures.local_cluster!()
-      instance = InstanceFixtures.instance!(version, owner)
-      pat = ApiPat.mint!(admin, ["instances:read"])
-
-      conn = call_tool(conn, pat, "get_instance", %{"id" => instance.id})
-
-      # connect/2 marked the process; the bypass refuses; the member
-      # filter answers the action's not-found posture as a tool error.
-      assert %{"isError" => true} = result(conn)
-      assert error_text(conn) =~ "record not found"
     end
   end
 end

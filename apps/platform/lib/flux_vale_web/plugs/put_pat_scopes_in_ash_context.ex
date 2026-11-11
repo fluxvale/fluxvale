@@ -18,8 +18,8 @@ defmodule FluxValeWeb.Plugs.PutPatScopesInAshContext do
   NESTED action call cannot drop (a generic action's inner get_by_id
   re-reads with fresh options — the context does not ride it, the
   process does). Same mechanism, same key, one owner:
-  `FluxVale.Checks.CallOutsideMachineApi.mark_process!/0` — the MCP
-  boundary's require_scope marks its handlers the same way.
+  `FluxVale.Checks.CallOutsideMachineApi.mark_process!/0` — the only
+  boundary writer since the Phantom endpoint retired (ADR-0019 Am. 5).
   """
 
   alias FluxVale.Api.Scopes

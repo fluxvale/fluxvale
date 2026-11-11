@@ -214,15 +214,12 @@ defmodule FluxVale.MixProject do
       {:opentelemetry_exporter, "1.11.0"},
       {:gettext, "1.0.2"},
       {:jason, "1.4.5"},
-      # Decimal serialization in the MCP tool views (#361) — already in
-      # the lock as an ash transitive; this makes the direct use explicit
-      # at the same pin (the yaml_elixir precedent).
+      # Decimal is already in the lock as an ash transitive; this makes
+      # the direct use explicit at the same pin (the yaml_elixir
+      # precedent — pricing/k8s views serialize by hand).
       {:decimal, "3.2.0"},
       {:dns_cluster, "0.2.0"},
-      {:bandit, "1.14.1"},
-      # MCP endpoint (#361, ADR-0019 §3): the streamable-HTTP MCP transport.
-      # Exact pin, same rule as every Hex dep.
-      {:phantom_mcp, "0.7.3"}
+      {:bandit, "1.14.1"}
     ]
   end
 
