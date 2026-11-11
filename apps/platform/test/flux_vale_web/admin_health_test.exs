@@ -381,7 +381,38 @@ defmodule FluxValeWeb.AdminHealthTest do
       assert runway.wallets == before.wallets
       assert runway.unknown == before.wallets
       assert runway.unknown >= 1
-      assert runway.low == before.low
+
+      # With every projection errored, nothing can read low — the empty
+      # list is the only correct expectation, whatever the partition
+      # carries.
+      assert runway.low == []
+    end
+
+    test "a projection that raises or exits counts unknown, never the page down", %{
+      admin: admin
+    } do
+      # The operation's bang reads sit outside its error-returning with,
+      # so a read failure arrives as a raise (or an exit — the wake
+      # wrapper's same shape); the wrapper answers both with unknown.
+      {org, _owner} = BillingFixtures.grant_free_org!()
+      {:ok, _wallet} = Billing.ensure_wallet(org)
+      Mimic.copy(FluxVale.Billing.Operations.ComputeRunway)
+
+      stub(FluxVale.Billing.Operations.ComputeRunway, :call, fn _wallet ->
+        raise "projection read blew up"
+      end)
+
+      runway = AdminHealth.runway(admin)
+      assert runway.unknown == runway.wallets
+      assert runway.low == []
+
+      stub(FluxVale.Billing.Operations.ComputeRunway, :call, fn _wallet ->
+        exit(:projection_dead)
+      end)
+
+      after_exit = AdminHealth.runway(admin)
+      assert after_exit.unknown == after_exit.wallets
+      assert after_exit.low == []
     end
   end
 

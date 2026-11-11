@@ -155,7 +155,7 @@ defmodule FluxValeWeb.AdminHealth do
     # cache (or an org-batched burn read) lands.
     {low, unknown} =
       Enum.reduce(wallets, {[], 0}, fn wallet, {low_acc, unknown_acc} ->
-        case FluxVale.Billing.compute_runway(wallet) do
+        case projection(wallet) do
           {:ok, %{runway_hours: :infinity}} ->
             {low_acc, unknown_acc}
 
@@ -293,5 +293,20 @@ defmodule FluxValeWeb.AdminHealth do
   # as the honest blank, never a crash.
   defp low_row(org_names, wallet, hours) do
     %{org: Map.get(org_names, wallet.organization_id), hours: hours}
+  end
+
+  # The projection's own wrapper: the operation's bang reads (the
+  # instance and gateway lists) sit outside its error-returning with,
+  # so a read failure arrives as a raise, not a tuple. A wallet the
+  # widget cannot read counts unknown like any other — a derived
+  # widget never takes the page down (the wake wrapper's same shape).
+  defp projection(wallet) do
+    FluxVale.Billing.compute_runway(wallet)
+  rescue
+    error ->
+      {:error, error}
+  catch
+    :exit, reason ->
+      {:error, reason}
   end
 end

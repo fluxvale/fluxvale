@@ -436,7 +436,25 @@ defmodule FluxValeWeb.AdminHealthLiveTest do
                )
 
       refute has_element?(view, "[data-testid='runway-low']")
-      assert text_of(view, "[data-testid='runway-empty']") =~ "above the gate"
+
+      # The above-the-gate line speaks only for known projections —
+      # with every projection unknown, the count above carries it.
+      refute has_element?(view, "[data-testid='runway-empty']")
+    end
+
+    test "a spent wallet reads Depleted in the low row", %{conn: conn, admin: admin} do
+      # The burning wallet overdrawn below zero: the projection's hours
+      # go negative and the shared formatter names the state the
+      # balance formatter's word — Depleted, not "under an hour".
+      {org, wallet} = burning_wallet!()
+      {:ok, _overdraw} = Billing.debit_wallet(wallet, 200 * 10_000)
+
+      _expected = AdminHealth.runway(admin)
+      {:ok, view, _html} = live(conn, "/admin/health")
+
+      low = text_of(view, "[data-testid='runway-low']")
+      assert low =~ org.name
+      assert low =~ "Depleted"
     end
   end
 

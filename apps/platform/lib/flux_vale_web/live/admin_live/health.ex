@@ -264,8 +264,11 @@ defmodule FluxValeWeb.AdminLive.Health do
                     </span>
                   </li>
                 </ul>
+                <%!-- The empty line speaks only when every projection
+                is known: with unknowns on the page, the count below
+                carries the story and "above the gate" would lie. --%>
                 <p
-                  :if={@runway.low == []}
+                  :if={@runway.low == [] and @runway.unknown == 0}
                   class="mt-2 text-sm text-ink-muted"
                   data-testid="runway-empty"
                 >

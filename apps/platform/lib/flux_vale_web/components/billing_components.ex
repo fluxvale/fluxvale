@@ -151,6 +151,10 @@ defmodule FluxValeWeb.BillingComponents do
   @spec format_runway_hours(float() | :infinity) :: String.t()
   def format_runway_hours(:infinity), do: "No active burn"
 
+  # A burning wallet with an overdrawn balance projects negative hours;
+  # the product's word for that state is the balance formatter's own.
+  def format_runway_hours(hours) when hours < 0, do: "Depleted"
+
   def format_runway_hours(hours) when hours < 1, do: "under an hour"
 
   def format_runway_hours(hours) when hours < 48,

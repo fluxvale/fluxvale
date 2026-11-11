@@ -3666,7 +3666,7 @@ msgstr ""
 
 #: lib/flux_vale_web/live/admin_live/audit.ex:518
 #: lib/flux_vale_web/live/admin_live/audit.ex:523
-#: lib/flux_vale_web/live/admin_live/health.ex:363
+#: lib/flux_vale_web/live/admin_live/health.ex:366
 #, elixir-autogen, elixir-format
 msgid "System"
 msgstr ""
@@ -3822,7 +3822,7 @@ msgstr ""
 msgid "Health"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/health.ex:298
+#: lib/flux_vale_web/live/admin_live/health.ex:301
 #, elixir-autogen, elixir-format
 msgid "Recent deploys"
 msgstr ""
@@ -3832,7 +3832,7 @@ msgstr ""
 msgid "The instance fleet at a glance — the build this platform runs, the status spread, and the newest deploys."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/health.ex:309
+#: lib/flux_vale_web/live/admin_live/health.ex:312
 #, elixir-autogen, elixir-format
 msgid "No deploys recorded yet."
 msgstr ""
@@ -3893,7 +3893,7 @@ msgid_plural "%{count} approved"
 msgstr[0] ""
 msgstr[1] ""
 
-#: lib/flux_vale_web/live/admin_live/health.ex:279
+#: lib/flux_vale_web/live/admin_live/health.ex:282
 #, elixir-autogen, elixir-format
 msgid "1 projection unknown"
 msgid_plural "%{count} projections unknown"
@@ -3907,7 +3907,7 @@ msgid_plural "%{count} requested"
 msgstr[0] ""
 msgstr[1] ""
 
-#: lib/flux_vale_web/live/admin_live/health.ex:272
+#: lib/flux_vale_web/live/admin_live/health.ex:275
 #, elixir-autogen, elixir-format
 msgid "Every wallet is above the gate."
 msgstr ""
@@ -3917,7 +3917,7 @@ msgstr ""
 msgid "Open the storage queue"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/health.ex:291
+#: lib/flux_vale_web/live/admin_live/health.ex:294
 #, elixir-autogen, elixir-format
 msgid "Open wallets and billing"
 msgstr ""
