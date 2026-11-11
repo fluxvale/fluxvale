@@ -113,10 +113,20 @@ test("resize: stop → panel reprices → confirm → resized → running again"
   await expect(confirm).toContainText("The instance stays stopped.");
   await expect(confirm).toContainText("while stopped");
 
-  // #532: focus lands in the confirm; Cancel returns it to Continue.
+  // #532: focus lands in the confirm on open. Cancel CLOSES the
+  // panel — the unit-tested contract ("Cancel closes the panel",
+  // show_test.exs); the hook's focus-return fires on the price-drift
+  // step-back (:confirm → :choose with the panel open), not here.
   await expect(confirm).toBeFocused();
   await page.getByTestId("resize-cancel").click();
-  await expect(page.getByTestId("resize-continue")).toBeFocused();
+  await expect(panel).toBeHidden();
+
+  // Reopen from the stopped row. The panel restarts at the row's
+  // recommendation (the cancel reset cleared the candidate), so the
+  // CPU rung moves again before the confirm.
+  await page.getByTestId("resize-button").click();
+  await expect(panel).toBeVisible();
+  await page.getByTestId("resource-cpu").fill("2");
   await page.getByTestId("resize-continue").click();
   await expect(confirm).toContainText("Resize instance");
 

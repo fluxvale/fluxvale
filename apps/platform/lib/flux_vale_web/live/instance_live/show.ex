@@ -1497,7 +1497,10 @@ defmodule FluxValeWeb.InstanceLive.Show do
           <script :type={Phoenix.LiveView.ColocatedHook} name=".ResizeConfirmFocus">
             // #532: the two-step confirm follows the trigger the same
             // way the shared confirm_block does — announce on insert,
-            // focus the consequence, return to Continue on cancel.
+            // focus the consequence. The destroyed arm serves the
+            // price-drift step-back (:confirm → :choose with the panel
+            // still open, "review and confirm again"); Cancel closes
+            // the whole panel, where there is nothing to return to.
             export default {
               mounted() {
                 requestAnimationFrame(() => this.el.focus())
