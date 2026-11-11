@@ -73,6 +73,12 @@ BASE_URL=https://staging.fluxvale.com E2E_TESTINBOX_TOKEN=<pat> npx playwright t
 - `file-access.spec.ts` — #190: deploy Kavita → rclone put through
   /dav → the file lands in the instance volume. Local + staging;
   needs rclone on PATH.
+- `kavita-ingest.spec.ts` — #679: deploy Kavita → rclone-put a real
+  EPUB into a series subfolder through /dav → Kavita's own API
+  registers an admin and creates a library over the mount, and its
+  scan must surface the series. The subfolder IS the regression:
+  Kavita's scanner silently skips loose files at a library root.
+  Local + staging; needs rclone on PATH.
 - `forgejo-lifecycle.spec.ts` — Forgejo's full lifecycle through the
   real UI: sign-in via TestInbox → catalog → deploy → running →
   instance URL (with the #181 first-open check: `/user/sign_up`

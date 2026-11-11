@@ -774,7 +774,9 @@ jobs:
     # instance-resize shipped legless in #518 and was red since birth
     # (the storage-probe 403 — the storageclasses RBAC grant riding
     # along in this PR is expected to turn it green; this PR's own
-    # enlarged leg run is the gate that proves it).
+    # enlarged leg run is the gate that proves it). #679 added
+    # kavita-ingest (15m bounded — the file-access deploy walk plus
+    # Kavita's own scan).
     timeout-minutes: ${{ matrix.leg.timeout_minutes || 60 }}
     strategy:
       # A red leg must not cancel the others — its report is triage
@@ -804,8 +806,10 @@ jobs:
             # storage-probe 403 — the storageclasses RBAC grant riding
             # along in this PR is expected to turn it green, and this
             # PR's own leg run is the proof); it deploys Forgejo,
-            # already in warm_apps.
-            specs: tests/forgejo-lifecycle.spec.ts tests/actual-lifecycle.spec.ts tests/vaultwarden-lifecycle.spec.ts tests/memos-lifecycle.spec.ts tests/vikunja-lifecycle.spec.ts tests/pocket-id-lifecycle.spec.ts tests/umami-lifecycle.spec.ts tests/docmost-lifecycle.spec.ts tests/file-access.spec.ts tests/backups.spec.ts tests/instance-resize.spec.ts
+            # already in warm_apps. #679 added kavita-ingest (the
+            # file-access deploy walk, then Kavita's own scan); kavita
+            # is already in warm_apps.
+            specs: tests/forgejo-lifecycle.spec.ts tests/actual-lifecycle.spec.ts tests/vaultwarden-lifecycle.spec.ts tests/memos-lifecycle.spec.ts tests/vikunja-lifecycle.spec.ts tests/pocket-id-lifecycle.spec.ts tests/umami-lifecycle.spec.ts tests/docmost-lifecycle.spec.ts tests/file-access.spec.ts tests/backups.spec.ts tests/instance-resize.spec.ts tests/kavita-ingest.spec.ts
             # the eleventh spec's retry bound is what pushed this leg
             # past the 60m default (comment at the job's timeout)
             timeout_minutes: 80
