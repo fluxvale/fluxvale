@@ -57,22 +57,22 @@ data "fluxvale_app_versions" "all" {
 }
 
 locals {
-  # null version = track the catalog's newest; a pinned string is
-  # frozen. A version change replaces the instance (create-only
-  # identity) — pin deliberately.
-  versions = {
-    for k, v in var.instances :
-    k => coalesce(v.version, data.fluxvale_app_versions.all[v.app].app_versions[0].version)
-  }
+  # The deploy pin, per instance. Deliberately explicit — the
+  # catalog's version rows come back in a version-STRING sort, not a
+  # release order (3.4.1-bundled sorts above 3.4.1; 9.x would sort
+  # above 10.x), so "first row" means nothing. Bumping the pin is the
+  # upgrade path, and a pin change replaces the instance (create-only
+  # identity) — bump deliberately.
+  versions = { for k, v in var.instances : k => v.version }
 }
 
 resource "fluxvale_instance" "apps" {
   for_each = var.instances
 
   name = each.key
-  # An unknown slug fails the data source at plan, before anything is
-  # created; a version string not in the catalog resolves null and
-  # fails at apply.
+  # The precondition below refuses an unknown version at plan, before
+  # anything is created; one() then resolves the pin to its catalog
+  # app_version_id (versions are unique per app server-side).
   app_version_id = one([
     for av in data.fluxvale_app_versions.all[each.value.app].app_versions :
     av.id if av.version == local.versions[each.key]
@@ -85,6 +85,16 @@ resource "fluxvale_instance" "apps" {
   exposure  = each.value.exposure
   always_on = each.value.always_on
   running   = each.value.running
+
+  lifecycle {
+    precondition {
+      condition = contains([
+        for av in data.fluxvale_app_versions.all[each.value.app].app_versions :
+        av.version
+      ], local.versions[each.key])
+      error_message = "Version ${local.versions[each.key]} of ${each.value.app} is not in the catalog — pick from the catalog listing (README.md)."
+    }
+  }
 }
 
 # Every instance gets a backups row in the bucket above: same

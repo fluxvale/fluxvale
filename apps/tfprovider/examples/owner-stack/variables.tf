@@ -66,13 +66,13 @@ variable "tailscale_auth_key" {
 variable "instances" {
   description = <<-EOT
     The instances, keyed by instance name (the key is the name and the backups prefix). Defaults are three representative shapes: a public always-on forgejo, memos and kavita private behind the gateway. Override the whole map in terraform.tfvars to differ.
-    version: null tracks the catalog's newest; pin a string to freeze it. A version change replaces the instance (create-only identity).
+    version: the catalog version to deploy, pinned explicitly — the catalog's row order is a version-string sort, not a release order, so there is no "newest row" to track. Bumping the pin is the upgrade path, and a pin change replaces the instance (create-only identity).
     retention_keep: days of backups per instance; null is the server's default.
     domain: registers a fluxvale_custom_domain for the instance when set — the dogfood pairings (forgejo → git.fluxvale.com, umami → analytics.fluxvale.com) are pending the dogfood plan; the null default registers nothing.
   EOT
   type = map(object({
     app            = string
-    version        = optional(string)
+    version        = string
     cpu_cores      = number
     memory_mb      = number
     storage_gb     = number
@@ -82,13 +82,14 @@ variable "instances" {
     retention_keep = optional(number)
     domain         = optional(string)
   }))
-  # The skeleton's three shapes — every domain null on purpose: an
-  # apply registers no custom domain until the dogfood plan's pairings
-  # are filled in (see terraform.tfvars.example).
+  # The skeleton's three shapes, pinned to catalog versions at the
+  # time of writing — every domain null on purpose: an apply
+  # registers no custom domain until the dogfood plan's pairings are
+  # filled in (see terraform.tfvars.example).
   default = {
-    forgejo = { app = "forgejo", version = null, cpu_cores = 1.0, memory_mb = 1024, storage_gb = 5, exposure = "public", always_on = true, running = true, retention_keep = 14, domain = null }
-    memos   = { app = "memos", version = null, cpu_cores = 0.25, memory_mb = 512, storage_gb = 5, exposure = "private", always_on = false, running = true, retention_keep = null, domain = null }
-    kavita  = { app = "kavita", version = null, cpu_cores = 0.5, memory_mb = 512, storage_gb = 10, exposure = "private", always_on = false, running = true, retention_keep = null, domain = null }
+    forgejo = { app = "forgejo", version = "16.0.5", cpu_cores = 1.0, memory_mb = 1024, storage_gb = 10, exposure = "public", always_on = true, running = true, retention_keep = 14, domain = null }
+    memos   = { app = "memos", version = "26.11.0", cpu_cores = 0.25, memory_mb = 512, storage_gb = 5, exposure = "private", always_on = false, running = true, retention_keep = null, domain = null }
+    kavita  = { app = "kavita", version = "0.9.1", cpu_cores = 0.5, memory_mb = 512, storage_gb = 10, exposure = "private", always_on = false, running = true, retention_keep = null, domain = null }
   }
   validation {
     condition     = alltrue([for k, v in var.instances : contains(["public", "private"], v.exposure)])

@@ -17,8 +17,12 @@ lives next door in
 - **1 R2 bucket** (cloudflare provider) — every instance's backups
   land in it under its own prefix (`fluxvale/<name>/`).
 - **3 instances** (`var.instances`, keyed by name) — defaults are
-  three representative shapes: a public always-on forgejo, memos and
-  kavita private behind the gateway.
+  three representative shapes pinned to catalog versions: a public
+  always-on forgejo, memos and kavita private behind the gateway.
+  Versions are explicit pins (bump = upgrade; the catalog's row order
+  is a version-string sort, not a release order, so no "first row"
+  shortcut exists — the instance resource preconditions the pin
+  against the catalog at plan).
 - **1 backups row per instance** — endpoint composed from the
   Cloudflare account id, bucket from the TF-created bucket, per
   instance prefix and retention.
@@ -53,13 +57,17 @@ instances first, then backups rows and the attach calls. One
 The token scopes match the workflow's acceptance preflight
 (`.github/workflows/tfprovider-acceptance.yml`); mint once, reuse.
 
-To see the catalog while picking apps:
+To see the catalog while picking apps and version pins:
 
 ```sh
 tofu console
 > [for a in data.fluxvale_apps.catalog.apps : a.slug]
 > [for v in data.fluxvale_app_versions.all["memos"].app_versions : v.version]
 ```
+
+NB the versions list is a version-STRING sort (the API's own order:
+`3.4.1-bundled` sits above `3.4.1`) — read it as a set of choices,
+not a newest-first ranking.
 
 ## Install the providers (once)
 
