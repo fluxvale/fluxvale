@@ -3796,7 +3796,6 @@ msgstr ""
 msgid "status"
 msgstr ""
 
-<<<<<<< HEAD
 #: lib/flux_vale_web/live/admin_live/health.ex:93
 #, elixir-autogen, elixir-format
 msgid "1 always-on"
@@ -3835,9 +3834,9 @@ msgstr ""
 #: lib/flux_vale_web/live/admin_live/health.ex:127
 #, elixir-autogen, elixir-format
 msgid "No deploys recorded yet."
-=======
+msgstr ""
+
 #: lib/flux_vale_web/controllers/page_html/home.html.heex:167
 #, elixir-autogen, elixir-format
 msgid "real apps · real prices"
->>>>>>> 57fcd8f9 (feat(platform): the landing hero shows a real captured app page, not the placeholder mock)
 msgstr ""
