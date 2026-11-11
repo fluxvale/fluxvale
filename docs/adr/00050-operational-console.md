@@ -1,6 +1,6 @@
 # ADR-0050: Operational console — curated at-a-glance, linked-not-embedded
 
-**Status**: Proposed (plan at gate, #702)
+**Status**: Accepted (owner go Nov 11, 2026, #702 — the gate calls are recorded in the plan)
 **Date**: 2026-11-11
 
 **Context**: the admin console ([ADR-0027](00027-admin-surface-ashadmin.md)
@@ -42,7 +42,9 @@ opposite shape Nov 11, 2026: FluxVale's own at-a-glance surface.
    ([ADR-0021](00021-secrets-bws-operator.md) Am. 3) and never reach
    the browser; every upstream call caches 30–60s; free-tier rate
    limits are respected by construction (a handful of named queries
-   a minute). Design only in this lane — its own gate after Tier 1.
+   a minute). Design only in this lane — its own gate after Tier 1;
+   the PostHog leg is additionally deferred to ride the split's
+   S1/S4 landing (owner call at the gate, Nov 11, 2026).
 5. **Platform-admin-only.** The section rides the admin gate stack
    (Am. 3's triple gate plus Am. 5/6's demotion seams) and reads with
    the admin actor through resource policies
