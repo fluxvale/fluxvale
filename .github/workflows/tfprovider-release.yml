@@ -27,8 +27,9 @@
 # platforms, os/arch in GOOS/GOARCH vocabulary, no `v`, NO version
 # directory in mirror use — and the binary INSIDE is
 # `terraform-provider-fluxvale_v<version>` (the `v` lives on the
-# binary). That is what filesystem mirrors and the eventual registry
-# expect (docs/install.md).
+# binary; `.exe` rides it on Windows — tofu's providercache presumes
+# the extension on Windows packages). That is what filesystem mirrors
+# and the eventual registry expect (docs/install.md).
 #
 # workflow_dispatch is the DRY RUN: build + archive + checksums land as
 # run artifacts and publish never fires — the event gate in publish's
@@ -107,9 +108,13 @@ jobs:
       # Same install as ci.yml's tfprovider lane: parse (not install)
       # from mise.toml — the release build and the per-PR proof can't
       # drift from the pin.
+      # shell: bash on every leg: pwsh (the Windows default) can't
+      # parse this sed/GITHUB_OUTPUT script — the tf-v0.1.0 windows
+      # leg died on exactly that (run 42545519127).
       - name: Read Go version from mise.toml
         id: go
         working-directory: .
+        shell: bash
         run: |
           version="$(sed -n 's/^go *= *"\([^"]*\)".*/\1/p' mise.toml)"
           echo "go=$version"
@@ -208,7 +213,10 @@ jobs:
           OS_ARCH: ${{ matrix.leg.os_arch }}
         run: |
           $archive = "terraform-provider-fluxvale_${env:VERSION}_${env:OS_ARCH}.zip"
-          $inner = "terraform-provider-fluxvale_v${env:VERSION}"
+          # The inner name carries .exe on Windows — tofu's providercache
+          # (CachedProvider.ExecutableFile) presumes it: an extension-less
+          # file is detected as the executable but fails to run.
+          $inner = "terraform-provider-fluxvale_v${env:VERSION}.exe"
           Copy-Item "${{ matrix.leg.binary }}" $inner
           Compress-Archive -Path $inner -DestinationPath $archive
           # Flat-entry proof: exactly one root entry, the registry-named binary.
