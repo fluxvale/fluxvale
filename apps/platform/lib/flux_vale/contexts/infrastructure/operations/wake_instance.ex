@@ -42,11 +42,13 @@ defmodule FluxVale.Infrastructure.Operations.WakeInstance do
   # anonymous: the visitor carries no user id, so the event rides nil.
   defp capture_wake({:ok, %{status: :starting} = instance}) do
     case app_slug(instance) do
-      # The slug is unreadable — the #232 wake-metric posture:
-      # analytics must never fail a request that already succeeded.
+      # coveralls-ignore-start - the nil only comes from app_slug/1's
+      # own defensive rescue (see there): analytics must never fail a
+      # request that already succeeded.
       nil ->
         :ok
 
+      # coveralls-ignore-stop
       app_slug ->
         FluxVale.Analytics.capture("instance wake triggered", nil, %{app_slug: app_slug})
 
@@ -60,11 +62,15 @@ defmodule FluxVale.Infrastructure.Operations.WakeInstance do
   # error — not a wake; the caller answers from what it sees.
   defp capture_wake({:ok, instance}), do: {:ok, instance}
 
+  # coveralls-ignore-next-line - defensive: the action's DB-outage errors (not simulatable under the sandbox).
   defp capture_wake({:error, _reason} = error), do: error
 
   # The catalog slug — the #232 wake-metric label's value, resolved
-  # fresh per emission. Guarded the same way: an unreadable slug skips
-  # the event with a log instead of failing the wake.
+  # fresh per emission: the same read the metric already pays on every
+  # emission, deliberately not gated on the PostHog kill switch (one
+  # indexed read beside a K8s scale call is noise). Guarded the same
+  # way: an unreadable slug skips the event with a log instead of
+  # failing the wake.
   defp app_slug(instance) do
     loaded = Ash.load!(instance, [app_version: :app], authorize?: false)
     loaded.app_version.app.slug

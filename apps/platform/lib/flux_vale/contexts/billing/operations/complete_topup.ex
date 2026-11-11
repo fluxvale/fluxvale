@@ -158,6 +158,23 @@ defmodule FluxVale.Billing.Operations.CompleteTopup do
     }
   end
 
+  # The provider name from the key's "<provider>:<reference>" shape —
+  # both providers mint it (HitPay/Polar idempotency_key/1). A drifted
+  # key degrades to a provider-less event instead of leaking the
+  # reference — analytics never fail the credit (the wake posture).
+  @spec idempotency_provider(String.t()) :: String.t() | nil
+  defp idempotency_provider(idempotency_key) do
+    case String.split(idempotency_key, ":", parts: 2) do
+      [provider, _reference] ->
+        provider
+
+      # coveralls-ignore-next-line - defensive: untriggerable today —
+      # both providers prefix the key; fires only on format drift.
+      _referenceless ->
+        nil
+    end
+  end
+
   # Terminal-once: the status filter rides the UPDATE's WHERE, so an
   # out-of-order delivery racing this write loses (zero rows) instead
   # of flipping an already-terminal row. :expired rides along (#364):
@@ -185,12 +202,15 @@ defmodule FluxVale.Billing.Operations.CompleteTopup do
         # does. Amount is the net credit in major units; the provider
         # name is the idempotency key's prefix — the payment reference
         # after it never rides (the PostHogRequestContext posture).
-        [provider | _rest] = String.split(outcome.idempotency_key, ":")
+        props = %{amount: topup.amount_cents / 100}
 
-        FluxVale.Analytics.capture("wallet topped up", nil, %{
-          amount: topup.amount_cents / 100,
-          provider: provider
-        })
+        props =
+          case idempotency_provider(outcome.idempotency_key) do
+            nil -> props
+            provider -> Map.put(props, :provider, provider)
+          end
+
+        FluxVale.Analytics.capture("wallet topped up", nil, props)
 
         {:ok, completed}
 
