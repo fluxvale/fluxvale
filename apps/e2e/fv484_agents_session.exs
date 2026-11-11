@@ -1,8 +1,7 @@
 # Dev-only capture session mint for the #484 agent-quickstart
-# screenshots: the fv492 posture — the capture address rides the
-# team-domain JIT (#502: the team bypass is the only self-signup
-# left), then the sanctioned sign-in ops mint the session exactly as
-# a real signup.
+# screenshots: the capture address rides the team-domain JIT (#502:
+# the team bypass is the only self-signup left), then the sanctioned
+# sign-in ops mint the session exactly as a real signup.
 #
 # Run from apps/platform: mix run ../e2e/fv484_agents_session.exs
 email = "capture-fv484@fluxvale.com"
