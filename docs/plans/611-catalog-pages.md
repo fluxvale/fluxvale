@@ -104,6 +104,7 @@ exists.
 | `features` | array of maps | 1-4 items: `icon` (allowlist), `title` 3-60, `body` 20-220 | The app's own capabilities. The 2x2 shape caps it at 4. |
 | `faq` | array of maps | 0-4 items: `question` 8-120 ending "?", `answer` 20-600 | App-specific objections (SSH support, licensing, multi-user). |
 | `community_url` | string | https URL | Community link row entry. |
+| `icon_url` | string | same-origin path under `/images/catalog/<slug>/` (`.png` or `.svg`), vendored with a provenance comment in the seed YAML — never a third-party URL (a hotlinked icon whose host hangs holds the page's `load` event hostage, #716) | The tile mark. Same storage rule as `screenshots`, Am. 2026-11-11. |
 
 ### 4.2 New Category field
 

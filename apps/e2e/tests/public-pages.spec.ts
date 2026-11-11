@@ -45,16 +45,25 @@ test("catalog pages carry no third-party image sources", async ({ page }) => {
     page.locator("img").evaluateAll((imgs) =>
       imgs
         .map((img) => img.getAttribute("src") ?? "")
-        .filter((src) => /^https?:\/\//i.test(src)),
+        .filter((src) => /^(https?:)?\/\//i.test(src)),
+    );
+  // Strings are not loads: a missing or misnamed vendored file 404s
+  // silently (Plug.Static has no per-file guard), so assert the icons
+  // actually decoded — naturalWidth > 0 covers both break classes.
+  const imgsDecoded = () =>
+    page.locator("img").evaluateAll((imgs) =>
+      imgs.every((img) => img.complete && img.naturalWidth > 0),
     );
 
   await page.goto("/catalog");
   await expect(page.locator("[data-testid^='app-']").first()).toBeVisible();
   expect(await absoluteSrcs()).toEqual([]);
+  expect(await imgsDecoded()).toBe(true);
 
   await page.locator("[data-testid^='app-']").first().click();
   await expect(page).toHaveURL(/\/catalog\//);
   expect(await absoluteSrcs()).toEqual([]);
+  expect(await imgsDecoded()).toBe(true);
 });
 
 test("an anonymous deploy CTA lands on /sign-in — the auth boundary", async ({ page }) => {

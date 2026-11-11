@@ -42,7 +42,7 @@
       # Icons ship vendored under /images/catalog/<slug>/ and load
       # same-origin, like the screenshots — a hotlinked icon whose
       # host hangs holds the public page's load event hostage (#716).
-      # Provenance: forgejo assets/logo.svg on codeberg.org.
+      # Provenance: https://codeberg.org/forgejo/forgejo/raw/branch/forgejo/assets/logo.svg
       icon_url: /images/catalog/forgejo/icon.svg
       source_url: https://codeberg.org/forgejo/forgejo
       docs_url: https://forgejo.org/docs/latest/
@@ -194,7 +194,7 @@
         per-user reading progress, OPDS support for third-party clients, and
         OIDC SSO. All configuration happens in the web UI and no environment
         variables are needed to boot.
-      # Icon vendored (#716) — upstream: Kareadita/Kavita develop Logo/kavita.svg.
+      # Icon vendored (#716) — upstream: https://raw.githubusercontent.com/Kareadita/Kavita/develop/Logo/kavita.svg
       icon_url: /images/catalog/kavita/icon.svg
       source_url: https://github.com/Kareadita/Kavita
       docs_url: https://wiki.kavitareader.com
@@ -331,7 +331,7 @@
         and are searchable by tag and date. The web UI is at home on
         phones and desktops, and everything is stored in a single
         SQLite database on the instance volume.
-      # Icon vendored (#716) — upstream: usememos/memos main web/public/logo.svg.
+      # Icon vendored (#716) — upstream: https://raw.githubusercontent.com/usememos/memos/main/web/public/logo.svg
       icon_url: /images/catalog/memos/icon.svg
       source_url: https://github.com/usememos/memos
       docs_url: https://usememos.com/docs
@@ -446,7 +446,7 @@
       # ActualBudget/Umami lesson): the llama glyph on a solid blue
       # field, so it reads on the icon tile in both themes. The
       # originalMedia logo.svg is the glyph alone on transparency.
-      # Icon vendored (#716) — upstream: go-vikunja/vikunja v2.8.0 apple-touch-icon.png.
+      # Icon vendored (#716) — upstream: https://raw.githubusercontent.com/go-vikunja/vikunja/v2.8.0/frontend/originalMedia/icons/apple-touch-icon.png
       icon_url: /images/catalog/vikunja/icon.png
       source_url: https://github.com/go-vikunja/vikunja
       docs_url: https://vikunja.io/docs
@@ -657,7 +657,7 @@
         The admin panel is disabled in this packaging and sign-ups stay
         open on the instance URL, so create your account soon after
         deploying.
-      # Icon vendored (#716) — upstream: dani-garcia/vaultwarden 1.37.5 vaultwarden-icon.svg.
+      # Icon vendored (#716) — upstream: https://raw.githubusercontent.com/dani-garcia/vaultwarden/1.37.5/resources/vaultwarden-icon.svg
       icon_url: /images/catalog/vaultwarden/icon.svg
       source_url: https://github.com/dani-garcia/vaultwarden
       docs_url: https://github.com/dani-garcia/vaultwarden/wiki
@@ -833,7 +833,7 @@
         while it wakes. Keep the instance public so your apps can reach
         it, and save the encryption key, because restoring a backup
         needs it.
-      # Icon vendored (#716) — upstream: pocket-id/pocket-id main static-logo.svg.
+      # Icon vendored (#716) — upstream: https://raw.githubusercontent.com/pocket-id/pocket-id/main/frontend/static/img/static-logo.svg
       icon_url: /images/catalog/pocket-id/icon.svg
       source_url: https://github.com/pocket-id/pocket-id
       docs_url: https://pocket-id.org/docs/introduction
@@ -984,7 +984,7 @@
       # (both paths fill="white") — invisible on the light icon tile.
       # The apple-touch icon is the same mark, self-contained: white
       # glyph on the solid purple field (#5D3DBA).
-      # Icon vendored (#716) — upstream: actualbudget/actual v26.11.0 apple-touch-icon.png.
+      # Icon vendored (#716) — upstream: https://raw.githubusercontent.com/actualbudget/actual/v26.11.0/packages/desktop-client/public/apple-touch-icon.png
       icon_url: /images/catalog/actualbudget/icon.png
       source_url: https://github.com/actualbudget/actual
       docs_url: https://actualbudget.org/docs/
@@ -1169,7 +1169,7 @@
       # it reads on the icon tile in both themes. The repo's other
       # assets (favicon PNGs, safari-pinned-tab.svg) are black-on-
       # transparent and vanish on the dark tile.
-      # Icon vendored (#716) — upstream: umami-software/umami v3.4.1 apple-touch-icon.png.
+      # Icon vendored (#716) — upstream: https://raw.githubusercontent.com/umami-software/umami/v3.4.1/public/apple-touch-icon.png
       icon_url: /images/catalog/umami/icon.png
       source_url: https://github.com/umami-software/umami
       docs_url: https://umami.is/docs
@@ -1462,7 +1462,7 @@
       # The PWA app-icon is the self-contained mark (the ActualBudget
       # lesson): a white glyph on a fully opaque black field, so it
       # reads on the icon tile in both themes. Pinned to the tag.
-      # Icon vendored (#716) — upstream: docmost/docmost v0.97.0 app-icon-512x512.png.
+      # Icon vendored (#716) — upstream: https://raw.githubusercontent.com/docmost/docmost/v0.97.0/apps/client/public/icons/app-icon-512x512.png
       icon_url: /images/catalog/docmost/icon.png
       source_url: https://github.com/docmost/docmost
       docs_url: https://docmost.com/docs
