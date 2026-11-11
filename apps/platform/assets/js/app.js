@@ -24,6 +24,7 @@ import {Socket} from "phoenix"
 import {LiveSocket} from "phoenix_live_view"
 import {hooks as colocatedHooks} from "phoenix-colocated/flux_vale"
 import topbar from "../vendor/topbar"
+import posthog from "../vendor/posthog-js"
 
 const csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content")
 
@@ -92,6 +93,39 @@ window.addEventListener("phx:page-loading-stop", _info => topbar.hide())
 
 // connect if there are any LiveViews on the page
 liveSocket.connect()
+
+// In-app PostHog (ADR-0049), gated on the server-rendered hook: absent,
+// nothing here runs — no init, no network. Armed, the cookieless
+// posture: memory persistence and person_profiles "never" (nothing is
+// written to the visitor's device; identity is an event attribute),
+// session recording off (replay is off at launch), autocapture on but
+// element text dropped by mask_all_text ("which buttons you press",
+// never surrounding copy). capture_pageview "history_change" tracks
+// LiveView's pushState navigations — the SPA pageview guarantee this
+// SDK version documents, so no phx:navigate listener on top (it would
+// double-capture). tracing_headers marks our own origin, so the app's
+// fetch/XHR calls carry x-posthog-distinct-id/-session-id for the
+// server plug to correlate backend errors to this browser session.
+const analyticsConfig = document.getElementById("posthog-config")
+
+if (analyticsConfig) {
+  const distinctId = analyticsConfig.getAttribute("data-distinct-id")
+
+  posthog.init(analyticsConfig.getAttribute("data-api-key"), {
+    api_host: analyticsConfig.getAttribute("data-api-host"),
+    persistence: "memory",
+    person_profiles: "never",
+    disable_session_recording: true,
+    autocapture: true,
+    mask_all_text: true,
+    capture_pageview: "history_change",
+    tracing_headers: [window.location.hostname],
+    // Server-known identity (the hook's data-distinct-id): the
+    // documented bootstrapping shape. Absent — anonymous surfaces —
+    // no identity at all.
+    ...(distinctId ? {bootstrap: {distinctID: distinctId, isIdentifiedID: true}} : {}),
+  })
+}
 
 // expose liveSocket on window for web console debug logs and latency simulation:
 // >> liveSocket.enableDebug()

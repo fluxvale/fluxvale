@@ -13,19 +13,21 @@ defmodule FluxValeWeb.Plugs.PostHogRequestContext do
   Accepted with the ADR-0049 delegation: the SDK plug ships the
   leftmost X-Forwarded-For entry as $ip to PostHog Cloud EU (documented
   acceptance; the project-level IP-off posture in the PostHog project
-  settings is the real gate — revisit at S1b). The client-supplied
-  x-posthog-distinct-id/-session-id tracing headers and the query
-  string are NOT forwarded (see call/2): the headers are spoofable
-  attribution until the client slice wires the real ones deliberately,
-  and this app's query strings carry auth-boundary tokens (#408's
-  invitation accept).
+  settings is the real gate — revisit at S1b). The query string is NOT
+  forwarded (see call/2) — that strip is permanent: this app's query
+  strings carry auth-boundary tokens (#408's invitation accept).
+
+  The x-posthog-distinct-id/-session-id tracing headers ARE forwarded
+  since the client slice ships them deliberately (the bundled posthog-js
+  sets tracing_headers to our own origin): they are attribution-only
+  analytics context — the SDK's own docs say so, never auth — so
+  forging them pollutes the forger's own browser session attribution,
+  nothing more.
   """
 
   # The SDK's request-context plug — via attribute so neither the
   # nested-module-alias check nor an `:as` alias is needed.
   @posthog_plug PostHog.Integrations.Plug
-  # Client-supplied tracing headers the SDK plug would trust verbatim.
-  @spoofable_tracing_headers ["x-posthog-distinct-id", "x-posthog-session-id"]
 
   @doc false
   @spec init(keyword()) :: keyword()
@@ -41,18 +43,11 @@ defmodule FluxValeWeb.Plugs.PostHogRequestContext do
       _armed ->
         # The SDK plug's only effect is process-scoped context-setting
         # (PostHog.Context.set -> logger metadata); it returns the conn
-        # it was handed. So hand it a stripped VIEW and return the REAL
-        # conn downstream untouched: the query string routinely carries
-        # auth-boundary tokens (#408: invitation accept rides ?token=…
-        # and that token IS the credential), and the x-posthog-* tracing
-        # headers are client-supplied and spoofable until the client
-        # slice wires the real ones.
-        view =
-          Enum.reduce(@spoofable_tracing_headers, conn, fn header, acc ->
-            Plug.Conn.delete_req_header(acc, header)
-          end)
-
-        @posthog_plug.call(%{view | query_string: ""}, opts)
+        # it was handed. So hand it a query-stripped VIEW and return the
+        # REAL conn downstream untouched: the query string routinely
+        # carries auth-boundary tokens (#408: invitation accept rides
+        # ?token=… and that token IS the credential).
+        @posthog_plug.call(%{conn | query_string: ""}, opts)
 
         conn
     end
