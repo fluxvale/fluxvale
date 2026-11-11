@@ -32,15 +32,17 @@ thin-mirror idea — the real source moves.
 
 3. **Registry readiness ships with the move**: plain `vX.Y.Z` tags
    (semver, no namespace — the provider is the repo's sole product);
-   `terraform-provider-registry-manifest.json` (protocol 6.0) inside
-   every release zip; `SHA256SUMS` GPG-detach-signed
-   (`SHA256SUMS.sig`) with a dedicated company key (RSA 4096, no
-   expiry — private half in 1Password
+   the registries' release-asset convention — per-platform zips
+   carrying only the binary, plus versioned
+   `terraform-provider-fluxvale_<version>_manifest.json` (protocol
+   6.0), `_SHA256SUMS` covering the zips and the manifest, and the
+   binary GPG-detached `_SHA256SUMS.sig` — over a dedicated company
+   key (RSA 4096, no expiry — private half in 1Password
    `fluxvale-production/terraform-provider-signing-key` + the repo's
    `GPG_PRIVATE_KEY` Actions secret; public half committed in the
    repo). First release: **v0.2.0** — no schema break, but the
-   distribution artifact changes materially (manifest, signatures, new
-   download home), which is minor-bump-sized, not patch-sized.
+   distribution artifact changes materially (manifest, signatures,
+   new download home), which is minor-bump-sized, not patch-sized.
 
 4. **Detachment audit result**: the provider shares nothing with the
    monorepo's Rust workspaces — `crates/fluxvale-api` serves the CLI

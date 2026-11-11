@@ -13,10 +13,10 @@ The provider is not on the public registry yet. You install it from a release ar
 
 The provider's source and releases live in [fluxvale/terraform-provider-fluxvale](https://github.com/fluxvale/terraform-provider-fluxvale).
 
-1. Download the zip for your platform from the [releases page](https://github.com/fluxvale/terraform-provider-fluxvale/releases), tagged `v*`, together with `SHA256SUMS` and its signature `SHA256SUMS.sig`. Verify the archive:
+1. Download the zip for your platform from the [releases page](https://github.com/fluxvale/terraform-provider-fluxvale/releases), tagged `v*`, together with the versioned checksums `terraform-provider-fluxvale_0.2.0_SHA256SUMS` and their signature `terraform-provider-fluxvale_0.2.0_SHA256SUMS.sig`. Verify the archive:
 
    ```sh
-   grep terraform-provider-fluxvale_0.2.0_linux_amd64.zip SHA256SUMS | sha256sum -c -
+   grep terraform-provider-fluxvale_0.2.0_linux_amd64.zip terraform-provider-fluxvale_0.2.0_SHA256SUMS | sha256sum -c -
    ```
 
 2. Place the zip in a local mirror:
