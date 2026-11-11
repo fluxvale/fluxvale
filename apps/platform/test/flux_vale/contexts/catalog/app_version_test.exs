@@ -188,11 +188,30 @@ defmodule FluxVale.Catalog.AppVersionTest do
       # uppercase suffix, a dotted suffix — the sort key has no band
       # for any of them (uppercase/dots would collate differently in
       # SQL than in Elixir).
-      for bad <- ["v3.4.1", "3.4", "3.4.1.1", "3.4.1+bundled", "3.4.1-Bundled", "3.4.1-rc.1"] do
+      for bad <- [
+            "v3.4.1",
+            "3.4",
+            "3.4.1.1",
+            "3.4.1+bundled",
+            "3.4.1-Bundled",
+            "3.4.1-rc.1"
+          ] do
         attrs = version_attrs(app(), %{version: bad})
 
         assert {:error, %Ash.Error.Invalid{}} = AppVersion.create(attrs, authorize?: false)
       end
+    end
+
+    # The newline never reaches the constraint through an action —
+    # Ash.Type.String trims at cast — and the pattern itself refuses
+    # the untrimmed form (the pattern test), so seed!/backfill paths
+    # can't key a newline either (\A…\z, CodeRabbit #703).
+    test "a pasted trailing newline trims to the clean version (#703)" do
+      attrs = version_attrs(app(), %{version: "3.4.1\n"})
+
+      assert {:ok, version} = AppVersion.create(attrs, authorize?: false)
+      assert version.version == "3.4.1"
+      assert version.sort_key == "000003.000004.000001.1"
     end
 
     test "derives the sort key at create (#700)" do
@@ -238,6 +257,20 @@ defmodule FluxVale.Catalog.AppVersionTest do
   end
 
   describe "SetSortKey.key/1 (#700)" do
+    test "pattern is the grammar the version constraint enforces" do
+      pattern = SetSortKey.pattern()
+
+      assert Regex.match?(pattern, "3.4.1")
+      assert Regex.match?(pattern, "3.4.1-bundled")
+
+      # The restricted suffix alphabet (collation safety), the shape
+      # rules, and the newline guard — all write-rejected through
+      # this regex.
+      for bad <- ["3.4.1-Bundled", "3.4.1-rc.1", "v3.4.1", "3.4.1\n"] do
+        refute Regex.match?(pattern, bad)
+      end
+    end
+
     test "numeric segments beat string order at every crossing" do
       # String order would flip both pairs ("9…" > "10…", "4…" > "10…").
       assert SetSortKey.key("9.2.0") < SetSortKey.key("10.0.0")

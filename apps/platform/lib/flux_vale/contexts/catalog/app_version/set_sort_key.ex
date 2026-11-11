@@ -41,7 +41,11 @@ defmodule FluxVale.Catalog.AppVersion.SetSortKey do
 
   alias Ash.Changeset
 
-  @grammar ~r/^(\d{1,6})\.(\d{1,6})\.(\d{1,6})(-[0-9a-z]+)?$/
+  # \A…\z (never ^…$): the line anchors match before a trailing
+  # newline. Actions never see one (Ash.Type.String trims at cast);
+  # this guards the direct key/1 callers — test seeds and the
+  # migration backfill (CodeRabbit, #703).
+  @grammar ~r/\A(\d{1,6})\.(\d{1,6})\.(\d{1,6})(-[0-9a-z]+)?\z/
 
   @doc """
   The grammar as a `match` constraint pattern — the `version`
