@@ -15,7 +15,6 @@ defmodule FluxValeWeb.AdminLive.Health do
 
   alias FluxValeWeb.AdminHealth
   alias FluxValeWeb.AdminShell
-  alias FluxValeWeb.InstanceStatus
 
   @impl Phoenix.LiveView
   def mount(_params, _session, socket) do
@@ -95,15 +94,20 @@ defmodule FluxValeWeb.AdminLive.Health do
                   </p>
                 </div>
                 <div class="mt-3 flex flex-wrap items-center gap-2" data-testid="fleet-statuses">
-                  <%!-- One badge per non-zero status; the fleet's vocabulary
-                  is the product's (#179) — InstanceStatus owns the words. --%>
-                  <.badge
+                  <%!-- One badge per non-zero status, in the lifecycle arc
+                  InstanceStatus documents (unknowns alphabetical at the
+                  tail). The badge is the shared status_badge — the one
+                  state-to-(label, color, pulse) mapping — and the count
+                  rides beside it as sibling markup; the fleet's
+                  vocabulary is the product's (#179), never forked here. --%>
+                  <span
                     :for={{status, count} <- sorted_statuses(@fleet.statuses)}
                     data-testid={"fleet-status-#{status}"}
-                    class="px-1.5! text-[11px]!"
+                    class="inline-flex items-center gap-1"
                   >
-                    {InstanceStatus.label(status)} {count}
-                  </.badge>
+                    <.status_badge status={status} />
+                    <span class="text-xs font-medium text-ink">{count}</span>
+                  </span>
                 </div>
               </div>
 
@@ -144,9 +148,33 @@ defmodule FluxValeWeb.AdminLive.Health do
     """
   end
 
-  # Map iteration order is unspecified — the badge row sorts by status
-  # so the spread renders the same order on every mount.
-  defp sorted_statuses(statuses), do: Enum.sort(statuses)
+  # The lifecycle arc, in InstanceStatus's documented order.
+  @status_arc [
+    :pending,
+    :deploying,
+    :starting,
+    :running,
+    :restoring,
+    :sleeping,
+    :stopped,
+    :error,
+    :deleting,
+    :lost
+  ]
+
+  # Map iteration order is unspecified — the badge row renders in the
+  # lifecycle arc InstanceStatus documents (the state machine's own
+  # reading: submitted → provisioning → starting → running, the idle
+  # and backup rests, then the failure and teardown terminals), with
+  # unknown statuses alphabetical at the tail so a new atom can never
+  # reorder the row.
+  defp sorted_statuses(statuses) do
+    {arc, unknown} = Map.split(statuses, @status_arc)
+
+    Enum.sort_by(arc, &arc_index(elem(&1, 0))) ++ Enum.sort(unknown)
+  end
+
+  defp arc_index(status), do: Enum.find_index(@status_arc, &(&1 == status))
 
   # The tombstone renders as recorded; a nil actor_label is the honest
   # system attribution (the audit section's same grammar).

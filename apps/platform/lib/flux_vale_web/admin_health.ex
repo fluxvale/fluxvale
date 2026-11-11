@@ -6,12 +6,15 @@ defmodule FluxValeWeb.AdminHealth do
   (env chip + version), the status spread with totals, and the newest
   deploy trail.
 
-  Every read rides Ash with authorization ON (repo default) — the
-  platform-admin blanket bypass admits the rows, the actor decides,
-  never the UI. The deploy trail reads the Instance Version module
-  through `AdminAudit`'s registry (the paper-trail introspection, never
-  a spelled module name) and filters `version_action_name == :deploy` —
-  the same newest-first grammar the audit section sorts by.
+  Every read rides Ash with authorization ON (repo default) — the two
+  admissions are distinct: the instance rows ride the platform-admin
+  blanket bypass (ActorIsPlatformAdmin outside the machine API,
+  #644), while the trail's version rows ride the VersionMixin's
+  direct admin-only read policy (ADR-0048 D7). The deploy trail reads
+  the Instance Version module through `AdminAudit`'s registry — the
+  same string-keyed fetch the audit section's URL segments resolve
+  through — and filters `version_action_name == :deploy` — the same
+  newest-first grammar the audit section sorts by.
   """
 
   alias FluxValeWeb.AdminAudit
@@ -61,8 +64,7 @@ defmodule FluxValeWeb.AdminHealth do
   end
 
   defp recent_deploys(actor) do
-    entry = Enum.find(AdminAudit.entries(), &(&1.module == FluxVale.Infrastructure.Instance))
-    version_module = AdminAudit.version_module(entry)
+    version_module = instance_version_module()
 
     version_module
     |> Ash.Query.for_read(:read, %{}, actor: actor)
@@ -77,5 +79,30 @@ defmodule FluxValeWeb.AdminHealth do
         at: version.version_inserted_at
       }
     end)
+  end
+
+  # The Instance entry's Version module, resolved the audit section's
+  # way: the registry's string-keyed fetch, never a spelled module
+  # match. The registry keeping the :instance entry is the doctrine
+  # gate's parity invariant (the admin_authority_test pins the
+  # business set AdminAudit mirrors), so :error is unreachable while
+  # that gate holds — the raise is the honest loud failure if it ever
+  # stops holding.
+  defp instance_version_module do
+    case AdminAudit.fetch("instance") do
+      {:ok, entry} ->
+        AdminAudit.version_module(entry)
+
+      :error ->
+        # coveralls-ignore-start - unreachable while the doctrine gate's
+        # parity test holds: it pins the :instance entry into
+        # AdminAudit's set (the invariant test in admin_health_test
+        # asserts it directly).
+        raise ArgumentError,
+              "the AdminAudit registry has no :instance entry — " <>
+                "the doctrine gate's parity test must keep the business set intact"
+
+        # coveralls-ignore-stop
+    end
   end
 end
