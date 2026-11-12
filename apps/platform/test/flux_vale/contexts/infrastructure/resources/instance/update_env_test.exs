@@ -477,6 +477,46 @@ defmodule FluxVale.Infrastructure.Instance.UpdateEnvTest do
       assert_received {:upsert, %{"ALLOWED_HOSTS" => removed_value}}
       assert removed_value == platform_host
     end
+
+    test "a private, non-live remove drops the key — no platform hostname re-added", %{
+      user: user
+    } do
+      version = InstanceFixtures.app_version!(host_allowlist_env: "ALLOWED_HOSTS")
+
+      created =
+        create!(user, version: version, env: %{"ALLOWED_HOSTS" => "localhost"})
+
+      # Private BEFORE the namespace is pinned: set_exposure is
+      # attribute-only on a never-deployed row, and no access pairing
+      # exists, so the default hostname is not live.
+      private =
+        created
+        |> Ash.Changeset.for_update(:set_exposure, %{exposure: :private}, actor: user)
+        |> Ash.update!()
+
+      instance =
+        private
+        |> InstanceFixtures.walk_to!(:stopped)
+        |> InstanceFixtures.pin!(namespace: "ns-live")
+
+      stub_secret(%{"ALLOWED_HOSTS" => "localhost"})
+
+      expect(Secret, :upsert, fn _kc, "ns-live", "app-env", data ->
+        send(self(), {:upsert, data})
+        {:ok, %{}}
+      end)
+
+      assert {:ok, updated} = update_env(instance, user, %{}, ["ALLOWED_HOSTS"])
+
+      assert updated.env_vars == %{}
+      assert reload!(instance).env_vars == %{}
+
+      assert_received {:upsert, data}
+      refute Map.has_key?(data, "ALLOWED_HOSTS")
+
+      domain = Application.fetch_env!(:flux_vale, :instances_base_domain)
+      refute Enum.any?(data, fn {_key, value} -> value =~ "#{instance.slug}.#{domain}" end)
+    end
   end
 
   describe "audit" do

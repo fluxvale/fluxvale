@@ -198,9 +198,10 @@ defmodule FluxVale.Infrastructure.Instance.UpdateEnv do
   # The allowlist key stays user-writable, but the platform hostname
   # must survive any patch that touches it: re-apply the deployer's
   # append to the merged map (one shared helper) and carry the composed
-  # value into the Secret's set too. A remove-only patch re-adds the
-  # platform entry — the key leaves the remove list, the platform's
-  # value lands in set.
+  # value into the Secret's set too. A public remove-only patch re-adds
+  # the platform entry — the key leaves the remove list, the platform's
+  # value lands in set. A private, non-live row has no platform entry:
+  # a remove really removes the key (the remove list stays intact).
   defp compose_allowlist(plan, row, version) do
     env_name = version.host_allowlist_env
 
@@ -208,12 +209,18 @@ defmodule FluxVale.Infrastructure.Instance.UpdateEnv do
          (Map.has_key?(plan.set, env_name) or env_name in plan.remove) do
       merged = InstanceEnvDerived.allowlist_entry(plan.merged, row, version)
 
-      %{
-        plan
-        | set: Map.put(plan.set, env_name, Map.fetch!(merged, env_name)),
-          remove: List.delete(plan.remove, env_name),
-          merged: merged
-      }
+      case Map.fetch(merged, env_name) do
+        {:ok, composed} ->
+          %{
+            plan
+            | set: Map.put(plan.set, env_name, composed),
+              remove: List.delete(plan.remove, env_name),
+              merged: merged
+          }
+
+        :error ->
+          %{plan | merged: merged}
+      end
     else
       plan
     end
