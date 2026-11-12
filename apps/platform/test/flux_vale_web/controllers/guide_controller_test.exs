@@ -125,5 +125,21 @@ defmodule FluxValeWeb.GuideControllerTest do
 
       assert conn.assigns.canonical_path == "/guides/sign-in-with-pocket-id"
     end
+
+    test "the platform-flow section sits beside the manual path", %{conn: conn} do
+      conn = get(conn, ~p"/guides/sign-in-with-pocket-id")
+      html = html_response(conn, 200)
+      flat = String.replace(html, ~r/\s+/, " ")
+
+      assert html =~ "The automatic way"
+      assert html =~ "Sign in with your Pocket ID"
+      assert html =~ "Settings → API keys"
+      # The scope names both covered apps (Vikunja joined the recipe).
+      assert flat =~ "The automatic path currently covers Vaultwarden and Vikunja"
+      # The real card label on the Pocket ID instance page.
+      assert flat =~ "Sign-in with Pocket ID"
+      # The manual path stays.
+      assert html =~ "Wire Vaultwarden"
+    end
   end
 end

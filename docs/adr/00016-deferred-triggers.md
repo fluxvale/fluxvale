@@ -24,3 +24,12 @@ Deferred ≠ forgotten. Each deferred item has an explicit trigger:
 
 Items move off this list via an ADR amendment or a new ADR, never by silently
 drifting.
+
+## Amendment 1 (2026-11-11)
+
+The "PocketID managed SSO for catalog apps" row moved to shipped: #597
+delivered the arc (S1 catalog recipe, S2 key custody, S3 wizard offer,
+S4 wiring op + API, S5 instance card with retrofit/rotation/disconnect,
+S6 this guide). The `pocketid_sso_wiring` flag remains the shutdown
+lever for upstream PocketID API drift — seeded create-only, so an
+operator's off is never reverted.

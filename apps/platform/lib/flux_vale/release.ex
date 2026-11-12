@@ -56,8 +56,11 @@ defmodule FluxVale.Release do
   catalog). Idempotent, single caller assumed — the admin get-or-create
   is check-then-insert, so overlapping `bin/seed` runs race the identity
   (operator bring-up path, not the advisory-locked init container).
-  Per-env FeatureFlag and AccessRule values are AshAdmin-administered,
-  never seeded (docs/deployment.md). Demo feedback-board content seeds
+  Per-env FeatureFlag and AccessRule values are AshAdmin-administered
+  (docs/deployment.md). Flags are seeded create-only at bring-up
+  (`Seeds.seed_feature_flags!/0`, #597 S6) and administered via
+  AshAdmin thereafter, the seed never converging an existing row.
+  Demo feedback-board content seeds
   on every runtime except production (runtime.exs's PLATFORM_ENV rule):
   prod launches the board honestly empty.
   """
