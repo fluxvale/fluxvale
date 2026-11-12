@@ -1186,15 +1186,13 @@ defmodule FluxValeWeb.AdminLive.Resources do
   # maps by type; a mapped textarea is JSON-shaped (the slice 4
   # contract).
   defp mapped_field(attr, textareas) do
-    cond do
-      attr.name in textareas ->
-        [field_entry(attr, "textarea", :text)]
-
-      true ->
-        case AdminResource.input_type(attr) do
-          nil -> []
-          type -> [field_entry(attr, type, if(type == "textarea", do: :json))]
-        end
+    if attr.name in textareas do
+      [field_entry(attr, "textarea", :text)]
+    else
+      case AdminResource.input_type(attr) do
+        nil -> []
+        type -> [field_entry(attr, type, if(type == "textarea", do: :json))]
+      end
     end
   end
 
