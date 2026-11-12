@@ -294,3 +294,92 @@ case AppVersion
 end
 
 IO.puts("catalog seed done")
+
+# Slice 6's capture rows (Feedback): the vocabulary, a planned and
+# tagged post (the show page's badge list and the set_status form), an
+# open tagless post (the empty badge row and index variety), a vote and
+# a comment. The post and tag actions run with the admin actor — the
+# console's own path.
+alias FluxVale.Feedback.Comment
+alias FluxVale.Feedback.Post
+alias FluxVale.Feedback.Tag
+alias FluxVale.Feedback.Vote
+
+feedback_tags =
+  for {name, slug} <- [
+        {"Capture Ideas", "capture-ideas"},
+        {"Capture Bugs", "capture-bugs"},
+        {"Capture Docs", "capture-docs"}
+      ] do
+    case Tag.get_by_slug(slug, actor: admin) do
+      {:ok, tag} ->
+        tag
+
+      {:error, _not_found} ->
+        tag = Tag.create!(%{name: name, slug: slug}, actor: admin)
+        IO.puts("tag #{tag.slug} created")
+        tag
+    end
+  end
+
+case Post |> Ash.Query.filter(slug: "capture-post") |> Ash.read_one(actor: admin) do
+  {:ok, nil} ->
+    post =
+      Post.create!(
+        %{
+          title: "Capture Post",
+          description: "A capture post for the console's badge list and moderation form."
+        },
+        actor: admin
+      )
+
+    post = Post.set_tags!(post, %{tag_ids: Enum.map(feedback_tags, & &1.id)}, actor: admin)
+    post = Post.set_status!(post, %{status: :planned}, actor: admin)
+    IO.puts("post #{post.slug} created")
+
+  {:ok, _existing} ->
+    IO.puts("post capture-post already present, skipped")
+end
+
+case Post |> Ash.Query.filter(slug: "capture-draft") |> Ash.read_one(actor: admin) do
+  {:ok, nil} ->
+    draft =
+      Post.create!(
+        %{title: "Capture Draft", description: "An untagged post for the empty badge row."},
+        actor: admin
+      )
+
+    IO.puts("post #{draft.slug} created")
+
+  {:ok, _existing} ->
+    IO.puts("post capture-draft already present, skipped")
+end
+
+tagged_post =
+  Post |> Ash.Query.filter(slug: "capture-post") |> Ash.read_one!(actor: admin)
+
+case Vote
+     |> Ash.Query.filter(post_id == ^tagged_post.id and cast_by_user_id == ^admin.id)
+     |> Ash.read_one(actor: admin) do
+  {:ok, nil} ->
+    vote = Vote.cast!(%{post_id: tagged_post.id}, actor: admin)
+    IO.puts("vote #{vote.id} cast")
+
+  {:ok, _existing} ->
+    IO.puts("capture vote already present, skipped")
+end
+
+capture_comment = "A capture comment for the moderation view."
+
+case Comment
+     |> Ash.Query.filter(post_id == ^tagged_post.id and body == ^capture_comment)
+     |> Ash.read_one(actor: admin) do
+  {:ok, nil} ->
+    comment = Comment.create!(%{post_id: tagged_post.id, body: capture_comment}, actor: admin)
+    IO.puts("comment #{comment.id} created")
+
+  {:ok, _existing} ->
+    IO.puts("capture comment already present, skipped")
+end
+
+IO.puts("feedback seed done")
