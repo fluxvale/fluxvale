@@ -23,8 +23,8 @@ defmodule FluxVale.Infrastructure.Operations.EnvPatch do
     conservative superset (`DeriveFromAppVersion.backing_conflicts/2`);
   - the first-run contract's `env` keys are FIXED: both a `set` and a
     `remove` refuse, naming the keys (the contract lands at create and
-    a redeploy re-composes it; a removal cannot win, so claiming it
-    would be a lie);
+    is never re-composed, so a removal would silently drop a guaranteed
+    first-run value);
   - the contract's `forbidden_env` keys are NEVER SETTABLE: a `set`
     refuses; a `remove` is a legitimate cleanup (the platform never
     composes them);
