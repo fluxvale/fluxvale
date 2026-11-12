@@ -256,6 +256,27 @@ defmodule FluxVale.Infrastructure.Instance.UpdateEnvTest do
       assert reload!(instance).env_vars == %{"KEEP" => "1"}
       assert_received {:upsert, %{"KEEP" => "1"}}
     end
+
+    test "a remove absent everywhere still writes and rolls once — the accepted cost", %{
+      user: user
+    } do
+      instance = create!(user, status: :running, pin: true, env: %{"KEEP" => "1"})
+      stub_secret(%{"KEEP" => "1"})
+      expect_upsert()
+
+      expect(Deployment, :restart, fn _kc, "ns-live", "app", _opts ->
+        send(self(), :restarted)
+        {:ok, %{}}
+      end)
+
+      assert {:ok, updated} = update_env(instance, user, %{}, ["NEVER"])
+
+      # The row cannot prove NEVER is absent from the live Secret, so
+      # the explicit applied remove reaches the Secret and rolls once.
+      assert updated.env_vars == %{"KEEP" => "1"}
+      assert_received {:upsert, %{"KEEP" => "1"}}
+      assert_received :restarted
+    end
   end
 
   describe "secret-only statuses (stopped/sleeping): row + Secret, no restart" do
@@ -350,7 +371,7 @@ defmodule FluxVale.Infrastructure.Instance.UpdateEnvTest do
 
       assert_error(
         update_env(instance, user, %{"NEW" => "2"}, []),
-        "the environment was saved, but the deployment could not be updated to consume it — retry"
+        "the environment was saved, but the deployment could not be updated to consume it — redeploy to repair"
       )
 
       assert_received {:upsert, %{"NEW" => "2"}}
@@ -467,7 +488,7 @@ defmodule FluxVale.Infrastructure.Instance.UpdateEnvTest do
 
       assert_error(
         update_env(instance, user, %{"NEW" => "2"}, ["KEEP"]),
-        "the environment was saved, but the rolling restart was refused — retry"
+        "the environment was saved, but the rolling restart was refused — redeploy to repair"
       )
 
       assert_received {:upsert, %{"NEW" => "2"}}

@@ -36,11 +36,14 @@ second-deploy experience.
    untouched live key that drifted from the row stays as the live
    Secret has it until the next deploy re-projects the row. The
    rolling restart is post-commit: a refused restart leaves the new
-   row and Secret applied and the pods on the old env — visible,
-   retryable, and converged by the next retry or redeploy.
+   row and Secret applied and the pods on the old env — visible and
+   repaired by a redeploy; retrying the same patch is a no-op by
+   design.
 3. **Removal is explicit.** `remove` drops keys from the row and the
-   Secret; a missing key is a no-op; an empty string is a value, not
-   a removal; `set`/`remove` overlap is refused. Removing a
+   Secret; a key absent from the ROW is not proof of absence from the
+   live Secret (drift), so an explicit applied remove always reaches
+   the Secret and may roll once. An empty string is a value, not a
+   removal; `set`/`remove` overlap is refused. Removing a
    catalog-default key is allowed and persists: defaults are merged
    only at create (`DeriveFromAppVersion`), never re-applied on a
    redeploy. Values must be strings (the k8s Secret's contract); the
@@ -107,7 +110,10 @@ second-deploy experience.
    recipe keys — the ownership guard is the public action's, not the
    seam's. A deployed row that carries env but has no live `app-env`
    Secret is a 400 ("redeploy to repair"), never an empty-map merge
-   that would boot the app without its other env.
+   that would boot the app without its other env. The same copy covers
+   the public action's post-commit restart/ensure refusals: retrying
+   the same patch is a no-op, so a redeploy repairs; the SSO legs
+   always upsert + restart on retry, so their retry does converge.
 8. **What a redeploy does.** It re-projects the row: in-place changes
    survive, removed keys stay removed, and the deployer's derived
    values (URL, backing URLs, SSO recipe keys) are composed above the
@@ -156,10 +162,10 @@ second-deploy experience.
   read/repair the live Secret: row/Secret drift and a missing Secret
   surface on the next effective change (decision 7's 400) or on a
   redeploy.
-- A restart refusal is a 400 with the honest partial-state message
-  ("the environment was saved, but the rolling restart was refused —
-  retry"); readiness is not awaited (the SSO rotate's documented
-  limit).
+- A restart or spec-ensure refusal is a 400 with the honest
+  partial-state message ("the environment was saved, but ... — redeploy
+  to repair"); readiness is not awaited (the SSO rotate's documented
+  limit), and retrying the same public PATCH is a no-op by design.
 - The provider's 0.3.0 changes a previously destructive diff into an
   in-place one; the compatibility note says so. Existing state needs
   no migration.

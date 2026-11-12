@@ -18,17 +18,22 @@ defmodule FluxVale.Infrastructure.Instance.UpdateEnv do
     (the Secret apply is atomic, so both stay old);
   - `after_transaction` deletes the stash, logs ONE key-name-only
     info line, and — for `running`/`starting` only — restarts the
-    Deployment. A refused restart is a post-commit error ("the
-    environment was saved, but the rolling restart was refused —
-    retry"): the row and Secret stay applied, the pods lag, and the
-    next retry/redeploy converges.
+    Deployment; a `stopped`/`sleeping` row whose pre-merge env was
+    empty instead gets the spec-only `envFrom` ensure (no rollout).
+    A refused restart/ensure is a post-commit error ("... — redeploy
+    to repair"): the row and Secret stay applied, the pods lag, and
+    retrying the same patch is a no-op by design — a redeploy
+    re-renders the spec and re-rolls.
 
   Status rules (ADR-0052 decision 5): `pending`/`error`/`lost` row
   only; `running`/`starting` row + Secret + restart;
-  `stopped`/`sleeping` row + Secret, no restart;
-  `deploying`/`restoring`/`deleting` refuse. A patch with an empty
-  final set/remove writes nothing and rolls nothing (the row is
-  already what the caller asked for).
+  `stopped`/`sleeping` row + Secret + spec-only ensure, no restart;
+  `deploying`/`restoring`/`deleting` refuse. A no-op is the empty
+  final effect (`added`/`changed`/`removed`/`composed` all empty and
+  no applied remove): a same-value set or an empty remove list writes
+  nothing and rolls nothing. An applied remove always reaches the
+  Secret even when the row lacks the key (the row cannot prove the
+  live Secret does too), so it may roll once.
   """
 
   use Ash.Resource.Change
@@ -55,9 +60,9 @@ defmodule FluxVale.Infrastructure.Instance.UpdateEnv do
   @deployed @live ++ @secret_only
   @busy [:deploying, :restoring]
 
-  @restart_refused "the environment was saved, but the rolling restart was refused — retry"
+  @restart_refused "the environment was saved, but the rolling restart was refused — redeploy to repair"
 
-  @ensure_env_refused "the environment was saved, but the deployment could not be updated to consume it — retry"
+  @ensure_env_refused "the environment was saved, but the deployment could not be updated to consume it — redeploy to repair"
 
   @impl Ash.Resource.Change
   def change(changeset, _opts, _context) do

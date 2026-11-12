@@ -103,6 +103,8 @@ defmodule FluxVale.Infrastructure.Operations.InstanceEnvDerived do
 
   defp append_host(nil, host), do: host
 
+  defp append_host("", host), do: host
+
   defp append_host(existing, host) when is_binary(existing) do
     present? =
       existing

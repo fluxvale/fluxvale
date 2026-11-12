@@ -179,12 +179,15 @@ never echoed. Refusals are 400 (`InvalidArgument`, the house style)
 with honest messages: fixed/forbidden contract keys, deployer-owned
 keys, overlap, invalid name/value, busy (`deploying`/`restoring`),
 deleting, decrypt failure, a missing live Secret ("redeploy to
-repair"), and the post-commit restart refusal ("the environment was
-saved, but the rolling restart was refused — retry"). A no-op is the
+repair"), and the post-commit restart/ensure refusals ("the
+environment was saved, but ... — redeploy to repair"). A no-op is the
 empty final effect (`added`/`changed`/`removed`/`composed` all empty
 AND no applied remove): 200, no Secret write, no restart, no cluster
-resolution. A no-op does not read/repair the live Secret — drift and a
-missing Secret surface on the next effective change or a redeploy.
+resolution. An explicit applied remove always reaches the Secret even
+when the row lacks the key — the row cannot prove the live Secret
+does too — so it may write and roll once. A no-op does not read/repair
+the live Secret — drift and a missing Secret surface on the next
+effective change or a redeploy.
 
 Status rules (ADR-0052): row-only for `pending`/`error`/`lost`;
 row + Secret + restart for `running`/`starting`; row + Secret, no
@@ -201,9 +204,11 @@ restart for `stopped`/`sleeping`; refuse `deploying`/`restoring`/
   (new): the status matrix, Secret upsert inside the transaction, a
   failed upsert rolls the row back, a missing live Secret refuses, a
   no-op patch touches nothing (including a same-value set), a live-only
-  remove still reaches the Secret, a stopped/sleeping first env preps
-  the Deployment spec without a rollout, a refused restart leaves row +
-  Secret applied and returns an error, key-name-only logging (including
+  remove still reaches the Secret, an absent-everywhere remove is the
+  documented one-write/one-roll cost, a stopped/sleeping first env
+  preps the Deployment spec without a rollout, a refused restart leaves
+  row + Secret applied and returns the redeploy-to-repair error,
+  key-name-only logging (including
   `composed`), the allowlist Secret-only append, a forged non-string
   row, a wiring-read failure that fails closed, and the sentinel check
   (a secret value never appears in the response body, captured logs, or

@@ -169,7 +169,7 @@ defmodule FluxValeWeb.Api.InstanceEnvRouteTest do
     conn = patch_env(conn, pat, instance, %{"set" => %{"NEW" => "2"}})
 
     assert detail(conn, 400) =~
-             "the environment was saved, but the rolling restart was refused — retry"
+             "the environment was saved, but the rolling restart was refused — redeploy to repair"
   end
 
   # The house wire posture: a non-member's row is 404 — the read

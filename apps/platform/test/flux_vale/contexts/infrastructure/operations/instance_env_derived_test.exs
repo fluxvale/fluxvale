@@ -30,6 +30,14 @@ defmodule FluxVale.Infrastructure.Operations.InstanceEnvDerivedTest do
            ) == %{"ALLOWED_HOSTS" => "localhost,127.0.0.1,#{host("app")}"}
   end
 
+  test "an empty value becomes the platform host" do
+    assert InstanceEnvDerived.allowlist_entry(
+             %{"ALLOWED_HOSTS" => ""},
+             instance(),
+             version()
+           ) == %{"ALLOWED_HOSTS" => host("app")}
+  end
+
   test "a value already containing the platform host is preserved exactly" do
     existing = "localhost, #{host("app")}"
 

@@ -17,10 +17,12 @@ defmodule FluxVale.Infrastructure.Operations.InstanceEnvSecret do
   and atomically (SSA upsert of the merged map — a failed apply leaves
   the old Secret byte-identical, no half-written state exists), and
   only then does the rolling restart pick the new values up. A restart
-  that fails leaves updated-Secret + old-env pods — stale but working,
-  and the caller's retry converges; the reverse order could boot NEW
-  values then roll them back, which is the un-testable state this
-  ordering exists to prevent.
+  that fails leaves updated-Secret + old-env pods — stale but working.
+  The SSO caller's retry upserts again and re-rolls; the public
+  action's row and Secret are already saved, so its caller redeploys
+  to repair. The reverse order could boot NEW values then roll them
+  back, which is the un-testable state this ordering exists to
+  prevent.
 
   Note: `read_env/3` treats an absent Secret as empty only when the
   instance has no row env to project (`expect_existing: false`). A
@@ -126,9 +128,10 @@ defmodule FluxVale.Infrastructure.Operations.InstanceEnvSecret do
   @doc """
   The rolling restart — the "apply" half of the primitive. A refusal
   here leaves the new Secret staged and the old pods serving: the
-  caller's honest retry re-upserts (idempotent) and re-rolls. Also
-  ensures the app container consumes `app-env` (first env on a
-  deployment created without it).
+  SSO caller's retry re-upserts (idempotent) and re-rolls; the public
+  action's row + Secret are already saved, so its caller redeploys to
+  repair. Also ensures the app container consumes `app-env` (first env
+  on a deployment created without it).
   """
   @spec restart(Kubereq.Kubeconfig.t(), String.t()) :: :ok | {:error, term()}
   def restart(kubeconfig, namespace) do
@@ -142,7 +145,7 @@ defmodule FluxVale.Infrastructure.Operations.InstanceEnvSecret do
   Spec-only ensure for the stopped/sleeping first-env path: make the
   Deployment consume `app-env` without rolling it. The next start reads
   the Secret; a failure leaves the row + Secret applied and the spec
-  stale, which the caller reports as a retryable partial state.
+  stale, and the caller reports "redeploy to repair".
   """
   @spec ensure_env_from(Kubereq.Kubeconfig.t(), String.t()) :: :ok | {:error, term()}
   def ensure_env_from(kubeconfig, namespace) do
