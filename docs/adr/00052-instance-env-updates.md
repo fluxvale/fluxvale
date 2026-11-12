@@ -1,6 +1,6 @@
 # ADR-0052: In-place instance env updates — the merge verb and the one Secret seam
 
-**Status**: Proposed (awaiting owner go, #731 — the plan is
+**Status**: Accepted (owner go Nov 12, 2026, #731 — the plan is
 [plans/731-terraform-integrations.md](../plans/731-terraform-integrations.md))
 **Date**: 2026-11-12
 
