@@ -35,6 +35,8 @@ defmodule FluxValeWeb.AdminHealthTest do
   alias FluxValeWeb.AdminAudit
   alias FluxValeWeb.AdminHealth
 
+  require Ash.Query
+
   @n :erlang.unique_integer([:positive])
 
   # The fixture's pinned monthly rate (the compute class plus the
@@ -595,20 +597,33 @@ defmodule FluxValeWeb.AdminHealthTest do
 
     test "ties sort by resource key ascending", %{admin: admin} do
       before = AdminHealth.audit_activity(admin)
+      cutoff = DateTime.add(DateTime.utc_now(), -24, :hour)
 
-      # `ceiling + 1` clears every pre-existing count, so the tied set is
-      # exactly the two fixtures — equal counts, entry-key order.
+      # authorize?: false — test precondition reads, not the policy arm
+      # (the seam's own read covers the refusal). Stray-aware anchoring:
+      # a committed flag/tag version inside the window shifts the fixture
+      # counts, so top both resources up to the same target instead of
+      # assuming a clean starting count.
+      old_flags = version_count(FeatureFlag.Version, cutoff)
+      old_tags = version_count(Tag.Version, cutoff)
+
+      # `ceiling + 1` clears every pre-existing count; the direct reads
+      # above make both fixtures land exactly there.
       ceiling =
         before.top
         |> List.first()
         |> then(&(&1 && &1.count)) || 0
 
-      for i <- 1..(ceiling + 1), do: flag!(admin, "tie_#{i}")
-      for i <- 1..(ceiling + 1), do: tag!(admin, "c4_tie_tag_#{i}_#{@n}")
+      target = ceiling + 1
+      assert target - old_flags >= 1
+      assert target - old_tags >= 1
+
+      for i <- 1..(target - old_flags), do: flag!(admin, "tie_#{i}")
+      for i <- 1..(target - old_tags), do: tag!(admin, "c4_tie_tag_#{i}_#{@n}")
 
       after_activity = AdminHealth.audit_activity(admin)
 
-      tied = Enum.filter(after_activity.top, &(&1.count == ceiling + 1))
+      tied = Enum.filter(after_activity.top, &(&1.count == target))
       assert Enum.map(tied, & &1.key) == [:feature_flag, :tag]
     end
 
@@ -721,6 +736,15 @@ defmodule FluxValeWeb.AdminHealthTest do
     Tag
     |> Ash.Changeset.for_create(:create, %{name: name}, actor: actor)
     |> Ash.create!()
+  end
+
+  # authorize?: false — a test precondition read; the seam's own read is
+  # the policy arm. This measures a fixture's starting count so the tie
+  # target stays stray-aware.
+  defp version_count(version_module, cutoff) do
+    version_module
+    |> Ash.Query.filter(version_inserted_at > ^cutoff)
+    |> Ash.count!(authorize?: false)
   end
 
   # Four trail-only rows across distinct resources guarantee >5 active
