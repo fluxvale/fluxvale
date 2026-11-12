@@ -157,7 +157,7 @@ defmodule FluxValeWeb.AdminConsole do
             create_actions: [:record],
             update_actions: [:supersede],
             note:
-              "Allocation telemetry: one row per settle tick. Read-only here; the instance page and billing own the live view."
+              "Allocation telemetry: one row per allocation era, superseded and appended by a resize. Read-only here, the instance page and billing own the live view."
           }
         },
         %{

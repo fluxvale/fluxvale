@@ -72,8 +72,8 @@ async function setTheme(page, mode) {
 
 async function shot(page, name, mode, waitOn) {
   await page.waitForSelector(waitOn);
-  // A scroll made on the way (a summary click, a filled field) would
-  // park the sticky navbar mid-frame in the full-page capture.
+  // A summary click on the way parks the sticky navbar mid-frame in
+  // the full-page capture.
   await page.evaluate(() => window.scrollTo(0, 0));
   await setTheme(page, mode);
   await page.screenshot({ path: `${outdir}/${name}.png`, fullPage: true });
@@ -172,6 +172,7 @@ async function instanceWithEnvHref(page) {
       });
       if (hasJson) return href;
     }
+    if ((await page.locator("a[data-testid='admin-resource-next']").count()) === 0) return null;
   }
   return null;
 }
