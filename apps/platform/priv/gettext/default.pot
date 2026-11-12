@@ -868,7 +868,7 @@ msgid "Default storage (GB)"
 msgstr ""
 
 #: lib/flux_vale_web/live/admin_live/catalog.ex:140
-#: lib/flux_vale_web/live/admin_live/resources.ex:859
+#: lib/flux_vale_web/live/admin_live/resources.ex:863
 #: lib/flux_vale_web/live/admin_live/sizes.ex:135
 #, elixir-autogen, elixir-format
 msgid "Edit"
@@ -1853,7 +1853,7 @@ msgstr ""
 
 #: lib/flux_vale_web/live/admin_live/moderation.ex:1604
 #: lib/flux_vale_web/live/admin_live/moderation.ex:1744
-#: lib/flux_vale_web/live/admin_live/resources.ex:871
+#: lib/flux_vale_web/live/admin_live/resources.ex:875
 #, elixir-autogen, elixir-format
 msgid "Delete"
 msgstr ""
@@ -1987,7 +1987,7 @@ msgid "Save"
 msgstr ""
 
 #: lib/flux_vale_web/live/admin_live/moderation.ex:1769
-#: lib/flux_vale_web/live/admin_live/resources.ex:1432
+#: lib/flux_vale_web/live/admin_live/resources.ex:1436
 #, elixir-autogen, elixir-format
 msgid "Saving..."
 msgstr ""
@@ -2156,30 +2156,30 @@ msgid_plural "%{count} rows"
 msgstr[0] ""
 msgstr[1] ""
 
-#: lib/flux_vale_web/live/admin_live/resources.ex:1330
-#: lib/flux_vale_web/live/admin_live/resources.ex:1333
+#: lib/flux_vale_web/live/admin_live/resources.ex:1334
 #: lib/flux_vale_web/live/admin_live/resources.ex:1337
-#: lib/flux_vale_web/live/admin_live/resources.ex:1340
+#: lib/flux_vale_web/live/admin_live/resources.ex:1341
+#: lib/flux_vale_web/live/admin_live/resources.ex:1344
 #, elixir-autogen, elixir-format
 msgid "Back to %{name}"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/resources.ex:1327
+#: lib/flux_vale_web/live/admin_live/resources.ex:1331
 #, elixir-autogen, elixir-format
 msgid "Back to the domains"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/resources.ex:1284
+#: lib/flux_vale_web/live/admin_live/resources.ex:1288
 #, elixir-autogen, elixir-format
 msgid "Every domain the console exposes, with its resources and every public field. The raw tables behind the curated sections."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/resources.ex:1302
+#: lib/flux_vale_web/live/admin_live/resources.ex:1306
 #, elixir-autogen, elixir-format
 msgid "Every public attribute of this record. Non-public attributes never render on this surface."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/resources.ex:1296
+#: lib/flux_vale_web/live/admin_live/resources.ex:1300
 #, elixir-autogen, elixir-format
 msgid "Every row, newest first, 25 to a page. Reads run through the resource policies with your account as the actor."
 msgstr ""
@@ -2219,7 +2219,7 @@ msgid "Previous"
 msgstr ""
 
 #: lib/flux_vale_web/components/admin_shell.ex:286
-#: lib/flux_vale_web/live/admin_live/resources.ex:1272
+#: lib/flux_vale_web/live/admin_live/resources.ex:1276
 #, elixir-autogen, elixir-format
 msgid "Resource console"
 msgstr ""
@@ -2230,19 +2230,19 @@ msgid "Resources"
 msgstr ""
 
 #: lib/flux_vale_web/live/admin_live/audit.ex:82
-#: lib/flux_vale_web/live/admin_live/resources.ex:1266
+#: lib/flux_vale_web/live/admin_live/resources.ex:1270
 #, elixir-autogen, elixir-format
 msgid "That page does not exist here."
 msgstr ""
 
 #: lib/flux_vale_web/live/admin_live/resources.ex:460
 #: lib/flux_vale_web/live/admin_live/resources.ex:528
-#: lib/flux_vale_web/live/admin_live/resources.ex:733
+#: lib/flux_vale_web/live/admin_live/resources.ex:737
 #, elixir-autogen, elixir-format
 msgid "That record is not available here."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/resources.ex:1290
+#: lib/flux_vale_web/live/admin_live/resources.ex:1294
 #, elixir-autogen, elixir-format
 msgid "The resources this domain exposes. Reads run through the resource policies with your account as the actor."
 msgstr ""
@@ -2262,7 +2262,7 @@ msgstr ""
 msgid "Yes"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/resources.ex:689
+#: lib/flux_vale_web/live/admin_live/resources.ex:693
 #, elixir-autogen, elixir-format
 msgid "Could not save. Check the errors below."
 msgstr ""
@@ -2277,13 +2277,13 @@ msgstr ""
 msgid "Delete %{record}?"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/resources.ex:1281
+#: lib/flux_vale_web/live/admin_live/resources.ex:1285
 #, elixir-autogen, elixir-format
 msgid "Edit %{name}"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/resources.ex:1308
-#: lib/flux_vale_web/live/admin_live/resources.ex:1314
+#: lib/flux_vale_web/live/admin_live/resources.ex:1312
+#: lib/flux_vale_web/live/admin_live/resources.ex:1318
 #, elixir-autogen, elixir-format
 msgid "Every write runs through the resource policies with your account as the actor. Invalid fields say so beside themselves."
 msgstr ""
@@ -2293,7 +2293,7 @@ msgstr ""
 msgid "New"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/resources.ex:1278
+#: lib/flux_vale_web/live/admin_live/resources.ex:1282
 #, elixir-autogen, elixir-format
 msgid "New %{name}"
 msgstr ""
@@ -2309,22 +2309,22 @@ msgstr ""
 msgid "That action is not available here."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/resources.ex:720
+#: lib/flux_vale_web/live/admin_live/resources.ex:724
 #, elixir-autogen, elixir-format
 msgid "The record could not be deleted. Try again."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/resources.ex:1240
+#: lib/flux_vale_web/live/admin_live/resources.ex:1244
 #, elixir-autogen, elixir-format
 msgid "The record was created."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/resources.ex:710
+#: lib/flux_vale_web/live/admin_live/resources.ex:714
 #, elixir-autogen, elixir-format
 msgid "The record was deleted."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/resources.ex:1241
+#: lib/flux_vale_web/live/admin_live/resources.ex:1245
 #, elixir-autogen, elixir-format
 msgid "The record was updated."
 msgstr ""
