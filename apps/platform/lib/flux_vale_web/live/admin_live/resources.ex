@@ -200,7 +200,7 @@ defmodule FluxValeWeb.AdminLive.Resources do
                   </div>
                   <p class="text-sm text-ink-subtle" data-testid="admin-resources-pending">
                     {gettext(
-                      "The sidebar groups every live domain here under Resources, collapsed to start. Not every domain is live yet. The ones here are fully supported."
+                      "The sidebar groups every live domain here under Resources, collapsed to start. Every domain is live and fully supported."
                     )}
                   </p>
                 <% :domain -> %>
@@ -328,6 +328,24 @@ defmodule FluxValeWeb.AdminLive.Resources do
                           />
                         </dd>
                       </div>
+                      <div
+                        :for={badge <- @badges}
+                        class="grid gap-1 py-3 first:pt-0 sm:grid-cols-[10rem_1fr] sm:gap-4"
+                        data-testid={"admin-resource-badges-#{badge.name}"}
+                      >
+                        <dt class="text-sm font-medium text-ink-muted">{badge.label}</dt>
+                        <dd class="flex min-w-0 flex-wrap items-center gap-1.5">
+                          <.badge
+                            :for={value <- badge.values}
+                            data-testid={"admin-resource-badge-#{value.id}"}
+                          >
+                            {value.label}
+                          </.badge>
+                          <span :if={badge.values == []} class="text-sm text-ink-muted">
+                            {gettext("None")}
+                          </span>
+                        </dd>
+                      </div>
                     </dl>
 
                     <div class="mt-4">
@@ -431,8 +449,9 @@ defmodule FluxValeWeb.AdminLive.Resources do
 
   defp mount_show(entry, id, socket) do
     admin = socket.assigns.current_user
+    load = belongs_to_keys(entry.module) ++ badge_keys(entry)
 
-    case Ash.get(entry.module, id, actor: admin, load: belongs_to_keys(entry.module)) do
+    case Ash.get(entry.module, id, actor: admin, load: load) do
       {:ok, record} ->
         {:ok,
          assign(socket,
@@ -445,6 +464,7 @@ defmodule FluxValeWeb.AdminLive.Resources do
            record: record,
            record_label: record_label(record, label_attr(entry)),
            fields: fields(entry),
+           badges: badge_rows(record, entry),
            index_path: index_path(entry),
            update_actions: update_actions(entry, record.id, admin),
            destroy_actions: destroy_actions(entry, admin),
@@ -496,11 +516,12 @@ defmodule FluxValeWeb.AdminLive.Resources do
 
   defp mount_edit(entry, id, params, socket) do
     admin = socket.assigns.current_user
+    load = belongs_to_keys(entry.module) ++ badge_keys(entry)
 
-    with {:ok, record} <- Ash.get(entry.module, id, actor: admin),
+    with {:ok, record} <- Ash.get(entry.module, id, actor: admin, load: load),
          {:ok, action} <- form_action(entry, :update, params["action"]) do
       fields = form_fields(entry.module, action)
-      seed = seed_params(fields, record)
+      seed = seed_params(entry, fields, record)
 
       form =
         record
@@ -664,6 +685,56 @@ defmodule FluxValeWeb.AdminLive.Resources do
     |> Enum.map(& &1.name)
   end
 
+  # The registry's badge-relationships config (the show page's
+  # read-only many-to-many lists): keys only — the page renders labels,
+  # never links or management controls.
+  defp badge_keys(entry), do: entry.config[:badge_relationships] || []
+
+  # One row per configured relationship that resolved as to-many,
+  # loaded, and points at a live registry resource: the destination's
+  # label attr decides each badge's text, and the relationship's own
+  # load order is the row's order. A destination outside the registry is
+  # skipped — labels are never invented.
+  defp badge_rows(record, entry) do
+    entry
+    |> badge_keys()
+    |> Enum.flat_map(&badge_row(record, &1))
+  end
+
+  defp badge_row(record, key) do
+    with %{destination: destination} = rel <- badge_relationship(record, key),
+         true <- rel.cardinality == :many,
+         true <- Ash.Resource.loaded?(record, rel.name),
+         {:ok, destination_entry} <- AdminConsole.fetch_by_module(destination) do
+      label_name = label_attr(destination_entry)
+
+      values =
+        record
+        |> Map.get(rel.name, [])
+        |> Enum.map(&%{id: &1.id, label: record_label(&1, label_name)})
+
+      [%{name: key, label: AdminResource.label(key), values: values}]
+    else
+      # coveralls-ignore-start - every configured badge relationship
+      # is to-many, resolved, loaded, and registered today (the registry
+      # intake pins Post's tags); the guards skip a future config that
+      # names a belongs_to or an unregistered destination.
+      _skipped ->
+        []
+        # coveralls-ignore-stop
+    end
+  end
+
+  # String compare over the module's own relationship atoms — the
+  # registry's rule: no atom is ever built from input.
+  defp badge_relationship(record, key) do
+    key_str = Atom.to_string(key)
+
+    record.__struct__
+    |> Info.relationships()
+    |> Enum.find(&(Atom.to_string(&1.name) == key_str))
+  end
+
   defp primary_read(module) do
     Info.primary_action(module, :read).name
   end
@@ -802,19 +873,74 @@ defmodule FluxValeWeb.AdminLive.Resources do
   # The JSON textareas' current values for the edit mount: the form's
   # params carry what the operator edits (the textarea's rendered
   # value comes from the params), so the seed puts each field's current
-  # value there in the shape its cast accepts. :map accepts JSON text
-  # (Ash decodes strings itself — probed); every composite accepts its
-  # in-memory shape, so it seeds as the raw value. The seed validate
+  # value there in the shape its cast accepts. A public attribute seeds
+  # as before (map -> JSON text, composite -> its in-memory value). An
+  # argument named <base>_ids whose LOADED relationship is <base> or
+  # <base>s (set_tags' tag_ids -> tags) seeds the related ids as a list
+  # — the pristine replace-all form must not silently clear the tags.
+  # Any other textarea field seeds nothing: a nil argument seed would
+  # trip allow_nil? and render a pristine-form error. The seed validate
   # therefore produces no errors of its own — a mount-time error is
   # the record's stored data violating an invariant, and it renders
   # (no suppression).
-  defp seed_params(fields, record) do
+  defp seed_params(entry, fields, record) do
     fields
-    |> Enum.filter(&(&1.type == "textarea"))
-    |> Map.new(fn field ->
-      attr = Info.attribute(record.__struct__, field.name)
-      value = seed_value(record, field.name, attr)
-      {Atom.to_string(field.name), value}
+    |> Enum.flat_map(&seed_param(entry, record, &1))
+    |> Map.new()
+  end
+
+  defp seed_param(entry, record, %{type: "textarea"} = field) do
+    case Info.public_attribute(entry.module, field.name) do
+      nil -> seed_relationship_ids(record, field)
+      attr -> [{Atom.to_string(field.name), seed_value(record, field.name, attr)}]
+    end
+  end
+
+  # Every other field: a select/text input whose name is the record's own
+  # public attribute seeds the current value, so a pristine named-action
+  # form (set_status' select is the first) shows the record's state
+  # instead of silently defaulting to the first option. An argument with
+  # no matching attribute seeds nothing and keeps its action default.
+  defp seed_param(entry, record, field) do
+    case Info.public_attribute(entry.module, field.name) do
+      nil -> []
+      _attr -> [{Atom.to_string(field.name), Map.get(record, field.name)}]
+    end
+  end
+
+  # The relationship-argument seed: the loaded records' ids in the
+  # relationship's own load order, rendered as JSON by the existing
+  # textarea fallback. Names compare as strings — no atom is built.
+  defp seed_relationship_ids(record, field) do
+    key_str = Atom.to_string(field.name)
+
+    with true <- String.ends_with?(key_str, "_ids"),
+         base = String.replace_suffix(key_str, "_ids", ""),
+         %{} = rel <- loaded_relationship(record, base) do
+      ids =
+        record
+        |> Map.get(rel.name, [])
+        |> Enum.map(& &1.id)
+
+      [{key_str, ids}]
+    else
+      # coveralls-ignore-start - no textarea field today is an argument
+      # without a matching loaded relationship (the only one is
+      # set_tags' tag_ids); the skip keeps a future one from seeding
+      # nil and tripping allow_nil? on a pristine form.
+      _unseeded ->
+        []
+        # coveralls-ignore-stop
+    end
+  end
+
+  defp loaded_relationship(record, base) do
+    candidates = [base, base <> "s"]
+
+    record.__struct__
+    |> Info.relationships()
+    |> Enum.find(fn rel ->
+      Atom.to_string(rel.name) in candidates and Ash.Resource.loaded?(record, rel.name)
     end)
   end
 
@@ -1027,9 +1153,10 @@ defmodule FluxValeWeb.AdminLive.Resources do
     # Attrs win a name collision: both would write record[name] and
     # the second render would silently shadow the first, so a colliding
     # argument drops instead of racing. Sensitive?/public? need no
-    # equivalent today — no permitted action carries a sensitive
-    # argument; the registry parity intake (a new action forces a
-    # config decision) is the trigger that revisits this.
+    # filter here: the one permitted sensitive argument
+    # (AccessGateway update_credential's auth_key) is the value the form
+    # exists to collect, and the audit trail redacts it separately
+    # (#645).
     attr_names = MapSet.new(attr_fields, & &1.name)
 
     argument_fields =

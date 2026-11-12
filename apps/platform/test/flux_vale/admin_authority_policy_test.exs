@@ -20,7 +20,11 @@ defmodule FluxVale.AdminAuthorityPolicyTest do
   alias FluxVale.Billing.Wallet
   alias FluxVale.Checks.CallOutsideMachineApi
   alias FluxVale.Clients.K8s
+  alias FluxVale.Feedback.Comment
   alias FluxVale.Feedback.Post
+  alias FluxVale.Feedback.PostTag
+  alias FluxVale.Feedback.Tag
+  alias FluxVale.Feedback.Vote
   alias FluxVale.Infrastructure.AccessDomain
   alias FluxVale.Infrastructure.AccessGateway
   alias FluxVale.Infrastructure.AccessProviders.Tailscale
@@ -474,6 +478,205 @@ defmodule FluxVale.AdminAuthorityPolicyTest do
                wallet
                |> Ash.Changeset.for_update(:set_waiver, %{paywall_waived: true})
                |> Ash.update(actor: admin, authorize?: true)
+    end
+  end
+
+  describe "feedback: the board's gates and the console's proof (slice 6)" do
+    test "public reads: every feedback resource answers with no actor" do
+      admin = admin()
+      {org, _wallet, _owner} = foreign_org!()
+      post = FeedbackFixtures.post!(%{organization_id: org.id})
+      vote = Vote.cast!(%{post_id: post.id, organization_id: org.id}, authorize?: false)
+
+      comment =
+        Comment.create!(%{post_id: post.id, body: "public read"}, actor: admin, authorize?: false)
+
+      tag = FeedbackFixtures.tag!(%{name: "public read tag"})
+      post_tag = PostTag.create!(%{post_id: post.id, tag_id: tag.id}, authorize?: false)
+
+      for {module, id} <- [
+            {Post, post.id},
+            {Vote, vote.id},
+            {Comment, comment.id},
+            {Tag, tag.id},
+            {PostTag, post_tag.id}
+          ] do
+        assert {:ok, row} = Ash.get(module, id, actor: nil, authorize?: true)
+        assert row.id == id
+      end
+    end
+
+    test "the paying gate: the admin creates a foreign-org post, a stranger is refused" do
+      admin = admin()
+      {org, _wallet, _owner} = foreign_org!()
+
+      assert {:ok, %Post{} = post} =
+               Post.create(
+                 %{
+                   title: "Admin authority post",
+                   description: "the console's admin creates across orgs",
+                   organization_id: org.id
+                 },
+                 actor: admin,
+                 authorize?: true
+               )
+
+      assert post.organization_id == org.id
+
+      stranger = AccountsFixtures.user!()
+
+      assert {:error, %Ash.Error.Forbidden{}} =
+               Post.create(
+                 %{
+                   title: "Stranger post",
+                   description: "a fresh stranger names a foreign org",
+                   organization_id: org.id
+                 },
+                 actor: stranger,
+                 authorize?: true
+               )
+    end
+
+    test "moderation: set_status and set_tags pass the admin, a member is refused" do
+      admin = admin()
+      {org, _wallet, owner} = foreign_org!()
+      post = FeedbackFixtures.post!(%{organization_id: org.id})
+      tag = FeedbackFixtures.tag!(%{name: "moderation tag"})
+
+      assert {:ok, planned} =
+               post
+               |> Ash.Changeset.for_update(:set_status, %{status: :planned})
+               |> Ash.update(actor: admin, authorize?: true)
+
+      assert planned.status == :planned
+
+      assert {:ok, tagged} =
+               planned
+               |> Ash.Changeset.for_update(:set_tags, %{tag_ids: [tag.id]})
+               |> Ash.update(actor: admin, authorize?: true)
+
+      assert {:ok, loaded} = Ash.load(tagged, :tags, authorize?: false)
+      assert Enum.map(loaded.tags, & &1.id) == [tag.id]
+
+      assert {:error, %Ash.Error.Forbidden{}} =
+               tagged
+               |> Ash.Changeset.for_update(:set_status, %{status: :started})
+               |> Ash.update(actor: owner, authorize?: true)
+
+      assert {:error, %Ash.Error.Forbidden{}} =
+               tagged
+               |> Ash.Changeset.for_update(:set_tags, %{tag_ids: []})
+               |> Ash.update(actor: owner, authorize?: true)
+    end
+
+    test "no impersonation: the admin's comment carries the admin as author, anonymous is refused" do
+      admin = admin()
+      {org, _wallet, _owner} = foreign_org!()
+      post = FeedbackFixtures.post!(%{organization_id: org.id})
+
+      assert {:ok, %Comment{} = comment} =
+               Comment.create(%{post_id: post.id, body: "admin comment"},
+                 actor: admin,
+                 authorize?: true
+               )
+
+      assert comment.author_user_id == admin.id
+
+      assert {:error, %Ash.Error.Forbidden{}} =
+               Comment.create(%{post_id: post.id, body: "anonymous comment"},
+                 actor: nil,
+                 authorize?: true
+               )
+    end
+
+    test "vote as admin: cast and retract pass, a stranger's cast is refused" do
+      admin = admin()
+      {org, _wallet, _owner} = foreign_org!()
+      post = FeedbackFixtures.post!(%{organization_id: org.id})
+
+      assert {:ok, %Vote{} = vote} =
+               Vote.cast(%{post_id: post.id, organization_id: org.id},
+                 actor: admin,
+                 authorize?: true
+               )
+
+      assert :ok = Vote.retract(vote, actor: admin, authorize?: true)
+
+      stranger = AccountsFixtures.user!()
+
+      assert {:error, %Ash.Error.Forbidden{}} =
+               Vote.cast(%{post_id: post.id, organization_id: org.id},
+                 actor: stranger,
+                 authorize?: true
+               )
+    end
+
+    test "tag and post_tag: the admin creates both, a stranger is refused" do
+      admin = admin()
+      {org, _wallet, _owner} = foreign_org!()
+      post = FeedbackFixtures.post!(%{organization_id: org.id})
+
+      assert {:ok, %Tag{} = tag} =
+               Tag.create(%{name: "Authority tag"}, actor: admin, authorize?: true)
+
+      assert {:ok, %PostTag{} = pairing} =
+               PostTag.create(%{post_id: post.id, tag_id: tag.id},
+                 actor: admin,
+                 authorize?: true
+               )
+
+      assert pairing.post_id == post.id
+
+      stranger = AccountsFixtures.user!()
+
+      assert {:error, %Ash.Error.Forbidden{}} =
+               Tag.create(%{name: "Stranger tag"}, actor: stranger, authorize?: true)
+
+      assert {:error, %Ash.Error.Forbidden{}} =
+               PostTag.create(%{post_id: post.id, tag_id: tag.id},
+                 actor: stranger,
+                 authorize?: true
+               )
+    end
+
+    test "the admin destroys a foreign post, comment, vote and tag" do
+      admin = admin()
+      {org, _wallet, _owner} = foreign_org!()
+      post = FeedbackFixtures.post!(%{organization_id: org.id})
+      tag = FeedbackFixtures.tag!(%{name: "destroy tag"})
+
+      comment =
+        Comment.create!(%{post_id: post.id, body: "destroy me"}, actor: admin, authorize?: false)
+
+      vote = Vote.cast!(%{post_id: post.id, organization_id: org.id}, authorize?: false)
+
+      assert :ok =
+               comment
+               |> Ash.Changeset.for_destroy(:destroy, %{}, actor: admin)
+               |> Ash.destroy()
+
+      assert {:error, _gone} = Ash.get(Comment, comment.id, authorize?: false)
+
+      assert :ok =
+               vote
+               |> Ash.Changeset.for_destroy(:retract, %{}, actor: admin)
+               |> Ash.destroy()
+
+      assert {:error, _gone} = Ash.get(Vote, vote.id, authorize?: false)
+
+      assert :ok =
+               post
+               |> Ash.Changeset.for_destroy(:destroy, %{}, actor: admin)
+               |> Ash.destroy()
+
+      assert {:error, _gone} = Ash.get(Post, post.id, authorize?: false)
+
+      assert :ok =
+               tag
+               |> Ash.Changeset.for_destroy(:destroy, %{}, actor: admin)
+               |> Ash.destroy()
+
+      assert {:error, _gone} = Ash.get(Tag, tag.id, authorize?: false)
     end
   end
 
