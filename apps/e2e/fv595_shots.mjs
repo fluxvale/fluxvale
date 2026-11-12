@@ -106,34 +106,37 @@ async function firstWalletHref(page) {
   });
 }
 
+// Walk the index pages until a row whose cell text equals `label` is
+// found; return its View href. The seed's rows are newest at first
+// run, but re-runs reuse them and newer rows can push them past page 1.
+async function indexViewHref(page, path, label) {
+  for (let pageNumber = 1; pageNumber <= 20; pageNumber++) {
+    await page.goto(`${BASE}${path}?page=${pageNumber}`, { waitUntil: "networkidle" });
+    await page.waitForSelector("[data-testid='admin-resource-index']");
+    const href = await page.evaluate((wanted) => {
+      const cell = [...document.querySelectorAll("span")].find(
+        (n) => n.textContent.trim() === wanted,
+      );
+      if (!cell) return null;
+      const row = cell.closest("tr");
+      const link = row && row.querySelector("[data-testid^='admin-resource-view-']");
+      return link ? link.getAttribute("href") : null;
+    }, label);
+    if (href) return href;
+    if ((await page.locator("a[data-testid='admin-resource-next']").count()) === 0) return null;
+  }
+  return null;
+}
+
 // The capture app version's edit href (the seed's 9.9.9 row).
 async function captureVersionEditHref(page) {
-  await page.goto(`${BASE}/admin/resources/catalog/app_version`, { waitUntil: "networkidle" });
-  await page.waitForSelector("[data-testid='admin-resource-index']");
-  return page.evaluate(() => {
-    const cell = [...document.querySelectorAll("span")].find(
-      (n) => n.textContent.trim() === "9.9.9",
-    );
-    if (!cell) return null;
-    const row = cell.closest("tr");
-    const link = row && row.querySelector("[data-testid^='admin-resource-view-']");
-    return link ? `${link.getAttribute("href")}/edit` : null;
-  });
+  const href = await indexViewHref(page, "/admin/resources/catalog/app_version", "9.9.9");
+  return href ? `${href}/edit` : null;
 }
 
 // The capture app's show href (the seed's Capture App row).
 async function captureAppHref(page) {
-  await page.goto(`${BASE}/admin/resources/catalog/app`, { waitUntil: "networkidle" });
-  await page.waitForSelector("[data-testid='admin-resource-index']");
-  return page.evaluate(() => {
-    const cell = [...document.querySelectorAll("span")].find(
-      (n) => n.textContent.trim() === "Capture App",
-    );
-    if (!cell) return null;
-    const row = cell.closest("tr");
-    const link = row && row.querySelector("[data-testid^='admin-resource-view-']");
-    return link ? link.getAttribute("href") : null;
-  });
+  return indexViewHref(page, "/admin/resources/catalog/app", "Capture App");
 }
 
 if (part === "pricing") {
