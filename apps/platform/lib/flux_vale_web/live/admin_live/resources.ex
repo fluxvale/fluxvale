@@ -364,6 +364,7 @@ defmodule FluxValeWeb.AdminLive.Resources do
                       <.record_form
                         form={@form}
                         fields={@fields}
+                        textarea_text={@textarea_text}
                         submit={gettext("Create %{name}", name: @resource_label)}
                       />
                     </div>
@@ -373,7 +374,12 @@ defmodule FluxValeWeb.AdminLive.Resources do
                     class="rounded-panel border border-line-strong bg-panel p-5 shadow-sm"
                     data-testid="admin-resource-form"
                   >
-                    <.record_form form={@form} fields={@fields} submit={gettext("Save changes")} />
+                    <.record_form
+                      form={@form}
+                      fields={@fields}
+                      textarea_text={@textarea_text}
+                      submit={gettext("Save changes")}
+                    />
                   </div>
               <% end %>
             </div>
@@ -473,7 +479,8 @@ defmodule FluxValeWeb.AdminLive.Resources do
              entry.module
              |> AshPhoenix.Form.for_create(action.name, form_opts(admin))
              |> to_form(),
-           fields: form_fields(entry.module, action)
+           fields: form_fields(entry.module, action),
+           textarea_text: %{}
          )}
 
       :error ->
@@ -493,11 +500,12 @@ defmodule FluxValeWeb.AdminLive.Resources do
     with {:ok, record} <- Ash.get(entry.module, id, actor: admin),
          {:ok, action} <- form_action(entry, :update, params["action"]) do
       fields = form_fields(entry.module, action)
+      seed = seed_params(fields, record)
 
       form =
         record
         |> AshPhoenix.Form.for_update(action.name, form_opts(admin))
-        |> AshPhoenix.Form.validate(seed_params(fields, record))
+        |> AshPhoenix.Form.validate(seed)
         |> to_form()
 
       {:ok,
@@ -508,7 +516,8 @@ defmodule FluxValeWeb.AdminLive.Resources do
          resource_label: resource_label(entry),
          index_path: index_path(entry),
          form: form,
-         fields: fields
+         fields: fields,
+         textarea_text: raw_textarea_text(fields, seed)
        )}
     else
       {:error, _unknown_or_refused} ->
@@ -533,16 +542,23 @@ defmodule FluxValeWeb.AdminLive.Resources do
 
   # The form's live validation: per-field errors ride AshPhoenix's form
   # data protocol into <.input> as the operator types. Params pass
-  # through UNTOUCHED — the operator's textarea text stays a binary in
-  # the form, so the field re-renders it verbatim on every keystroke;
-  # while the text is not yet castable, the composite's cast says
-  # "is invalid" beside the field, which is live validation telling
-  # the truth. The decode happens at submit (see the save handler).
+  # through UNTOUCHED — the form's cast value cannot render textarea
+  # text (a valid-JSON :map cast decodes the string), so the operator's
+  # raw text rides the textarea_text assign instead: it merges on every
+  # validate and renders verbatim. While the text is not yet castable,
+  # the composite's cast says "is invalid" beside the field, which is
+  # live validation telling the truth. The decode happens at submit
+  # (see the save handler).
   @impl Phoenix.LiveView
   def handle_event("validate", %{"record" => params}, socket) do
     form = AshPhoenix.Form.validate(socket.assigns.form, params)
 
-    {:noreply, assign(socket, form: form)}
+    {:noreply,
+     assign(socket,
+       form: form,
+       textarea_text:
+         Map.merge(socket.assigns.textarea_text, raw_textarea_text(socket.assigns.fields, params))
+     )}
   end
 
   def handle_event("validate", _params, socket), do: {:noreply, socket}
@@ -551,8 +567,19 @@ defmodule FluxValeWeb.AdminLive.Resources do
   # already re-resolved the actor (and refused a demoted one), so
   # `current_user` here is the FRESH struct and the submit carries it —
   # the policy reads the fresh role, never the form's mount-time actor.
-  # The JSON-textarea params decode first (see decode_json_params/2).
+  # The raw textarea text merges into the assign BEFORE the params
+  # decode, so a failed save re-renders the operator's text verbatim;
+  # the JSON-textarea params decode first (see decode_json_params/2).
   def handle_event("save", %{"record" => params}, socket) do
+    socket =
+      assign(socket,
+        textarea_text:
+          Map.merge(
+            socket.assigns.textarea_text,
+            raw_textarea_text(socket.assigns.fields, params)
+          )
+      )
+
     attempt_save(
       socket,
       decode_json_params(socket.assigns.fields, params),
@@ -749,6 +776,23 @@ defmodule FluxValeWeb.AdminLive.Resources do
       {:ok, decoded} -> decoded
       {:error, _undecodable} -> text
     end
+  end
+
+  # The operator's raw textarea text, keyed by string field name: the
+  # binaries among the event's textarea params, kept so the render can
+  # show the text verbatim — the form's cast value re-serializes valid
+  # JSON for :map (Ash decodes strings at cast), so the rendered text
+  # cannot come from the form alone. Non-binaries (an already-decoded
+  # map param, or a composite's seeded in-memory value) drop out; the
+  # textarea falls back to the form's value for those.
+  defp raw_textarea_text(fields, params) do
+    fields
+    |> Enum.filter(&(&1.type == "textarea"))
+    |> Map.new(fn field ->
+      key = Atom.to_string(field.name)
+      {key, Map.get(params, key)}
+    end)
+    |> Map.filter(fn {_key, value} -> is_binary(value) end)
   end
 
   # The JSON textareas' current values for the edit mount: the form's
@@ -1361,6 +1405,7 @@ defmodule FluxValeWeb.AdminLive.Resources do
   attr(:form, :any, required: true)
   attr(:fields, :list, required: true)
   attr(:submit, :string, required: true)
+  attr(:textarea_text, :map, required: true)
 
   defp record_form(assigns) do
     ~H"""
@@ -1379,7 +1424,7 @@ defmodule FluxValeWeb.AdminLive.Resources do
           step={field.step}
           label={field.label}
           required={field.required}
-          value={textarea_value(@form, field)}
+          value={textarea_value(@form, field, @textarea_text)}
         />
       </div>
       <.button
@@ -1393,25 +1438,36 @@ defmodule FluxValeWeb.AdminLive.Resources do
     """
   end
 
-  # The JSON textareas' value preparation: after a live validate the
-  # form's value for a composite field is the decoded plain map (and
-  # before any event, the edit mount's in-memory shape) — neither is
-  # renderable in a textarea. Probe: Phoenix's textarea normalize
-  # raises Phoenix.HTML.Safe for Map there, which would crash the
-  # first validate event's render, so non-binaries serialize to JSON;
-  # a binary (the wire's raw text, including an invalid one being
-  # edited) passes through untouched. The explicit value attr wins
-  # over the field's in <.input>; every other field passes nil and
-  # keeps the field's own value.
-  defp textarea_value(form, %{type: "textarea", name: name}) do
+  # The JSON textareas' value preparation: the operator's RAW text wins
+  # while editing — the textarea_text assign carries each field's last
+  # binary from the wire (merged on every validate and save event), so
+  # a valid-JSON :map cast's decoded value never re-serializes over the
+  # operator's spacing and key order. The form's cast value is the
+  # pristine-mount fallback: a binary passes through, nil renders
+  # empty, and a decoded map/struct serializes through json_safe (it
+  # is not renderable in a textarea — Phoenix's textarea normalize
+  # raises Phoenix.HTML.Safe for Map there). The explicit value attr
+  # wins over the field's in <.input>; every other field passes nil
+  # and keeps the field's own value.
+  defp textarea_value(form, %{type: "textarea", name: name}, textarea_text) do
+    case Map.get(textarea_text, Atom.to_string(name)) do
+      value when is_binary(value) ->
+        value
+
+      _no_raw_text ->
+        fallback_textarea_value(form, name)
+    end
+  end
+
+  defp textarea_value(_form, _other_type, _textarea_text), do: nil
+
+  defp fallback_textarea_value(form, name) do
     case form[name].value do
       value when is_binary(value) -> value
       nil -> nil
       value -> encode_json_value(value)
     end
   end
-
-  defp textarea_value(_form, _other_type), do: nil
 
   defp encode_json_value(value) do
     safe = json_safe(value)

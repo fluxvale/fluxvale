@@ -1790,6 +1790,17 @@ defmodule FluxValeWeb.AdminResourcesLiveTest do
       assert html =~ "Could not save. Check the errors below."
       assert html =~ "is invalid"
       assert has_element?(view, "[data-testid='admin-resource-form']")
+
+      # The save-failure path keeps the operator's raw text: the failed
+      # save merged it into the textarea_text assign before the decode.
+      failed_text =
+        view
+        |> element("[data-testid='admin-resource-input-default_env_vars'] textarea")
+        |> render()
+        |> LazyHTML.from_fragment()
+        |> LazyHTML.text()
+
+      assert failed_text =~ "{oops"
     end
 
     test "a validate event carrying an already-decoded map casts clean", %{conn: conn} do
@@ -1880,23 +1891,45 @@ defmodule FluxValeWeb.AdminResourcesLiveTest do
 
       {:ok, view, _html} = live(conn, "/admin/resources/catalog/app_version/#{version.id}/edit")
 
-      # The operator types valid JSON with their own spacing: the field
-      # re-renders the text VERBATIM — no cast-value re-serialization —
-      # and, the composite not accepting the raw text, says "is
-      # invalid" beside itself: live validation telling the truth.
+      # The operator types valid JSON with their own spacing into BOTH
+      # textarea kinds: each field re-renders the text VERBATIM — no
+      # cast-value re-serialization, the :map field included (Ash casts
+      # the string, but the render reads the raw-text assign) — and,
+      # the composite not accepting the raw text, says "is invalid"
+      # beside itself: live validation telling the truth. The map field
+      # casts the decoded map fine, so its own container carries no
+      # error.
       typed = ~s({"TYPED": "justnow"})
 
-      html = render_change(view, "validate", %{"record" => %{"configurable_env_vars" => typed}})
+      html =
+        render_change(view, "validate", %{
+          "record" => %{"configurable_env_vars" => typed, "default_env_vars" => typed}
+        })
 
-      re_rendered =
+      re_rendered_composite =
         view
         |> element("[data-testid='admin-resource-input-configurable_env_vars'] textarea")
         |> render()
         |> LazyHTML.from_fragment()
         |> LazyHTML.text()
 
-      assert re_rendered =~ typed
+      assert re_rendered_composite =~ typed
+
+      re_rendered_map =
+        view
+        |> element("[data-testid='admin-resource-input-default_env_vars'] textarea")
+        |> render()
+        |> LazyHTML.from_fragment()
+        |> LazyHTML.text()
+
+      assert re_rendered_map =~ typed
+
       assert html =~ "is invalid"
+
+      map_container =
+        render(element(view, "[data-testid='admin-resource-input-default_env_vars']"))
+
+      refute map_container =~ "is invalid"
       assert has_element?(view, "[data-testid='admin-resource-form']")
     end
 
