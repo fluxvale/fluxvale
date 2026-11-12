@@ -1,7 +1,7 @@
 defmodule FluxValeWeb.AdminAudit do
   @moduledoc """
   The Audit section's browsable resource list (#645, ADR-0048): one
-  entry per business-set resource — the exact 31 the doctrine gate
+  entry per business-set resource — the exact 32 the doctrine gate
   (test/flux_vale/admin_authority_test.exs) demands bypass AND trail
   on. The gate owns the set's definition and carries the parity seam:
   one test there asserts this module's audited module set equals the
