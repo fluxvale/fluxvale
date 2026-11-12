@@ -97,7 +97,8 @@ defmodule FluxVale.Infrastructure.Operations.InstanceEnvSecretConcurrencyTest do
     worker =
       spawn_link(fn ->
         conn = Sandbox.checkout(Repo, sandbox: false)
-        send(parent, {:ready, :worker})
+        %{rows: [[backend]]} = Repo.query!("SELECT pg_backend_pid()")
+        send(parent, {:worker_ready, backend})
 
         receive do
           :go -> :ok
@@ -118,7 +119,7 @@ defmodule FluxVale.Infrastructure.Operations.InstanceEnvSecretConcurrencyTest do
       end)
 
     assert_receive {:ready, :holder}, 5_000
-    assert_receive {:ready, :worker}, 5_000
+    assert_receive {:worker_ready, worker_backend}, 5_000
 
     send(holder, :hold)
     assert_receive :locked, 5_000
@@ -126,14 +127,13 @@ defmodule FluxVale.Infrastructure.Operations.InstanceEnvSecretConcurrencyTest do
     send(worker, :go)
     assert_receive :worker_applying, 5_000
 
-    # Holder still owns the row lock and has NOT written the first
-    # key yet. A lockless worker would read now (and miss PATCH_KEY).
-    refute_receive {:secret_read, _data}, 100
-    refute_receive {:worker_done, _result}, 0
+    # Observe the wait, do not time it: the worker's backend is parked
+    # on the instances row lock while the holder still owns it and has
+    # not written the first key.
+    wait_until_parked!(worker_backend)
 
     send(holder, :write)
     assert_receive :patched, 5_000
-    refute_receive {:worker_done, _result}, 0
 
     send(holder, :release)
     assert_receive :holder_done, 5_000
@@ -150,6 +150,25 @@ defmodule FluxVale.Infrastructure.Operations.InstanceEnvSecretConcurrencyTest do
 
     assert Agent.get(store, & &1) ==
              %{"KEEP" => "kept", "PATCH_KEY" => "patched", "SSO_KEY" => "sso"}
+  end
+
+  # Parks are observed, not assumed (the size-coherence stance):
+  # pg_stat_activity shows the backend blocked on a lock once the worker
+  # reaches the gated read. The budget only bounds a bug into a failure.
+  defp wait_until_parked!(backend, polls_left \\ 50) do
+    result = Repo.query!("SELECT wait_event_type FROM pg_stat_activity WHERE pid = $1", [backend])
+
+    case result.rows do
+      [["Lock"]] ->
+        :ok
+
+      _not_yet when polls_left > 1 ->
+        Process.sleep(20)
+        wait_until_parked!(backend, polls_left - 1)
+
+      _never ->
+        flunk("worker never parked on the instances row lock")
+    end
   end
 
   # Seeds through a committed connection: both spawned writers must see

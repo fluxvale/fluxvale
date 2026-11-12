@@ -102,5 +102,14 @@ defmodule FluxVale.Infrastructure.Operations.InstanceEnvDerived do
   end
 
   defp append_host(nil, host), do: host
-  defp append_host(existing, host) when is_binary(existing), do: "#{existing},#{host}"
+
+  defp append_host(existing, host) when is_binary(existing) do
+    present? =
+      existing
+      |> String.split(",")
+      |> Enum.map(&String.trim/1)
+      |> Enum.member?(host)
+
+    if present?, do: existing, else: existing <> "," <> host
+  end
 end

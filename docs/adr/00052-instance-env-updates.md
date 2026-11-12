@@ -97,11 +97,12 @@ second-deploy experience.
    `Operations.InstanceEnvSecret`: `upsert/5` (read-merge-write SSA;
    `expect_existing` refuses a lost Secret instead of creating a
    partial one), `restart/2` (annotation bump plus the app container's
-   `envFrom` ensure, so the first env on an empty deployment is
-   actually consumed), and `apply_locked/4` (re-read the row
-   `FOR UPDATE`, then upsert + restart; `expect_existing` comes from
-   the caller's PRE-MERGE row) for the SSO operations. The public env
-   action uses the same module with its own row transaction; no
+   `envFrom` ensure, for the live statuses and the SSO legs; a
+   stopped/sleeping first env instead uses the spec-only
+   `ensure_env_from/2`, no rollout), and `apply_locked/4` (re-read the
+   row `FOR UPDATE`, then upsert + restart; `expect_existing` comes
+   from the caller's PRE-MERGE row) for the SSO operations. The public
+   env action uses the same module with its own row transaction; no
    parallel K8s path exists. The SSO callers keep passing only their
    recipe keys — the ownership guard is the public action's, not the
    seam's. A deployed row that carries env but has no live `app-env`
@@ -149,8 +150,12 @@ second-deploy experience.
   window the deploy already holds across its applies. A concurrent
   deploy, SSO write, or in-place patch serializes, never interleaves:
   the SSO legs take the same lock via `apply_locked/4`.
-- A no-op patch (empty final `set`/`remove`, no allowlist append)
-  writes no Secret and rolls nothing — the request is already true.
+- A no-op patch is the empty final effect — `added`, `changed`,
+  `removed`, and `composed` all empty AND no applied remove. It writes
+  no Secret, rolls nothing, and does not resolve the cluster or
+  read/repair the live Secret: row/Secret drift and a missing Secret
+  surface on the next effective change (decision 7's 400) or on a
+  redeploy.
 - A restart refusal is a 400 with the honest partial-state message
   ("the environment was saved, but the rolling restart was refused —
   retry"); readiness is not awaited (the SSO rotate's documented

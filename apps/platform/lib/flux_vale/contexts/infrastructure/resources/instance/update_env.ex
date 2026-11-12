@@ -57,6 +57,8 @@ defmodule FluxVale.Infrastructure.Instance.UpdateEnv do
 
   @restart_refused "the environment was saved, but the rolling restart was refused — retry"
 
+  @ensure_env_refused "the environment was saved, but the deployment could not be updated to consume it — retry"
+
   @impl Ash.Resource.Change
   def change(changeset, _opts, _context) do
     changeset
@@ -273,9 +275,11 @@ defmodule FluxVale.Infrastructure.Instance.UpdateEnv do
 
   # The final EFFECT, after the allowlist projection: a same-value set
   # or an already-absent remove changes nothing, so no Secret write and
-  # no rollout are owed.
+  # no rollout are owed. An explicit applied removal always reaches the
+  # Secret — the row may lack a key that drift left live-only.
   defp noop?(plan) do
-    plan.added == [] and plan.changed == [] and plan.removed == [] and plan.composed == []
+    plan.added == [] and plan.changed == [] and plan.removed == [] and
+      plan.remove == [] and plan.composed == []
   end
 
   defp apply_target(_row, true), do: {:ok, %{kubeconfig: nil, namespace: nil}}
@@ -368,12 +372,37 @@ defmodule FluxVale.Infrastructure.Instance.UpdateEnv do
     case result do
       {:ok, instance} ->
         log_update(changeset, instance, stash)
-        restart_live(instance, stash, result)
+
+        case ensure_env_consumed(stash) do
+          :ok ->
+            restart_live(instance, stash, result)
+
+          {:error, _reason} ->
+            {:error, InvalidArgument.exception(message: @ensure_env_refused)}
+        end
 
       {:error, _reason} = error ->
         error
     end
   end
+
+  # stopped/sleeping pods are absent: the row + Secret are committed and
+  # the next start reads the Secret, but the Deployment must first
+  # consume it. Only a pre-merge empty row can lack the envFrom (the
+  # live statuses' restart already ensures it; a no-op owes no cluster
+  # work).
+  defp ensure_env_consumed(%{
+         status: status,
+         noop: false,
+         expect_existing: false,
+         kubeconfig: kubeconfig,
+         namespace: namespace
+       })
+       when status in @secret_only do
+    InstanceEnvSecret.ensure_env_from(kubeconfig, namespace)
+  end
+
+  defp ensure_env_consumed(_stash), do: :ok
 
   # Key NAMES only — never a value (ADR-0052 decision 6).
   defp log_update(changeset, instance, stash) do

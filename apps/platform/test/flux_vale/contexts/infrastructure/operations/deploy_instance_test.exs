@@ -841,6 +841,36 @@ defmodule FluxVale.Infrastructure.Operations.DeployInstanceTest do
       assert {:ok, _starting} = DeployInstance.call(instance)
     end
 
+    test "a preexisting allowlist value already containing the platform host is unchanged" do
+      {instance, base_domain} =
+        claimed_org!(
+          instance_url_env: nil,
+          host_allowlist_env: "ALLOWED_HOSTS"
+        )
+
+      platform_host = "#{instance.slug}.#{base_domain}"
+      existing = "localhost,#{platform_host}"
+
+      with_allowlist =
+        instance
+        |> Ash.Changeset.for_update(
+          :merge_system_env,
+          %{env: %{"ALLOWED_HOSTS" => existing}},
+          authorize?: false
+        )
+        |> Ash.update!()
+
+      ns = "fluxvale-app-#{with_allowlist.id}"
+      stub_private_operands(ns)
+
+      expect(Secret, :create, fn _kc, ^ns, "app-env", data ->
+        assert data["ALLOWED_HOSTS"] == existing
+        {:ok, %{}}
+      end)
+
+      assert {:ok, _starting} = DeployInstance.call(with_allowlist)
+    end
+
     test "an UNCLAIMED private instance gets neither the URL nor the allowlist entry" do
       # No gateway claims at all — the ADR-0038 §4 omission holds even
       # with both env names declared.

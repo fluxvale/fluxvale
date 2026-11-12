@@ -145,8 +145,9 @@ Spec: [ADR-0052](../adr/00052-instance-env-updates.md).
   (re-read the row `FOR UPDATE`, upsert, restart; the `expect_existing`
   flag comes from the caller's pre-merge row) for the SSO callers,
   plus `upsert/5` (`expect_existing` refuses a missing Secret on a row
-  with env) and `restart/2` (Secret-first, restart-second; restart
-  ensures the app container's `envFrom`) for the in-place action.
+  with env), `restart/2` (Secret-first, restart-second; ensures the app
+  container's `envFrom` on live statuses/SSO), and the spec-only
+  `ensure_env_from/2` for a stopped/sleeping first env (no rollout).
 - The three SSO operations
   (`connect_pocket_id.ex`, `disconnect_pocket_id.ex`,
   `rotate_pocket_id_secret.ex`) and
@@ -179,9 +180,11 @@ with honest messages: fixed/forbidden contract keys, deployer-owned
 keys, overlap, invalid name/value, busy (`deploying`/`restoring`),
 deleting, decrypt failure, a missing live Secret ("redeploy to
 repair"), and the post-commit restart refusal ("the environment was
-saved, but the rolling restart was refused — retry"). A patch with an
-empty final `set`/`remove` (and no allowlist append) is a 200 no-op:
-no Secret write, no restart.
+saved, but the rolling restart was refused — retry"). A no-op is the
+empty final effect (`added`/`changed`/`removed`/`composed` all empty
+AND no applied remove): 200, no Secret write, no restart, no cluster
+resolution. A no-op does not read/repair the live Secret — drift and a
+missing Secret surface on the next effective change or a redeploy.
 
 Status rules (ADR-0052): row-only for `pending`/`error`/`lost`;
 row + Secret + restart for `running`/`starting`; row + Secret, no
@@ -192,13 +195,15 @@ restart for `stopped`/`sleeping`; refuse `deploying`/`restoring`/
 
 - `apps/platform/test/flux_vale/contexts/infrastructure/operations/env_patch_test.exs`
   (new): pure validation, the three key categories (fixed/forbidden
-  refusals fold case; deployer-owned is exact), overlap, remove
-  string-only, merge.
+  refusals fold case; OIDC/`instance_url_env` are exact, backing
+  `url_env` keys fold), overlap, remove string-only, merge.
 - `apps/platform/test/flux_vale/contexts/infrastructure/resources/instance/update_env_test.exs`
   (new): the status matrix, Secret upsert inside the transaction, a
   failed upsert rolls the row back, a missing live Secret refuses, a
-  no-op patch touches nothing, a refused restart leaves row + Secret
-  applied and returns an error, key-name-only logging (including
+  no-op patch touches nothing (including a same-value set), a live-only
+  remove still reaches the Secret, a stopped/sleeping first env preps
+  the Deployment spec without a rollout, a refused restart leaves row +
+  Secret applied and returns an error, key-name-only logging (including
   `composed`), the allowlist Secret-only append, a forged non-string
   row, a wiring-read failure that fails closed, and the sentinel check
   (a secret value never appears in the response body, captured logs, or

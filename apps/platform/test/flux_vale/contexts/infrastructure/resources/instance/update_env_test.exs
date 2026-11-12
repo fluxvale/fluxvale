@@ -48,6 +48,7 @@ defmodule FluxVale.Infrastructure.Instance.UpdateEnvTest do
     {org, user} = BillingFixtures.grant_free_org!()
     BillingFixtures.funded_wallet!(org: org)
     stub(K8s, :kubeconfig, fn _ref -> {:ok, %{}} end)
+    stub(Kubereq, :attach, fn req, _opts -> req end)
 
     %{user: user}
   end
@@ -240,6 +241,21 @@ defmodule FluxVale.Infrastructure.Instance.UpdateEnvTest do
       assert updated.env_vars == %{"KEEP" => "1"}
       assert reload!(instance).env_vars == %{"KEEP" => "1"}
     end
+
+    test "a live-only remove still reaches the Secret and restarts", %{user: user} do
+      instance = create!(user, status: :running, pin: true, env: %{"KEEP" => "1"})
+      stub_secret(%{"KEEP" => "1", "LIVE_ONLY" => "drifted"})
+      expect_upsert()
+      expect(Deployment, :restart, fn _kc, "ns-live", "app", _opts -> {:ok, %{}} end)
+
+      assert {:ok, updated} = update_env(instance, user, %{}, ["LIVE_ONLY"])
+
+      # The row never had the key; the live Secret did. The applied
+      # removal must reach the Secret even though `removed` is empty.
+      assert updated.env_vars == %{"KEEP" => "1"}
+      assert reload!(instance).env_vars == %{"KEEP" => "1"}
+      assert_received {:upsert, %{"KEEP" => "1"}}
+    end
   end
 
   describe "secret-only statuses (stopped/sleeping): row + Secret, no restart" do
@@ -259,11 +275,86 @@ defmodule FluxVale.Infrastructure.Instance.UpdateEnvTest do
       instance = create!(user, status: :sleeping, pin: true)
       stub_secret(%{})
       expect_upsert()
+      stub(Deployment, :ensure_env_from, fn _kc, "ns-live", "app" -> {:ok, %{}} end)
 
       assert {:ok, updated} = update_env(instance, user, %{"NEW" => "2"}, [])
 
       assert updated.status == :sleeping
       assert_received {:upsert, %{"NEW" => "2"}}
+    end
+
+    test "stopped empty row: first env writes the Secret and preps the Deployment spec", %{
+      user: user
+    } do
+      instance = create!(user, status: :stopped, pin: true)
+
+      stub(Secret, :get_data, fn _kc, _ns, _n ->
+        {:error, %K8s.Error{status_code: 404, reason: :not_found, message: "absent"}}
+      end)
+
+      expect_upsert()
+
+      deployment = %{
+        "metadata" => %{"name" => "app"},
+        "spec" => %{
+          "replicas" => 1,
+          "template" => %{
+            "metadata" => %{},
+            "spec" => %{
+              "containers" => [
+                %{
+                  "name" => "app",
+                  "image" => "app:1",
+                  "resources" => %{"requests" => %{"cpu" => "0.5"}}
+                }
+              ]
+            }
+          }
+        }
+      }
+
+      expect(Kubereq, :get, fn _req, "ns-live", "app" ->
+        {:ok, %{status: 200, body: deployment}}
+      end)
+
+      expect(Kubereq, :apply, fn _req, manifest, _fm ->
+        send(self(), {:deployment_applied, manifest})
+        {:ok, %{status: 200, body: manifest}}
+      end)
+
+      assert {:ok, updated} = update_env(instance, user, %{"NEW" => "2"}, [])
+
+      assert updated.env_vars == %{"NEW" => "2"}
+      assert_received {:upsert, %{"NEW" => "2"}}
+      assert_received {:deployment_applied, manifest}
+
+      [app] = get_in(manifest, ["spec", "template", "spec", "containers"])
+      assert app["envFrom"] == [%{"secretRef" => %{"name" => "app-env"}}]
+      assert app["resources"] == %{"requests" => %{"cpu" => "0.5"}}
+      assert get_in(manifest, ["spec", "replicas"]) == 1
+
+      annotations = get_in(manifest, ["spec", "template", "metadata", "annotations"])
+      refute Map.has_key?(annotations || %{}, "fluxvale.io/restartedAt")
+    end
+
+    test "a refused spec ensure leaves row + Secret applied and answers honestly", %{
+      user: user
+    } do
+      instance = create!(user, status: :stopped, pin: true)
+      stub_secret(%{})
+      expect_upsert()
+
+      stub(Deployment, :ensure_env_from, fn _kc, "ns-live", "app" ->
+        {:error, %K8s.Error{status_code: 500, reason: :unknown, message: "no"}}
+      end)
+
+      assert_error(
+        update_env(instance, user, %{"NEW" => "2"}, []),
+        "the environment was saved, but the deployment could not be updated to consume it — retry"
+      )
+
+      assert_received {:upsert, %{"NEW" => "2"}}
+      assert reload!(instance).env_vars == %{"NEW" => "2"}
     end
   end
 
@@ -634,6 +725,30 @@ defmodule FluxVale.Infrastructure.Instance.UpdateEnvTest do
       assert log =~ ~s(composed=["ALLOWED_HOSTS"])
     end
 
+    test "a value already containing the platform host is not duplicated", %{user: user} do
+      version = InstanceFixtures.app_version!(host_allowlist_env: "ALLOWED_HOSTS")
+
+      instance = create!(user, version: version, status: :stopped, pin: true)
+
+      domain = Application.fetch_env!(:flux_vale, :instances_base_domain)
+      platform_host = "#{instance.slug}.#{domain}"
+      existing = "localhost,#{platform_host}"
+
+      stub_secret(%{"ALLOWED_HOSTS" => existing})
+      stub(Deployment, :ensure_env_from, fn _kc, "ns-live", "app" -> {:ok, %{}} end)
+
+      expect(Secret, :upsert, fn _kc, "ns-live", "app-env", data ->
+        send(self(), {:upsert, data})
+        {:ok, %{}}
+      end)
+
+      assert {:ok, updated} =
+               update_env(instance, user, %{"ALLOWED_HOSTS" => existing}, [])
+
+      assert updated.env_vars["ALLOWED_HOSTS"] == existing
+      assert_received {:upsert, %{"ALLOWED_HOSTS" => ^existing}}
+    end
+
     test "a private, non-live remove drops the key — no platform hostname re-added", %{
       user: user
     } do
@@ -695,6 +810,8 @@ defmodule FluxVale.Infrastructure.Instance.UpdateEnvTest do
         send(self(), {:upsert, data})
         {:ok, %{}}
       end)
+
+      stub(Deployment, :ensure_env_from, fn _kc, "ns-live", "app" -> {:ok, %{}} end)
 
       log =
         capture_info_log(fn ->

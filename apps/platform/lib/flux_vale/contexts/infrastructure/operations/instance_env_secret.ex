@@ -97,9 +97,11 @@ defmodule FluxVale.Infrastructure.Operations.InstanceEnvSecret do
 
   @doc """
   Read-merge-write the `app-env` Secret: only the given keys move in
-  this call's map. `expect_existing` is the instance row's
-  `env_vars != %{}` — a missing Secret then means the live projection
-  was lost, not that the app has no env.
+  this call's map. `expect_existing` is the CALLER's pre-merge row
+  state (`env_vars != %{}`) — `apply_locked/4` cannot infer it from the
+  locked row, because the retrofit has already merged its keys there.
+  A missing Secret when expected means the live projection was lost,
+  not that the app has no env.
 
   Honest limit: every writer here uses the same SSA field manager, so
   a re-deploy writing the Secret between the read and the upsert has
@@ -124,11 +126,27 @@ defmodule FluxVale.Infrastructure.Operations.InstanceEnvSecret do
   @doc """
   The rolling restart — the "apply" half of the primitive. A refusal
   here leaves the new Secret staged and the old pods serving: the
-  caller's honest retry re-upserts (idempotent) and re-rolls.
+  caller's honest retry re-upserts (idempotent) and re-rolls. Also
+  ensures the app container consumes `app-env` (first env on a
+  deployment created without it).
   """
   @spec restart(Kubereq.Kubeconfig.t(), String.t()) :: :ok | {:error, term()}
   def restart(kubeconfig, namespace) do
     case Deployment.restart(kubeconfig, namespace, @deployment_name, ensure_env_from: @env_secret) do
+      {:ok, _deployment} -> :ok
+      {:error, _reason} = error -> error
+    end
+  end
+
+  @doc """
+  Spec-only ensure for the stopped/sleeping first-env path: make the
+  Deployment consume `app-env` without rolling it. The next start reads
+  the Secret; a failure leaves the row + Secret applied and the spec
+  stale, which the caller reports as a retryable partial state.
+  """
+  @spec ensure_env_from(Kubereq.Kubeconfig.t(), String.t()) :: :ok | {:error, term()}
+  def ensure_env_from(kubeconfig, namespace) do
+    case Deployment.ensure_env_from(kubeconfig, namespace, @deployment_name) do
       {:ok, _deployment} -> :ok
       {:error, _reason} = error -> error
     end

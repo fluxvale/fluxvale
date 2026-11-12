@@ -322,25 +322,39 @@ defmodule FluxVale.Clients.K8s.Resources.Deployment do
         updated =
           deployment
           |> strip_managed_fields()
-          |> ensure_env_from(Keyword.get(opts, :ensure_env_from))
+          |> ensure_app_env_from(Keyword.get(opts, :ensure_env_from))
           |> update_in(["spec", "template", "metadata", "annotations"], fn
             nil -> %{"fluxvale.io/restartedAt" => restart_at}
             ann -> Map.put(ann, "fluxvale.io/restartedAt", restart_at)
           end)
 
-        req = create_req(kubeconfig)
+        apply_updated(kubeconfig, updated, "Restarted deployment: #{namespace}/#{name}")
 
-        case Kubereq.apply(req, updated, "fluxvale") do
-          {:ok, %{status: 200, body: body}} ->
-            Logger.debug("Restarted deployment: #{namespace}/#{name}")
-            {:ok, body}
+      {:error, error} ->
+        {:error, error}
+    end
+  end
 
-          {:ok, %{status: status, body: body}} ->
-            {:error, Error.from_response({:ok, %{status: status, body: body}})}
+  @doc """
+  Spec-only ensure: add `app-env` to the app container's `envFrom` when
+  absent, without the restart annotation. The stopped/sleeping first-env
+  path needs the spec ready for the next start, not a rollout now.
+  """
+  @spec ensure_env_from(Kubereq.Kubeconfig.t(), String.t(), String.t()) ::
+          {:ok, map()} | {:error, Error.t()}
+  def ensure_env_from(kubeconfig, namespace, name) do
+    case get(kubeconfig, namespace, name) do
+      {:ok, deployment} ->
+        updated =
+          deployment
+          |> strip_managed_fields()
+          |> ensure_app_env_from("app-env")
 
-          {:error, error} ->
-            {:error, Error.from_response({:error, error})}
-        end
+        apply_updated(
+          kubeconfig,
+          updated,
+          "Ensured deployment envFrom: #{namespace}/#{name}"
+        )
 
       {:error, error} ->
         {:error, error}
@@ -348,20 +362,26 @@ defmodule FluxVale.Clients.K8s.Resources.Deployment do
   end
 
   # Only the app container consumes the instance env; sidecars and the
-  # backing-service containers keep their own envFrom lists.
-  defp ensure_env_from(deployment, nil), do: deployment
+  # backing-service containers keep their own envFrom lists. A missing
+  # containers key stays missing (update_in would write a nil key).
+  defp ensure_app_env_from(deployment, nil), do: deployment
 
-  defp ensure_env_from(deployment, secret_name) do
-    update_in(deployment, ["spec", "template", "spec", "containers"], fn
+  defp ensure_app_env_from(deployment, secret_name) do
+    path = ["spec", "template", "spec", "containers"]
+
+    case get_in(deployment, path) do
       nil ->
-        nil
+        deployment
 
       containers ->
-        Enum.map(containers, fn
-          %{"name" => "app"} = container -> put_env_from(container, secret_name)
-          container -> container
-        end)
-    end)
+        updated =
+          Enum.map(containers, fn
+            %{"name" => "app"} = container -> put_env_from(container, secret_name)
+            container -> container
+          end)
+
+        put_in(deployment, path, updated)
+    end
   end
 
   defp put_env_from(container, secret_name) do
@@ -371,6 +391,22 @@ defmodule FluxVale.Clients.K8s.Resources.Deployment do
       container
     else
       Map.put(container, "envFrom", env_from ++ [%{"secretRef" => %{"name" => secret_name}}])
+    end
+  end
+
+  defp apply_updated(kubeconfig, updated, success_log) do
+    req = create_req(kubeconfig)
+
+    case Kubereq.apply(req, updated, "fluxvale") do
+      {:ok, %{status: 200, body: body}} ->
+        Logger.debug(success_log)
+        {:ok, body}
+
+      {:ok, %{status: status, body: body}} ->
+        {:error, Error.from_response({:ok, %{status: status, body: body}})}
+
+      {:error, error} ->
+        {:error, Error.from_response({:error, error})}
     end
   end
 
