@@ -1,7 +1,8 @@
 # Plan: Terraform-native integrations (#731)
 
-Status: **PLAN — awaiting Terence's go** (relayed via the PA). No
-implementation before that.
+Status: **GO** (owner, Nov 12, 2026, relayed via the PA).
+Implementation runs in the plan's order. T4's design is accepted; its
+build is deferred until T1–T3 and starts only on a relay.
 Decision records: [ADR-0052](../adr/00052-instance-env-updates.md)
 (T1, Proposed) and
 [ADR-0053](../adr/00053-terraform-secret-env.md) (T4, Proposed).
@@ -422,7 +423,8 @@ test -f docs/adr/00053-terraform-secret-env.md \
 
 ### T4-S2 — platform: open `enc:v1:` values at deploy and in-place
 
-Gate: T4-S1 approved.
+Gate: T4 design approved; build starts only on Terence's relay after
+T1–T3.
 
 **Repo/worktree:** monorepo, `fv731-t4` (after T3-S1).
 
@@ -484,7 +486,8 @@ PR: `feat(platform): encrypted env values — open at deploy (#731)`.
 
 ### T4-S3 — CLI: `fluxvale secrets encrypt`
 
-Gate: T4-S1 approved. Depends on T4-S2's route.
+Gate: T4 design approved; build starts only on Terence's relay after
+T1–T3. Depends on T4-S2's route.
 
 **Repo/worktree:** monorepo, `fv731-t4-cli` (after T4-S2).
 
@@ -595,7 +598,8 @@ git -C ~/Work/FluxVale/terraform-provider-fluxvale fetch --tags \
    against the pinned API shape).
 2. **Wave 1 continues:** `T2-S1` → `T3-S1` in the monorepo chain;
    `T2-S2` → `T3-S2` in the provider chain.
-3. **Wave 2:** `T4-S2` → `T4-S3` (only with the T4 go).
+3. **Wave 2:** `T4-S2` → `T4-S3` — deferred until T1–T3; starts only
+   on Terence's relay.
 4. **Wave 3:** `R1` (release + docs).
 
 The monorepo chain is one worker (shared files + generated artifacts);
@@ -633,15 +637,14 @@ the provider chain is one worker. Two workers in flight, not eight.
 Critical path: **≈6.5 dev-days to T1–T3 merged + released, ≈10.5
 with T4**, so roughly **1.5–2.5 calendar weeks** with review cycles.
 
-## Decisions for Terence
+## Gate outcome (Nov 12, 2026)
 
-1. **T1 semantics** — in-place merge, row-is-truth, explicit removes,
-   platform-owned keys refused, restart-after-commit with an honest
-   partial-failure answer ([ADR-0052](../adr/00052-instance-env-updates.md)).
-2. **T4 model** — encrypted values (one platform key, ciphertext bound
-   to org + variable, `fluxvale secrets encrypt`) instead of write-only
-   inputs or secret references
-   ([ADR-0053](../adr/00053-terraform-secret-env.md)); and whether the
-   go includes building it now or only the design.
+1. **T1 semantics** — approved as written
+   ([ADR-0052](../adr/00052-instance-env-updates.md), Accepted).
+2. **T4 model** — design approved as written
+   ([ADR-0053](../adr/00053-terraform-secret-env.md), Accepted for
+   design); **build deferred until T1–T3**, revisited only on
+   Terence's relay. If T1-S1 lands early, a parallel T4 start is
+   Terence's call, not the lane's.
 3. **T5** — not now; typed resources until a second integration type
    exists.

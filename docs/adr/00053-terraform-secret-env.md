@@ -1,6 +1,6 @@
 # ADR-0053: Secret env values — Terraform carries a locked box, never the secret
 
-**Status**: Proposed (awaiting owner go, #731 — the plan is
+**Status**: Accepted for design; implementation deferred until T1–T3 (owner go Nov 12, 2026, #731 — the plan is
 [plans/731-terraform-integrations.md](../plans/731-terraform-integrations.md))
 **Date**: 2026-11-12
 
