@@ -176,7 +176,9 @@ test("backups: configure → back up now → objects in MinIO → restore → da
   expect(davUser).toBeTruthy();
   expect(davPassword).toBeTruthy();
 
-  const obscured = (await run("rclone", ["obscure", davPassword!])).stdout.trim();
+  // `--` is load-bearing: a generated password can start with `-`
+  // (1-in-64 base64url draw) and rclone would parse it as a flag.
+  const obscured = (await run("rclone", ["obscure", "--", davPassword!])).stdout.trim();
   const dir = await mkdtemp(path.join(tmpdir(), "fv-backups-"));
   const fileName = `roundtrip-${runId}.txt`;
   const remoteFile = `fv:evidence/${fileName}`;

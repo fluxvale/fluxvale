@@ -139,7 +139,7 @@ test("file access: deploy Kavita → rclone put through /dav → file lands in t
   expect(unauth.status()).toBe(401);
 
   // rclone put through the endpoint (the documented client path).
-  const obscured = (await run("rclone", ["obscure", password!])).stdout.trim();
+  const obscured = (await run("rclone", ["obscure", "--", password!])).stdout.trim();
   const content = `fluxvale file-access e2e ${runId} — if you can read this, the volume got it`;
   const dir = await mkdtemp(path.join(tmpdir(), "fv-dav-"));
   const localFile = path.join(dir, "e2e-upload.txt");
