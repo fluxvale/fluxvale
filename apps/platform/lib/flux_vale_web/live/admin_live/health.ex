@@ -362,6 +362,17 @@ defmodule FluxValeWeb.AdminLive.Health do
                   </li>
                 </ul>
                 <p
+                  :if={@audit_activity.active > length(@audit_activity.top)}
+                  class="mt-2 text-xs text-ink-muted"
+                  data-testid="audit-activity-more"
+                >
+                  {ngettext(
+                    "and 1 more resource",
+                    "and %{count} more resources",
+                    @audit_activity.active - length(@audit_activity.top)
+                  )}
+                </p>
+                <p
                   :if={@audit_activity.top == []}
                   class="mt-2 text-sm text-ink-muted"
                   data-testid="audit-activity-empty"

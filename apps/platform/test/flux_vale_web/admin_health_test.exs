@@ -17,13 +17,17 @@ defmodule FluxValeWeb.AdminHealthTest do
   alias FluxVale.Billing
   alias FluxVale.Billing.Month
   alias FluxVale.Billing.Wallet
+  alias FluxVale.Catalog.Category
   alias FluxVale.Clients.K8s
   alias FluxVale.Clients.K8s.Resources.StorageClass
   alias FluxVale.Feedback.Tag
   alias FluxVale.Identity.User
+  alias FluxVale.Infrastructure.Cluster
   alias FluxVale.Infrastructure.Instance
   alias FluxVale.Infrastructure.StorageRequest
   alias FluxVale.Ops.FeatureFlag
+  alias FluxVale.Pricing.Size
+  alias FluxVale.Pricing.TaxRate
   alias FluxVale.TestSupport.AccountsFixtures
   alias FluxVale.TestSupport.BillingFixtures
   alias FluxVale.TestSupport.InstanceFixtures
@@ -543,6 +547,11 @@ defmodule FluxValeWeb.AdminHealthTest do
 
   describe "audit_activity/1" do
     test "counts action-created rows and sorts the top five desc", %{admin: admin} do
+      # Four trail-only rows across distinct resources guarantee >5
+      # active entries even on a clean partition, so the total-vs-capped
+      # arm below is meaningful without relying on committed strays.
+      seed_extra_activity!()
+
       before = AdminHealth.audit_activity(admin)
 
       # `fourth + 1` puts a fixture count above every pre-existing count
@@ -566,12 +575,41 @@ defmodule FluxValeWeb.AdminHealthTest do
       counts = Enum.map(after_activity.top, & &1.count)
       assert counts == Enum.sort(counts, :desc)
 
+      # More than five active resources, so the capped rows cannot carry
+      # the whole total — the active count is the overflow line's source.
+      top_total =
+        after_activity.top
+        |> Enum.map(& &1.count)
+        |> Enum.sum()
+
+      assert after_activity.active > 5
+      assert after_activity.total > top_total
+
       assert ff = Enum.find(after_activity.top, &(&1.key == :feature_flag))
       assert tag_row = Enum.find(after_activity.top, &(&1.key == :tag))
       assert ff.count > fourth
       assert tag_row.count > fourth
       assert ff.label == "Feature flag"
       assert tag_row.label == "Tag"
+    end
+
+    test "ties sort by resource key ascending", %{admin: admin} do
+      before = AdminHealth.audit_activity(admin)
+
+      # `ceiling + 1` clears every pre-existing count, so the tied set is
+      # exactly the two fixtures — equal counts, entry-key order.
+      ceiling =
+        before.top
+        |> List.first()
+        |> then(&(&1 && &1.count)) || 0
+
+      for i <- 1..(ceiling + 1), do: flag!(admin, "tie_#{i}")
+      for i <- 1..(ceiling + 1), do: tag!(admin, "c4_tie_tag_#{i}_#{@n}")
+
+      after_activity = AdminHealth.audit_activity(admin)
+
+      tied = Enum.filter(after_activity.top, &(&1.count == ceiling + 1))
+      assert Enum.map(tied, & &1.key) == [:feature_flag, :tag]
     end
 
     test "excludes rows older than 24h", %{admin: admin} do
@@ -683,5 +721,24 @@ defmodule FluxValeWeb.AdminHealthTest do
     Tag
     |> Ash.Changeset.for_create(:create, %{name: name}, actor: actor)
     |> Ash.create!()
+  end
+
+  # Four trail-only rows across distinct resources guarantee >5 active
+  # entries even on a clean partition. Ash.Seed is the sanctioned bypass
+  # for fabricated version rows (the fleet deploy trail's same posture):
+  # this test needs controlled count coverage, not four unrelated action
+  # contracts.
+  defp seed_extra_activity! do
+    for version_module <- [Category.Version, Cluster.Version, Size.Version, TaxRate.Version] do
+      Ash.Seed.seed!(version_module, %{
+        version_action_type: :create,
+        version_action_name: :create,
+        version_action_inputs: %{},
+        version_source_id: Ecto.UUID.generate(),
+        actor_label: "c4-extra",
+        version_inserted_at: DateTime.utc_now(),
+        changes: %{}
+      })
+    end
   end
 end

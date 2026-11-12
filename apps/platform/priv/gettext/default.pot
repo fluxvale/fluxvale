@@ -3667,7 +3667,7 @@ msgstr ""
 
 #: lib/flux_vale_web/live/admin_live/audit.ex:518
 #: lib/flux_vale_web/live/admin_live/audit.ex:523
-#: lib/flux_vale_web/live/admin_live/health.ex:453
+#: lib/flux_vale_web/live/admin_live/health.ex:464
 #, elixir-autogen, elixir-format
 msgid "System"
 msgstr ""
@@ -3823,7 +3823,7 @@ msgstr ""
 msgid "Health"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/health.ex:384
+#: lib/flux_vale_web/live/admin_live/health.ex:395
 #, elixir-autogen, elixir-format
 msgid "Recent deploys"
 msgstr ""
@@ -3833,7 +3833,7 @@ msgstr ""
 msgid "The instance fleet at a glance — the build this platform runs, the status spread, and the newest deploys."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/health.ex:395
+#: lib/flux_vale_web/live/admin_live/health.ex:406
 #, elixir-autogen, elixir-format
 msgid "No deploys recorded yet."
 msgstr ""
@@ -3969,12 +3969,19 @@ msgstr[1] ""
 msgid "Audit activity"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/health.ex:369
+#: lib/flux_vale_web/live/admin_live/health.ex:380
 #, elixir-autogen, elixir-format
 msgid "No audit activity in the last 24 hours."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/health.ex:377
+#: lib/flux_vale_web/live/admin_live/health.ex:388
 #, elixir-autogen, elixir-format
 msgid "Open the audit trail"
 msgstr ""
+
+#: lib/flux_vale_web/live/admin_live/health.ex:369
+#, elixir-autogen, elixir-format
+msgid "and 1 more resource"
+msgid_plural "and %{count} more resources"
+msgstr[0] ""
+msgstr[1] ""

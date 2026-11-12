@@ -698,7 +698,7 @@ defmodule FluxValeWeb.AdminHealthLiveTest do
     test "the honest empty line when there is no activity", %{conn: conn} do
       Mimic.copy(FluxValeWeb.AdminHealth)
 
-      stub(AdminHealth, :audit_activity, fn _actor -> %{total: 0, top: []} end)
+      stub(AdminHealth, :audit_activity, fn _actor -> %{total: 0, active: 0, top: []} end)
 
       {:ok, view, _html} = live(conn, "/admin/health")
 
@@ -709,6 +709,37 @@ defmodule FluxValeWeb.AdminHealthLiveTest do
              )
 
       refute has_element?(view, "[data-testid='audit-activity-top']")
+    end
+
+    test "renders the honest overflow count past the top five", %{conn: conn} do
+      # Hermetic render arm: the seam reports seven active resources and
+      # five capped rows, so the panel must say two are not shown.
+      Mimic.copy(FluxValeWeb.AdminHealth)
+
+      top = [
+        %{key: :wallet, label: "Wallet", count: 4},
+        %{key: :ledger_entry, label: "Ledger entry", count: 3},
+        %{key: :app, label: "App", count: 2},
+        %{key: :user, label: "User", count: 2},
+        %{key: :tag, label: "Tag", count: 1}
+      ]
+
+      stub(AdminHealth, :audit_activity, fn _actor ->
+        %{total: 16, active: 7, top: top}
+      end)
+
+      {:ok, view, _html} = live(conn, "/admin/health")
+
+      assert text_of(view, "[data-testid='audit-activity-total']") ==
+               ngettext_exact(
+                 16,
+                 "1 change in the last 24 hours",
+                 "%{count} changes in the last 24 hours"
+               )
+
+      assert text_of(view, "[data-testid='audit-activity-more']") == "and 2 more resources"
+      assert has_element?(view, "[data-testid='audit-activity-wallet']")
+      refute has_element?(view, "[data-testid='audit-activity-empty']")
     end
   end
 

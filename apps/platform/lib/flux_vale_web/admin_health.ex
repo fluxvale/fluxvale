@@ -19,7 +19,8 @@ defmodule FluxValeWeb.AdminHealth do
   :deploy` — the same newest-first grammar the audit section sorts by.
   `audit_activity/1` is the 24-hour summary over every audited Version
   module: one indexed count per `AdminAudit` entry, the total across
-  the whole set, and the five busiest resources.
+  the whole set, the active-resource count, and the five busiest
+  resources.
 
   `storage/1` is the storage posture: the fleet's allocated gigabytes
   plus the storage-request queue's three counters (ADR-0046's requested
@@ -181,13 +182,15 @@ defmodule FluxValeWeb.AdminHealth do
   The audit activity widget (#702, W5): the last 24 hours of
   paper-trail rows across the audited business set — one indexed count
   per `AdminAudit` entry's Version module, the total across every entry
-  (the top-five cap never shrinks it), and the five busiest resources,
-  count descending with the entry key as the stable tiebreak. The
-  Version modules' direct admin-only read policy (ADR-0048 D7) decides:
-  a member or nil actor raises Forbidden, never a silent zero.
+  (the top-five cap never shrinks it), the count of active resources
+  before that cap, and the five busiest resources, count descending
+  with the entry key as the stable tiebreak. The Version modules'
+  direct admin-only read policy (ADR-0048 D7) decides: a member or nil
+  actor raises Forbidden, never a silent zero.
   """
-  @spec audit_activity(FluxVale.Identity.User.t()) :: %{
+  @spec audit_activity(FluxVale.Identity.User.t() | nil) :: %{
           total: non_neg_integer(),
+          active: non_neg_integer(),
           top: [%{key: atom(), label: String.t(), count: pos_integer()}]
         }
   def audit_activity(actor) do
@@ -203,7 +206,9 @@ defmodule FluxValeWeb.AdminHealth do
       |> Enum.map(fn {_entry, count} -> count end)
       |> Enum.sum()
 
-    %{total: total, top: top_audit_rows(counts)}
+    active = Enum.count(counts, fn {_entry, count} -> count > 0 end)
+
+    %{total: total, active: active, top: top_audit_rows(counts)}
   end
 
   # 32 indexed counts per view is fine at beta scale; a TTL cache is the
