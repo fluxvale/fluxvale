@@ -202,6 +202,38 @@ defmodule FluxValeWeb.AdminHealthLiveTest do
     |> Ash.create!()
   end
 
+  # The live mount reads smoke through the app tree's real SmokeRuns
+  # server, so the Req.Test stub must be shared (the fetch runs in the
+  # server, not the test process); app env and mode restore on exit.
+  defp smoke_req_stub!(plug) do
+    original_options = Application.get_env(:flux_vale, :smoke_runs_req_options)
+    Application.put_env(:flux_vale, :smoke_runs_req_options, plug: {Req.Test, :smoke_runs})
+
+    on_exit(fn ->
+      Application.put_env(:flux_vale, :smoke_runs_req_options, original_options)
+    end)
+
+    Req.Test.set_req_test_to_shared(%{})
+
+    on_exit(fn -> Req.Test.set_req_test_to_private(%{}) end)
+
+    Req.Test.stub(:smoke_runs, plug)
+  end
+
+  # The run shape the panel reads, with the common verdict overridable
+  # per arm (the run's own map, not the API envelope).
+  defp run(attrs) do
+    Map.merge(
+      %{
+        conclusion: "success",
+        status: "completed",
+        created_at: "2026-11-11T06:17:02Z",
+        url: "https://example.com/run/1"
+      },
+      Map.new(attrs)
+    )
+  end
+
   # The low list's rows, one text per li — the order the panel rendered.
   defp low_rows(view) do
     html = render(view)
@@ -740,6 +772,109 @@ defmodule FluxValeWeb.AdminHealthLiveTest do
       assert text_of(view, "[data-testid='audit-activity-more']") == "and 2 more resources"
       assert has_element?(view, "[data-testid='audit-activity-wallet']")
       refute has_element?(view, "[data-testid='audit-activity-empty']")
+    end
+  end
+
+  describe "the smoke and errors surfaces" do
+    test "renders the verdict, the last run, the workflow link, and the errors placeholder", %{
+      conn: conn
+    } do
+      smoke_req_stub!(fn conn ->
+        Req.Test.json(conn, %{
+          "workflow_runs" => [
+            %{
+              "conclusion" => "success",
+              "status" => "completed",
+              "created_at" => "2026-11-11T06:17:02Z",
+              "html_url" => "https://example.com/run/1"
+            }
+          ]
+        })
+      end)
+
+      {:ok, view, _html} = live(conn, "/admin/health")
+
+      assert has_element?(view, "[data-testid='smoke-panel']")
+      assert has_element?(view, "[data-testid='smoke-title']", "Smoke status")
+      assert text_of(view, "[data-testid='smoke-verdict']") == "Success"
+      assert text_of(view, "[data-testid='smoke-last-run']") == "Last run: Nov 11 06:17 UTC"
+
+      assert render(element(view, "[data-testid='smoke-link']")) =~
+               "https://github.com/fluxvale/fluxvale/actions/workflows/smoke.yml"
+
+      assert has_element?(view, "[data-testid='errors-panel']")
+      assert has_element?(view, "[data-testid='errors-title']", "Errors")
+
+      assert text_of(view, "[data-testid='errors-placeholder']") ==
+               "Error counts are not configured yet — they land with the PostHog split; until then Grafana Explore's error_signature is the surface."
+    end
+
+    test "an unreachable API renders the honest chip", %{conn: conn} do
+      smoke_req_stub!(fn conn -> Plug.Conn.send_resp(conn, 503, "down") end)
+
+      {:ok, view, _html} = live(conn, "/admin/health")
+
+      assert text_of(view, "[data-testid='smoke-verdict']") == "Unreachable"
+      assert has_element?(view, "[data-testid='smoke-unreachable']")
+      refute has_element?(view, "[data-testid='smoke-last-run']")
+      assert text_of(view, "[data-testid='errors-placeholder']") =~ "not configured"
+    end
+
+    test "the verdict arms", %{conn: conn} do
+      Mimic.copy(AdminHealth)
+
+      arms = [
+        {run(conclusion: nil, status: "in_progress"), "In progress"},
+        {run(conclusion: "failure", status: "completed"), "Failure"},
+        {run(conclusion: "cancelled", status: "completed"), "Cancelled"},
+        {run(conclusion: nil, status: "completed"), "No verdict"}
+      ]
+
+      Enum.each(arms, fn {latest, label} ->
+        stub(AdminHealth, :smoke, fn ->
+          {:ok, %{runs: [latest], fetched_at: DateTime.utc_now()}}
+        end)
+
+        {:ok, view, _html} = live(conn, "/admin/health")
+
+        assert text_of(view, "[data-testid='smoke-verdict']") == label
+      end)
+
+      stub(AdminHealth, :smoke, fn ->
+        {:ok, %{runs: [], fetched_at: DateTime.utc_now()}}
+      end)
+
+      {:ok, empty_view, _html} = live(conn, "/admin/health")
+
+      assert text_of(empty_view, "[data-testid='smoke-verdict']") == "No runs"
+      assert has_element?(empty_view, "[data-testid='smoke-empty']")
+      refute has_element?(empty_view, "[data-testid='smoke-last-run']")
+
+      # A malformed upstream timestamp keeps the raw value visible.
+      stub(AdminHealth, :smoke, fn ->
+        {:ok,
+         %{
+           runs: [run(conclusion: "success", status: "completed", created_at: "not-a-time")],
+           fetched_at: DateTime.utc_now()
+         }}
+      end)
+
+      {:ok, malformed_view, _html} = live(conn, "/admin/health")
+
+      assert text_of(malformed_view, "[data-testid='smoke-last-run']") == "Last run: not-a-time"
+
+      # A nil timestamp renders the honest dash.
+      stub(AdminHealth, :smoke, fn ->
+        {:ok,
+         %{
+           runs: [run(conclusion: "success", status: "completed", created_at: nil)],
+           fetched_at: DateTime.utc_now()
+         }}
+      end)
+
+      {:ok, nil_view, _html} = live(conn, "/admin/health")
+
+      assert text_of(nil_view, "[data-testid='smoke-last-run']") == "Last run: -"
     end
   end
 

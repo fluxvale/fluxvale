@@ -14,6 +14,13 @@ config :flux_vale, access_rules_cache_ttl_seconds: 0
 # dedicated test with the TTL raised per-case.
 config :flux_vale, wake_stats_ttl_seconds: 0
 
+# Smoke-run cache-off (#702), same posture as WakeStats: specs see their
+# own stub responses. The TTL cache itself has a dedicated test with the
+# TTL raised per-case. The Req.Test plug is the suite-wide hermetic seam —
+# an un-stubbed call answers unreachable (the fetch wrapper), never network.
+config :flux_vale, smoke_runs_ttl_seconds: 0
+config :flux_vale, :smoke_runs_req_options, plug: {Req.Test, :smoke_runs}
+
 # PromEx off in test (#98) — runtime.exs would otherwise honor a stray
 # PROMEX_ENABLED in the shell; no test starts the metrics tree.
 config :flux_vale, :prom_ex_enabled, false
