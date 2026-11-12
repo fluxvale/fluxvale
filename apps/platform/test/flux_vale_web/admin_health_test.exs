@@ -22,7 +22,6 @@ defmodule FluxValeWeb.AdminHealthTest do
   alias FluxVale.Clients.K8s.Resources.StorageClass
   alias FluxVale.Feedback.Tag
   alias FluxVale.Identity.User
-  alias FluxVale.Infrastructure.Cluster
   alias FluxVale.Infrastructure.Instance
   alias FluxVale.Infrastructure.StorageRequest
   alias FluxVale.Ops.FeatureFlag
@@ -549,10 +548,11 @@ defmodule FluxValeWeb.AdminHealthTest do
 
   describe "audit_activity/1" do
     test "counts action-created rows and sorts the top five desc", %{admin: admin} do
-      # Four trail-only rows across distinct resources guarantee >5
-      # active entries even on a clean partition, so the total-vs-capped
-      # arm below is meaningful without relying on committed strays.
-      seed_extra_activity!()
+      # Three action-created rows across distinct resources (plus the
+      # setup's cluster and admin user) keep active > 5 even on a clean
+      # partition, so the total-vs-capped arm below is meaningful
+      # without relying on committed strays.
+      extra_activity!(admin)
 
       before = AdminHealth.audit_activity(admin)
 
@@ -747,22 +747,29 @@ defmodule FluxValeWeb.AdminHealthTest do
     |> Ash.count!(authorize?: false)
   end
 
-  # Four trail-only rows across distinct resources guarantee >5 active
-  # entries even on a clean partition. Ash.Seed is the sanctioned bypass
-  # for fabricated version rows (the fleet deploy trail's same posture):
-  # this test needs controlled count coverage, not four unrelated action
-  # contracts.
-  defp seed_extra_activity! do
-    for version_module <- [Category.Version, Cluster.Version, Size.Version, TaxRate.Version] do
-      Ash.Seed.seed!(version_module, %{
-        version_action_type: :create,
-        version_action_name: :create,
-        version_action_inputs: %{},
-        version_source_id: Ecto.UUID.generate(),
-        actor_label: "c4-extra",
-        version_inserted_at: DateTime.utc_now(),
-        changes: %{}
-      })
-    end
+  # Ordinary activity through the resources' own create actions (the
+  # test-data rule: actions, never seeds) across distinct resources
+  # guarantees >5 active entries even on a clean partition — with the
+  # setup's cluster and admin user, and this test's flag/tag fixtures.
+  defp extra_activity!(admin) do
+    Category.create!(
+      %{name: "c4-extra-category-#{@n}", slug: "c4-extra-category-#{@n}"},
+      actor: admin
+    )
+
+    Size.create!(
+      %{
+        slug: "c4-extra-size-#{@n}",
+        cpu_cores: Decimal.new("1"),
+        memory_mb: 512,
+        monthly_cents: 100
+      },
+      actor: admin
+    )
+
+    TaxRate.create!(
+      %{country: "US", state: "CA", rate_bp: 725, effective_from: DateTime.utc_now()},
+      actor: admin
+    )
   end
 end
