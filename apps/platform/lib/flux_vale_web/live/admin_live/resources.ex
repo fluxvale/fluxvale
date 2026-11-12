@@ -287,10 +287,7 @@ defmodule FluxValeWeb.AdminLive.Resources do
                               class="px-4 py-3"
                               data-testid={"admin-resource-cell-#{col.name}-#{record.id}"}
                             >
-                              <AdminResource.value
-                                shape={col.shape}
-                                value={Map.get(record, col.name)}
-                              />
+                              <.record_cell record={record} column={col} />
                             </td>
                             <td class="w-0 px-4 py-3 font-semibold">
                               <div class="flex gap-4">
@@ -323,9 +320,9 @@ defmodule FluxValeWeb.AdminLive.Resources do
                       >
                         <dt class="text-sm font-medium text-ink-muted">{field.label}</dt>
                         <dd class="min-w-0">
-                          <AdminResource.value
-                            shape={field.shape}
-                            value={Map.get(@record, field.name)}
+                          <.record_cell
+                            record={@record}
+                            column={field}
                             variant={:show}
                             id={"admin-resource-copy-#{field.name}"}
                           />
@@ -367,6 +364,7 @@ defmodule FluxValeWeb.AdminLive.Resources do
                       <.record_form
                         form={@form}
                         fields={@fields}
+                        textarea_text={@textarea_text}
                         submit={gettext("Create %{name}", name: @resource_label)}
                       />
                     </div>
@@ -376,7 +374,12 @@ defmodule FluxValeWeb.AdminLive.Resources do
                     class="rounded-panel border border-line-strong bg-panel p-5 shadow-sm"
                     data-testid="admin-resource-form"
                   >
-                    <.record_form form={@form} fields={@fields} submit={gettext("Save changes")} />
+                    <.record_form
+                      form={@form}
+                      fields={@fields}
+                      textarea_text={@textarea_text}
+                      submit={gettext("Save changes")}
+                    />
                   </div>
               <% end %>
             </div>
@@ -429,7 +432,7 @@ defmodule FluxValeWeb.AdminLive.Resources do
   defp mount_show(entry, id, socket) do
     admin = socket.assigns.current_user
 
-    case Ash.get(entry.module, id, actor: admin) do
+    case Ash.get(entry.module, id, actor: admin, load: belongs_to_keys(entry.module)) do
       {:ok, record} ->
         {:ok,
          assign(socket,
@@ -476,7 +479,8 @@ defmodule FluxValeWeb.AdminLive.Resources do
              entry.module
              |> AshPhoenix.Form.for_create(action.name, form_opts(admin))
              |> to_form(),
-           fields: form_fields(entry.module, action)
+           fields: form_fields(entry.module, action),
+           textarea_text: %{}
          )}
 
       :error ->
@@ -495,6 +499,15 @@ defmodule FluxValeWeb.AdminLive.Resources do
 
     with {:ok, record} <- Ash.get(entry.module, id, actor: admin),
          {:ok, action} <- form_action(entry, :update, params["action"]) do
+      fields = form_fields(entry.module, action)
+      seed = seed_params(fields, record)
+
+      form =
+        record
+        |> AshPhoenix.Form.for_update(action.name, form_opts(admin))
+        |> AshPhoenix.Form.validate(seed)
+        |> to_form()
+
       {:ok,
        assign(socket,
          domain_key: entry.domain.key,
@@ -502,11 +515,9 @@ defmodule FluxValeWeb.AdminLive.Resources do
          resource_key: entry.key,
          resource_label: resource_label(entry),
          index_path: index_path(entry),
-         form:
-           record
-           |> AshPhoenix.Form.for_update(action.name, form_opts(admin))
-           |> to_form(),
-         fields: form_fields(entry.module, action)
+         form: form,
+         fields: fields,
+         textarea_text: raw_textarea_text(fields, seed)
        )}
     else
       {:error, _unknown_or_refused} ->
@@ -530,12 +541,28 @@ defmodule FluxValeWeb.AdminLive.Resources do
   # -- events ---------------------------------------------------------------
 
   # The form's live validation: per-field errors ride AshPhoenix's form
-  # data protocol into <.input> as the operator types.
+  # data protocol into <.input> as the operator types. Params decode
+  # exactly as the save handler decodes them, so valid JSON that
+  # describes a valid composite does not show "is invalid" while the
+  # operator types it. The OPERATOR'S raw text still rides the
+  # textarea_text assign (merged from the ORIGINAL params before the
+  # decode), so the field re-renders the text verbatim; text that does
+  # not decode stays raw and the composite says "is invalid", which is
+  # live validation telling the truth.
   @impl Phoenix.LiveView
   def handle_event("validate", %{"record" => params}, socket) do
-    form = AshPhoenix.Form.validate(socket.assigns.form, params)
+    form =
+      AshPhoenix.Form.validate(
+        socket.assigns.form,
+        decode_json_params(socket.assigns.fields, params)
+      )
 
-    {:noreply, assign(socket, form: form)}
+    {:noreply,
+     assign(socket,
+       form: form,
+       textarea_text:
+         Map.merge(socket.assigns.textarea_text, raw_textarea_text(socket.assigns.fields, params))
+     )}
   end
 
   def handle_event("validate", _params, socket), do: {:noreply, socket}
@@ -544,8 +571,24 @@ defmodule FluxValeWeb.AdminLive.Resources do
   # already re-resolved the actor (and refused a demoted one), so
   # `current_user` here is the FRESH struct and the submit carries it —
   # the policy reads the fresh role, never the form's mount-time actor.
+  # The raw textarea text merges into the assign BEFORE the params
+  # decode, so a failed save re-renders the operator's text verbatim;
+  # the JSON-textarea params decode first (see decode_json_params/2).
   def handle_event("save", %{"record" => params}, socket) do
-    attempt_save(socket, params, socket.assigns.current_user)
+    socket =
+      assign(socket,
+        textarea_text:
+          Map.merge(
+            socket.assigns.textarea_text,
+            raw_textarea_text(socket.assigns.fields, params)
+          )
+      )
+
+    attempt_save(
+      socket,
+      decode_json_params(socket.assigns.fields, params),
+      socket.assigns.current_user
+    )
   end
 
   def handle_event("save", _params, socket), do: {:noreply, socket}
@@ -606,7 +649,19 @@ defmodule FluxValeWeb.AdminLive.Resources do
     module
     |> Ash.Query.for_read(primary_read(module), %{}, actor: actor)
     |> sort_newest_first(module)
+    # The FK links render from the loaded belongs_to (the plan's link
+    # labels); a resource without any loads nothing.
+    |> Ash.Query.load(belongs_to_keys(module))
     |> Ash.read!(page: [limit: @page_size, offset: offset, count: true])
+  end
+
+  # The belongs_to set the FK-link seam renders from — loaded here, at
+  # the read seam, because shape/1 sees only the attribute.
+  defp belongs_to_keys(module) do
+    module
+    |> Info.relationships()
+    |> Enum.filter(&(&1.type == :belongs_to))
+    |> Enum.map(& &1.name)
   end
 
   defp primary_read(module) do
@@ -693,6 +748,103 @@ defmodule FluxValeWeb.AdminLive.Resources do
   defp form_opts(admin) do
     [as: "record", actor: admin, authorize?: true]
   end
+
+  # JSON textareas: params arrive as JSON text and are decoded to the
+  # plain-map shape every composite casts from (probe-verified); a
+  # decode error lets the raw string flow on so the type's cast
+  # rejects it as a field error beside the input.
+  defp decode_json_params(fields, params) do
+    textarea_keys =
+      fields
+      |> Enum.filter(&(&1.type == "textarea"))
+      |> Enum.map(&Atom.to_string(&1.name))
+
+    Enum.reduce(textarea_keys, params, &decode_textarea_param/2)
+  end
+
+  # One textarea key: a JSON string decodes into the params; a decode
+  # error's raw string or a non-binary value flows on untouched.
+  defp decode_textarea_param(key, params) do
+    case Map.get(params, key) do
+      text when is_binary(text) ->
+        decoded = decode_json_text(text)
+        Map.put(params, key, decoded)
+
+      _non_text_param ->
+        params
+    end
+  end
+
+  defp decode_json_text(text) do
+    case Jason.decode(text) do
+      {:ok, decoded} -> decoded
+      {:error, _undecodable} -> text
+    end
+  end
+
+  # The operator's raw textarea text, keyed by string field name: the
+  # binaries among the event's textarea params, kept so the render can
+  # show the text verbatim — the form's cast value re-serializes valid
+  # JSON for :map (Ash decodes strings at cast), so the rendered text
+  # cannot come from the form alone. Non-binaries (an already-decoded
+  # map param, or a composite's seeded in-memory value) drop out; the
+  # textarea falls back to the form's value for those.
+  defp raw_textarea_text(fields, params) do
+    fields
+    |> Enum.filter(&(&1.type == "textarea"))
+    |> Map.new(fn field ->
+      key = Atom.to_string(field.name)
+      {key, Map.get(params, key)}
+    end)
+    |> Map.filter(fn {_key, value} -> is_binary(value) end)
+  end
+
+  # The JSON textareas' current values for the edit mount: the form's
+  # params carry what the operator edits (the textarea's rendered
+  # value comes from the params), so the seed puts each field's current
+  # value there in the shape its cast accepts. :map accepts JSON text
+  # (Ash decodes strings itself — probed); every composite accepts its
+  # in-memory shape, so it seeds as the raw value. The seed validate
+  # therefore produces no errors of its own — a mount-time error is
+  # the record's stored data violating an invariant, and it renders
+  # (no suppression).
+  defp seed_params(fields, record) do
+    fields
+    |> Enum.filter(&(&1.type == "textarea"))
+    |> Map.new(fn field ->
+      attr = Info.attribute(record.__struct__, field.name)
+      value = seed_value(record, field.name, attr)
+      {Atom.to_string(field.name), value}
+    end)
+  end
+
+  defp seed_value(record, name, %{type: Ash.Type.Map}) do
+    value = Map.get(record, name)
+    safe = json_safe(value)
+    Jason.encode!(safe)
+  end
+
+  defp seed_value(record, name, _composite_casts_from_its_in_memory_shape) do
+    Map.get(record, name)
+  end
+
+  # The composites' in-memory shapes nest structs in maps and lists
+  # (EnvVarSpec inside EnvVarSchema's map, BackingService structs in
+  # the backing_services list) — json_safe recurses every container so
+  # a rendered serialization degrades structs to data, never a crash.
+  defp json_safe(value) when is_map(value) and is_map_key(value, :__struct__) do
+    value
+    |> Map.from_struct()
+    |> Map.new(fn {key, item} -> {key, json_safe(item)} end)
+  end
+
+  defp json_safe(value) when is_map(value) do
+    Map.new(value, fn {key, item} -> {key, json_safe(item)} end)
+  end
+
+  defp json_safe(value) when is_list(value), do: Enum.map(value, &json_safe/1)
+
+  defp json_safe(value), do: value
 
   # The show page's Edit items: the registry's allowed update actions
   # the actor may run (intent AND truth at render — the plan's two
@@ -854,9 +1006,11 @@ defmodule FluxValeWeb.AdminLive.Resources do
   accept is empty (Billing's `grant_goodwill`: `wallet_id` and
   `amount_cents` arrive as arguments, `accept([])`) — they ride the
   same form data protocol, so the mapping is the same shape. An accept
-  name that is not a public attribute, or a shape the engine cannot
-  map yet (maps and composites — slice 4 owns the JSON-textarea
-  decision), is SKIPPED, never guessed at. Attributes render first,
+  name that is not a public attribute is SKIPPED, never guessed at.
+  Maps and composites map to JSON textareas (their types cast from
+  JSON-shaped plain maps and validate through the field errors —
+  slice 4's contract); a shape the engine still cannot map is
+  SKIPPED. Attributes render first,
   arguments after (an argument is context the attrs do not carry).
   Public seam: the field-mapping tests drive fabricated accept lists
   without mounting.
@@ -933,11 +1087,20 @@ defmodule FluxValeWeb.AdminLive.Resources do
   # The curated list honors names only — slices 4-5 trim wide resources
   # this way. An inert name (a renamed attribute, a typo) falls back by
   # being skipped: the row renders without it, never crashes, never
-  # renders a non-public attribute it cannot resolve.
+  # renders a non-public attribute it cannot resolve. The created_at
+  # pin rides configured lists too (the engine's columns contract, the
+  # plan's row-age scanning), once, last — a list that already names it
+  # stays as-is.
   defp configured_columns(entry, names) do
     sources = column_sources(entry.module)
     resolver = fn name -> resolve_column(sources, name) end
-    Enum.flat_map(names, resolver)
+    resolved = Enum.flat_map(names, resolver)
+
+    if Enum.any?(resolved, &(&1.name == :created_at)) do
+      resolved
+    else
+      resolved ++ created_at_column(entry)
+    end
   end
 
   defp resolve_column(sources, name) do
@@ -1180,6 +1343,63 @@ defmodule FluxValeWeb.AdminLive.Resources do
   defp parent_copy(%{live_action: :edit, resource_label: label}),
     do: gettext("Back to %{name}", name: label)
 
+  # -- the shared cell (index and show) -----------------------------------------
+
+  # One cell: the FK-link seam rides here because shape/1 cannot see
+  # relationships — a uuid attr matching a LOADED belongs_to whose
+  # destination is a registry resource links to the target's show page;
+  # unloaded, nil, or unresolvable FKs keep the plain value shapes.
+  attr(:record, :any, required: true)
+  attr(:column, :map, required: true)
+  attr(:variant, :atom, default: :index, values: [:index, :show])
+  attr(:id, :string, default: nil)
+
+  defp record_cell(assigns) do
+    ~H"""
+    <%= if fk = fk_link(@record, @column) do %>
+      <AdminResource.link_value label={fk.label} path={fk.path} record_id={fk.record_id} />
+    <% else %>
+      <AdminResource.value
+        shape={@column.shape}
+        value={Map.get(@record, @column.name)}
+        variant={@variant}
+        id={@id}
+      />
+    <% end %>
+    """
+  end
+
+  defp fk_link(record, %{shape: :uuid, name: name}) do
+    with %{} = rel <- fk_relationship(record, name),
+         {:ok, entry} <- AdminConsole.fetch_by_module(rel.destination),
+         true <- Ash.Resource.loaded?(record, rel.name),
+         %{} = target <- Map.get(record, rel.name) do
+      label_name = label_attr(entry)
+
+      %{
+        label: record_label(target, label_name),
+        path: ~p"/admin/resources/#{entry.domain.key}/#{entry.key}/#{target.id}",
+        record_id: target.id
+      }
+    else
+      _no_link -> nil
+    end
+  end
+
+  defp fk_link(_record, _other_shape), do: nil
+
+  # app_id resolves to the belongs_to named app: a string compare over
+  # the resource's own relationship atoms — no atom is ever built from
+  # the attribute name.
+  defp fk_relationship(record, name) do
+    key_str = Atom.to_string(name)
+    base = String.replace_suffix(key_str, "_id", "")
+
+    record.__struct__
+    |> Info.relationships()
+    |> Enum.find(&(&1.type == :belongs_to and Atom.to_string(&1.name) == base))
+  end
+
   # -- the shared form (both write mounts) ------------------------------------
 
   # One form component for :new and :edit: identical machinery, only
@@ -1189,6 +1409,7 @@ defmodule FluxValeWeb.AdminLive.Resources do
   attr(:form, :any, required: true)
   attr(:fields, :list, required: true)
   attr(:submit, :string, required: true)
+  attr(:textarea_text, :map, required: true)
 
   defp record_form(assigns) do
     ~H"""
@@ -1207,6 +1428,7 @@ defmodule FluxValeWeb.AdminLive.Resources do
           step={field.step}
           label={field.label}
           required={field.required}
+          value={textarea_value(@form, field, @textarea_text)}
         />
       </div>
       <.button
@@ -1218,5 +1440,42 @@ defmodule FluxValeWeb.AdminLive.Resources do
       </.button>
     </.form>
     """
+  end
+
+  # The JSON textareas' value preparation: the operator's RAW text wins
+  # while editing — the textarea_text assign carries each field's last
+  # binary from the wire (merged on every validate and save event), so
+  # a valid-JSON :map cast's decoded value never re-serializes over the
+  # operator's spacing and key order. The form's cast value is the
+  # pristine-mount fallback: a binary passes through, nil renders
+  # empty, and a decoded map/struct serializes through json_safe (it
+  # is not renderable in a textarea — Phoenix's textarea normalize
+  # raises Phoenix.HTML.Safe for Map there). The explicit value attr
+  # wins over the field's in <.input>; every other field passes nil
+  # and keeps the field's own value.
+  defp textarea_value(form, %{type: "textarea", name: name}, textarea_text) do
+    case Map.get(textarea_text, Atom.to_string(name)) do
+      value when is_binary(value) ->
+        value
+
+      _no_raw_text ->
+        fallback_textarea_value(form, name)
+    end
+  end
+
+  defp textarea_value(_form, _other_type, _textarea_text), do: nil
+
+  defp fallback_textarea_value(form, name) do
+    case form[name].value do
+      # A nil/missing value renders empty (the nil is the input's own
+      # empty state); any non-binary value serializes through json_safe.
+      value when is_binary(value) or is_nil(value) -> value
+      value -> encode_json_value(value)
+    end
+  end
+
+  defp encode_json_value(value) do
+    safe = json_safe(value)
+    Jason.encode!(safe)
   end
 end

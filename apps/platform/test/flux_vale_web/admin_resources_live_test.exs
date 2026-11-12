@@ -17,6 +17,9 @@ defmodule FluxValeWeb.AdminResourcesLiveTest do
   alias FluxVale.Billing
   alias FluxVale.Billing.LedgerEntry
   alias FluxVale.Billing.Wallet
+  alias FluxVale.Catalog.App
+  alias FluxVale.Catalog.AppVersion
+  alias FluxVale.Catalog.Category
   alias FluxVale.Identity.User
   alias FluxVale.Infrastructure.Instance
   alias FluxVale.Ops.AccessRule
@@ -122,6 +125,74 @@ defmodule FluxValeWeb.AdminResourcesLiveTest do
 
     {:ok, wallet} = Billing.ensure_wallet(org)
     {org, wallet}
+  end
+
+  # Slice 4's domains: catalog rows through their own :create actions.
+  # App requires file_access and category_id (not nullable); the
+  # version fixture is the probe-verified valid blueprint — the backing
+  # service's url_env must name a secret configurable env var
+  # (ValidateBackingServices) and the recommended size must match the
+  # version's compute defaults (ValidateSizeMatchesAllocation), so the
+  # size rides the same allocation the fixture defaults carry.
+  defp category!(admin) do
+    Category
+    |> Ash.Changeset.for_create(
+      :create,
+      %{name: "Tools", slug: "cat-tools-#{System.unique_integer([:positive])}"},
+      actor: admin
+    )
+    |> Ash.create!()
+  end
+
+  defp app!(admin, category) do
+    App
+    |> Ash.Changeset.for_create(
+      :create,
+      %{
+        name: "Probe App",
+        slug: "app-#{System.unique_integer([:positive])}",
+        file_access: false,
+        category_id: category.id
+      },
+      actor: admin
+    )
+    |> Ash.create!()
+  end
+
+  defp version!(admin, app, size, attrs \\ %{}) do
+    defaults =
+      Map.merge(
+        %{
+          version: "1.2.3",
+          image: "fluxvale/app:1.2.3",
+          port: 3000,
+          healthcheck_path: "/",
+          storage_mount_path: "/data",
+          default_env_vars: %{"A" => "1"},
+          configurable_env_vars: %{
+            "PORT" => %{"label" => "Port", "type" => "integer"},
+            "DATABASE_URL" => %{"label" => "Database URL", "type" => "string", "secret" => true}
+          },
+          backing_services: [
+            %{"kind" => "postgres", "version" => "18", "url_env" => "DATABASE_URL"}
+          ],
+          default_cpu_cores: Decimal.new("0.5"),
+          default_memory_mb: 256,
+          default_storage_gb: 1,
+          app_id: app.id,
+          recommended_size_id: size.id
+        },
+        attrs
+      )
+
+    AppVersion
+    |> Ash.Changeset.for_create(:create, defaults, actor: admin)
+    |> Ash.create!()
+  end
+
+  # The version's recommended size at the fixture's compute defaults.
+  defp sized_size!(admin) do
+    size!(admin, %{cpu_cores: Decimal.new("0.5"), memory_mb: 256})
   end
 
   # The wallet index's label column is id (no name-ish attr), so one
@@ -652,7 +723,9 @@ defmodule FluxValeWeb.AdminResourcesLiveTest do
       curated = entry(%{columns: [:key, :renamed_attr]})
       columns = Resources.columns(curated)
 
-      assert Enum.map(columns, & &1.name) == [:key]
+      # The inert name skips; the created_at pin still rides the
+      # configured list (the engine's columns contract).
+      assert Enum.map(columns, & &1.name) == [:key, :created_at]
     end
 
     test "a label override honors public attributes only — a stale name falls back" do
@@ -1526,6 +1599,485 @@ defmodule FluxValeWeb.AdminResourcesLiveTest do
     end
   end
 
+  # -- slice 4: the Catalog rollout (FK links + JSON textareas) ---------------
+
+  describe "the Catalog rollout (slice 4: FK links and JSON textareas)" do
+    test "the app index renders the category FK link over the configured columns", %{
+      conn: conn,
+      admin: admin
+    } do
+      category = category!(admin)
+      _app = app!(admin, category)
+
+      {:ok, view, _html} = live(conn, "/admin/resources/catalog/app")
+
+      # The configured trim: name, the category link, the created_at
+      # pin (the engine's columns contract).
+      html = render(view)
+      document = LazyHTML.from_fragment(html)
+
+      matches = LazyHTML.query(document, "[data-testid^='admin-resource-col-']")
+
+      rendered =
+        for match <- Enum.to_list(matches) do
+          [testid] = LazyHTML.attribute(match, "data-testid")
+          String.replace_prefix(testid, "admin-resource-col-", "")
+        end
+        |> MapSet.new()
+
+      assert MapSet.equal?(rendered, MapSet.new(["name", "category_id", "created_at"]))
+
+      link = render(element(view, "a[data-testid='admin-resource-fk-#{category.id}']"))
+      assert link =~ category.name
+      assert link =~ ~s(href="/admin/resources/catalog/category/#{category.id}")
+    end
+
+    test "the app show renders the category FK link with the category's name", %{
+      conn: conn,
+      admin: admin
+    } do
+      category = category!(admin)
+      app = app!(admin, category)
+
+      {:ok, view, _html} = live(conn, "/admin/resources/catalog/app/#{app.id}")
+
+      assert has_element?(
+               view,
+               "a[data-testid='admin-resource-fk-#{category.id}']",
+               category.name
+             )
+
+      link = render(element(view, "a[data-testid='admin-resource-fk-#{category.id}']"))
+      assert link =~ ~s(href="/admin/resources/catalog/category/#{category.id}")
+    end
+
+    test "the app_version index renders the app FK link over the configured trim", %{
+      conn: conn,
+      admin: admin
+    } do
+      size = sized_size!(admin)
+      category = category!(admin)
+      app = app!(admin, category)
+      version = version!(admin, app, size)
+
+      {:ok, view, _html} = live(conn, "/admin/resources/catalog/app_version")
+
+      # The configured trim: exactly version, the app link,
+      # published_at, and the created_at pin.
+      html = render(view)
+      document = LazyHTML.from_fragment(html)
+
+      matches = LazyHTML.query(document, "[data-testid^='admin-resource-col-']")
+
+      rendered =
+        for match <- Enum.to_list(matches) do
+          [testid] = LazyHTML.attribute(match, "data-testid")
+          String.replace_prefix(testid, "admin-resource-col-", "")
+        end
+        |> MapSet.new()
+
+      assert MapSet.equal?(
+               rendered,
+               MapSet.new(["version", "app_id", "published_at", "created_at"])
+             )
+
+      refute has_element?(view, "[data-testid='admin-resource-col-image']")
+      refute has_element?(view, "[data-testid='admin-resource-col-port']")
+
+      # The FK link cell: the app's name, linked to its show page.
+      assert has_element?(view, "a[data-testid='admin-resource-fk-#{app.id}']", app.name)
+
+      link = render(element(view, "a[data-testid='admin-resource-fk-#{app.id}']"))
+      assert link =~ ~s(href="/admin/resources/catalog/app/#{app.id}")
+      assert has_element?(view, "[data-testid='admin-resource-cell-version-#{version.id}']")
+    end
+
+    test "the app_version show renders the cross-domain recommended_size link and the app link",
+         %{
+           conn: conn,
+           admin: admin
+         } do
+      size = sized_size!(admin)
+      category = category!(admin)
+      app = app!(admin, category)
+      version = version!(admin, app, size)
+
+      {:ok, view, _html} = live(conn, "/admin/resources/catalog/app_version/#{version.id}")
+
+      # The first cross-domain link: catalog → pricing. The size's slug
+      # is its label (the registry's heuristic pick).
+      assert has_element?(view, "a[data-testid='admin-resource-fk-#{size.id}']", size.slug)
+
+      size_link = render(element(view, "a[data-testid='admin-resource-fk-#{size.id}']"))
+      assert size_link =~ ~s(href="/admin/resources/pricing/size/#{size.id}")
+
+      assert has_element?(view, "a[data-testid='admin-resource-fk-#{app.id}']", app.name)
+
+      app_link = render(element(view, "a[data-testid='admin-resource-fk-#{app.id}']"))
+      assert app_link =~ ~s(href="/admin/resources/catalog/app/#{app.id}")
+    end
+
+    test "app_version :new renders the required JSON textareas", %{conn: conn} do
+      {:ok, view, _html} = live(conn, "/admin/resources/catalog/app_version/new")
+
+      for field <- ["default_env_vars", "configurable_env_vars", "backing_services"] do
+        assert has_element?(
+                 view,
+                 "[data-testid='admin-resource-input-#{field}'] textarea[required]"
+               )
+      end
+    end
+
+    test "a create with JSON-string textarea params decodes and lands on the show page", %{
+      conn: conn,
+      admin: admin
+    } do
+      size = sized_size!(admin)
+      category = category!(admin)
+      app = app!(admin, category)
+
+      {:ok, view, _html} = live(conn, "/admin/resources/catalog/app_version/new")
+
+      redirect =
+        view
+        |> form("#admin-resource-record-form",
+          record: %{
+            "version" => "9.9.9",
+            "image" => "fluxvale/probe:9.9.9",
+            "port" => "3000",
+            "default_env_vars" => ~s({"A": "1"}),
+            "configurable_env_vars" =>
+              ~s({"PORT": {"label": "Port", "type": "integer"}, "DATABASE_URL": {"label": "Database URL", "type": "string", "secret": true}}),
+            "backing_services" =>
+              ~s([{"kind": "postgres", "version": "18", "url_env": "DATABASE_URL"}]),
+            "default_cpu_cores" => "0.5",
+            "default_memory_mb" => "256",
+            "default_storage_gb" => "1",
+            "app_id" => app.id,
+            "recommended_size_id" => size.id
+          }
+        )
+        |> render_submit()
+
+      assert {:error, {:live_redirect, %{to: to}}} = redirect
+      assert to =~ "/admin/resources/catalog/app_version/"
+
+      # The JSON text round-tripped into the plain-map shape the
+      # composites cast from — this is the decode pipeline's proof.
+      segments = String.split(to, "/")
+      version_id = List.last(segments)
+      version = Ash.get!(AppVersion, version_id, actor: admin)
+      assert version.default_env_vars == %{"A" => "1"}
+
+      schema_keys =
+        version.configurable_env_vars
+        |> Map.keys()
+        |> MapSet.new()
+
+      assert MapSet.equal?(schema_keys, MapSet.new(["PORT", "DATABASE_URL"]))
+
+      assert Enum.map(version.backing_services, & &1.url_env) == ["DATABASE_URL"]
+    end
+
+    test "a save with already-decoded map textarea params lands the record", %{
+      conn: conn,
+      admin: admin
+    } do
+      size = sized_size!(admin)
+      category = category!(admin)
+      app = app!(admin, category)
+
+      {:ok, view, _html} = live(conn, "/admin/resources/catalog/app_version/new")
+
+      redirect =
+        render_submit(view, "save", %{
+          "record" => %{
+            "version" => "9.9.8",
+            "image" => "fluxvale/probe:9.9.8",
+            "port" => "3000",
+            "default_env_vars" => %{"A" => "1"},
+            "configurable_env_vars" =>
+              ~s({"PORT": {"label": "Port", "type": "integer"}, "DATABASE_URL": {"label": "Database URL", "type": "string", "secret": true}}),
+            "backing_services" =>
+              ~s([{"kind": "postgres", "version": "18", "url_env": "DATABASE_URL"}]),
+            "default_cpu_cores" => "0.5",
+            "default_memory_mb" => "256",
+            "default_storage_gb" => "1",
+            "app_id" => app.id,
+            "recommended_size_id" => size.id
+          }
+        })
+
+      # The textarea params arrive already decoded (a map/list, not JSON
+      # text); decode_json_params leaves them untouched and the casts
+      # accept them.
+      assert {:error, {:live_redirect, %{to: to}}} = redirect
+
+      version_id =
+        to
+        |> String.split("/")
+        |> List.last()
+
+      version = Ash.get!(AppVersion, version_id, actor: admin)
+      assert version.default_env_vars == %{"A" => "1"}
+    end
+
+    test "invalid JSON in a textarea re-renders with an error, no navigation", %{conn: conn} do
+      {:ok, view, _html} = live(conn, "/admin/resources/catalog/app_version/new")
+
+      html =
+        view
+        |> form("#admin-resource-record-form", record: %{"default_env_vars" => "{oops"})
+        |> render_submit()
+
+      assert html =~ "Could not save. Check the errors below."
+      assert html =~ "is invalid"
+      assert has_element?(view, "[data-testid='admin-resource-form']")
+
+      # The save-failure path keeps the operator's raw text: the failed
+      # save merged it into the textarea_text assign before the decode.
+      failed_text =
+        view
+        |> element("[data-testid='admin-resource-input-default_env_vars'] textarea")
+        |> render()
+        |> LazyHTML.from_fragment()
+        |> LazyHTML.text()
+
+      assert failed_text =~ "{oops"
+    end
+
+    test "a validate event carrying an already-decoded map casts clean", %{conn: conn} do
+      {:ok, view, _html} = live(conn, "/admin/resources/catalog/app_version/new")
+
+      html =
+        render_change(view, "validate", %{"record" => %{"default_env_vars" => %{"A" => "1"}}})
+
+      # The map-valued param needed no decode and casts clean.
+      refute html =~ "is invalid"
+      assert has_element?(view, "[data-testid='admin-resource-form']")
+    end
+
+    test "the version edit form seeds the JSON textareas with current values", %{
+      conn: conn,
+      admin: admin
+    } do
+      size = sized_size!(admin)
+      category = category!(admin)
+      app = app!(admin, category)
+      version = version!(admin, app, size)
+
+      {:ok, view, _html} = live(conn, "/admin/resources/catalog/app_version/#{version.id}/edit")
+
+      # The :map field seeds as JSON text; read the textarea's text
+      # content through LazyHTML so the entity-escaped HTML decodes.
+      seeded_value =
+        view
+        |> element("[data-testid='admin-resource-input-default_env_vars'] textarea")
+        |> render()
+        |> LazyHTML.from_fragment()
+        |> LazyHTML.text()
+
+      assert seeded_value =~ ~s({"A":"1"})
+
+      # The schema seeds in its in-memory shape and renders serialized
+      # through json_safe — atom values as strings; key order is the
+      # map's, not a contract.
+      schema =
+        view
+        |> element("[data-testid='admin-resource-input-configurable_env_vars'] textarea")
+        |> render()
+        |> LazyHTML.from_fragment()
+        |> LazyHTML.text()
+
+      assert schema =~ ~s("type":"integer")
+    end
+
+    test "a pristine version edit form shows no field errors — honest seeding, no suppression", %{
+      conn: conn,
+      admin: admin
+    } do
+      size = sized_size!(admin)
+      category = category!(admin)
+      app = app!(admin, category)
+      version = version!(admin, app, size)
+
+      {:ok, view, _html} = live(conn, "/admin/resources/catalog/app_version/#{version.id}/edit")
+
+      # The seed validate runs UNsuppressed: the pristine form renders
+      # zero field errors because the seeding casts clean, not because
+      # errors are hidden — a stored-data invariant violation would
+      # render here.
+      html = render(view)
+      document = LazyHTML.from_fragment(html)
+
+      errors = LazyHTML.query(document, "[data-testid='admin-resource-form'] p.text-danger")
+
+      assert Enum.to_list(errors) == []
+    end
+
+    test "a live validate re-renders the textarea with the operator's text verbatim", %{
+      conn: conn,
+      admin: admin
+    } do
+      # The review probe's fixture chain: cpu 1.0 / mem 512 on both
+      # sides of the size-match invariant, DATABASE_URL in the schema
+      # and in the backing service's url_env.
+      size = size!(admin, %{cpu_cores: Decimal.new("1.0"), memory_mb: 512})
+      category = category!(admin)
+      app = app!(admin, category)
+
+      version =
+        version!(admin, app, size, %{
+          default_cpu_cores: Decimal.new("1"),
+          default_memory_mb: 512
+        })
+
+      {:ok, view, _html} = live(conn, "/admin/resources/catalog/app_version/#{version.id}/edit")
+
+      # The operator types JSON with their own spacing into BOTH
+      # textarea kinds: each field re-renders the text VERBATIM — no
+      # cast-value re-serialization, the :map field included (Ash casts
+      # the string, but the render reads the raw-text assign). The
+      # params decode before validation (the save handler's decode), so
+      # a decodable map casts clean at this layer; an undecodable
+      # string still shows "is invalid" (the invalid-JSON test).
+      typed = ~s({"TYPED": "justnow"})
+
+      render_change(view, "validate", %{
+        "record" => %{"configurable_env_vars" => typed, "default_env_vars" => typed}
+      })
+
+      re_rendered_composite =
+        view
+        |> element("[data-testid='admin-resource-input-configurable_env_vars'] textarea")
+        |> render()
+        |> LazyHTML.from_fragment()
+        |> LazyHTML.text()
+
+      assert re_rendered_composite =~ typed
+
+      re_rendered_map =
+        view
+        |> element("[data-testid='admin-resource-input-default_env_vars'] textarea")
+        |> render()
+        |> LazyHTML.from_fragment()
+        |> LazyHTML.text()
+
+      assert re_rendered_map =~ typed
+
+      composite_container =
+        render(element(view, "[data-testid='admin-resource-input-configurable_env_vars']"))
+
+      refute composite_container =~ "is invalid"
+      assert has_element?(view, "[data-testid='admin-resource-form']")
+
+      # A complete, valid spec decodes before validation: the field
+      # casts clean (no "is invalid"), while the textarea still
+      # re-renders the operator's text verbatim.
+      valid = ~s({"TYPED": {"label": "Typed", "type": "string"}})
+
+      render_change(view, "validate", %{"record" => %{"configurable_env_vars" => valid}})
+
+      valid_container =
+        render(element(view, "[data-testid='admin-resource-input-configurable_env_vars']"))
+
+      refute valid_container =~ "is invalid"
+
+      valid_text =
+        view
+        |> element("[data-testid='admin-resource-input-configurable_env_vars'] textarea")
+        |> render()
+        |> LazyHTML.from_fragment()
+        |> LazyHTML.text()
+
+      assert valid_text =~ valid
+    end
+
+    test "a nil textarea param renders an empty textarea", %{conn: conn, admin: admin} do
+      size = sized_size!(admin)
+      category = category!(admin)
+      app = app!(admin, category)
+      version = version!(admin, app, size)
+
+      {:ok, view, _html} = live(conn, "/admin/resources/catalog/app_version/#{version.id}/edit")
+
+      render_change(view, "validate", %{"record" => %{"first_run" => nil}})
+
+      first_run =
+        view
+        |> element("[data-testid='admin-resource-input-first_run'] textarea")
+        |> render()
+        |> LazyHTML.from_fragment()
+        |> LazyHTML.text()
+
+      assert String.trim(first_run) == ""
+    end
+
+    test "the version show renders first_run and oidc_wiring through the inspect fallback", %{
+      conn: conn,
+      admin: admin
+    } do
+      size = sized_size!(admin)
+      category = category!(admin)
+      app = app!(admin, category)
+
+      version =
+        version!(admin, app, size, %{
+          backing_services: [],
+          configurable_env_vars: %{
+            "PORT" => %{"label" => "Port", "type" => "integer"},
+            "OIDC_ISSUER" => %{"label" => "OIDC issuer", "type" => "string"},
+            "OIDC_CLIENT_ID" => %{"label" => "OIDC client id", "type" => "string"},
+            "OIDC_CLIENT_SECRET" => %{
+              "label" => "OIDC client secret",
+              "type" => "string",
+              "secret" => true
+            }
+          },
+          first_run: %{
+            "pattern" => "first_registered_user_admin",
+            "env" => %{},
+            "forbidden_env" => [],
+            "guidance" => "Claim the first account, then close registration."
+          },
+          oidc_wiring: %{
+            "kind" => "env",
+            "issuer_env" => "OIDC_ISSUER",
+            "client_id_env" => "OIDC_CLIENT_ID",
+            "client_secret_env" => "OIDC_CLIENT_SECRET",
+            "pkce" => true
+          }
+        })
+
+      {:ok, view, _html} = live(conn, "/admin/resources/catalog/app_version/#{version.id}")
+
+      # Composites stay the unknown-type inspect fallback this slice —
+      # a JSON-details view is a flagged follow-up.
+      assert text_of(
+               view,
+               "[data-testid='admin-resource-field-first_run'] [data-testid='admin-resource-unknown']"
+             ) =~ "first_registered_user_admin"
+
+      assert text_of(
+               view,
+               "[data-testid='admin-resource-field-oidc_wiring'] [data-testid='admin-resource-unknown']"
+             ) =~ "OIDC_CLIENT_SECRET"
+    end
+
+    test "a signed-in non-admin gets a bare 403 at the route gate on the Catalog surface", %{
+      bare_conn: conn
+    } do
+      user = User.create!("admin-resources-catalog-#{@n}@fluxvale.com", %{}, authorize?: false)
+
+      conn =
+        conn
+        |> SessionHelpers.sign_in(user)
+        |> get("/admin/resources/catalog/app")
+
+      assert conn.status == 403
+    end
+  end
+
   describe "the ?action= selector and field mapping (fabricated entries)" do
     test "the default is the primary action of the type" do
       entry = write_entry(%{})
@@ -1574,14 +2126,16 @@ defmodule FluxValeWeb.AdminResourcesLiveTest do
       assert Enum.map(fields, & &1.name) == [:key]
     end
 
-    test "a shape the engine cannot map yet is skipped — maps wait for their slice" do
+    test "a map-typed attribute maps to the JSON textarea (slice 4's contract)" do
       # Instance.env_vars is the registry's first map-typed attr (slice
-      # 5's resource, slice 4's JSON-textarea decision): the engine
-      # skips what it cannot map instead of guessing an encoding.
+      # 5's resource): slice 4's JSON-textarea contract maps it — the
+      # type casts from JSON-shaped plain maps and validates through
+      # the field errors.
       fields =
         Resources.form_fields(Instance, %{accept: [:name, :env_vars]})
 
-      assert Enum.map(fields, & &1.name) == [:name]
+      assert Enum.map(fields, & &1.name) == [:name, :env_vars]
+      assert List.last(fields).type == "textarea"
     end
   end
 

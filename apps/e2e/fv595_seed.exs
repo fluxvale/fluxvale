@@ -147,3 +147,146 @@ case TaxRate |> Ash.Changeset.for_create(:create, tax_attrs, actor: admin) |> As
 end
 
 IO.puts("pricing seed done")
+
+# Slice 4's capture rows (Catalog): the category -> app -> version chain
+# the shots browse. The version's recommended size must match its
+# compute defaults (ValidateSizeMatchesAllocation) and its backing
+# service's url_env must name a secret configurable env var
+# (ValidateBackingServices), so the size is seeded at 1.0 / 512.
+alias FluxVale.Catalog.App
+alias FluxVale.Catalog.AppVersion
+alias FluxVale.Catalog.Category
+
+catalog_size =
+  case Size
+       |> Ash.Changeset.for_create(
+         :create,
+         %{
+           slug: "capture-catalog",
+           cpu_cores: Decimal.new("1.0"),
+           memory_mb: 512,
+           monthly_cents: 800
+         },
+         actor: admin
+       )
+       |> Ash.create() do
+    {:ok, size} ->
+      IO.puts("size #{size.slug} created")
+      size
+
+    {:error, %Ash.Error.Invalid{} = error} ->
+      if Enum.any?(error.errors, &match?(%Ash.Error.Changes.InvalidAttribute{}, &1)) do
+        Size |> Ash.Query.filter(slug: "capture-catalog") |> Ash.read_one!(actor: admin)
+      else
+        raise error
+      end
+
+    {:error, error} ->
+      raise error
+  end
+
+catalog_category =
+  case Category
+       |> Ash.Changeset.for_create(
+         :create,
+         %{name: "Capture Tools", slug: "capture-tools"},
+         actor: admin
+       )
+       |> Ash.create() do
+    {:ok, category} ->
+      IO.puts("category #{category.slug} created")
+      category
+
+    {:error, %Ash.Error.Invalid{} = error} ->
+      if Enum.any?(error.errors, &match?(%Ash.Error.Changes.InvalidAttribute{}, &1)) do
+        Category |> Ash.Query.filter(slug: "capture-tools") |> Ash.read_one!(actor: admin)
+      else
+        raise error
+      end
+
+    {:error, error} ->
+      raise error
+  end
+
+catalog_app =
+  case App
+       |> Ash.Changeset.for_create(
+         :create,
+         %{
+           name: "Capture App",
+           slug: "capture-app",
+           file_access: false,
+           category_id: catalog_category.id
+         },
+         actor: admin
+       )
+       |> Ash.create() do
+    {:ok, app} ->
+      IO.puts("app #{app.slug} created")
+      app
+
+    {:error, %Ash.Error.Invalid{} = error} ->
+      if Enum.any?(error.errors, &match?(%Ash.Error.Changes.InvalidAttribute{}, &1)) do
+        App |> Ash.Query.filter(slug: "capture-app") |> Ash.read_one!(actor: admin)
+      else
+        raise error
+      end
+
+    {:error, error} ->
+      raise error
+  end
+
+catalog_version_attrs = %{
+  version: "9.9.9",
+  image: "fluxvale/capture-app:9.9.9",
+  port: 3000,
+  healthcheck_path: "/",
+  storage_mount_path: "/data",
+  default_env_vars: %{"CAPTURE" => "true"},
+  configurable_env_vars: %{
+    "DATABASE_URL" => %{
+      "label" => "Database URL",
+      "type" => "string",
+      "secret" => true
+    },
+    "SMTP_PORT" => %{
+      "label" => "SMTP port",
+      "description" => "The mail relay's port",
+      "type" => "integer",
+      "default" => 587
+    }
+  },
+  backing_services: [
+    %{"kind" => "postgres", "version" => "18", "url_env" => "DATABASE_URL"}
+  ],
+  default_cpu_cores: Decimal.new("1.0"),
+  default_memory_mb: 512,
+  default_storage_gb: 1,
+  app_id: catalog_app.id,
+  recommended_size_id: catalog_size.id,
+  published_at: ~U[2026-11-01 00:00:00.000000Z]
+}
+
+case AppVersion
+     |> Ash.Changeset.for_create(:create, catalog_version_attrs, actor: admin)
+     |> Ash.create() do
+  {:ok, version} ->
+    IO.puts("app version #{version.version} created")
+
+  {:error, %Ash.Error.Invalid{} = error} ->
+    existing =
+      AppVersion
+      |> Ash.Query.filter(app_id: catalog_app.id, version: "9.9.9")
+      |> Ash.read_one!(actor: admin)
+
+    if existing && Enum.any?(error.errors, &match?(%Ash.Error.Changes.InvalidAttribute{}, &1)) do
+      IO.puts("app version already present, skipped")
+    else
+      raise error
+    end
+
+  {:error, error} ->
+    raise error
+end
+
+IO.puts("catalog seed done")

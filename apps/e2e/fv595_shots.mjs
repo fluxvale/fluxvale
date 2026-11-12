@@ -8,7 +8,11 @@
  * the write surfaces, and the sidebar with its open domain group —
  * light and dark. pricing captures slice 3's Pricing and Billing
  * surfaces (both indexes, the size create form, the waiver and
- * goodwill forms) — light and dark. gif-light / gif-dark each record
+ * goodwill forms) — light and dark. catalog captures slice 4's
+ * Catalog surfaces (the app index and show with their category FK
+ * links, the version index with its app/size links, and the version
+ * create/edit JSON textareas) — light and dark. gif-light / gif-dark
+ * each record
  * the confirm-then-destroy motion on the seed's sacrificial
  * write_path_demo row (recordVideo -> ffmpeg, cropped to the content
  * column right of the sidebar); re-run the seed between the two.
@@ -102,6 +106,39 @@ async function firstWalletHref(page) {
   });
 }
 
+// Walk the index pages until a row whose cell text equals `label` is
+// found; return its View href. The seed's rows are newest at first
+// run, but re-runs reuse them and newer rows can push them past page 1.
+async function indexViewHref(page, path, label) {
+  for (let pageNumber = 1; pageNumber <= 20; pageNumber++) {
+    await page.goto(`${BASE}${path}?page=${pageNumber}`, { waitUntil: "networkidle" });
+    await page.waitForSelector("[data-testid='admin-resource-index']");
+    const href = await page.evaluate((wanted) => {
+      const cell = [...document.querySelectorAll("span")].find(
+        (n) => n.textContent.trim() === wanted,
+      );
+      if (!cell) return null;
+      const row = cell.closest("tr");
+      const link = row && row.querySelector("[data-testid^='admin-resource-view-']");
+      return link ? link.getAttribute("href") : null;
+    }, label);
+    if (href) return href;
+    if ((await page.locator("a[data-testid='admin-resource-next']").count()) === 0) return null;
+  }
+  return null;
+}
+
+// The capture app version's edit href (the seed's 9.9.9 row).
+async function captureVersionEditHref(page) {
+  const href = await indexViewHref(page, "/admin/resources/catalog/app_version", "9.9.9");
+  return href ? `${href}/edit` : null;
+}
+
+// The capture app's show href (the seed's Capture App row).
+async function captureAppHref(page) {
+  return indexViewHref(page, "/admin/resources/catalog/app", "Capture App");
+}
+
 if (part === "pricing") {
   // Slice 3's Pricing + Billing surfaces. Seeds first (sizes, a tax
   // rate): mix run ../e2e/fv595_seed.exs. Wallets and ledger rows ride
@@ -151,6 +188,66 @@ if (part === "pricing") {
       waitUntil: "networkidle",
     });
     await shot(page, `billing-waiver-form-${mode}`, mode, "[data-testid='admin-resource-form']");
+  }
+
+  await ctx.close();
+}
+
+if (part === "catalog") {
+  // Slice 4's Catalog surfaces: the FK links (app index, app show,
+  // version index) and the JSON textareas (version form and edit).
+  // Seeds first: mix run ../e2e/fv595_seed.exs.
+  const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  const page = await ctx.newPage();
+  await signIn(page);
+
+  for (const mode of ["light", "dark"]) {
+    await page.goto(`${BASE}/admin/resources/catalog/app`, { waitUntil: "networkidle" });
+    await shot(page, `catalog-app-index-${mode}`, mode, "[data-testid='admin-resource-index']");
+    await page.goto(`${BASE}/admin/resources/catalog/app_version`, { waitUntil: "networkidle" });
+    await shot(
+      page,
+      `catalog-version-index-${mode}`,
+      mode,
+      "[data-testid='admin-resource-index']",
+    );
+    await page.goto(`${BASE}/admin/resources/catalog/app_version/new`, {
+      waitUntil: "networkidle",
+    });
+    await shot(page, `catalog-version-new-${mode}`, mode, "[data-testid='admin-resource-form']");
+  }
+
+  const appHref = await captureAppHref(page);
+  if (!appHref) {
+    console.error("no Capture App row — run mix run ../e2e/fv595_seed.exs first");
+    process.exit(1);
+  }
+  for (const mode of ["light", "dark"]) {
+    await page.goto(`${BASE}${appHref}`, { waitUntil: "networkidle" });
+    await shot(page, `catalog-app-show-${mode}`, mode, "[data-testid='admin-resource-show']");
+  }
+
+  const versionEditHref = await captureVersionEditHref(page);
+  if (!versionEditHref) {
+    console.error("no 9.9.9 version row — run mix run ../e2e/fv595_seed.exs first");
+    process.exit(1);
+  }
+  for (const mode of ["light", "dark"]) {
+    await page.goto(`${BASE}${versionEditHref}`, { waitUntil: "networkidle" });
+    await shot(
+      page,
+      `catalog-version-edit-${mode}`,
+      mode,
+      "[data-testid='admin-resource-input-configurable_env_vars'] textarea",
+    );
+  }
+
+  // The version show page carries both FK links: app (catalog) and
+  // recommended size (the first cross-domain link, into Pricing).
+  const versionShowHref = versionEditHref.replace(/\/edit$/, "");
+  for (const mode of ["light", "dark"]) {
+    await page.goto(`${BASE}${versionShowHref}`, { waitUntil: "networkidle" });
+    await shot(page, `catalog-version-show-${mode}`, mode, "[data-testid='admin-resource-show']");
   }
 
   await ctx.close();

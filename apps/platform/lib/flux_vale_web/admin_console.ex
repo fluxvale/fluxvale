@@ -26,12 +26,13 @@ defmodule FluxValeWeb.AdminConsole do
   @type resource :: %{key: atom(), module: module(), config: map()}
 
   # Live domains in display order, each with its resources. Slices 1-2
-  # proved the engine on Ops; slice 3 rolls Pricing and Billing live
-  # (the plan's sanity pass 1). Later slices flip the pending domains
-  # below one by one. Per-resource config (all optional): label, note,
-  # columns, label_attr — the defaults introspect from the resource.
-  # A domain's out-of-console resources live in @excluded_resources
-  # below, keyed by the domain MODULE — never a key on the domain map.
+  # proved the engine on Ops; slice 3 rolled Pricing and Billing live;
+  # slice 4 rolls Catalog (the plan's sanity passes). Later slices flip
+  # the pending domains below one by one. Per-resource config (all
+  # optional): label, note, columns, label_attr — the defaults
+  # introspect from the resource. A domain's out-of-console resources
+  # live in @excluded_resources below, keyed by the domain MODULE —
+  # never a key on the domain map.
   @domains [
     %{
       key: :ops,
@@ -91,15 +92,42 @@ defmodule FluxValeWeb.AdminConsole do
           }
         }
       ]
+    },
+    %{
+      key: :catalog,
+      label: "Catalog",
+      module: FluxVale.Catalog,
+      resources: [
+        %{key: :category, module: FluxVale.Catalog.Category, config: %{}},
+        %{
+          key: :app,
+          module: FluxVale.Catalog.App,
+          config: %{
+            label_attr: :name,
+            columns: [:name, :category_id],
+            note:
+              "The catalog page and its deploy wizard are the daily tool. This raw surface carries the marketing copy fields the page renders."
+          }
+        },
+        %{
+          key: :app_version,
+          module: FluxVale.Catalog.AppVersion,
+          config: %{
+            columns: [:version, :app_id, :published_at],
+            label_attr: :version,
+            note:
+              "Blueprint rows for deploy. The curated catalog surgery surfaces (#540 lane) stay the daily tool for promote/retire flows."
+          }
+        }
+      ]
     }
   ]
 
-  # The console's committed target (the plan's appendix A): the three
-  # domains later slices roll out. Accounted for here so the parity
-  # test holds the whole picture — a slice flips one live by moving it
-  # into @domains above with its resource configs.
+  # The console's committed target (the plan's appendix A): the domains
+  # later slices roll out. Accounted for here so the parity test holds
+  # the whole picture — a slice flips one live by moving it into
+  # @domains above with its resource configs.
   @pending_domains [
-    FluxVale.Catalog,
     FluxVale.Infrastructure,
     FluxVale.Feedback
   ]
@@ -260,13 +288,20 @@ defmodule FluxValeWeb.AdminConsole do
   def fetch(domain_key, resource_key) do
     with {:ok, domain} <- by_key(@domains, domain_key),
          {:ok, resource} <- by_key(domain.resources, resource_key) do
-      {:ok,
-       %{
-         domain: Map.take(domain, [:key, :label, :module]),
-         key: resource.key,
-         module: resource.module,
-         config: resource.config
-       }}
+      {:ok, build_entry(domain, resource.module)}
+    end
+  end
+
+  @doc """
+  Resolve a resource module to its registry entry (the FK-link seam:
+  a belongs_to whose destination is a live registry resource links to
+  its show page; everything else renders as a plain uuid).
+  """
+  @spec fetch_by_module(module()) :: {:ok, entry()} | :error
+  def fetch_by_module(module) do
+    case Enum.find(@domains, &Enum.any?(&1.resources, fn r -> r.module == module end)) do
+      nil -> :error
+      domain -> {:ok, build_entry(domain, module)}
     end
   end
 
@@ -302,6 +337,19 @@ defmodule FluxValeWeb.AdminConsole do
   defp exclusion_key(:create), do: :create_actions
   defp exclusion_key(:update), do: :update_actions
   defp exclusion_key(:destroy), do: :destroy_actions
+
+  # The entry shape shared by fetch/2 and fetch_by_module/1 — one
+  # construction, so the two seams can never drift.
+  defp build_entry(domain, module) do
+    resource = Enum.find(domain.resources, &(&1.module == module))
+
+    %{
+      domain: Map.take(domain, [:key, :label, :module]),
+      key: resource.key,
+      module: resource.module,
+      config: resource.config
+    }
+  end
 
   # Lookup over existing registry atoms: atoms pass through, URL
   # strings compare against each entry's key spelled out. No atom is

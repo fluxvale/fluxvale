@@ -7,11 +7,11 @@ defmodule FluxValeWeb.AdminConsoleTest do
   # for (one of the three sets, no orphans), the six-domain target
   # matches the plan's appendix A, and every LIVE domain's resource
   # set is its registered entries plus its named exclusions, in both
-  # directions — include-or-exclude-by-name per resource (the
-  # mechanism the audit lane's version tables exercised first, #645;
-  # Billing/Topup rides it again in slice 3). Plus the
-  # registry's own API contract: segment resolution and the policy
-  # probe.
+  # directions (the mechanism the audit lane's version tables
+  # exercised first, #645; Billing/Topup rides it again in slice 3).
+  # Pending domains force nothing per-resource — only their
+  # domain-level accounting above. Plus the registry's own API
+  # contract: segment resolution and the policy probe.
   #
   # The parity arms need no DB — they walk compiled modules. visible?
   # needs actors, so it rides the same ConnCase sandbox.
@@ -206,6 +206,27 @@ defmodule FluxValeWeb.AdminConsoleTest do
       keys = Enum.map(resources, & &1.key)
       assert keys == [:feature_flag, :access_rule]
       assert AdminConsole.resources(:nope) == []
+    end
+
+    test "the Catalog slice's entries resolve" do
+      {:ok, entry} = AdminConsole.fetch("catalog", "app")
+
+      assert entry.module == FluxVale.Catalog.App
+      assert entry.domain.key == :catalog
+      assert entry.config[:label_attr] == :name
+    end
+
+    test "fetch_by_module/1 resolves a live registry resource to its entry" do
+      {:ok, entry} = AdminConsole.fetch_by_module(FluxVale.Catalog.AppVersion)
+
+      assert entry.key == :app_version
+      assert entry.domain.module == FluxVale.Catalog
+      assert entry.config[:columns] == [:version, :app_id, :published_at]
+    end
+
+    test "fetch_by_module/1 answers :error for an unregistered module and a pending domain's resource" do
+      assert AdminConsole.fetch_by_module(FluxVale.Repo) == :error
+      assert AdminConsole.fetch_by_module(FluxVale.Infrastructure.Instance) == :error
     end
   end
 
