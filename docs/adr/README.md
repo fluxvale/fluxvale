@@ -24,7 +24,7 @@ already ruled out.
 | [ADR-00013](00013-additive-migrations.md) | Migration discipline: additive-only per release | Accepted (amended — see Amendment 1) |
 | [ADR-00014](00014-rollback-protocol.md) | Rollback protocol: revert PRs + counter-migrations | Accepted (amended — see Amendment 1) |
 | [ADR-00015](00015-no-auto-remediation.md) | No auto-remediation: alert + prepared revert PR | Accepted |
-| [ADR-00016](00016-deferred-triggers.md) | Named revisit triggers for deferred items | Accepted |
+| [ADR-00016](00016-deferred-triggers.md) | Named revisit triggers for deferred items | Accepted (amended — see Amendment 1) |
 | [ADR-00017](00017-docs-home-adr-scope.md) | Docs home: one ADR log here, covering the product + org-wide infra | Accepted |
 | [ADR-00018](00018-repo-visibility.md) | Repo visibility: app public under FSL, fleet repo private | Accepted (amended — see Amendment 1) |
 | [ADR-00019](00019-machine-first-api-cli-mcp.md) | Machine-first API: JSON:API + CLI + MCP server from day one | Accepted (amended — see Amendments 1–5) |
