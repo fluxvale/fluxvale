@@ -21,6 +21,9 @@ defmodule FluxValeWeb.Api.RouteInventoryTest do
     {:get, "/instances"},
     {:post, "/instances"},
     {:get, "/instances/:id"},
+    # #731 T2: the slug lookup (an extra segment — cannot collide with
+    # /instances/:id).
+    {:get, "/instances/by-slug/:slug"},
     {:patch, "/instances/:id/deploy"},
     {:patch, "/instances/:id/stop"},
     {:patch, "/instances/:id/start"},

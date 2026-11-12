@@ -53,6 +53,9 @@ defmodule FluxVale.Api.Scopes do
     # Instances.
     {{"GET", ["instances"]}, "instances:read"},
     {{"POST", ["instances"]}, "instances:write"},
+    # #731 T2: the slug lookup (slug is unique only per cluster; the
+    # optional organization_id query arg narrows it).
+    {{"GET", ["instances", "by-slug", :_]}, "instances:read"},
     {{"GET", ["instances", :_]}, "instances:read"},
     {{"PATCH", ["instances", :_, "deploy"]}, "instances:write"},
     {{"PATCH", ["instances", :_, "stop"]}, "instances:write"},

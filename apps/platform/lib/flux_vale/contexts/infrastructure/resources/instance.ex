@@ -149,6 +149,13 @@ defmodule FluxVale.Infrastructure.Instance do
       # instances:read
       get(:get_by_id, route: "/instances/:id", default_fields: @detail_fields)
 
+      # instances:read — #731 T2: the slug lookup. Slug is unique only
+      # per cluster ([:slug, :cluster_id]), so a multi-cluster caller
+      # passes the org; a slug that still matches more than one row is
+      # Ash's honest MultipleResults refusal, never an arbitrary pick.
+      # The extra segment keeps the path clear of /instances/:id.
+      get(:get_by_slug, route: "/instances/by-slug/:slug", default_fields: @detail_fields)
+
       # instances:write — the generic :create (#362, the CLI's deploy
       # command). The action's accept list is name, cpu_cores,
       # memory_mb, storage_gb, env_vars, app_version_id — the cluster
@@ -792,6 +799,24 @@ defmodule FluxVale.Infrastructure.Instance do
       get?(true)
       argument(:id, :uuid, allow_nil?: false)
       filter(expr(id == ^arg(:id)))
+    end
+
+    # #731 T2: slug is unique only per [:slug, :cluster_id], not
+    # globally — the optional org narrows a multi-cluster lookup. A
+    # slug that still matches more than one row refuses (Ash's
+    # MultipleResults) rather than picking arbitrarily.
+    read :get_by_slug do
+      description("Get an instance by slug")
+      get?(true)
+      argument(:slug, :string, allow_nil?: false)
+      argument(:organization_id, :uuid, allow_nil?: true)
+
+      filter(
+        expr(
+          slug == ^arg(:slug) and
+            (is_nil(^arg(:organization_id)) or organization_id == ^arg(:organization_id))
+        )
+      )
     end
 
     read :list_for_actor do
