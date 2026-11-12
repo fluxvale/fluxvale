@@ -132,20 +132,32 @@ defmodule FluxValeWeb.BillingComponents do
     Pricing.format_usd(cents)
   end
 
-  # The runway copy is the dashboard's formatter shape (S4), owned at
-  # the billing display seam: a spent wallet is out of runway — "under
-  # an hour" would read as nearly-there — and :infinity (no burn) reads
-  # as itself. The divisor is the average Gregorian month (Billing.Month),
-  # the same constant the projection and the settles use.
-  defp format_runway(%{balance_cents: cents}) when cents < 0, do: "Depleted"
-  defp format_runway(%{runway_hours: :infinity}), do: "No active burn"
+  # The runway copy is owned at the billing display seam. One rule
+  # ordering decides the phrase: an overdrawn balance reads Depleted
+  # before the hours get a vote (a spent wallet is out of runway —
+  # "under an hour" would read as nearly-there), a wallet with nothing
+  # burning reads No active burn, then the rounded hours and days over
+  # the average Gregorian month (Billing.Month, the same constant the
+  # projection and the settles use). Public since the #702 console's
+  # runway widget renders the same phrase.
+  @doc """
+  The runway phrase for a projection: "Depleted" for an overdrawn
+  balance, "No active burn" for `:infinity`, "under an hour", then
+  rounded hours and days over the average Gregorian month
+  (`Billing.Month`, the constant the projection and the settles use).
+  """
+  @spec format_runway(%{balance_cents: integer(), runway_hours: float() | :infinity}) ::
+          String.t()
+  def format_runway(%{balance_cents: cents}) when cents < 0, do: "Depleted"
 
-  defp format_runway(%{runway_hours: hours}) when hours < 1, do: "under an hour"
+  def format_runway(%{runway_hours: :infinity}), do: "No active burn"
 
-  defp format_runway(%{runway_hours: hours}) when hours < 48,
+  def format_runway(%{runway_hours: hours}) when hours < 1, do: "under an hour"
+
+  def format_runway(%{runway_hours: hours}) when hours < 48,
     do: "≈ #{round(hours)} #{plural(round(hours), "hour")}"
 
-  defp format_runway(%{runway_hours: hours}) do
+  def format_runway(%{runway_hours: hours}) do
     days = hours / 24
 
     if days < 60 do

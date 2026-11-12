@@ -9,15 +9,29 @@ defmodule FluxValeWeb.AdminHealthLiveTest do
   # alone).
 
   use FluxValeWeb.ConnCase, async: false
+  use Mimic
 
   import Phoenix.LiveViewTest
 
+  setup :verify_on_exit!
+  # The runway-unknown test stubs the projection operation and needs
+  # the stub visible from the LiveView process, not just the test
+  # process — global mode (safe here: the module is sync, ExUnit runs
+  # it alone).
+  setup :set_mimic_global
+
+  alias FluxVale.Accounts.Organization
+  alias FluxVale.Billing
+  alias FluxVale.Billing.Operations.ComputeRunway
+  alias FluxVale.Billing.Wallet
   alias FluxVale.Identity.User
   alias FluxVale.Infrastructure.Instance
   alias FluxVale.Observability.WakeStats
   alias FluxVale.TestSupport.AccountsFixtures
+  alias FluxVale.TestSupport.BillingFixtures
   alias FluxVale.TestSupport.InstanceFixtures
   alias FluxVale.TestSupport.SessionHelpers
+  alias FluxVale.TestSupport.StorageRequestFixtures
   alias FluxValeWeb.AdminHealth
 
   @n :erlang.unique_integer([:positive])
@@ -129,6 +143,62 @@ defmodule FluxValeWeb.AdminHealthLiveTest do
 
     :sys.replace_state(WakeStats, fn _state ->
       %{computed_at: computed_at, medians: median_total, p95_promotions: p95_promotion}
+    end)
+  end
+
+  # The burning wallet of the seam tests' shape: a grant-free org's
+  # wallet funded to exactly 1¢ through the posting action, its owner's
+  # instance walked to :running on the fixture version — 140¢/mo of
+  # burn (the compute class plus the 10 GB storage axis) against the
+  # funded balance, ≈ 5.2 hours of runway per cent under the default
+  # one-week gate. `name` renames the org (every grant-free org shares
+  # one fixture name, and the widget renders the name); `balance`
+  # scales the runway figure.
+  defp burning_wallet!(opts \\ []) do
+    version = InstanceFixtures.app_version!(monthly_cents: 100, default_storage_gb: 10)
+    {fixture_org, owner} = BillingFixtures.grant_free_org!()
+    org = renamed_org(fixture_org, Keyword.get(opts, :name))
+
+    {:ok, wallet} = Billing.ensure_wallet(org)
+
+    {:ok, _grant} =
+      Billing.grant_credits(wallet, Keyword.get(opts, :balance, 1), reason: :adjustment)
+
+    instance =
+      Instance.create!(
+        %{
+          name: "Burner #{System.unique_integer([:positive])}",
+          app_version_id: version.id,
+          env_vars: %{}
+        },
+        actor: owner
+      )
+
+    running = InstanceFixtures.walk_to!(instance, :running)
+    InstanceFixtures.pin!(running, namespace: "fluxvale-app-#{instance.id}")
+
+    {org, wallet}
+  end
+
+  # authorize?: false — the fixture posture (system bootstrap,
+  # mirroring the seeds; the rename itself is the owner's action).
+  defp renamed_org(org, nil), do: org
+
+  defp renamed_org(org, name) do
+    Organization.update!(org, %{name: name}, authorize?: false)
+  end
+
+  # The low list's rows, one text per li — the order the panel rendered.
+  defp low_rows(view) do
+    html = render(view)
+    document = LazyHTML.from_fragment(html)
+
+    document
+    |> LazyHTML.query("[data-testid='runway-low'] li")
+    |> Enum.to_list()
+    |> Enum.map(fn li ->
+      text = LazyHTML.text(li)
+      String.trim(text)
     end)
   end
 
@@ -294,6 +364,281 @@ defmodule FluxValeWeb.AdminHealthLiveTest do
       assert text_of(view, "[data-testid='wake-caveat']") =~ "reset on every deploy"
 
       refute has_element?(view, "[data-testid='wake-kavita']")
+    end
+  end
+
+  describe "the storage surface" do
+    test "the chips render the seam's numbers and the queue deep-link", %{
+      conn: conn,
+      admin: admin
+    } do
+      # One instance (+20 GB) and one request (+1 requested) of this
+      # test's own, then the post-fixture seam read is what the chips
+      # must render — the exact ngettext strings, not element presence.
+      version = InstanceFixtures.app_version!(default_storage_gb: 10, monthly_cents: 100)
+      member = AccountsFixtures.user!()
+
+      instance =
+        Instance.create!(
+          %{
+            name: "Chips #{System.unique_integer([:positive])}",
+            app_version_id: version.id,
+            env_vars: %{},
+            storage_gb: 20
+          },
+          actor: member
+        )
+
+      StorageRequestFixtures.request!(instance, member, %{requested_gb: 150})
+
+      expected = AdminHealth.storage(admin)
+      {:ok, view, _html} = live(conn, "/admin/health")
+
+      assert has_element?(view, "[data-testid='storage-panel']")
+      assert has_element?(view, "[data-testid='storage-title']", "Storage")
+
+      assert text_of(view, "[data-testid='storage-allocated']") ==
+               ngettext_exact(expected.allocated_gb, "1 GB allocated", "%{count} GB allocated")
+
+      assert text_of(view, "[data-testid='storage-requested']") ==
+               ngettext_exact(expected.requested, "1 requested", "%{count} requested")
+
+      assert text_of(view, "[data-testid='storage-approved']") ==
+               ngettext_exact(expected.approved, "1 approved", "%{count} approved")
+
+      assert text_of(view, "[data-testid='storage-applied']") ==
+               ngettext_exact(expected.applied, "1 applied", "%{count} applied")
+
+      # The runbook note is text, not a link — the runbook is not served.
+      assert text_of(view, "[data-testid='storage-runbook']") =~ "block-storage runbook"
+
+      assert render(element(view, "[data-testid='storage-link']")) =~
+               "href=\"/admin/storage-requests\""
+    end
+  end
+
+  describe "the runway surface" do
+    test "the healthy page renders the above-the-gate line", %{conn: conn} do
+      # No fixture: the partition's wallets (the admin's own included)
+      # project :infinity — no lows, no unknowns, no escapees, no
+      # failures, so the healthy line is the panel's only story.
+      {:ok, view, _html} = live(conn, "/admin/health")
+
+      assert has_element?(view, "[data-testid='runway-empty']", "Every wallet is above the gate.")
+      refute has_element?(view, "[data-testid='runway-low']")
+      refute has_element?(view, "[data-testid='runway-more']")
+      refute has_element?(view, "[data-testid='runway-depleted']")
+      refute has_element?(view, "[data-testid='runway-unknown']")
+      refute has_element?(view, "[data-testid='runway-unavailable']")
+    end
+
+    test "the gate line, the low row, and the deep link render", %{conn: conn, admin: admin} do
+      # The burning wallet of the seam tests' shape: 1¢ against the
+      # fixture's 140¢/mo burn — the one low row this test owns,
+      # named so the row's identity is this test's own.
+      {org, _wallet} = burning_wallet!(name: "Gate Runner")
+
+      expected = AdminHealth.runway(admin)
+      {:ok, view, _html} = live(conn, "/admin/health")
+
+      assert has_element?(view, "[data-testid='runway-panel']")
+      assert has_element?(view, "[data-testid='runway-title']", "Org runway")
+      assert text_of(view, "[data-testid='runway-gate']") == "Wallets under 168h of runway"
+
+      # The low row: the org's name and slug (names are not unique —
+      # the slug rides beside it in mono), and the formatted hours
+      # through the billing display seam's projection formatter
+      # (10_000 µ¢ ÷ 1916 µ¢/h rounds to "≈ 5 hours").
+      low = text_of(view, "[data-testid='runway-low']")
+      assert low =~ org.name
+      assert low =~ org.slug
+      assert low =~ "≈ 5 hours"
+      assert expected.threshold_hours == 168
+
+      assert render(element(view, "[data-testid='runway-link']")) =~ "href=\"/admin/billing\""
+
+      refute has_element?(view, "[data-testid='runway-empty']")
+      refute has_element?(view, "[data-testid='runway-more']")
+      refute has_element?(view, "[data-testid='runway-depleted']")
+
+      # No stubbed errors here — the unknown count stays quiet.
+      refute has_element?(view, "[data-testid='runway-unknown']")
+    end
+
+    test "unknown projections render the honest count and never a row", %{
+      conn: conn,
+      admin: admin
+    } do
+      # Every projection errors — the unknown count is every wallet,
+      # the low list renders nothing, and the unknown count carries
+      # the story (the above-the-gate line stays quiet).
+      Mimic.copy(ComputeRunway)
+      stub(ComputeRunway, :call, fn _wallet -> {:error, :projection_dead} end)
+
+      expected = AdminHealth.runway(admin)
+      {:ok, view, _html} = live(conn, "/admin/health")
+
+      assert expected.unknown == expected.wallets
+      assert expected.unknown >= 1
+
+      assert text_of(view, "[data-testid='runway-unknown']") ==
+               ngettext_exact(
+                 expected.unknown,
+                 "1 projection unknown",
+                 "%{count} projections unknown"
+               )
+
+      refute has_element?(view, "[data-testid='runway-low']")
+      refute has_element?(view, "[data-testid='runway-empty']")
+    end
+
+    test "a mixed page renders the list and the unknown count together", %{
+      conn: conn,
+      admin: admin
+    } do
+      {org, _wallet} = burning_wallet!()
+      target_org_id = org.id
+
+      # The stub answers only this test's wallet with a hand-built low
+      # projection and errors every other wallet — the mixed page: one
+      # known low row beside the unknown count, the empty line quiet.
+      Mimic.copy(ComputeRunway)
+
+      stub(ComputeRunway, :call, fn wallet ->
+        if wallet.organization_id == target_org_id do
+          {:ok, %{balance_cents: 1, runway_hours: 5.2}}
+        else
+          {:error, :projection_dead}
+        end
+      end)
+
+      expected = AdminHealth.runway(admin)
+      {:ok, view, _html} = live(conn, "/admin/health")
+
+      assert expected.unknown == expected.wallets - 1
+      assert length(expected.low) == 1
+
+      low = text_of(view, "[data-testid='runway-low']")
+      assert low =~ org.name
+      assert low =~ "≈ 5 hours"
+
+      assert text_of(view, "[data-testid='runway-unknown']") ==
+               ngettext_exact(
+                 expected.unknown,
+                 "1 projection unknown",
+                 "%{count} projections unknown"
+               )
+
+      refute has_element?(view, "[data-testid='runway-empty']")
+    end
+
+    test "the low list caps at ten with an honest overflow count", %{conn: conn, admin: admin} do
+      # Bulk volume — the sanctioned Ash.Seed escape: 12 orgs with
+      # wallets. The global stub answers every projection with a low
+      # figure, so every wallet lands low and the render must cap at
+      # ten rows with the honest "and N more".
+      for i <- 1..12 do
+        Ash.Seed.seed!(Organization, %{
+          name: "overflow-org-#{i}",
+          slug: "overflow-org-#{i}",
+          created_at: DateTime.utc_now(),
+          updated_at: DateTime.utc_now()
+        })
+
+        Ash.Seed.seed!(Wallet, %{
+          organization_id: Organization.get_by_slug!("overflow-org-#{i}", authorize?: false).id,
+          carryover: 0,
+          paywall_waived: false,
+          created_at: DateTime.utc_now(),
+          updated_at: DateTime.utc_now()
+        })
+      end
+
+      Mimic.copy(ComputeRunway)
+
+      stub(ComputeRunway, :call, fn _wallet ->
+        {:ok, %{balance_cents: 1, runway_hours: 5.2}}
+      end)
+
+      expected = AdminHealth.runway(admin)
+      {:ok, view, _html} = live(conn, "/admin/health")
+
+      assert length(low_rows(view)) == 10
+
+      assert text_of(view, "[data-testid='runway-more']") ==
+               ngettext_exact(
+                 length(expected.low) - 10,
+                 "and 1 more",
+                 "and %{count} more"
+               )
+
+      refute has_element?(view, "[data-testid='runway-empty']")
+    end
+
+    test "a spent wallet with nothing burning renders the depleted count", %{
+      conn: conn,
+      admin: admin
+    } do
+      # The escapee shape: funded, debited past zero, no instances —
+      # balance < 0 with :infinity runway. The panel must say it: the
+      # depleted count line renders and the healthy line stays quiet.
+      {org, _owner} = BillingFixtures.grant_free_org!()
+      {:ok, wallet} = Billing.ensure_wallet(org)
+      {:ok, _grant} = Billing.grant_credits(wallet, 10_000, reason: :adjustment)
+      {:ok, _debit} = Billing.debit_wallet(wallet, 200_000_000)
+
+      expected = AdminHealth.runway(admin)
+      {:ok, view, _html} = live(conn, "/admin/health")
+
+      assert expected.depleted >= 1
+
+      assert text_of(view, "[data-testid='runway-depleted']") ==
+               ngettext_exact(
+                 expected.depleted,
+                 "1 depleted wallet",
+                 "%{count} depleted wallets"
+               )
+
+      refute has_element?(view, "[data-testid='runway-low']")
+      refute has_element?(view, "[data-testid='runway-empty']")
+    end
+
+    test "a failed widget read renders the honest unavailable line", %{conn: conn, admin: admin} do
+      # The org lookup is the runway widget's failure boundary: raise
+      # it and the widget degrades to its unavailable line — the read
+      # failure the 250-org dev DB proved reachable — never a 500.
+      Mimic.copy(Ash)
+
+      stub(Ash, :run_action!, fn _input ->
+        raise "lookup down"
+      end)
+
+      expected = AdminHealth.runway(admin)
+      {:ok, view, _html} = live(conn, "/admin/health")
+
+      assert expected.unavailable == true
+      assert has_element?(view, "[data-testid='runway-unavailable']", "Runway data unavailable.")
+      refute has_element?(view, "[data-testid='runway-low']")
+      refute has_element?(view, "[data-testid='runway-empty']")
+    end
+
+    test "a spent wallet reads Depleted in the low row", %{conn: conn, admin: admin} do
+      # The burning wallet overdrawn below zero: the projection's hours
+      # go negative and the shared formatter names the state — the low
+      # row is this wallet's row, so the depleted COUNT (escapees with
+      # no burn) stays quiet.
+      {org, wallet} = burning_wallet!()
+      {:ok, _overdraw} = Billing.debit_wallet(wallet, 200 * 10_000)
+
+      _expected = AdminHealth.runway(admin)
+      {:ok, view, _html} = live(conn, "/admin/health")
+
+      low = text_of(view, "[data-testid='runway-low']")
+      assert low =~ org.name
+      assert low =~ "Depleted"
+
+      refute has_element?(view, "[data-testid='runway-depleted']")
+      refute has_element?(view, "[data-testid='runway-empty']")
     end
   end
 

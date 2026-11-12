@@ -4,14 +4,15 @@ defmodule FluxValeWeb.AdminLive.Health do
   instance fleet at a glance. The build stamp (env chip when the
   platform names its env, the version always), the status spread with
   the always-on count, the five newest deploys with their recorded
-  actor tombstones, and the wake widget — per-app p95 promotion-wait
-  and median total seconds off WakeStats' in-memory scrape (numbers
-  reset on every deploy).
+  actor tombstones, the wake widget — per-app p95 promotion-wait and
+  median total seconds off WakeStats' in-memory scrape (numbers reset
+  on every deploy) — the storage posture (allocated GB and the
+  storage-request queue's three counters), and the org runway (the
+  wallets below the configured gate, the unknown projections counted).
 
   The data comes from `FluxValeWeb.AdminHealth` — the section's
-  widget seam — the fleet read with the mount-resolved admin actor
-  and authorization ON (repo default): the policies decide, never the
-  UI.
+  widget seam — each read with the mount-resolved admin actor and
+  authorization ON (repo default): the policies decide, never the UI.
   """
 
   use FluxValeWeb, :live_view
@@ -19,6 +20,7 @@ defmodule FluxValeWeb.AdminLive.Health do
   alias FluxVale.Observability.WakeStats
   alias FluxValeWeb.AdminHealth
   alias FluxValeWeb.AdminShell
+  alias FluxValeWeb.BillingComponents
 
   @impl Phoenix.LiveView
   def mount(_params, _session, socket) do
@@ -30,7 +32,9 @@ defmodule FluxValeWeb.AdminLive.Health do
     {:noreply,
      socket
      |> assign(:fleet, AdminHealth.fleet(socket.assigns.current_user))
-     |> assign(:wake, AdminHealth.wake())}
+     |> assign(:wake, AdminHealth.wake())
+     |> assign(:storage, AdminHealth.storage(socket.assigns.current_user))
+     |> assign(:runway, AdminHealth.runway(socket.assigns.current_user))}
   end
 
   @impl Phoenix.LiveView
@@ -176,6 +180,148 @@ defmodule FluxValeWeb.AdminLive.Health do
                 </p>
               </div>
 
+              <%!-- The storage posture widget (#702): the fleet's
+              allocated gigabytes and the operator queue's three
+              state counters — the same numbers the sidebar badge
+              counts. The queue deep-links to its own section; pool
+              headroom is a runbook fact, named as text because the
+              runbook is not served from here. --%>
+              <div
+                class="rounded-panel border border-line bg-panel px-4 py-4 text-ink"
+                data-testid="storage-panel"
+              >
+                <h2 class="text-sm font-medium" data-testid="storage-title">
+                  {gettext("Storage")}
+                </h2>
+                <div class="mt-2 flex flex-wrap items-center gap-2" data-testid="storage-chips">
+                  <span
+                    data-testid="storage-allocated"
+                    class="inline-flex items-center gap-1 rounded-control border border-line bg-panel-raised px-2 py-0.5 text-xs text-ink"
+                  >
+                    {ngettext("1 GB allocated", "%{count} GB allocated", @storage.allocated_gb)}
+                  </span>
+                  <span
+                    data-testid="storage-requested"
+                    class="inline-flex items-center gap-1 rounded-control border border-line bg-panel-raised px-2 py-0.5 text-xs text-ink"
+                  >
+                    {ngettext("1 requested", "%{count} requested", @storage.requested)}
+                  </span>
+                  <span
+                    data-testid="storage-approved"
+                    class="inline-flex items-center gap-1 rounded-control border border-line bg-panel-raised px-2 py-0.5 text-xs text-ink"
+                  >
+                    {ngettext("1 approved", "%{count} approved", @storage.approved)}
+                  </span>
+                  <span
+                    data-testid="storage-applied"
+                    class="inline-flex items-center gap-1 rounded-control border border-line bg-panel-raised px-2 py-0.5 text-xs text-ink"
+                  >
+                    {ngettext("1 applied", "%{count} applied", @storage.applied)}
+                  </span>
+                </div>
+                <p class="mt-2 text-xs text-ink-muted" data-testid="storage-runbook">
+                  {gettext("Pool headroom lives in the block-storage runbook — not served from here.")}
+                </p>
+                <p class="mt-2">
+                  <.link
+                    navigate={~p"/admin/storage-requests"}
+                    class="text-sm font-medium text-link underline-offset-2 hover:underline"
+                    data-testid="storage-link"
+                  >
+                    {gettext("Open the storage queue")}
+                  </.link>
+                </p>
+              </div>
+
+              <%!-- The org runway widget (#702): the wallets below the
+              configured gate (the seam's threshold, restated so the
+              list has its context), sorted most-urgent first, one row
+              per low wallet — the phrase rides the billing display
+              seam's projection formatter, never a raw float, and the
+              row names the org twice (name, then the slug in mono —
+              the deploy-row idiom, since names are not unique). The
+              list caps at ten with an honest overflow count.
+              Depleted-with-no-burn wallets, unknown projections and a
+              failed widget read each render their own honest line:
+              "above the gate" speaks only when it is true. --%>
+              <div
+                class="rounded-panel border border-line bg-panel px-4 py-4 text-ink"
+                data-testid="runway-panel"
+              >
+                <h2 class="text-sm font-medium" data-testid="runway-title">
+                  {gettext("Org runway")}
+                </h2>
+                <p class="mt-2 text-sm text-ink-muted" data-testid="runway-gate">
+                  {gettext("Wallets under %{hours}h of runway", hours: @runway.threshold_hours)}
+                </p>
+                <p
+                  :if={@runway.unavailable}
+                  class="mt-2 text-sm text-ink-muted"
+                  data-testid="runway-unavailable"
+                >
+                  {gettext("Runway data unavailable.")}
+                </p>
+                <ul :if={@runway.low != []} class="mt-2" id="runway-low" data-testid="runway-low">
+                  <li
+                    :for={row <- Enum.take(@runway.low, runway_cap())}
+                    class="flex flex-wrap items-center gap-2 border-b border-line py-2 text-sm text-ink last:border-0"
+                  >
+                    <span class="font-medium">{row.org}</span>
+                    <span class="font-mono text-xs text-ink-muted">{row.slug}</span>
+                    <span aria-hidden="true">-</span>
+                    <span>{BillingComponents.format_runway(row.projection)}</span>
+                  </li>
+                </ul>
+                <p
+                  :if={length(@runway.low) > runway_cap()}
+                  class="mt-2 text-xs text-ink-muted"
+                  data-testid="runway-more"
+                >
+                  {ngettext(
+                    "and 1 more",
+                    "and %{count} more",
+                    length(@runway.low) - runway_cap()
+                  )}
+                </p>
+                <p
+                  :if={@runway.depleted > 0}
+                  class="mt-2 text-xs text-ink-muted"
+                  data-testid="runway-depleted"
+                >
+                  {ngettext("1 depleted wallet", "%{count} depleted wallets", @runway.depleted)}
+                </p>
+                <p
+                  :if={@runway.unknown > 0}
+                  class="mt-2 text-xs text-ink-muted"
+                  data-testid="runway-unknown"
+                >
+                  {ngettext(
+                    "1 projection unknown",
+                    "%{count} projections unknown",
+                    @runway.unknown
+                  )}
+                </p>
+                <p
+                  :if={
+                    @runway.low == [] and @runway.unknown == 0 and @runway.depleted == 0 and
+                      not @runway.unavailable
+                  }
+                  class="mt-2 text-sm text-ink-muted"
+                  data-testid="runway-empty"
+                >
+                  {gettext("Every wallet is above the gate.")}
+                </p>
+                <p class="mt-2">
+                  <.link
+                    navigate={~p"/admin/billing"}
+                    class="text-sm font-medium text-link underline-offset-2 hover:underline"
+                    data-testid="runway-link"
+                  >
+                    {gettext("Open wallets and billing")}
+                  </.link>
+                </p>
+              </div>
+
               <div class="rounded-panel border border-line bg-panel px-4 py-4 text-ink">
                 <h2 class="text-sm font-medium" data-testid="fleet-deploys-title">
                   {gettext("Recent deploys")}
@@ -212,6 +358,10 @@ defmodule FluxValeWeb.AdminLive.Health do
     </Layouts.app>
     """
   end
+
+  # The low list renders its ten most-urgent rows; the seam's honest
+  # overflow count covers the rest.
+  defp runway_cap, do: 10
 
   # The lifecycle arc, in InstanceStatus's documented order.
   @status_arc [
