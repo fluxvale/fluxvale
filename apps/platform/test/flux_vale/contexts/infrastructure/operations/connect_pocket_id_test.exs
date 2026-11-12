@@ -312,7 +312,7 @@ defmodule FluxVale.Infrastructure.Operations.ConnectPocketIdTest do
         {:ok, %{}}
       end)
 
-      expect(Deployment, :restart, fn _kc, "ns-retro", "app" -> {:ok, %{}} end)
+      expect(Deployment, :restart, fn _kc, "ns-retro", "app", _opts -> {:ok, %{}} end)
 
       assert {:ok, wiring} =
                Infrastructure.retrofit_pocket_id(app, pocket_id.id, actor: owner)
@@ -329,6 +329,44 @@ defmodule FluxVale.Infrastructure.Operations.ConnectPocketIdTest do
       assert applied["SSO_AUTHORITY"] == @issuer
       assert applied["SSO_CLIENT_SECRET"] == @minted_secret
       assert applied["SSO_ENABLED"] == "true"
+    end
+
+    test "an empty-row instance with no app-env Secret gets the first env from the retrofit",
+         %{owner: owner, pocket_id: pocket_id} do
+      app =
+        owner
+        |> sso_instance!()
+        |> Ash.Changeset.for_update(:merge_system_env, %{env: %{}}, authorize?: false)
+        |> Ash.update!()
+        |> InstanceFixtures.walk_to!(:running)
+        |> InstanceFixtures.pin!(namespace: "ns-retro")
+
+      green_stubs!(pocket_id, app)
+
+      stub(Secret, :get_data, fn _kc, _ns, ref ->
+        if ref == "app-env" do
+          {:error, %K8s.Error{status_code: 404, reason: :not_found, message: "absent"}}
+        else
+          {:ok, %{"POCKETID_API_KEY" => @held_key}}
+        end
+      end)
+
+      expect(Secret, :upsert, fn _kc, "ns-retro", "app-env", data ->
+        send(self(), {:applied, data})
+        {:ok, %{}}
+      end)
+
+      expect(Deployment, :restart, fn _kc, "ns-retro", "app", _opts -> {:ok, %{}} end)
+
+      assert {:ok, _wiring} =
+               Infrastructure.retrofit_pocket_id(app, pocket_id.id, actor: owner)
+
+      assert_received {:applied, applied}
+      assert applied["SSO_AUTHORITY"] == @issuer
+      assert applied["SSO_CLIENT_ID"] == "pid-1"
+      assert applied["SSO_CLIENT_SECRET"] == @minted_secret
+      assert applied["SSO_ENABLED"] == "true"
+      refute Map.has_key?(applied, "POCKETID_API_KEY")
     end
 
     test "a deleting instance refuses honestly — nothing to wire on the way out", %{

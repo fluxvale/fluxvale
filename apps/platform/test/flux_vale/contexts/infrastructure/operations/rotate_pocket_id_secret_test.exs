@@ -61,7 +61,7 @@ defmodule FluxVale.Infrastructure.Operations.RotatePocketIdSecretTest do
     end)
 
     stub(Secret, :upsert, fn _kc, _ns, _n, _d -> {:ok, %{}} end)
-    stub(Deployment, :restart, fn _kc, _ns, _n -> {:ok, %{}} end)
+    stub(Deployment, :restart, fn _kc, _ns, _n, _opts -> {:ok, %{}} end)
 
     pocket_id_version =
       InstanceFixtures.app_version!(app_slug: "pocket-id", configurable_env_vars: %{})

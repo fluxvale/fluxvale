@@ -80,6 +80,7 @@ defmodule FluxVale.Infrastructure.Instance do
   alias FluxVale.Infrastructure.Instance.StatusMarkers
   alias FluxVale.Infrastructure.Instance.StatusTransition
   alias FluxVale.Infrastructure.Instance.StorageGrowthGuard
+  alias FluxVale.Infrastructure.Instance.UpdateEnv
   alias FluxVale.Infrastructure.Instance.ValidateEnvVars
   alias FluxVale.Infrastructure.Instance.WakeMarkers
   alias FluxVale.Infrastructure.Operations.GrowStorageVolume
@@ -173,6 +174,11 @@ defmodule FluxVale.Infrastructure.Instance do
 
       # instances:write — the stopped-first resize (#493).
       patch(:resize, route: "/instances/:id/resize", default_fields: @detail_fields)
+
+      # instances:write — #731 T1: in-place env merge (set + remove).
+      # Input is write-only: env_vars stays hide_fields'd off every
+      # response, and the action returns the standard detail document.
+      patch(:update_env, route: "/instances/:id/env", default_fields: @detail_fields)
 
       # instances:write — the generic :delete the UI calls (async
       # teardown), NOT destroy :destroy.
@@ -361,6 +367,11 @@ defmodule FluxVale.Infrastructure.Instance do
 
     policy action(:set_exposure) do
       description("Members toggle their org's instance exposure (#265)")
+      authorize_if(relates_to_actor_via([:organization, :members]))
+    end
+
+    policy action(:update_env) do
+      description("Members update their org's instance env in place (#731)")
       authorize_if(relates_to_actor_via([:organization, :members]))
     end
 
@@ -1133,6 +1144,31 @@ defmodule FluxVale.Infrastructure.Instance do
       end)
     end
 
+    # #731 T1 (ADR-0052): the in-place env merge. The row is the truth;
+    # the deployed row's live Secret is projected inside the same
+    # transaction, and a rolling restart is post-commit. Input is
+    # write-only (set/remove arguments; env_vars never echoes), so no
+    # field on the response carries a value the caller sent.
+    update :update_env do
+      description("""
+      Merges a set/remove env patch into the instance in place (#731):
+      row + live Secret, then a post-commit rolling restart for
+      running/starting. Deployer-composed keys (OIDC exact, backing
+      URLs folded, instance_url_env exact) refuse a set and skip a
+      remove; first-run contract env keys are fixed (set and remove
+      refuse); forbidden contract keys are never settable (remove is
+      cleanup). host_allowlist_env keeps the platform hostname in the
+      live Secret only.
+      """)
+
+      argument(:set, :map, allow_nil?: true, public?: true, sensitive?: true)
+      argument(:remove, {:array, :string}, allow_nil?: true, public?: true)
+      accept([])
+      require_atomic?(false)
+
+      change(UpdateEnv)
+    end
+
     # #250: the online storage-only growth path (the operator approval's
     # apply). System-only — no policy arm, no JSON:API route — the
     # approval operation calls it with `authorize?: false` after the
@@ -1361,17 +1397,20 @@ defmodule FluxVale.Infrastructure.Instance do
       require_atomic?(false)
     end
 
-    # #597 S4: the wiring operation's env funnel. Accepts nothing; the
-    # merged map arrives as the :env argument and lands as one
-    # force_change — the op built it by merging ONLY the recipe's keys
-    # over the current env (user values preserved), so no caller can
-    # route arbitrary env through here and the ride-along posture is
-    # enforced at the write, not the form.
-    update :merge_pocket_id_env do
-      description("System-only: force-merge the PocketID wiring's env (authorize?: false).")
+    # #597 S4: the system env funnel (named for the general seam since
+    # #731 T1 — the audit action name stops naming one integration).
+    # Accepts nothing; the merged map arrives as the :env argument and
+    # lands as one force_change — the op built it by merging ONLY its
+    # own keys over the current env (user values preserved), so no
+    # caller can route arbitrary env through here and the ride-along
+    # posture is enforced at the write, not the form. The argument is
+    # SENSITIVE: the map can carry the OIDC client secret, and
+    # PaperTrail must store the REDACTED marker, never the values.
+    update :merge_system_env do
+      description("System-only: force-merge a system integration's env (authorize?: false).")
 
       accept([])
-      argument(:env, :map, allow_nil?: false)
+      argument(:env, :map, allow_nil?: false, sensitive?: true)
       require_atomic?(false)
 
       change(fn changeset, _context ->

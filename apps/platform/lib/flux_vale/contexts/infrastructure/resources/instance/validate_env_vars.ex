@@ -31,9 +31,21 @@ defmodule FluxVale.Infrastructure.Instance.ValidateEnvVars do
   @impl Validation
   def validate(changeset, _opts, _context) do
     env_vars = Ash.Changeset.get_attribute(changeset, :env_vars) || %{}
+    schema = schema_for(Ash.Changeset.get_attribute(changeset, :app_version_id))
 
+    check(env_vars, schema)
+  end
+
+  @doc """
+  Validates an env map against a version's `configurable_env_vars`
+  schema — the create validation's body, callable without a changeset
+  so the in-place patch path (#731, ADR-0052 decision 3) runs the same
+  check on its merged map.
+  """
+  @spec check(map(), map()) :: :ok | {:error, Exception.t() | [Exception.t()]}
+  def check(env_vars, schema) when is_map(env_vars) and is_map(schema) do
     with :ok <- check_all_strings(env_vars) do
-      check_against_schema(env_vars, Ash.Changeset.get_attribute(changeset, :app_version_id))
+      if schema == %{}, do: :ok, else: validate_fields(env_vars, schema)
     end
   end
 
@@ -61,17 +73,14 @@ defmodule FluxVale.Infrastructure.Instance.ValidateEnvVars do
   # unreachable: create with a nil app_version_id already failed in
   # DeriveFromAppVersion's change
   # coveralls-ignore-next-line
-  defp check_against_schema(_env_vars, nil), do: :ok
+  defp schema_for(nil), do: %{}
 
-  defp check_against_schema(env_vars, app_version_id) do
+  defp schema_for(app_version_id) do
     case Ash.get(AppVersion, app_version_id, authorize?: false) do
-      {:ok, %{configurable_env_vars: schema}} when schema != %{} ->
-        validate_fields(env_vars, schema)
-
       # Empty schema or lookup failure: nothing to check against (a
       # missing version is already reported by DeriveFromAppVersion).
-      _other ->
-        :ok
+      {:ok, %{configurable_env_vars: schema}} -> schema || %{}
+      _other -> %{}
     end
   end
 

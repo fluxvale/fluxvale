@@ -304,11 +304,17 @@ defmodule FluxVale.Clients.K8s.Resources.Deployment do
   end
 
   @doc "Rolling restart via the pod-template annotation."
-  @spec restart(Kubereq.Kubeconfig.t(), String.t(), String.t()) ::
+  @spec restart(Kubereq.Kubeconfig.t(), String.t(), String.t(), keyword()) ::
           {:ok, map()} | {:error, Error.t()}
   # v1-ported: same force-apply caveat as scale/4 — targeted patch when #73
   # wires callers.
-  def restart(kubeconfig, namespace, name) do
+  #
+  # `ensure_env_from`: after the GET/strip, add the Secret to the APP
+  # container's envFrom when absent (idempotent; sidecars untouched).
+  # The first-ever env write on a deployment created without `app-env`
+  # needs this — an annotation bump alone would roll an unchanged pod
+  # template and the app would never read the Secret.
+  def restart(kubeconfig, namespace, name, opts \\ []) do
     case get(kubeconfig, namespace, name) do
       {:ok, deployment} ->
         restart_at = DateTime.to_iso8601(DateTime.utc_now())
@@ -316,27 +322,91 @@ defmodule FluxVale.Clients.K8s.Resources.Deployment do
         updated =
           deployment
           |> strip_managed_fields()
+          |> ensure_app_env_from(Keyword.get(opts, :ensure_env_from))
           |> update_in(["spec", "template", "metadata", "annotations"], fn
             nil -> %{"fluxvale.io/restartedAt" => restart_at}
             ann -> Map.put(ann, "fluxvale.io/restartedAt", restart_at)
           end)
 
-        req = create_req(kubeconfig)
-
-        case Kubereq.apply(req, updated, "fluxvale") do
-          {:ok, %{status: 200, body: body}} ->
-            Logger.debug("Restarted deployment: #{namespace}/#{name}")
-            {:ok, body}
-
-          {:ok, %{status: status, body: body}} ->
-            {:error, Error.from_response({:ok, %{status: status, body: body}})}
-
-          {:error, error} ->
-            {:error, Error.from_response({:error, error})}
-        end
+        apply_updated(kubeconfig, updated, "Restarted deployment: #{namespace}/#{name}")
 
       {:error, error} ->
         {:error, error}
+    end
+  end
+
+  @doc """
+  Spec-only ensure: add `app-env` to the app container's `envFrom` when
+  absent, without the restart annotation. The stopped/sleeping first-env
+  path needs the spec ready for the next start, not a rollout now.
+  """
+  @spec ensure_env_from(Kubereq.Kubeconfig.t(), String.t(), String.t()) ::
+          {:ok, map()} | {:error, Error.t()}
+  def ensure_env_from(kubeconfig, namespace, name) do
+    case get(kubeconfig, namespace, name) do
+      {:ok, deployment} ->
+        updated =
+          deployment
+          |> strip_managed_fields()
+          |> ensure_app_env_from("app-env")
+
+        apply_updated(
+          kubeconfig,
+          updated,
+          "Ensured deployment envFrom: #{namespace}/#{name}"
+        )
+
+      {:error, error} ->
+        {:error, error}
+    end
+  end
+
+  # Only the app container consumes the instance env; sidecars and the
+  # backing-service containers keep their own envFrom lists. A missing
+  # containers key stays missing (update_in would write a nil key).
+  defp ensure_app_env_from(deployment, nil), do: deployment
+
+  defp ensure_app_env_from(deployment, secret_name) do
+    path = ["spec", "template", "spec", "containers"]
+
+    case get_in(deployment, path) do
+      nil ->
+        deployment
+
+      containers ->
+        updated =
+          Enum.map(containers, fn
+            %{"name" => "app"} = container -> put_env_from(container, secret_name)
+            container -> container
+          end)
+
+        put_in(deployment, path, updated)
+    end
+  end
+
+  defp put_env_from(container, secret_name) do
+    env_from = Map.get(container, "envFrom") || []
+
+    if Enum.any?(env_from, &match?(%{"secretRef" => %{"name" => ^secret_name}}, &1)) do
+      container
+    else
+      Map.put(container, "envFrom", env_from ++ [%{"secretRef" => %{"name" => secret_name}}])
+    end
+  end
+
+  defp apply_updated(kubeconfig, updated, success_log) do
+    req = create_req(kubeconfig)
+
+    case Kubereq.apply(req, updated, "fluxvale") do
+      {:ok, %{status: 200, body: body}} ->
+        Logger.debug(success_log)
+        {:ok, body}
+
+      {:ok, %{status: status, body: body}} ->
+        {:error, Error.from_response({:ok, %{status: status, body: body}})}
+
+      {:error, error} ->
+        {:error, Error.from_response({:error, error})}
     end
   end
 

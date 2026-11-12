@@ -29,7 +29,7 @@ defmodule FluxVale.Infrastructure.Operations.RotatePocketIdSecret do
   """
 
   alias FluxVale.Infrastructure.Instance
-  alias FluxVale.Infrastructure.Operations.ApplyPocketIdEnv
+  alias FluxVale.Infrastructure.Operations.InstanceEnvSecret
   alias FluxVale.Infrastructure.Operations.UsePocketIdKey
   alias FluxVale.Infrastructure.PocketId.ApiClient
   alias FluxVale.Infrastructure.PocketIdCustody
@@ -139,7 +139,12 @@ defmodule FluxVale.Infrastructure.Operations.RotatePocketIdSecret do
   end
 
   defp apply_new(instance, recipe, new_secret) do
-    ApplyPocketIdEnv.apply_to_running(instance, %{recipe.client_secret_env => new_secret})
+    InstanceEnvSecret.apply_locked(
+      instance,
+      %{recipe.client_secret_env => new_secret},
+      [],
+      map_size(instance.env_vars) > 0
+    )
   end
 
   # Step 3, best-effort BY DESIGN: a refused delete leaves a harmless

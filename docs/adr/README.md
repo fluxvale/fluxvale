@@ -60,6 +60,8 @@ already ruled out.
 | [ADR-0049](00049-posthog-app-observability-split.md) | Observability split: PostHog for the app surface (analytics + error tracking + trace dual-export; EU; cookieless; replay off) — Grafana keeps metrics, synthetics, logs (Phase-3 gate) | Proposed |
 | [ADR-0050](00050-operational-console.md) | Operational console: curated at-a-glance health section, linked-not-embedded, no widget without a real source; server-side whitelisted proxies for third-party reads | Accepted |
 | [ADR-0051](00051-tfprovider-repo-extraction.md) | The Terraform/OpenTofu provider leaves the monorepo: fluxvale/terraform-provider-fluxvale, history kept via filter-repo, plain vX.Y.Z tags, versioned registry assets (manifest, SHA256SUMS, binary .sig) on GPG-signed releases — registry-ready | Accepted (amended — see Amendment 1) |
+| [ADR-0052](00052-instance-env-updates.md) | In-place instance env updates: one merge verb, row-is-truth / Secret-is-projection, explicit removes, platform-owned keys refused, restart-after-commit with an honest partial-failure answer | Accepted |
+| [ADR-0053](00053-terraform-secret-env.md) | Secret env values: `fluxvale secrets encrypt` produces an `enc:v1:` marker the platform opens at deploy; one platform key, ciphertext bound to org + variable; Terraform carries the locked box, never the secret | Accepted (design; build deferred until T1–T3) |
 
 ## Conventions
 

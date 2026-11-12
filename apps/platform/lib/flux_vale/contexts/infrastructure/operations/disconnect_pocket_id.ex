@@ -21,7 +21,7 @@ defmodule FluxVale.Infrastructure.Operations.DisconnectPocketId do
   """
 
   alias FluxVale.Infrastructure.Instance
-  alias FluxVale.Infrastructure.Operations.ApplyPocketIdEnv
+  alias FluxVale.Infrastructure.Operations.InstanceEnvSecret
   alias FluxVale.Infrastructure.Operations.UsePocketIdKey
   alias FluxVale.Infrastructure.PocketId.ApiClient
   alias FluxVale.Infrastructure.PocketIdCustody
@@ -173,7 +173,7 @@ defmodule FluxVale.Infrastructure.Operations.DisconnectPocketId do
 
         write =
           locked
-          |> Ash.Changeset.for_update(:merge_pocket_id_env, %{env: stripped}, authorize?: false)
+          |> Ash.Changeset.for_update(:merge_system_env, %{env: stripped}, authorize?: false)
           |> Ash.update(return_notifications?: true)
 
         case write do
@@ -210,7 +210,12 @@ defmodule FluxVale.Infrastructure.Operations.DisconnectPocketId do
   defp apply_strip(%Instance{namespace: nil}, _recipe_keys), do: :ok
 
   defp apply_strip(%Instance{} = app_instance, recipe_keys) do
-    ApplyPocketIdEnv.apply_to_running(app_instance, %{}, remove_keys: recipe_keys)
+    InstanceEnvSecret.apply_locked(
+      app_instance,
+      %{},
+      recipe_keys,
+      map_size(app_instance.env_vars) > 0
+    )
   end
 
   defp maybe_prepend(keys, nil), do: keys

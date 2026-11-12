@@ -63,7 +63,7 @@ defmodule FluxValeWeb.InstanceLive.PocketIdSsoCardTest do
     end)
 
     stub(Secret, :upsert, fn _kc, _ns, _n, _d -> {:ok, %{}} end)
-    stub(Deployment, :restart, fn _kc, _ns, _n -> {:ok, %{}} end)
+    stub(Deployment, :restart, fn _kc, _ns, _n, _opts -> {:ok, %{}} end)
 
     conn = SessionHelpers.sign_in(conn, owner)
 

@@ -625,6 +625,164 @@ defmodule FluxVale.Clients.K8s.Resources.DeploymentTest do
 
       assert {:ok, _body} = Deployment.restart(%{}, "fluxvale-app-1", "forgejo")
     end
+
+    test "ensure_env_from adds the Secret to the app container only" do
+      deployment =
+        put_in(
+          fetched_deployment(),
+          ["spec", "template", "spec", "containers"],
+          [
+            %{
+              "name" => "app",
+              "image" => "app:1",
+              "resources" => %{"requests" => %{"cpu" => "0.5", "memory" => "256Mi"}}
+            },
+            %{
+              "name" => "file-access",
+              "image" => "rclone",
+              "envFrom" => [%{"secretRef" => %{"name" => "file-access"}}]
+            }
+          ]
+        )
+
+      expect(Kubereq, :get, fn _req, _ns, _name -> {:ok, %{status: 200, body: deployment}} end)
+
+      expect(Kubereq, :apply, fn _req, manifest, _fm ->
+        [app, sidecar] = get_in(manifest, ["spec", "template", "spec", "containers"])
+
+        assert get_in(manifest, ["spec", "replicas"]) == 1
+
+        assert app["resources"] == %{
+                 "requests" => %{"cpu" => "0.5", "memory" => "256Mi"}
+               }
+
+        assert app["envFrom"] == [%{"secretRef" => %{"name" => "app-env"}}]
+
+        assert sidecar["envFrom"] == [
+                 %{"secretRef" => %{"name" => "file-access"}}
+               ]
+
+        annotations = get_in(manifest, ["spec", "template", "metadata", "annotations"])
+        assert Map.has_key?(annotations, "fluxvale.io/restartedAt")
+
+        {:ok, %{status: 200, body: manifest}}
+      end)
+
+      assert {:ok, _body} =
+               Deployment.restart(%{}, "fluxvale-app-1", "forgejo", ensure_env_from: "app-env")
+    end
+
+    test "ensure_env_from is idempotent when the app already consumes it" do
+      deployment =
+        put_in(
+          fetched_deployment(),
+          ["spec", "template", "spec", "containers"],
+          [
+            %{
+              "name" => "app",
+              "image" => "app:1",
+              "envFrom" => [
+                %{"secretRef" => %{"name" => "other"}},
+                %{"secretRef" => %{"name" => "app-env"}}
+              ]
+            }
+          ]
+        )
+
+      expect(Kubereq, :get, fn _req, _ns, _name -> {:ok, %{status: 200, body: deployment}} end)
+
+      expect(Kubereq, :apply, fn _req, manifest, _fm ->
+        [app] = get_in(manifest, ["spec", "template", "spec", "containers"])
+
+        assert app["envFrom"] == [
+                 %{"secretRef" => %{"name" => "other"}},
+                 %{"secretRef" => %{"name" => "app-env"}}
+               ]
+
+        {:ok, %{status: 200, body: manifest}}
+      end)
+
+      assert {:ok, _body} =
+               Deployment.restart(%{}, "fluxvale-app-1", "forgejo", ensure_env_from: "app-env")
+    end
+
+    test "ensure_env_from tolerates a deployment without containers" do
+      expect(Kubereq, :get, fn _req, _ns, _name ->
+        {:ok, %{status: 200, body: fetched_deployment()}}
+      end)
+
+      expect(Kubereq, :apply, fn _req, manifest, _fm ->
+        pod_spec = get_in(manifest, ["spec", "template", "spec"])
+        refute Map.has_key?(pod_spec, "containers")
+        {:ok, %{status: 200, body: manifest}}
+      end)
+
+      assert {:ok, _body} =
+               Deployment.restart(%{}, "fluxvale-app-1", "forgejo", ensure_env_from: "app-env")
+    end
+
+    test "ensure_env_from/3 adds envFrom without a restart annotation" do
+      deployment =
+        put_in(
+          fetched_deployment(),
+          ["spec", "template", "spec", "containers"],
+          [
+            %{
+              "name" => "app",
+              "image" => "app:1",
+              "resources" => %{"requests" => %{"cpu" => "0.5", "memory" => "256Mi"}}
+            },
+            %{
+              "name" => "file-access",
+              "image" => "rclone",
+              "envFrom" => [%{"secretRef" => %{"name" => "file-access"}}]
+            }
+          ]
+        )
+
+      expect(Kubereq, :get, fn _req, _ns, _name -> {:ok, %{status: 200, body: deployment}} end)
+
+      expect(Kubereq, :apply, fn _req, manifest, _fm ->
+        [app, sidecar] = get_in(manifest, ["spec", "template", "spec", "containers"])
+
+        assert get_in(manifest, ["spec", "replicas"]) == 1
+
+        assert app["resources"] == %{
+                 "requests" => %{"cpu" => "0.5", "memory" => "256Mi"}
+               }
+
+        assert app["envFrom"] == [%{"secretRef" => %{"name" => "app-env"}}]
+
+        assert sidecar["envFrom"] == [
+                 %{"secretRef" => %{"name" => "file-access"}}
+               ]
+
+        annotations = get_in(manifest, ["spec", "template", "metadata", "annotations"])
+        refute Map.has_key?(annotations || %{}, "fluxvale.io/restartedAt")
+
+        {:ok, %{status: 200, body: manifest}}
+      end)
+
+      assert {:ok, _body} = Deployment.ensure_env_from(%{}, "fluxvale-app-1", "forgejo")
+    end
+
+    test "ensure_env_from/3 leaves an absent containers key absent" do
+      expect(Kubereq, :get, fn _req, _ns, _name ->
+        {:ok, %{status: 200, body: fetched_deployment()}}
+      end)
+
+      expect(Kubereq, :apply, fn _req, manifest, _fm ->
+        pod_spec = get_in(manifest, ["spec", "template", "spec"])
+        refute Map.has_key?(pod_spec, "containers")
+
+        annotations = get_in(manifest, ["spec", "template", "metadata", "annotations"])
+        refute Map.has_key?(annotations || %{}, "fluxvale.io/restartedAt")
+
+        {:ok, %{status: 200, body: manifest}}
+      end)
+
+      assert {:ok, _body} = Deployment.ensure_env_from(%{}, "fluxvale-app-1", "forgejo")
+    end
   end
 
   describe "wait_for_ready/4" do
