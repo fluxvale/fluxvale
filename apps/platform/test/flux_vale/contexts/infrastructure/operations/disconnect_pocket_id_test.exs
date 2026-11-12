@@ -60,7 +60,7 @@ defmodule FluxVale.Infrastructure.Operations.DisconnectPocketIdTest do
     end)
 
     stub(Secret, :upsert, fn _kc, _ns, _n, _d -> {:ok, %{}} end)
-    stub(Deployment, :restart, fn _kc, _ns, _n -> {:ok, %{}} end)
+    stub(Deployment, :restart, fn _kc, _ns, _n, _opts -> {:ok, %{}} end)
 
     pocket_id_version =
       InstanceFixtures.app_version!(app_slug: "pocket-id", configurable_env_vars: %{})
@@ -137,7 +137,7 @@ defmodule FluxVale.Infrastructure.Operations.DisconnectPocketIdTest do
         {:ok, %{}}
       end)
 
-      expect(Deployment, :restart, fn _kc, "ns-app", "app" -> {:ok, %{}} end)
+      expect(Deployment, :restart, fn _kc, "ns-app", "app", _opts -> {:ok, %{}} end)
 
       assert {:ok, %{client_deleted: true}} =
                Infrastructure.disconnect_pocket_id(app, actor: owner)

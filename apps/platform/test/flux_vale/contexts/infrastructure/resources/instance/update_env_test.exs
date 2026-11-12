@@ -183,7 +183,7 @@ defmodule FluxVale.Infrastructure.Instance.UpdateEnvTest do
         {:ok, %{}}
       end)
 
-      expect(Deployment, :restart, fn _kc, "ns-live", "app" ->
+      expect(Deployment, :restart, fn _kc, "ns-live", "app", _opts ->
         send(self(), :restarted)
         {:ok, %{}}
       end)
@@ -201,7 +201,7 @@ defmodule FluxVale.Infrastructure.Instance.UpdateEnvTest do
       instance = create!(user, status: :starting, pin: true)
       stub_secret(%{})
       expect_upsert()
-      expect(Deployment, :restart, fn _kc, "ns-live", "app" -> {:ok, %{}} end)
+      expect(Deployment, :restart, fn _kc, "ns-live", "app", _opts -> {:ok, %{}} end)
 
       assert {:ok, updated} = update_env(instance, user, %{"NEW" => "2"}, [])
 
@@ -215,6 +215,27 @@ defmodule FluxVale.Infrastructure.Instance.UpdateEnvTest do
 
       # No Secret/Deployment stubs: either call fails the test.
       assert {:ok, updated} = update_env(instance, user, %{}, [])
+
+      assert updated.env_vars == %{"KEEP" => "1"}
+      assert reload!(instance).env_vars == %{"KEEP" => "1"}
+    end
+
+    test "an empty patch skips the cluster even when kubeconfig resolution fails", %{user: user} do
+      instance = create!(user, status: :running, pin: true, env: %{"KEEP" => "1"})
+
+      stub(K8s, :kubeconfig, fn _ref ->
+        {:error, %K8s.Error{status_code: 503, reason: :unavailable, message: "down"}}
+      end)
+
+      assert {:ok, updated} = update_env(instance, user, %{}, [])
+      assert updated.env_vars == %{"KEEP" => "1"}
+    end
+
+    test "a same-value set writes no Secret and does not restart", %{user: user} do
+      instance = create!(user, status: :running, pin: true, env: %{"KEEP" => "1"})
+
+      # No Secret/Deployment stubs: either call fails the test.
+      assert {:ok, updated} = update_env(instance, user, %{"KEEP" => "1"}, [])
 
       assert updated.env_vars == %{"KEEP" => "1"}
       assert reload!(instance).env_vars == %{"KEEP" => "1"}
@@ -329,11 +350,17 @@ defmodule FluxVale.Infrastructure.Instance.UpdateEnvTest do
       end)
 
       expect_upsert()
-      stub(Deployment, :restart, fn _kc, "ns-live", "app" -> {:ok, %{}} end)
+
+      expect(Deployment, :restart, fn _kc, "ns-live", "app", opts ->
+        send(self(), {:restart_opts, opts})
+        {:ok, %{}}
+      end)
 
       assert {:ok, updated} = update_env(instance, user, %{"NEW" => "2"}, [])
       assert updated.env_vars == %{"NEW" => "2"}
       assert_received {:upsert, %{"NEW" => "2"}}
+      assert_received {:restart_opts, opts}
+      assert opts[:ensure_env_from] == "app-env"
     end
   end
 
@@ -343,7 +370,7 @@ defmodule FluxVale.Infrastructure.Instance.UpdateEnvTest do
       stub_secret(%{"KEEP" => "1"})
       expect_upsert()
 
-      stub(Deployment, :restart, fn _kc, _ns, _n ->
+      stub(Deployment, :restart, fn _kc, _ns, _n, _opts ->
         {:error, %K8s.Error{status_code: 500, reason: :unknown, message: "roll refused"}}
       end)
 
@@ -645,6 +672,41 @@ defmodule FluxVale.Infrastructure.Instance.UpdateEnvTest do
 
       domain = Application.fetch_env!(:flux_vale, :instances_base_domain)
       refute Enum.any?(data, fn {_key, value} -> value =~ "#{instance.slug}.#{domain}" end)
+    end
+
+    test "a private, non-live set is not reported as composed", %{user: user} do
+      version = InstanceFixtures.app_version!(host_allowlist_env: "ALLOWED_HOSTS")
+
+      created = create!(user, version: version)
+
+      private =
+        created
+        |> Ash.Changeset.for_update(:set_exposure, %{exposure: :private}, actor: user)
+        |> Ash.update!()
+
+      instance =
+        private
+        |> InstanceFixtures.walk_to!(:stopped)
+        |> InstanceFixtures.pin!(namespace: "ns-live")
+
+      stub_secret(%{})
+
+      expect(Secret, :upsert, fn _kc, "ns-live", "app-env", data ->
+        send(self(), {:upsert, data})
+        {:ok, %{}}
+      end)
+
+      log =
+        capture_info_log(fn ->
+          assert {:ok, updated} =
+                   update_env(instance, user, %{"ALLOWED_HOSTS" => "example.com"}, [])
+
+          assert updated.env_vars["ALLOWED_HOSTS"] == "example.com"
+        end)
+
+      assert_received {:upsert, %{"ALLOWED_HOSTS" => "example.com"}}
+      assert log =~ "composed=[]"
+      refute log =~ ~s(composed=["ALLOWED_HOSTS"])
     end
   end
 

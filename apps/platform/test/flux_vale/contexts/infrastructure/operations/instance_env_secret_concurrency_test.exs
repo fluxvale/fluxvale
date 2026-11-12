@@ -56,7 +56,7 @@ defmodule FluxVale.Infrastructure.Operations.InstanceEnvSecretConcurrencyTest do
       {:ok, %{}}
     end)
 
-    stub(Deployment, :restart, fn _kc, "ns-live", "app" ->
+    stub(Deployment, :restart, fn _kc, "ns-live", "app", _opts ->
       send(parent, :restarted)
       {:ok, %{}}
     end)
@@ -74,10 +74,15 @@ defmodule FluxVale.Infrastructure.Operations.InstanceEnvSecretConcurrencyTest do
                 [Ecto.UUID.dump!(fixture.instance_id)]
               )
 
-              # The first writer's Secret state (what the PATCH's
-              # lock-protected upsert would leave).
-              Agent.update(store, &Map.put(&1, "PATCH_KEY", "patched"))
-              send(parent, :patched)
+              send(parent, :locked)
+
+              receive do
+                :write ->
+                  # The first writer's Secret state (what the PATCH's
+                  # lock-protected upsert would leave).
+                  Agent.update(store, &Map.put(&1, "PATCH_KEY", "patched"))
+                  send(parent, :patched)
+              end
 
               receive do
                 :release -> :ok
@@ -99,7 +104,15 @@ defmodule FluxVale.Infrastructure.Operations.InstanceEnvSecretConcurrencyTest do
         end
 
         send(parent, :worker_applying)
-        result = InstanceEnvSecret.apply_locked(fixture.instance, %{"SSO_KEY" => "sso"}, [])
+
+        result =
+          InstanceEnvSecret.apply_locked(
+            fixture.instance,
+            %{"SSO_KEY" => "sso"},
+            [],
+            true
+          )
+
         Sandbox.checkin(Repo, conn)
         send(parent, {:worker_done, result})
       end)
@@ -108,15 +121,18 @@ defmodule FluxVale.Infrastructure.Operations.InstanceEnvSecretConcurrencyTest do
     assert_receive {:ready, :worker}, 5_000
 
     send(holder, :hold)
-    assert_receive :patched, 5_000
+    assert_receive :locked, 5_000
 
     send(worker, :go)
     assert_receive :worker_applying, 5_000
 
-    # Still holding the row lock: the worker neither reads nor writes
-    # the Secret and cannot finish.
-    refute_receive {:secret_read, _data}, 300
-    refute_receive {:upsert, _data}, 0
+    # Holder still owns the row lock and has NOT written the first
+    # key yet. A lockless worker would read now (and miss PATCH_KEY).
+    refute_receive {:secret_read, _data}, 100
+    refute_receive {:worker_done, _result}, 0
+
+    send(holder, :write)
+    assert_receive :patched, 5_000
     refute_receive {:worker_done, _result}, 0
 
     send(holder, :release)

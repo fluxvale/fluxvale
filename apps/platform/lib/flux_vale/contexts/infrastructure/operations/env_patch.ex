@@ -17,8 +17,10 @@ defmodule FluxVale.Infrastructure.Operations.EnvPatch do
     and the version's `instance_url_env`) refuse a `set` with their
     names and skip a `remove` — the platform keeps its key, the request
     succeeds, and a Terraform apply that no longer names it converges.
-    Matching is EXACT: a user's `root_url` is a distinct k8s key from
-    the platform's `ROOT_URL`;
+    OIDC recipe keys and `instance_url_env` match EXACT-case (a user's
+    `root_url` is a distinct k8s key from the platform's `ROOT_URL`);
+    backing-service `url_env` keys FOLD, mirroring the create path's
+    conservative superset (`DeriveFromAppVersion.backing_conflicts/2`);
   - the first-run contract's `env` keys are FIXED: both a `set` and a
     `remove` refuse, naming the keys (the contract lands at create and
     a redeploy re-composes it; a removal cannot win, so claiming it
@@ -31,13 +33,16 @@ defmodule FluxVale.Infrastructure.Operations.EnvPatch do
     lowercase spelling is the same contract key;
   - `host_allowlist_env` is NOT owned: the deployer appends the
     platform hostname to the user's value, and the patch path
-    re-applies the same append (`InstanceEnvDerived.allowlist_entry/3`).
+    composes the same append for the live Secret only
+    (`InstanceEnvDerived.allowlist_entry/3`).
 
   Values appear in the returned merged map and `set` only; the caller
   logs the key names, never the values.
   """
 
   alias FluxVale.Catalog.Types.EnvVarSpec
+
+  @type owned :: %{exact: MapSet.t(String.t()), folded: MapSet.t(String.t())}
 
   @type plan :: %{
           set: %{String.t() => String.t()},
@@ -65,22 +70,33 @@ defmodule FluxVale.Infrastructure.Operations.EnvPatch do
   OIDC recipe keys when a wiring row exists (`wired?`), every
   backing-service `url_env` from the instance's snapshot, and the
   version's `instance_url_env`. A set of one refuses; a remove skips
-  (the platform composes it above the row). Matching is exact-case.
+  (the platform composes it above the row).
 
-  The first-run contract is its own category, not this set:
-  `fixed_keys/1` and `forbidden_keys/1` carry its rules.
+  `exact` holds the OIDC recipe keys and `instance_url_env`;
+  `folded` holds the downcased backing-service `url_env` names (the
+  create path's conservative superset). The first-run contract is its
+  own category, not this set: `fixed_keys/1` and `forbidden_keys/1`
+  carry its rules.
   """
-  @spec owned_keys(map(), map(), boolean()) :: MapSet.t(String.t())
+  @spec owned_keys(map(), map(), boolean()) :: owned()
   def owned_keys(instance, app_version, wired?) do
     sso = if wired?, do: oidc_keys(app_version.oidc_wiring), else: []
 
-    backing = Enum.map(instance.backing_services, & &1.url_env)
-
     instance_url = List.wrap(app_version.instance_url_env)
 
-    (sso ++ backing ++ instance_url)
-    |> Enum.reject(&is_nil/1)
-    |> MapSet.new()
+    exact =
+      (sso ++ instance_url)
+      |> Enum.reject(&is_nil/1)
+      |> MapSet.new()
+
+    folded =
+      instance.backing_services
+      |> Enum.map(& &1.url_env)
+      |> Enum.reject(&is_nil/1)
+      |> Enum.map(&String.downcase/1)
+      |> MapSet.new()
+
+    %{exact: exact, folded: folded}
   end
 
   @doc """
@@ -113,7 +129,7 @@ defmodule FluxVale.Infrastructure.Operations.EnvPatch do
           map(),
           map() | nil,
           [String.t()] | nil,
-          MapSet.t(String.t()) | [String.t()],
+          owned(),
           MapSet.t(String.t()) | [String.t()],
           MapSet.t(String.t()) | [String.t()]
         ) ::
@@ -127,11 +143,10 @@ defmodule FluxVale.Infrastructure.Operations.EnvPatch do
          :ok <- reject_fixed(set, fixed),
          :ok <- reject_fixed_remove(remove, fixed),
          :ok <- reject_forbidden(set, forbidden),
-         owned = MapSet.new(owned_keys),
-         :ok <- reject_owned(set, owned) do
+         :ok <- reject_owned(set, owned_keys) do
       skipped =
         remove
-        |> Enum.filter(&MapSet.member?(owned, &1))
+        |> Enum.filter(&owned_key?(owned_keys, &1))
         |> Enum.sort()
 
       applied_remove = remove -- skipped
@@ -252,7 +267,7 @@ defmodule FluxVale.Infrastructure.Operations.EnvPatch do
     refused =
       set
       |> Map.keys()
-      |> Enum.filter(&MapSet.member?(owned, &1))
+      |> Enum.filter(&owned_key?(owned, &1))
 
     if refused == [], do: :ok, else: {:error, {:owned, refused}}
   end
@@ -285,6 +300,10 @@ defmodule FluxVale.Infrastructure.Operations.EnvPatch do
     keys
     |> Enum.map(&String.downcase/1)
     |> MapSet.new()
+  end
+
+  defp owned_key?(%{exact: exact, folded: folded}, key) do
+    MapSet.member?(exact, key) or MapSet.member?(folded, String.downcase(key))
   end
 
   defp folded_member?(folded_keys, key), do: MapSet.member?(folded_keys, String.downcase(key))

@@ -113,12 +113,14 @@ Spec: [ADR-0052](../adr/00052-instance-env-updates.md).
   (new, pure): normalize/validate `set`/`remove` (key shape, string
   values, no overlap), compute the platform-composed key sets, merge.
   Three categories, not one:
-  - deployer-composed (EXACT-case): the version's `oidc_wiring` keys
-    when a wiring row exists, the instance's backing-service `url_env`
-    keys, and the version's `instance_url_env`. A set refuses with the
-    key names; a remove is skipped (no-op, logged) so a Terraform apply
-    that stopped naming the key still converges. A user's lowercase
-    `root_url` is a distinct key and stays removable.
+  - deployer-composed: the version's `oidc_wiring` keys when a wiring
+    row exists, the instance's backing-service `url_env` keys, and the
+    version's `instance_url_env`. A set refuses with the key names; a
+    remove is skipped (no-op, logged) so a Terraform apply that stopped
+    naming the key still converges. OIDC keys and `instance_url_env`
+    match EXACT-case (a user's lowercase `root_url` is a distinct key
+    and stays removable); backing-service `url_env` keys FOLD,
+    mirroring the create path's conservative superset.
   - first-run contract `env` (CASE-INSENSITIVE): FIXED — both a set and
     a remove refuse, naming the keys ("fixed by the app's first-run
     contract and cannot be changed").
@@ -133,12 +135,18 @@ Spec: [ADR-0052](../adr/00052-instance-env-updates.md).
   `maybe_allowlist_entry`'s body into
   `Operations.InstanceEnvDerived.allowlist_entry/3` so both paths share
   it).
+- `apps/platform/lib/flux_vale/clients/k8s/resources/deployment.ex`:
+  `restart/4` gains `ensure_env_from: "app-env"` — add the Secret to
+  the app container's `envFrom` when absent (idempotent, sidecars
+  untouched), so the first env write on a deployment created without
+  `app-env` is actually consumed.
 - `apps/platform/lib/flux_vale/contexts/infrastructure/operations/instance_env_secret.ex`
-  (new): `ApplyPocketIdEnv` generalized and renamed. `apply_locked/3`
-  (re-read the row `FOR UPDATE`, upsert, restart) for the SSO callers,
+  (new): `ApplyPocketIdEnv` generalized and renamed. `apply_locked/4`
+  (re-read the row `FOR UPDATE`, upsert, restart; the `expect_existing`
+  flag comes from the caller's pre-merge row) for the SSO callers,
   plus `upsert/5` (`expect_existing` refuses a missing Secret on a row
-  with env) and `restart/2` for the in-place action. Order stays
-  Secret-first, restart-second.
+  with env) and `restart/2` (Secret-first, restart-second; restart
+  ensures the app container's `envFrom`) for the in-place action.
 - The three SSO operations
   (`connect_pocket_id.ex`, `disconnect_pocket_id.ex`,
   `rotate_pocket_id_secret.ex`) and

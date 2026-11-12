@@ -304,11 +304,17 @@ defmodule FluxVale.Clients.K8s.Resources.Deployment do
   end
 
   @doc "Rolling restart via the pod-template annotation."
-  @spec restart(Kubereq.Kubeconfig.t(), String.t(), String.t()) ::
+  @spec restart(Kubereq.Kubeconfig.t(), String.t(), String.t(), keyword()) ::
           {:ok, map()} | {:error, Error.t()}
   # v1-ported: same force-apply caveat as scale/4 — targeted patch when #73
   # wires callers.
-  def restart(kubeconfig, namespace, name) do
+  #
+  # `ensure_env_from`: after the GET/strip, add the Secret to the APP
+  # container's envFrom when absent (idempotent; sidecars untouched).
+  # The first-ever env write on a deployment created without `app-env`
+  # needs this — an annotation bump alone would roll an unchanged pod
+  # template and the app would never read the Secret.
+  def restart(kubeconfig, namespace, name, opts \\ []) do
     case get(kubeconfig, namespace, name) do
       {:ok, deployment} ->
         restart_at = DateTime.to_iso8601(DateTime.utc_now())
@@ -316,6 +322,7 @@ defmodule FluxVale.Clients.K8s.Resources.Deployment do
         updated =
           deployment
           |> strip_managed_fields()
+          |> ensure_env_from(Keyword.get(opts, :ensure_env_from))
           |> update_in(["spec", "template", "metadata", "annotations"], fn
             nil -> %{"fluxvale.io/restartedAt" => restart_at}
             ann -> Map.put(ann, "fluxvale.io/restartedAt", restart_at)
@@ -337,6 +344,33 @@ defmodule FluxVale.Clients.K8s.Resources.Deployment do
 
       {:error, error} ->
         {:error, error}
+    end
+  end
+
+  # Only the app container consumes the instance env; sidecars and the
+  # backing-service containers keep their own envFrom lists.
+  defp ensure_env_from(deployment, nil), do: deployment
+
+  defp ensure_env_from(deployment, secret_name) do
+    update_in(deployment, ["spec", "template", "spec", "containers"], fn
+      nil ->
+        nil
+
+      containers ->
+        Enum.map(containers, fn
+          %{"name" => "app"} = container -> put_env_from(container, secret_name)
+          container -> container
+        end)
+    end)
+  end
+
+  defp put_env_from(container, secret_name) do
+    env_from = Map.get(container, "envFrom") || []
+
+    if Enum.any?(env_from, &match?(%{"secretRef" => %{"name" => ^secret_name}}, &1)) do
+      container
+    else
+      Map.put(container, "envFrom", env_from ++ [%{"secretRef" => %{"name" => secret_name}}])
     end
   end
 

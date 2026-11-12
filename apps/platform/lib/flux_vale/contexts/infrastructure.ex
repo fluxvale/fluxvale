@@ -293,10 +293,10 @@ defmodule FluxVale.Infrastructure do
   # #597 S5 (D5), generalized by #731 T1 (ADR-0052 decision 7): the one
   # env-Secret seam — lock the instance row, rewrite ONLY the given keys
   # in the deployed Secret, then roll. The retrofit/rotation/disconnect
-  # legs ride `apply_locked/3`; the public in-place action uses the
+  # legs ride `apply_locked/4`; the public in-place action uses the
   # `upsert/5` + `restart/2` halves on either side of its own row
-  # commit (never `apply_locked/3` — it already holds the lock).
-  defdelegate apply_instance_env(instance, set, remove),
+  # commit (never `apply_locked/4` — it already holds the lock).
+  defdelegate apply_instance_env(instance, set, remove, expect_existing),
     to: InstanceEnvSecret,
     as: :apply_locked
 end

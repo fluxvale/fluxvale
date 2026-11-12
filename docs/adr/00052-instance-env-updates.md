@@ -23,13 +23,16 @@ second-deploy experience.
    the instance detail response never echoes env (the existing
    `hide_fields` posture). `set` and `remove` are explicit — no
    whole-map replace, no null-means-delete.
-2. **The row is the truth; the Secret is a projection.** An env
-   update writes the row's `env_vars` and the live `app-env` Secret
-   in one transaction under the row's `FOR UPDATE` lock (the
+2. **The row is the truth; the Secret is a projection.** The public
+   action writes the row's `env_vars` and the live `app-env` Secret in
+   one transaction under the row's `FOR UPDATE` lock (the
    `AdoptCurrentRow` serialization stance). The row is what a
    subsequent deploy projects; the Secret is what running pods read.
-   A failed Secret write rolls the row back (the Secret apply is
-   atomic, so both stay old). A patch touches only its own keys; an
+   A failed Secret write rolls that row back (the Secret apply is
+   atomic, so both stay old). The SSO legs commit their row first (the
+   row is truth), then apply under the same lock: a failed apply leaves
+   the recorded wiring with stale pods — the documented retry posture,
+   never a half-rolled row. A patch touches only its own keys; an
    untouched live key that drifted from the row stays as the live
    Secret has it until the next deploy re-projects the row. The
    rolling restart is post-commit: a refused restart leaves the new
@@ -49,9 +52,11 @@ second-deploy experience.
      (when a wiring row exists), the instance's backing-service
      `url_env` keys, and the version's `instance_url_env`. A `set`
      refuses with the key names; a `remove` is skipped (no-op, logged)
-     so a Terraform apply that stopped naming the key converges.
-     Matching is EXACT-case: a user's `root_url` is a distinct k8s key
-     from the platform's `ROOT_URL`.
+     so a Terraform apply that stopped naming the key converges. OIDC
+     recipe keys and `instance_url_env` match EXACT-case (a user's
+     `root_url` is a distinct k8s key from the platform's `ROOT_URL`);
+     backing-service `url_env` keys FOLD, mirroring the create path's
+     conservative superset (`DeriveFromAppVersion.backing_conflicts/2`).
    - **First-run contract `env`** — FIXED. Both a `set` and a `remove`
      refuse with the key names: the contract lands at create and is
      never re-composed, so a removal would silently drop a guaranteed
@@ -61,7 +66,7 @@ second-deploy experience.
      composes them).
    Contract matching is CASE-INSENSITIVE, mirroring the create path's
    fold (`DeriveFromAppVersion.contract_conflicts/2`); the deployer set
-   stays exact.
+   is exact for OIDC/URL keys and folded for backing URLs.
    `host_allowlist_env` stays user-writable because the deployer
    appends the platform hostname to the user's value; the in-place path
    composes the same append for the live Secret only (one shared
@@ -91,14 +96,17 @@ second-deploy experience.
 7. **One Secret seam, generalized.** `ApplyPocketIdEnv` becomes
    `Operations.InstanceEnvSecret`: `upsert/5` (read-merge-write SSA;
    `expect_existing` refuses a lost Secret instead of creating a
-   partial one), `restart/2`, and `apply_locked/3` (re-read the row
-   `FOR UPDATE`, then upsert + restart) for the SSO operations. The
-   public env action uses the same module with its own row
-   transaction; no parallel K8s path exists. The SSO callers keep
-   passing only their recipe keys — the ownership guard is the public
-   action's, not the seam's. A deployed row that carries env but has no
-   live `app-env` Secret is a 400 ("redeploy to repair"), never an
-   empty-map merge that would boot the app without its other env.
+   partial one), `restart/2` (annotation bump plus the app container's
+   `envFrom` ensure, so the first env on an empty deployment is
+   actually consumed), and `apply_locked/4` (re-read the row
+   `FOR UPDATE`, then upsert + restart; `expect_existing` comes from
+   the caller's PRE-MERGE row) for the SSO operations. The public env
+   action uses the same module with its own row transaction; no
+   parallel K8s path exists. The SSO callers keep passing only their
+   recipe keys — the ownership guard is the public action's, not the
+   seam's. A deployed row that carries env but has no live `app-env`
+   Secret is a 400 ("redeploy to repair"), never an empty-map merge
+   that would boot the app without its other env.
 8. **What a redeploy does.** It re-projects the row: in-place changes
    survive, removed keys stay removed, and the deployer's derived
    values (URL, backing URLs, SSO recipe keys) are composed above the
@@ -140,7 +148,7 @@ second-deploy experience.
 - The env write holds the row lock across a Secret apply — the same
   window the deploy already holds across its applies. A concurrent
   deploy, SSO write, or in-place patch serializes, never interleaves:
-  the SSO legs take the same lock via `apply_locked/3`.
+  the SSO legs take the same lock via `apply_locked/4`.
 - A no-op patch (empty final `set`/`remove`, no allowlist append)
   writes no Secret and rolls nothing — the request is already true.
 - A restart refusal is a 400 with the honest partial-state message

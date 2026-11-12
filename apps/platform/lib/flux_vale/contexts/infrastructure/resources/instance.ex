@@ -1153,8 +1153,12 @@ defmodule FluxVale.Infrastructure.Instance do
       description("""
       Merges a set/remove env patch into the instance in place (#731):
       row + live Secret, then a post-commit rolling restart for
-      running/starting. Platform-owned keys refuse a set and skip a
-      remove; host_allowlist_env keeps the platform hostname.
+      running/starting. Deployer-composed keys (OIDC exact, backing
+      URLs folded, instance_url_env exact) refuse a set and skip a
+      remove; first-run contract env keys are fixed (set and remove
+      refuse); forbidden contract keys are never settable (remove is
+      cleanup). host_allowlist_env keeps the platform hostname in the
+      live Secret only.
       """)
 
       argument(:set, :map, allow_nil?: true, public?: true, sensitive?: true)

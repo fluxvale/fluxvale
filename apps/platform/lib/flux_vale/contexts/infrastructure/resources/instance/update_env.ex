@@ -108,7 +108,8 @@ defmodule FluxVale.Infrastructure.Instance.UpdateEnv do
          {:ok, plan} <- patch_plan(changeset, row, version),
          plan = compose_allowlist(plan, row, version),
          :ok <- validate_merged(plan.merged, version),
-         {:ok, target} <- apply_target(row) do
+         noop = noop?(plan),
+         {:ok, target} <- apply_target(row, noop) do
       Process.put(@stash_key, %{
         set: plan.set,
         remove: plan.remove,
@@ -118,7 +119,7 @@ defmodule FluxVale.Infrastructure.Instance.UpdateEnv do
         removed: plan.removed,
         composed: plan.composed,
         expect_existing: map_size(row.env_vars) > 0,
-        noop: plan.set == %{} and plan.remove == [],
+        noop: noop,
         status: row.status,
         kubeconfig: target.kubeconfig,
         namespace: target.namespace
@@ -248,8 +249,12 @@ defmodule FluxVale.Infrastructure.Instance.UpdateEnv do
     if is_binary(env_name) and
          (Map.has_key?(plan.set, env_name) or env_name in plan.remove) do
       composed = InstanceEnvDerived.allowlist_entry(plan.merged, row, version)
+      before = Map.get(plan.merged, env_name)
 
       case Map.fetch(composed, env_name) do
+        {:ok, ^before} ->
+          plan
+
         {:ok, value} ->
           %{
             plan
@@ -265,6 +270,16 @@ defmodule FluxVale.Infrastructure.Instance.UpdateEnv do
       plan
     end
   end
+
+  # The final EFFECT, after the allowlist projection: a same-value set
+  # or an already-absent remove changes nothing, so no Secret write and
+  # no rollout are owed.
+  defp noop?(plan) do
+    plan.added == [] and plan.changed == [] and plan.removed == [] and plan.composed == []
+  end
+
+  defp apply_target(_row, true), do: {:ok, %{kubeconfig: nil, namespace: nil}}
+  defp apply_target(row, false), do: apply_target(row)
 
   defp validate_merged(merged, version) do
     ValidateEnvVars.check(merged, version.configurable_env_vars || %{})

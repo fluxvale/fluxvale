@@ -7,11 +7,11 @@ defmodule FluxVale.Infrastructure.Operations.InstanceEnvSecret do
   - the three SSO operations (`ConnectPocketId`'s retrofit,
     `DisconnectPocketId`'s strip, `RotatePocketIdSecret`) pass only
     their recipe's keys — the ownership guard is the public action's,
-    not this seam's — through `apply_locked/3` (row lock + upsert +
+    not this seam's — through `apply_locked/4` (row lock + upsert +
     restart);
   - the public in-place env action splits the same two legs:
     `upsert/5` inside its own row transaction, `restart/2` post-commit
-    (never `apply_locked/3` — it already holds the lock).
+    (never `apply_locked/4` — it already holds the lock).
 
   Order is the whole safety story: the k8s Secret update lands FIRST
   and atomically (SSA upsert of the merged map — a failed apply leaves
@@ -53,19 +53,25 @@ defmodule FluxVale.Infrastructure.Operations.InstanceEnvSecret do
   same one the public env action takes, so a concurrent PATCH and an
   SSO write serialize instead of interleaving two read-merge-writes.
 
+  `expect_existing` is the PRE-MERGE row's `env_vars != %{}` (the row
+  the caller loaded before recording its merge): the retrofit has
+  already written its keys, so the locked row cannot answer whether
+  the Secret should already exist.
+
   `{:error, reason}` — `:not_deployed` (no namespace — the pre-deploy
   path needs no rollout), `:missing` (a deployed row with env but no
   Secret), or either k8s call's own error. A failed restart returns the
   error with the Secret already updated; the row is not changed here.
   """
-  @spec apply_locked(Instance.t(), map(), [String.t()]) :: :ok | {:error, term()}
-  def apply_locked(%Instance{} = instance, set, remove) when is_map(set) and is_list(remove) do
+  @spec apply_locked(Instance.t(), map(), [String.t()], boolean()) :: :ok | {:error, term()}
+  def apply_locked(%Instance{} = instance, set, remove, expect_existing)
+      when is_map(set) and is_list(remove) and is_boolean(expect_existing) do
     result =
       Repo.transaction(fn ->
         with {:ok, %Instance{} = locked} <- lock_row(instance.id),
              {:ok, kubeconfig} <- InstanceK8s.kubeconfig_for(locked),
              {:ok, namespace} <- deployed_namespace(locked),
-             :ok <- upsert(kubeconfig, namespace, set, remove, map_size(locked.env_vars) > 0),
+             :ok <- upsert(kubeconfig, namespace, set, remove, expect_existing),
              :ok <- restart(kubeconfig, namespace) do
           :ok
         else
@@ -122,7 +128,7 @@ defmodule FluxVale.Infrastructure.Operations.InstanceEnvSecret do
   """
   @spec restart(Kubereq.Kubeconfig.t(), String.t()) :: :ok | {:error, term()}
   def restart(kubeconfig, namespace) do
-    case Deployment.restart(kubeconfig, namespace, @deployment_name) do
+    case Deployment.restart(kubeconfig, namespace, @deployment_name, ensure_env_from: @env_secret) do
       {:ok, _deployment} -> :ok
       {:error, _reason} = error -> error
     end

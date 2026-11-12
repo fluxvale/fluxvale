@@ -14509,7 +14509,7 @@
       "patch": {
         "callbacks": {},
         "deprecated": false,
-        "description": "Merges a set/remove env patch into the instance in place (#731):\nrow + live Secret, then a post-commit rolling restart for\nrunning/starting. Platform-owned keys refuse a set and skip a\nremove; host_allowlist_env keeps the platform hostname.\n",
+        "description": "Merges a set/remove env patch into the instance in place (#731):\nrow + live Secret, then a post-commit rolling restart for\nrunning/starting. Deployer-composed keys (OIDC exact, backing\nURLs folded, instance_url_env exact) refuse a set and skip a\nremove; first-run contract env keys are fixed (set and remove\nrefuse); forbidden contract keys are never settable (remove is\ncleanup). host_allowlist_env keeps the platform hostname in the\nlive Secret only.\n",
         "parameters": [
           {
             "in": "path",

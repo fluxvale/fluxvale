@@ -97,7 +97,7 @@ defmodule FluxValeWeb.Api.InstanceEnvRouteTest do
     stub(K8s, :kubeconfig, fn _ref -> {:ok, %{}} end)
     stub(Secret, :get_data, fn _kc, _ns, "app-env" -> {:ok, %{}} end)
     stub(Secret, :upsert, fn _kc, _ns, "app-env", _data -> {:ok, %{}} end)
-    stub(Deployment, :restart, fn _kc, _ns, "app" -> {:ok, %{}} end)
+    stub(Deployment, :restart, fn _kc, _ns, "app", _opts -> {:ok, %{}} end)
 
     conn = patch_env(conn, pat, instance, %{"set" => %{"NEW" => "2"}, "remove" => nil})
 
@@ -162,7 +162,7 @@ defmodule FluxValeWeb.Api.InstanceEnvRouteTest do
     stub(Secret, :get_data, fn _kc, _ns, "app-env" -> {:ok, %{}} end)
     stub(Secret, :upsert, fn _kc, _ns, "app-env", _data -> {:ok, %{}} end)
 
-    stub(Deployment, :restart, fn _kc, _ns, "app" ->
+    stub(Deployment, :restart, fn _kc, _ns, "app", _opts ->
       {:error, %K8s.Error{status_code: 500, reason: :unknown, message: "roll refused"}}
     end)
 

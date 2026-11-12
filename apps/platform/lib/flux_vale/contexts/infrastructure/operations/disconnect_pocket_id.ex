@@ -210,7 +210,12 @@ defmodule FluxVale.Infrastructure.Operations.DisconnectPocketId do
   defp apply_strip(%Instance{namespace: nil}, _recipe_keys), do: :ok
 
   defp apply_strip(%Instance{} = app_instance, recipe_keys) do
-    InstanceEnvSecret.apply_locked(app_instance, %{}, recipe_keys)
+    InstanceEnvSecret.apply_locked(
+      app_instance,
+      %{},
+      recipe_keys,
+      map_size(app_instance.env_vars) > 0
+    )
   end
 
   defp maybe_prepend(keys, nil), do: keys
