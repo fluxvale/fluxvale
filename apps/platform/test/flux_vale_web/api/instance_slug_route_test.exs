@@ -161,13 +161,15 @@ defmodule FluxValeWeb.Api.InstanceSlugRouteTest do
     conn = get_by_slug(build_conn(), pat, @duplicate_slug)
 
     # Ash's `get?` refuses MultipleResults (the log carries the honest
-    # error). ash_json_api has no protocol impl for it, so the wire
-    # shape is its generic 400 — pinned here rather than guessed.
+    # error); FluxVale.Api.JsonApiErrors names it on the wire.
     assert %{"errors" => [error]} = json_response(conn, 400)
     assert error["status"] == "400"
-    assert error["code"] == "something_went_wrong"
-    assert error["title"] == "SomethingWentWrong"
-    assert error["detail"] =~ ~r/^Something went wrong\. Error id: /
+    assert error["code"] == "multiple_results"
+    assert error["title"] == "Multiple results"
+
+    assert error["detail"] ==
+             "more than one record matches this query — narrow the filter; " <>
+               "for an instance slug lookup, pass organization_id or use the instance id"
   end
 
   test "200: slug + organization_id resolves one row even when the bare slug is ambiguous" do

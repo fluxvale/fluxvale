@@ -314,8 +314,9 @@ PR: `feat(provider): update env_vars in place (#731)`.
 - `apps/platform/test/flux_vale_web/api/route_inventory_test.exs` /
   `open_api_route_test.exs` and
   `apps/platform/test/flux_vale_web/api/instance_slug_route_test.exs`
-  (new): 200 by slug, 200 with the org argument, 404 unknown, 403
-  non-member, `instances:read` required, the duplicate-slug refusal.
+  (new): 200 by slug, 200 with the org argument, 404 unknown, 404
+  non-member (the read policy filters), `instances:read` required, the
+  duplicate-slug refusal.
 
 **Done when**
 
