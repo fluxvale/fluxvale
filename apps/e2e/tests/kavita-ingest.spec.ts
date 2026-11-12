@@ -105,7 +105,7 @@ test(
     expect(davUser).toBeTruthy();
     expect(davPass).toBeTruthy();
 
-    const obscured = (await run("rclone", ["obscure", davPass!])).stdout.trim();
+    const obscured = (await run("rclone", ["obscure", "--", davPass!])).stdout.trim();
     const env = {
       ...process.env,
       RCLONE_CONFIG_FV_TYPE: "webdav",
