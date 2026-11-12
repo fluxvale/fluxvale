@@ -702,7 +702,7 @@ msgstr ""
 #: lib/flux_vale_web/live/admin_live/catalog.ex:52
 #: lib/flux_vale_web/live/admin_live/gateway_detail.ex:320
 #: lib/flux_vale_web/live/admin_live/gateways.ex:361
-#: lib/flux_vale_web/live/admin_live/health.ex:62
+#: lib/flux_vale_web/live/admin_live/health.ex:67
 #: lib/flux_vale_web/live/admin_live/moderation.ex:1177
 #: lib/flux_vale_web/live/admin_live/org_detail.ex:441
 #: lib/flux_vale_web/live/admin_live/orgs.ex:346
@@ -1075,7 +1075,7 @@ msgstr ""
 
 #: lib/flux_vale_web/components/catalog_page_components.ex:294
 #: lib/flux_vale_web/live/admin_live/catalog.ex:98
-#: lib/flux_vale_web/live/admin_live/health.ex:96
+#: lib/flux_vale_web/live/admin_live/health.ex:101
 #, elixir-autogen, elixir-format
 msgid "Version"
 msgstr ""
@@ -3429,7 +3429,7 @@ msgstr ""
 msgid "Showing the latest 100 requests."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/health.ex:199
+#: lib/flux_vale_web/live/admin_live/health.ex:204
 #: lib/flux_vale_web/live/admin_live/storage_requests.ex:768
 #, elixir-autogen, elixir-format
 msgid "Storage"
@@ -3593,7 +3593,7 @@ msgid "Token set %{stamp}. Tailscale API keys expire within 90 days by design. A
 msgstr ""
 
 #: lib/flux_vale_web/live/admin_live/audit.ex:198
-#: lib/flux_vale_web/live/admin_live/health.ex:363
+#: lib/flux_vale_web/live/admin_live/health.ex:368
 #, elixir-autogen, elixir-format
 msgid "1 change"
 msgid_plural "%{count} changes"
@@ -3667,7 +3667,7 @@ msgstr ""
 
 #: lib/flux_vale_web/live/admin_live/audit.ex:518
 #: lib/flux_vale_web/live/admin_live/audit.ex:523
-#: lib/flux_vale_web/live/admin_live/health.ex:534
+#: lib/flux_vale_web/live/admin_live/health.ex:539
 #, elixir-autogen, elixir-format
 msgid "System"
 msgstr ""
@@ -3798,42 +3798,42 @@ msgstr ""
 msgid "status"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/health.ex:109
+#: lib/flux_vale_web/live/admin_live/health.ex:114
 #, elixir-autogen, elixir-format
 msgid "1 always-on"
 msgid_plural "%{count} always-on"
 msgstr[0] ""
 msgstr[1] ""
 
-#: lib/flux_vale_web/live/admin_live/health.ex:106
+#: lib/flux_vale_web/live/admin_live/health.ex:111
 #, elixir-autogen, elixir-format
 msgid "1 instance"
 msgid_plural "%{count} instances"
 msgstr[0] ""
 msgstr[1] ""
 
-#: lib/flux_vale_web/live/admin_live/health.ex:90
+#: lib/flux_vale_web/live/admin_live/health.ex:95
 #, elixir-autogen, elixir-format
 msgid "Env"
 msgstr ""
 
 #: lib/flux_vale_web/components/admin_shell.ex:274
-#: lib/flux_vale_web/live/admin_live/health.ex:64
+#: lib/flux_vale_web/live/admin_live/health.ex:69
 #, elixir-autogen, elixir-format
 msgid "Health"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/health.ex:465
+#: lib/flux_vale_web/live/admin_live/health.ex:470
 #, elixir-autogen, elixir-format
 msgid "Recent deploys"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/health.ex:67
+#: lib/flux_vale_web/live/admin_live/health.ex:72
 #, elixir-autogen, elixir-format
 msgid "The instance fleet at a glance — the build this platform runs, the status spread, and the newest deploys."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/health.ex:476
+#: lib/flux_vale_web/live/admin_live/health.ex:481
 #, elixir-autogen, elixir-format
 msgid "No deploys recorded yet."
 msgstr ""
@@ -3848,205 +3848,205 @@ msgstr ""
 msgid "A screenshot of the app catalog as it runs on fluxvale.com."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/health.ex:182
+#: lib/flux_vale_web/live/admin_live/health.ex:187
 #, elixir-autogen, elixir-format
 msgid "In-memory numbers covering the time since this deployment started — they reset on every deploy."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/health.ex:146
+#: lib/flux_vale_web/live/admin_live/health.ex:151
 #, elixir-autogen, elixir-format
 msgid "Wakes"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/health.ex:179
+#: lib/flux_vale_web/live/admin_live/health.ex:184
 #, elixir-autogen, elixir-format
 msgid "No wake data yet — the metrics tree is off or no app has enough samples."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/health.ex:168
+#: lib/flux_vale_web/live/admin_live/health.ex:173
 #, elixir-autogen, elixir-format
 msgid "median total %{seconds}"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/health.ex:162
+#: lib/flux_vale_web/live/admin_live/health.ex:167
 #, elixir-autogen, elixir-format
 msgid "p95 promotion %{seconds}"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/health.ex:206
+#: lib/flux_vale_web/live/admin_live/health.ex:211
 #, elixir-autogen, elixir-format
 msgid "1 GB allocated"
 msgid_plural "%{count} GB allocated"
 msgstr[0] ""
 msgstr[1] ""
 
-#: lib/flux_vale_web/live/admin_live/health.ex:224
+#: lib/flux_vale_web/live/admin_live/health.ex:229
 #, elixir-autogen, elixir-format
 msgid "1 applied"
 msgid_plural "%{count} applied"
 msgstr[0] ""
 msgstr[1] ""
 
-#: lib/flux_vale_web/live/admin_live/health.ex:218
+#: lib/flux_vale_web/live/admin_live/health.ex:223
 #, elixir-autogen, elixir-format
 msgid "1 approved"
 msgid_plural "%{count} approved"
 msgstr[0] ""
 msgstr[1] ""
 
-#: lib/flux_vale_web/live/admin_live/health.ex:303
+#: lib/flux_vale_web/live/admin_live/health.ex:308
 #, elixir-autogen, elixir-format
 msgid "1 projection unknown"
 msgid_plural "%{count} projections unknown"
 msgstr[0] ""
 msgstr[1] ""
 
-#: lib/flux_vale_web/live/admin_live/health.ex:212
+#: lib/flux_vale_web/live/admin_live/health.ex:217
 #, elixir-autogen, elixir-format
 msgid "1 requested"
 msgid_plural "%{count} requested"
 msgstr[0] ""
 msgstr[1] ""
 
-#: lib/flux_vale_web/live/admin_live/health.ex:317
+#: lib/flux_vale_web/live/admin_live/health.ex:322
 #, elixir-autogen, elixir-format
 msgid "Every wallet is above the gate."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/health.ex:236
+#: lib/flux_vale_web/live/admin_live/health.ex:241
 #, elixir-autogen, elixir-format
 msgid "Open the storage queue"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/health.ex:325
+#: lib/flux_vale_web/live/admin_live/health.ex:330
 #, elixir-autogen, elixir-format
 msgid "Open wallets and billing"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/health.ex:257
+#: lib/flux_vale_web/live/admin_live/health.ex:262
 #, elixir-autogen, elixir-format
 msgid "Org runway"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/health.ex:228
+#: lib/flux_vale_web/live/admin_live/health.ex:233
 #, elixir-autogen, elixir-format
 msgid "Pool headroom lives in the block-storage runbook — not served from here."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/health.ex:260
+#: lib/flux_vale_web/live/admin_live/health.ex:265
 #, elixir-autogen, elixir-format
 msgid "Wallets under %{hours}h of runway"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/health.ex:296
+#: lib/flux_vale_web/live/admin_live/health.ex:301
 #, elixir-autogen, elixir-format
 msgid "1 depleted wallet"
 msgid_plural "%{count} depleted wallets"
 msgstr[0] ""
 msgstr[1] ""
 
-#: lib/flux_vale_web/live/admin_live/health.ex:267
+#: lib/flux_vale_web/live/admin_live/health.ex:272
 #, elixir-autogen, elixir-format
 msgid "Runway data unavailable."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/health.ex:285
+#: lib/flux_vale_web/live/admin_live/health.ex:290
 #, elixir-autogen, elixir-format
 msgid "and 1 more"
 msgid_plural "and %{count} more"
 msgstr[0] ""
 msgstr[1] ""
 
-#: lib/flux_vale_web/live/admin_live/health.ex:344
+#: lib/flux_vale_web/live/admin_live/health.ex:349
 #, elixir-autogen, elixir-format
 msgid "1 change in the last 24 hours"
 msgid_plural "%{count} changes in the last 24 hours"
 msgstr[0] ""
 msgstr[1] ""
 
-#: lib/flux_vale_web/live/admin_live/health.ex:341
+#: lib/flux_vale_web/live/admin_live/health.ex:346
 #, elixir-autogen, elixir-format
 msgid "Audit activity"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/health.ex:382
+#: lib/flux_vale_web/live/admin_live/health.ex:387
 #, elixir-autogen, elixir-format
 msgid "No audit activity in the last 24 hours."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/health.ex:390
+#: lib/flux_vale_web/live/admin_live/health.ex:395
 #, elixir-autogen, elixir-format
 msgid "Open the audit trail"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/health.ex:371
+#: lib/flux_vale_web/live/admin_live/health.ex:376
 #, elixir-autogen, elixir-format
 msgid "and 1 more resource"
 msgid_plural "and %{count} more resources"
 msgstr[0] ""
 msgstr[1] ""
 
-#: lib/flux_vale_web/live/admin_live/health.ex:457
+#: lib/flux_vale_web/live/admin_live/health.ex:462
 #, elixir-autogen, elixir-format
 msgid "Error counts are not configured yet — they land with the PostHog split; until then Grafana Explore's error_signature is the surface."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/health.ex:450
+#: lib/flux_vale_web/live/admin_live/health.ex:455
 #, elixir-autogen, elixir-format
 msgid "Errors"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/health.ex:551
+#: lib/flux_vale_web/live/admin_live/health.ex:556
 #, elixir-autogen, elixir-format
 msgid "Failure"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/health.ex:545
+#: lib/flux_vale_web/live/admin_live/health.ex:550
 #, elixir-autogen, elixir-format
 msgid "In progress"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/health.ex:416
+#: lib/flux_vale_web/live/admin_live/health.ex:421
 #, elixir-autogen, elixir-format
 msgid "Last run: %{time}"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/health.ex:540
+#: lib/flux_vale_web/live/admin_live/health.ex:545
 #, elixir-autogen, elixir-format
 msgid "No runs"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/health.ex:420
+#: lib/flux_vale_web/live/admin_live/health.ex:425
 #, elixir-autogen, elixir-format
 msgid "No scheduled smoke runs returned."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/health.ex:556
+#: lib/flux_vale_web/live/admin_live/health.ex:561
 #, elixir-autogen, elixir-format
 msgid "No verdict"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/health.ex:435
+#: lib/flux_vale_web/live/admin_live/health.ex:440
 #, elixir-autogen, elixir-format
 msgid "Open the smoke workflow"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/health.ex:406
+#: lib/flux_vale_web/live/admin_live/health.ex:411
 #, elixir-autogen, elixir-format
 msgid "Smoke status"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/health.ex:547
+#: lib/flux_vale_web/live/admin_live/health.ex:552
 #, elixir-autogen, elixir-format
 msgid "Success"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/health.ex:424
+#: lib/flux_vale_web/live/admin_live/health.ex:429
 #, elixir-autogen, elixir-format
 msgid "The GitHub runs API did not answer — check the public runs page."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/health.ex:539
+#: lib/flux_vale_web/live/admin_live/health.ex:544
 #, elixir-autogen, elixir-format
 msgid "Unreachable"
 msgstr ""

@@ -797,6 +797,7 @@ defmodule FluxValeWeb.AdminHealthLiveTest do
       assert has_element?(view, "[data-testid='smoke-panel']")
       assert has_element?(view, "[data-testid='smoke-title']", "Smoke status")
       assert text_of(view, "[data-testid='smoke-verdict']") == "Success"
+      assert render(element(view, "[data-testid='smoke-verdict']")) =~ "text-success"
       assert text_of(view, "[data-testid='smoke-last-run']") == "Last run: Nov 11 06:17 UTC"
 
       assert render(element(view, "[data-testid='smoke-link']")) =~
@@ -815,6 +816,7 @@ defmodule FluxValeWeb.AdminHealthLiveTest do
       {:ok, view, _html} = live(conn, "/admin/health")
 
       assert text_of(view, "[data-testid='smoke-verdict']") == "Unreachable"
+      assert render(element(view, "[data-testid='smoke-verdict']")) =~ "text-ink-muted"
       assert has_element?(view, "[data-testid='smoke-unreachable']")
       refute has_element?(view, "[data-testid='smoke-last-run']")
       assert text_of(view, "[data-testid='errors-placeholder']") =~ "not configured"
@@ -824,13 +826,13 @@ defmodule FluxValeWeb.AdminHealthLiveTest do
       Mimic.copy(AdminHealth)
 
       arms = [
-        {run(conclusion: nil, status: "in_progress"), "In progress"},
-        {run(conclusion: "failure", status: "completed"), "Failure"},
-        {run(conclusion: "cancelled", status: "completed"), "Cancelled"},
-        {run(conclusion: nil, status: "completed"), "No verdict"}
+        {run(conclusion: nil, status: "in_progress"), "In progress", "text-warning"},
+        {run(conclusion: "failure", status: "completed"), "Failure", "text-danger-deep"},
+        {run(conclusion: "cancelled", status: "completed"), "Cancelled", "text-ink-muted"},
+        {run(conclusion: nil, status: "completed"), "No verdict", "text-ink-muted"}
       ]
 
-      Enum.each(arms, fn {latest, label} ->
+      Enum.each(arms, fn {latest, label, tone_class} ->
         stub(AdminHealth, :smoke, fn ->
           {:ok, %{runs: [latest], fetched_at: DateTime.utc_now()}}
         end)
@@ -838,6 +840,7 @@ defmodule FluxValeWeb.AdminHealthLiveTest do
         {:ok, view, _html} = live(conn, "/admin/health")
 
         assert text_of(view, "[data-testid='smoke-verdict']") == label
+        assert render(element(view, "[data-testid='smoke-verdict']")) =~ tone_class
       end)
 
       stub(AdminHealth, :smoke, fn ->
@@ -875,6 +878,20 @@ defmodule FluxValeWeb.AdminHealthLiveTest do
       {:ok, nil_view, _html} = live(conn, "/admin/health")
 
       assert text_of(nil_view, "[data-testid='smoke-last-run']") == "Last run: -"
+
+      # A non-string timestamp (an upstream shape break) renders the
+      # honest dash instead of raising in render.
+      stub(AdminHealth, :smoke, fn ->
+        {:ok,
+         %{
+           runs: [run(conclusion: "success", status: "completed", created_at: 123)],
+           fetched_at: DateTime.utc_now()
+         }}
+      end)
+
+      {:ok, non_string_view, _html} = live(conn, "/admin/health")
+
+      assert text_of(non_string_view, "[data-testid='smoke-last-run']") == "Last run: -"
     end
   end
 

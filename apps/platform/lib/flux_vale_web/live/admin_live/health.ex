@@ -9,12 +9,17 @@ defmodule FluxValeWeb.AdminLive.Health do
   on every deploy) — the storage posture (allocated GB and the
   storage-request queue's three counters), the org runway (the
   wallets below the configured gate, the unknown projections counted),
-  and the audit activity (the last 24 hours of trail rows across the
-  audited business set).
+  the audit activity (the last 24 hours of trail rows across the
+  audited business set), the smoke verdict (the scheduled workflow's
+  latest runs off the public GitHub API), and the reserved error-count
+  seam (its honest not-configured placeholder until PostHog flips).
 
   The data comes from `FluxValeWeb.AdminHealth` — the section's
-  widget seam — each read with the mount-resolved admin actor and
-  authorization ON (repo default): the policies decide, never the UI.
+  widget seam. The Ash reads run with the mount-resolved admin actor
+  and authorization ON (repo default): the policies decide, never the
+  UI. `smoke/0` reads the public GitHub runs API and `errors/0` is the
+  reserved seam — neither is policy-gated; the route's admin gate
+  stands for both.
   """
 
   use FluxValeWeb, :live_view
@@ -572,16 +577,19 @@ defmodule FluxValeWeb.AdminLive.Health do
   defp verdict_tone(_run), do: "neutral"
 
   # The runs API's timestamps are ISO-8601; the raw-string arm is
-  # defensive for a malformed upstream value and keeps it visible,
-  # never a crash.
+  # defensive for a malformed upstream string and keeps it visible,
+  # never a crash. A non-string shape (the type's promise broken
+  # upstream) renders the honest dash instead of raising in render.
   defp smoke_time(nil), do: "-"
 
-  defp smoke_time(iso) do
+  defp smoke_time(iso) when is_binary(iso) do
     case DateTime.from_iso8601(iso) do
       {:ok, at, _offset} -> Calendar.strftime(at, "%b %d %H:%M UTC")
       {:error, _reason} -> iso
     end
   end
+
+  defp smoke_time(_malformed), do: "-"
 
   # The union of the two families' app slugs, sorted for a stable row
   # order (map iteration order is unspecified).
