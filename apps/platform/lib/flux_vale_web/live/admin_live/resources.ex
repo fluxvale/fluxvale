@@ -1198,7 +1198,7 @@ defmodule FluxValeWeb.AdminLive.Resources do
     end
   end
 
-  defp field_entry(attr, type, format \\ nil) do
+  defp field_entry(attr, type, format) do
     options = if(type == "select", do: AdminResource.enum_options(attr), else: nil)
 
     %{
