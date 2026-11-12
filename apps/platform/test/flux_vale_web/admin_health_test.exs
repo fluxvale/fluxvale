@@ -19,9 +19,11 @@ defmodule FluxValeWeb.AdminHealthTest do
   alias FluxVale.Billing.Wallet
   alias FluxVale.Clients.K8s
   alias FluxVale.Clients.K8s.Resources.StorageClass
+  alias FluxVale.Feedback.Tag
   alias FluxVale.Identity.User
   alias FluxVale.Infrastructure.Instance
   alias FluxVale.Infrastructure.StorageRequest
+  alias FluxVale.Ops.FeatureFlag
   alias FluxVale.TestSupport.AccountsFixtures
   alias FluxVale.TestSupport.BillingFixtures
   alias FluxVale.TestSupport.InstanceFixtures
@@ -539,6 +541,74 @@ defmodule FluxValeWeb.AdminHealthTest do
     end
   end
 
+  describe "audit_activity/1" do
+    test "counts action-created rows and sorts the top five desc", %{admin: admin} do
+      before = AdminHealth.audit_activity(admin)
+
+      # `fourth + 1` puts a fixture count above every pre-existing count
+      # but the top three, so at most four rows can outrank the flag row
+      # and both fixtures stay inside the top-5 cap; committed partition
+      # strays can never hide them. A clean partition's fourth is zero,
+      # so the fixtures start at one flag and two tags.
+      fourth =
+        before.top
+        |> Enum.at(3)
+        |> then(&(&1 && &1.count)) || 0
+
+      for i <- 1..(fourth + 1), do: flag!(admin, "#{i}")
+      for i <- 1..(fourth + 2), do: tag!(admin, "c4_tag_#{i}_#{@n}")
+
+      after_activity = AdminHealth.audit_activity(admin)
+
+      assert after_activity.total == before.total + (fourth + 1) + (fourth + 2)
+      assert length(after_activity.top) <= 5
+
+      counts = Enum.map(after_activity.top, & &1.count)
+      assert counts == Enum.sort(counts, :desc)
+
+      assert ff = Enum.find(after_activity.top, &(&1.key == :feature_flag))
+      assert tag_row = Enum.find(after_activity.top, &(&1.key == :tag))
+      assert ff.count > fourth
+      assert tag_row.count > fourth
+      assert ff.label == "Feature flag"
+      assert tag_row.label == "Tag"
+    end
+
+    test "excludes rows older than 24h", %{admin: admin} do
+      before = AdminHealth.audit_activity(admin)
+
+      # Ash.Seed is the sanctioned bypass: the paper trail only stamps
+      # "now", so the window's boundary needs a hand-shaped row.
+      Ash.Seed.seed!(FeatureFlag.Version, %{
+        version_action_type: :create,
+        version_action_name: :create,
+        version_action_inputs: %{},
+        version_source_id: Ecto.UUID.generate(),
+        actor_label: "old",
+        version_inserted_at: DateTime.add(DateTime.utc_now(), -25, :hour),
+        changes: %{}
+      })
+
+      assert AdminHealth.audit_activity(admin).total == before.total
+
+      flag!(admin, "fresh")
+      assert AdminHealth.audit_activity(admin).total == before.total + 1
+    end
+
+    test "the seam is admin-only — a member actor and a nil actor are Forbidden" do
+      # The version tables' direct admin-only read policy is the
+      # refusal (ADR-0048 D7 — the fleet trail's same pin).
+      member = AccountsFixtures.user!()
+
+      assert_raise Ash.Error.Forbidden, fn -> AdminHealth.audit_activity(member) end
+      assert_raise Ash.Error.Forbidden, fn -> AdminHealth.audit_activity(nil) end
+    end
+
+    test "top rows are positive", %{admin: admin} do
+      for row <- AdminHealth.audit_activity(admin).top, do: assert(row.count > 0)
+    end
+  end
+
   # A running, cluster-managed instance — the approve gate's legal
   # status and the storage machinery's precondition.
   defp running_deployed!(version, user) do
@@ -601,5 +671,17 @@ defmodule FluxValeWeb.AdminHealthTest do
 
   defp renamed_org(org, name) do
     Organization.update!(org, %{name: name}, authorize?: false)
+  end
+
+  defp flag!(actor, suffix) do
+    FeatureFlag
+    |> Ash.Changeset.for_create(:create, %{key: "c4_flag_#{suffix}_#{@n}"}, actor: actor)
+    |> Ash.create!()
+  end
+
+  defp tag!(actor, name) do
+    Tag
+    |> Ash.Changeset.for_create(:create, %{name: name}, actor: actor)
+    |> Ash.create!()
   end
 end

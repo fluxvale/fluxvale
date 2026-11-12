@@ -7,8 +7,10 @@ defmodule FluxValeWeb.AdminLive.Health do
   actor tombstones, the wake widget — per-app p95 promotion-wait and
   median total seconds off WakeStats' in-memory scrape (numbers reset
   on every deploy) — the storage posture (allocated GB and the
-  storage-request queue's three counters), and the org runway (the
-  wallets below the configured gate, the unknown projections counted).
+  storage-request queue's three counters), the org runway (the
+  wallets below the configured gate, the unknown projections counted),
+  and the audit activity (the last 24 hours of trail rows across the
+  audited business set).
 
   The data comes from `FluxValeWeb.AdminHealth` — the section's
   widget seam — each read with the mount-resolved admin actor and
@@ -34,7 +36,8 @@ defmodule FluxValeWeb.AdminLive.Health do
      |> assign(:fleet, AdminHealth.fleet(socket.assigns.current_user))
      |> assign(:wake, AdminHealth.wake())
      |> assign(:storage, AdminHealth.storage(socket.assigns.current_user))
-     |> assign(:runway, AdminHealth.runway(socket.assigns.current_user))}
+     |> assign(:runway, AdminHealth.runway(socket.assigns.current_user))
+     |> assign(:audit_activity, AdminHealth.audit_activity(socket.assigns.current_user))}
   end
 
   @impl Phoenix.LiveView
@@ -318,6 +321,60 @@ defmodule FluxValeWeb.AdminLive.Health do
                     data-testid="runway-link"
                   >
                     {gettext("Open wallets and billing")}
+                  </.link>
+                </p>
+              </div>
+
+              <%!-- The audit activity widget (#702, W5): the last 24
+              hours of paper-trail rows across the audited business set
+              — one indexed count per AdminAudit Version module, the
+              whole-set total, the five busiest resources, and the deep
+              link into the full trail. The 24h window is stated in the
+              copy, never implied. --%>
+              <div
+                class="rounded-panel border border-line bg-panel px-4 py-4 text-ink"
+                data-testid="audit-activity"
+              >
+                <h2 class="text-sm font-medium" data-testid="audit-title">
+                  {gettext("Audit activity")}
+                </h2>
+                <p class="mt-2 text-sm text-ink-muted" data-testid="audit-activity-total">
+                  {ngettext(
+                    "1 change in the last 24 hours",
+                    "%{count} changes in the last 24 hours",
+                    @audit_activity.total
+                  )}
+                </p>
+                <ul
+                  :if={@audit_activity.top != []}
+                  class="mt-2"
+                  id="audit-activity-top"
+                  data-testid="audit-activity-top"
+                >
+                  <li
+                    :for={row <- @audit_activity.top}
+                    data-testid={"audit-activity-#{row.key}"}
+                    class="flex flex-wrap items-center gap-2 border-b border-line py-2 text-sm text-ink last:border-0"
+                  >
+                    <span class="font-medium">{row.label}</span>
+                    <span aria-hidden="true">-</span>
+                    <span>{ngettext("1 change", "%{count} changes", row.count)}</span>
+                  </li>
+                </ul>
+                <p
+                  :if={@audit_activity.top == []}
+                  class="mt-2 text-sm text-ink-muted"
+                  data-testid="audit-activity-empty"
+                >
+                  {gettext("No audit activity in the last 24 hours.")}
+                </p>
+                <p class="mt-2">
+                  <.link
+                    navigate={~p"/admin/audit"}
+                    class="text-sm font-medium text-link underline-offset-2 hover:underline"
+                    data-testid="audit-link"
+                  >
+                    {gettext("Open the audit trail")}
                   </.link>
                 </p>
               </div>

@@ -24,9 +24,11 @@ defmodule FluxValeWeb.AdminHealthLiveTest do
   alias FluxVale.Billing
   alias FluxVale.Billing.Operations.ComputeRunway
   alias FluxVale.Billing.Wallet
+  alias FluxVale.Feedback.Tag
   alias FluxVale.Identity.User
   alias FluxVale.Infrastructure.Instance
   alias FluxVale.Observability.WakeStats
+  alias FluxVale.Ops.FeatureFlag
   alias FluxVale.TestSupport.AccountsFixtures
   alias FluxVale.TestSupport.BillingFixtures
   alias FluxVale.TestSupport.InstanceFixtures
@@ -186,6 +188,18 @@ defmodule FluxValeWeb.AdminHealthLiveTest do
 
   defp renamed_org(org, name) do
     Organization.update!(org, %{name: name}, authorize?: false)
+  end
+
+  defp flag!(actor, suffix) do
+    FeatureFlag
+    |> Ash.Changeset.for_create(:create, %{key: "c4_flag_#{suffix}_#{@n}"}, actor: actor)
+    |> Ash.create!()
+  end
+
+  defp tag!(actor, name) do
+    Tag
+    |> Ash.Changeset.for_create(:create, %{name: name}, actor: actor)
+    |> Ash.create!()
   end
 
   # The low list's rows, one text per li — the order the panel rendered.
@@ -639,6 +653,62 @@ defmodule FluxValeWeb.AdminHealthLiveTest do
 
       refute has_element?(view, "[data-testid='runway-depleted']")
       refute has_element?(view, "[data-testid='runway-empty']")
+    end
+  end
+
+  describe "the audit activity surface" do
+    test "renders the total, the top rows, and the deep link", %{conn: conn, admin: admin} do
+      # The fourth-place count bounds the fixture arithmetic: `fourth + 1`
+      # outranks every pre-existing row but the top three, so committed
+      # partition strays can never crowd the feature-flag row out of the
+      # top five. A clean partition's fourth is zero.
+      before = AdminHealth.audit_activity(admin)
+
+      fourth =
+        before.top
+        |> Enum.at(3)
+        |> then(&(&1 && &1.count)) || 0
+
+      for i <- 1..(fourth + 1), do: flag!(admin, "live_#{i}")
+      for i <- 1..(fourth + 2), do: tag!(admin, "c4-live-tag-#{i}-#{@n}")
+
+      expected = AdminHealth.audit_activity(admin)
+      {:ok, view, _html} = live(conn, "/admin/health")
+
+      assert has_element?(view, "[data-testid='audit-activity']")
+
+      assert text_of(view, "[data-testid='audit-activity-total']") ==
+               ngettext_exact(
+                 expected.total,
+                 "1 change in the last 24 hours",
+                 "%{count} changes in the last 24 hours"
+               )
+
+      row = Enum.find(expected.top, &(&1.key == :feature_flag))
+      assert row
+
+      row_text = text_of(view, "[data-testid='audit-activity-feature_flag']")
+      assert row_text =~ ngettext_exact(row.count, "1 change", "%{count} changes")
+      assert row_text =~ "Feature flag"
+
+      assert render(element(view, "[data-testid='audit-link']")) =~ "href=\"/admin/audit\""
+      refute has_element?(view, "[data-testid='audit-activity-empty']")
+    end
+
+    test "the honest empty line when there is no activity", %{conn: conn} do
+      Mimic.copy(FluxValeWeb.AdminHealth)
+
+      stub(AdminHealth, :audit_activity, fn _actor -> %{total: 0, top: []} end)
+
+      {:ok, view, _html} = live(conn, "/admin/health")
+
+      assert has_element?(
+               view,
+               "[data-testid='audit-activity-empty']",
+               "No audit activity in the last 24 hours."
+             )
+
+      refute has_element?(view, "[data-testid='audit-activity-top']")
     end
   end
 
