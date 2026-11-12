@@ -177,8 +177,9 @@ defmodule FluxVale.Infrastructure.Instance.UpdateEnv do
     set = Ash.Changeset.get_argument(changeset, :set)
     remove = Ash.Changeset.get_argument(changeset, :remove)
     owned = EnvPatch.owned_keys(row, version, wired?(row.id))
+    forbidden = EnvPatch.forbidden_keys(version.first_run)
 
-    case EnvPatch.plan(row.env_vars, set, remove, owned) do
+    case EnvPatch.plan(row.env_vars, set, remove, owned, forbidden) do
       {:ok, plan} -> {:ok, plan}
       {:error, reason} -> {:error, InvalidArgument.exception(message: EnvPatch.message(reason))}
     end

@@ -42,12 +42,18 @@ defmodule FluxVale.Infrastructure.Operations.EnvPatch do
           | {:invalid_value, [String.t()]}
           | {:overlap, [String.t()]}
           | {:owned, [String.t()]}
+          | {:forbidden, [String.t()]}
 
   @doc """
-  The platform-owned env names for `instance`'s `app_version`:
-  the OIDC recipe keys when a wiring row exists (`wired?`), every
-  backing-service `url_env` from the instance's snapshot, and the
-  version's `instance_url_env`.
+  The platform-composed env names for `instance`'s `app_version`: the
+  OIDC recipe keys when a wiring row exists (`wired?`), every
+  backing-service `url_env` from the instance's snapshot, the version's
+  `instance_url_env`, and the first-run contract's `env` keys. A set of
+  one refuses; a remove skips (the platform composes it above the row).
+
+  `forbidden_keys/1` is the contract's other half: keys that must never
+  ship. A set refuses; a remove is allowed (cleanup), because the
+  platform never composes them.
   """
   @spec owned_keys(map(), map(), boolean()) :: MapSet.t(String.t())
   def owned_keys(instance, app_version, wired?) do
@@ -57,27 +63,42 @@ defmodule FluxVale.Infrastructure.Operations.EnvPatch do
 
     instance_url = List.wrap(app_version.instance_url_env)
 
-    (sso ++ backing ++ instance_url)
+    (sso ++ backing ++ instance_url ++ contract_env_keys(app_version.first_run))
     |> Enum.reject(&is_nil/1)
     |> MapSet.new()
   end
 
   @doc """
+  The first-run contract's `forbidden_env` keys — never settable, but a
+  remove is a legitimate cleanup (the platform does not compose them).
+  """
+  @spec forbidden_keys(map() | nil) :: MapSet.t(String.t())
+  def forbidden_keys(nil), do: MapSet.new()
+  def forbidden_keys(contract), do: MapSet.new(contract.forbidden_env)
+
+  @doc """
   Builds the apply plan. `current_env` is the row's env under the
   action's `FOR UPDATE` lock; `owned_keys` is `owned_keys/3`'s result.
   """
-  @spec plan(map(), map() | nil, [String.t()] | nil, MapSet.t(String.t()) | [String.t()]) ::
+  @spec plan(
+          map(),
+          map() | nil,
+          [String.t()] | nil,
+          MapSet.t(String.t()) | [String.t()],
+          MapSet.t(String.t()) | [String.t()]
+        ) ::
           {:ok, plan()} | {:error, error()}
-  def plan(current_env, set, remove, owned_keys) do
+  def plan(current_env, set, remove, owned_keys, forbidden_keys) do
     with {:ok, set} <- normalize_set(set),
          {:ok, remove} <- normalize_remove(remove),
          :ok <- reject_overlap(set, remove),
-         :ok <- reject_owned(set, owned_keys) do
-      owned = MapSet.new(owned_keys)
-
+         owned = folded(owned_keys),
+         forbidden = folded(forbidden_keys),
+         :ok <- reject_forbidden(set, forbidden),
+         :ok <- reject_owned(set, owned) do
       skipped =
         remove
-        |> Enum.filter(&MapSet.member?(owned, &1))
+        |> Enum.filter(&owned_key?(owned, &1))
         |> Enum.sort()
 
       applied_remove = remove -- skipped
@@ -120,6 +141,11 @@ defmodule FluxVale.Infrastructure.Operations.EnvPatch do
 
   def message({:invalid_value, names}) do
     "env var values must be strings: #{Enum.join(names, ", ")}"
+  end
+
+  def message({:forbidden, names}) do
+    "these env vars are fixed by the app's first-run contract and cannot be set: " <>
+      Enum.join(names, ", ")
   end
 
   def message({:invalid_set, _value}) do
@@ -186,16 +212,31 @@ defmodule FluxVale.Infrastructure.Operations.EnvPatch do
     if overlap == [], do: :ok, else: {:error, {:overlap, overlap}}
   end
 
-  defp reject_owned(set, owned_keys) do
-    owned = MapSet.new(owned_keys)
-
+  defp reject_owned(set, owned) do
     refused =
       set
       |> Map.keys()
-      |> Enum.filter(&MapSet.member?(owned, &1))
+      |> Enum.filter(&owned_key?(owned, &1))
 
     if refused == [], do: :ok, else: {:error, {:owned, refused}}
   end
+
+  defp reject_forbidden(set, forbidden) do
+    refused =
+      set
+      |> Map.keys()
+      |> Enum.filter(&owned_key?(forbidden, &1))
+
+    if refused == [], do: :ok, else: {:error, {:forbidden, refused}}
+  end
+
+  defp folded(keys) do
+    keys
+    |> Enum.map(&String.downcase/1)
+    |> MapSet.new()
+  end
+
+  defp owned_key?(folded_keys, key), do: MapSet.member?(folded_keys, String.downcase(key))
 
   defp removed(current_env, applied_remove) do
     applied_remove
@@ -218,6 +259,10 @@ defmodule FluxVale.Infrastructure.Operations.EnvPatch do
     end)
     |> Enum.sort()
   end
+
+  defp contract_env_keys(nil), do: []
+
+  defp contract_env_keys(contract), do: Map.keys(contract.env)
 
   defp oidc_keys(nil), do: []
 

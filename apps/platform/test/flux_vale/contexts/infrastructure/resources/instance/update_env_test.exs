@@ -406,6 +406,34 @@ defmodule FluxVale.Infrastructure.Instance.UpdateEnvTest do
       )
     end
 
+    test "first-run contract keys refuse their halves and keep the contract env", %{user: user} do
+      version =
+        InstanceFixtures.app_version!(
+          first_run: %{
+            pattern: "first_registered_user_admin",
+            env: %{"CONTRACT_KEY" => "true"},
+            forbidden_env: ["FORBIDDEN_KEY"],
+            guidance: "Register first."
+          }
+        )
+
+      instance = create!(user, version: version)
+      assert reload!(instance).env_vars["CONTRACT_KEY"] == "true"
+
+      assert_error(
+        update_env(instance, user, %{"FORBIDDEN_KEY" => "true"}, []),
+        "first-run contract"
+      )
+
+      assert_error(
+        update_env(instance, user, %{"CONTRACT_KEY" => "false"}, []),
+        "managed by the platform"
+      )
+
+      assert {:ok, %Instance{}} = update_env(instance, user, %{}, ["CONTRACT_KEY"])
+      assert reload!(instance).env_vars["CONTRACT_KEY"] == "true"
+    end
+
     test "the version's instance_url_env refuses a set", %{user: user} do
       version = InstanceFixtures.app_version!(instance_url_env: "ROOT_URL")
       instance = create!(user, version: version)

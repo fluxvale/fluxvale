@@ -10,7 +10,12 @@ defmodule FluxVale.Infrastructure.Operations.EnvPatchTest do
 
   defp version(attrs \\ %{}) do
     Map.merge(
-      %{oidc_wiring: nil, instance_url_env: nil, host_allowlist_env: "ALLOWED_HOSTS"},
+      %{
+        oidc_wiring: nil,
+        instance_url_env: nil,
+        host_allowlist_env: "ALLOWED_HOSTS",
+        first_run: nil
+      },
       Map.new(attrs)
     )
   end
@@ -31,7 +36,7 @@ defmodule FluxVale.Infrastructure.Operations.EnvPatchTest do
     )
   end
 
-  describe "plan/4" do
+  describe "plan/5" do
     test "merges set over the row and drops removed keys, diffing the names" do
       current = %{"KEEP" => "1", "CHANGE" => "old", "DROP" => "x"}
 
@@ -40,6 +45,7 @@ defmodule FluxVale.Infrastructure.Operations.EnvPatchTest do
                  current,
                  %{"NEW" => "2", "CHANGE" => "new"},
                  ["DROP", "MISSING"],
+                 [],
                  []
                )
 
@@ -53,59 +59,59 @@ defmodule FluxVale.Infrastructure.Operations.EnvPatchTest do
     end
 
     test "an unchanged value is neither added nor changed" do
-      assert {:ok, plan} = EnvPatch.plan(%{"SAME" => "v"}, %{"SAME" => "v"}, [], [])
+      assert {:ok, plan} = EnvPatch.plan(%{"SAME" => "v"}, %{"SAME" => "v"}, [], [], [])
       assert plan.added == []
       assert plan.changed == []
       assert plan.merged == %{"SAME" => "v"}
     end
 
     test "nil set and remove are the wire's absent — a no-op plan" do
-      assert {:ok, plan} = EnvPatch.plan(%{"KEEP" => "1"}, nil, nil, [])
+      assert {:ok, plan} = EnvPatch.plan(%{"KEEP" => "1"}, nil, nil, [], [])
       assert plan.set == %{}
       assert plan.remove == []
       assert plan.merged == %{"KEEP" => "1"}
     end
 
     test "duplicate remove entries are one removal" do
-      assert {:ok, plan} = EnvPatch.plan(%{"DROP" => "x"}, %{}, ["DROP", "DROP"], [])
+      assert {:ok, plan} = EnvPatch.plan(%{"DROP" => "x"}, %{}, ["DROP", "DROP"], [], [])
       assert plan.remove == ["DROP"]
       assert plan.merged == %{}
     end
 
     test "a missing remove key is a no-op, not a failure" do
-      assert {:ok, plan} = EnvPatch.plan(%{"KEEP" => "1"}, %{}, ["GONE"], [])
+      assert {:ok, plan} = EnvPatch.plan(%{"KEEP" => "1"}, %{}, ["GONE"], [], [])
       assert plan.removed == []
       assert plan.merged == %{"KEEP" => "1"}
     end
 
     test "set/remove overlap refuses with the shared names" do
       assert {:error, {:overlap, ["BOTH"]}} =
-               EnvPatch.plan(%{}, %{"BOTH" => "v"}, ["BOTH"], [])
+               EnvPatch.plan(%{}, %{"BOTH" => "v"}, ["BOTH"], [], [])
     end
 
     test "set keys must be POSIX-shaped" do
       assert {:error, {:invalid_name, ["1NOPE", "BAD-KEY"]}} =
-               EnvPatch.plan(%{}, %{"BAD-KEY" => "v", "1NOPE" => "v"}, [], [])
+               EnvPatch.plan(%{}, %{"BAD-KEY" => "v", "1NOPE" => "v"}, [], [], [])
     end
 
     test "remove keys must be POSIX-shaped" do
       assert {:error, {:invalid_name, ["BAD-KEY"]}} =
-               EnvPatch.plan(%{}, %{}, ["BAD-KEY"], [])
+               EnvPatch.plan(%{}, %{}, ["BAD-KEY"], [], [])
     end
 
     test "set values must be strings" do
       assert {:error, {:invalid_value, ["NUMBER"]}} =
-               EnvPatch.plan(%{}, %{"NUMBER" => 1}, [], [])
+               EnvPatch.plan(%{}, %{"NUMBER" => 1}, [], [], [])
     end
 
     test "set must be a map and remove a list" do
-      assert {:error, {:invalid_set, "x"}} = EnvPatch.plan(%{}, "x", [], [])
-      assert {:error, {:invalid_remove, "x"}} = EnvPatch.plan(%{}, %{}, "x", [])
+      assert {:error, {:invalid_set, "x"}} = EnvPatch.plan(%{}, "x", [], [], [])
+      assert {:error, {:invalid_remove, "x"}} = EnvPatch.plan(%{}, %{}, "x", [], [])
     end
 
     test "an owned key in set refuses, naming it" do
       assert {:error, {:owned, ["DATABASE_URL"]}} =
-               EnvPatch.plan(%{}, %{"DATABASE_URL" => "postgres://"}, [], ["DATABASE_URL"])
+               EnvPatch.plan(%{}, %{"DATABASE_URL" => "postgres://"}, [], ["DATABASE_URL"], [])
     end
 
     test "an owned key in remove is skipped — the platform keeps it" do
@@ -114,7 +120,8 @@ defmodule FluxVale.Infrastructure.Operations.EnvPatchTest do
                  %{"DATABASE_URL" => "postgres://", "KEEP" => "1"},
                  %{"NEW" => "2"},
                  ["DATABASE_URL"],
-                 ["DATABASE_URL"]
+                 ["DATABASE_URL"],
+                 []
                )
 
       assert plan.skipped == ["DATABASE_URL"]
@@ -126,6 +133,57 @@ defmodule FluxVale.Infrastructure.Operations.EnvPatchTest do
     test "host_allowlist_env is user-writable — not in the owned set" do
       owned = EnvPatch.owned_keys(instance(), version(), false)
       refute MapSet.member?(owned, "ALLOWED_HOSTS")
+    end
+
+    test "a first-run contract env key refuses a set as owned" do
+      version =
+        version(first_run: %{env: %{"CONTRACT_KEY" => "true"}, forbidden_env: []})
+
+      owned = EnvPatch.owned_keys(instance(), version, false)
+
+      assert {:error, {:owned, ["CONTRACT_KEY"]}} =
+               EnvPatch.plan(%{}, %{"CONTRACT_KEY" => "false"}, [], owned, [])
+    end
+
+    test "a first-run forbidden_env key refuses a set as forbidden" do
+      contract = %{env: %{}, forbidden_env: ["FORBIDDEN_KEY"]}
+      forbidden = EnvPatch.forbidden_keys(contract)
+
+      assert {:error, {:forbidden, ["FORBIDDEN_KEY"]}} =
+               EnvPatch.plan(%{}, %{"FORBIDDEN_KEY" => "true"}, [], [], forbidden)
+    end
+
+    test "removing a first-run contract env key is skipped — the platform keeps it" do
+      version =
+        version(first_run: %{env: %{"CONTRACT_KEY" => "true"}, forbidden_env: []})
+
+      owned = EnvPatch.owned_keys(instance(), version, false)
+
+      assert {:ok, plan} =
+               EnvPatch.plan(
+                 %{"CONTRACT_KEY" => "true", "KEEP" => "1"},
+                 %{},
+                 ["CONTRACT_KEY"],
+                 owned,
+                 []
+               )
+
+      assert plan.skipped == ["CONTRACT_KEY"]
+      assert plan.merged == %{"CONTRACT_KEY" => "true", "KEEP" => "1"}
+    end
+
+    test "owned-key matching folds case for both set and remove" do
+      owned = ["DATABASE_URL"]
+      current = %{"DATABASE_URL" => "postgres://"}
+
+      assert {:error, {:owned, ["database_url"]}} =
+               EnvPatch.plan(current, %{"database_url" => "postgres://evil"}, [], owned, [])
+
+      assert {:ok, plan} =
+               EnvPatch.plan(current, %{}, ["database_url"], owned, [])
+
+      assert plan.skipped == ["database_url"]
+      assert plan.merged == current
     end
   end
 
