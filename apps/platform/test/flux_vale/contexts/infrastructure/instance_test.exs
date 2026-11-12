@@ -1097,6 +1097,58 @@ defmodule FluxVale.Infrastructure.InstanceTest do
     end
   end
 
+  describe "get_by_slug (#731 T2)" do
+    test "reads by slug and scopes by the optional org" do
+      owner = user()
+      instance = created_with_actor!(owner)
+
+      assert {:ok, %{id: id}} = read_by_slug(instance.slug, owner)
+      assert id == instance.id
+
+      assert {:ok, %{id: ^id}} =
+               read_by_slug(instance.slug, owner, %{organization_id: instance.organization_id})
+
+      # A stranger's read is filtered to nothing — read_one answers nil
+      # (the route renders it NotFound).
+      assert {:ok, nil} = read_by_slug(instance.slug, user())
+    end
+
+    test "the same slug in two clusters refuses with MultipleResults — never an arbitrary pick" do
+      owner = user()
+      version = forgejo_version()
+      InstanceFixtures.local_cluster!()
+
+      created_first =
+        Instance.create!(
+          %{name: "Dup one", app_version_id: version.id, env_vars: %{}},
+          actor: owner
+        )
+
+      created_second =
+        Instance.create!(
+          %{name: "Dup two", app_version_id: version.id, env_vars: %{}},
+          actor: owner
+        )
+
+      cluster_b = InstanceFixtures.local_cluster!()
+
+      first = InstanceFixtures.pin!(created_first, slug: "dup-slug")
+      second = InstanceFixtures.pin!(created_second, slug: "dup-slug", cluster_id: cluster_b.id)
+
+      assert first.slug == "dup-slug"
+      assert second.cluster_id == cluster_b.id
+
+      assert {:error, %Ash.Error.Invalid{errors: [%Ash.Error.Invalid.MultipleResults{}]}} =
+               read_by_slug("dup-slug", owner)
+    end
+  end
+
+  defp read_by_slug(slug, actor, arguments \\ %{}) do
+    Instance
+    |> Ash.Query.for_read(:get_by_slug, Map.put(arguments, :slug, slug), actor: actor)
+    |> Ash.read_one()
+  end
+
   # created!/1 uses its own user; tests needing a SPECIFIC actor create here.
   defp created_with_actor!(actor) do
     version = forgejo_version()
