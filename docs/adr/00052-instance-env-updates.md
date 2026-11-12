@@ -53,8 +53,9 @@ second-deploy experience.
      Matching is EXACT-case: a user's `root_url` is a distinct k8s key
      from the platform's `ROOT_URL`.
    - **First-run contract `env`** — FIXED. Both a `set` and a `remove`
-     refuse with the key names: the contract lands at create and a
-     redeploy re-composes it, so accepting either would be a lie.
+     refuse with the key names: the contract lands at create and is
+     never re-composed, so a removal would silently drop a guaranteed
+     first-run value and accepting a set would be a lie.
    - **First-run contract `forbidden_env`** — NEVER SETTABLE. A `set`
      refuses; a `remove` is allowed cleanup (the platform never
      composes them).
