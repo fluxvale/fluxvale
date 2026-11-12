@@ -1,8 +1,8 @@
 defmodule FluxVale.Observability.SmokeRuns do
   @moduledoc """
   The console smoke widget's data source (#702, ADR-0050 D3/W2): the
-  latest runs of the public smoke workflow, read server-side through
-  `Req`.
+  latest default-branch runs of the public smoke workflow, read
+  server-side through `Req`.
 
   The source is the public runs API of `fluxvale/fluxvale` — an
   unauthenticated read against a public repo, cached 60 seconds so page
@@ -20,7 +20,7 @@ defmodule FluxVale.Observability.SmokeRuns do
 
   use GenServer
 
-  @runs_url "https://api.github.com/repos/fluxvale/fluxvale/actions/workflows/smoke.yml/runs?per_page=5"
+  @runs_url "https://api.github.com/repos/fluxvale/fluxvale/actions/workflows/smoke.yml/runs?branch=main&per_page=5"
 
   @type run :: %{
           conclusion: String.t() | nil,

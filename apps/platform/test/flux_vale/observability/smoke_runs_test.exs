@@ -41,6 +41,8 @@ defmodule FluxVale.Observability.SmokeRunsTest do
 
   test "maps the runs API shape" do
     Req.Test.stub(:smoke_runs, fn conn ->
+      assert conn.query_string =~ "branch=main"
+
       Req.Test.json(conn, %{
         "workflow_runs" => [
           %{
