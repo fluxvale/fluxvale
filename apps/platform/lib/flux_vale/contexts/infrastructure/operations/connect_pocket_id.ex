@@ -46,7 +46,7 @@ defmodule FluxVale.Infrastructure.Operations.ConnectPocketId do
   """
 
   alias FluxVale.Infrastructure.Instance
-  alias FluxVale.Infrastructure.Operations.ApplyPocketIdEnv
+  alias FluxVale.Infrastructure.Operations.InstanceEnvSecret
   alias FluxVale.Infrastructure.Operations.UsePocketIdKey
   alias FluxVale.Infrastructure.PocketId.ApiClient
   alias FluxVale.Infrastructure.PocketIdCustody
@@ -159,7 +159,7 @@ defmodule FluxVale.Infrastructure.Operations.ConnectPocketId do
     # tuple, never a crash in the caller's LiveView.
     case Ash.reload(app_instance, authorize?: false) do
       {:ok, fresh} ->
-        case ApplyPocketIdEnv.apply_to_running(fresh, sso_env(recipe, issuer, client)) do
+        case InstanceEnvSecret.apply_to_running(fresh, sso_env(recipe, issuer, client), []) do
           :ok -> {:ok, wiring}
           {:error, _apply_reason} = error -> error
         end
@@ -417,9 +417,7 @@ defmodule FluxVale.Infrastructure.Operations.ConnectPocketId do
   # transaction and re-sends them after commit (above).
   defp apply_env(app_instance, merged) do
     changeset =
-      Ash.Changeset.for_update(app_instance, :merge_pocket_id_env, %{env: merged},
-        authorize?: false
-      )
+      Ash.Changeset.for_update(app_instance, :merge_system_env, %{env: merged}, authorize?: false)
 
     Ash.update(changeset, return_notifications?: true)
   end

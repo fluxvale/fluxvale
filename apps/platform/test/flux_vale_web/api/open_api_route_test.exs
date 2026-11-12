@@ -32,6 +32,7 @@ defmodule FluxValeWeb.Api.OpenApiRouteTest do
           MapSet.new([
             "/api/v1/instances",
             "/api/v1/instances/{id}/deploy",
+            "/api/v1/instances/{id}/env",
             "/api/v1/instances/{id}/backup-runs",
             "/api/v1/instances/{id}/backup-runs/{backup_run_id}/restore",
             "/api/v1/backup-settings/{id}",

@@ -28,6 +28,8 @@ defmodule FluxValeWeb.Api.RouteInventoryTest do
     {:patch, "/instances/:id/exposure"},
     # #493: the stopped-first resize.
     {:patch, "/instances/:id/resize"},
+    # #731 T1: the in-place env merge.
+    {:patch, "/instances/:id/env"},
     # #250: the member storage-request verbs (operator decisions stay
     # web-only — no admin scope).
     {:post, "/instances/:instance_id/storage-requests"},

@@ -1,7 +1,7 @@
-defmodule FluxVale.Infrastructure.Operations.ApplyPocketIdEnvTest do
+defmodule FluxVale.Infrastructure.Operations.InstanceEnvSecretTest do
   @moduledoc false
 
-  # #597 S5: the SSO-scoped env-update + rollout primitive — the ONE
+  # #597 S5: the one env-update + rollout seam — the ONE
   # way a deployed instance's env changes without a re-deploy. Order
   # is the contract under test: Secret merge-upsert (recipe keys only)
   # BEFORE the rolling restart; a failed upsert never rolls; a failed
@@ -16,7 +16,6 @@ defmodule FluxVale.Infrastructure.Operations.ApplyPocketIdEnvTest do
   alias FluxVale.Clients.K8s.Resources.Deployment
   alias FluxVale.Clients.K8s.Resources.Secret
   alias FluxVale.Infrastructure
-  alias FluxVale.Infrastructure.Instance
   alias FluxVale.Ops.FeatureFlags
   alias FluxVale.TestSupport.AccountsFixtures
   alias FluxVale.TestSupport.BillingFixtures
@@ -42,7 +41,7 @@ defmodule FluxVale.Infrastructure.Operations.ApplyPocketIdEnvTest do
     %{instance: instance}
   end
 
-  describe "apply_to_running/3" do
+  describe "apply_to_running/4" do
     test "merges the given env into the Secret, then rolls — in that order", %{
       instance: instance
     } do
@@ -69,7 +68,7 @@ defmodule FluxVale.Infrastructure.Operations.ApplyPocketIdEnvTest do
         {:ok, %{}}
       end)
 
-      :ok = Infrastructure.apply_pocket_id_env(instance, %{"SSO_AUTHORITY" => "https://id"})
+      :ok = Infrastructure.apply_instance_env(instance, %{"SSO_AUTHORITY" => "https://id"}, [])
 
       assert_received {:upsert, data}
       assert_received :rolled
@@ -90,9 +89,10 @@ defmodule FluxVale.Infrastructure.Operations.ApplyPocketIdEnvTest do
       stub(Deployment, :restart, fn _kc, _ns, _n -> {:ok, %{}} end)
 
       :ok =
-        Infrastructure.apply_pocket_id_env(instance, %{},
-          remove_keys: ["SSO_AUTHORITY", "SSO_CLIENT_ID"]
-        )
+        Infrastructure.apply_instance_env(instance, %{}, [
+          "SSO_AUTHORITY",
+          "SSO_CLIENT_ID"
+        ])
 
       assert_received {:upsert, data}
       assert data == %{"SMTP_HOST" => "z"}
@@ -108,7 +108,7 @@ defmodule FluxVale.Infrastructure.Operations.ApplyPocketIdEnvTest do
       # A restart after a failed upsert fails the test (Mimic rejects
       # un-stubbed calls).
       assert {:error, %K8s.Error{}} =
-               Infrastructure.apply_pocket_id_env(instance, %{"SSO_AUTHORITY" => "https://id"})
+               Infrastructure.apply_instance_env(instance, %{"SSO_AUTHORITY" => "https://id"}, [])
     end
 
     test "a failed restart stages the Secret — the honest retry shape", %{instance: instance} do
@@ -120,7 +120,7 @@ defmodule FluxVale.Infrastructure.Operations.ApplyPocketIdEnvTest do
       end)
 
       assert {:error, %K8s.Error{}} =
-               Infrastructure.apply_pocket_id_env(instance, %{"SSO_AUTHORITY" => "https://id"})
+               Infrastructure.apply_instance_env(instance, %{"SSO_AUTHORITY" => "https://id"}, [])
     end
 
     test "a missing Secret reads as empty — the merge carries only the given keys", %{
@@ -137,7 +137,7 @@ defmodule FluxVale.Infrastructure.Operations.ApplyPocketIdEnvTest do
 
       stub(Deployment, :restart, fn _kc, _ns, _n -> {:ok, %{}} end)
 
-      :ok = Infrastructure.apply_pocket_id_env(instance, %{"SSO_AUTHORITY" => "https://id"})
+      :ok = Infrastructure.apply_instance_env(instance, %{"SSO_AUTHORITY" => "https://id"}, [])
 
       assert_received {:upsert, data}
       assert data == %{"SSO_AUTHORITY" => "https://id"}
@@ -153,7 +153,7 @@ defmodule FluxVale.Infrastructure.Operations.ApplyPocketIdEnvTest do
         |> Ash.update!()
 
       assert {:error, :not_deployed} =
-               Infrastructure.apply_pocket_id_env(pending, %{"SSO_AUTHORITY" => "https://id"})
+               Infrastructure.apply_instance_env(pending, %{"SSO_AUTHORITY" => "https://id"}, [])
     end
   end
 end

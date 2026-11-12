@@ -23,6 +23,7 @@ defmodule FluxVale.Infrastructure do
   alias FluxVale.Infrastructure.Operations.ConfigureBackups
   alias FluxVale.Infrastructure.Operations.ConnectPocketId
   alias FluxVale.Infrastructure.Operations.DetachInstance
+  alias FluxVale.Infrastructure.Operations.InstanceEnvSecret
   alias FluxVale.Infrastructure.Operations.ObserveAccessGateway
   alias FluxVale.Infrastructure.Operations.ProbePocketIdSetup
   alias FluxVale.Infrastructure.Operations.ReadBackupCredential
@@ -289,10 +290,12 @@ defmodule FluxVale.Infrastructure do
     to: FluxVale.Infrastructure.Operations.DisconnectPocketId,
     as: :disconnect
 
-  # #597 S5 (D5): the SSO-scoped env-update + rollout primitive —
-  # rewrite ONLY the given keys in a deployed instance's Secret, then
-  # roll. The retrofit/rotation/disconnect legs ride this one seam.
-  defdelegate apply_pocket_id_env(instance, sso_env, opts \\ []),
-    to: FluxVale.Infrastructure.Operations.ApplyPocketIdEnv,
+  # #597 S5 (D5), generalized by #731 T1 (ADR-0052 decision 7): the one
+  # env-Secret seam — rewrite ONLY the given keys in a deployed
+  # instance's Secret, then roll. The retrofit/rotation/disconnect legs
+  # ride `apply_to_running/4`; the public in-place action uses the
+  # `upsert/4` + `restart/2` halves on either side of its row commit.
+  defdelegate apply_instance_env(instance, set, remove, opts \\ []),
+    to: InstanceEnvSecret,
     as: :apply_to_running
 end
