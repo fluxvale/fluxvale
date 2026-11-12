@@ -1190,7 +1190,11 @@ defmodule FluxValeWeb.AdminLive.Resources do
       [field_entry(attr, "textarea", :text)]
     else
       case AdminResource.input_type(attr) do
+        # coveralls-ignore-start - no registry-exposed action accepts a
+        # public attribute whose type the engine cannot map today; the
+        # skip keeps a future one out of the form instead of guessing.
         nil -> []
+        # coveralls-ignore-stop
         type -> [field_entry(attr, type, if(type == "textarea", do: :json))]
       end
     end
