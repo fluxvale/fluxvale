@@ -9,8 +9,10 @@ defmodule FluxVale.Infrastructure.InstanceAllocationSnapshot do
   resize supersedes the open row (`superseded_at` set) and appends the
   new era, so a resize's rate change can be audited after the fact.
 
-  System-only throughout: rows are minted by their writers' transactions
-  (instance create, #493's resize) with `authorize?: false`.
+  System-only for every non-admin: rows are minted by their writers'
+  transactions (instance create, #493's resize) with `authorize?: false`.
+  The one exception is the console's platform-admin bypass (#595 slice
+  5), and the console exposes this resource read-only.
   """
 
   use Ash.Resource,
@@ -51,6 +53,18 @@ defmodule FluxVale.Infrastructure.InstanceAllocationSnapshot do
   end
 
   policies do
+    # Platform admins see and do everything (#644); the console's
+    # Infrastructure slice (#595 slice 5) exposes this resource
+    # read-only. Machine-API callers stay on the system-only forbid
+    # below.
+    bypass [FluxVale.Checks.ActorIsPlatformAdmin, FluxVale.Checks.CallOutsideMachineApi] do
+      description(
+        "Platform admins see and do everything (#644); the console exposes this resource read-only (#595 slice 5)"
+      )
+
+      authorize_if(always())
+    end
+
     # System-only (the settle_anchors posture): every caller is a
     # system writer or a test asserting through the audit trail, both
     # `authorize?: false`.
@@ -120,8 +134,12 @@ defmodule FluxVale.Infrastructure.InstanceAllocationSnapshot do
 
   actions do
     read :read do
-      description("System-only audit read (authorize?: false callers only).")
+      description(
+        "Audit read: platform admins through the console bypass; every other caller is a system reader (authorize?: false)."
+      )
+
       primary?(true)
+      pagination(offset?: true, required?: false)
     end
 
     read :in_force do

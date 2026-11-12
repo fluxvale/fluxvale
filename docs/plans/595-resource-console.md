@@ -417,6 +417,14 @@ denied.
   matters). Screenshots: instance index + show, gateway index,
   snapshot index (the flagged one) — light and dark.
 
+**D2 superseded.** The #644 blanket authority already carries the
+bypass on the seven member-scoped resources and Cluster, so the planned
+`authorize_if` arms are not duplicated. `InstanceAllocationSnapshot`
+gains the bypass because its reads were system-only; machine-API
+callers stay on that forbid. The slice's policy work is the proof tests:
+admin cross-org reads, member scoping unchanged (Snapshot still
+denied), non-admin refused.
+
 Done when: every Infrastructure resource is reachable and readable
 for a non-member platform admin, all operator-legal writes run,
 machinery actions are absent, and the sanity table is in the PR body.

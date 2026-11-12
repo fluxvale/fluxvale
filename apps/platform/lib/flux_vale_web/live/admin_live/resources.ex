@@ -444,7 +444,7 @@ defmodule FluxValeWeb.AdminLive.Resources do
            label_name: label_attr(entry),
            record: record,
            record_label: record_label(record, label_attr(entry)),
-           fields: fields(entry.module),
+           fields: fields(entry),
            index_path: index_path(entry),
            update_actions: update_actions(entry, record.id, admin),
            destroy_actions: destroy_actions(entry, admin),
@@ -1071,13 +1071,13 @@ defmodule FluxValeWeb.AdminLive.Resources do
     attrs = Info.public_attributes(entry.module)
     label_name = label_attr(entry)
 
-    label = column(find_attribute(entry.module, label_name))
+    label = column(find_attribute(entry.module, label_name), entry)
 
     rest =
       attrs
       |> Enum.reject(&(&1.name in [:id, label_name]))
       |> Enum.take(@auto_column_cap - 1)
-      |> Enum.map(&column/1)
+      |> Enum.map(&column(&1, entry))
 
     pinned = created_at_column(entry)
 
@@ -1093,7 +1093,7 @@ defmodule FluxValeWeb.AdminLive.Resources do
   # stays as-is.
   defp configured_columns(entry, names) do
     sources = column_sources(entry.module)
-    resolver = fn name -> resolve_column(sources, name) end
+    resolver = fn name -> resolve_column(sources, name, entry) end
     resolved = Enum.flat_map(names, resolver)
 
     if Enum.any?(resolved, &(&1.name == :created_at)) do
@@ -1103,18 +1103,19 @@ defmodule FluxValeWeb.AdminLive.Resources do
     end
   end
 
-  defp resolve_column(sources, name) do
+  defp resolve_column(sources, name, entry) do
     case Map.fetch(sources, name) do
-      {:ok, attr} -> [column(attr)]
+      {:ok, attr} -> [column(attr, entry)]
       :error -> []
     end
   end
 
-  defp column(attr) do
+  defp column(attr, entry) do
     %{
       name: attr.name,
       label: AdminResource.label(attr.name),
-      shape: AdminResource.shape(attr)
+      shape: AdminResource.shape(attr),
+      status?: attr.name in (entry.config[:status_attrs] || [])
     }
   end
 
@@ -1122,7 +1123,7 @@ defmodule FluxValeWeb.AdminLive.Resources do
     stamp = declared_timestamp(entry.module, :created_at)
 
     if stamp do
-      [column(stamp)]
+      [column(stamp, entry)]
     else
       # coveralls-ignore-start - same arm as sort_newest_first: no
       # reachable registry resource lacks a created_at declaration.
@@ -1164,11 +1165,13 @@ defmodule FluxValeWeb.AdminLive.Resources do
   end
 
   # The show page: every public attribute in declaration order. This
-  # list IS the actor-safety contract — nothing else renders.
-  defp fields(module) do
-    module
+  # list IS the actor-safety contract — nothing else renders. The entry
+  # config rides the same column build as the index, so the show page's
+  # status_attrs render through the shared status badge too.
+  defp fields(entry) do
+    entry.module
     |> Info.public_attributes()
-    |> Enum.map(&column/1)
+    |> Enum.map(&column(&1, entry))
   end
 
   # -- small helpers ----------------------------------------------------------
@@ -1364,6 +1367,7 @@ defmodule FluxValeWeb.AdminLive.Resources do
         value={Map.get(@record, @column.name)}
         variant={@variant}
         id={@id}
+        status?={@column.status?}
       />
     <% end %>
     """

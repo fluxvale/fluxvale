@@ -11,7 +11,12 @@
  * goodwill forms) — light and dark. catalog captures slice 4's
  * Catalog surfaces (the app index and show with their category FK
  * links, the version index with its app/size links, and the version
- * create/edit JSON textareas) — light and dark. gif-light / gif-dark
+ * create/edit JSON textareas) — light and dark. infrastructure captures
+ * slice 5's Infrastructure surfaces (the instance index with its
+ * status badges and FK links, the instance show with its env_vars JSON
+ * details and lifecycle actions, the gateway index with its state
+ * badges, and the allocation-snapshot index's id+created_at read-only
+ * shape) — light and dark. gif-light / gif-dark
  * each record
  * the confirm-then-destroy motion on the seed's sacrificial
  * write_path_demo row (recordVideo -> ffmpeg, cropped to the content
@@ -21,7 +26,9 @@
  * Token: mint with a dev `mix run` one-off —
  *   mix run -e 'alias AshAuthentication.Jwt; alias FluxVale.Identity.User;
  *     {:ok, token, _} = Jwt.token_for_user(User.get_by_email!("admin@fluxvale.com", authorize?: false)); IO.puts(token)'
- * Rows: mix run ../e2e/fv595_seed.exs first (idempotent).
+ * Rows: mix run ../e2e/fv595_seed.exs first (idempotent) for stills,
+ * pricing, catalog and the GIFs; infrastructure reads the dev DB's
+ * existing instances and gateways (the wallet precedent).
  */
 import { chromium } from "@playwright/test";
 import { mkdirSync, unlinkSync } from "node:fs";
@@ -65,6 +72,9 @@ async function setTheme(page, mode) {
 
 async function shot(page, name, mode, waitOn) {
   await page.waitForSelector(waitOn);
+  // A summary click on the way parks the sticky navbar mid-frame in
+  // the full-page capture.
+  await page.evaluate(() => window.scrollTo(0, 0));
   await setTheme(page, mode);
   await page.screenshot({ path: `${outdir}/${name}.png`, fullPage: true });
   console.log(`captured ${name}.png`);
@@ -137,6 +147,34 @@ async function captureVersionEditHref(page) {
 // The capture app's show href (the seed's Capture App row).
 async function captureAppHref(page) {
   return indexViewHref(page, "/admin/resources/catalog/app", "Capture App");
+}
+
+// The first instance whose show page renders a non-empty env_vars JSON
+// block. The dev DB's rows predate the console, so the capture takes
+// whichever real row carries content — no hardcoded name that a reset
+// would strand. An empty map's pretty JSON is "{}" (two characters).
+async function instanceWithEnvHref(page) {
+  for (let pageNumber = 1; pageNumber <= 20; pageNumber++) {
+    await page.goto(`${BASE}/admin/resources/infrastructure/instance?page=${pageNumber}`, {
+      waitUntil: "networkidle",
+    });
+    await page.waitForSelector("[data-testid='admin-resource-index']");
+    const hrefs = await page.evaluate(() =>
+      [...document.querySelectorAll("[data-testid^='admin-resource-view-']")].map((link) =>
+        link.getAttribute("href"),
+      ),
+    );
+    for (const href of hrefs) {
+      await page.goto(`${BASE}${href}`, { waitUntil: "networkidle" });
+      const hasJson = await page.evaluate(() => {
+        const pre = document.querySelector("[data-testid='admin-resource-json'] pre");
+        return pre ? pre.textContent.trim().length > 2 : false;
+      });
+      if (hasJson) return href;
+    }
+    if ((await page.locator("a[data-testid='admin-resource-next']").count()) === 0) return null;
+  }
+  return null;
 }
 
 if (part === "pricing") {
@@ -248,6 +286,69 @@ if (part === "catalog") {
   for (const mode of ["light", "dark"]) {
     await page.goto(`${BASE}${versionShowHref}`, { waitUntil: "networkidle" });
     await shot(page, `catalog-version-show-${mode}`, mode, "[data-testid='admin-resource-show']");
+  }
+
+  await ctx.close();
+}
+
+if (part === "infrastructure") {
+  // Slice 5's Infrastructure surfaces: the instance index (the status
+  // badges and FK links), the instance show (the env_vars JSON details
+  // and the lifecycle actions), the gateway index (state badges), and
+  // the allocation-snapshot index (id + created_at, no New affordance).
+  // Rows ride the dev DB's existing instances and gateways.
+  const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  const page = await ctx.newPage();
+  await signIn(page);
+
+  for (const mode of ["light", "dark"]) {
+    await page.goto(`${BASE}/admin/resources/infrastructure/instance`, {
+      waitUntil: "networkidle",
+    });
+    await shot(
+      page,
+      `infrastructure-instance-index-${mode}`,
+      mode,
+      "[data-testid='admin-resource-index']",
+    );
+    await page.goto(`${BASE}/admin/resources/infrastructure/access_gateway`, {
+      waitUntil: "networkidle",
+    });
+    await shot(
+      page,
+      `infrastructure-gateway-index-${mode}`,
+      mode,
+      "[data-testid='admin-resource-index']",
+    );
+    await page.goto(`${BASE}/admin/resources/infrastructure/instance_allocation_snapshot`, {
+      waitUntil: "networkidle",
+    });
+    await shot(
+      page,
+      `infrastructure-snapshot-index-${mode}`,
+      mode,
+      "[data-testid='admin-resource-index']",
+    );
+  }
+
+  const instanceHref = await instanceWithEnvHref(page);
+  if (!instanceHref) {
+    console.error("no instance with a non-empty env_vars — the dev DB needs instance rows");
+    process.exit(1);
+  }
+
+  for (const mode of ["light", "dark"]) {
+    await page.goto(`${BASE}${instanceHref}`, { waitUntil: "networkidle" });
+    // The JSON details open so the capture shows the pretty-printed
+    // map, not just its summary line.
+    await page.waitForSelector("[data-testid='admin-resource-json']");
+    await page.click("[data-testid='admin-resource-json'] summary");
+    await shot(
+      page,
+      `infrastructure-instance-show-${mode}`,
+      mode,
+      "[data-testid='admin-resource-show']",
+    );
   }
 
   await ctx.close();

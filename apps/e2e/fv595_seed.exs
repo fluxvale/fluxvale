@@ -20,6 +20,10 @@ alias FluxVale.Ops.FeatureFlag
 alias FluxVale.Pricing.Size
 alias FluxVale.Pricing.TaxRate
 
+# The idempotence fallbacks below filter by their identity; without the
+# require, Ash.Query.filter/2 is a runtime call to a macro and crashes.
+require Ash.Query
+
 flags = [
   %{
     key: "feedback_board",

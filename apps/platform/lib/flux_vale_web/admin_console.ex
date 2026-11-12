@@ -27,8 +27,9 @@ defmodule FluxValeWeb.AdminConsole do
 
   # Live domains in display order, each with its resources. Slices 1-2
   # proved the engine on Ops; slice 3 rolled Pricing and Billing live;
-  # slice 4 rolls Catalog (the plan's sanity passes). Later slices flip
-  # the pending domains below one by one. Per-resource config (all
+  # slice 4 rolled Catalog; slice 5 rolls Infrastructure (the plan's
+  # sanity passes and the policy proof). A later slice flips the
+  # pending domain below. Per-resource config (all
   # optional): label, note, columns, label_attr — the defaults
   # introspect from the resource. A domain's out-of-console resources
   # live in @excluded_resources below, keyed by the domain MODULE —
@@ -120,6 +121,118 @@ defmodule FluxValeWeb.AdminConsole do
           }
         }
       ]
+    },
+    %{
+      key: :infrastructure,
+      label: "Infrastructure",
+      module: FluxVale.Infrastructure,
+      resources: [
+        %{key: :cluster, module: FluxVale.Infrastructure.Cluster, config: %{}},
+        %{
+          key: :instance,
+          module: FluxVale.Infrastructure.Instance,
+          config: %{
+            label_attr: :name,
+            columns: [:organization_id, :name, :app_version_id, :status, :exposure, :cluster_id],
+            status_attrs: [:status],
+            update_actions: [
+              :perform_deploy,
+              :perform_reconcile,
+              :perform_settle,
+              :settle_anchors,
+              :perform_teardown,
+              :merge_pocket_id_env,
+              :mark_deploy_error,
+              :mark_teardown_error
+            ],
+            note:
+              "The curated instance page and the catalog deploy wizard are the daily tool. This raw surface carries the lifecycle writes; the system's deploy, settle and teardown machinery never renders. env_vars is sensitive (bundled credentials included) and renders verbatim on the show page — treat it as a secret."
+          }
+        },
+        %{
+          key: :instance_allocation_snapshot,
+          module: FluxVale.Infrastructure.InstanceAllocationSnapshot,
+          config: %{
+            columns: [:id],
+            create_actions: [:record],
+            update_actions: [:supersede],
+            note:
+              "Allocation telemetry: one row per allocation era, superseded and appended by a resize. Read-only here, the instance page and billing own the live view."
+          }
+        },
+        %{
+          key: :backup_setting,
+          module: FluxVale.Infrastructure.BackupSetting,
+          config: %{label_attr: :endpoint}
+        },
+        %{
+          key: :backup_run,
+          module: FluxVale.Infrastructure.BackupRun,
+          config: %{
+            create_actions: [:create],
+            update_actions: [:update],
+            note:
+              "Backup history is written by the backup machinery. The instance page owns the run and restore actions."
+          }
+        },
+        %{
+          key: :access_gateway,
+          module: FluxVale.Infrastructure.AccessGateway,
+          config: %{
+            label_attr: :hostname,
+            columns: [:organization_id, :hostname, :tailnet_domain, :state, :monthly_cents],
+            status_attrs: [:state],
+            create_actions: [:create],
+            update_actions: [
+              :update_state,
+              :set_api_token_ref,
+              :update_claims,
+              :perform_observe,
+              :perform_provision,
+              :perform_settle,
+              :settle_anchors,
+              :perform_teardown,
+              :mark_provision_error,
+              :mark_teardown_error
+            ],
+            destroy_actions: [:destroy_after_teardown],
+            note:
+              "The curated access page owns gateway enablement and its status panel. This surface carries the credential recovery and suspend/resume writes."
+          }
+        },
+        %{
+          key: :access_route,
+          module: FluxVale.Infrastructure.AccessRoute,
+          config: %{
+            label_attr: :route_key,
+            create_actions: [:create],
+            destroy_actions: [:destroy],
+            note:
+              "Routes are minted by the attach path; the gateway page owns them. Read-only here."
+          }
+        },
+        %{
+          key: :access_domain,
+          module: FluxVale.Infrastructure.AccessDomain,
+          config: %{
+            label_attr: :domain,
+            create_actions: [:mint_platform],
+            update_actions: [:mark_verified, :mark_failed, :mark_needs_attention, :mark_suspended],
+            note:
+              "Register and resume are the operator writes; the observed issuance states are the system's. The domains surface owns the daily view."
+          }
+        },
+        %{
+          key: :instance_hostname,
+          module: FluxVale.Infrastructure.InstanceHostname,
+          config: %{
+            label_attr: :label,
+            create_actions: [:mint],
+            destroy_actions: [:destroy],
+            note: "Hostnames are minted by the instance paths. Read-only here."
+          }
+        }
+      ]
     }
   ]
 
@@ -128,7 +241,6 @@ defmodule FluxValeWeb.AdminConsole do
   # the whole picture — a slice flips one live by moving it into
   # @domains above with its resource configs.
   @pending_domains [
-    FluxVale.Infrastructure,
     FluxVale.Feedback
   ]
 
@@ -213,7 +325,17 @@ defmodule FluxValeWeb.AdminConsole do
       FluxVale.Infrastructure.PocketIdCustody.Version =>
         "the paper-trail version table: the Audit section surfaces it, not the generic console (#645)",
       FluxVale.Infrastructure.StorageRequest.Version =>
-        "the paper-trail version table: the Audit section surfaces it, not the generic console (#645)"
+        "the paper-trail version table: the Audit section surfaces it, not the generic console (#645)",
+      FluxVale.Infrastructure.PocketIdCustody =>
+        "the PocketID SSO machinery (#597): the curated SSO card and wiring operations own these rows",
+      FluxVale.Infrastructure.PocketIdCustodyEvent =>
+        "the PocketID SSO machinery (#597): the wiring operations write these event rows",
+      FluxVale.Infrastructure.PocketIdWiring =>
+        "the PocketID SSO machinery (#597): the curated SSO card and wiring operations own this row",
+      FluxVale.Infrastructure.PocketIdWiring.Version =>
+        "the paper-trail version table: the Audit section surfaces it, not the generic console (#645)",
+      FluxVale.Infrastructure.StorageRequest =>
+        "the curated storage-request queue (ADR-0046 D5) owns this workflow; the raw table stays out"
     },
     FluxVale.Identity => %{
       FluxVale.Identity.User.Version =>

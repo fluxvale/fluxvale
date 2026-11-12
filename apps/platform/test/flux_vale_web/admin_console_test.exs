@@ -224,9 +224,46 @@ defmodule FluxValeWeb.AdminConsoleTest do
       assert entry.config[:columns] == [:version, :app_id, :published_at]
     end
 
+    test "the Infrastructure slice's entries resolve" do
+      {:ok, entry} = AdminConsole.fetch("infrastructure", "instance")
+
+      assert entry.module == FluxVale.Infrastructure.Instance
+      assert entry.domain.key == :infrastructure
+      assert entry.config[:label_attr] == :name
+      assert entry.config[:status_attrs] == [:status]
+
+      {:ok, by_module} = AdminConsole.fetch_by_module(FluxVale.Infrastructure.Instance)
+      assert by_module.key == :instance
+
+      {:ok, snapshot} =
+        AdminConsole.fetch_by_module(FluxVale.Infrastructure.InstanceAllocationSnapshot)
+
+      assert snapshot.key == :instance_allocation_snapshot
+      assert snapshot.domain.module == FluxVale.Infrastructure
+    end
+
+    test "the Infrastructure domain has the nine keys in order" do
+      keys =
+        :infrastructure
+        |> AdminConsole.resources()
+        |> Enum.map(& &1.key)
+
+      assert keys == [
+               :cluster,
+               :instance,
+               :instance_allocation_snapshot,
+               :backup_setting,
+               :backup_run,
+               :access_gateway,
+               :access_route,
+               :access_domain,
+               :instance_hostname
+             ]
+    end
+
     test "fetch_by_module/1 answers :error for an unregistered module and a pending domain's resource" do
       assert AdminConsole.fetch_by_module(FluxVale.Repo) == :error
-      assert AdminConsole.fetch_by_module(FluxVale.Infrastructure.Instance) == :error
+      assert AdminConsole.fetch_by_module(FluxVale.Feedback.Post) == :error
     end
   end
 
@@ -329,6 +366,38 @@ defmodule FluxValeWeb.AdminConsoleTest do
 
       assert names(AdminConsole.allowed_actions(ledger.module, :update, ledger.config)) == []
       assert names(AdminConsole.allowed_actions(ledger.module, :destroy, ledger.config)) == []
+    end
+
+    test "the Infrastructure configs curate the operator set (slice 5's registry intent)" do
+      {:ok, instance} = AdminConsole.fetch(:infrastructure, :instance)
+
+      instance_updates =
+        instance.module
+        |> AdminConsole.allowed_actions(:update, instance.config)
+        |> names()
+
+      refute :perform_deploy in instance_updates
+      refute :perform_reconcile in instance_updates
+      refute :settle_anchors in instance_updates
+      assert :set_exposure in instance_updates
+      assert :grow_storage in instance_updates
+
+      table = [
+        {:instance_allocation_snapshot, :create, []},
+        {:instance_allocation_snapshot, :update, []},
+        {:access_route, :destroy, []},
+        {:access_gateway, :destroy, []},
+        {:access_domain, :create, [:register]},
+        {:instance_hostname, :create, []},
+        {:backup_run, :update, []}
+      ]
+
+      for {key, type, expected} <- table do
+        {:ok, entry} = AdminConsole.fetch(:infrastructure, key)
+
+        assert names(AdminConsole.allowed_actions(entry.module, type, entry.config)) == expected,
+               "#{inspect(key)} #{type} drifted from the registry's intent list"
+      end
     end
 
     test "Topup is excluded by name with its documented reason" do
