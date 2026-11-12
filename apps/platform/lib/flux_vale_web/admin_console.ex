@@ -246,6 +246,7 @@ defmodule FluxValeWeb.AdminConsole do
             label_attr: :title,
             columns: [:title, :status, :vote_count, :comment_count, :organization_id],
             badge_relationships: [:tags],
+            form_textareas: [:description],
             update_actions: [:bump_vote_count, :bump_comment_count],
             note:
               "The public board and the moderation surface are the daily tools. This surface carries the moderation writes: content edits, status, tags and destroy."

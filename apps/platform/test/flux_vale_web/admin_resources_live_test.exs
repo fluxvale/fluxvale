@@ -2700,6 +2700,47 @@ defmodule FluxValeWeb.AdminResourcesLiveTest do
       assert badge_labels(view) == []
     end
 
+    test "editing a multiline description preserves its line breaks", %{conn: conn} do
+      {org, _owner} = foreign_org!()
+      description = "line one\nline two"
+      post = FeedbackFixtures.post!(%{organization_id: org.id, description: description})
+
+      {:ok, view, _html} = live(conn, "/admin/resources/feedback/post/#{post.id}/edit")
+
+      assert has_element?(view, "[data-testid='admin-resource-input-description'] textarea")
+      assert textarea_text(view, "description") == description
+
+      submitted =
+        view
+        |> form("#admin-resource-record-form",
+          record: %{"title" => post.title, "description" => description}
+        )
+        |> render_submit()
+
+      assert {:error, {:live_redirect, %{to: _to}}} = submitted
+
+      assert Ash.get!(Post, post.id, authorize?: false).description == description
+    end
+
+    test "a JSON-looking description stays plain text through the form", %{conn: conn} do
+      {org, _owner} = foreign_org!()
+      description = ~s({"not": "decoded"})
+      post = FeedbackFixtures.post!(%{organization_id: org.id, description: description})
+
+      {:ok, view, _html} = live(conn, "/admin/resources/feedback/post/#{post.id}/edit")
+
+      submitted =
+        view
+        |> form("#admin-resource-record-form",
+          record: %{"title" => post.title, "description" => description}
+        )
+        |> render_submit()
+
+      assert {:error, {:live_redirect, %{to: _to}}} = submitted
+
+      assert Ash.get!(Post, post.id, authorize?: false).description == description
+    end
+
     test "the post create form takes title, description and the named org, and lands on the show page",
          %{conn: conn} do
       {:ok, view, _html} = live(conn, "/admin/resources/feedback/post/new")
@@ -2711,7 +2752,7 @@ defmodule FluxValeWeb.AdminResourcesLiveTest do
 
       assert has_element?(
                view,
-               "[data-testid='admin-resource-input-description'] input[type='text'][required]"
+               "[data-testid='admin-resource-input-description'] textarea[required]"
              )
 
       assert has_element?(
@@ -2998,6 +3039,22 @@ defmodule FluxValeWeb.AdminResourcesLiveTest do
 
       assert Enum.map(fields, & &1.name) == [:name, :env_vars]
       assert List.last(fields).type == "textarea"
+      assert List.last(fields).format == :json
+    end
+
+    test "the registry's form_textareas override maps a string field to plain text" do
+      {:ok, entry} = AdminConsole.fetch(:feedback, :post)
+
+      action =
+        entry.module
+        |> AdminConsole.allowed_actions(:update, entry.config)
+        |> Enum.find(&(&1.name == :update))
+
+      fields = Resources.form_fields(Post, action, textareas: entry.config[:form_textareas])
+      description = Enum.find(fields, &(&1.name == :description))
+
+      assert description.type == "textarea"
+      assert description.format == :text
     end
   end
 

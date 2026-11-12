@@ -499,7 +499,8 @@ defmodule FluxValeWeb.AdminLive.Resources do
              entry.module
              |> AshPhoenix.Form.for_create(action.name, form_opts(admin))
              |> to_form(),
-           fields: form_fields(entry.module, action),
+           fields:
+             form_fields(entry.module, action, textareas: entry.config[:form_textareas] || []),
            textarea_text: %{}
          )}
 
@@ -520,7 +521,7 @@ defmodule FluxValeWeb.AdminLive.Resources do
 
     with {:ok, record} <- Ash.get(entry.module, id, actor: admin, load: load),
          {:ok, action} <- form_action(entry, :update, params["action"]) do
-      fields = form_fields(entry.module, action)
+      fields = form_fields(entry.module, action, textareas: entry.config[:form_textareas] || [])
       seed = seed_params(entry, fields, record)
 
       form =
@@ -823,11 +824,12 @@ defmodule FluxValeWeb.AdminLive.Resources do
   # JSON textareas: params arrive as JSON text and are decoded to the
   # plain-map shape every composite casts from (probe-verified); a
   # decode error lets the raw string flow on so the type's cast
-  # rejects it as a field error beside the input.
+  # rejects it as a field error beside the input. Plain-text textareas
+  # (the registry's form_textareas override) never decode.
   defp decode_json_params(fields, params) do
     textarea_keys =
       fields
-      |> Enum.filter(&(&1.type == "textarea"))
+      |> Enum.filter(&(&1.type == "textarea" and &1.format == :json))
       |> Enum.map(&Atom.to_string(&1.name))
 
     Enum.reduce(textarea_keys, params, &decode_textarea_param/2)
@@ -1135,18 +1137,23 @@ defmodule FluxValeWeb.AdminLive.Resources do
   name that is not a public attribute is SKIPPED, never guessed at.
   Maps and composites map to JSON textareas (their types cast from
   JSON-shaped plain maps and validate through the field errors —
-  slice 4's contract); a shape the engine still cannot map is
-  SKIPPED. Attributes render first,
+  slice 4's contract). The registry's `form_textareas` opts map named
+  string fields to plain-text textareas, never JSON-decoded; a shape
+  the engine still cannot map is SKIPPED. Attributes render first,
   arguments after (an argument is context the attrs do not carry).
   Public seam: the field-mapping tests drive fabricated accept lists
   without mounting.
   """
-  @spec form_fields(module(), map()) :: [map()]
-  def form_fields(module, action) do
+  @spec form_fields(module(), map(), keyword()) :: [map()]
+  def form_fields(module, action, opts \\ []) do
+    textareas = Keyword.get(opts, :textareas, [])
     attrs = Info.public_attributes(module)
     by_name = Map.new(attrs, &{&1.name, &1})
     accept = action.accept || []
-    attr_fields = Enum.flat_map(accept, fn name -> resolve_form_field(by_name, name) end)
+
+    attr_fields =
+      Enum.flat_map(accept, fn name -> resolve_form_field(by_name, name, textareas) end)
+
     # Map.get over a bare field read: fabricated test actions carry
     # only what they assert, not the full action struct.
     arguments = Map.get(action, :arguments) || []
@@ -1162,32 +1169,43 @@ defmodule FluxValeWeb.AdminLive.Resources do
     argument_fields =
       arguments
       |> Enum.reject(&(&1.name in attr_names))
-      |> Enum.flat_map(&mapped_field/1)
+      |> Enum.flat_map(&mapped_field(&1, textareas))
 
     attr_fields ++ argument_fields
   end
 
-  defp resolve_form_field(by_name, name) do
+  defp resolve_form_field(by_name, name, textareas) do
     case Map.fetch(by_name, name) do
-      {:ok, attr} -> mapped_field(attr)
+      {:ok, attr} -> mapped_field(attr, textareas)
       :error -> []
     end
   end
 
-  defp mapped_field(attr) do
-    case AdminResource.input_type(attr) do
-      nil -> []
-      type -> [field_entry(attr, type)]
+  # The registry's form_textareas override (Post's description is the
+  # first): a plain-text textarea, never JSON-decoded. Everything else
+  # maps by type; a mapped textarea is JSON-shaped (the slice 4
+  # contract).
+  defp mapped_field(attr, textareas) do
+    cond do
+      attr.name in textareas ->
+        [field_entry(attr, "textarea", :text)]
+
+      true ->
+        case AdminResource.input_type(attr) do
+          nil -> []
+          type -> [field_entry(attr, type, if(type == "textarea", do: :json))]
+        end
     end
   end
 
-  defp field_entry(attr, type) do
+  defp field_entry(attr, type, format \\ nil) do
     options = if(type == "select", do: AdminResource.enum_options(attr), else: nil)
 
     %{
       name: attr.name,
       label: AdminResource.label(attr.name),
       type: type,
+      format: format,
       options: options,
       step: AdminResource.input_step(attr),
       required: AdminResource.input_required?(attr, type)
