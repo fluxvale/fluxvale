@@ -541,17 +541,21 @@ defmodule FluxValeWeb.AdminLive.Resources do
   # -- events ---------------------------------------------------------------
 
   # The form's live validation: per-field errors ride AshPhoenix's form
-  # data protocol into <.input> as the operator types. Params pass
-  # through UNTOUCHED — the form's cast value cannot render textarea
-  # text (a valid-JSON :map cast decodes the string), so the operator's
-  # raw text rides the textarea_text assign instead: it merges on every
-  # validate and renders verbatim. While the text is not yet castable,
-  # the composite's cast says "is invalid" beside the field, which is
-  # live validation telling the truth. The decode happens at submit
-  # (see the save handler).
+  # data protocol into <.input> as the operator types. Params decode
+  # exactly as the save handler decodes them, so valid JSON that
+  # describes a valid composite does not show "is invalid" while the
+  # operator types it. The OPERATOR'S raw text still rides the
+  # textarea_text assign (merged from the ORIGINAL params before the
+  # decode), so the field re-renders the text verbatim; text that does
+  # not decode stays raw and the composite says "is invalid", which is
+  # live validation telling the truth.
   @impl Phoenix.LiveView
   def handle_event("validate", %{"record" => params}, socket) do
-    form = AshPhoenix.Form.validate(socket.assigns.form, params)
+    form =
+      AshPhoenix.Form.validate(
+        socket.assigns.form,
+        decode_json_params(socket.assigns.fields, params)
+      )
 
     {:noreply,
      assign(socket,

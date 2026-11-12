@@ -1779,6 +1779,44 @@ defmodule FluxValeWeb.AdminResourcesLiveTest do
       assert Enum.map(version.backing_services, & &1.url_env) == ["DATABASE_URL"]
     end
 
+    test "a save with already-decoded map textarea params lands the record", %{
+      conn: conn,
+      admin: admin
+    } do
+      size = sized_size!(admin)
+      category = category!(admin)
+      app = app!(admin, category)
+
+      {:ok, view, _html} = live(conn, "/admin/resources/catalog/app_version/new")
+
+      redirect =
+        render_submit(view, "save", %{
+          "record" => %{
+            "version" => "9.9.8",
+            "image" => "fluxvale/probe:9.9.8",
+            "port" => "3000",
+            "default_env_vars" => %{"A" => "1"},
+            "configurable_env_vars" =>
+              ~s({"PORT": {"label": "Port", "type": "integer"}, "DATABASE_URL": {"label": "Database URL", "type": "string", "secret": true}}),
+            "backing_services" =>
+              ~s([{"kind": "postgres", "version": "18", "url_env": "DATABASE_URL"}]),
+            "default_cpu_cores" => "0.5",
+            "default_memory_mb" => "256",
+            "default_storage_gb" => "1",
+            "app_id" => app.id,
+            "recommended_size_id" => size.id
+          }
+        })
+
+      # The textarea params arrive already decoded (a map/list, not JSON
+      # text); decode_json_params leaves them untouched and the casts
+      # accept them.
+      assert {:error, {:live_redirect, %{to: to}}} = redirect
+      version_id = to |> String.split("/") |> List.last()
+      version = Ash.get!(AppVersion, version_id, actor: admin)
+      assert version.default_env_vars == %{"A" => "1"}
+    end
+
     test "invalid JSON in a textarea re-renders with an error, no navigation", %{conn: conn} do
       {:ok, view, _html} = live(conn, "/admin/resources/catalog/app_version/new")
 
@@ -1891,20 +1929,18 @@ defmodule FluxValeWeb.AdminResourcesLiveTest do
 
       {:ok, view, _html} = live(conn, "/admin/resources/catalog/app_version/#{version.id}/edit")
 
-      # The operator types valid JSON with their own spacing into BOTH
+      # The operator types JSON with their own spacing into BOTH
       # textarea kinds: each field re-renders the text VERBATIM — no
       # cast-value re-serialization, the :map field included (Ash casts
-      # the string, but the render reads the raw-text assign) — and,
-      # the composite not accepting the raw text, says "is invalid"
-      # beside itself: live validation telling the truth. The map field
-      # casts the decoded map fine, so its own container carries no
-      # error.
+      # the string, but the render reads the raw-text assign). The
+      # params decode before validation (the save handler's decode), so
+      # a decodable map casts clean at this layer; an undecodable
+      # string still shows "is invalid" (the invalid-JSON test).
       typed = ~s({"TYPED": "justnow"})
 
-      html =
-        render_change(view, "validate", %{
-          "record" => %{"configurable_env_vars" => typed, "default_env_vars" => typed}
-        })
+      render_change(view, "validate", %{
+        "record" => %{"configurable_env_vars" => typed, "default_env_vars" => typed}
+      })
 
       re_rendered_composite =
         view
@@ -1924,13 +1960,52 @@ defmodule FluxValeWeb.AdminResourcesLiveTest do
 
       assert re_rendered_map =~ typed
 
-      assert html =~ "is invalid"
+      composite_container =
+        render(element(view, "[data-testid='admin-resource-input-configurable_env_vars']"))
 
-      map_container =
-        render(element(view, "[data-testid='admin-resource-input-default_env_vars']"))
-
-      refute map_container =~ "is invalid"
+      refute composite_container =~ "is invalid"
       assert has_element?(view, "[data-testid='admin-resource-form']")
+
+      # A complete, valid spec decodes before validation: the field
+      # casts clean (no "is invalid"), while the textarea still
+      # re-renders the operator's text verbatim.
+      valid = ~s({"TYPED": {"label": "Typed", "type": "string"}})
+
+      render_change(view, "validate", %{"record" => %{"configurable_env_vars" => valid}})
+
+      composite_container =
+        render(element(view, "[data-testid='admin-resource-input-configurable_env_vars']"))
+
+      refute composite_container =~ "is invalid"
+
+      valid_text =
+        view
+        |> element("[data-testid='admin-resource-input-configurable_env_vars'] textarea")
+        |> render()
+        |> LazyHTML.from_fragment()
+        |> LazyHTML.text()
+
+      assert valid_text =~ valid
+    end
+
+    test "a nil textarea param renders an empty textarea", %{conn: conn, admin: admin} do
+      size = sized_size!(admin)
+      category = category!(admin)
+      app = app!(admin, category)
+      version = version!(admin, app, size)
+
+      {:ok, view, _html} = live(conn, "/admin/resources/catalog/app_version/#{version.id}/edit")
+
+      render_change(view, "validate", %{"record" => %{"first_run" => nil}})
+
+      first_run =
+        view
+        |> element("[data-testid='admin-resource-input-first_run'] textarea")
+        |> render()
+        |> LazyHTML.from_fragment()
+        |> LazyHTML.text()
+
+      assert String.trim(first_run) == ""
     end
 
     test "the version show renders first_run and oidc_wiring through the inspect fallback", %{
