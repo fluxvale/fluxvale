@@ -8,6 +8,7 @@ defmodule FluxValeWeb.AdminResourcesLiveTest do
   # re-check). Write mounts are slice 2 — none exist here.
 
   use FluxValeWeb.ConnCase, async: false
+  use Mimic
 
   import Ecto.Query, only: [from: 2]
   import Phoenix.LiveViewTest
@@ -21,16 +22,24 @@ defmodule FluxValeWeb.AdminResourcesLiveTest do
   alias FluxVale.Catalog.AppVersion
   alias FluxVale.Catalog.Category
   alias FluxVale.Identity.User
+  alias FluxVale.Infrastructure.AccessGateway
+  alias FluxVale.Infrastructure.AccessProviders.Tailscale
+  alias FluxVale.Infrastructure.AccessRoute
+  alias FluxVale.Infrastructure.BackupRun
   alias FluxVale.Infrastructure.Instance
+  alias FluxVale.Infrastructure.InstanceAllocationSnapshot
+  alias FluxVale.Infrastructure.InstanceHostname
   alias FluxVale.Ops.AccessRule
   alias FluxVale.Ops.FeatureFlag
   alias FluxVale.Pricing.Size
   alias FluxVale.Pricing.TaxRate
   alias FluxVale.TestSupport.ApiPat
   alias FluxVale.TestSupport.BillingFixtures
+  alias FluxVale.TestSupport.InstanceFixtures
   alias FluxVale.TestSupport.SessionHelpers
   alias FluxValeWeb.AdminConsole
   alias FluxValeWeb.AdminLive.Resources
+  alias FluxValeWeb.AdminResource
 
   require Ash.Query
 
@@ -45,6 +54,17 @@ defmodule FluxValeWeb.AdminResourcesLiveTest do
       )
 
     %{admin: admin, conn: SessionHelpers.sign_in(conn, admin), bare_conn: conn}
+  end
+
+  setup do
+    # The Infrastructure slice's system create path: the gateway
+    # provider. Stubbed here (the resource suites' posture) so the
+    # console tests never touch a cluster.
+    stub(Tailscale, :provision_gateway, fn _gateway, _key ->
+      {:ok, %{credential_secret_ref: "credential-stub"}}
+    end)
+
+    :ok
   end
 
   # Preconditions through the resource's own actions with the admin
@@ -195,6 +215,61 @@ defmodule FluxValeWeb.AdminResourcesLiveTest do
     size!(admin, %{cpu_cores: Decimal.new("0.5"), memory_mb: 256})
   end
 
+  # -- slice 5's Infrastructure fixtures ------------------------------------
+
+  # A foreign org (the console admin is not a member) and its funded
+  # owner: the rows below belong to that org, so a rendered row proves
+  # the admin's cross-org read.
+  defp foreign_org! do
+    {org, _wallet} = BillingFixtures.funded_wallet!()
+
+    owner =
+      org
+      |> Ash.load!(:members, authorize?: false)
+      |> Map.get(:members)
+      |> List.first()
+
+    {org, owner}
+  end
+
+  # The foreign org's gateway through its system create path.
+  defp gateway!(org) do
+    AccessGateway.create!(
+      %{
+        organization_id: org.id,
+        tailnet_domain: "example.ts.net",
+        auth_key: "tskey-console"
+      },
+      authorize?: false
+    )
+  end
+
+  defp backup_run!(instance) do
+    BackupRun.create!(
+      %{instance_id: instance.id, kind: :manual, started_at: DateTime.utc_now()},
+      authorize?: false
+    )
+  end
+
+  defp allocation_snapshot!(instance) do
+    InstanceAllocationSnapshot
+    |> Ash.Query.filter(instance_id == ^instance.id)
+    |> Ash.read_one!(authorize?: false)
+  end
+
+  defp hostnames!(instance) do
+    InstanceHostname
+    |> Ash.Query.filter(instance_id == ^instance.id)
+    |> Ash.read!(authorize?: false)
+  end
+
+  defp custom_route!(gateway, instance) do
+    AccessRoute.create!(
+      %{gateway_id: gateway.id, instance_id: instance.id, route_key: "8443"},
+      authorize?: false
+    )
+  end
+
   # The wallet index's label column is id (no name-ish attr), so one
   # cell testid per row carries the id column prefix.
   defp wallet_index_ids(view) do
@@ -222,6 +297,19 @@ defmodule FluxValeWeb.AdminResourcesLiveTest do
     matches = LazyHTML.query(document, "[data-testid^='admin-resource-cell-key-']")
 
     length(Enum.to_list(matches))
+  end
+
+  defp column_names(view) do
+    view
+    |> render()
+    |> LazyHTML.from_fragment()
+    |> LazyHTML.query("[data-testid^='admin-resource-col-']")
+    |> Enum.to_list()
+    |> Enum.map(fn match ->
+      [testid] = LazyHTML.attribute(match, "data-testid")
+      String.replace_prefix(testid, "admin-resource-col-", "")
+    end)
+    |> MapSet.new()
   end
 
   describe "the landing and the domain picker (D3)" do
@@ -2075,6 +2163,405 @@ defmodule FluxValeWeb.AdminResourcesLiveTest do
         |> get("/admin/resources/catalog/app")
 
       assert conn.status == 403
+    end
+  end
+
+  # -- slice 5: the Infrastructure rollout (the policy slice) -----------------
+
+  describe "the Infrastructure rollout (slice 5: the policy slice)" do
+    test "the instance index renders the configured columns, FK links and the lifecycle badge", %{
+      conn: conn
+    } do
+      InstanceFixtures.local_cluster!()
+      version = InstanceFixtures.app_version!()
+      {org, owner} = foreign_org!()
+      instance = InstanceFixtures.instance!(version, owner)
+
+      {:ok, view, _html} = live(conn, "/admin/resources/infrastructure/instance")
+
+      rendered = column_names(view)
+
+      expected =
+        MapSet.new([
+          "organization_id",
+          "name",
+          "app_version_id",
+          "status",
+          "exposure",
+          "cluster_id",
+          "created_at"
+        ])
+
+      assert MapSet.equal?(rendered, expected)
+
+      assert text_of(view, "[data-testid='admin-resource-cell-organization_id-#{instance.id}']") ==
+               AdminResource.short_uuid(org.id)
+
+      assert text_of(view, "[data-testid='admin-resource-cell-name-#{instance.id}']") ==
+               instance.name
+
+      version_link = render(element(view, "a[data-testid='admin-resource-fk-#{version.id}']"))
+      assert version_link =~ ~s(href="/admin/resources/catalog/app_version/#{version.id}")
+      assert version_link =~ version.version
+
+      cluster_link =
+        render(element(view, "a[data-testid='admin-resource-fk-#{instance.cluster_id}']"))
+
+      assert cluster_link =~
+               ~s(href="/admin/resources/infrastructure/cluster/#{instance.cluster_id}")
+
+      status_cell = "[data-testid='admin-resource-cell-status-#{instance.id}']"
+
+      assert text_of(view, status_cell) == "Submitted"
+      assert has_element?(view, "#{status_cell} [data-testid='status-badge']")
+
+      exposure_cell = "[data-testid='admin-resource-cell-exposure-#{instance.id}']"
+
+      assert text_of(view, exposure_cell) == "Public"
+      assert has_element?(view, "#{exposure_cell} [data-testid='admin-resource-enum']")
+
+      assert text_of(view, "[data-testid='admin-resource-cell-created_at-#{instance.id}']") ==
+               Calendar.strftime(instance.created_at, "%b %d, %Y")
+    end
+
+    test "the instance show renders env_vars as JSON details and the lifecycle badge", %{
+      conn: conn
+    } do
+      InstanceFixtures.local_cluster!()
+      version = InstanceFixtures.app_version!()
+      {_org, owner} = foreign_org!()
+
+      instance =
+        Instance.create!(
+          %{
+            name: "Console showcase",
+            app_version_id: version.id,
+            env_vars: %{"GREETING" => "hello"}
+          },
+          actor: owner
+        )
+
+      {:ok, view, _html} =
+        live(conn, "/admin/resources/infrastructure/instance/#{instance.id}")
+
+      assert has_element?(
+               view,
+               "[data-testid='admin-resource-field-env_vars'] details[data-testid='admin-resource-json']"
+             )
+
+      json =
+        view
+        |> element(
+          "[data-testid='admin-resource-field-env_vars'] [data-testid='admin-resource-json'] pre"
+        )
+        |> render()
+        |> LazyHTML.from_fragment()
+        |> LazyHTML.text()
+
+      assert json =~ ~s("GREETING": "hello")
+
+      assert text_of(
+               view,
+               "[data-testid='admin-resource-field-status'] [data-testid='status-badge']"
+             ) == "Submitted"
+
+      assert has_element?(
+               view,
+               "a[data-testid='admin-resource-fk-#{version.id}']",
+               version.version
+             )
+
+      assert has_element?(
+               view,
+               "a[data-testid='admin-resource-fk-#{instance.cluster_id}']"
+             )
+    end
+
+    test "the access gateway index renders the configured columns and the state badge", %{
+      conn: conn
+    } do
+      {org, _owner} = foreign_org!()
+      gateway = gateway!(org)
+
+      {:ok, view, _html} =
+        live(conn, "/admin/resources/infrastructure/access_gateway")
+
+      rendered = column_names(view)
+
+      expected =
+        MapSet.new([
+          "organization_id",
+          "hostname",
+          "tailnet_domain",
+          "state",
+          "monthly_cents",
+          "created_at"
+        ])
+
+      assert MapSet.equal?(rendered, expected)
+
+      assert text_of(
+               view,
+               "[data-testid='admin-resource-cell-organization_id-#{gateway.id}']"
+             ) == AdminResource.short_uuid(org.id)
+
+      assert text_of(view, "[data-testid='admin-resource-cell-hostname-#{gateway.id}']") ==
+               gateway.hostname
+
+      assert text_of(view, "[data-testid='admin-resource-cell-tailnet_domain-#{gateway.id}']") ==
+               "example.ts.net"
+
+      state_cell = "[data-testid='admin-resource-cell-state-#{gateway.id}']"
+
+      assert text_of(view, state_cell) == "Connecting"
+      assert has_element?(view, "#{state_cell} [data-testid='status-badge']")
+
+      assert text_of(
+               view,
+               "[data-testid='admin-resource-cell-monthly_cents-#{gateway.id}']"
+             ) == Integer.to_string(gateway.monthly_cents)
+    end
+
+    test "the instance allocation snapshot index is the flagged read-only surface", %{
+      conn: conn
+    } do
+      InstanceFixtures.local_cluster!()
+      version = InstanceFixtures.app_version!()
+      {_org, owner} = foreign_org!()
+      instance = InstanceFixtures.instance!(version, owner)
+      snapshot = allocation_snapshot!(instance)
+
+      {:ok, view, _html} =
+        live(conn, "/admin/resources/infrastructure/instance_allocation_snapshot")
+
+      rendered = column_names(view)
+      expected = MapSet.new(["id", "created_at"])
+
+      assert MapSet.equal?(rendered, expected)
+
+      assert has_element?(view, "[data-testid='admin-resource-note']", "Allocation telemetry")
+      refute has_element?(view, "[data-testid='admin-resource-new']")
+
+      assert text_of(view, "[data-testid='admin-resource-cell-id-#{snapshot.id}']") ==
+               AdminResource.short_uuid(snapshot.id)
+    end
+
+    test "every Infrastructure registry resource is reachable and all nine are present", %{
+      conn: conn
+    } do
+      resources = AdminConsole.resources(:infrastructure)
+      keys = Enum.map(resources, & &1.key)
+
+      assert keys == [
+               :cluster,
+               :instance,
+               :instance_allocation_snapshot,
+               :backup_setting,
+               :backup_run,
+               :access_gateway,
+               :access_route,
+               :access_domain,
+               :instance_hostname
+             ]
+
+      for key <- keys do
+        {:ok, view, _html} = live(conn, "/admin/resources/infrastructure/#{key}")
+
+        assert has_element?(view, "[data-testid='admin-resource-index']")
+        assert has_element?(view, "[data-testid='admin-resources-title']")
+      end
+    end
+
+    test "action curation: the lifecycle writes render, the machinery never does", %{conn: conn} do
+      InstanceFixtures.local_cluster!()
+      version = InstanceFixtures.app_version!()
+      {org, owner} = foreign_org!()
+      instance = InstanceFixtures.instance!(version, owner)
+      gateway = gateway!(org)
+      route = custom_route!(gateway, instance)
+      [hostname | _rest] = hostnames!(instance)
+      snapshot = allocation_snapshot!(instance)
+
+      {:ok, view, _html} =
+        live(conn, "/admin/resources/infrastructure/instance/#{instance.id}")
+
+      for action <- [
+            :update_status,
+            :deploy,
+            :stop,
+            :start,
+            :sleep,
+            :touch,
+            :set_always_on,
+            :set_exposure,
+            :resize,
+            :grow_storage
+          ] do
+        assert has_element?(view, "[data-testid='admin-resource-edit-#{action}']")
+      end
+
+      for action <- [
+            :perform_deploy,
+            :perform_reconcile,
+            :perform_settle,
+            :settle_anchors,
+            :perform_teardown,
+            :merge_pocket_id_env,
+            :mark_deploy_error,
+            :mark_teardown_error
+          ] do
+        refute has_element?(view, "[data-testid='admin-resource-edit-#{action}']")
+      end
+
+      assert has_element?(view, "[data-testid='admin-resource-destroy-destroy']")
+
+      assert {:error, {:live_redirect, %{to: to, flash: flash}}} =
+               live(
+                 conn,
+                 "/admin/resources/infrastructure/instance/#{instance.id}/edit?action=perform_deploy"
+               )
+
+      assert to == "/admin/resources/infrastructure/instance/#{instance.id}"
+      assert flash["error"] == "That action is not available here."
+
+      {:ok, gateway_view, _html} =
+        live(conn, "/admin/resources/infrastructure/access_gateway/#{gateway.id}")
+
+      for action <- [:update_credential, :suspend, :resume] do
+        assert has_element?(gateway_view, "[data-testid='admin-resource-edit-#{action}']")
+      end
+
+      refute has_element?(gateway_view, "[data-testid^='admin-resource-destroy-']")
+
+      {:ok, snapshot_view, _html} =
+        live(
+          conn,
+          "/admin/resources/infrastructure/instance_allocation_snapshot/#{snapshot.id}"
+        )
+
+      refute has_element?(snapshot_view, "[data-testid='admin-resource-actions']")
+      refute has_element?(snapshot_view, "[data-testid^='admin-resource-edit-']")
+      refute has_element?(snapshot_view, "[data-testid^='admin-resource-destroy-']")
+
+      {:ok, snapshot_index, _html} =
+        live(conn, "/admin/resources/infrastructure/instance_allocation_snapshot")
+
+      refute has_element?(snapshot_index, "[data-testid='admin-resource-new']")
+
+      run = backup_run!(instance)
+      {:ok, run_view, _html} = live(conn, "/admin/resources/infrastructure/backup_run/#{run.id}")
+
+      refute has_element?(run_view, "[data-testid^='admin-resource-edit-']")
+      refute has_element?(run_view, "[data-testid^='admin-resource-destroy-']")
+
+      {:ok, route_view, _html} =
+        live(conn, "/admin/resources/infrastructure/access_route/#{route.id}")
+
+      refute has_element?(route_view, "[data-testid^='admin-resource-edit-']")
+      refute has_element?(route_view, "[data-testid^='admin-resource-destroy-']")
+
+      {:ok, hostname_view, _html} =
+        live(conn, "/admin/resources/infrastructure/instance_hostname/#{hostname.id}")
+
+      refute has_element?(hostname_view, "[data-testid^='admin-resource-edit-']")
+      refute has_element?(hostname_view, "[data-testid^='admin-resource-destroy-']")
+    end
+
+    test "the instance create form maps the create action's inputs and lands on the show page", %{
+      conn: conn
+    } do
+      InstanceFixtures.local_cluster!()
+      version = InstanceFixtures.app_version!()
+      {org, _owner} = foreign_org!()
+
+      {:ok, view, _html} = live(conn, "/admin/resources/infrastructure/instance/new")
+
+      assert has_element?(
+               view,
+               "[data-testid='admin-resource-input-name'] input[type='text'][required]"
+             )
+
+      assert has_element?(
+               view,
+               "[data-testid='admin-resource-input-cpu_cores'] input[type='number'][step='0.01']"
+             )
+
+      assert has_element?(
+               view,
+               "[data-testid='admin-resource-input-memory_mb'] input[type='number']"
+             )
+
+      assert has_element?(
+               view,
+               "[data-testid='admin-resource-input-storage_gb'] input[type='number']"
+             )
+
+      assert has_element?(view, "[data-testid='admin-resource-input-env_vars'] textarea")
+
+      assert has_element?(
+               view,
+               "[data-testid='admin-resource-input-app_version_id'] input[type='text'][required]"
+             )
+
+      assert has_element?(
+               view,
+               "[data-testid='admin-resource-input-organization_id'] input[type='text']"
+             )
+
+      redirect =
+        view
+        |> form("#admin-resource-record-form",
+          record: %{
+            "name" => "Console instance",
+            "cpu_cores" => "1",
+            "memory_mb" => "512",
+            "storage_gb" => "1",
+            "env_vars" => ~s({"GREETING": "hello"}),
+            "app_version_id" => version.id,
+            "organization_id" => org.id
+          }
+        )
+        |> render_submit()
+
+      assert {:error, {:live_redirect, %{to: to}}} = redirect
+      assert to =~ "/admin/resources/infrastructure/instance/"
+
+      created =
+        to
+        |> String.split("/")
+        |> List.last()
+        |> then(&Ash.get!(Instance, &1, authorize?: false))
+
+      assert created.name == "Console instance"
+      assert created.organization_id == org.id
+      assert created.env_vars == %{"GREETING" => "hello"}
+      assert is_binary(created.slug) and created.slug != ""
+
+      hostname =
+        InstanceHostname
+        |> Ash.Query.filter(instance_id == ^created.id and label == ^created.slug)
+        |> Ash.read_one!(authorize?: false)
+
+      assert hostname.access_domain_id
+    end
+
+    test "a signed-in non-admin gets a bare 403 at the route gate on the Infrastructure surface",
+         %{
+           bare_conn: conn
+         } do
+      user =
+        User.create!(
+          "admin-resources-infrastructure-#{@n}@fluxvale.com",
+          %{},
+          authorize?: false
+        )
+
+      request =
+        conn
+        |> SessionHelpers.sign_in(user)
+        |> get("/admin/resources/infrastructure/instance")
+
+      assert request.status == 403
     end
   end
 

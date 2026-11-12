@@ -82,11 +82,17 @@ defmodule FluxValeWeb.Components.AdminResourceTest do
       assert AdminResource.shape(reason) == :enum
     end
 
+    test "a map attr is the map shape (slice 5: Instance env_vars)" do
+      env_vars = attr(FluxVale.Infrastructure.Instance, :env_vars)
+
+      assert AdminResource.shape(env_vars) == :map
+      assert AdminResource.shape(%{type: Ash.Type.Map}) == :map
+    end
+
     test "anything unrecognized is the fallback" do
       # Atom module types reach the enum check first (the is_atom
-      # clause): an unmapped module and a map type both answer through
-      # it, while a tuple type (arrays ride {:array, _}) is the true
-      # catch-all.
+      # clause): an unmapped module answers through it, while a tuple
+      # type (arrays ride {:array, _}) is the true catch-all.
       assert AdminResource.shape(%{type: Ash.Type.Date}) == :unknown
       assert AdminResource.shape(%{type: Ash.Type.Atom, constraints: []}) == :unknown
       assert AdminResource.shape(%{type: SomeUnmappedType}) == :unknown
@@ -165,6 +171,64 @@ defmodule FluxValeWeb.Components.AdminResourceTest do
       html = render_component(&AdminResource.value/1, shape: :enum, value: :credit)
 
       assert text_of(html, "[data-testid='admin-resource-enum']") == "Credit"
+    end
+
+    test "a map show value is a JSON details block with pretty JSON" do
+      html =
+        render_component(&AdminResource.value/1,
+          shape: :map,
+          value: %{"GREETING" => "hello", "PORT" => "3000"},
+          variant: :show
+        )
+
+      details = "[data-testid='admin-resource-json']"
+
+      assert text_of(html, "#{details} summary") == "JSON"
+      assert text_of(html, "#{details} pre") =~ ~s("GREETING": "hello")
+      assert text_of(html, "#{details} pre") =~ "\n"
+    end
+
+    test "an unencodable map falls back to inspect" do
+      html =
+        render_component(&AdminResource.value/1,
+          shape: :map,
+          value: %{pid: self(), tuple: {:a, 1}},
+          variant: :show
+        )
+
+      text = text_of(html, "[data-testid='admin-resource-json'] pre")
+      assert text =~ "pid"
+      assert text =~ "{:a, 1}"
+    end
+
+    test "a map index value is the neutral map badge" do
+      html =
+        render_component(&AdminResource.value/1,
+          shape: :map,
+          value: %{"GREETING" => "hello"},
+          variant: :index
+        )
+
+      assert text_of(html, "[data-testid='admin-resource-map']") == "map"
+    end
+
+    test "a status attr renders the shared status badge" do
+      html =
+        render_component(&AdminResource.value/1,
+          shape: :enum,
+          value: :pending,
+          status?: true
+        )
+
+      assert text_of(html, "[data-testid='status-badge']") == "Submitted"
+      refute html =~ "admin-resource-enum"
+    end
+
+    test "the same enum without the status flag stays the neutral enum badge" do
+      html = render_component(&AdminResource.value/1, shape: :enum, value: :pending)
+
+      assert text_of(html, "[data-testid='admin-resource-enum']") == "Pending"
+      refute html =~ "status-badge"
     end
 
     test "a decimal renders its raw value, mono, with no currency inference" do

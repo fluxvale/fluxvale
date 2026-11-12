@@ -33,7 +33,15 @@ defmodule FluxValeWeb.AdminResource do
   types answer `:unknown` and ride the fallback renderer.
   """
   @spec shape(map()) ::
-          :uuid | :string | :integer | :decimal | :boolean | :datetime | :enum | :unknown
+          :uuid
+          | :string
+          | :integer
+          | :decimal
+          | :boolean
+          | :datetime
+          | :enum
+          | :map
+          | :unknown
   def shape(%{type: Ash.Type.UUIDv7}), do: :uuid
   def shape(%{type: Ash.Type.UUID}), do: :uuid
   def shape(%{type: Ash.Type.String}), do: :string
@@ -48,6 +56,11 @@ defmodule FluxValeWeb.AdminResource do
   # Ash spells them UtcDatetime/UtcDatetimeUsec (any precision → one shape).
   def shape(%{type: Ash.Type.UtcDatetime}), do: :datetime
   def shape(%{type: Ash.Type.UtcDatetimeUsec}), do: :datetime
+
+  # A map attr (Instance.env_vars is the first) renders read-only JSON on
+  # the show page; the generic is_atom clause would otherwise read the
+  # built-in module as an unknown composite.
+  def shape(%{type: Ash.Type.Map}), do: :map
 
   def shape(%{type: Ash.Type.Atom, constraints: constraints}) do
     if Keyword.has_key?(constraints, :one_of), do: :enum, else: :unknown
@@ -76,11 +89,27 @@ defmodule FluxValeWeb.AdminResource do
 
   attr(:shape, :atom,
     required: true,
-    values: [:uuid, :string, :integer, :decimal, :boolean, :datetime, :enum, :unknown]
+    values: [
+      :uuid,
+      :string,
+      :integer,
+      :decimal,
+      :boolean,
+      :datetime,
+      :enum,
+      :map,
+      :unknown
+    ]
   )
 
   attr(:value, :any, required: true)
   attr(:variant, :atom, default: :index, values: [:index, :show])
+
+  attr(:status?, :boolean,
+    default: false,
+    doc:
+      "render through the shared status_badge (the registry's status_attrs — state-machine enums)"
+  )
 
   attr(:id, :string,
     default: nil,
@@ -89,6 +118,15 @@ defmodule FluxValeWeb.AdminResource do
 
   @spec value(map()) :: Phoenix.LiveView.Rendered.t()
   def value(%{value: nil} = assigns), do: empty(assigns)
+
+  # The registry's status_attrs ride core_components.status_badge/1 — one
+  # badge for the Instance and AccessGateway state machines, never a fork.
+  # Every other enum keeps the generic neutral badge below.
+  def value(%{status?: true} = assigns) do
+    ~H"""
+    <.status_badge status={@value} />
+    """
+  end
 
   def value(%{shape: :uuid, variant: :index} = assigns) do
     ~H"""
@@ -187,6 +225,31 @@ defmodule FluxValeWeb.AdminResource do
     ~H"""
     <span data-testid="admin-resource-enum">
       <.badge class="px-1.5! text-[11px]!">{humanize(@value)}</.badge>
+    </span>
+    """
+  end
+
+  # A map attr renders read-only JSON on the show page — the honest
+  # detail view, never an editable composite (forms map to textareas
+  # through input_type/1). An unencodable value falls back to inspect.
+  def value(%{shape: :map, variant: :show} = assigns) do
+    assigns = assign(assigns, text: pretty_json(assigns.value))
+
+    ~H"""
+    <details class="text-sm text-ink" data-testid="admin-resource-json">
+      <summary class="cursor-pointer font-medium text-link underline-offset-2 hover:underline">
+        {gettext("JSON")}
+      </summary>
+      <pre class="mt-2 overflow-x-auto rounded-control bg-panel-raised p-3 font-mono text-xs whitespace-pre-wrap text-ink">{@text}</pre>
+    </details>
+    """
+  end
+
+  # No index column carries a map today; the slot exists for completeness.
+  def value(%{shape: :map, variant: :index} = assigns) do
+    ~H"""
+    <span data-testid="admin-resource-map">
+      <.badge class="px-1.5! text-[11px]!">{gettext("map")}</.badge>
     </span>
     """
   end
@@ -402,6 +465,14 @@ defmodule FluxValeWeb.AdminResource do
   defp humanize(value) when is_binary(value) do
     spaced = String.replace(value, "_", " ")
     String.capitalize(spaced)
+  end
+
+  # Pretty JSON for the map details block; an unencodable value (a PID,
+  # a tuple) falls back to inspect — honest rather than pretty.
+  defp pretty_json(value) do
+    Jason.encode!(value, pretty: true)
+  rescue
+    _unencodable -> inspect(value)
   end
 
   @doc """

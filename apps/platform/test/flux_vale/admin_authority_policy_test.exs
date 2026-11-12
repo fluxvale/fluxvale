@@ -9,6 +9,7 @@ defmodule FluxVale.AdminAuthorityPolicyTest do
   """
 
   use FluxVale.DataCase, async: true
+  use Mimic
 
   alias FluxVale.Accounts.Membership
   alias FluxVale.Accounts.MembershipInvite
@@ -18,14 +19,37 @@ defmodule FluxVale.AdminAuthorityPolicyTest do
   alias FluxVale.Billing.Topup
   alias FluxVale.Billing.Wallet
   alias FluxVale.Checks.CallOutsideMachineApi
+  alias FluxVale.Clients.K8s
   alias FluxVale.Feedback.Post
+  alias FluxVale.Infrastructure.AccessDomain
+  alias FluxVale.Infrastructure.AccessGateway
+  alias FluxVale.Infrastructure.AccessProviders.Tailscale
+  alias FluxVale.Infrastructure.AccessRoute
+  alias FluxVale.Infrastructure.BackupRun
+  alias FluxVale.Infrastructure.BackupSetting
   alias FluxVale.Infrastructure.Instance
+  alias FluxVale.Infrastructure.InstanceAllocationSnapshot
+  alias FluxVale.Infrastructure.InstanceHostname
   alias FluxVale.TestSupport.AccountsFixtures
   alias FluxVale.TestSupport.BillingFixtures
   alias FluxVale.TestSupport.FeedbackFixtures
   alias FluxVale.TestSupport.InstanceFixtures
 
   require Ash.Query
+
+  setup do
+    # The system create paths' cluster legs: the gateway provider, the
+    # domain registration's Certificate, and the kubeconfig resolution.
+    stub(Tailscale, :provision_gateway, fn _gateway, _key ->
+      {:ok, %{credential_secret_ref: "credential-stub"}}
+    end)
+
+    stub(K8s, :kubeconfig, fn -> {:ok, %{}} end)
+    stub(Kubereq, :attach, fn req, _opts -> req end)
+    stub(Kubereq, :apply, fn _req, manifest, _fm -> {:ok, %{status: 201, body: manifest}} end)
+
+    :ok
+  end
 
   # The doctrine's actor: a platform admin who is a member of exactly
   # their own JIT-provisioned org — nothing else.
@@ -51,6 +75,45 @@ defmodule FluxVale.AdminAuthorityPolicyTest do
     InstanceFixtures.instance!(version, owner)
   end
 
+  # A gateway in the foreign org, through its system create path.
+  defp foreign_gateway!(org) do
+    AccessGateway.create!(
+      %{
+        organization_id: org.id,
+        tailnet_domain: "example.ts.net",
+        auth_key: "tskey-authority"
+      },
+      authorize?: false
+    )
+  end
+
+  # The foreign instance's second allocation era, through the system
+  # record path (the create's own era is superseded first — the one
+  # open-era index).
+  defp foreign_snapshot!(instance) do
+    [open] =
+      InstanceAllocationSnapshot
+      |> Ash.Query.filter(instance_id == ^instance.id and is_nil(superseded_at))
+      |> Ash.read!(authorize?: false)
+
+    InstanceAllocationSnapshot.supersede!(open, %{superseded_at: DateTime.utc_now()},
+      authorize?: false
+    )
+
+    InstanceAllocationSnapshot.record!(
+      %{
+        instance_id: instance.id,
+        cpu_cores: instance.cpu_cores,
+        memory_mb: instance.memory_mb,
+        storage_gb: instance.storage_gb,
+        monthly_cents: 100,
+        stopped_monthly_cents: 0,
+        effective_from: DateTime.utc_now()
+      },
+      authorize?: false
+    )
+  end
+
   # The PAT-context marker the /api/v1 boundary bridges into the Ash
   # request context — the bypass's refusal condition (policy-level pin;
   # the boundary pin lives in the route suite).
@@ -59,7 +122,7 @@ defmodule FluxVale.AdminAuthorityPolicyTest do
   end
 
   describe "reads cross-org — the bypass widens every family" do
-    test "instance: an admin reads an org they do not belong to", %{test: test} do
+    test "instance: an admin reads an org they do not belong to" do
       admin = admin()
       {_org, _wallet, owner} = foreign_org!()
       instance = foreign_instance!(owner)
@@ -76,7 +139,162 @@ defmodule FluxVale.AdminAuthorityPolicyTest do
       assert {:error, %Ash.Error.Invalid{}} = Instance.get_by_id(instance.id, actor: stranger)
     end
 
-    test "organization: the admin's read is unfiltered; the member's stays scoped", %{test: test} do
+    test "backup setting: an admin reads a foreign row, the member keeps scoping, a stranger is refused" do
+      admin = admin()
+      {_org, _wallet, owner} = foreign_org!()
+      instance = foreign_instance!(owner)
+
+      setting =
+        BackupSetting.create!(
+          %{
+            instance_id: instance.id,
+            endpoint: "https://s3.example.com",
+            bucket: "authority-bucket",
+            access_key_id: "authority-key"
+          },
+          authorize?: false
+        )
+
+      assert {:ok, read} = Ash.get(BackupSetting, setting.id, actor: admin, authorize?: true)
+      assert read.id == setting.id
+      assert {:ok, _own} = Ash.get(BackupSetting, setting.id, actor: owner, authorize?: true)
+
+      stranger = AccountsFixtures.user!()
+
+      assert {:error, %Ash.Error.Invalid{}} =
+               Ash.get(BackupSetting, setting.id, actor: stranger, authorize?: true)
+    end
+
+    test "backup run: an admin reads a foreign row, the member keeps scoping, a stranger is refused" do
+      admin = admin()
+      {_org, _wallet, owner} = foreign_org!()
+      instance = foreign_instance!(owner)
+
+      run =
+        BackupRun.create!(
+          %{instance_id: instance.id, kind: :manual, started_at: DateTime.utc_now()},
+          authorize?: false
+        )
+
+      assert {:ok, read} = Ash.get(BackupRun, run.id, actor: admin, authorize?: true)
+      assert read.id == run.id
+      assert {:ok, _own} = Ash.get(BackupRun, run.id, actor: owner, authorize?: true)
+
+      stranger = AccountsFixtures.user!()
+
+      assert {:error, %Ash.Error.Invalid{}} =
+               Ash.get(BackupRun, run.id, actor: stranger, authorize?: true)
+    end
+
+    test "access gateway: an admin reads a foreign row, the member keeps scoping, a stranger is refused" do
+      admin = admin()
+      {org, _wallet, owner} = foreign_org!()
+      gateway = foreign_gateway!(org)
+
+      assert {:ok, read} = Ash.get(AccessGateway, gateway.id, actor: admin, authorize?: true)
+      assert read.id == gateway.id
+      assert {:ok, _own} = Ash.get(AccessGateway, gateway.id, actor: owner, authorize?: true)
+
+      stranger = AccountsFixtures.user!()
+
+      assert {:error, %Ash.Error.Invalid{}} =
+               Ash.get(AccessGateway, gateway.id, actor: stranger, authorize?: true)
+    end
+
+    test "access route: an admin reads a foreign row, the member keeps scoping, a stranger is refused" do
+      admin = admin()
+      {org, _wallet, owner} = foreign_org!()
+      instance = foreign_instance!(owner)
+      gateway = foreign_gateway!(org)
+
+      route =
+        AccessRoute.create!(
+          %{gateway_id: gateway.id, instance_id: instance.id, route_key: "8443"},
+          authorize?: false
+        )
+
+      assert {:ok, read} = Ash.get(AccessRoute, route.id, actor: admin, authorize?: true)
+      assert read.id == route.id
+      assert {:ok, _own} = Ash.get(AccessRoute, route.id, actor: owner, authorize?: true)
+
+      stranger = AccountsFixtures.user!()
+
+      assert {:error, %Ash.Error.Invalid{}} =
+               Ash.get(AccessRoute, route.id, actor: stranger, authorize?: true)
+    end
+
+    test "access domain: an admin reads a foreign row, the member keeps scoping, a stranger is refused" do
+      admin = admin()
+      {org, _wallet, owner} = foreign_org!()
+      domain_name = "authority-#{System.unique_integer([:positive])}.example.com"
+
+      domain =
+        AccessDomain.register!(%{domain: domain_name, organization_id: org.id},
+          actor: owner,
+          authorize?: false
+        )
+
+      assert {:ok, read} = Ash.get(AccessDomain, domain.id, actor: admin, authorize?: true)
+      assert read.id == domain.id
+      assert {:ok, _own} = Ash.get(AccessDomain, domain.id, actor: owner, authorize?: true)
+
+      stranger = AccountsFixtures.user!()
+
+      assert {:error, %Ash.Error.Invalid{}} =
+               Ash.get(AccessDomain, domain.id, actor: stranger, authorize?: true)
+    end
+
+    test "instance hostname: an admin reads a foreign row, the member keeps scoping, a stranger is refused" do
+      admin = admin()
+      {org, _wallet, owner} = foreign_org!()
+      instance = foreign_instance!(owner)
+
+      domain =
+        AccessDomain
+        |> Ash.Query.filter(organization_id == ^org.id and kind == :platform)
+        |> Ash.read_one!(authorize?: false)
+
+      hostname =
+        InstanceHostname.mint!(
+          %{
+            instance_id: instance.id,
+            access_domain_id: domain.id,
+            label: "authority-#{System.unique_integer([:positive])}"
+          },
+          authorize?: false
+        )
+
+      assert {:ok, read} = Ash.get(InstanceHostname, hostname.id, actor: admin, authorize?: true)
+      assert read.id == hostname.id
+      assert {:ok, _own} = Ash.get(InstanceHostname, hostname.id, actor: owner, authorize?: true)
+
+      stranger = AccountsFixtures.user!()
+
+      assert {:error, %Ash.Error.Invalid{}} =
+               Ash.get(InstanceHostname, hostname.id, actor: stranger, authorize?: true)
+    end
+
+    test "allocation snapshot: the new bypass admits the admin; the system-only read still refuses everyone else" do
+      admin = admin()
+      {_org, _wallet, owner} = foreign_org!()
+      instance = foreign_instance!(owner)
+      snapshot = foreign_snapshot!(instance)
+
+      assert {:ok, read} =
+               Ash.get(InstanceAllocationSnapshot, snapshot.id, actor: admin, authorize?: true)
+
+      assert read.id == snapshot.id
+
+      assert {:error, %Ash.Error.Forbidden{}} =
+               Ash.get(InstanceAllocationSnapshot, snapshot.id, actor: owner, authorize?: true)
+
+      stranger = AccountsFixtures.user!()
+
+      assert {:error, %Ash.Error.Forbidden{}} =
+               Ash.get(InstanceAllocationSnapshot, snapshot.id, actor: stranger, authorize?: true)
+    end
+
+    test "organization: the admin's read is unfiltered; the member's stays scoped" do
       admin = admin()
       {org, _wallet, owner} = foreign_org!()
       other_user = AccountsFixtures.user!()
@@ -159,7 +377,7 @@ defmodule FluxVale.AdminAuthorityPolicyTest do
 
     test "topup: refused yesterday, admitted through the bypass today", %{} do
       admin = admin()
-      {org, _wallet, owner} = foreign_org!()
+      {org, _wallet, _owner} = foreign_org!()
 
       {:ok, topup} =
         Topup.create(
@@ -277,6 +495,23 @@ defmodule FluxVale.AdminAuthorityPolicyTest do
       # The bypass condition fails; the member filter below applies
       # verbatim — the admin's PAT keeps today's member-shaped answer.
       assert {:ok, nil} = Ash.read_one(query)
+    end
+
+    test "the snapshot bypass refuses the admin under the PAT marker — the system-only forbid answers",
+         %{} do
+      admin = admin()
+      {_org, _wallet, owner} = foreign_org!()
+      instance = foreign_instance!(owner)
+      snapshot = foreign_snapshot!(instance)
+
+      # The marker switches the bypass off; with no member arm to fall
+      # through to, the system-only forbid is the answer.
+      assert {:error, %Ash.Error.Forbidden{}} =
+               Ash.get(InstanceAllocationSnapshot, snapshot.id,
+                 actor: admin,
+                 authorize?: true,
+                 context: pat_context()
+               )
     end
 
     test "the process mark (the nested-call rung) switches it off too", %{} do
