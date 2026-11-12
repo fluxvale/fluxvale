@@ -139,7 +139,7 @@ defmodule FluxVale.Infrastructure.Operations.RotatePocketIdSecret do
   end
 
   defp apply_new(instance, recipe, new_secret) do
-    InstanceEnvSecret.apply_to_running(instance, %{recipe.client_secret_env => new_secret}, [])
+    InstanceEnvSecret.apply_locked(instance, %{recipe.client_secret_env => new_secret}, [])
   end
 
   # Step 3, best-effort BY DESIGN: a refused delete leaves a harmless

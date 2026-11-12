@@ -74,6 +74,9 @@ if Mix.env() == :test do
   # stance).
   Mimic.copy(FluxVale.Infrastructure.PocketId.ApiClient)
   Mimic.copy(FluxVale.Infrastructure.PocketIdCustody)
+  # #731 T1: the env action's wiring read must fail closed on a
+  # non-NotFound error — a test forces that read failure at the seam.
+  Mimic.copy(FluxVale.Infrastructure.PocketIdWiring)
   # The verify pass's failure tally (review round 1): a test must be able
   # to force a transition-write failure at the AccessDomain seam.
   Mimic.copy(FluxVale.Infrastructure.AccessDomain)

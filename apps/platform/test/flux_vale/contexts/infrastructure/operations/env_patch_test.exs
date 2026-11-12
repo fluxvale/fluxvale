@@ -2,7 +2,9 @@ defmodule FluxVale.Infrastructure.Operations.EnvPatchTest do
   @moduledoc false
 
   # #731 T1 (ADR-0052): the pure merge verb's rules — validation,
-  # owned-key refusal/skip, overlap, merge and the audit-name diff.
+  # deployer-owned refusal/skip, first-run contract refusals (fixed and
+  # forbidden), exact-vs-folded matching, overlap, merge and the
+  # audit-name diff.
 
   use ExUnit.Case, async: true
 
@@ -36,7 +38,11 @@ defmodule FluxVale.Infrastructure.Operations.EnvPatchTest do
     )
   end
 
-  describe "plan/5" do
+  defp contract(attrs) do
+    Map.merge(%{env: %{}, forbidden_env: []}, Map.new(attrs))
+  end
+
+  describe "plan/6" do
     test "merges set over the row and drops removed keys, diffing the names" do
       current = %{"KEEP" => "1", "CHANGE" => "old", "DROP" => "x"}
 
@@ -46,6 +52,7 @@ defmodule FluxVale.Infrastructure.Operations.EnvPatchTest do
                  %{"NEW" => "2", "CHANGE" => "new"},
                  ["DROP", "MISSING"],
                  [],
+                 [],
                  []
                )
 
@@ -53,65 +60,82 @@ defmodule FluxVale.Infrastructure.Operations.EnvPatchTest do
       assert plan.set == %{"NEW" => "2", "CHANGE" => "new"}
       assert plan.remove == ["DROP", "MISSING"]
       assert plan.skipped == []
+      assert plan.composed == []
       assert plan.added == ["NEW"]
       assert plan.changed == ["CHANGE"]
       assert plan.removed == ["DROP"]
     end
 
     test "an unchanged value is neither added nor changed" do
-      assert {:ok, plan} = EnvPatch.plan(%{"SAME" => "v"}, %{"SAME" => "v"}, [], [], [])
+      assert {:ok, plan} = EnvPatch.plan(%{"SAME" => "v"}, %{"SAME" => "v"}, [], [], [], [])
       assert plan.added == []
       assert plan.changed == []
       assert plan.merged == %{"SAME" => "v"}
     end
 
     test "nil set and remove are the wire's absent — a no-op plan" do
-      assert {:ok, plan} = EnvPatch.plan(%{"KEEP" => "1"}, nil, nil, [], [])
+      assert {:ok, plan} = EnvPatch.plan(%{"KEEP" => "1"}, nil, nil, [], [], [])
       assert plan.set == %{}
       assert plan.remove == []
       assert plan.merged == %{"KEEP" => "1"}
     end
 
     test "duplicate remove entries are one removal" do
-      assert {:ok, plan} = EnvPatch.plan(%{"DROP" => "x"}, %{}, ["DROP", "DROP"], [], [])
+      assert {:ok, plan} = EnvPatch.plan(%{"DROP" => "x"}, %{}, ["DROP", "DROP"], [], [], [])
       assert plan.remove == ["DROP"]
       assert plan.merged == %{}
     end
 
     test "a missing remove key is a no-op, not a failure" do
-      assert {:ok, plan} = EnvPatch.plan(%{"KEEP" => "1"}, %{}, ["GONE"], [], [])
+      assert {:ok, plan} = EnvPatch.plan(%{"KEEP" => "1"}, %{}, ["GONE"], [], [], [])
       assert plan.removed == []
       assert plan.merged == %{"KEEP" => "1"}
     end
 
     test "set/remove overlap refuses with the shared names" do
       assert {:error, {:overlap, ["BOTH"]}} =
-               EnvPatch.plan(%{}, %{"BOTH" => "v"}, ["BOTH"], [], [])
+               EnvPatch.plan(%{}, %{"BOTH" => "v"}, ["BOTH"], [], [], [])
     end
 
     test "set keys must be POSIX-shaped" do
       assert {:error, {:invalid_name, ["1NOPE", "BAD-KEY"]}} =
-               EnvPatch.plan(%{}, %{"BAD-KEY" => "v", "1NOPE" => "v"}, [], [], [])
+               EnvPatch.plan(%{}, %{"BAD-KEY" => "v", "1NOPE" => "v"}, [], [], [], [])
     end
 
-    test "remove keys must be POSIX-shaped" do
-      assert {:error, {:invalid_name, ["BAD-KEY"]}} =
-               EnvPatch.plan(%{}, %{}, ["BAD-KEY"], [], [])
+    test "remove keys need only be strings — a non-POSIX stored key still drops" do
+      assert {:ok, plan} =
+               EnvPatch.plan(%{"BAD-KEY" => "v", "KEEP" => "1"}, %{}, ["BAD-KEY"], [], [], [])
+
+      assert plan.remove == ["BAD-KEY"]
+      assert plan.removed == ["BAD-KEY"]
+      assert plan.merged == %{"KEEP" => "1"}
+    end
+
+    test "remove entries that are not strings refuse" do
+      assert {:error, {:invalid_remove, [1]}} =
+               EnvPatch.plan(%{}, %{}, [1], [], [], [])
     end
 
     test "set values must be strings" do
       assert {:error, {:invalid_value, ["NUMBER"]}} =
-               EnvPatch.plan(%{}, %{"NUMBER" => 1}, [], [], [])
+               EnvPatch.plan(%{}, %{"NUMBER" => 1}, [], [], [], [])
     end
 
     test "set must be a map and remove a list" do
-      assert {:error, {:invalid_set, "x"}} = EnvPatch.plan(%{}, "x", [], [], [])
-      assert {:error, {:invalid_remove, "x"}} = EnvPatch.plan(%{}, %{}, "x", [], [])
+      assert {:error, {:invalid_set, "x"}} = EnvPatch.plan(%{}, "x", [], [], [], [])
+      assert {:error, {:invalid_remove, "x"}} = EnvPatch.plan(%{}, %{}, "x", [], [], [])
     end
 
     test "an owned key in set refuses, naming it" do
       assert {:error, {:owned, ["DATABASE_URL"]}} =
-               EnvPatch.plan(%{}, %{"DATABASE_URL" => "postgres://"}, [], ["DATABASE_URL"], [])
+               EnvPatch.plan(
+                 %{},
+                 %{"DATABASE_URL" => "postgres://"},
+                 [],
+                 ["DATABASE_URL"],
+                 [],
+                 []
+               )
     end
 
     test "an owned key in remove is skipped — the platform keeps it" do
@@ -121,6 +145,7 @@ defmodule FluxVale.Infrastructure.Operations.EnvPatchTest do
                  %{"NEW" => "2"},
                  ["DATABASE_URL"],
                  ["DATABASE_URL"],
+                 [],
                  []
                )
 
@@ -135,55 +160,84 @@ defmodule FluxVale.Infrastructure.Operations.EnvPatchTest do
       refute MapSet.member?(owned, "ALLOWED_HOSTS")
     end
 
-    test "a first-run contract env key refuses a set as owned" do
-      version =
-        version(first_run: %{env: %{"CONTRACT_KEY" => "true"}, forbidden_env: []})
+    test "a first-run contract env key refuses both a set and a remove" do
+      first_run = contract(env: %{"CONTRACT_KEY" => "true"})
+      fixed = EnvPatch.fixed_keys(first_run)
 
-      owned = EnvPatch.owned_keys(instance(), version, false)
+      assert {:error, {:fixed, ["CONTRACT_KEY"]}} =
+               EnvPatch.plan(%{}, %{"CONTRACT_KEY" => "false"}, [], [], fixed, [])
 
-      assert {:error, {:owned, ["CONTRACT_KEY"]}} =
-               EnvPatch.plan(%{}, %{"CONTRACT_KEY" => "false"}, [], owned, [])
-    end
-
-    test "a first-run forbidden_env key refuses a set as forbidden" do
-      contract = %{env: %{}, forbidden_env: ["FORBIDDEN_KEY"]}
-      forbidden = EnvPatch.forbidden_keys(contract)
-
-      assert {:error, {:forbidden, ["FORBIDDEN_KEY"]}} =
-               EnvPatch.plan(%{}, %{"FORBIDDEN_KEY" => "true"}, [], [], forbidden)
-    end
-
-    test "removing a first-run contract env key is skipped — the platform keeps it" do
-      version =
-        version(first_run: %{env: %{"CONTRACT_KEY" => "true"}, forbidden_env: []})
-
-      owned = EnvPatch.owned_keys(instance(), version, false)
-
-      assert {:ok, plan} =
+      assert {:error, {:fixed, ["CONTRACT_KEY"]}} =
                EnvPatch.plan(
                  %{"CONTRACT_KEY" => "true", "KEEP" => "1"},
                  %{},
                  ["CONTRACT_KEY"],
-                 owned,
+                 [],
+                 fixed,
                  []
                )
-
-      assert plan.skipped == ["CONTRACT_KEY"]
-      assert plan.merged == %{"CONTRACT_KEY" => "true", "KEEP" => "1"}
     end
 
-    test "owned-key matching folds case for both set and remove" do
-      owned = ["DATABASE_URL"]
-      current = %{"DATABASE_URL" => "postgres://"}
+    test "contract env matching folds case for both set and remove" do
+      first_run = contract(env: %{"CONTRACT_KEY" => "true"})
+      fixed = EnvPatch.fixed_keys(first_run)
 
-      assert {:error, {:owned, ["database_url"]}} =
-               EnvPatch.plan(current, %{"database_url" => "postgres://evil"}, [], owned, [])
+      assert {:error, {:fixed, ["contract_key"]}} =
+               EnvPatch.plan(%{}, %{"contract_key" => "false"}, [], [], fixed, [])
+
+      assert {:error, {:fixed, ["Contract_Key"]}} =
+               EnvPatch.plan(%{}, %{}, ["Contract_Key"], [], fixed, [])
+    end
+
+    test "a first-run forbidden_env key refuses a set, but a remove is cleanup" do
+      first_run = contract(forbidden_env: ["FORBIDDEN_KEY"])
+      forbidden = EnvPatch.forbidden_keys(first_run)
+
+      assert {:error, {:forbidden, ["FORBIDDEN_KEY"]}} =
+               EnvPatch.plan(%{}, %{"FORBIDDEN_KEY" => "true"}, [], [], [], forbidden)
 
       assert {:ok, plan} =
-               EnvPatch.plan(current, %{}, ["database_url"], owned, [])
+               EnvPatch.plan(
+                 %{"FORBIDDEN_KEY" => "drifted", "KEEP" => "1"},
+                 %{},
+                 ["FORBIDDEN_KEY"],
+                 [],
+                 [],
+                 forbidden
+               )
 
-      assert plan.skipped == ["database_url"]
-      assert plan.merged == current
+      assert plan.remove == ["FORBIDDEN_KEY"]
+      assert plan.removed == ["FORBIDDEN_KEY"]
+      assert plan.merged == %{"KEEP" => "1"}
+    end
+
+    test "forbidden matching folds case too" do
+      first_run = contract(forbidden_env: ["FORBIDDEN_KEY"])
+      forbidden = EnvPatch.forbidden_keys(first_run)
+
+      assert {:error, {:forbidden, ["forbidden_key"]}} =
+               EnvPatch.plan(%{}, %{"forbidden_key" => "true"}, [], [], [], forbidden)
+    end
+
+    test "deployer-owned matching is exact — a lowercase root_url is the user's key" do
+      owned = ["ROOT_URL"]
+      current = %{"ROOT_URL" => "https://platform"}
+
+      assert {:error, {:owned, ["ROOT_URL"]}} =
+               EnvPatch.plan(current, %{"ROOT_URL" => "https://evil"}, [], owned, [], [])
+
+      assert {:ok, plan} =
+               EnvPatch.plan(current, %{}, ["ROOT_URL"], owned, [], [])
+
+      assert plan.skipped == ["ROOT_URL"]
+
+      assert {:ok, lowered} =
+               EnvPatch.plan(current, %{"root_url" => "https://app"}, [], owned, [], [])
+
+      assert lowered.merged["root_url"] == "https://app"
+
+      assert {:ok, removed} = EnvPatch.plan(lowered.merged, %{}, ["root_url"], owned, [], [])
+      refute Map.has_key?(removed.merged, "root_url")
     end
   end
 
@@ -193,6 +247,14 @@ defmodule FluxVale.Infrastructure.Operations.EnvPatchTest do
                "managed by the platform"
 
       assert EnvPatch.message({:owned, ["DATABASE_URL"]}) =~ "DATABASE_URL"
+    end
+
+    test "names fixed and forbidden contract keys" do
+      assert EnvPatch.message({:fixed, ["CONTRACT_KEY"]}) =~
+               "fixed by the app's first-run contract and cannot be changed: CONTRACT_KEY"
+
+      assert EnvPatch.message({:forbidden, ["FORBIDDEN_KEY"]}) =~
+               "forbidden by the app's first-run contract: FORBIDDEN_KEY"
     end
 
     test "covers every refusal shape" do
@@ -243,6 +305,31 @@ defmodule FluxVale.Infrastructure.Operations.EnvPatchTest do
       owned = EnvPatch.owned_keys(host, version(instance_url_env: "ROOT_URL"), false)
 
       assert owned == MapSet.new(["DATABASE_URL", "REDIS_URL", "ROOT_URL"])
+    end
+
+    test "the first-run contract is not in the deployer-owned set" do
+      owned =
+        EnvPatch.owned_keys(
+          instance(),
+          version(first_run: contract(env: %{"CONTRACT_KEY" => "true"})),
+          false
+        )
+
+      assert MapSet.size(owned) == 0
+    end
+  end
+
+  describe "contract key sets" do
+    test "a nil contract has no fixed or forbidden keys" do
+      assert EnvPatch.fixed_keys(nil) == MapSet.new()
+      assert EnvPatch.forbidden_keys(nil) == MapSet.new()
+    end
+
+    test "fixed keys are the contract env names; forbidden keys its forbidden names" do
+      first_run = contract(env: %{"A" => "1", "B" => "2"}, forbidden_env: ["C"])
+
+      assert EnvPatch.fixed_keys(first_run) == MapSet.new(["A", "B"])
+      assert EnvPatch.forbidden_keys(first_run) == MapSet.new(["C"])
     end
   end
 end

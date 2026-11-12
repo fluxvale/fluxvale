@@ -26,7 +26,9 @@ defmodule FluxVale.Infrastructure.Instance.UpdateEnv do
   Status rules (ADR-0052 decision 5): `pending`/`error`/`lost` row
   only; `running`/`starting` row + Secret + restart;
   `stopped`/`sleeping` row + Secret, no restart;
-  `deploying`/`restoring`/`deleting` refuse.
+  `deploying`/`restoring`/`deleting` refuse. A patch with an empty
+  final set/remove writes nothing and rolls nothing (the row is
+  already what the caller asked for).
   """
 
   use Ash.Resource.Change
@@ -114,6 +116,9 @@ defmodule FluxVale.Infrastructure.Instance.UpdateEnv do
         added: plan.added,
         changed: plan.changed,
         removed: plan.removed,
+        composed: plan.composed,
+        expect_existing: map_size(row.env_vars) > 0,
+        noop: plan.set == %{} and plan.remove == [],
         status: row.status,
         kubeconfig: target.kubeconfig,
         namespace: target.namespace
@@ -122,6 +127,12 @@ defmodule FluxVale.Infrastructure.Instance.UpdateEnv do
       Ash.Changeset.force_change_attribute(changeset, :env_vars, plan.merged)
     else
       {:error, %InvalidArgument{} = error} ->
+        Ash.Changeset.add_error(changeset, error)
+
+      # ValidateEnvVars.check/2 returns a bare InvalidAttribute for a
+      # stored row with a non-string value; the general exception
+      # clause keeps that an honest error, never a WithClauseError.
+      {:error, %{__exception__: true} = error} ->
         Ash.Changeset.add_error(changeset, error)
 
       {:error, errors} when is_list(errors) ->
@@ -176,10 +187,17 @@ defmodule FluxVale.Infrastructure.Instance.UpdateEnv do
   defp patch_plan(changeset, row, version) do
     set = Ash.Changeset.get_argument(changeset, :set)
     remove = Ash.Changeset.get_argument(changeset, :remove)
-    owned = EnvPatch.owned_keys(row, version, wired?(row.id))
+    fixed = EnvPatch.fixed_keys(version.first_run)
     forbidden = EnvPatch.forbidden_keys(version.first_run)
 
-    case EnvPatch.plan(row.env_vars, set, remove, owned, forbidden) do
+    with {:ok, wired?} <- wired(row.id) do
+      owned = EnvPatch.owned_keys(row, version, wired?)
+      plan_or_error(row.env_vars, set, remove, owned, fixed, forbidden)
+    end
+  end
+
+  defp plan_or_error(current_env, set, remove, owned, fixed, forbidden) do
+    case EnvPatch.plan(current_env, set, remove, owned, fixed, forbidden) do
       {:ok, plan} -> {:ok, plan}
       {:error, reason} -> {:error, InvalidArgument.exception(message: EnvPatch.message(reason))}
     end
@@ -187,39 +205,61 @@ defmodule FluxVale.Infrastructure.Instance.UpdateEnv do
 
   # A wiring row means the recipe's keys are platform-composed above
   # user env; without one they are ordinary user keys (a pre-wire set
-  # is still the user's — the operation refuses to override it).
-  defp wired?(instance_id) do
+  # is still the user's — the operation refuses to override it). Only
+  # a NotFound miss is "not wired": any other read failure must fail
+  # closed, never classify the platform's SSO keys as user-owned.
+  defp wired(instance_id) do
     case PocketIdWiring.get_by_instance(instance_id, authorize?: false) do
-      {:ok, _wiring} -> true
-      {:error, _none} -> false
+      {:ok, _wiring} ->
+        {:ok, true}
+
+      {:error, error} ->
+        if not_found?(error) do
+          {:ok, false}
+        else
+          {:error,
+           InvalidArgument.exception(
+             message: "the instance's SSO wiring could not be read — retry"
+           )}
+        end
     end
   end
 
+  defp not_found?(%Ash.Error.Invalid{errors: errors}) do
+    Enum.any?(errors, &match?(%Ash.Error.Query.NotFound{}, &1))
+  end
+
+  defp not_found?(_other), do: false
+
   # The allowlist key stays user-writable, but the platform hostname
-  # must survive any patch that touches it: re-apply the deployer's
-  # append to the merged map (one shared helper) and carry the composed
-  # value into the Secret's set too. A public remove-only patch re-adds
-  # the platform entry — the key leaves the remove list, the platform's
-  # value lands in set. A private, non-live row has no platform entry:
-  # a remove really removes the key (the remove list stays intact).
+  # must survive any patch that touches it: compose the deployer's
+  # append for the LIVE Secret only (one shared helper) and carry that
+  # value in `set` while the row keeps the user's exact map. Writing
+  # the composed value to the row would make the next deploy append the
+  # hostname again, and a stale host would survive an unclaim.
+  #
+  # A public remove-only patch re-adds the platform entry — the key
+  # leaves the remove list, the platform's value lands in `set`. A
+  # private, non-live row has no platform entry: the helper leaves the
+  # map unchanged, so a remove really removes the key.
   defp compose_allowlist(plan, row, version) do
     env_name = version.host_allowlist_env
 
     if is_binary(env_name) and
          (Map.has_key?(plan.set, env_name) or env_name in plan.remove) do
-      merged = InstanceEnvDerived.allowlist_entry(plan.merged, row, version)
+      composed = InstanceEnvDerived.allowlist_entry(plan.merged, row, version)
 
-      case Map.fetch(merged, env_name) do
-        {:ok, composed} ->
+      case Map.fetch(composed, env_name) do
+        {:ok, value} ->
           %{
             plan
-            | set: Map.put(plan.set, env_name, composed),
+            | set: Map.put(plan.set, env_name, value),
               remove: List.delete(plan.remove, env_name),
-              merged: merged
+              composed: [env_name]
           }
 
         :error ->
-          %{plan | merged: merged}
+          plan
       end
     else
       plan
@@ -263,11 +303,20 @@ defmodule FluxVale.Infrastructure.Instance.UpdateEnv do
 
   defp apply_secret(_changeset, instance) do
     case Process.get(@stash_key) do
+      %{noop: true} ->
+        {:ok, instance}
+
       %{kubeconfig: nil} ->
         {:ok, instance}
 
-      %{kubeconfig: kubeconfig, namespace: namespace, set: set, remove: remove} ->
-        case InstanceEnvSecret.upsert(kubeconfig, namespace, set, remove) do
+      %{
+        kubeconfig: kubeconfig,
+        namespace: namespace,
+        set: set,
+        remove: remove,
+        expect_existing: expect_existing
+      } ->
+        case InstanceEnvSecret.upsert(kubeconfig, namespace, set, remove, expect_existing) do
           :ok -> {:ok, instance}
           {:error, reason} -> {:error, secret_error(reason)}
         end
@@ -279,6 +328,12 @@ defmodule FluxVale.Infrastructure.Instance.UpdateEnv do
         {:ok, instance}
         # coveralls-ignore-stop
     end
+  end
+
+  defp secret_error(:missing) do
+    InvalidArgument.exception(
+      message: "the instance's live env Secret is missing — redeploy to repair"
+    )
   end
 
   defp secret_error(%K8s.Error{status_code: status, reason: reason}) do
@@ -312,7 +367,8 @@ defmodule FluxVale.Infrastructure.Instance.UpdateEnv do
     Logger.info(
       "instance env updated instance=#{instance.id} actor=#{actor_id(actor)} " <>
         "added=#{inspect(names(stash, :added))} changed=#{inspect(names(stash, :changed))} " <>
-        "removed=#{inspect(names(stash, :removed))} skipped=#{inspect(names(stash, :skipped))}"
+        "removed=#{inspect(names(stash, :removed))} skipped=#{inspect(names(stash, :skipped))} " <>
+        "composed=#{inspect(names(stash, :composed))}"
     )
   end
 
@@ -320,6 +376,8 @@ defmodule FluxVale.Infrastructure.Instance.UpdateEnv do
   defp actor_id(_none), do: nil
 
   defp names(stash, key), do: Map.get(stash, key, [])
+
+  defp restart_live(_instance, %{noop: true}, result), do: result
 
   defp restart_live(
          _instance,

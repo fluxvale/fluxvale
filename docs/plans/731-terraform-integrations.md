@@ -111,22 +111,34 @@ Spec: [ADR-0052](../adr/00052-instance-env-updates.md).
   post-commit error, row and Secret already applied).
 - `apps/platform/lib/flux_vale/contexts/infrastructure/operations/env_patch.ex`
   (new, pure): normalize/validate `set`/`remove` (key shape, string
-  values, no overlap), compute the platform-owned key set, merge.
-  Owned keys: the version's `oidc_wiring` keys when a wiring row exists,
-  the instance's backing-service `url_env` keys, and the version's
-  `instance_url_env`. An owned key in `set` refuses with the key names;
-  an owned key in `remove` is skipped (no-op, logged) so a Terraform
-  apply that stopped naming a platform-owned key still converges.
+  values, no overlap), compute the platform-composed key sets, merge.
+  Three categories, not one:
+  - deployer-composed (EXACT-case): the version's `oidc_wiring` keys
+    when a wiring row exists, the instance's backing-service `url_env`
+    keys, and the version's `instance_url_env`. A set refuses with the
+    key names; a remove is skipped (no-op, logged) so a Terraform apply
+    that stopped naming the key still converges. A user's lowercase
+    `root_url` is a distinct key and stays removable.
+  - first-run contract `env` (CASE-INSENSITIVE): FIXED — both a set and
+    a remove refuse, naming the keys ("fixed by the app's first-run
+    contract and cannot be changed").
+  - first-run contract `forbidden_env` (CASE-INSENSITIVE): NEVER
+    SETTABLE — a set refuses ("forbidden by the app's first-run
+    contract"); a remove is allowed cleanup.
+  `set` keys are POSIX-shaped; `remove` needs only a string (a stored
+  key outside the POSIX shape must still be removable).
   `host_allowlist_env` stays user-writable; when a patch
-  touches it, the deployer's append helper re-adds the platform hostname
-  (extract `maybe_allowlist_entry`'s body into
+  touches it, the deployer's append helper re-adds the platform
+  hostname to the LIVE Secret's set only — never the row (extract
+  `maybe_allowlist_entry`'s body into
   `Operations.InstanceEnvDerived.allowlist_entry/3` so both paths share
   it).
 - `apps/platform/lib/flux_vale/contexts/infrastructure/operations/instance_env_secret.ex`
-  (new): `ApplyPocketIdEnv` generalized and renamed. One public
-  `apply_to_running/4` (set + remove + upsert + restart) for the SSO
-  callers, plus `upsert/4` and `restart/2` for the in-place action.
-  Order stays Secret-first, restart-second.
+  (new): `ApplyPocketIdEnv` generalized and renamed. `apply_locked/3`
+  (re-read the row `FOR UPDATE`, upsert, restart) for the SSO callers,
+  plus `upsert/5` (`expect_existing` refuses a missing Secret on a row
+  with env) and `restart/2` for the in-place action. Order stays
+  Secret-first, restart-second.
 - The three SSO operations
   (`connect_pocket_id.ex`, `disconnect_pocket_id.ex`,
   `rotate_pocket_id_secret.ex`) and
@@ -155,10 +167,13 @@ PATCH /api/v1/instances/:id/env
 
 Response: the standard instance document (`@detail_fields`); env is
 never echoed. Refusals are 400 (`InvalidArgument`, the house style)
-with honest messages: owned keys, overlap, invalid name/value, busy
-(`deploying`/`restoring`), deleting, decrypt failure, and the
-post-commit restart refusal ("the environment was saved, but the
-rolling restart was refused — retry").
+with honest messages: fixed/forbidden contract keys, deployer-owned
+keys, overlap, invalid name/value, busy (`deploying`/`restoring`),
+deleting, decrypt failure, a missing live Secret ("redeploy to
+repair"), and the post-commit restart refusal ("the environment was
+saved, but the rolling restart was refused — retry"). A patch with an
+empty final `set`/`remove` (and no allowlist append) is a 200 no-op:
+no Secret write, no restart.
 
 Status rules (ADR-0052): row-only for `pending`/`error`/`lost`;
 row + Secret + restart for `running`/`starting`; row + Secret, no
@@ -168,14 +183,22 @@ restart for `stopped`/`sleeping`; refuse `deploying`/`restoring`/
 **Tests**
 
 - `apps/platform/test/flux_vale/contexts/infrastructure/operations/env_patch_test.exs`
-  (new): pure validation, owned keys (set refuses, remove skips),
-  overlap, merge.
+  (new): pure validation, the three key categories (fixed/forbidden
+  refusals fold case; deployer-owned is exact), overlap, remove
+  string-only, merge.
 - `apps/platform/test/flux_vale/contexts/infrastructure/resources/instance/update_env_test.exs`
   (new): the status matrix, Secret upsert inside the transaction, a
-  failed upsert rolls the row back, a refused restart leaves row +
-  Secret applied and returns an error, key-name-only logging, and the
-  sentinel check (a secret value never appears in the response body,
-  captured logs, or the PaperTrail version's changes/inputs).
+  failed upsert rolls the row back, a missing live Secret refuses, a
+  no-op patch touches nothing, a refused restart leaves row + Secret
+  applied and returns an error, key-name-only logging (including
+  `composed`), the allowlist Secret-only append, a forged non-string
+  row, a wiring-read failure that fails closed, and the sentinel check
+  (a secret value never appears in the response body, captured logs, or
+  the PaperTrail version's changes/inputs — including the SSO
+  `merge_system_env` path).
+- `apps/platform/test/flux_vale/contexts/infrastructure/operations/instance_env_secret_concurrency_test.exs`
+  (new): the SSO apply waits on the instance row lock, then merges over
+  the first writer's Secret keys.
 - `apps/platform/test/flux_vale_web/api/instance_env_route_test.exs`
   (new): 200 shape, 400 refusals, 403 non-member, 403 wrong scope,
   `instances:write` required.
@@ -183,7 +206,7 @@ restart for `stopped`/`sleeping`; refuse `deploying`/`restoring`/
   `open_api_route_test.exs`: the new path.
 - `apps/platform/test/flux_vale/contexts/infrastructure/operations/instance_env_secret_test.exs`
   (renamed from `apply_pocket_id_env_test.exs`): the ordering contract
-  unchanged.
+  unchanged; the missing-Secret refusal and the creation path.
 - Existing SSO operation tests: no behavior change expected.
 
 **Done when**
@@ -233,9 +256,9 @@ PR: `feat(platform): in-place instance env updates — merge API + the one Secre
   an instance, changes one var, adds one, removes one, and asserts the
   instance id never changes.
 - `docs/resources/instance.md`: "updates in place" replaces "changing
-  it replaces the instance"; the reserved `enc:v1:` prefix (the T4
-  link); a null/omitted map clears the managed keys; import leaves
-  `env_vars` null.
+  it replaces the instance"; the reserved `enc:v1:` prefix (only if T4
+  is built, ADR-0053); a null/omitted map clears the managed keys;
+  import leaves `env_vars` null.
 
 **Done when**
 
@@ -259,8 +282,13 @@ PR: `feat(provider): update env_vars in place (#731)`.
 
 - `apps/platform/lib/flux_vale/contexts/infrastructure/resources/instance.ex`:
   `read :get_by_slug` (`get?(true)`, `argument(:slug, :string)`,
-  `filter(expr(slug == ^arg(:slug)))`) and
+  `argument(:organization_id, :uuid, allow_nil?: true)`, filter by
+  `slug` and — when the caller passes it — `organization_id`; the
+  membership read policy scopes the rest) and
   `get(:get_by_slug, route: "/instances/by-slug/:slug", default_fields: @detail_fields)`.
+  **Slug is unique only per `[:slug, :cluster_id]`, not globally.** A
+  multi-cluster caller must pass the org; a slug that still matches
+  more than one row is an honest error (never an arbitrary pick).
 - `apps/platform/lib/flux_vale/api/scopes.ex`:
   `{{"GET", ["instances", "by-slug", :_]}, "instances:read"}`.
 - Regenerate `apps/platform/priv/open_api.json` +
@@ -268,8 +296,8 @@ PR: `feat(provider): update env_vars in place (#731)`.
 - `apps/platform/test/flux_vale_web/api/route_inventory_test.exs` /
   `open_api_route_test.exs` and
   `apps/platform/test/flux_vale_web/api/instance_slug_route_test.exs`
-  (new): 200 by slug, 404 unknown, 403 non-member, `instances:read`
-  required.
+  (new): 200 by slug, 200 with the org argument, 404 unknown, 403
+  non-member, `instances:read` required, the duplicate-slug refusal.
 
 **Done when**
 
@@ -293,13 +321,15 @@ PR: `feat(platform): read an instance by slug (#731)`.
 
 **What lands**
 
-- `internal/provider/instance_data_source.go` (new): `id` and `slug`
-  optional with exactly-one validation in `Read` (no new dependency);
-  computed `name`, `slug`, `namespace`, `status`, `exposure`,
-  `always_on`, `image`, `port`, `deployed_at`, `organization_id`,
-  `app_version_id`.
+- `internal/provider/instance_data_source.go` (new): `id`, `slug`, and
+  optional `organization` (the slug's org context — slug is unique only
+  within a cluster) with exactly-one-of id/slug validation in `Read` (no
+  new dependency); computed `name`, `slug`, `namespace`, `status`,
+  `exposure`, `always_on`, `image`, `port`, `deployed_at`,
+  `organization_id`, `app_version_id`.
 - `internal/client/instances.go`: `GetInstanceBySlug` on
-  `/api/v1/instances/by-slug/:slug?fields[instance]=…`.
+  `/api/v1/instances/by-slug/:slug?fields[instance]=…`, passing the
+  org when configured.
 - `internal/provider/provider.go`: register the data source.
 - `internal/provider/data_sources_test.go` + `fake_test.go`: both
   lookups, exactly-one refusal, 404 diagnostic.
@@ -570,17 +600,18 @@ provider's `main`:
   `docs/guides/install.md` archive names, the compatibility note
   ("`env_vars` updates in place from 0.3.0; it is write-only on the
   wire — never echoed — but a normal Terraform attribute, not a
-  Terraform 1.11 write-only attribute; encrypted values work on every
-  version").
+  Terraform 1.11 write-only attribute. Plaintext values still live in
+  state; if T4 is built, encrypted values work on every version.").
 - Tag `v0.3.0` on `main` (the release workflow publishes the signed
   assets).
 - Monorepo `docs(public): terraform-native integrations (#731)`
   PR: `docs/public/automation/terraform.md` (resource list, in-place
-  env, the instance data source, the SSO resource, the encrypted
-  values flow, `~> 0.3`, the compatibility note) and
-  `docs/public/automation/cli.md` (the encrypt command). The last PR
-  merged in the lane opens with `Closes #731` (R1 when T4 is not
-  built, T4-S3 when it is); every other PR references the issue.
+  env, the instance data source, the SSO resource, `~> 0.3`, the
+  compatibility note — plus the encrypted-values flow only if T4 is
+  built) and `docs/public/automation/cli.md` (the encrypt command,
+  only if T4 is built). The last PR merged in the lane opens with
+  `Closes #731` (R1 when T4 is not built, T4-S3 when it is); every
+  other PR references the issue.
 
 **Done when**
 

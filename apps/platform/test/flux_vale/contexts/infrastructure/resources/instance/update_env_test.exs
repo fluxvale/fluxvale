@@ -16,6 +16,7 @@ defmodule FluxVale.Infrastructure.Instance.UpdateEnvTest do
   alias FluxVale.Clients.K8s.Resources.Deployment
   alias FluxVale.Clients.K8s.Resources.Secret
   alias FluxVale.Infrastructure.Instance
+  alias FluxVale.Infrastructure.Operations.InstanceEnvDerived
   alias FluxVale.Infrastructure.PocketIdWiring
   alias FluxVale.TestSupport.BillingFixtures
   alias FluxVale.TestSupport.InstanceFixtures
@@ -208,6 +209,16 @@ defmodule FluxVale.Infrastructure.Instance.UpdateEnvTest do
       assert_received {:upsert, %{"NEW" => "2"}}
       assert reload!(instance).env_vars == %{"NEW" => "2"}
     end
+
+    test "an empty patch writes no Secret and rolls nothing", %{user: user} do
+      instance = create!(user, status: :running, pin: true, env: %{"KEEP" => "1"})
+
+      # No Secret/Deployment stubs: either call fails the test.
+      assert {:ok, updated} = update_env(instance, user, %{}, [])
+
+      assert updated.env_vars == %{"KEEP" => "1"}
+      assert reload!(instance).env_vars == %{"KEEP" => "1"}
+    end
   end
 
   describe "secret-only statuses (stopped/sleeping): row + Secret, no restart" do
@@ -294,6 +305,36 @@ defmodule FluxVale.Infrastructure.Instance.UpdateEnvTest do
 
       assert_error(update_env(instance, user, %{"NEW" => "2"}, []), "no live namespace")
     end
+
+    test "a missing live Secret on a row with env refuses — redeploy to repair", %{user: user} do
+      instance = create!(user, status: :running, pin: true, env: %{"KEEP" => "1"})
+
+      stub(Secret, :get_data, fn _kc, _ns, _n ->
+        {:error, %K8s.Error{status_code: 404, reason: :not_found, message: "gone"}}
+      end)
+
+      assert_error(
+        update_env(instance, user, %{"NEW" => "2"}, []),
+        "the instance's live env Secret is missing — redeploy to repair"
+      )
+
+      assert reload!(instance).env_vars == %{"KEEP" => "1"}
+    end
+
+    test "an empty-row instance creates a missing Secret from the patch", %{user: user} do
+      instance = create!(user, status: :running, pin: true)
+
+      stub(Secret, :get_data, fn _kc, _ns, _n ->
+        {:error, %K8s.Error{status_code: 404, reason: :not_found, message: "absent"}}
+      end)
+
+      expect_upsert()
+      stub(Deployment, :restart, fn _kc, "ns-live", "app" -> {:ok, %{}} end)
+
+      assert {:ok, updated} = update_env(instance, user, %{"NEW" => "2"}, [])
+      assert updated.env_vars == %{"NEW" => "2"}
+      assert_received {:upsert, %{"NEW" => "2"}}
+    end
   end
 
   describe "the post-commit restart" do
@@ -345,6 +386,53 @@ defmodule FluxVale.Infrastructure.Instance.UpdateEnvTest do
       assert_error(update_env(instance, user, %{"BAD-KEY" => "v"}, []), "POSIX-shaped")
       assert_error(update_env(instance, user, %{"NUMBER" => 1}, []), "must be strings")
       assert_error(update_env(instance, user, %{"A" => "1"}, ["A"]), "both set and removed")
+      assert reload!(instance).env_vars == %{}
+    end
+
+    test "a stored non-string value is an honest error, not a WithClauseError", %{user: user} do
+      instance = create!(user, env: %{"KEEP" => "1"})
+
+      # Forge the state a pre-#731/drifted row can hold: the create path
+      # validates strings, the system funnel does not re-validate.
+      forged =
+        instance
+        |> Ash.Changeset.for_update(
+          :merge_system_env,
+          %{env: %{"KEEP" => "1", "BAD" => 123}},
+          authorize?: false
+        )
+        |> Ash.update!()
+
+      assert_error(
+        update_env(forged, user, %{"NEW" => "2"}, []),
+        "all env var keys and values must be strings"
+      )
+
+      assert reload!(instance).env_vars["BAD"] == 123
+    end
+
+    test "a wiring read failure fails closed instead of treating the SSO keys as user-owned", %{
+      user: user
+    } do
+      instance = create!(user)
+
+      stub(PocketIdWiring, :get_by_instance, fn _id, _opts ->
+        {:error, %Ash.Error.Invalid{errors: [%Ash.Error.Forbidden{}]}}
+      end)
+
+      assert_error(
+        update_env(instance, user, %{"NEW" => "2"}, []),
+        "the instance's SSO wiring could not be read — retry"
+      )
+
+      # A non-Invalid read failure is the same fail-closed answer.
+      stub(PocketIdWiring, :get_by_instance, fn _id, _opts -> {:error, :boom} end)
+
+      assert_error(
+        update_env(instance, user, %{"NEW" => "2"}, []),
+        "the instance's SSO wiring could not be read — retry"
+      )
+
       assert reload!(instance).env_vars == %{}
     end
 
@@ -406,7 +494,7 @@ defmodule FluxVale.Infrastructure.Instance.UpdateEnvTest do
       )
     end
 
-    test "first-run contract keys refuse their halves and keep the contract env", %{user: user} do
+    test "first-run contract keys refuse their halves honestly", %{user: user} do
       version =
         InstanceFixtures.app_version!(
           first_run: %{
@@ -422,19 +510,36 @@ defmodule FluxVale.Infrastructure.Instance.UpdateEnvTest do
 
       assert_error(
         update_env(instance, user, %{"FORBIDDEN_KEY" => "true"}, []),
-        "first-run contract"
+        "forbidden by the app's first-run contract"
+      )
+
+      assert_error(
+        update_env(instance, user, %{"forbidden_key" => "true"}, []),
+        "forbidden by the app's first-run contract"
       )
 
       assert_error(
         update_env(instance, user, %{"CONTRACT_KEY" => "false"}, []),
-        "managed by the platform"
+        "fixed by the app's first-run contract and cannot be changed"
       )
 
-      assert {:ok, %Instance{}} = update_env(instance, user, %{}, ["CONTRACT_KEY"])
+      assert_error(
+        update_env(instance, user, %{}, ["CONTRACT_KEY"]),
+        "fixed by the app's first-run contract and cannot be changed"
+      )
+
+      assert_error(
+        update_env(instance, user, %{"contract_key" => "false"}, []),
+        "fixed by the app's first-run contract and cannot be changed"
+      )
+
+      # Forbidden keys are never settable, but a remove is cleanup.
+      assert {:ok, %Instance{}} = update_env(instance, user, %{}, ["FORBIDDEN_KEY"])
       assert reload!(instance).env_vars["CONTRACT_KEY"] == "true"
     end
 
-    test "the version's instance_url_env refuses a set", %{user: user} do
+    test "the version's instance_url_env is owned exactly — a lowercase root_url is removable",
+         %{user: user} do
       version = InstanceFixtures.app_version!(instance_url_env: "ROOT_URL")
       instance = create!(user, version: version)
 
@@ -442,11 +547,18 @@ defmodule FluxVale.Infrastructure.Instance.UpdateEnvTest do
         update_env(instance, user, %{"ROOT_URL" => "https://evil"}, []),
         "managed by the platform"
       )
+
+      assert {:ok, updated} = update_env(instance, user, %{"root_url" => "https://app"}, [])
+      assert updated.env_vars["root_url"] == "https://app"
+
+      assert {:ok, removed} = update_env(updated, user, %{}, ["root_url"])
+      refute Map.has_key?(removed.env_vars, "root_url")
     end
   end
 
   describe "host_allowlist_env" do
-    test "a patch touching it always carries the platform hostname", %{user: user} do
+    test "a patch touching it carries the platform hostname to the Secret, never to the row",
+         %{user: user} do
       version = InstanceFixtures.app_version!(host_allowlist_env: "ALLOWED_HOSTS")
 
       instance =
@@ -467,15 +579,32 @@ defmodule FluxVale.Infrastructure.Instance.UpdateEnvTest do
       domain = Application.fetch_env!(:flux_vale, :instances_base_domain)
       platform_host = "#{instance.slug}.#{domain}"
 
-      assert {:ok, %Instance{}} =
+      assert {:ok, updated} =
                update_env(instance, user, %{"ALLOWED_HOSTS" => "example.com"}, [])
 
       assert_received {:upsert, %{"ALLOWED_HOSTS" => set_value}}
       assert set_value == "example.com,#{platform_host}"
 
-      assert {:ok, %Instance{}} = update_env(reload!(instance), user, %{}, ["ALLOWED_HOSTS"])
+      # The row is the user's intent: the composed append is a live
+      # Secret projection only, so the next deploy appends exactly once.
+      assert updated.env_vars["ALLOWED_HOSTS"] == "example.com"
+
+      reloaded = reload!(instance)
+      assert reloaded.env_vars["ALLOWED_HOSTS"] == "example.com"
+
+      composed = InstanceEnvDerived.allowlist_entry(reloaded.env_vars, reloaded, version)
+      assert composed["ALLOWED_HOSTS"] == "example.com,#{platform_host}"
+      assert length(String.split(composed["ALLOWED_HOSTS"], platform_host)) == 2
+
+      log =
+        capture_info_log(fn ->
+          assert {:ok, %Instance{}} = update_env(reloaded, user, %{}, ["ALLOWED_HOSTS"])
+        end)
+
       assert_received {:upsert, %{"ALLOWED_HOSTS" => removed_value}}
       assert removed_value == platform_host
+      assert reload!(instance).env_vars == %{}
+      assert log =~ ~s(composed=["ALLOWED_HOSTS"])
     end
 
     test "a private, non-live remove drops the key — no platform hostname re-added", %{
@@ -576,8 +705,29 @@ defmodule FluxVale.Infrastructure.Instance.UpdateEnvTest do
       assert env_version.version_action_inputs["set"] == "REDACTED"
       assert env_version.changes["env_vars"] == "REDACTED"
 
-      refute inspect(env_version.version_action_inputs) =~ @sentinel
-      refute inspect(env_version.changes) =~ @sentinel
+      refute inspect(Map.from_struct(env_version)) =~ @sentinel
+    end
+
+    test "the system env merge redacts its map — the OIDC secret never lands in the version",
+         %{user: user} do
+      instance = create!(user, env: %{"KEEP" => "1"})
+
+      changeset =
+        Ash.Changeset.for_update(
+          instance,
+          :merge_system_env,
+          %{env: %{"SSO_CLIENT_SECRET" => @sentinel, "KEEP" => "1"}},
+          authorize?: false
+        )
+
+      assert {:ok, %Instance{}} = Ash.update(changeset)
+
+      env_versions = versions!(instance.id)
+      merge_version = Enum.find(env_versions, &(&1.version_action_name == :merge_system_env))
+
+      assert merge_version.version_action_inputs["env"] == "REDACTED"
+      assert merge_version.changes["env_vars"] == "REDACTED"
+      refute inspect(Map.from_struct(merge_version)) =~ @sentinel
     end
   end
 end

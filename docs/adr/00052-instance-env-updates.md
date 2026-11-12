@@ -43,21 +43,29 @@ second-deploy experience.
    redeploy. Values must be strings (the k8s Secret's contract); the
    create-time schema validation (`ValidateEnvVars`) runs on the
    merged map.
-4. **Platform-owned keys: sets refused, removes skipped.** The app
-   version's `oidc_wiring` env names (when a wiring row exists), the
-   instance's backing-service `url_env` keys, and the version's
-   `instance_url_env` are composed by the deployer above user env. A
-   patch that **sets** one is refused with the key names — the
-   ADR-0045 D6 "reject loudly, never retcon" stance, applied at the
-   live-write seam (the value would be silently overridden, so
-   accepting it would be a lie). A patch that **removes** one is a
-   no-op: the platform keeps its key, the skipped names are logged,
-   and the request succeeds — a removal cannot win by design, and a
-   refusal would dead-end a Terraform apply that no longer mentions the
-   key. `host_allowlist_env` stays
-   user-writable because the deployer appends the platform hostname to
-   the user's value; the in-place path re-applies the same append (one
-   shared helper), so a patch can never drop the platform's entry.
+4. **Platform-composed keys: three categories, honest refusals.**
+   Three sets are composed above the row, and a patch cannot own them:
+   - **Deployer-composed** — the app version's `oidc_wiring` env names
+     (when a wiring row exists), the instance's backing-service
+     `url_env` keys, and the version's `instance_url_env`. A `set`
+     refuses with the key names; a `remove` is skipped (no-op, logged)
+     so a Terraform apply that stopped naming the key converges.
+     Matching is EXACT-case: a user's `root_url` is a distinct k8s key
+     from the platform's `ROOT_URL`.
+   - **First-run contract `env`** — FIXED. Both a `set` and a `remove`
+     refuse with the key names: the contract lands at create and a
+     redeploy re-composes it, so accepting either would be a lie.
+   - **First-run contract `forbidden_env`** — NEVER SETTABLE. A `set`
+     refuses; a `remove` is allowed cleanup (the platform never
+     composes them).
+   Contract matching is CASE-INSENSITIVE, mirroring the create path's
+   fold (`DeriveFromAppVersion.contract_conflicts/2`); the deployer set
+   stays exact.
+   `host_allowlist_env` stays user-writable because the deployer
+   appends the platform hostname to the user's value; the in-place path
+   composes the same append for the live Secret only (one shared
+   helper), never for the row — so the next deploy appends exactly
+   once, and an unclaim does not leave a stale host in the row.
 5. **Status rules.** `pending`/`error`/`lost`: row only (the next
    deploy ships it). `running`/`starting`: row + Secret + rolling
    restart. `stopped`/`sleeping`: row + Secret, no restart (pods are
@@ -68,20 +76,28 @@ second-deploy experience.
    K8s applies.
 6. **Audit content.** The PaperTrail version row records the action
    (`update_env`), the actor, the operation id, and `env_vars`
-   redacted (ADR-0048). The API boundary already writes its request
-   row (`Api.AuditEvent`: method + path). One structured `:info` log
-   line carries the instance id, actor id, and the added/changed/
-   removed **key names** — never a value. That is the whole audit:
-   no new table, no new resource, no migration. A test pins a
-   sentinel value's absence from the response, the logs, and the
+   redacted (ADR-0048); the write-only `set` argument is sensitive too,
+   so the trail stores `REDACTED`, never a value. The `update`/`create`
+   event for a system SSO merge (`merge_system_env`) is likewise
+   sensitive — its `env` argument carries the OIDC client secret. The
+   API boundary already writes its request row (`Api.AuditEvent`:
+   method + path). One structured `:info` log line carries the instance
+   id, actor id, and the added/changed/removed **key names** — plus
+   `composed` when the allowlist append ran — never a value. That is
+   the whole audit: no new table, no new resource, no migration. A test
+   pins a sentinel value's absence from the response, the logs, and the
    version row.
 7. **One Secret seam, generalized.** `ApplyPocketIdEnv` becomes
-   `Operations.InstanceEnvSecret`: `upsert/4` (read-merge-write SSA),
-   `restart/2`, and `apply_to_running/4` (upsert + restart) for the
-   SSO operations. The public env action uses the same module; no
-   parallel K8s path exists. The SSO callers keep passing only their
-   recipe keys — the ownership guard is the public action's, not the
-   seam's.
+   `Operations.InstanceEnvSecret`: `upsert/5` (read-merge-write SSA;
+   `expect_existing` refuses a lost Secret instead of creating a
+   partial one), `restart/2`, and `apply_locked/3` (re-read the row
+   `FOR UPDATE`, then upsert + restart) for the SSO operations. The
+   public env action uses the same module with its own row
+   transaction; no parallel K8s path exists. The SSO callers keep
+   passing only their recipe keys — the ownership guard is the public
+   action's, not the seam's. A deployed row that carries env but has no
+   live `app-env` Secret is a 400 ("redeploy to repair"), never an
+   empty-map merge that would boot the app without its other env.
 8. **What a redeploy does.** It re-projects the row: in-place changes
    survive, removed keys stay removed, and the deployer's derived
    values (URL, backing URLs, SSO recipe keys) are composed above the
@@ -122,7 +138,10 @@ second-deploy experience.
   can. No migration.
 - The env write holds the row lock across a Secret apply — the same
   window the deploy already holds across its applies. A concurrent
-  deploy or SSO write serializes, never interleaves.
+  deploy, SSO write, or in-place patch serializes, never interleaves:
+  the SSO legs take the same lock via `apply_locked/3`.
+- A no-op patch (empty final `set`/`remove`, no allowlist append)
+  writes no Secret and rolls nothing — the request is already true.
 - A restart refusal is a 400 with the honest partial-state message
   ("the environment was saved, but the rolling restart was refused —
   retry"); readiness is not awaited (the SSO rotate's documented

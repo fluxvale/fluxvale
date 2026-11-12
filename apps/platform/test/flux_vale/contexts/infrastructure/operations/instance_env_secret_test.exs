@@ -21,6 +21,8 @@ defmodule FluxVale.Infrastructure.Operations.InstanceEnvSecretTest do
   alias FluxVale.TestSupport.BillingFixtures
   alias FluxVale.TestSupport.InstanceFixtures
 
+  setup :verify_on_exit!
+
   setup do
     :ok = FeatureFlags.enable(:pocketid_sso_wiring, actor: AccountsFixtures.platform_admin!())
 
@@ -41,7 +43,7 @@ defmodule FluxVale.Infrastructure.Operations.InstanceEnvSecretTest do
     %{instance: instance}
   end
 
-  describe "apply_to_running/4" do
+  describe "apply_locked/3" do
     test "merges the given env into the Secret, then rolls — in that order", %{
       instance: instance
     } do
@@ -123,7 +125,7 @@ defmodule FluxVale.Infrastructure.Operations.InstanceEnvSecretTest do
                Infrastructure.apply_instance_env(instance, %{"SSO_AUTHORITY" => "https://id"}, [])
     end
 
-    test "a missing Secret reads as empty — the merge carries only the given keys", %{
+    test "a missing Secret reads as empty when the row has no env — the creation path", %{
       instance: instance
     } do
       stub(Secret, :get_data, fn _kc, _ns, _n ->
@@ -141,6 +143,33 @@ defmodule FluxVale.Infrastructure.Operations.InstanceEnvSecretTest do
 
       assert_received {:upsert, data}
       assert data == %{"SSO_AUTHORITY" => "https://id"}
+    end
+
+    test "a missing Secret on a row with env refuses — redeploy repairs", %{instance: instance} do
+      with_env =
+        instance
+        |> Ash.Changeset.for_update(
+          :merge_system_env,
+          %{env: %{"KEEP" => "1"}},
+          authorize?: false
+        )
+        |> Ash.update!()
+
+      stub(Secret, :get_data, fn _kc, _ns, _n ->
+        {:error, %K8s.Error{status_code: 404, reason: :not_found, message: "no secret"}}
+      end)
+
+      assert {:error, :missing} =
+               Infrastructure.apply_instance_env(with_env, %{"SSO_AUTHORITY" => "https://id"}, [])
+    end
+
+    test "a non-not_found Secret read failure passes through verbatim", %{instance: instance} do
+      error = %K8s.Error{status_code: 500, reason: :internal, message: "apiserver down"}
+
+      stub(Secret, :get_data, fn _kc, _ns, _n -> {:error, error} end)
+
+      assert {:error, ^error} =
+               Infrastructure.apply_instance_env(instance, %{"SSO_AUTHORITY" => "https://id"}, [])
     end
 
     test "an undeployed instance refuses honestly (the row is the whole truth)", %{

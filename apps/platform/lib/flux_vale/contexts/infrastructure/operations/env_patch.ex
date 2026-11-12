@@ -2,19 +2,33 @@ defmodule FluxVale.Infrastructure.Operations.EnvPatch do
   @moduledoc """
   The pure half of the in-place instance env update (#731 T1,
   ADR-0052): normalize/validate a `set` + `remove` patch, compute the
-  platform-owned key set, merge it over the row's env, and diff the key
+  platform-owned key sets, merge it over the row's env, and diff the key
   names for the audit log.
 
   Decisions this module owns:
 
-  - keys are POSIX-shaped (`EnvVarSpec.valid_name?/1`) and values are
-    strings — the k8s Secret's contract;
+  - `set` keys are POSIX-shaped (`EnvVarSpec.valid_name?/1`) and values
+    are strings — the k8s Secret's contract; `remove` needs only a
+    string (a stored key the create path accepted need not be
+    POSIX-shaped);
   - `set`/`remove` overlap refuses (the merge would be ambiguous);
-  - platform-owned keys (the version's OIDC recipe keys when a wiring
-    row exists, the instance's backing-service `url_env` keys, and the
-    version's `instance_url_env`) refuse a `set` with their names, and
-    skip a `remove` — the platform keeps its key, the request
-    succeeds, and a Terraform apply that no longer names it converges;
+  - the deployer-composed keys (the version's OIDC recipe keys when a
+    wiring row exists, the instance's backing-service `url_env` keys,
+    and the version's `instance_url_env`) refuse a `set` with their
+    names and skip a `remove` — the platform keeps its key, the request
+    succeeds, and a Terraform apply that no longer names it converges.
+    Matching is EXACT: a user's `root_url` is a distinct k8s key from
+    the platform's `ROOT_URL`;
+  - the first-run contract's `env` keys are FIXED: both a `set` and a
+    `remove` refuse, naming the keys (the contract lands at create and
+    a redeploy re-composes it; a removal cannot win, so claiming it
+    would be a lie);
+  - the contract's `forbidden_env` keys are NEVER SETTABLE: a `set`
+    refuses; a `remove` is a legitimate cleanup (the platform never
+    composes them);
+  - contract matching is CASE-INSENSITIVE — the create path folds
+    both lists (`DeriveFromAppVersion.contract_conflicts/2`), so a
+    lowercase spelling is the same contract key;
   - `host_allowlist_env` is NOT owned: the deployer appends the
     platform hostname to the user's value, and the patch path
     re-applies the same append (`InstanceEnvDerived.allowlist_entry/3`).
@@ -29,6 +43,7 @@ defmodule FluxVale.Infrastructure.Operations.EnvPatch do
           set: %{String.t() => String.t()},
           remove: [String.t()],
           skipped: [String.t()],
+          composed: [String.t()],
           merged: %{String.t() => String.t()},
           added: [String.t()],
           changed: [String.t()],
@@ -42,18 +57,18 @@ defmodule FluxVale.Infrastructure.Operations.EnvPatch do
           | {:invalid_value, [String.t()]}
           | {:overlap, [String.t()]}
           | {:owned, [String.t()]}
+          | {:fixed, [String.t()]}
           | {:forbidden, [String.t()]}
 
   @doc """
-  The platform-composed env names for `instance`'s `app_version`: the
+  The deployer-composed env names for `instance`'s `app_version`: the
   OIDC recipe keys when a wiring row exists (`wired?`), every
-  backing-service `url_env` from the instance's snapshot, the version's
-  `instance_url_env`, and the first-run contract's `env` keys. A set of
-  one refuses; a remove skips (the platform composes it above the row).
+  backing-service `url_env` from the instance's snapshot, and the
+  version's `instance_url_env`. A set of one refuses; a remove skips
+  (the platform composes it above the row). Matching is exact-case.
 
-  `forbidden_keys/1` is the contract's other half: keys that must never
-  ship. A set refuses; a remove is allowed (cleanup), because the
-  platform never composes them.
+  The first-run contract is its own category, not this set:
+  `fixed_keys/1` and `forbidden_keys/1` carry its rules.
   """
   @spec owned_keys(map(), map(), boolean()) :: MapSet.t(String.t())
   def owned_keys(instance, app_version, wired?) do
@@ -63,8 +78,21 @@ defmodule FluxVale.Infrastructure.Operations.EnvPatch do
 
     instance_url = List.wrap(app_version.instance_url_env)
 
-    (sso ++ backing ++ instance_url ++ contract_env_keys(app_version.first_run))
+    (sso ++ backing ++ instance_url)
     |> Enum.reject(&is_nil/1)
+    |> MapSet.new()
+  end
+
+  @doc """
+  The first-run contract's `env` keys — fixed at create, so both a set
+  and a remove refuse.
+  """
+  @spec fixed_keys(map() | nil) :: MapSet.t(String.t())
+  def fixed_keys(nil), do: MapSet.new()
+
+  def fixed_keys(contract) do
+    contract.env
+    |> Map.keys()
     |> MapSet.new()
   end
 
@@ -78,27 +106,32 @@ defmodule FluxVale.Infrastructure.Operations.EnvPatch do
 
   @doc """
   Builds the apply plan. `current_env` is the row's env under the
-  action's `FOR UPDATE` lock; `owned_keys` is `owned_keys/3`'s result.
+  action's `FOR UPDATE` lock; `owned_keys`, `fixed_keys`, and
+  `forbidden_keys` are the results of the functions above.
   """
   @spec plan(
           map(),
           map() | nil,
           [String.t()] | nil,
           MapSet.t(String.t()) | [String.t()],
+          MapSet.t(String.t()) | [String.t()],
           MapSet.t(String.t()) | [String.t()]
         ) ::
           {:ok, plan()} | {:error, error()}
-  def plan(current_env, set, remove, owned_keys, forbidden_keys) do
+  def plan(current_env, set, remove, owned_keys, fixed_keys, forbidden_keys) do
     with {:ok, set} <- normalize_set(set),
          {:ok, remove} <- normalize_remove(remove),
          :ok <- reject_overlap(set, remove),
-         owned = folded(owned_keys),
+         fixed = folded(fixed_keys),
          forbidden = folded(forbidden_keys),
+         :ok <- reject_fixed(set, fixed),
+         :ok <- reject_fixed_remove(remove, fixed),
          :ok <- reject_forbidden(set, forbidden),
+         owned = MapSet.new(owned_keys),
          :ok <- reject_owned(set, owned) do
       skipped =
         remove
-        |> Enum.filter(&owned_key?(owned, &1))
+        |> Enum.filter(&MapSet.member?(owned, &1))
         |> Enum.sort()
 
       applied_remove = remove -- skipped
@@ -113,6 +146,7 @@ defmodule FluxVale.Infrastructure.Operations.EnvPatch do
          set: set,
          remove: applied_remove,
          skipped: skipped,
+         composed: [],
          merged: merged,
          added: added(current_env, set),
          changed: changed(current_env, set),
@@ -122,8 +156,8 @@ defmodule FluxVale.Infrastructure.Operations.EnvPatch do
   end
 
   @doc """
-  The honest 400 copy for a `plan/4` refusal. Owned keys name the key
-  names; values never enter the message.
+  The honest 400 copy for a `plan/6` refusal. Key names only; values
+  never enter the message.
   """
   @spec message(error()) :: String.t()
   def message({:owned, names}) do
@@ -143,9 +177,13 @@ defmodule FluxVale.Infrastructure.Operations.EnvPatch do
     "env var values must be strings: #{Enum.join(names, ", ")}"
   end
 
-  def message({:forbidden, names}) do
-    "these env vars are fixed by the app's first-run contract and cannot be set: " <>
+  def message({:fixed, names}) do
+    "these env vars are fixed by the app's first-run contract and cannot be changed: " <>
       Enum.join(names, ", ")
+  end
+
+  def message({:forbidden, names}) do
+    "these env vars are forbidden by the app's first-run contract: " <> Enum.join(names, ", ")
   end
 
   def message({:invalid_set, _value}) do
@@ -190,18 +228,16 @@ defmodule FluxVale.Infrastructure.Operations.EnvPatch do
 
   # Nil is the wire's "absent": no keys to remove. Duplicates are one
   # removal (the merge is idempotent; the log should not repeat a name).
+  # Only a string is required — a stored key the create path accepted
+  # may predate (or sit outside) the POSIX shape, and a removal must
+  # still be able to drop it.
   defp normalize_remove(nil), do: {:ok, []}
 
   defp normalize_remove(remove) when is_list(remove) do
-    invalid =
-      remove
-      |> Enum.filter(&(not EnvVarSpec.valid_name?(&1)))
-      |> Enum.sort()
-
-    if invalid == [] do
+    if Enum.all?(remove, &is_binary/1) do
       {:ok, Enum.uniq(remove)}
     else
-      {:error, {:invalid_name, invalid}}
+      {:error, {:invalid_remove, remove}}
     end
   end
 
@@ -216,16 +252,31 @@ defmodule FluxVale.Infrastructure.Operations.EnvPatch do
     refused =
       set
       |> Map.keys()
-      |> Enum.filter(&owned_key?(owned, &1))
+      |> Enum.filter(&MapSet.member?(owned, &1))
 
     if refused == [], do: :ok, else: {:error, {:owned, refused}}
+  end
+
+  defp reject_fixed(set, fixed) do
+    refused =
+      set
+      |> Map.keys()
+      |> Enum.filter(&folded_member?(fixed, &1))
+
+    if refused == [], do: :ok, else: {:error, {:fixed, refused}}
+  end
+
+  defp reject_fixed_remove(remove, fixed) do
+    refused = Enum.filter(remove, &folded_member?(fixed, &1))
+
+    if refused == [], do: :ok, else: {:error, {:fixed, refused}}
   end
 
   defp reject_forbidden(set, forbidden) do
     refused =
       set
       |> Map.keys()
-      |> Enum.filter(&owned_key?(forbidden, &1))
+      |> Enum.filter(&folded_member?(forbidden, &1))
 
     if refused == [], do: :ok, else: {:error, {:forbidden, refused}}
   end
@@ -236,7 +287,7 @@ defmodule FluxVale.Infrastructure.Operations.EnvPatch do
     |> MapSet.new()
   end
 
-  defp owned_key?(folded_keys, key), do: MapSet.member?(folded_keys, String.downcase(key))
+  defp folded_member?(folded_keys, key), do: MapSet.member?(folded_keys, String.downcase(key))
 
   defp removed(current_env, applied_remove) do
     applied_remove
@@ -259,10 +310,6 @@ defmodule FluxVale.Infrastructure.Operations.EnvPatch do
     end)
     |> Enum.sort()
   end
-
-  defp contract_env_keys(nil), do: []
-
-  defp contract_env_keys(contract), do: Map.keys(contract.env)
 
   defp oidc_keys(nil), do: []
 

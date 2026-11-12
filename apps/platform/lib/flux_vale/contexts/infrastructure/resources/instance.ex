@@ -1399,12 +1399,14 @@ defmodule FluxVale.Infrastructure.Instance do
     # lands as one force_change — the op built it by merging ONLY its
     # own keys over the current env (user values preserved), so no
     # caller can route arbitrary env through here and the ride-along
-    # posture is enforced at the write, not the form.
+    # posture is enforced at the write, not the form. The argument is
+    # SENSITIVE: the map can carry the OIDC client secret, and
+    # PaperTrail must store the REDACTED marker, never the values.
     update :merge_system_env do
       description("System-only: force-merge a system integration's env (authorize?: false).")
 
       accept([])
-      argument(:env, :map, allow_nil?: false)
+      argument(:env, :map, allow_nil?: false, sensitive?: true)
       require_atomic?(false)
 
       change(fn changeset, _context ->

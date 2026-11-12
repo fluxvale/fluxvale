@@ -79,11 +79,15 @@ runtime Secret — that is the trust boundary, stated plainly.
 4. **`fluxvale secrets encrypt` is the client.** `fluxvale secrets
    encrypt --org <id|slug> --key ENV_NAME` reads the plaintext from
    stdin (or `--from-file`), resolves the org's canonical id, fetches
-   the public key, and prints one marker line. It refuses a TTY
-   (no shell history, no argv), never echoes the input, and never
-   prints the plaintext. The command is in the CLI, not the provider:
-   provider functions are called on every plan and must be
-   deterministic; encryption is neither.
+   the public key, and prints one marker line. It refuses a TTY,
+   never echoes the input, and never prints the plaintext. Stdin keeps
+   the value out of THIS command's argv, not out of shell history:
+   `echo 'secret' | fluxvale secrets encrypt …` records the plaintext
+   in history and in the producer's argv. Use `--from-file` or a
+   secret-manager pipe (`op read … | fluxvale secrets encrypt …`).
+   The command is in the CLI, not the provider: provider functions are
+   called on every plan and must be deterministic; encryption is
+   neither.
 
 5. **Only secret-typed inputs accept a marker.** The catalog already
    marks env fields with `secret: true`. A marker is valid only for
@@ -98,11 +102,13 @@ runtime Secret — that is the trust boundary, stated plainly.
    `FLUXVALE_SECRET_KEY_RING` (a JSON list with an active `kid`).
    The ring holds retired keys for opening. Rotation = generate a new
    key, make it active, keep the old one in the ring. The platform
-   never re-encrypts a user's Terraform state (it cannot reach it),
-   so **an old key is retired only when every config using it has
-   been re-encrypted** — retiring early is a loud, per-variable
-   deploy failure, documented in the runbook. Losing the ring is
-   unrecoverable: back up 1Password.
+   never re-encrypts stored data (it cannot reach Terraform state),
+   so **an old key is retired only when every stored marker sealed
+   with it has been re-encrypted or removed** — every config using it
+   AND every operator-owned `env_vars` value outside any Terraform
+   config. Retiring early is a loud, per-variable deploy failure,
+   documented in the runbook. Losing the ring is unrecoverable: back up
+   1Password.
 
 7. **Failure modes are loud and named.** Unknown `kid`, a bad tag, a
    wrong org, a wrong variable name, or a missing key all fail the
@@ -172,9 +178,10 @@ runtime Secret — that is the trust boundary, stated plainly.
 - The marker prefix is reserved; `enc:v1:raw:` is the escape.
 - Key loss is unrecoverable by design; the runbook names the 1Password
   backup and the retirement rule.
-- Rotation protects future encryptions; old ciphertexts stay openable
-  until users re-encrypt, because Terraform state is not ours to
-  rewrite.
+- Rotation protects future encryptions; stored markers stay openable
+  until every one sealed with the old key is re-encrypted or removed —
+  Terraform state is not ours to rewrite, and operator-owned env
+  values may live outside any config.
 - The `secret: true` catalog flag becomes actionable: those are the
   fields the CLI and docs tell users to encrypt.
 - No migration, no new table, no new scope. One config secret, one

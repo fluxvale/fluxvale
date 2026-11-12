@@ -159,7 +159,7 @@ defmodule FluxVale.Infrastructure.Operations.ConnectPocketId do
     # tuple, never a crash in the caller's LiveView.
     case Ash.reload(app_instance, authorize?: false) do
       {:ok, fresh} ->
-        case InstanceEnvSecret.apply_to_running(fresh, sso_env(recipe, issuer, client), []) do
+        case InstanceEnvSecret.apply_locked(fresh, sso_env(recipe, issuer, client), []) do
           :ok -> {:ok, wiring}
           {:error, _apply_reason} = error -> error
         end
