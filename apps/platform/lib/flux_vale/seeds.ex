@@ -377,6 +377,12 @@ defmodule FluxVale.Seeds do
     end
   end
 
+  # The flags this seed owns, as literal atoms. Never rebuild these from
+  # DB-key strings with String.to_existing_atom/1: in a release the
+  # FeatureFlags module (which carries the atoms) may not be loaded yet,
+  # so the lookup raises before the declare gate can compare anything.
+  @seeded_feature_flags [:pocketid_sso_wiring]
+
   @doc """
   Seeds the platform's enabled feature flags (#597 S6): rows the promotable
   seed owns, enabled by deliberate decision — the flag stays the instant
@@ -386,17 +392,15 @@ defmodule FluxVale.Seeds do
   """
   @spec seed_feature_flags! :: :ok
   def seed_feature_flags! do
-    # The declare gate: crash loudly on a key that isn't declared in
+    # The declare gate: crash loudly on a flag that isn't declared in
     # FeatureFlags's @known_flags — a typo'd key would otherwise create a
-    # permanently inert flag row. (Atom comparison: @known_flags is atoms,
-    # the seed list is DB-key strings.)
-    true =
-      Enum.all?(
-        ["pocketid_sso_wiring"],
-        &(String.to_existing_atom(&1) in FeatureFlags.known_flags())
-      )
+    # permanently inert flag row. Literal atoms keep this release-safe:
+    # nothing here depends on the FeatureFlags module being loaded first.
+    true = Enum.all?(@seeded_feature_flags, &(&1 in FeatureFlags.known_flags()))
 
-    for key <- ["pocketid_sso_wiring"] do
+    for flag <- @seeded_feature_flags do
+      key = Atom.to_string(flag)
+
       case FeatureFlag.by_key(key, authorize?: false) do
         {:ok, _flag} -> :ok
         {:error, _not_found} -> FeatureFlag.create!(key, %{enabled: true}, authorize?: false)
@@ -405,6 +409,12 @@ defmodule FluxVale.Seeds do
 
     :ok
   end
+
+  @doc """
+  The feature-flag catalog this seed owns, as declared atoms.
+  """
+  @spec seeded_feature_flags :: [atom()]
+  def seeded_feature_flags, do: @seeded_feature_flags
 
   @doc """
   Seeds the curated tag vocabulary (#412 T10): `platform` and
