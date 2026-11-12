@@ -537,6 +537,12 @@ defmodule FluxValeWeb.AdminResource do
     if(enum_type?(type), do: "select", else: "textarea")
   end
 
+  # The array-argument textarea (slice 6): Post.set_tags' tag_ids is a
+  # list of UUIDs, and JSON text is the shape both the cast and the
+  # required-field contract accept. Placed before the generic array
+  # clause — array-of-integer stays unmappable.
+  def input_type(%{type: {:array, Ash.Type.UUID}}), do: "textarea"
+
   # Arrays of scalars and of composites textarea through the same
   # JSON-shaped casting. Array-of-array stays unmappable (nil) —
   # nothing uses it, and the guard must precede the recursion: the

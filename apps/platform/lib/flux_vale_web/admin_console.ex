@@ -27,9 +27,9 @@ defmodule FluxValeWeb.AdminConsole do
 
   # Live domains in display order, each with its resources. Slices 1-2
   # proved the engine on Ops; slice 3 rolled Pricing and Billing live;
-  # slice 4 rolled Catalog; slice 5 rolls Infrastructure (the plan's
-  # sanity passes and the policy proof). A later slice flips the
-  # pending domain below. Per-resource config (all
+  # slice 4 rolled Catalog; slice 5 rolled Infrastructure (the plan's
+  # sanity passes and the policy proof); slice 6 rolls Feedback, the
+  # last domain — nothing is pending. Per-resource config (all
   # optional): label, note, columns, label_attr — the defaults
   # introspect from the resource. A domain's out-of-console resources
   # live in @excluded_resources below, keyed by the domain MODULE —
@@ -233,16 +233,72 @@ defmodule FluxValeWeb.AdminConsole do
           }
         }
       ]
+    },
+    %{
+      key: :feedback,
+      label: "Feedback",
+      module: FluxVale.Feedback,
+      resources: [
+        %{
+          key: :post,
+          module: FluxVale.Feedback.Post,
+          config: %{
+            label_attr: :title,
+            columns: [:title, :status, :vote_count, :comment_count, :organization_id],
+            badge_relationships: [:tags],
+            form_textareas: [:description],
+            update_actions: [:bump_vote_count, :bump_comment_count],
+            note:
+              "The public board and the moderation surface are the daily tools. This surface carries the moderation writes: content edits, status, tags and destroy."
+          }
+        },
+        %{
+          key: :vote,
+          module: FluxVale.Feedback.Vote,
+          config: %{
+            columns: [:post_id, :organization_id, :cast_by_user_id],
+            note:
+              "Votes are cast and retracted by board users. This surface acts as the platform admin, so a cast here is the admin's own vote."
+          }
+        },
+        %{
+          key: :comment,
+          module: FluxVale.Feedback.Comment,
+          config: %{
+            columns: [:post_id, :body, :author_user_id],
+            note:
+              "Comments here are authored as the platform admin. The board and the moderation surface own the public view."
+          }
+        },
+        %{
+          key: :tag,
+          module: FluxVale.Feedback.Tag,
+          config: %{
+            label_attr: :name,
+            columns: [:name, :slug],
+            note:
+              "The curated vocabulary: create, rename and remove tags here. Posts pick tags through their set_tags action."
+          }
+        },
+        %{
+          key: :post_tag,
+          module: FluxVale.Feedback.PostTag,
+          config: %{
+            columns: [:post_id, :tag_id],
+            note:
+              "Tagging is curated from the post page via set_tags. This raw join surface is for data surgery only."
+          }
+        }
+      ]
     }
   ]
 
   # The console's committed target (the plan's appendix A): the domains
   # later slices roll out. Accounted for here so the parity test holds
   # the whole picture — a slice flips one live by moving it into
-  # @domains above with its resource configs.
-  @pending_domains [
-    FluxVale.Feedback
-  ]
+  # @domains above with its resource configs. Slice 6 rolled the last
+  # one (Feedback), so no domain is pending.
+  @pending_domains []
 
   # Excluded by name, each with its reason — the §3 posture carried
   # over from AshAdmin's exposure set (the plan's appendix A).

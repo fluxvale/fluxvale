@@ -16,7 +16,10 @@
  * status badges and FK links, the instance show with its env_vars JSON
  * details and lifecycle actions, the gateway index with its state
  * badges, and the allocation-snapshot index's id+created_at read-only
- * shape) — light and dark. gif-light / gif-dark
+ * shape) — light and dark. feedback captures slice 6's Feedback
+ * surfaces (the post index with its neutral status badges, the post
+ * show with the tags badge list, and the status moderation form) —
+ * light and dark. gif-light / gif-dark
  * each record
  * the confirm-then-destroy motion on the seed's sacrificial
  * write_path_demo row (recordVideo -> ffmpeg, cropped to the content
@@ -27,8 +30,8 @@
  *   mix run -e 'alias AshAuthentication.Jwt; alias FluxVale.Identity.User;
  *     {:ok, token, _} = Jwt.token_for_user(User.get_by_email!("admin@fluxvale.com", authorize?: false)); IO.puts(token)'
  * Rows: mix run ../e2e/fv595_seed.exs first (idempotent) for stills,
- * pricing, catalog and the GIFs; infrastructure reads the dev DB's
- * existing instances and gateways (the wallet precedent).
+ * pricing, catalog, feedback and the GIFs; infrastructure reads the dev
+ * DB's existing instances and gateways (the wallet precedent).
  */
 import { chromium } from "@playwright/test";
 import { mkdirSync, unlinkSync } from "node:fs";
@@ -348,6 +351,41 @@ if (part === "infrastructure") {
       `infrastructure-instance-show-${mode}`,
       mode,
       "[data-testid='admin-resource-show']",
+    );
+  }
+
+  await ctx.close();
+}
+
+if (part === "feedback") {
+  // Slice 6's Feedback surfaces: the post index (neutral status
+  // badges), the post show (the tags badge list), and the status
+  // moderation form. Seeds first: mix run ../e2e/fv595_seed.exs.
+  const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  const page = await ctx.newPage();
+  await signIn(page);
+
+  for (const mode of ["light", "dark"]) {
+    await page.goto(`${BASE}/admin/resources/feedback/post`, { waitUntil: "networkidle" });
+    await shot(page, `feedback-post-index-${mode}`, mode, "[data-testid='admin-resource-index']");
+  }
+
+  const postHref = await indexViewHref(page, "/admin/resources/feedback/post", "Capture Post");
+  if (!postHref) {
+    console.error("no Capture Post row — run mix run ../e2e/fv595_seed.exs first");
+    process.exit(1);
+  }
+
+  for (const mode of ["light", "dark"]) {
+    await page.goto(`${BASE}${postHref}`, { waitUntil: "networkidle" });
+    await page.waitForSelector("[data-testid='admin-resource-badges-tags']");
+    await shot(page, `feedback-post-show-${mode}`, mode, "[data-testid='admin-resource-show']");
+    await page.goto(`${BASE}${postHref}/edit?action=set_status`, { waitUntil: "networkidle" });
+    await shot(
+      page,
+      `feedback-moderation-form-${mode}`,
+      mode,
+      "[data-testid='admin-resource-form']",
     );
   }
 

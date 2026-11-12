@@ -62,6 +62,10 @@ defmodule FluxValeWeb.AdminConsoleTest do
              "the included set drifted from the plan's appendix A — a slice flip or a scope change belongs in the registry with its reason"
     end
 
+    test "no domain is pending since slice 6 rolled Feedback" do
+      assert AdminConsole.pending_domains() == []
+    end
+
     test "excluded by name, each with its documented reason" do
       excluded = AdminConsole.excluded_domains()
       excluded_keys = Map.keys(excluded)
@@ -261,9 +265,35 @@ defmodule FluxValeWeb.AdminConsoleTest do
              ]
     end
 
-    test "fetch_by_module/1 answers :error for an unregistered module and a pending domain's resource" do
+    test "the Feedback slice's entries resolve, all five by module" do
+      for {resource_key, module} <- [
+            post: FluxVale.Feedback.Post,
+            vote: FluxVale.Feedback.Vote,
+            comment: FluxVale.Feedback.Comment,
+            tag: FluxVale.Feedback.Tag,
+            post_tag: FluxVale.Feedback.PostTag
+          ] do
+        assert {:ok, entry} = AdminConsole.fetch("feedback", resource_key)
+        assert entry.module == module
+        assert entry.domain.key == :feedback
+
+        assert {:ok, by_module} = AdminConsole.fetch_by_module(module)
+        assert by_module.key == resource_key
+      end
+    end
+
+    test "the Feedback domain has the five keys in order" do
+      keys =
+        :feedback
+        |> AdminConsole.resources()
+        |> Enum.map(& &1.key)
+
+      assert keys == [:post, :vote, :comment, :tag, :post_tag]
+    end
+
+    test "fetch_by_module/1 answers :error for an unregistered module" do
       assert AdminConsole.fetch_by_module(FluxVale.Repo) == :error
-      assert AdminConsole.fetch_by_module(FluxVale.Feedback.Post) == :error
+      assert AdminConsole.fetch_by_module(FluxVale.Identity.User) == :error
     end
   end
 
@@ -398,6 +428,73 @@ defmodule FluxValeWeb.AdminConsoleTest do
         assert names(AdminConsole.allowed_actions(entry.module, type, entry.config)) == expected,
                "#{inspect(key)} #{type} drifted from the registry's intent list"
       end
+    end
+
+    test "the Feedback configs curate the operator set (slice 6's registry intent)" do
+      {:ok, post} = AdminConsole.fetch(:feedback, :post)
+      {:ok, vote} = AdminConsole.fetch(:feedback, :vote)
+      {:ok, comment} = AdminConsole.fetch(:feedback, :comment)
+      {:ok, tag} = AdminConsole.fetch(:feedback, :tag)
+      {:ok, post_tag} = AdminConsole.fetch(:feedback, :post_tag)
+
+      post_updates =
+        post.module
+        |> AdminConsole.allowed_actions(:update, post.config)
+        |> names()
+
+      assert :update in post_updates
+      assert :set_status in post_updates
+      assert :set_tags in post_updates
+      refute :bump_vote_count in post_updates
+      refute :bump_comment_count in post_updates
+
+      assert names(AdminConsole.allowed_actions(vote.module, :create, vote.config)) == [:cast]
+
+      assert names(AdminConsole.allowed_actions(vote.module, :destroy, vote.config)) == [
+               :retract
+             ]
+
+      assert names(AdminConsole.allowed_actions(comment.module, :create, comment.config)) == [
+               :create
+             ]
+
+      assert names(AdminConsole.allowed_actions(comment.module, :destroy, comment.config)) == [
+               :destroy
+             ]
+
+      assert names(AdminConsole.allowed_actions(tag.module, :create, tag.config)) == [:create]
+      assert names(AdminConsole.allowed_actions(tag.module, :update, tag.config)) == [:update]
+
+      assert names(AdminConsole.allowed_actions(tag.module, :destroy, tag.config)) == [
+               :destroy
+             ]
+
+      assert names(AdminConsole.allowed_actions(post_tag.module, :create, post_tag.config)) == [
+               :create
+             ]
+
+      assert names(AdminConsole.allowed_actions(post_tag.module, :destroy, post_tag.config)) == [
+               :destroy
+             ]
+    end
+
+    test "the Feedback exclusions are exactly the five version tables" do
+      feedback =
+        FluxVale.Feedback
+        |> AdminConsole.excluded_resources()
+        |> Map.keys()
+        |> MapSet.new()
+
+      assert MapSet.equal?(
+               feedback,
+               MapSet.new([
+                 FluxVale.Feedback.Post.Version,
+                 FluxVale.Feedback.Vote.Version,
+                 FluxVale.Feedback.Comment.Version,
+                 FluxVale.Feedback.Tag.Version,
+                 FluxVale.Feedback.PostTag.Version
+               ])
+             )
     end
 
     test "Topup is excluded by name with its documented reason" do

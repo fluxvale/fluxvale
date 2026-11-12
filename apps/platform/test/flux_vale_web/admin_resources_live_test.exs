@@ -21,6 +21,9 @@ defmodule FluxValeWeb.AdminResourcesLiveTest do
   alias FluxVale.Catalog.App
   alias FluxVale.Catalog.AppVersion
   alias FluxVale.Catalog.Category
+  alias FluxVale.Feedback.Comment
+  alias FluxVale.Feedback.Post
+  alias FluxVale.Feedback.PostTag
   alias FluxVale.Identity.User
   alias FluxVale.Infrastructure.AccessGateway
   alias FluxVale.Infrastructure.AccessProviders.Tailscale
@@ -35,6 +38,7 @@ defmodule FluxValeWeb.AdminResourcesLiveTest do
   alias FluxVale.Pricing.TaxRate
   alias FluxVale.TestSupport.ApiPat
   alias FluxVale.TestSupport.BillingFixtures
+  alias FluxVale.TestSupport.FeedbackFixtures
   alias FluxVale.TestSupport.InstanceFixtures
   alias FluxVale.TestSupport.SessionHelpers
   alias FluxValeWeb.AdminConsole
@@ -312,6 +316,33 @@ defmodule FluxValeWeb.AdminResourcesLiveTest do
     |> MapSet.new()
   end
 
+  # The tags badge row's labels in render order (the relationship's own
+  # load order — Tag sorts by name).
+  defp badge_labels(view) do
+    view
+    |> render()
+    |> LazyHTML.from_fragment()
+    |> LazyHTML.query(
+      "[data-testid='admin-resource-badges-tags'] [data-testid^='admin-resource-badge-']"
+    )
+    |> Enum.to_list()
+    |> Enum.map(fn match ->
+      text = LazyHTML.text(match)
+      String.trim(text)
+    end)
+  end
+
+  # A textarea's text content through LazyHTML, so entity-escaped JSON
+  # decodes back to the text the operator sees.
+  defp textarea_text(view, field) do
+    view
+    |> element("[data-testid='admin-resource-input-#{field}'] textarea")
+    |> render()
+    |> LazyHTML.from_fragment()
+    |> LazyHTML.text()
+    |> String.trim()
+  end
+
   describe "the landing and the domain picker (D3)" do
     test "the landing cards the live domains and marks the sidebar entry as the page", %{
       conn: conn
@@ -377,6 +408,12 @@ defmodule FluxValeWeb.AdminResourcesLiveTest do
                view,
                "[data-testid='admin-resources-pending']",
                "The sidebar groups every live domain here under Resources, collapsed to start."
+             )
+
+      assert has_element?(
+               view,
+               "[data-testid='admin-resources-pending']",
+               "Every domain is live and fully supported."
              )
     end
 
@@ -2433,6 +2470,23 @@ defmodule FluxValeWeb.AdminResourcesLiveTest do
 
       refute has_element?(gateway_view, "[data-testid^='admin-resource-destroy-']")
 
+      # The argument-only seed path: update_credential's auth_key has no
+      # like-named record attribute, so the mount seeds nothing for it
+      # and the pristine form stays clean (the tailnet backfill seeds
+      # from the record).
+      {:ok, credential_view, _html} =
+        live(
+          conn,
+          "/admin/resources/infrastructure/access_gateway/#{gateway.id}/edit?action=update_credential"
+        )
+
+      assert has_element?(credential_view, "[data-testid='admin-resource-input-auth_key'] input")
+
+      assert has_element?(
+               credential_view,
+               "[data-testid='admin-resource-input-tailnet_domain'] input"
+             )
+
       {:ok, snapshot_view, _html} =
         live(
           conn,
@@ -2565,6 +2619,368 @@ defmodule FluxValeWeb.AdminResourcesLiveTest do
     end
   end
 
+  # -- slice 6: the Feedback rollout ------------------------------------------
+
+  describe "the Feedback rollout (slice 6: the board's console surface)" do
+    test "the post index renders the configured columns, the org short uuid and the neutral status badge",
+         %{conn: conn} do
+      {org, _owner} = foreign_org!()
+      post = FeedbackFixtures.post!(%{organization_id: org.id, title: "Slice six index"})
+
+      {:ok, view, _html} = live(conn, "/admin/resources/feedback/post")
+
+      expected =
+        MapSet.new([
+          "title",
+          "status",
+          "vote_count",
+          "comment_count",
+          "organization_id",
+          "created_at"
+        ])
+
+      columns = column_names(view)
+      assert MapSet.equal?(columns, expected)
+
+      assert text_of(view, "[data-testid='admin-resource-cell-title-#{post.id}']") ==
+               "Slice six index"
+
+      assert text_of(
+               view,
+               "[data-testid='admin-resource-cell-organization_id-#{post.id}']"
+             ) == AdminResource.short_uuid(org.id)
+
+      status_cell = "[data-testid='admin-resource-cell-status-#{post.id}']"
+
+      assert text_of(view, status_cell) == "Open"
+      assert has_element?(view, "#{status_cell} [data-testid='admin-resource-enum']")
+      refute has_element?(view, "#{status_cell} [data-testid='status-badge']")
+    end
+
+    test "the post show renders tags as a read-only, alphabetical badge list", %{conn: conn} do
+      {org, _owner} = foreign_org!()
+      post = FeedbackFixtures.post!(%{organization_id: org.id})
+      alpha = FeedbackFixtures.tag!(%{name: "Alpha topic"})
+      zeta = FeedbackFixtures.tag!(%{name: "Zeta topic"})
+      tagged = FeedbackFixtures.tag_post!(post, [zeta, alpha])
+
+      {:ok, view, _html} = live(conn, "/admin/resources/feedback/post/#{tagged.id}")
+
+      assert has_element?(view, "[data-testid='admin-resource-badges-tags']")
+      assert badge_labels(view) == ["Alpha topic", "Zeta topic"]
+
+      assert has_element?(view, "[data-testid='admin-resource-badge-#{alpha.id}']", "Alpha topic")
+
+      assert has_element?(view, "[data-testid='admin-resource-badge-#{zeta.id}']", "Zeta topic")
+
+      refute has_element?(view, "[data-testid='admin-resource-badges-tags'] a")
+
+      assert has_element?(
+               view,
+               "[data-testid='admin-resource-field-status'] [data-testid='admin-resource-enum']",
+               "Open"
+             )
+
+      for action <- [:update, :set_status, :set_tags] do
+        assert has_element?(view, "[data-testid='admin-resource-edit-#{action}']")
+      end
+
+      refute has_element?(view, "[data-testid='admin-resource-edit-bump_vote_count']")
+      refute has_element?(view, "[data-testid='admin-resource-edit-bump_comment_count']")
+      assert has_element?(view, "[data-testid='admin-resource-destroy-destroy']")
+    end
+
+    test "a tagless post renders the muted None badge row", %{conn: conn} do
+      {org, _owner} = foreign_org!()
+      post = FeedbackFixtures.post!(%{organization_id: org.id})
+
+      {:ok, view, _html} = live(conn, "/admin/resources/feedback/post/#{post.id}")
+
+      assert has_element?(view, "[data-testid='admin-resource-badges-tags']", "None")
+      assert badge_labels(view) == []
+    end
+
+    test "editing a multiline description preserves its line breaks", %{conn: conn} do
+      {org, _owner} = foreign_org!()
+      description = "line one\nline two"
+      post = FeedbackFixtures.post!(%{organization_id: org.id, description: description})
+
+      {:ok, view, _html} = live(conn, "/admin/resources/feedback/post/#{post.id}/edit")
+
+      assert has_element?(view, "[data-testid='admin-resource-input-description'] textarea")
+      assert textarea_text(view, "description") == description
+
+      submitted =
+        view
+        |> form("#admin-resource-record-form",
+          record: %{"title" => post.title, "description" => description}
+        )
+        |> render_submit()
+
+      assert {:error, {:live_redirect, %{to: _to}}} = submitted
+
+      assert Ash.get!(Post, post.id, authorize?: false).description == description
+    end
+
+    test "a JSON-looking description stays plain text through the form", %{conn: conn} do
+      {org, _owner} = foreign_org!()
+      description = ~s({"not": "decoded"})
+      post = FeedbackFixtures.post!(%{organization_id: org.id, description: description})
+
+      {:ok, view, _html} = live(conn, "/admin/resources/feedback/post/#{post.id}/edit")
+
+      submitted =
+        view
+        |> form("#admin-resource-record-form",
+          record: %{"title" => post.title, "description" => description}
+        )
+        |> render_submit()
+
+      assert {:error, {:live_redirect, %{to: _to}}} = submitted
+
+      assert Ash.get!(Post, post.id, authorize?: false).description == description
+    end
+
+    test "the post create form takes title, description and the named org, and lands on the show page",
+         %{conn: conn} do
+      {:ok, view, _html} = live(conn, "/admin/resources/feedback/post/new")
+
+      assert has_element?(
+               view,
+               "[data-testid='admin-resource-input-title'] input[type='text'][required]"
+             )
+
+      assert has_element?(
+               view,
+               "[data-testid='admin-resource-input-description'] textarea[required]"
+             )
+
+      assert has_element?(
+               view,
+               "[data-testid='admin-resource-input-organization_id'] input[type='text']"
+             )
+
+      title = "Console post #{System.unique_integer([:positive])}"
+
+      submitted =
+        view
+        |> form("#admin-resource-record-form",
+          record: %{"title" => title, "description" => "created from the console"}
+        )
+        |> render_submit()
+
+      assert {:error, {:live_redirect, %{to: to}}} = submitted
+      assert to =~ "/admin/resources/feedback/post/"
+
+      created =
+        to
+        |> String.split("/")
+        |> List.last()
+        |> then(&Ash.get!(Post, &1, authorize?: false))
+
+      assert created.slug == Post.DeriveSlug.sanitize(title)
+
+      {:ok, show_view, _html} = follow_redirect(submitted, conn)
+
+      assert has_element?(
+               show_view,
+               "[data-testid='admin-resource-field-slug']",
+               created.slug
+             )
+
+      assert has_element?(show_view, "[data-testid='admin-resource-badges-tags']", "None")
+    end
+
+    test "the set_status form offers the six statuses and saves Planned", %{conn: conn} do
+      {org, _owner} = foreign_org!()
+      post = FeedbackFixtures.post!(%{organization_id: org.id})
+
+      {:ok, view, _html} =
+        live(conn, "/admin/resources/feedback/post/#{post.id}/edit?action=set_status")
+
+      select = "[data-testid='admin-resource-input-status'] select"
+
+      for status <- ~w(open planned started completed duplicate declined) do
+        assert has_element?(view, "#{select} option[value='#{status}']")
+      end
+
+      assert has_element?(view, "#{select} option[value='planned']", "Planned")
+      refute has_element?(view, "#{select} option[value='archived']")
+
+      # The pristine form shows the post's CURRENT status, not the
+      # select's first option — a no-op save must not reopen a post.
+      assert has_element?(view, "#{select} option[value='open'][selected]")
+
+      submitted =
+        view
+        |> form("#admin-resource-record-form", record: %{"status" => "planned"})
+        |> render_submit()
+
+      assert {:error, {:live_redirect, %{to: to}}} = submitted
+      assert to == "/admin/resources/feedback/post/#{post.id}"
+
+      {:ok, show_view, _html} = follow_redirect(submitted, conn)
+
+      assert has_element?(
+               show_view,
+               "[data-testid='admin-resource-field-status'] [data-testid='admin-resource-enum']",
+               "Planned"
+             )
+    end
+
+    test "the set_tags form seeds the current ids and replaces the list", %{conn: conn} do
+      {org, _owner} = foreign_org!()
+      post = FeedbackFixtures.post!(%{organization_id: org.id})
+      alpha = FeedbackFixtures.tag!(%{name: "Alpha topic"})
+      zeta = FeedbackFixtures.tag!(%{name: "Zeta topic"})
+      tagged = FeedbackFixtures.tag_post!(post, [alpha, zeta])
+
+      {:ok, view, _html} =
+        live(conn, "/admin/resources/feedback/post/#{tagged.id}/edit?action=set_tags")
+
+      assert has_element?(view, "[data-testid='admin-resource-input-tag_ids'] textarea[required]")
+
+      seeded = textarea_text(view, "tag_ids")
+      assert Jason.decode!(seeded) == [alpha.id, zeta.id]
+
+      submitted =
+        view
+        |> form("#admin-resource-record-form", record: %{"tag_ids" => Jason.encode!([zeta.id])})
+        |> render_submit()
+
+      assert {:error, {:live_redirect, %{to: to}}} = submitted
+      assert to == "/admin/resources/feedback/post/#{tagged.id}"
+
+      {:ok, show_view, _html} = follow_redirect(submitted, conn)
+
+      assert badge_labels(show_view) == ["Zeta topic"]
+      assert has_element?(show_view, "[data-testid='admin-resource-badge-#{zeta.id}']")
+      refute has_element?(show_view, "[data-testid='admin-resource-badge-#{alpha.id}']")
+    end
+
+    test "the vote cast form renders post and org, and a cast lands on the show page", %{
+      conn: conn
+    } do
+      {org, _owner} = foreign_org!()
+      post = FeedbackFixtures.post!(%{organization_id: org.id})
+
+      {:ok, view, _html} = live(conn, "/admin/resources/feedback/vote/new")
+
+      assert has_element?(
+               view,
+               "[data-testid='admin-resource-input-post_id'] input[type='text'][required]"
+             )
+
+      assert has_element?(
+               view,
+               "[data-testid='admin-resource-input-organization_id'] input[type='text']"
+             )
+
+      submitted =
+        view
+        |> form("#admin-resource-record-form",
+          record: %{"post_id" => post.id, "organization_id" => org.id}
+        )
+        |> render_submit()
+
+      assert {:error, {:live_redirect, %{to: to}}} = submitted
+      assert to =~ "/admin/resources/feedback/vote/"
+
+      {:ok, show_view, _html} = follow_redirect(submitted, conn)
+      assert has_element?(show_view, "[data-testid='admin-resource-show']")
+    end
+
+    test "the comment create round-trip authors the comment as the admin", %{
+      conn: conn,
+      admin: admin
+    } do
+      {org, _owner} = foreign_org!()
+      post = FeedbackFixtures.post!(%{organization_id: org.id})
+      body = "Console comment #{System.unique_integer([:positive])}"
+
+      {:ok, view, _html} = live(conn, "/admin/resources/feedback/comment/new")
+
+      assert has_element?(
+               view,
+               "[data-testid='admin-resource-input-post_id'] input[type='text'][required]"
+             )
+
+      assert has_element?(
+               view,
+               "[data-testid='admin-resource-input-body'] input[type='text'][required]"
+             )
+
+      submitted =
+        view
+        |> form("#admin-resource-record-form", record: %{"post_id" => post.id, "body" => body})
+        |> render_submit()
+
+      assert {:error, {:live_redirect, %{to: to}}} = submitted
+      assert to =~ "/admin/resources/feedback/comment/"
+
+      comment =
+        to
+        |> String.split("/")
+        |> List.last()
+        |> then(&Ash.get!(Comment, &1, authorize?: false))
+
+      assert comment.author_user_id == admin.id
+      assert comment.post_id == post.id
+      assert comment.body == body
+
+      {:ok, show_view, _html} = follow_redirect(submitted, conn)
+      assert has_element?(show_view, "[data-testid='admin-resource-show']")
+    end
+
+    test "the tag and post_tag indexes render, and the join note points at set_tags", %{
+      conn: conn,
+      admin: admin
+    } do
+      {org, _owner} = foreign_org!()
+      post = FeedbackFixtures.post!(%{organization_id: org.id})
+      tag = FeedbackFixtures.tag!(%{name: "Console tag"})
+
+      pairing =
+        PostTag.create!(%{post_id: post.id, tag_id: tag.id}, actor: admin, authorize?: true)
+
+      {:ok, tag_view, _html} = live(conn, "/admin/resources/feedback/tag")
+
+      assert has_element?(tag_view, "[data-testid='admin-resource-index']")
+
+      assert text_of(tag_view, "[data-testid='admin-resource-cell-name-#{tag.id}']") == tag.name
+
+      {:ok, join_view, _html} = live(conn, "/admin/resources/feedback/post_tag")
+
+      assert has_element?(join_view, "[data-testid='admin-resource-index']")
+      assert has_element?(join_view, "[data-testid='admin-resource-note']", "set_tags")
+
+      assert has_element?(
+               join_view,
+               "[data-testid='admin-resource-cell-tag_id-#{pairing.id}']"
+             )
+    end
+
+    test "every Feedback resource is reachable for the admin", %{conn: conn} do
+      for key <- [:post, :vote, :comment, :tag, :post_tag] do
+        {:ok, view, _html} = live(conn, "/admin/resources/feedback/#{key}")
+
+        assert has_element?(view, "[data-testid='admin-resource-index']")
+        assert has_element?(view, "[data-testid='admin-resources-title']")
+      end
+    end
+
+    test "a signed-in non-admin gets a bare 403 on the Feedback surface", %{bare_conn: conn} do
+      user = User.create!("admin-resources-feedback-#{@n}@fluxvale.com", %{}, authorize?: false)
+
+      request =
+        conn
+        |> SessionHelpers.sign_in(user)
+        |> get("/admin/resources/feedback/post")
+
+      assert request.status == 403
+    end
+  end
+
   describe "the ?action= selector and field mapping (fabricated entries)" do
     test "the default is the primary action of the type" do
       entry = write_entry(%{})
@@ -2623,6 +3039,22 @@ defmodule FluxValeWeb.AdminResourcesLiveTest do
 
       assert Enum.map(fields, & &1.name) == [:name, :env_vars]
       assert List.last(fields).type == "textarea"
+      assert List.last(fields).format == :json
+    end
+
+    test "the registry's form_textareas override maps a string field to plain text" do
+      {:ok, entry} = AdminConsole.fetch(:feedback, :post)
+
+      action =
+        entry.module
+        |> AdminConsole.allowed_actions(:update, entry.config)
+        |> Enum.find(&(&1.name == :update))
+
+      fields = Resources.form_fields(Post, action, textareas: entry.config[:form_textareas])
+      description = Enum.find(fields, &(&1.name == :description))
+
+      assert description.type == "textarea"
+      assert description.format == :text
     end
   end
 

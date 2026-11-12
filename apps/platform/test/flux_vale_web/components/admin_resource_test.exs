@@ -14,8 +14,10 @@ defmodule FluxValeWeb.Components.AdminResourceTest do
   import Phoenix.LiveViewTest, only: [render_component: 2]
 
   alias Ash.Resource.Info
+  alias FluxVale.Feedback.Post
   alias FluxVale.Ops.AccessRule
   alias FluxVale.Ops.FeatureFlag
+  alias FluxValeWeb.AdminLive.Resources
   alias FluxValeWeb.AdminResource
 
   defp attr(module, name) do
@@ -462,6 +464,34 @@ defmodule FluxValeWeb.Components.AdminResourceTest do
 
       assert AdminResource.input_step(cpu) == "0.01"
       assert AdminResource.input_step(memory) == nil
+    end
+
+    test "array-of-uuid arguments map to the JSON textarea (slice 6: set_tags)" do
+      assert AdminResource.input_type(%{type: {:array, Ash.Type.UUID}}) == "textarea"
+    end
+
+    test "set_tags maps tag_ids to a required textarea; set_status status to a six-option select" do
+      set_tags = Info.action(Post, :set_tags)
+      set_tags_fields = Resources.form_fields(Post, set_tags)
+      tag_ids = Enum.find(set_tags_fields, &(&1.name == :tag_ids))
+
+      assert tag_ids.type == "textarea"
+      assert tag_ids.required
+
+      set_status = Info.action(Post, :set_status)
+      set_status_fields = Resources.form_fields(Post, set_status)
+      status = Enum.find(set_status_fields, &(&1.name == :status))
+
+      assert status.type == "select"
+
+      assert status.options == [
+               {"Open", "open"},
+               {"Planned", "planned"},
+               {"Started", "started"},
+               {"Completed", "completed"},
+               {"Duplicate", "duplicate"},
+               {"Declined", "declined"}
+             ]
     end
 
     test "required-ness follows allow_nil?, except checkboxes" do
