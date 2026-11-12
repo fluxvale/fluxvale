@@ -5,10 +5,10 @@ defmodule FluxVale.Observability.SmokeRuns do
   `Req`.
 
   The source is the public runs API of `fluxvale/fluxvale` — an
-  unauthenticated read against a public repo, cached 60 seconds so the
-  console's mounts stay far under GitHub's rate limits. A failure answers
-  `{:error, :unreachable}` and the widget says so; it never guesses a
-  verdict.
+  unauthenticated read against a public repo, cached 60 seconds so page
+  mounts share one fetch (the unauthenticated budget is 60 requests an
+  hour). A failure answers `{:error, :unreachable}` and the widget says
+  so; it never guesses a verdict.
 
   Tier-1 boundary: the Grafana heartbeat series and synthetics stay
   Grafana-side. This widget is the workflow's own verdict — the same
