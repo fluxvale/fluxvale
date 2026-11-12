@@ -1467,8 +1467,9 @@ defmodule FluxValeWeb.AdminLive.Resources do
 
   defp fallback_textarea_value(form, name) do
     case form[name].value do
-      value when is_binary(value) -> value
-      nil -> nil
+      # A nil/missing value renders empty (the nil is the input's own
+      # empty state); any non-binary value serializes through json_safe.
+      value when is_binary(value) or is_nil(value) -> value
       value -> encode_json_value(value)
     end
   end
