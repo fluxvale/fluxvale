@@ -1812,7 +1812,12 @@ defmodule FluxValeWeb.AdminResourcesLiveTest do
       # text); decode_json_params leaves them untouched and the casts
       # accept them.
       assert {:error, {:live_redirect, %{to: to}}} = redirect
-      version_id = to |> String.split("/") |> List.last()
+
+      version_id =
+        to
+        |> String.split("/")
+        |> List.last()
+
       version = Ash.get!(AppVersion, version_id, actor: admin)
       assert version.default_env_vars == %{"A" => "1"}
     end
@@ -1973,10 +1978,10 @@ defmodule FluxValeWeb.AdminResourcesLiveTest do
 
       render_change(view, "validate", %{"record" => %{"configurable_env_vars" => valid}})
 
-      composite_container =
+      valid_container =
         render(element(view, "[data-testid='admin-resource-input-configurable_env_vars']"))
 
-      refute composite_container =~ "is invalid"
+      refute valid_container =~ "is invalid"
 
       valid_text =
         view
