@@ -30,9 +30,16 @@ defmodule FluxValeWeb.AdminHealth do
   (one week by default) — the org names ride the flagged
   `Organization :admin_lookup` seam (#501) exactly as the wallets
   surface's do.
+
+  `smoke/0` is the scheduled smoke workflow's latest verdict, read from
+  the public GitHub runs API through the cached SmokeRuns server — an
+  unreachable API answers `{:error, :unreachable}` and the panel says
+  so. `errors/0` is the reserved W6 seam: not configured until the
+  PostHog split's S1/S4 flip (ADR-0050 D6), and the panel says that too.
   """
 
   alias FluxVale.Infrastructure.StorageRequest
+  alias FluxVale.Observability.SmokeRuns
   alias FluxVale.Observability.WakeStats
   alias FluxValeWeb.AdminAudit
   alias FluxValeWeb.AdminResource
@@ -209,6 +216,29 @@ defmodule FluxValeWeb.AdminHealth do
     active = Enum.count(counts, fn {_entry, count} -> count > 0 end)
 
     %{total: total, active: active, top: top_audit_rows(counts)}
+  end
+
+  @doc """
+  The smoke widget's data (#702, W2): the scheduled workflow's latest
+  runs through the safety wrapper. An unreachable API answers
+  `{:error, :unreachable}` and the panel says so — never a guessed
+  verdict.
+  """
+  @spec smoke() :: SmokeRuns.result()
+  def smoke do
+    SmokeRuns.latest_safe()
+  end
+
+  @doc """
+  The error-count seam (#702, W6; ADR-0050 D6): reserved, not blocked
+  on — the PostHog split's S1/S4 flip swaps this for the Tier-2 read
+  proxy. Until then the panel renders its honest placeholder.
+  """
+  @spec errors() :: {:error, :not_configured}
+  def errors do
+    # The seam is deliberate: no source means no number, never a
+    # fabricated one (ADR-0050 D6).
+    {:error, :not_configured}
   end
 
   # 32 indexed counts per view is fine at beta scale; a TTL cache is the

@@ -87,8 +87,9 @@ Extend `FluxVale.Observability.WakeStats` (public API for the catalog
 untouched): add `@promotion_bucket_prefix
 "flux_vale_wake_promotion_wait_seconds_bucket{"`, hold both maps in
 the cache state (`%{computed_at, medians, p95_promotions}`), public
-`p95_promotion_by_app/0` + `_safe/0` (same `@min_samples` guard,
-quantile 0.95 via the existing `quantile/2` walk). `AdminHealth.wake/0`
+`p95_promotion_by_app/0` + `_safe/0` (its own `@p95_min_samples`
+floor of 20 — a tail quantile is greedier than the median's 5 — quantile
+0.95 via the existing `quantile/2` walk). `AdminHealth.wake/0`
 wraps the two safe calls; the section renders the per-app table
 (p95 promotion, median total) + the "since this deployment started"
 caveat.

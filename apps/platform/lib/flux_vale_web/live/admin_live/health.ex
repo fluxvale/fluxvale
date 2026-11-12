@@ -9,12 +9,17 @@ defmodule FluxValeWeb.AdminLive.Health do
   on every deploy) — the storage posture (allocated GB and the
   storage-request queue's three counters), the org runway (the
   wallets below the configured gate, the unknown projections counted),
-  and the audit activity (the last 24 hours of trail rows across the
-  audited business set).
+  the audit activity (the last 24 hours of trail rows across the
+  audited business set), the smoke verdict (the scheduled workflow's
+  latest runs off the public GitHub API), and the reserved error-count
+  seam (its honest not-configured placeholder until PostHog flips).
 
   The data comes from `FluxValeWeb.AdminHealth` — the section's
-  widget seam — each read with the mount-resolved admin actor and
-  authorization ON (repo default): the policies decide, never the UI.
+  widget seam. The Ash reads run with the mount-resolved admin actor
+  and authorization ON (repo default): the policies decide, never the
+  UI. `smoke/0` reads the public GitHub runs API and `errors/0` is the
+  reserved seam — neither is policy-gated; the route's admin gate
+  stands for both.
   """
 
   use FluxValeWeb, :live_view
@@ -37,7 +42,9 @@ defmodule FluxValeWeb.AdminLive.Health do
      |> assign(:wake, AdminHealth.wake())
      |> assign(:storage, AdminHealth.storage(socket.assigns.current_user))
      |> assign(:runway, AdminHealth.runway(socket.assigns.current_user))
-     |> assign(:audit_activity, AdminHealth.audit_activity(socket.assigns.current_user))}
+     |> assign(:audit_activity, AdminHealth.audit_activity(socket.assigns.current_user))
+     |> assign(:smoke, AdminHealth.smoke())
+     |> assign(:errors, AdminHealth.errors())}
   end
 
   @impl Phoenix.LiveView
@@ -390,6 +397,74 @@ defmodule FluxValeWeb.AdminLive.Health do
                 </p>
               </div>
 
+              <%!-- The smoke widget (#702, W2): the scheduled workflow's
+              latest verdict through the cached public runs API, the
+              last run's time, and the public workflow link. The chip
+              speaks the verdict; an unreachable API says so rather
+              than guess. Grafana's heartbeat series and synthetics
+              stay Grafana-side — the Tier-1 boundary. --%>
+              <div
+                class="rounded-panel border border-line bg-panel px-4 py-4 text-ink"
+                data-testid="smoke-panel"
+              >
+                <h2 class="text-sm font-medium" data-testid="smoke-title">
+                  {gettext("Smoke status")}
+                </h2>
+                <div class="mt-2 flex flex-wrap items-center gap-2">
+                  <.badge tone={smoke_tone(@smoke)} data-testid="smoke-verdict">
+                    {smoke_label(@smoke)}
+                  </.badge>
+                </div>
+                <%= case @smoke do %>
+                  <% {:ok, %{runs: [latest | _]}} -> %>
+                    <p class="mt-2 text-sm text-ink-muted" data-testid="smoke-last-run">
+                      {gettext("Last run: %{time}", time: smoke_time(latest.created_at))}
+                    </p>
+                  <% {:ok, %{runs: []}} -> %>
+                    <p class="mt-2 text-sm text-ink-muted" data-testid="smoke-empty">
+                      {gettext("No scheduled smoke runs returned.")}
+                    </p>
+                  <% {:error, :unreachable} -> %>
+                    <p class="mt-2 text-sm text-ink-muted" data-testid="smoke-unreachable">
+                      {gettext("The GitHub runs API did not answer — check the public runs page.")}
+                    </p>
+                <% end %>
+                <p class="mt-2">
+                  <.link
+                    href="https://github.com/fluxvale/fluxvale/actions/workflows/smoke.yml"
+                    target="_blank"
+                    rel="noopener"
+                    class="text-sm font-medium text-link underline-offset-2 hover:underline"
+                    data-testid="smoke-link"
+                  >
+                    {gettext("Open the smoke workflow")}
+                  </.link>
+                </p>
+              </div>
+
+              <%!-- The error-count seam (#702, W6; ADR-0050 D6): reserved,
+              not blocked on. Until the PostHog split's S1/S4 flip lands
+              the Tier-2 proxy, the panel says so in place — Grafana
+              Explore's error_signature is today's surface. No number is
+              fabricated here. --%>
+              <div
+                class="rounded-panel border border-line bg-panel px-4 py-4 text-ink"
+                data-testid="errors-panel"
+              >
+                <h2 class="text-sm font-medium" data-testid="errors-title">
+                  {gettext("Errors")}
+                </h2>
+                <p
+                  :if={@errors == {:error, :not_configured}}
+                  class="mt-2 text-sm text-ink-muted"
+                  data-testid="errors-placeholder"
+                >
+                  {gettext(
+                    "Error counts are not configured yet — they land with the PostHog split; until then Grafana Explore's error_signature is the surface."
+                  )}
+                </p>
+              </div>
+
               <div class="rounded-panel border border-line bg-panel px-4 py-4 text-ink">
                 <h2 class="text-sm font-medium" data-testid="fleet-deploys-title">
                   {gettext("Recent deploys")}
@@ -463,6 +538,58 @@ defmodule FluxValeWeb.AdminLive.Health do
   # system attribution (the audit section's same grammar).
   defp deploy_actor(nil), do: gettext("System")
   defp deploy_actor(actor), do: actor
+
+  # Status is checked before conclusion deliberately: a queued or
+  # in-progress run has no conclusion yet.
+  defp smoke_label({:error, :unreachable}), do: gettext("Unreachable")
+  defp smoke_label({:ok, %{runs: []}}), do: gettext("No runs")
+  defp smoke_label({:ok, %{runs: [latest | _rest]}}), do: verdict_label(latest)
+
+  defp verdict_label(%{status: status})
+       when status in ["queued", "in_progress", "waiting", "pending"],
+       do: gettext("In progress")
+
+  defp verdict_label(%{conclusion: "success"}), do: gettext("Success")
+
+  defp verdict_label(%{conclusion: conclusion})
+       when conclusion in ["failure", "timed_out"],
+       do: gettext("Failure")
+
+  defp verdict_label(%{conclusion: conclusion}) when is_binary(conclusion),
+    do: String.capitalize(conclusion)
+
+  defp verdict_label(_run), do: gettext("No verdict")
+
+  defp smoke_tone({:error, :unreachable}), do: "neutral"
+  defp smoke_tone({:ok, %{runs: []}}), do: "neutral"
+  defp smoke_tone({:ok, %{runs: [latest | _rest]}}), do: verdict_tone(latest)
+
+  defp verdict_tone(%{status: status})
+       when status in ["queued", "in_progress", "waiting", "pending"],
+       do: "warning"
+
+  defp verdict_tone(%{conclusion: "success"}), do: "success"
+
+  defp verdict_tone(%{conclusion: conclusion})
+       when conclusion in ["failure", "timed_out"],
+       do: "danger"
+
+  defp verdict_tone(_run), do: "neutral"
+
+  # The runs API's timestamps are ISO-8601; the raw-string arm is
+  # defensive for a malformed upstream string and keeps it visible,
+  # never a crash. A non-string shape (the type's promise broken
+  # upstream) renders the honest dash instead of raising in render.
+  defp smoke_time(nil), do: "-"
+
+  defp smoke_time(iso) when is_binary(iso) do
+    case DateTime.from_iso8601(iso) do
+      {:ok, at, _offset} -> Calendar.strftime(at, "%b %d %H:%M UTC")
+      {:error, _reason} -> iso
+    end
+  end
+
+  defp smoke_time(_malformed), do: "-"
 
   # The union of the two families' app slugs, sorted for a stable row
   # order (map iteration order is unspecified).

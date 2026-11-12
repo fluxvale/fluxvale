@@ -69,6 +69,8 @@ defmodule FluxVale.Application do
           # Wake-time estimates for the catalog badge (#232) — reads the
           # live scrape, cached; {} while the metrics tree is down.
           FluxVale.Observability.WakeStats,
+          # #702 smoke-run verdicts for the health console, cached.
+          FluxVale.Observability.SmokeRuns,
           # Start a worker by calling: FluxVale.Worker.start_link(arg)
           # {FluxVale.Worker, arg},
           # Start to serve requests, typically the last entry
