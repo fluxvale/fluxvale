@@ -63,12 +63,43 @@
     </.card>
 
     <.card class="space-y-4">
+      <h2 class="text-base font-medium text-ink">
+        The automatic way (when your org runs Pocket ID)
+      </h2>
+      <p class="text-sm text-ink-muted">
+        If the Pocket ID and the app are both in your FluxVale
+        organization, the app's deploy form offers
+        "Sign in with your Pocket ID" on the configuration step. Tick
+        it and FluxVale creates the Pocket ID client and configures
+        the app at deploy, no copy-paste of IDs. Apps deployed before
+        the Pocket ID get the same offer on their instance page
+        (Connect), with Rotate secret and Disconnect beside it.
+      </p>
+      <p class="text-sm text-ink-muted">
+        The prerequisite: your organization's OWNER opens the Pocket
+        ID's instance page and pastes a Pocket ID admin API key into
+        the "Sign-in with Pocket ID" card there (in Pocket ID:
+        Settings → API keys). The key is stored cluster-side and
+        never shown again, and the owner can replace or revoke it at
+        any time.
+      </p>
+      <p class="text-sm text-ink-muted">
+        The automatic path currently covers Vaultwarden and Vikunja,
+        and more apps join by catalog declaration. The per-app
+        sections below remain the universal manual path.
+      </p>
+    </.card>
+
+    <.card class="space-y-4">
       <h2 class="text-base font-medium text-ink">Create one client per app</h2>
       <p class="text-sm text-ink-muted">
-        In Pocket ID open Administration, then OIDC Clients, then Add
-        OIDC Client. Name the client after the app and add its callback
-        URL. The callback URL is your app's instance URL plus the path
-        from this table.
+        This manual path covers the apps the automatic way does not;
+        if your app is Vaultwarden or Vikunja and your org runs Pocket
+        ID, use the automatic way above. In Pocket ID open
+        Administration, then OIDC Clients, then Add OIDC Client. Name
+        the client after the app and add its callback URL. The
+        callback URL is your app's instance URL plus the path from
+        this table.
       </p>
       <div class="space-y-2 text-sm">
         <div class="flex flex-wrap items-baseline justify-between gap-x-4 rounded-lg bg-panel-raised px-3 py-2">
@@ -102,34 +133,6 @@
         secret, and the discovery URL. The secret is shown once, so
         copy it when you create the client. For the Vaultwarden
         client, turn on PKCE. For the Vikunja client, leave PKCE off.
-      </p>
-    </.card>
-
-    <.card class="space-y-4">
-      <h2 class="text-base font-medium text-ink">
-        The automatic way (when your org runs Pocket ID)
-      </h2>
-      <p class="text-sm text-ink-muted">
-        If the Pocket ID and the app are both in your FluxVale
-        organization, the app's deploy form offers
-        "Sign in with your Pocket ID" on the configuration step. Tick
-        it and FluxVale creates the Pocket ID client and configures
-        the app at deploy, no copy-paste of IDs. Apps deployed before
-        the Pocket ID get the same offer on their instance page
-        (Connect), with Rotate secret and Disconnect beside it.
-      </p>
-      <p class="text-sm text-ink-muted">
-        The prerequisite: your organization's OWNER opens the Pocket
-        ID's instance page and pastes a Pocket ID admin API key into
-        the "Sign-in with Pocket ID" card there (in Pocket ID:
-        Settings → API keys). The key is stored cluster-side and
-        never shown again, and the owner can replace or revoke it at
-        any time.
-      </p>
-      <p class="text-sm text-ink-muted">
-        The automatic path currently covers Vaultwarden and Vikunja,
-        and more apps join by catalog declaration. The per-app
-        sections below remain the universal manual path.
       </p>
     </.card>
 
