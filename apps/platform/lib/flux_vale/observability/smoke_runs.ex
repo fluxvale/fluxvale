@@ -7,8 +7,11 @@ defmodule FluxVale.Observability.SmokeRuns do
   The source is the public runs API of `fluxvale/fluxvale` — an
   unauthenticated read against a public repo, cached 60 seconds so page
   mounts share one fetch (the unauthenticated budget is 60 requests an
-  hour). A failure answers `{:error, :unreachable}` and the widget says
-  so; it never guesses a verdict.
+  hour). At saturation (a mount a minute) the 60s cache consumes the
+  whole 60-request/hour quota for the egress IP; a saturated budget
+  answers 403 and the widget renders Unreachable. Any failure answers
+  `{:error, :unreachable}` and the widget says so; it never guesses a
+  verdict.
 
   Tier-1 boundary: the Grafana heartbeat series and synthetics stay
   Grafana-side. This widget is the workflow's own verdict — the same
@@ -96,6 +99,8 @@ defmodule FluxVale.Observability.SmokeRuns do
       [
         url: @runs_url,
         headers: [accept: "application/vnd.github+json"],
+        # Bound the TCP connect too — Mint's 30s default could stall a mount.
+        connect_options: [timeout: 5_000],
         receive_timeout: 5_000,
         retry: false
       ] ++ Application.get_env(:flux_vale, :smoke_runs_req_options, [])
@@ -111,9 +116,9 @@ defmodule FluxVale.Observability.SmokeRuns do
     _exception ->
       {:error, :unreachable}
   catch
-    # An exit inside the request path (a kill, a linked process's exit
-    # signal) is the same unreachable state as a raise — the widget
-    # speaks honestly either way.
+    # An exit raised inside the request path (e.g. exit/1 in a plug) is
+    # the same unreachable state as a raise; a real kill is the
+    # supervisor's concern.
     :exit, _reason ->
       {:error, :unreachable}
   end
