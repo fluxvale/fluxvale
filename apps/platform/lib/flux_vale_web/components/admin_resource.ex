@@ -15,7 +15,9 @@ defmodule FluxValeWeb.AdminResource do
   Shapes land slice by slice as their resources do (slice 1: Ops).
   Anything unrecognized renders through the fallback — the value's
   `inspect/1` in mono — so an introspected attribute is never a crash,
-  just an honest look at the raw value.
+  just an honest look at the raw value. Composites and arrays (maps,
+  structs, lists) are the exception: their show value renders as
+  read-only JSON details, the same treatment the map shape uses.
 
   Copy line: authored literals ride gettext; strings derived from
   schema identifiers (column labels, enum values) render as derived —
@@ -254,8 +256,10 @@ defmodule FluxValeWeb.AdminResource do
     """
   end
 
-  # The fallback every later shape leans on until its clause lands:
-  # the raw value, inspected, mono — honest rather than pretty.
+  # The fallback for unrecognized scalar values (index and show), and
+  # the index treatment for composites and arrays: the raw value,
+  # inspected, mono — honest rather than pretty. The JSON-details
+  # clause above upgrades containers on the show page.
   def value(%{variant: :index} = assigns) do
     assigns = assign(assigns, text: inspect(assigns.value))
 
@@ -529,10 +533,11 @@ defmodule FluxValeWeb.AdminResource do
 
   @doc """
   The `<.input>` type for an attribute shape (the plan's input
-  mapping): string/ci_string and uuid FKs → text, integer → number,
-  decimal → number (stepped, see input_step/1), boolean → checkbox,
-  a one_of atom or a custom `Ash.Type.Enum` → select, utc datetimes
-  (either precision) → datetime-local.
+  mapping): string/ci_string and uuid FKs → text, sensitive strings
+  → password, integer → number, decimal → number (stepped, see
+  input_step/1), boolean → checkbox, a one_of atom or a custom
+  `Ash.Type.Enum` → select, utc datetimes (either precision) →
+  datetime-local.
 
   `nil` is a shape the engine still cannot map (array-of-array, an
   array whose inner maps to a non-textarea input, a non-atom non-array

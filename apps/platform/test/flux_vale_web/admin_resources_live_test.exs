@@ -2446,7 +2446,8 @@ defmodule FluxValeWeb.AdminResourcesLiveTest do
             :set_always_on,
             :set_exposure,
             :resize,
-            :grow_storage
+            :grow_storage,
+            :update_env
           ] do
         assert has_element?(view, "[data-testid='admin-resource-edit-#{action}']")
       end
@@ -2457,7 +2458,7 @@ defmodule FluxValeWeb.AdminResourcesLiveTest do
             :perform_settle,
             :settle_anchors,
             :perform_teardown,
-            :merge_pocket_id_env,
+            :merge_system_env,
             :mark_deploy_error,
             :mark_teardown_error
           ] do
@@ -2504,6 +2505,12 @@ defmodule FluxValeWeb.AdminResourcesLiveTest do
                "[data-testid='admin-resource-input-tailnet_domain'] input[type='text']"
              )
 
+      # The field is pristine: no non-empty value was seeded into it.
+      refute has_element?(
+               credential_view,
+               "[data-testid='admin-resource-input-auth_key'] input[value]:not([value=''])"
+             )
+
       {:ok, snapshot_view, _html} =
         live(
           conn,
@@ -2513,6 +2520,7 @@ defmodule FluxValeWeb.AdminResourcesLiveTest do
       refute has_element?(snapshot_view, "[data-testid='admin-resource-actions']")
       refute has_element?(snapshot_view, "[data-testid^='admin-resource-edit-']")
       refute has_element?(snapshot_view, "[data-testid^='admin-resource-destroy-']")
+      refute has_element?(snapshot_view, "[data-testid='admin-resource-history']")
 
       {:ok, snapshot_index, _html} =
         live(conn, "/admin/resources/infrastructure/instance_allocation_snapshot")
@@ -2536,6 +2544,28 @@ defmodule FluxValeWeb.AdminResourcesLiveTest do
 
       refute has_element?(hostname_view, "[data-testid^='admin-resource-edit-']")
       refute has_element?(hostname_view, "[data-testid^='admin-resource-destroy-']")
+    end
+
+    test "the update_env form mounts pristine: patch textareas empty, no field errors", %{
+      conn: conn
+    } do
+      InstanceFixtures.local_cluster!()
+      version = InstanceFixtures.app_version!()
+      {_org, owner} = foreign_org!()
+      instance = InstanceFixtures.instance!(version, owner)
+
+      {:ok, view, _html} =
+        live(
+          conn,
+          "/admin/resources/infrastructure/instance/#{instance.id}/edit?action=update_env"
+        )
+
+      # set/remove are arguments with no like-named attributes or
+      # relationships, so the mount seeds nothing and the pristine form
+      # carries no allow_nil? error.
+      assert textarea_text(view, "set") == ""
+      assert textarea_text(view, "remove") == ""
+      refute render(view) =~ "be blank"
     end
 
     test "the instance create form maps the create action's inputs and lands on the show page", %{

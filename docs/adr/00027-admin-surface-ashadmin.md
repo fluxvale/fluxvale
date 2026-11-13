@@ -231,15 +231,17 @@ deliberate and recorded below. The per-resource table lives in the
 #595 parity PR; this amendment is the decision record.
 
 Coverage. All 23: a stable domain-grouped URL, index plus show for
-every public attribute and the declared created_at/updated_at, the
+every public attribute with created_at pinned on the index, the
 operator-legal writes enforced through the policies, destructive
 confirms with honest refusals, 25-row offset pages, and light/dark
 operator-width renders. The action sets match AshAdmin's operator use:
 Wallets expose set_waiver and nothing else, LedgerEntry exposes
-grant_goodwill, and the six full-CRUD domains expose create, update and
-destroy. Machinery actions (Instance's perform_*, settle, teardown and
-state markers; AccessGateway's observe, provision, settle and teardown)
-never render — the curated workflow surfaces own them.
+grant_goodwill, and the full-CRUD resources in Ops, Pricing, Catalog,
+Infrastructure and Feedback expose create, update and destroy.
+Machinery actions (Instance's perform_*, settle, teardown, state
+markers and the system env merge; AccessGateway's observe, provision,
+settle and teardown) never render — the curated workflow surfaces own
+them.
 
 The deliberate difference. AshAdmin runs authorize?: false (Am. 1);
 the console enforces. Its action set is therefore the intersection of

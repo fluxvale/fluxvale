@@ -484,7 +484,9 @@ debug group still links LiveDashboard.
 
 ## Parity criteria (slice 7's checklist)
 
-For EVERY resource AshAdmin shows today (the 23 in appendix A):
+For EVERY resource AshAdmin shows today (the 23 registry resources in
+appendix A; the 14 AshAdmin-only rows are recorded as accepted in
+ADR-0027 Am. 7):
 
 1. Reachable at a stable URL, grouped by its domain.
 2. Readable: every public attribute renders human-readable; the ONLY
@@ -616,6 +618,13 @@ transcript; registry intent curation derives from these):
 - Feedback Tag: `:create` / `:update` / `:destroy`.
 - Feedback PostTag: `:create` / — / `:destroy` (note points at
   Post `:set_tags` as the curated path).
+
+2026-11-13 (slice 7): the live enumeration in ADR-0027 Am. 7
+supersedes this transcript where #731 added actions. Instance now also
+carries `update_env`, `grow_storage` and `merge_system_env` (the last
+is system-only and excluded), and LedgerEntry's `:reverse` is a create
+the registry excludes alongside `:create`. The 37/23/14 AshAdmin split
+is in Am. 7.
 
 Attribute type census over the 23 (renderer coverage map): UUIDv7
 23/23 (pks), UUID (FKs, most), String, CiString, Integer, Decimal,

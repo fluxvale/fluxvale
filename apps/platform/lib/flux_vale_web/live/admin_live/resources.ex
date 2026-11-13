@@ -913,6 +913,9 @@ defmodule FluxValeWeb.AdminLive.Resources do
   # The relationship-argument seed: the loaded records' ids in the
   # relationship's own load order, rendered as JSON by the existing
   # textarea fallback. Names compare as strings — no atom is built.
+  # Any other textarea argument (update_env's set/remove patches are
+  # the live cases) seeds nothing, so a pristine form never trips
+  # allow_nil? on a nil seed.
   defp seed_relationship_ids(record, field) do
     key_str = Atom.to_string(field.name)
 
@@ -926,13 +929,8 @@ defmodule FluxValeWeb.AdminLive.Resources do
 
       [{key_str, ids}]
     else
-      # coveralls-ignore-start - no textarea field today is an argument
-      # without a matching loaded relationship (the only one is
-      # set_tags' tag_ids); the skip keeps a future one from seeding
-      # nil and tripping allow_nil? on a pristine form.
       _unseeded ->
         []
-        # coveralls-ignore-stop
     end
   end
 
@@ -1142,10 +1140,9 @@ defmodule FluxValeWeb.AdminLive.Resources do
     # Attrs win a name collision: both would write record[name] and
     # the second render would silently shadow the first, so a colliding
     # argument drops instead of racing. Sensitive?/public? need no
-    # filter here: the one permitted sensitive argument
-    # (AccessGateway update_credential's auth_key) is the value the form
-    # exists to collect, and the audit trail redacts it separately
-    # (#645).
+    # filter here: a sensitive argument still renders as its typed
+    # input (strings mask, maps keep their JSON textarea), and the
+    # audit trail redacts these values separately (#645).
     attr_names = MapSet.new(attr_fields, & &1.name)
 
     argument_fields =
@@ -1339,7 +1336,9 @@ defmodule FluxValeWeb.AdminLive.Resources do
   # The record's audit History deep link (#645): the engine resolves
   # its own resource key against AdminAudit's business-set entries, so
   # the link renders exactly where the doctrine's trail exists. A
-  # module outside the set answers :error and renders nothing.
+  # module outside the set (InstanceAllocationSnapshot is the live case:
+  # machinery-exempt from the audit doctrine) answers :error and renders
+  # no History link.
   defp history_path(entry, record_id) do
     case FluxValeWeb.AdminAudit.key_for_module(entry.module) do
       {:ok, key} ->
@@ -1347,14 +1346,8 @@ defmodule FluxValeWeb.AdminLive.Resources do
         |> URI.encode_query()
         |> then(&"/admin/audit?#{&1}")
 
-      # coveralls-ignore-start - every registry resource is
-      # business-set today (the doctrine gate's parity arm pins the
-      # registry against that set), so the refusal arm cannot fire
-      # through the engine; the guard keeps a future out-of-set
-      # registry resource from linking into a surface it never joined.
       :error ->
         nil
-        # coveralls-ignore-stop
     end
   end
 
