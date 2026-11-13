@@ -28,6 +28,10 @@ defmodule FluxValeWeb.DeveloperSettingsLive do
   reads and writes ride the owner-scoped policies. The section
   links the agent quickstart (#484 W5, /settings/agents) — the MCP
   recipe one click from the mint, wherever the mint lives.
+
+  Connected apps (#766): the MCP clients the actor approved through
+  OAuth, one row per token family. Disconnect revokes the whole family;
+  the next MCP call presents a revoked token and gets 401.
   """
 
   use FluxValeWeb, :live_view
@@ -36,6 +40,7 @@ defmodule FluxValeWeb.DeveloperSettingsLive do
   alias FluxVale.Identity
   alias FluxVale.Identity.DeviceCode
   alias FluxVale.Identity.PersonalAccessToken
+  alias FluxVale.OAuth
   alias FluxValeWeb.AccountSettings
 
   @impl Phoenix.LiveView
@@ -44,10 +49,13 @@ defmodule FluxValeWeb.DeveloperSettingsLive do
      socket
      |> stream_configure(:device_sign_ins, dom_id: &"device-sign-in-#{&1.id}")
      |> stream_configure(:api_tokens, dom_id: &"api-token-#{&1.id}")
+     |> stream_configure(:oauth_connections, dom_id: &"oauth-connection-#{&1.family_id}")
      |> assign(fresh_token: nil, token_revoke_armed_id: nil, token_form_key: 0)
+     |> assign(oauth_disconnect_armed_id: nil)
      |> assign(token_form: to_form(%{"name" => ""}, as: "token", id: "api-token-form-0"))
      |> assign(catalog_scopes: Scopes.all_scopes())
      |> refresh_device_sign_ins()
+     |> refresh_oauth_connections()
      |> refresh_api_tokens()}
   end
 
@@ -111,6 +119,50 @@ defmodule FluxValeWeb.DeveloperSettingsLive do
         end
     end
   end
+
+  # ---- Connected apps (#766): the OAuth token families ----
+
+  def handle_event("arm-oauth-disconnect", %{"id" => family_id}, socket)
+      when is_binary(family_id) do
+    {:noreply,
+     socket
+     |> assign(oauth_disconnect_armed_id: family_id)
+     |> refresh_oauth_connections()}
+  end
+
+  def handle_event("arm-oauth-disconnect", _params, socket), do: {:noreply, socket}
+
+  def handle_event("cancel-oauth-disconnect", _params, socket) do
+    {:noreply,
+     socket
+     |> assign(oauth_disconnect_armed_id: nil)
+     |> refresh_oauth_connections()}
+  end
+
+  def handle_event("disconnect-oauth", %{"id" => family_id}, socket)
+      when is_binary(family_id) do
+    if socket.assigns.oauth_disconnect_armed_id == family_id do
+      case OAuth.revoke_connection(socket.assigns.current_user, family_id) do
+        {:ok, _count} ->
+          {:noreply,
+           socket
+           |> put_flash(:info, "Disconnected. That app's next request will be refused.")
+           |> assign(oauth_disconnect_armed_id: nil)
+           |> refresh_oauth_connections()}
+
+        {:error, _refused} ->
+          {:noreply,
+           socket
+           |> put_flash(:error, "Couldn't disconnect the app. Refresh and try again.")
+           |> assign(oauth_disconnect_armed_id: nil)
+           |> refresh_oauth_connections()}
+      end
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_event("disconnect-oauth", _params, socket), do: {:noreply, socket}
 
   # ---- API tokens (#483): create, list, revoke the actor's own PATs ----
 
@@ -241,6 +293,22 @@ defmodule FluxValeWeb.DeveloperSettingsLive do
     |> assign(device_sign_ins_empty?: pending == [])
   end
 
+  # The actor's live OAuth families, newest first — the domain op
+  # groups the token rows and attaches the registered client's name.
+  defp refresh_oauth_connections(socket) do
+    user = socket.assigns.current_user
+
+    connections =
+      case OAuth.list_connections(user) do
+        {:ok, connections} -> connections
+        {:error, _refused} -> []
+      end
+
+    socket
+    |> stream(:oauth_connections, connections, reset: true)
+    |> assign(oauth_connections_empty?: connections == [])
+  end
+
   # The actor's own rows, newest first — DateTime.compare/2 is the
   # chronological comparison (term ordering on the structs orders map
   # keys alphabetically, microsecond before second, and would scramble
@@ -285,6 +353,26 @@ defmodule FluxValeWeb.DeveloperSettingsLive do
 
   defp name_from(%{"name" => name}) when is_binary(name), do: String.trim(name)
   defp name_from(_params), do: ""
+
+  # ---- Connected apps copy ----
+
+  defp connection_scope_line(%{scopes: []}), do: "no scopes (identity only)"
+  defp connection_scope_line(%{scopes: scopes}), do: Enum.join(scopes, ", ")
+
+  defp connection_resource(%{resource: nil}), do: "No resource"
+
+  defp connection_resource(%{resource: resource}) do
+    case URI.parse(resource).authority do
+      nil -> resource
+      authority -> authority
+    end
+  end
+
+  defp connection_last_used(%{last_used_at: nil}), do: "Never used"
+
+  defp connection_last_used(%{last_used_at: last_used_at}) do
+    "Last used " <> Calendar.strftime(last_used_at, "%b %d, %Y")
+  end
 
   # ---- API tokens copy ----
 
@@ -466,6 +554,103 @@ defmodule FluxValeWeb.DeveloperSettingsLive do
                           Deny
                         </.button>
                       </div>
+                    </li>
+                  </ul>
+                </div>
+              </div>
+
+              <%!-- #766: the MCP clients approved through OAuth — one
+                row per token family. Disconnect revokes the whole
+                family; the next MCP call gets 401. --%>
+              <div class="space-y-3" id="connected-apps" data-testid="connected-apps">
+                <div>
+                  <h3 class="text-sm font-medium text-ink-muted">Connected apps</h3>
+                  <p class="mt-1 text-sm text-ink-muted">
+                    Apps you approved through OAuth. They can act as you within the scopes
+                    shown; disconnecting revokes their tokens immediately.
+                  </p>
+                </div>
+
+                <div class="mono-panel min-w-0">
+                  <p
+                    :if={@oauth_connections_empty?}
+                    class="font-sans text-sm text-ink-muted"
+                    data-testid="oauth-connections-empty"
+                  >
+                    No connected apps yet. An MCP client appears here after you approve it.
+                  </p>
+
+                  <ul id="oauth-connection-rows" phx-update="stream" class="divide-y divide-line">
+                    <li
+                      :for={{dom_id, connection} <- @streams.oauth_connections}
+                      id={dom_id}
+                      class="space-y-1.5 py-3 first:pt-0 last:pb-0"
+                      data-testid="oauth-connection-row"
+                    >
+                      <div class="flex flex-wrap items-center justify-between gap-3">
+                        <div class="min-w-0 space-y-1">
+                          <p
+                            class="font-mono text-sm font-medium text-ink"
+                            data-testid="oauth-connection-client"
+                          >
+                            {connection.client_name}
+                          </p>
+                          <p
+                            class="font-sans text-xs text-ink-muted"
+                            data-testid="oauth-connection-meta"
+                          >
+                            <span class="font-mono">{connection_scope_line(connection)}</span>
+                            · {connection_resource(connection)} · Created {Calendar.strftime(
+                              connection.created_at,
+                              "%b %d, %Y"
+                            )} · {connection_last_used(connection)}
+                          </p>
+                        </div>
+
+                        <.button
+                          :if={@oauth_disconnect_armed_id != connection.family_id}
+                          type="button"
+                          phx-click="arm-oauth-disconnect"
+                          phx-value-id={connection.family_id}
+                          variant="ghost"
+                          size="sm"
+                          data-testid="oauth-disconnect"
+                        >
+                          Disconnect
+                        </.button>
+                      </div>
+
+                      <.callout
+                        :if={@oauth_disconnect_armed_id == connection.family_id}
+                        id={"oauth-disconnect-confirm-#{connection.family_id}"}
+                        tone="danger"
+                        data-testid="oauth-disconnect-confirm"
+                      >
+                        <p>
+                          Disconnect <span class="font-mono">{connection.client_name}</span>?
+                          Its tokens stop working immediately.
+                        </p>
+                        <div class="flex gap-3 pt-1">
+                          <.button
+                            type="button"
+                            phx-click="disconnect-oauth"
+                            phx-value-id={connection.family_id}
+                            size="sm"
+                            data-testid="oauth-disconnect-confirm-button"
+                          >
+                            Disconnect app
+                          </.button>
+                          <.button
+                            type="button"
+                            phx-click="cancel-oauth-disconnect"
+                            variant="ghost"
+                            size="sm"
+                            data-testid="oauth-disconnect-cancel"
+                          >
+                            Cancel
+                          </.button>
+                        </div>
+                      </.callout>
                     </li>
                   </ul>
                 </div>

@@ -66,6 +66,11 @@ defmodule FluxVale.OAuth do
     to: FluxVale.OAuth.Operations.RevokeConnection,
     as: :call
 
+  # The settings page's Connected apps read.
+  defdelegate list_connections(actor, opts \\ []),
+    to: FluxVale.OAuth.Operations.ListConnections,
+    as: :call
+
   # The guarded audit append — the AS's one audit write seam.
   defdelegate record_audit_event(attrs),
     to: FluxVale.OAuth.Operations.RecordAuditEvent,

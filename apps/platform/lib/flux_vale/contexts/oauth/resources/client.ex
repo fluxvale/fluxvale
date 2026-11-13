@@ -117,6 +117,13 @@ defmodule FluxVale.OAuth.Client do
       filter(expr(client_id == ^arg(:client_id)))
     end
 
+    read :get_by_id do
+      description("Resolve a client by its row id — the settings page's name lookup")
+      get?(true)
+      argument(:id, :uuid, allow_nil?: false)
+      filter(expr(id == ^arg(:id)))
+    end
+
     read :created_since do
       description("Clients registered at or after the cutoff — the registration cap's count")
       argument(:since, :utc_datetime, allow_nil?: false)
@@ -134,6 +141,7 @@ defmodule FluxVale.OAuth.Client do
     domain(FluxVale.OAuth)
 
     define(:get_by_client_id, args: [:client_id])
+    define(:get_by_id, args: [:id])
     define(:touch_last_used)
   end
 
