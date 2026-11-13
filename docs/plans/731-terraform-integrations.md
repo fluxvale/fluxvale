@@ -71,8 +71,11 @@ touch them:
    `cargo xtask openapi` from `apps/cli`; CI diffs it against the
    spec.
 
-The SSO routes are gated by the `pocketid_sso_wiring` feature flag
-(seeded enabled; the provider docs say how to check it).
+The SSO **mutation** routes (connect, disconnect, rotate) are gated by
+the `pocketid_sso_wiring` feature flag (seeded enabled; the provider
+docs say how to check it). The wiring **read** stays available while
+the flag is off — a provider refresh must not lose state during a
+shutdown window; the flag gates mutations only.
 
 PR rules for every slice: conventional-commit title, body from a file,
 no reviewers requested (the lane's review arc is the architect's),

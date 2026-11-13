@@ -1,22 +1,25 @@
 defmodule FluxVale.Infrastructure.Operations.ConnectPocketId do
   @moduledoc """
-  The wiring operation (#597 S4, §4.5) — the ONE seam every PocketID
-  SSO wiring rides (the wizard's submit and the API action both call
-  here; the wizard is sugar, not a parallel implementation):
+  The pre-deploy wiring operation (#597 S4, §4.5) — the ONE seam every
+  PocketID SSO wiring rides (the wizard's submit calls it directly; the
+  API action dispatches here for not-yet-deployed rows and to
+  `retrofit/3` for deployed ones; the wizard is sugar, not a parallel
+  implementation):
 
   1. refuse unless the `pocketid_sso_wiring` flag is on — fail-closed
      at the seam, the §9 instant-shutdown lever for upstream API
      drift (the wizard's offer already hides under it; this is the
      server-side backstop);
   2. re-read the app instance through the authorized seam (the member
-     fence) and guard its status: wiring lands on NOT-YET-DEPLOYED
-     instances only (`:pending`/`:error`/`:lost` — env ships on the
-     next deploy, §4.5's sequencing). A deployed instance (running,
-     stopped, sleeping, mid-deploy) carries a live env Secret that a
-     row write cannot reach — that needs S5's env-update + rollout
-     primitive, and this refuses with `{:error, :instance_running}`
-     naming exactly that. A `:deleting` instance refuses as
-     `:instance_deleting` — nothing to wire on the way out;
+     fence) and guard its status: this PRE-DEPLOY seam lands wiring on
+     NOT-YET-DEPLOYED instances only (`:pending`/`:error`/`:lost` — env
+     ships on the next deploy, §4.5's sequencing). A deployed instance
+     (running, stopped, sleeping, mid-deploy) carries a live env Secret
+     that a row write cannot reach — that is the retrofit's lane
+     (`retrofit/3`, below; the API action dispatches it), and this seam
+     refuses with `{:error, :instance_running}` naming exactly that. A
+     `:deleting` instance refuses as `:instance_deleting` — nothing to
+     wire on the way out;
   3. read the recipe from the instance's app version (nil or `:in_app`
      refuses honestly — env injection is the v1 kind);
   4. load the chosen PocketID instance, org-fenced to the app

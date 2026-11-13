@@ -1676,8 +1676,8 @@ defmodule FluxVale.Infrastructure.Instance do
   @wiring_refusals %{
     flag_disabled: "Pocket ID sign-in wiring is turned off right now",
     not_wired: "this app has no Pocket ID sign-in wiring",
-    not_deployed:
-      "this app has not been deployed yet — the secret rotates onto the running workload, so deploy it first",
+    not_deployed: "this app is not deployed right now — deploy it first, then rotate the secret",
+    missing: "this app's live environment is gone — redeploy it to repair",
     pocket_id_gone:
       "the Pocket ID this app was wired to is gone — clear the wiring, then wire a new one",
     instance_running:
@@ -1704,18 +1704,37 @@ defmodule FluxVale.Infrastructure.Instance do
       "the held Pocket ID key is unreadable — re-paste it on the Pocket ID's instance page"
   }
 
-  # coveralls-ignore-start - the action's deployed arm is dead by
-  # construction: `wire_pocket_id` dispatches every deployed status to
-  # the retrofit, so only a direct `connect_pocket_id/3` caller (the
-  # wizard's race with a deploy) can produce the tuple — and that
-  # caller maps its own copy.
-  defp wiring_error({:instance_running, _status}) do
+  # The operation refusals' wire copy. Public (@doc false) so the
+  # action's race-window arms are exercisable without staging a real
+  # concurrent deploy; the actions are the only production callers.
+  @doc false
+  @spec wiring_error(term()) :: term()
+  # coveralls-ignore-start - the race-window class (#86): the action's
+  # dispatch read and `ConnectPocketId.call/3`'s re-read can disagree
+  # when a deploy lands mid-call — the op's guard names the status the
+  # locked re-read saw. ExUnit cannot stage the window deterministically.
+  def wiring_error({:instance_running, _status}) do
     InvalidArgument.exception(message: Map.get(@wiring_refusals, :instance_running))
   end
 
   # coveralls-ignore-stop
 
-  defp wiring_error(reason) when is_atom(reason) do
+  # The retrofit's inverse race (the same #86 window, opposite
+  # direction): the dispatch read a deployed row, the op's re-read saw
+  # a pre-deploy one.
+  def wiring_error({:instance_not_deployed, status}) do
+    InvalidArgument.exception(
+      message: "this app is not deployed right now (#{status}) — retry once it settles"
+    )
+  end
+
+  # The busy statuses' refusal (the T1 stance) — dispatch answers
+  # before an operation could race the in-flight rollout.
+  def wiring_error({:instance_busy, status}) do
+    InvalidArgument.exception(message: "this app is busy (#{status}) — retry when it settles")
+  end
+
+  def wiring_error(reason) when is_atom(reason) do
     message = Map.get(@wiring_refusals, reason, "sign-in wiring refused: #{reason}")
 
     InvalidArgument.exception(message: message)
@@ -1724,17 +1743,17 @@ defmodule FluxVale.Infrastructure.Instance do
   # A refused mint carries the raw status map; the wire answer needs
   # only the status (the body snippet stays in the logs, the ApiClient
   # already wrote it).
-  defp wiring_error(%{status: status}) do
+  def wiring_error(%{status: status}) do
     InvalidArgument.exception(message: "the Pocket ID refused the client (#{status})")
   end
 
-  # The key read's cluster shape (use_pocket_id_key passes the K8s
-  # client's own error struct verbatim — a gateway-cluster outage at
-  # the Secret read, with discovery already green over the URL):
-  # honest words, the same InvalidArgument boringness.
-  defp wiring_error(%FluxVale.Clients.K8s.Error{}) do
+  # Any cluster leg of the wiring (the held key read, the Secret
+  # upsert/restart on connect/disconnect/rotate) can hand back the K8s
+  # client's own error struct: one copy that is true for all three,
+  # never the old key-read-only claim.
+  def wiring_error(%FluxVale.Clients.K8s.Error{}) do
     InvalidArgument.exception(
-      message: "the held Pocket ID key could not be read from the cluster — retry in a moment"
+      message: "a cluster operation for the sign-in wiring failed — retry in a moment"
     )
   end
 
@@ -1745,7 +1764,7 @@ defmodule FluxVale.Infrastructure.Instance do
   # _id_key's own defensive arm — the FK cascade makes ExUnit unable
   # to stage it). Every stageable error shape carries its own clause
   # above.
-  defp wiring_error(reason), do: reason
+  def wiring_error(reason), do: reason
 
   # coveralls-ignore-stop
 

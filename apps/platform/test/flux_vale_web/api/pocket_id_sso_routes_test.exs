@@ -245,6 +245,29 @@ defmodule FluxValeWeb.Api.PocketIdSsoRoutesTest do
       reloaded = Instance.get_by_id!(app.id, actor: user)
       assert reloaded.env_vars["SSO_CLIENT_SECRET"] == @minted_secret
     end
+
+    test "a mid-rollout app refuses busy — the T1 stance", %{conn: conn} do
+      user = elem(ApiPat.member!(), 0)
+      {pending_app, pocket_id} = member_with_pocket_id(user)
+
+      app = InstanceFixtures.walk_to!(pending_app, :deploying)
+      pat = ApiPat.mint!(user, ["instances:write"])
+
+      conn =
+        conn
+        |> auth(pat)
+        |> json_api()
+        |> post("/api/v1/instances/#{app.id}/connect-pocketid", %{
+          "data" => %{"pocket_id_instance_id" => pocket_id.id}
+        })
+
+      # The in-flight rollout owns the workload; dispatch answers before
+      # an operation could race it (no discovery/mint stub is armed).
+      assert [%{"detail" => detail} | _rest] = json_response(conn, 400)["errors"]
+      assert detail =~ "busy"
+      assert detail =~ "deploying"
+      assert {:error, _none} = PocketIdWiring.get_by_instance(app.id, authorize?: false)
+    end
   end
 
   describe "POST /api/v1/instances/:id/disconnect-pocketid" do
@@ -312,6 +335,44 @@ defmodule FluxValeWeb.Api.PocketIdSsoRoutesTest do
       assert body = json_response(conn, 201)
       assert body == %{"instance_id" => app.id, "client_deleted" => false}
       assert {:error, _none} = PocketIdWiring.get_by_instance(app.id, authorize?: false)
+    end
+
+    test "a vanished live Secret refuses with redeploy-to-repair copy", %{conn: conn} do
+      user = elem(ApiPat.member!(), 0)
+      {_unwired_app, pocket_id} = member_with_pocket_id(user)
+      {app, _wiring} = wired_running_app!(user, pocket_id)
+
+      stub(ApiClient, :delete_client, fn _url, _key, _client -> :ok end)
+
+      stub(Secret, :get_data, fn _kc, _ns, ref ->
+        case ref do
+          "fluxvale-pocketid-custody-" <> _suffix ->
+            {:ok, %{"POCKETID_API_KEY" => @held_key}}
+
+          "app-env" ->
+            {:error, %K8s.Error{status_code: 404, reason: :not_found, message: "absent"}}
+        end
+      end)
+
+      # A managed status must NOT skip the cluster leg; the missing
+      # Secret is the honest refusal (nothing half-lands).
+      reject(Secret, :upsert, 4)
+      reject(Deployment, :restart, 4)
+
+      pat = ApiPat.mint!(user, ["instances:write"])
+
+      conn =
+        conn
+        |> auth(pat)
+        |> json_api()
+        |> post("/api/v1/instances/#{app.id}/disconnect-pocketid")
+
+      assert [%{"detail" => detail} | _rest] = json_response(conn, 400)["errors"]
+      assert detail =~ "live environment is gone"
+      assert detail =~ "redeploy"
+
+      # The wiring stands until the platform side actually lands.
+      assert {:ok, _stands} = PocketIdWiring.get_by_instance(app.id, authorize?: false)
     end
   end
 
@@ -412,7 +473,7 @@ defmodule FluxValeWeb.Api.PocketIdSsoRoutesTest do
         |> post("/api/v1/instances/#{app.id}/rotate-pocketid-secret")
 
       assert [%{"detail" => detail} | _rest] = json_response(conn, 400)["errors"]
-      assert detail =~ "has not been deployed yet"
+      assert detail =~ "not deployed right now"
 
       assert PocketIdWiring.get_by_instance!(app.id, authorize?: false).pocket_id_secret_id ==
                "secret-1"
@@ -585,6 +646,23 @@ defmodule FluxValeWeb.Api.PocketIdSsoRoutesTest do
     end
   end
 
+  describe "the race-window refusal copy" do
+    test "the inverse race names the status and the retry" do
+      assert %Ash.Error.Changes.InvalidArgument{message: message} =
+               Instance.wiring_error({:instance_not_deployed, :pending})
+
+      assert message ==
+               "this app is not deployed right now (pending) — retry once it settles"
+    end
+
+    test "the busy refusal names the status" do
+      assert %Ash.Error.Changes.InvalidArgument{message: message} =
+               Instance.wiring_error({:instance_busy, :restoring})
+
+      assert message == "this app is busy (restoring) — retry when it settles"
+    end
+  end
+
   describe "flag-off" do
     test "connect, disconnect, and rotate surface the honest copy", %{conn: conn} do
       user = elem(ApiPat.member!(), 0)
@@ -624,6 +702,36 @@ defmodule FluxValeWeb.Api.PocketIdSsoRoutesTest do
 
       assert [%{"detail" => rotate_detail} | _rest] = json_response(rotate, 400)["errors"]
       assert rotate_detail =~ "turned off"
+    end
+
+    test "the wiring read stays available while the mutations are off", %{conn: conn} do
+      user = elem(ApiPat.member!(), 0)
+      {app, pocket_id} = member_with_pocket_id(user)
+
+      wiring =
+        PocketIdWiring.record!(
+          %{
+            instance_id: app.id,
+            pocket_id_instance_id: pocket_id.id,
+            pocket_id_client_id: "client-1",
+            pocket_id_secret_id: "secret-1"
+          },
+          authorize?: false
+        )
+
+      :ok = FeatureFlags.disable(:pocketid_sso_wiring, actor: AccountsFixtures.platform_admin!())
+      pat = ApiPat.mint!(user, ["instances:read"])
+
+      # A provider refresh must not lose state during a shutdown window
+      # — the flag gates the mutations only.
+      conn =
+        conn
+        |> auth(pat)
+        |> get("/api/v1/instances/#{app.id}/pocket-id-wiring")
+
+      assert body = json_response(conn, 200)
+      assert body["data"]["id"] == wiring.id
+      assert body["data"]["attributes"]["pocket_id_secret_id"] == "secret-1"
     end
   end
 end

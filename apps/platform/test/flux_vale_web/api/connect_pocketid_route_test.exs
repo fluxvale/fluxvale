@@ -264,10 +264,11 @@ defmodule FluxValeWeb.Api.ConnectPocketIdRouteTest do
     assert detail =~ "turned off"
   end
 
-  # The key read's cluster-outage shape: use_pocket_id_key passes the
-  # K8s client's error struct verbatim — honest words on the wire,
-  # and D3's posture holds (instance untouched, deployable).
-  test "a cluster outage at the key read answers in honest words", %{conn: conn} do
+  # A cluster leg of the wiring (here the key read) hands the K8s
+  # client's error struct through: one copy true for every cluster leg
+  # (key read or Secret apply), and D3's posture holds (instance
+  # untouched, deployable).
+  test "a cluster outage during the wiring answers in honest words", %{conn: conn} do
     user = elem(ApiPat.member!(), 0)
     {app, pocket_id} = member_with_pocket_id(user)
 
@@ -291,7 +292,8 @@ defmodule FluxValeWeb.Api.ConnectPocketIdRouteTest do
       })
 
     assert [%{"detail" => detail} | _rest] = json_response(conn, 400)["errors"]
-    assert detail =~ "could not be read from the cluster"
+    assert detail =~ "cluster operation for the sign-in wiring failed"
+    assert detail =~ "retry in a moment"
 
     reloaded = Instance.get_by_id!(app.id, actor: user)
     assert reloaded.status == :pending

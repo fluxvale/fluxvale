@@ -283,6 +283,27 @@ defmodule FluxVale.Infrastructure.Operations.RotatePocketIdSecretTest do
       _unused_pocket_id = pocket_id
     end
 
+    # The platform no longer manages :lost/:deleting: refuse BEFORE the
+    # PocketID secret create, so a retry can't pile up orphan secrets
+    # on a workload the apply could never reach.
+    test "a :lost or :deleting app refuses before minting a secret", %{
+      app: app,
+      wiring: wiring,
+      owner: owner
+    } do
+      for status <- [:lost, :deleting] do
+        InstanceFixtures.pin!(app, status: status)
+
+        # No create_secret stub is armed: a mint attempt would raise
+        # (Mimic), which is the failure this test exists to prevent.
+        assert {:error, :not_deployed} =
+                 Infrastructure.rotate_pocket_id_secret(wiring, actor: owner)
+
+        assert PocketIdWiring.get_by_instance!(app.id, authorize?: false).pocket_id_secret_id ==
+                 "secret-old"
+      end
+    end
+
     test "the guards: gone PocketID, undeployed", %{
       app: app,
       pocket_id: pocket_id,

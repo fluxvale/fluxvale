@@ -121,6 +121,51 @@ defmodule FluxVale.Infrastructure.Operations.DisconnectPocketIdTest do
     "https://#{pocket_id.slug}.#{base}"
   end
 
+  # A deployed row carrying the wiring's SSO env + a recorded wiring,
+  # for the statuses the platform no longer manages.
+  defp wired_app!(owner, pocket_id, status) do
+    version =
+      InstanceFixtures.app_version!(
+        configurable_env_vars: @schema,
+        oidc_wiring: @recipe,
+        oidc_callback_path: "/cb"
+      )
+
+    created =
+      Instance.create!(
+        %{
+          name: "Grid App #{System.unique_integer()}",
+          app_version_id: version.id,
+          env_vars: %{
+            "SSO_AUTHORITY" => @issuer,
+            "SSO_CLIENT_ID" => "client-1",
+            "SSO_CLIENT_SECRET" => "secret-never-logged",
+            "SSO_ENABLED" => "true",
+            "SMTP_HOST" => "smtp"
+          }
+        },
+        actor: owner
+      )
+
+    app =
+      created
+      |> InstanceFixtures.walk_to!(:running)
+      |> InstanceFixtures.pin!(namespace: "ns-grid")
+      |> InstanceFixtures.pin!(status: status)
+
+    PocketIdWiring.record!(
+      %{
+        instance_id: app.id,
+        pocket_id_instance_id: pocket_id.id,
+        pocket_id_client_id: "client-1",
+        pocket_id_secret_id: "secret-1"
+      },
+      authorize?: false
+    )
+
+    app
+  end
+
   describe "disconnect/2" do
     test "deletes the client, strips row + workload, clears the wiring", %{
       app: app,
@@ -233,6 +278,38 @@ defmodule FluxVale.Infrastructure.Operations.DisconnectPocketIdTest do
 
       assert Instance.get_by_id!(pending.id, actor: owner).env_vars == %{"SMTP_HOST" => "smtp"}
       assert {:error, _none} = PocketIdWiring.get_by_instance(pending.id, authorize?: false)
+    end
+
+    # The platform no longer manages :lost (the namespace vanished
+    # externally) or :deleting (teardown owns it): the cluster leg is
+    # skipped, so a missing live Secret cannot strand the client delete
+    # + wiring clear.
+    test "a :lost or :deleting app clears the row and wiring without a cluster call", %{
+      owner: owner,
+      pocket_id: pocket_id
+    } do
+      stub(ApiClient, :delete_client, fn _u, _k, _c -> :ok end)
+
+      stub(Secret, :get_data, fn _kc, _ns, ref ->
+        if ref == "app-env" do
+          {:error, %K8s.Error{status_code: 404, reason: :not_found, message: "absent"}}
+        else
+          {:ok, %{"POCKETID_API_KEY" => @held_key}}
+        end
+      end)
+
+      reject(Secret, :upsert, 4)
+      reject(Deployment, :restart, 4)
+
+      for status <- [:lost, :deleting] do
+        app = wired_app!(owner, pocket_id, status)
+
+        assert {:ok, %{client_deleted: true}} =
+                 Infrastructure.disconnect_pocket_id(app, actor: owner)
+
+        assert Instance.get_by_id!(app.id, actor: owner).env_vars == %{"SMTP_HOST" => "smtp"}
+        assert {:error, _none} = PocketIdWiring.get_by_instance(app.id, authorize?: false)
+      end
     end
 
     test "revoked custody is the honest no_custody refusal", %{

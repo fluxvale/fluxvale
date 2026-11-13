@@ -87,6 +87,13 @@ defmodule FluxVale.Infrastructure.Operations.RotatePocketIdSecret do
 
   defp load_instance(wiring) do
     case Ash.get(Instance, wiring.instance_id, authorize?: false) do
+      # The platform no longer manages the workload (:lost's namespace
+      # vanished, :deleting's belongs to teardown): refuse BEFORE any
+      # PocketID secret is minted — a later apply could only fail,
+      # orphaning a second active secret on every retry.
+      {:ok, %Instance{status: status}} when status in [:lost, :deleting] ->
+        {:error, :not_deployed}
+
       {:ok, %Instance{namespace: ns} = instance} when is_binary(ns) ->
         {:ok, instance}
 
