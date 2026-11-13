@@ -47,7 +47,8 @@ defmodule FluxVale.Catalog.AppVersion do
           :oidc_wiring,
           :backing_services,
           :release_notes,
-          :published_at
+          :published_at,
+          :monthly_cents
         ]
       )
 
@@ -72,7 +73,8 @@ defmodule FluxVale.Catalog.AppVersion do
           :oidc_wiring,
           :backing_services,
           :release_notes,
-          :published_at
+          :published_at,
+          :monthly_cents
         ]
       )
     end
@@ -452,5 +454,14 @@ defmodule FluxVale.Catalog.AppVersion do
 
   identities do
     identity(:unique_version_per_app, [:version, :app_id])
+  end
+
+  calculations do
+    # #765: the recommended size's monthly running rate, so an agent
+    # can quote the spend before it deploys. Billing's own figure —
+    # never a second pricing path.
+    calculate :monthly_cents, :integer, FluxVale.Catalog.AppVersion.MonthlyRate do
+      public?(true)
+    end
   end
 end

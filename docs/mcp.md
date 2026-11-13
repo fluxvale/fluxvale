@@ -103,7 +103,7 @@ panel is the fallback.
 
 ## The tool catalog
 
-Eighteen tools at the current surface. Scope-filtered per token: a
+Nineteen tools at the current surface. Scope-filtered per token: a
 tool the token's scopes don't cover never appears in `tools/list`
 (and a direct call still refuses — the platform's own 403s are the
 enforcement). The scope column is the FULL set the tool needs — a
@@ -116,10 +116,10 @@ the enforcement, so mint the union):
 | --- | --- | --- | --- |
 | `whoami` | The identity the token carries: user id, email, platform role, username, organizations (id/slug/name) | any | — |
 | `apps_list` | The deployable app catalog, one entry per app | `catalog:read` | — |
-| `apps_show` | One catalog app by its URL slug | `catalog:read` | — |
+| `apps_show` | One catalog app by its URL slug, plus its versions with the default allocation and `monthly_cents` | `catalog:read` | — |
 | `instances_list` | Your instances, one entry each | `instances:read` | — |
-| `instances_status` | One instance's full detail by id — or, with no id, the verbose list | `instances:read` | — |
-| `instances_deploy` | Deploy an app: resolve the slug, pick the version, create the instance with an optional `env` map, enqueue the deploy | `catalog:read` + `instances:write` (reads the app + versions before it writes the instance) | — |
+| `instances_status` | One instance's full detail by id (including its public `url`) — or, with no id, the verbose list | `instances:read` | — |
+| `instances_deploy` | Deploy an app: resolve the slug, pick the version, create the instance with an optional `env` map (defaults carry the version's allocation and `url`), enqueue the deploy | `catalog:read` + `instances:write` (reads the app + versions before it writes the instance) | — |
 | `instances_configure` | Merge env vars on a live instance: `set` adds/replaces, `remove` deletes (values are write-only) | `instances:write` | — |
 | `instances_stop` | Scale to zero — the pause (storage keeps accruing) | `instances:write` | — |
 | `instances_start` | Start a stopped/sleeping instance back up | `instances:write` | — |

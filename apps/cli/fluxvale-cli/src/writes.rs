@@ -178,6 +178,7 @@ fn deploy_rendered(
     detail.field("name", cell(attrs.get("name")));
     detail.field("slug", cell(attrs.get("slug")));
     detail.field("status", cell(attrs.get("status")));
+    detail.field("url", cell(attrs.get("url")));
     detail.field("image", cell(attrs.get("image")));
     detail.field("cpu cores", cell(attrs.get("cpu_cores")));
     detail.field("memory (MB)", cell(attrs.get("memory_mb")));
@@ -215,11 +216,13 @@ pub fn instances_configure(
         attrs["remove"] = json!(remove);
     }
     let body = json!({"data": {"type": "instance", "id": id, "attributes": attrs}});
-    let updated = client.send(
-        "PATCH",
-        &format!("/instances/{id}/env"),
-        Some(body.to_string()),
-    )?;
+    let updated = client
+        .send(
+            "PATCH",
+            &format!("/instances/{id}/env"),
+            Some(body.to_string()),
+        )
+        .map_err(|err| friendly_404(err, "instance"))?;
     env_configure_rendered(updated, set, remove, output)
 }
 
@@ -235,6 +238,7 @@ fn env_configure_rendered(
     detail.field("id", cell(attrs.get("id")));
     detail.field("name", cell(attrs.get("name")));
     detail.field("status", cell(attrs.get("status")));
+    detail.field("url", cell(attrs.get("url")));
     if !set.is_empty() {
         detail.field(
             "env set",
@@ -1991,6 +1995,14 @@ mod tests {
         assert!(
             create.contains("\"env_vars\":{\"api_key\":\"deploy-sentinel\",\"tz\":\"utc\"}"),
             "create: {create}"
+        );
+        // The helper lowercases; env names are case-sensitive, so pin
+        // the RAW capture too (API_KEY must not arrive as api_key).
+        let raw = server.requests.lock().unwrap();
+        assert!(
+            raw[2].contains("\"env_vars\":{\"API_KEY\":\"deploy-sentinel\",\"TZ\":\"UTC\"}"),
+            "raw create: {}",
+            raw[2]
         );
     }
 

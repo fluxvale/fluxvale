@@ -71,7 +71,7 @@ mod tests {
     use super::*;
 
     /// The catalog, in tools/list order (rmcp's list_all sorts by name).
-    const CATALOG: [&str; 18] = [
+    const CATALOG: [&str; 19] = [
         "apps_list",
         "apps_show",
         "backups_configure",
@@ -106,7 +106,7 @@ mod tests {
     }
 
     #[test]
-    fn a_full_scope_token_sees_all_eighteen_tools() {
+    fn a_full_scope_token_sees_all_nineteen_tools() {
         assert_eq!(
             visible(&[
                 "catalog:read",
@@ -117,7 +117,7 @@ mod tests {
                 "wallet:read"
             ])
             .len(),
-            18
+            19
         );
     }
 

@@ -5,7 +5,7 @@ defmodule FluxValeWeb.AgentLiveTest do
   # snippets, the spend rule, and the dismissal — all rendered from
   # FluxValeWeb.AgentPrompt. The page never holds a minted token.
 
-  use FluxValeWeb.ConnCase, async: true
+  use FluxValeWeb.ConnCase, async: false
 
   import Phoenix.LiveViewTest
 
@@ -75,6 +75,19 @@ defmodule FluxValeWeb.AgentLiveTest do
     assert has_element?(view, "[data-testid='agent-spend-rule']", "It asks before it spends")
 
     assert has_element?(view, "[data-testid='agent-dismiss'][href='/']", "I'll explore myself")
+  end
+
+  test "the OAuth mode drops the token sentence and the snippet headers", %{conn: conn} do
+    previous = Application.get_env(:flux_vale, :mcp_auth_mode)
+    on_exit(fn -> Application.put_env(:flux_vale, :mcp_auth_mode, previous) end)
+    Application.put_env(:flux_vale, :mcp_auth_mode, :oauth)
+
+    {:ok, view, html} = live(conn, ~p"/agent")
+
+    refute html =~ "FLUXVALE_PAT"
+    assert has_element?(view, "[data-testid='agent-snippet-note']", "browser sign-in")
+    assert html =~ "claude mcp add --transport http fluxvale"
+    refute html =~ "--header"
   end
 
   test "no token value ever renders — only the env-var name", %{conn: conn} do

@@ -2304,6 +2304,17 @@
                 ],
                 "description": "Field included by default."
               },
+              "monthly_cents": {
+                "anyOf": [
+                  {
+                    "nullable": true,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "oidc_callback_path": {
                 "anyOf": [
                   {
@@ -5289,6 +5300,17 @@
               "storage_mount_path": {
                 "description": "Field included by default.",
                 "type": "string"
+              },
+              "url": {
+                "anyOf": [
+                  {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
               }
             },
             "required": [
@@ -6638,6 +6660,18 @@
           "storage_mount_path": {
             "description": "Field included by default.",
             "type": "string"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "nullable": true,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Field included by default."
           }
         },
         "required": [
@@ -11770,6 +11804,18 @@
                                 }
                               ]
                             },
+                            "monthly_cents": {
+                              "anyOf": [
+                                {
+                                  "nullable": true,
+                                  "type": "integer"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ],
+                              "description": "Field included by default."
+                            },
                             "oidc_callback_path": {
                               "anyOf": [
                                 {
@@ -12422,6 +12468,18 @@
                                     "type": "null"
                                   }
                                 ]
+                              },
+                              "monthly_cents": {
+                                "anyOf": [
+                                  {
+                                    "nullable": true,
+                                    "type": "integer"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ],
+                                "description": "Field included by default."
                               },
                               "oidc_callback_path": {
                                 "anyOf": [
@@ -13512,6 +13570,17 @@
                               },
                               "storage_mount_path": {
                                 "type": "string"
+                              },
+                              "url": {
+                                "anyOf": [
+                                  {
+                                    "nullable": true,
+                                    "type": "string"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
                               }
                             },
                             "required": [
@@ -13946,6 +14015,18 @@
                             "storage_mount_path": {
                               "description": "Field included by default.",
                               "type": "string"
+                            },
+                            "url": {
+                              "anyOf": [
+                                {
+                                  "nullable": true,
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ],
+                              "description": "Field included by default."
                             }
                           },
                           "required": [
@@ -14296,6 +14377,18 @@
                             "storage_mount_path": {
                               "description": "Field included by default.",
                               "type": "string"
+                            },
+                            "url": {
+                              "anyOf": [
+                                {
+                                  "nullable": true,
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ],
+                              "description": "Field included by default."
                             }
                           },
                           "required": [
@@ -14672,6 +14765,18 @@
                             "storage_mount_path": {
                               "description": "Field included by default.",
                               "type": "string"
+                            },
+                            "url": {
+                              "anyOf": [
+                                {
+                                  "nullable": true,
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ],
+                              "description": "Field included by default."
                             }
                           },
                           "required": [
@@ -15067,6 +15172,18 @@
                             "storage_mount_path": {
                               "description": "Field included by default.",
                               "type": "string"
+                            },
+                            "url": {
+                              "anyOf": [
+                                {
+                                  "nullable": true,
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ],
+                              "description": "Field included by default."
                             }
                           },
                           "required": [
@@ -15602,6 +15719,18 @@
                             "storage_mount_path": {
                               "description": "Field included by default.",
                               "type": "string"
+                            },
+                            "url": {
+                              "anyOf": [
+                                {
+                                  "nullable": true,
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ],
+                              "description": "Field included by default."
                             }
                           },
                           "required": [
@@ -16047,6 +16176,18 @@
                             "storage_mount_path": {
                               "description": "Field included by default.",
                               "type": "string"
+                            },
+                            "url": {
+                              "anyOf": [
+                                {
+                                  "nullable": true,
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ],
+                              "description": "Field included by default."
                             }
                           },
                           "required": [
@@ -16446,6 +16587,18 @@
                             "storage_mount_path": {
                               "description": "Field included by default.",
                               "type": "string"
+                            },
+                            "url": {
+                              "anyOf": [
+                                {
+                                  "nullable": true,
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ],
+                              "description": "Field included by default."
                             }
                           },
                           "required": [
@@ -16861,6 +17014,18 @@
                             "storage_mount_path": {
                               "description": "Field included by default.",
                               "type": "string"
+                            },
+                            "url": {
+                              "anyOf": [
+                                {
+                                  "nullable": true,
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ],
+                              "description": "Field included by default."
                             }
                           },
                           "required": [
@@ -17282,6 +17447,18 @@
                             "storage_mount_path": {
                               "description": "Field included by default.",
                               "type": "string"
+                            },
+                            "url": {
+                              "anyOf": [
+                                {
+                                  "nullable": true,
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ],
+                              "description": "Field included by default."
                             }
                           },
                           "required": [
@@ -17666,6 +17843,18 @@
                             "storage_mount_path": {
                               "description": "Field included by default.",
                               "type": "string"
+                            },
+                            "url": {
+                              "anyOf": [
+                                {
+                                  "nullable": true,
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ],
+                              "description": "Field included by default."
                             }
                           },
                           "required": [

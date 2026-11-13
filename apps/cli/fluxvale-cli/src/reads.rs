@@ -273,6 +273,7 @@ fn instances_status_rendered(
     detail.field("name", cell(attrs.get("name")));
     detail.field("slug", cell(attrs.get("slug")));
     detail.field("status", cell(attrs.get("status")));
+    detail.field("url", cell(attrs.get("url")));
     detail.field("exposure", cell(attrs.get("exposure")));
     detail.field("always on", yes_no(attrs.get("always_on")));
     detail.field("image", cell(attrs.get("image")));
@@ -866,7 +867,8 @@ mod tests {
                     "image": "ghcr.io/fluxvale/apps/wordpress:1.2", "port": 8080,
                     "cpu_cores": "0.5", "memory_mb": 512, "storage_gb": 1,
                     "storage_mount_path": "/data", "healthcheck_path": "/health",
-                    "file_access": true, "deployed_at": "2026-11-04T21:00:00Z"}}
+                    "file_access": true, "deployed_at": "2026-11-04T21:00:00Z",
+                    "url": "https://web-a1b2.fluxvale.lvh.me"}}
             })),
             Output::Table,
             NOW,
@@ -891,6 +893,7 @@ mod tests {
         );
         assert!(rendered.contains("image             ghcr.io/fluxvale/apps/wordpress:1.2"));
         assert!(rendered.contains("exposure          private"));
+        assert!(rendered.contains("url               https://web-a1b2.fluxvale.lvh.me"));
         assert!(rendered.contains("deployed          3h ago (2026-11-04T21:00:00Z)"));
         assert!(
             rendered.ends_with("\nSleeping — wakes automatically on the next visit; storage-only cost while it rests."),

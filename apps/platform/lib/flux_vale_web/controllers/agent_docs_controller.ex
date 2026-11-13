@@ -14,13 +14,6 @@ defmodule FluxValeWeb.AgentDocsController do
   alias FluxVale.Docs
   alias FluxValeWeb.AgentPrompt
 
-  @clients [
-    %{key: "claude-code", title: "Claude Code", wrap: "break-words", install: :claude_code},
-    %{key: "cursor", title: "Cursor", wrap: "break-all", install: :cursor},
-    %{key: "vscode", title: "VS Code", wrap: "break-words", install: :vscode},
-    %{key: "generic", title: "Generic JSON", wrap: "break-words", install: :generic}
-  ]
-
   @spec show(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def show(conn, _params) do
     Docs.maybe_hot_reload()
@@ -28,7 +21,7 @@ defmodule FluxValeWeb.AgentDocsController do
     ctx = AgentPrompt.public_context()
 
     clients =
-      Enum.map(@clients, fn client ->
+      Enum.map(AgentPrompt.clients(), fn client ->
         Map.put(client, :code, AgentPrompt.install(client.install, ctx))
       end)
 
@@ -41,6 +34,7 @@ defmodule FluxValeWeb.AgentDocsController do
     |> assign(:clients, clients)
     |> assign(:what_it_will_do, AgentPrompt.what_it_will_do())
     |> assign(:commit_rule, AgentPrompt.commit_rule())
+    |> assign(:snippet_note, AgentPrompt.snippet_note())
     |> assign(:links, AgentPrompt.links(ctx))
     |> render(:show)
   end

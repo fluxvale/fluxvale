@@ -225,8 +225,10 @@ category id. Slugs from here are what `apps_show` takes.",
 
     #[tool(
         description = "One catalog app by its URL slug: name, tagline, description, \
-icon/source/docs URLs, file-access flag. Get the slug from `apps_list`. \
-Errors when no app carries the slug.",
+icon/source/docs URLs, file-access flag, and its versions. Each version \
+carries the default CPU/memory/storage allocation and `monthly_cents` \
+(the recommended running rate) — quote that before deploying. Get the \
+slug from `apps_list`. Errors when no app carries the slug.",
         annotations(read_only_hint = true)
     )]
     async fn apps_show(
@@ -1155,7 +1157,7 @@ mod tests {
             ("/api/v1/organizations", 200, orgs_doc()),
             ("/api/v1/apps", 200, apps_doc()),
             ("/api/v1/apps/wordpress", 200, app_doc()),
-            ("/api/v1/apps/wordpress/versions", 200, versions_doc()),
+            ("/api/v1/apps/1/versions", 200, versions_doc()),
             ("/api/v1/instances", 200, instances_doc()),
             ("/api/v1/instances/i1", 200, instance_doc()),
             ("/api/v1/instances/i1/stop", 200, instance_doc()),
@@ -1398,13 +1400,13 @@ mod tests {
         // The full-scope list, same as the handshake rev's — and one
         // upstream read either way (the driver asserts the count in
         // the filter matrix tests above).
-        assert_eq!(tool_names(&body).len(), 18);
+        assert_eq!(tool_names(&body).len(), 19);
         assert!(tool_names(&body).contains(&"instances_deploy"));
         assert!(tool_names(&body).contains(&"topup"));
     }
 
     #[tokio::test]
-    async fn a_full_scope_token_sees_all_eighteen_tools() {
+    async fn a_full_scope_token_sees_all_nineteen_tools() {
         let server = full_scope_upstream();
         assert_eq!(
             listed_tools(&server, PAT_FULL).await,
@@ -1549,6 +1551,7 @@ mod tests {
         assert_eq!(structured["id"], "1");
         assert_eq!(structured["slug"], "wordpress");
         assert_eq!(structured["tagline"], "Blogging");
+        assert_eq!(structured["versions"][0]["version"], "1.2");
     }
 
     #[tokio::test]

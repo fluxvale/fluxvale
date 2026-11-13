@@ -17,54 +17,25 @@ defmodule FluxValeWeb.AgentLive do
 
   alias FluxValeWeb.AgentPrompt
 
-  @clients [
-    %{
-      key: "claude-code",
-      title: "Claude Code",
-      hint: "Run this in your terminal",
-      wrap: "break-words",
-      install: :claude_code
-    },
-    %{
-      key: "cursor",
-      title: "Cursor",
-      hint: "Open the install deeplink",
-      wrap: "break-all",
-      install: :cursor
-    },
-    %{
-      key: "vscode",
-      title: "VS Code",
-      hint: "Add to .vscode/mcp.json",
-      wrap: "break-words",
-      install: :vscode
-    },
-    %{
-      key: "generic",
-      title: "Generic JSON",
-      hint: "Any MCP client",
-      wrap: "break-words",
-      install: :generic
-    }
-  ]
-
   @impl Phoenix.LiveView
   def mount(_params, _session, socket) do
     org = personal_org(socket.assigns)
     ctx = AgentPrompt.context(org && org.name, org && org.slug)
 
     snippets =
-      Enum.map(@clients, fn client ->
+      Enum.map(AgentPrompt.clients(), fn client ->
         Map.put(client, :code, AgentPrompt.install(client.install, ctx))
       end)
 
     {:ok,
      socket
+     |> assign(:page_title, "Finish setup with your agent · FluxVale")
      |> assign(:ctx, ctx)
      |> assign(:prompt, AgentPrompt.prompt(ctx))
      |> assign(:snippets, snippets)
      |> assign(:what_it_will_do, AgentPrompt.what_it_will_do())
-     |> assign(:commit_rule, AgentPrompt.commit_rule())}
+     |> assign(:commit_rule, AgentPrompt.commit_rule())
+     |> assign(:snippet_note, AgentPrompt.snippet_note())}
   end
 
   @impl Phoenix.LiveView
@@ -127,10 +98,8 @@ defmodule FluxValeWeb.AgentLive do
               <div class="space-y-4" data-testid="agent-clients">
                 <div>
                   <h2 class="text-base font-medium text-ink">2. Connect a client</h2>
-                  <p class="mt-1 text-sm text-ink-muted">
-                    Pick the client you use. The snippets carry
-                    <span class="font-mono text-xs">FLUXVALE_PAT</span>
-                    by name — never a token value.
+                  <p class="mt-1 text-sm text-ink-muted" data-testid="agent-snippet-note">
+                    {@snippet_note}
                   </p>
                 </div>
 
@@ -184,8 +153,8 @@ defmodule FluxValeWeb.AgentLive do
               <.callout id="agent-spend-rule" tone="warning" data-testid="agent-spend-rule">
                 <p>
                   <span class="font-medium text-ink">It asks before it spends.</span>
-                  The agent proposes an app and its hourly cost, then waits for your
-                  yes. An empty wallet stops the run with the top-up link — it never
+                  The agent proposes an app and its monthly price (billed hourly),
+                  then waits for your yes. An empty wallet stops the run with the top-up link — it never
                   deploys on credit.
                 </p>
               </.callout>

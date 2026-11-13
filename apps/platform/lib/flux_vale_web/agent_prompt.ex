@@ -21,7 +21,7 @@ defmodule FluxValeWeb.AgentPrompt do
 
   @auth_mode_default :pat
 
-  @scopes "catalog:read, instances:write, backups:write, wallet:read"
+  @scopes "catalog:read, instances:write, wallet:read"
 
   @auth_note_pat """
   Mint a scoped token at %{token_url} with scopes %{scopes}, export it as \
@@ -36,6 +36,46 @@ defmodule FluxValeWeb.AgentPrompt do
   """
 
   @commit_rule "Confirm the spend with me before deploying. Never deploy without an explicit yes."
+
+  @clients [
+    %{
+      key: "claude-code",
+      title: "Claude Code",
+      hint: "Run this in your terminal",
+      wrap: "break-words",
+      install: :claude_code
+    },
+    %{
+      key: "cursor",
+      title: "Cursor",
+      hint: "Open the install deeplink",
+      wrap: "break-all",
+      install: :cursor
+    },
+    %{
+      key: "vscode",
+      title: "VS Code",
+      hint: "Add to .vscode/mcp.json",
+      wrap: "break-words",
+      install: :vscode
+    },
+    %{
+      key: "generic",
+      title: "Generic JSON",
+      hint: "Any MCP client",
+      wrap: "break-words",
+      install: :generic
+    }
+  ]
+
+  @snippet_note_pat """
+  The snippets carry FLUXVALE_PAT by name — never a token value. Set it in your \
+  shell before you connect.\
+  """
+
+  @snippet_note_oauth """
+  The snippets open your browser sign-in on first connect — no token to paste.\
+  """
 
   defstruct [:org_name, :org_slug, :api_base, :mcp_url]
 
@@ -90,6 +130,19 @@ defmodule FluxValeWeb.AgentPrompt do
     end
   end
 
+  @doc "The four client cards — one source for the panel and the docs page."
+  @spec clients() :: [map()]
+  def clients, do: @clients
+
+  @doc "The install-snippet sentence — token env var today, browser sign-in after OAuth."
+  @spec snippet_note() :: String.t()
+  def snippet_note do
+    case auth_mode() do
+      :pat -> @snippet_note_pat
+      :oauth -> @snippet_note_oauth
+    end
+  end
+
   @doc "True while the snippets must carry a bearer header."
   @spec bearer_headers?() :: boolean()
   def bearer_headers?, do: auth_mode() == :pat
@@ -116,10 +169,10 @@ defmodule FluxValeWeb.AgentPrompt do
 
     You are my FluxVale setup agent. Connect to the MCP server above, then:
     1. Call `whoami`, then `wallet_balance`. If the balance is zero or negative, stop and give me the top-up link: #{ctx.api_base}#{~p"/billing/topup"}. Do not deploy.
-    2. Ask what I want to run, then propose one app from `apps_list` with the CPU, memory, and storage you recommend, plus its hourly cost (`wallet_runway` shows the burn).
+    2. Ask what I want to run, then pick an app from `apps_list` and call `apps_show`: it lists versions with the default CPU, memory, and storage and a `monthly_cents` rate. Propose one version and that price (billed hourly).
     3. #{@commit_rule}
-    4. Deploy with `instances_deploy`. Put configuration in `env`, for example {"TZ":"UTC"}.
-    5. Poll `instances_status` until it is running, then give me the instance URL.
+    4. Deploy with `instances_deploy`. Put configuration in `env`, for example {"TZ":"UTC"}. Leave cpu/memory/storage off to take the version's defaults.
+    5. Poll `instances_status` until it is running, then give me the row's `url` — that is the instance URL.
     6. Change env later with `instances_configure`: `set` adds or replaces, `remove` deletes. Values are write-only — never print them.
     7. Never run `instances_destroy` or `backups_restore` without a separate, explicit yes.
     8. After the app runs, offer Terraform if I want to manage it as code: #{ctx.api_base}#{~p"/docs/automation/terraform"}.
@@ -133,7 +186,7 @@ defmodule FluxValeWeb.AgentPrompt do
   def what_it_will_do do
     [
       "Check your wallet and stop at zero",
-      "Propose an app with its size and hourly cost",
+      "Propose an app with its size and monthly price",
       "Confirm the spend before deploying",
       "Deploy and set env vars",
       "Verify the instance URL",
@@ -201,7 +254,7 @@ defmodule FluxValeWeb.AgentPrompt do
     # FluxVale
 
     > FluxVale deploys open-source apps as managed cloud instances. An agent can \
-    finish a new account's setup over the FluxVale MCP server.
+    finish a new account's setup over the FluxVale MCP server (streamable HTTP).
 
     ## Set up with your agent
 

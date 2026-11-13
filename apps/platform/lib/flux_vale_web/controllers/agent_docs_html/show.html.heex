@@ -37,11 +37,7 @@ centered; zero JS, so no copy button here (the panel has one). --%>
         ><code><%= @prompt %></code></pre>
 
         <h2>Connect a client</h2>
-        <p>
-          The snippets carry <span class="font-mono">FLUXVALE_PAT</span> by name only
-          — no token value is ever rendered here. Set it in your shell before you
-          connect.
-        </p>
+        <p data-testid="agent-docs-snippet-note">{@snippet_note}</p>
 
         <div :for={client <- @clients} class="mt-6">
           <h3>{client.title}</h3>

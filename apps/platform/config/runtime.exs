@@ -366,41 +366,46 @@ if config_env() != :test do
   end
 end
 
-# #765: the MCP endpoint the agent handoff advertises. The explicit
-# override wins (a review env can point at its own host); otherwise
-# staging and local get their own names — the same host split the
-# apps/mcp README documents.
-mcp_server_url =
-  case System.get_env("MCP_SERVER_URL") do
+# #765: the MCP endpoint and auth-copy switch the agent handoff
+# advertises. Test keeps config.exs/test.exs's pins — a stray MCP_*
+# in the suite's shell must not flip the fixtures (the OAuth tests
+# override the app env explicitly).
+if config_env() != :test do
+  mcp_server_url =
+    case System.get_env("MCP_SERVER_URL") do
+      value when value in [nil, ""] ->
+        case {config_env(), System.get_env("PLATFORM_ENV")} do
+          {:dev, _} -> "https://mcp.fluxvale.lvh.me/mcp"
+          {_, "staging"} -> "https://mcp-staging.fluxvale.com/mcp"
+          {_, "local"} -> "https://mcp.fluxvale.lvh.me/mcp"
+          _ -> "https://mcp.fluxvale.com/mcp"
+        end
+
+      value ->
+        trimmed = String.trim_trailing(value, "/")
+
+        unless String.starts_with?(trimmed, "https://") do
+          raise ArgumentError, "MCP_SERVER_URL must be an https:// URL"
+        end
+
+        trimmed
+    end
+
+  config :flux_vale, :mcp_server_url, mcp_server_url
+
+  case System.get_env("MCP_AUTH_MODE") do
     value when value in [nil, ""] ->
-      case {config_env(), System.get_env("PLATFORM_ENV")} do
-        {:dev, _} -> "https://mcp.fluxvale.lvh.me/mcp"
-        {_, "staging"} -> "https://mcp-staging.fluxvale.com/mcp"
-        {_, "local"} -> "https://mcp.fluxvale.lvh.me/mcp"
-        _ -> "https://mcp.fluxvale.com/mcp"
-      end
+      :ok
 
-    value ->
-      value
+    "pat" ->
+      config :flux_vale, :mcp_auth_mode, :pat
+
+    "oauth" ->
+      config :flux_vale, :mcp_auth_mode, :oauth
+
+    other ->
+      raise ArgumentError, "MCP_AUTH_MODE=#{inspect(other)} is not pat | oauth"
   end
-
-config :flux_vale, :mcp_server_url, mcp_server_url
-
-# #765: the handoff's auth copy is one switch (config.exs's :pat). The
-# runtime arm exists so staging can flip to the OAuth sentence the
-# moment #766 deploys, without a code change.
-case System.get_env("MCP_AUTH_MODE") do
-  value when value in [nil, ""] ->
-    :ok
-
-  "pat" ->
-    config :flux_vale, :mcp_auth_mode, :pat
-
-  "oauth" ->
-    config :flux_vale, :mcp_auth_mode, :oauth
-
-  other ->
-    raise ArgumentError, "MCP_AUTH_MODE=#{inspect(other)} is not pat | oauth"
 end
 
 # HitPay gateway (#136, ADR-0029): BWS-injected in the cluster

@@ -76,14 +76,24 @@ pub(crate) async fn apps_list(base: Arc<str>, token: Token) -> Result<Value, Str
     .await
 }
 
-/// `apps_show` — GET /apps/{slug}: one catalog app, all its fields.
+/// `apps_show` — GET /apps/{slug}, then the app's versions: one
+/// catalog app with its `versions` (each carrying the default
+/// allocation and `monthly_cents` — the price an agent quotes before
+/// deploy). The app row alone cannot answer "what will this cost".
 pub(crate) async fn apps_show(base: Arc<str>, token: Token, slug: String) -> Result<Value, String> {
     safe_segment("app slug", &slug)?;
     on_blocking_string(move || {
-        let document = ApiClient::new(&base, token)
+        let client = ApiClient::new(&base, token);
+        let document = client
             .get(&format!("/apps/{slug}"))
             .map_err(|err| friendly_404(err, "app"))?;
-        one_resource(document, "app").map(|resource| with_id(&resource))
+        let app = one_resource(document, "app")?;
+        let versions = client
+            .get(&format!("/apps/{}/versions", app.id))
+            .map_err(message)?;
+        let mut row = with_id(&app);
+        row["versions"] = rows(&versions);
+        Ok(row)
     })
     .await
 }
@@ -329,7 +339,7 @@ pub(crate) async fn instances_configure(
                 &format!("/instances/{id}/env"),
                 Some(body.to_string()),
             )
-            .map_err(message)?;
+            .map_err(|err| friendly_404(err, "instance"))?;
         one_resource(updated, "instance").map(|resource| with_id(&resource))
     })
     .await
@@ -918,16 +928,29 @@ mod tests {
         let body = &envelope(json!({"data": {
             "type": "app", "id": "1", "attributes": {"name": "WordPress", "slug": "wordpress"}
         }}));
-        let server = serve(&[("/api/v1/apps/wordpress", 200, body)]);
+        let versions = &envelope(json!({"data": [
+            {"type": "app_version", "id": "v1", "attributes": {"version": "1.2", "monthly_cents": 500}}
+        ]}));
+        let server = serve(&[
+            ("/api/v1/apps/wordpress", 200, body),
+            ("/api/v1/apps/1/versions", 200, versions),
+        ]);
         let row = apps_show(base(&server), token(), "wordpress".into())
             .await
             .unwrap();
         assert_eq!(row["id"], "1");
         assert_eq!(row["name"], "WordPress");
+        assert_eq!(row["versions"][0]["id"], "v1");
+        assert_eq!(row["versions"][0]["monthly_cents"], 500);
         let head = server.head(0).to_lowercase();
         assert!(
             head.starts_with("get /api/v1/apps/wordpress"),
             "head: {head}"
+        );
+        let versions_head = server.head(1).to_lowercase();
+        assert!(
+            versions_head.starts_with("get /api/v1/apps/1/versions"),
+            "head: {versions_head}"
         );
     }
 
@@ -1365,6 +1388,14 @@ mod tests {
         assert!(
             create.contains("\"env_vars\":{\"api_key\":\"sekrit\",\"tz\":\"utc\"}"),
             "create: {create}"
+        );
+        // captured_requests lowercases; env names are case-sensitive,
+        // so pin the RAW capture too.
+        let raw = server.requests.lock().unwrap();
+        assert!(
+            raw[2].contains("\"env_vars\":{\"API_KEY\":\"sekrit\",\"TZ\":\"UTC\"}"),
+            "raw create: {}",
+            raw[2]
         );
     }
 

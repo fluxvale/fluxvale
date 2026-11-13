@@ -28,6 +28,8 @@ Versions follow semver.
   `instances configure <id> --env KEY=VALUE --remove KEY` merges them
   on a live instance. Values are write-only — output names the changed
   keys, never their values.
+- `instances status` and `instances deploy` show the instance's public
+  URL.
 
 ## [0.1.0] - 2026-11-05
 

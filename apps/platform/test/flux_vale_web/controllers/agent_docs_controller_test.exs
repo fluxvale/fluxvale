@@ -5,7 +5,7 @@ defmodule FluxValeWeb.AgentDocsControllerTest do
   # snippets as the panel, with the org left as a placeholder. A
   # literal route, not a docs section.
 
-  use FluxValeWeb.ConnCase, async: true
+  use FluxValeWeb.ConnCase, async: false
 
   alias FluxValeWeb.AgentPrompt
 
@@ -27,6 +27,19 @@ defmodule FluxValeWeb.AgentDocsControllerTest do
     assert html =~ ~s(href="/docs/automation/terraform")
 
     refute html =~ "fvpat_"
+  end
+
+  test "the OAuth mode swaps the token sentence too", %{conn: conn} do
+    previous = Application.get_env(:flux_vale, :mcp_auth_mode)
+    on_exit(fn -> Application.put_env(:flux_vale, :mcp_auth_mode, previous) end)
+    Application.put_env(:flux_vale, :mcp_auth_mode, :oauth)
+
+    conn = get(conn, ~p"/docs/agents")
+    html = html_response(conn, 200)
+
+    refute html =~ "FLUXVALE_PAT"
+    assert html =~ "browser sign-in"
+    refute html =~ "--header"
   end
 
   test "the docs sidebar renders with the normal sections", %{conn: conn} do

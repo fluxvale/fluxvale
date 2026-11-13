@@ -3700,6 +3700,8 @@ pub struct AppVersionAttributes {
     ///Field included by default.
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub instance_url_env: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub monthly_cents: ::std::option::Option<i64>,
     ///Field included by default.
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub oidc_callback_path: ::std::option::Option<::std::string::String>,
@@ -7673,6 +7675,8 @@ pub struct InstanceAttributes {
     pub storage_gb: ::std::option::Option<i64>,
     ///Field included by default.
     pub storage_mount_path: ::std::string::String,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub url: ::std::option::Option<::std::string::String>,
 }
 ///Field included by default.
 #[derive(
@@ -9999,6 +10003,9 @@ pub struct InstanceType {
     pub storage_gb: ::std::option::Option<i64>,
     ///Field included by default.
     pub storage_mount_path: ::std::string::String,
+    ///Field included by default.
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub url: ::std::option::Option<::std::string::String>,
 }
 ///Field included by default.
 #[derive(

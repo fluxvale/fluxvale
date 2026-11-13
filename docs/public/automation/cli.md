@@ -46,7 +46,7 @@ The deploy flags set CPU cores, memory, and storage directly, and `--env KEY=VAL
 Change an env var on a live instance without destroying it:
 
 ```sh
-fluxvale instances configure reading --env API_KEY=s3cr3t --remove OLD_KEY
+fluxvale instances configure <instance-id> --env API_KEY=s3cr3t --remove OLD_KEY
 ```
 
 `--env` adds or replaces, `--remove` deletes, everything else stays. Values are write-only: output names the changed keys, never their values.

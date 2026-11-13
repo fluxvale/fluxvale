@@ -21,6 +21,9 @@ defmodule FluxValeWeb.AgentPromptTest do
     assert prompt =~ "whoami"
     assert prompt =~ "wallet_balance"
     assert prompt =~ "apps_list"
+    assert prompt =~ "apps_show"
+    assert prompt =~ "monthly_cents"
+    assert prompt =~ "row's `url`"
     assert prompt =~ "instances_deploy"
     assert prompt =~ "instances_configure"
     assert prompt =~ AgentPrompt.commit_rule()
@@ -76,6 +79,17 @@ defmodule FluxValeWeb.AgentPromptTest do
     end
   end
 
+  test "the snippet sentence follows the same auth switch" do
+    assert AgentPrompt.snippet_note() =~ "FLUXVALE_PAT"
+
+    previous = Application.get_env(:flux_vale, :mcp_auth_mode)
+    on_exit(fn -> Application.put_env(:flux_vale, :mcp_auth_mode, previous) end)
+    Application.put_env(:flux_vale, :mcp_auth_mode, :oauth)
+
+    assert AgentPrompt.snippet_note() =~ "browser sign-in"
+    refute AgentPrompt.snippet_note() =~ "FLUXVALE_PAT"
+  end
+
   test "the OAuth mode drops the token note and every snippet's header", %{ctx: ctx} do
     previous = Application.get_env(:flux_vale, :mcp_auth_mode)
     on_exit(fn -> Application.put_env(:flux_vale, :mcp_auth_mode, previous) end)
@@ -112,6 +126,11 @@ defmodule FluxValeWeb.AgentPromptTest do
     for {_title, url} <- links do
       assert String.starts_with?(url, ctx.api_base <> "/docs/")
     end
+  end
+
+  test "the public prompt matches the committed golden fixture" do
+    assert File.read!("test/fixtures/agent_prompt.txt") ==
+             AgentPrompt.prompt(AgentPrompt.public_context())
   end
 
   test "llms.txt renders the same prompt plus the link list", %{ctx: ctx} do
