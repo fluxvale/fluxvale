@@ -37,7 +37,7 @@ fn write_bundle(out: &Path, bundle: &Bundle) -> anyhow::Result<()> {
             Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => {
                 remove_written(&written);
                 anyhow::bail!(
-                    "{} already exists — choose an empty --out directory (or move the old file first)",
+                    "{} already exists — choose an empty --out directory, e.g. --out fluxvale-import (or move the old file first)",
                     path.display()
                 );
             }

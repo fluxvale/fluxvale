@@ -27,8 +27,9 @@ Review it, then run `tofu plan` again until it is clean.
 ## Caveats
 
 - **Write-only values are never readable back.** `generated.tf` cannot
-  carry `env_vars` or a backup's `secret_access_key`; set them in the
-  panel after adoption.
+  carry `env_vars` or a backup's `secret_access_key`; re-add
+  `env_vars` in your Terraform config after adoption (the provider
+  writes them in place), and set the backup secret in the panel.
 - **Generated config may need small edits before the plan is clean.**
   `app`/`app_version` on an imported instance have no wire echo, the
   gateway's `instances` set is config-authoritative and starts null,

@@ -148,7 +148,7 @@ the surface change and the PR.
 
 ### 2026-11-09 — the initial surface
 
-- The seventeen tools above: `whoami`, `topup`, the catalog pair, the
+- The initial surface's seventeen tools: `whoami`, `topup`, the catalog pair, the
   instances sextet, the backups quartet (destroy/restore
   confirm-gated), and the wallet trio. ([#484](https://github.com/fluxvale/fluxvale/issues/484) W2a+W2b)
 - The in-app quickstart ships with the surface: `/settings/agents`,

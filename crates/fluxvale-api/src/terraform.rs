@@ -66,7 +66,6 @@ pub struct BackupSetting {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AccessGateway {
     pub id: String,
-    pub organization_id: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -78,7 +77,6 @@ pub struct CustomDomain {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SsoWiring {
     pub instance_id: String,
-    pub pocket_id_instance_id: String,
 }
 
 /// Everything the org exposes that the provider can import.
@@ -195,8 +193,6 @@ pub fn discover(client: &ApiClient, org: &str) -> Result<Estate, TerraformError>
             sso_wirings.push(SsoWiring {
                 instance_id: string_attr(&wiring, "instance_id")
                     .unwrap_or_else(|| instance.id.clone()),
-                pocket_id_instance_id: string_attr(&wiring, "pocket_id_instance_id")
-                    .unwrap_or_default(),
             });
         }
     }
@@ -206,10 +202,7 @@ pub fn discover(client: &ApiClient, org: &str) -> Result<Estate, TerraformError>
         &format!("/organizations/{}/access-gateway", org.id),
         "access gateway",
     )?
-    .map(|resource| AccessGateway {
-        organization_id: string_attr(&resource, "organization_id").unwrap_or_default(),
-        id: resource.id,
-    });
+    .map(|resource| AccessGateway { id: resource.id });
 
     let domains_doc = client.get(&format!("/organizations/{}/access-domains", org.id))?;
     let mut custom_domains: Vec<CustomDomain> = domains_doc
@@ -483,8 +476,9 @@ fn readme(estate: &Estate) -> String {
          ## Caveats\n\
          \n\
          - **Write-only values are never readable back.** `generated.tf` cannot\n\
-         \x20\x20carry `env_vars` or a backup's `secret_access_key`; set them in the\n\
-         \x20\x20panel after adoption.\n\
+         \x20\x20carry `env_vars` or a backup's `secret_access_key`; re-add\n\
+         \x20\x20`env_vars` in your Terraform config after adoption (the provider\n\
+         \x20\x20writes them in place), and set the backup secret in the panel.\n\
          - **Generated config may need small edits before the plan is clean.**\n\
          \x20\x20`app`/`app_version` on an imported instance have no wire echo, the\n\
          \x20\x20gateway's `instances` set is config-authoritative and starts null,\n\
@@ -680,10 +674,7 @@ mod tests {
             backup_settings: vec![BackupSetting {
                 instance_id: "i-web".into(),
             }],
-            gateway: Some(AccessGateway {
-                id: "g1".into(),
-                organization_id: "org-acme".into(),
-            }),
+            gateway: Some(AccessGateway { id: "g1".into() }),
             custom_domains: vec![
                 CustomDomain {
                     id: "d1".into(),
@@ -696,7 +687,6 @@ mod tests {
             ],
             sso_wirings: vec![SsoWiring {
                 instance_id: "i-web".into(),
-                pocket_id_instance_id: "i-id".into(),
             }],
         }
     }
@@ -758,6 +748,8 @@ mod tests {
         assert!(readme.contains("Its blocks are commented out"));
         assert!(readme.contains("`platform` domain is not"));
         assert!(!readme.contains("secrets path"));
+        assert!(readme.contains("re-add"));
+        assert!(readme.contains("backup secret in the panel"));
     }
 
     #[test]
@@ -813,7 +805,6 @@ mod tests {
             }],
             sso_wirings: vec![SsoWiring {
                 instance_id: "i-gone".into(),
-                pocket_id_instance_id: "i-id".into(),
             }],
             ..Estate::default()
         };
