@@ -71,6 +71,14 @@ impl TokenClient {
     /// token rides the Authorization header; the raw answer never
     /// appears in an error or a Debug form.
     pub fn mint(&self, request: &MintRequest) -> anyhow::Result<MintedToken> {
+        // The caller PAT and the minted value both cross this wire:
+        // refuse a cleartext remote origin before either is sent.
+        if !is_https_or_loopback(&self.base_url) {
+            anyhow::bail!(
+                "the base URL must use https:// (http:// is allowed only for a loopback host)"
+            );
+        }
+
         let mut body = json!({
             "scopes": request.scopes,
             "ttl_seconds": request.ttl_seconds,
@@ -110,6 +118,34 @@ impl TokenClient {
             expires_at: string_field(&body, "expires_at")?,
         })
     }
+}
+
+/// HTTPS for any host; HTTP only when the host is loopback. A remote
+/// `http://` base URL would put the caller token and the minted value
+/// on the network in cleartext.
+fn is_https_or_loopback(base_url: &str) -> bool {
+    let lower = base_url.trim_end_matches('/').to_ascii_lowercase();
+    if lower.starts_with("https://") {
+        return true;
+    }
+    let Some(rest) = lower.strip_prefix("http://") else {
+        return false;
+    };
+    // Drop userinfo, then the path/query; bracketed IPv6 keeps its
+    // closing bracket.
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
+    let host_port = authority.rsplit('@').next().unwrap_or(authority);
+    let host = if host_port.starts_with('[') {
+        match host_port.split_once(']') {
+            // The bracketed host must end there or continue straight
+            // into a port — `[::1].evil.test` is not loopback.
+            Some((host, rest)) if rest.is_empty() || rest.starts_with(':') => format!("{host}]"),
+            _ => String::new(),
+        }
+    } else {
+        host_port.split(':').next().unwrap_or("").to_string()
+    };
+    matches!(host.as_str(), "127.0.0.1" | "localhost" | "[::1]")
 }
 
 fn string_field(body: &Value, field: &str) -> anyhow::Result<String> {
@@ -272,6 +308,42 @@ mod tests {
         assert!(head.contains("\"name\":\"ci-terraform\""), "head: {head}");
         // The caller's token is the only credential on the wire.
         assert!(!head.contains("fvpat_minted_value"), "head: {head}");
+    }
+
+    #[test]
+    fn a_remote_cleartext_origin_is_refused_before_the_pat_is_sent() {
+        let err = TokenClient::new("http://example.com", Token::new("fvpat_caller"))
+            .mint(&MintRequest {
+                name: None,
+                scopes: vec![],
+                ttl_seconds: 60,
+            })
+            .unwrap_err();
+        assert!(err.to_string().contains("https://"), "err: {err}");
+    }
+
+    #[test]
+    fn the_origin_rule_allows_https_and_loopback_http_only() {
+        for allowed in [
+            "https://staging.fluxvale.com",
+            "https://fluxvale.com/",
+            "http://localhost:4123",
+            "http://127.0.0.1:1",
+            "http://[::1]:4000",
+        ] {
+            assert!(is_https_or_loopback(allowed), "{allowed} must pass");
+        }
+
+        for refused in [
+            "http://example.com",
+            "http://127.0.0.1.evil.test",
+            "http://user@evil.test",
+            "http://[::1].evil.test",
+            "ftp://fluxvale.com",
+            "fluxvale.com",
+        ] {
+            assert!(!is_https_or_loopback(refused), "{refused} must refuse");
+        }
     }
 
     #[test]

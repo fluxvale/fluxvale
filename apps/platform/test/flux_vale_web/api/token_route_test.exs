@@ -8,6 +8,9 @@ defmodule FluxValeWeb.Api.TokenRouteTest do
   # error document.
 
   use FluxValeWeb.ConnCase, async: true
+  use Mimic
+
+  setup :verify_on_exit!
 
   alias AshAuthentication.Jwt
   alias FluxVale.Identity
@@ -55,13 +58,15 @@ defmodule FluxValeWeb.Api.TokenRouteTest do
     remaining = DateTime.diff(expires, DateTime.utc_now())
     assert remaining in 3590..3601
 
-    # Provenance is system-written, never caller input.
+    # Provenance is system-written, never caller input: the minted-via
+    # marker and the parent id the lineage check walks.
     row =
       user
       |> rows()
       |> Enum.find(&(&1.id == body["id"]))
 
-    assert row.metadata == %{"minted_via" => "cli_token"}
+    assert row.metadata["minted_via"] == "cli_token"
+    assert is_binary(row.metadata["minted_parent_id"])
 
     # In scope: the instances list (any live token's own orgs read).
     in_scope =
@@ -193,6 +198,69 @@ defmodule FluxValeWeb.Api.TokenRouteTest do
 
       assert message =~ detail
     end
+  end
+
+  test "revoking the parent severs a minted child", %{conn: conn} do
+    {user, caller} = ApiPat.member!(["instances:read"])
+
+    response = mint(conn, caller, %{"scopes" => ["instances:read"], "ttl_seconds" => 3600})
+
+    child =
+      response
+      |> json_response(201)
+      |> Map.fetch!("access_token")
+
+    hash = PersonalAccessToken.token_hash(caller)
+    parent = PersonalAccessToken.get_by_token_hash!(hash, actor: user)
+
+    assert {:ok, _revoked} = Identity.revoke_pat(user, parent)
+
+    denied =
+      build_conn()
+      |> auth(child)
+      |> get("/api/v1/instances")
+
+    assert %{"errors" => [%{"status" => "401"}]} = json_response(denied, 401)
+  end
+
+  test "an expired ancestor refuses the child" do
+    user = AccountsFixtures.user!()
+    expired_at = DateTime.add(DateTime.utc_now(), -60, :second)
+
+    {:ok, %{pat: parent}} =
+      Identity.mint_pat(user, %{
+        user_id: user.id,
+        name: "expired parent",
+        scopes: [],
+        expires_at: expired_at
+      })
+
+    {:ok, %{token: child}} =
+      Identity.mint_pat(user, %{
+        user_id: user.id,
+        name: "child",
+        scopes: [],
+        expires_at: DateTime.add(DateTime.utc_now(), 3600, :second),
+        metadata: %{"minted_parent_id" => parent.id}
+      })
+
+    denied =
+      build_conn()
+      |> auth(child)
+      |> get("/api/v1/instances")
+
+    assert %{"errors" => [%{"status" => "401"}]} = json_response(denied, 401)
+  end
+
+  test "a systemic mint failure is a 500 without echoing the changeset", %{conn: conn} do
+    {_user, caller} = ApiPat.member!()
+
+    stub(Identity, :mint_pat, fn _actor, _params -> {:error, :boom} end)
+
+    conn = mint(conn, caller, %{"scopes" => [], "ttl_seconds" => 60})
+
+    assert %{"errors" => [%{"status" => "500", "detail" => "the token could not be minted"}]} =
+             json_response(conn, 500)
   end
 
   test "a session write is refused — machine writes need a token", %{conn: conn} do

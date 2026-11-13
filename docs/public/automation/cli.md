@@ -27,7 +27,7 @@ The CLI prints a device code and opens the browser at the approval page. Approve
 
 ## Use the stored token
 
-`fluxvale auth exec -- <command>` runs a command with the stored token in its environment as `FLUXVALE_PAT`, and nowhere else. It is the bridge to tools that take a token from the environment, like Terraform:
+`fluxvale auth exec -- <command>` runs a command with the stored token in its process tree's environment as `FLUXVALE_PAT`, and nowhere else. It is the bridge to tools that take a token from the environment, like Terraform:
 
 ```sh
 fluxvale auth exec -- tofu plan

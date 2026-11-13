@@ -59,7 +59,7 @@ terraform {
 provider "fluxvale" {}
 ```
 
-The provider reads a personal access token from `FLUXVALE_PAT`. For local work, sign in once and let the CLI inject it for a single command — the token stays in your keychain and out of your shell:
+The provider reads a personal access token from `FLUXVALE_PAT`. For local work, sign in once and let the CLI inject it for a single command — the token stays in your keychain (or the 0600 fallback file) and out of your shell:
 
 ```sh
 fluxvale auth login

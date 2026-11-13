@@ -9,7 +9,7 @@ The FluxVale provider authenticates with the `FLUXVALE_PAT` environment variable
 
 ## Local development
 
-Sign in once. The CLI keeps the token in your OS keychain:
+Sign in once. The CLI keeps the token in your OS keychain, or in a file readable only by your user (0600) when no keychain is available:
 
 ```sh
 fluxvale auth login
@@ -22,7 +22,7 @@ fluxvale auth exec -- tofu plan
 fluxvale auth exec -- tofu apply
 ```
 
-The variable exists only in that process. Your shell never sees it, and the CLI never prints it. Check both halves:
+The variable exists only in that command's process tree — the command and anything it launches. Your shell never sees it, and the CLI never prints it. Check both halves:
 
 ```sh
 fluxvale auth exec -- sh -c 'test -n "$FLUXVALE_PAT" && echo token present in the child'
@@ -41,16 +41,18 @@ A pipeline has no keychain. Mint a scoped, short-lived token on a trusted machin
 fluxvale auth token \
   --name github-actions-terraform \
   --scopes instances:read,instances:write,backups:read,backups:write,gateways:read,gateways:write,catalog:read \
-  --ttl 1h
+  --ttl 7d
 ```
 
 The command prints the token once to stdout and nothing else, so pipe it straight into the secret store — it never touches disk:
 
 ```sh
-fluxvale auth token --scopes instances:read --ttl 1h | gh secret set FLUXVALE_PAT
+fluxvale auth token --scopes instances:read --ttl 7d | gh secret set FLUXVALE_PAT
 ```
 
-A minted token is bounded by the sign-in that created it: it can only carry scopes that sign-in already holds, and it never expires after it. The platform also caps any token at one year, so use minutes or hours for CI. The one-line summary (name, scopes, expiry) goes to stderr; stdout is only the value.
+A minted token is bounded by the sign-in that created it: it can only carry scopes that sign-in already holds, and it never expires after it. The platform also caps any token at one year, so use days, not months, for CI. The one-line summary (name, scopes, expiry) goes to stderr; stdout is only the value.
+
+A persistent secret must be re-minted before its TTL ends. A token minted with `--ttl 7d` expires seven days after minting; schedule the rotation (or use a longer TTL with a calendar reminder) or later pipeline runs fail with 401. A single job can use a much shorter token, down to `--ttl 1h`.
 
 In the pipeline, give the plan and apply steps the secret:
 
@@ -71,6 +73,6 @@ Scopes by resource:
 
 ## Rotation and revocation
 
-Rotate by minting a replacement with the same scopes, updating the secret store, then revoking the old token in the panel at [API tokens](/settings/developer#api-tokens). Revocation is immediate: the next plan fails with 401.
+Rotate by minting a replacement with the same scopes, updating the secret store, then revoking the old token in the panel at [API tokens](/settings/developer#api-tokens). Revocation is immediate, and it severs every token minted from the revoked one: the next plan fails with 401.
 
 `fluxvale auth logout` removes the local sign-in token only; tokens already minted for CI keep working until they expire or are revoked. Short TTLs make a forgotten token die on its own.

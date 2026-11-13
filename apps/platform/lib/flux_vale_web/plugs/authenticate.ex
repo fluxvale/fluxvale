@@ -106,8 +106,11 @@ defmodule FluxValeWeb.Plugs.Authenticate do
       {:ok, token} when is_nil(token.revoked_at) ->
         # The prefix is a claim, not the proof: a refresh token
         # presented as an access token must not authenticate, and a
-        # PAT prefix on an OAuth row is a mismatch too.
-        if token.kind == expected_kind do
+        # PAT prefix on an OAuth row is a mismatch too. A minted PAT
+        # child (#772) also rides its parent's liveness: revoking the
+        # credential that minted it severs the whole chain on the next
+        # presentation, not only when the child's own TTL ends.
+        if token.kind == expected_kind and lineage_live?(token) do
           resolve_user(conn, token)
         else
           conn
@@ -115,6 +118,27 @@ defmodule FluxValeWeb.Plugs.Authenticate do
 
       _revoked_or_missing ->
         conn
+    end
+  end
+
+  # Walk the derivation chain (`minted_parent_id`) to the root. A
+  # revoked or expired ancestor refuses every child below it. Tokens
+  # minted by the panel or the device flow carry no parent and pass
+  # on their own row alone. The chain cannot cycle: a parent row is
+  # created before the child that names it.
+  defp lineage_live?(pat) do
+    case pat.metadata do
+      %{"minted_parent_id" => parent_id} when is_binary(parent_id) ->
+        case PersonalAccessToken.get(parent_id, authorize?: false) do
+          {:ok, parent} when is_nil(parent.revoked_at) ->
+            DateTime.after?(parent.expires_at, DateTime.utc_now()) and lineage_live?(parent)
+
+          _missing_or_revoked ->
+            false
+        end
+
+      _root ->
+        true
     end
   end
 

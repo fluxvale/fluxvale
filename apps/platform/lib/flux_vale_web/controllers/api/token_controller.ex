@@ -117,7 +117,10 @@ defmodule FluxValeWeb.Api.TokenController do
            name: name,
            scopes: scopes,
            expires_at: expires_at,
-           metadata: %{"minted_via" => "cli_token"}
+           metadata: %{
+             "minted_via" => "cli_token",
+             "minted_parent_id" => caller.id
+           }
          }) do
       {:ok, %{token: raw, pat: pat}} ->
         conn
@@ -136,12 +139,8 @@ defmodule FluxValeWeb.Api.TokenController do
       # Only a system failure can land here: scopes, name, and expiry
       # are validated above. Never echo the changeset — it carries the
       # private token hash.
-      # coveralls-ignore-start - DB outage: the suite cannot take the
-      # DB down (AGENTS), and every caller-input refusal is handled.
       {:error, _changeset} ->
         error(conn, 500, "the token could not be minted")
-
-        # coveralls-ignore-stop
     end
   end
 
@@ -165,7 +164,5 @@ defmodule FluxValeWeb.Api.TokenController do
   defp title(400), do: "Bad Request"
   defp title(401), do: "Unauthorized"
   defp title(403), do: "Forbidden"
-  # coveralls-ignore-next-line - the 500 arm's only caller is the
-  # DB-outage ignore above; no test reaches it.
   defp title(_other), do: "Internal Server Error"
 end

@@ -183,6 +183,18 @@ pub fn mint_summary(minted: &MintedToken) -> String {
 /// environment ONLY, as `FLUXVALE_PAT`. The token never rides argv,
 /// never prints, and the parent shell's environment is untouched. The
 /// child's exit status is returned so the caller can pass it through.
+/// The child's status as the CLI's own exit code: `None` means
+/// success (return normally), a child failure keeps its own code, and
+/// a signal death becomes 1. Kept separate from the `process::exit`
+/// call so the mapping is testable.
+pub fn exit_code(status: ExitStatus) -> Option<i32> {
+    match status.code() {
+        Some(0) => None,
+        Some(code) => Some(code),
+        None => Some(1),
+    }
+}
+
 pub fn exec(
     load: impl FnOnce() -> anyhow::Result<Option<Token>>,
     command: &[OsString],
@@ -638,9 +650,17 @@ mod tests {
         assert!(!marker.exists(), "no child may run without a token");
     }
 
+    #[test]
+    fn exec_refuses_an_empty_command() {
+        let err = exec(|| Ok(Some(Token::new("fvpat_any"))), &[]).unwrap_err();
+        assert!(err.to_string().contains("no command given"), "err: {err}");
+    }
+
     #[cfg(unix)]
     #[test]
     fn exec_returns_the_child_status_unchanged() {
+        use std::os::unix::process::ExitStatusExt;
+
         let status = exec(
             || Ok(Some(Token::new("fvpat_any"))),
             &[
@@ -650,7 +670,10 @@ mod tests {
             ],
         )
         .unwrap();
-        assert_eq!(status.code(), Some(7));
+        assert_eq!(exit_code(status), Some(7));
+        assert_eq!(exit_code(ExitStatus::from_raw(0)), None);
+        // No exit code (killed by signal 9) maps to 1, not success.
+        assert_eq!(exit_code(ExitStatus::from_raw(9)), Some(1));
     }
 
     #[test]
@@ -692,6 +715,34 @@ mod tests {
         ] {
             assert!(parse_ttl(raw).is_err(), "{raw:?} must be refused");
         }
+    }
+
+    #[test]
+    fn mint_wraps_the_token_client() {
+        let server = script(vec![respond(
+            "201 Created",
+            &serde_json::json!({
+                "id": "01JTOKEN",
+                "name": "ci",
+                "access_token": "fvpat_minted_value",
+                "token_type": "Bearer",
+                "scope": "instances:read",
+                "expires_at": "2026-11-13T23:30:00Z"
+            }),
+        )]);
+
+        let minted = mint(
+            &server.base_url,
+            Token::new("fvpat_caller"),
+            Some("ci"),
+            &["instances:read".to_string()],
+            60,
+        )
+        .unwrap();
+
+        assert_eq!(minted.name, "ci");
+        assert_eq!(minted.scopes, vec!["instances:read"]);
+        assert_eq!(minted.token, Token::new("fvpat_minted_value"));
     }
 
     #[test]
