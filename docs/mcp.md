@@ -119,7 +119,8 @@ the enforcement, so mint the union):
 | `apps_show` | One catalog app by its URL slug | `catalog:read` | — |
 | `instances_list` | Your instances, one entry each | `instances:read` | — |
 | `instances_status` | One instance's full detail by id — or, with no id, the verbose list | `instances:read` | — |
-| `instances_deploy` | Deploy an app: resolve the slug, pick the version, create the instance, enqueue the deploy | `catalog:read` + `instances:write` (reads the app + versions before it writes the instance) | — |
+| `instances_deploy` | Deploy an app: resolve the slug, pick the version, create the instance with an optional `env` map, enqueue the deploy | `catalog:read` + `instances:write` (reads the app + versions before it writes the instance) | — |
+| `instances_configure` | Merge env vars on a live instance: `set` adds/replaces, `remove` deletes (values are write-only) | `instances:write` | — |
 | `instances_stop` | Scale to zero — the pause (storage keeps accruing) | `instances:write` | — |
 | `instances_start` | Start a stopped/sleeping instance back up | `instances:write` | — |
 | `instances_destroy` | Destroy an instance and all its data | `instances:write` | confirm-gated |
@@ -153,3 +154,12 @@ the surface change and the PR.
   confirm-gated), and the wallet trio. ([#484](https://github.com/fluxvale/fluxvale/issues/484) W2a+W2b)
 - The in-app quickstart ships with the surface: `/settings/agents`,
   linked from the API tokens panel one click from the mint. ([#484](https://github.com/fluxvale/fluxvale/issues/484) W5)
+
+### 2026-11-13 — the agent first run
+
+- `instances_deploy` gains the write-only `env` map; `instances_configure`
+  joins the instances surface as the in-place env merge (`set`/`remove`).
+  Values never ride a response or a log. ([#765](https://github.com/fluxvale/fluxvale/issues/765))
+- The post-registration handoff ships: `/agent` (the generated prompt and
+  per-client snippets), `/docs/agents` (the public version), and
+  `/llms.txt` (the machine-readable entry point) — all from one fixture. ([#765](https://github.com/fluxvale/fluxvale/issues/765))

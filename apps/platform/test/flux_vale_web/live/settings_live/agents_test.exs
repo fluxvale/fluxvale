@@ -28,6 +28,9 @@ defmodule FluxValeWeb.SettingsLive.AgentsTest do
 
     assert has_element?(view, "[data-testid='agents-title']", "Use with AI agents")
 
+    # #765: the one-prompt handoff is one click from the quickstart.
+    assert has_element?(view, "[data-testid='agents-first-run-link'][href='/agent']")
+
     # The server URL and its copy button carry the same value — the
     # protocol path, not the bare origin (main.rs nests at /mcp).
     assert has_element?(view, "[data-testid='agents-server-url']", "https://mcp.fluxvale.com/mcp")

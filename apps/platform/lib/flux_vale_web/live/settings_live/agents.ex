@@ -78,6 +78,18 @@ defmodule FluxValeWeb.SettingsLive.Agents do
                   tools, over MCP: deploy and manage instances, watch the wallet, run
                   backups.
                 </p>
+                <p class="mt-2 text-sm text-ink-muted">
+                  Want the whole first run in one prompt?
+                  <.link
+                    navigate={~p"/agent"}
+                    data-testid="agents-first-run-link"
+                    class="font-medium text-ink underline decoration-line underline-offset-2 transition-colors hover:decoration-line-strong"
+                  >
+                    Finish setup with your agent
+                  </.link>
+                  — it checks the wallet, proposes an app, and confirms the spend
+                  before deploying.
+                </p>
               </div>
 
               <%!-- The recipe, numbered like the file-access quick-start

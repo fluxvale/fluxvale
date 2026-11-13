@@ -21,9 +21,11 @@ pub(crate) fn required_scope(tool: &str) -> Option<&'static str> {
         // its primary scope is the instance read. Callers need the
         // union — the platform's route scopes are the enforcement.
         "terraform_import_bundle" => Some("instances:read"),
-        "instances_deploy" | "instances_stop" | "instances_start" | "instances_destroy" => {
-            Some("instances:write")
-        }
+        "instances_deploy"
+        | "instances_configure"
+        | "instances_stop"
+        | "instances_start"
+        | "instances_destroy" => Some("instances:write"),
         "backups_status" => Some("backups:read"),
         "backups_configure" | "backups_run" | "backups_restore" => Some("backups:write"),
         "wallet_balance" | "wallet_runway" | "wallet_ledger" => Some("wallet:read"),
@@ -76,6 +78,7 @@ mod tests {
         "backups_restore",
         "backups_run",
         "backups_status",
+        "instances_configure",
         "instances_deploy",
         "instances_destroy",
         "instances_list",
@@ -149,6 +152,7 @@ mod tests {
         assert_eq!(
             visible(&["instances:write"]),
             [
+                "instances_configure",
                 "instances_deploy",
                 "instances_destroy",
                 "instances_list",

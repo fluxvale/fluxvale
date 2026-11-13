@@ -24,6 +24,10 @@ Versions follow semver.
   domains, and PocketID SSO wirings, then write `versions.tf`,
   `imports.tf`, and `README.md` for `tofu plan -generate-config-out`.
   The scaffold imports resources; it never hand-renders their bodies.
+- `instances deploy --env KEY=VALUE` sets env vars at create, and
+  `instances configure <id> --env KEY=VALUE --remove KEY` merges them
+  on a live instance. Values are write-only — output names the changed
+  keys, never their values.
 
 ## [0.1.0] - 2026-11-05
 

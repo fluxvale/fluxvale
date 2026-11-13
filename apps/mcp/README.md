@@ -17,7 +17,8 @@ CI publish, and the k3d exposure ([running in k3d](#running-in-k3d)).
 | `apps_show` | `catalog:read` | One catalog app by its URL slug. |
 | `instances_list` | `instances:read` | Your instances, one entry each. |
 | `instances_status` | `instances:read` | One instance's full detail by id — or, with no id, the verbose list. |
-| `instances_deploy` | `instances:write` | Deploy an app: resolve the slug, pick the newest version (or an exact one), create the instance (you name it), enqueue the deploy. |
+| `instances_deploy` | `instances:write` | Deploy an app: resolve the slug, pick the newest version (or an exact one), create the instance (you name it, optional `env` map), enqueue the deploy. |
+| `instances_configure` | `instances:write` | Merge env vars on a live instance: `set` adds/replaces, `remove` deletes. Values are write-only. |
 | `instances_stop` | `instances:write` | Scale to zero — the pause (storage keeps accruing). |
 | `instances_start` | `instances:write` | Start a stopped/sleeping instance back up. |
 | `instances_destroy` | `instances:write` — **confirm-gated** | Destroy an instance and all its data, after a yes/no confirmation. |

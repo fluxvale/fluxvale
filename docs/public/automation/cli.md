@@ -41,7 +41,15 @@ fluxvale instances deploy --app kavita --name "Reading" --storage-gb 20
 fluxvale instances status
 ```
 
-The deploy flags set CPU cores, memory, and storage directly. Leave them off for the app's defaults.
+The deploy flags set CPU cores, memory, and storage directly, and `--env KEY=VALUE` (repeatable) sets env vars at create. Leave them off for the app's defaults.
+
+Change an env var on a live instance without destroying it:
+
+```sh
+fluxvale instances configure reading --env API_KEY=s3cr3t --remove OLD_KEY
+```
+
+`--env` adds or replaces, `--remove` deletes, everything else stays. Values are write-only: output names the changed keys, never their values.
 
 Start, stop, and remove:
 

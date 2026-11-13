@@ -79,6 +79,23 @@ pub(crate) struct DeployParams {
     /// (the versions route's own newest-first order — there is no
     /// published filter).
     pub version: Option<String>,
+    /// Env vars for the instance: a name → value map. Write-only —
+    /// the API never echoes the values, and this server never logs
+    /// them.
+    pub env: Option<std::collections::BTreeMap<String, String>>,
+}
+
+/// `instances_configure`'s input: the merge verb's `set` + `remove`.
+/// Values are write-only; only key names ever ride a response.
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+pub(crate) struct ConfigureEnvParams {
+    /// The instance's id (from `instances_list`).
+    pub id: String,
+    /// Env vars to add or replace. Values are write-only.
+    pub set: Option<std::collections::BTreeMap<String, String>>,
+    /// Env var names to remove. An empty string is a value, not a
+    /// removal — use this list.
+    pub remove: Option<Vec<String>>,
 }
 
 /// The one-id tools' input (`instances_stop`, `instances_start`,
@@ -288,9 +305,10 @@ production.",
 (from `apps_list`), picks the newest version (or the exact version id \
 you pass), creates the instance, and enqueues the deploy. You name \
 the instance (required); cpu/memory_mb/storage_gb optionally override \
-the version's defaults. The org wallet must be funded — a 403 names \
-the top-up path (the `topup` tool returns it). NOT idempotent: every \
-call deploys a new instance.",
+the version's defaults, and `env` sets env vars at create (values are \
+write-only — never echoed or logged). The org wallet must be funded — \
+a 403 names the top-up path (the `topup` tool returns it). NOT \
+idempotent: every call deploys a new instance.",
         annotations(destructive_hint = false)
     )]
     async fn instances_deploy(
@@ -302,6 +320,7 @@ call deploys a new instance.",
             memory_mb,
             storage_gb,
             version,
+            env,
         }): Parameters<DeployParams>,
         context: RequestContext<RoleServer>,
     ) -> Result<CallToolResult, ErrorData> {
@@ -317,9 +336,30 @@ call deploys a new instance.",
                     memory_mb,
                     storage_gb,
                     version,
+                    env,
                 },
             )
             .await,
+        )
+    }
+
+    #[tool(
+        description = "Merge env vars on an existing instance: `set` adds or replaces \
+keys, `remove` deletes them, and everything else stays. Values are \
+write-only — the response and this server never echo them. A deployed \
+instance gets the change in place (a running app rolls once); \
+platform-managed keys refuse with their names. Use this instead of \
+destroy-and-redeploy when an app needs a new credential or setting.",
+        annotations(destructive_hint = false)
+    )]
+    async fn instances_configure(
+        &self,
+        Parameters(ConfigureEnvParams { id, set, remove }): Parameters<ConfigureEnvParams>,
+        context: RequestContext<RoleServer>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let token = self.token(&context)?;
+        tool_result(
+            upstream::instances_configure(self.api_base_url.clone(), token, id, set, remove).await,
         )
     }
 
@@ -1375,6 +1415,7 @@ mod tests {
                 "backups_restore",
                 "backups_run",
                 "backups_status",
+                "instances_configure",
                 "instances_deploy",
                 "instances_destroy",
                 "instances_list",
@@ -1416,6 +1457,7 @@ mod tests {
         assert_eq!(
             listed_tools(&server, "fvpat_instances_write").await,
             [
+                "instances_configure",
                 "instances_deploy",
                 "instances_destroy",
                 "instances_list",
@@ -1706,13 +1748,17 @@ mod tests {
             &app(&server),
             PAT_FULL,
             "instances_deploy",
-            json!({"app": "wordpress", "name": "new"}),
+            json!({"app": "wordpress", "name": "new", "env": {"API_KEY": "server-sentinel"}}),
         )
         .await;
         assert_eq!(result(&body)["isError"], false);
         let structured = &result(&body)["structuredContent"];
         assert_eq!(structured["id"], "i2");
         assert_eq!(structured["status"], "deploying");
+        assert!(
+            !body.to_string().contains("server-sentinel"),
+            "body: {body}"
+        );
         // The four-call sequence, in order (app → versions → create →
         // deploy). The create BODY (newest version, given flags) is
         // pinned in upstream's own script-server tests.
@@ -1729,6 +1775,54 @@ mod tests {
         assert!(
             heads[3].starts_with("patch /api/v1/instances/i2/deploy"),
             "{heads:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn configure_merges_env_and_never_echoes_values() {
+        let updated = json!({"data": {"type": "instance", "id": "i1",
+            "attributes": {"id": "i1", "name": "web", "slug": "web-a1b2", "status": "running"}}});
+        let server =
+            testapi::serve(&[("PATCH /api/v1/instances/i1/env", 200, updated.to_string())]);
+        let (_, body) = tools_call(
+            &app(&server),
+            PAT_FULL,
+            "instances_configure",
+            json!({"id": "i1", "set": {"API_KEY": "tool-sentinel"}, "remove": ["OLD"]}),
+        )
+        .await;
+        assert_eq!(result(&body)["isError"], false);
+        assert_eq!(result(&body)["structuredContent"]["status"], "running");
+        assert!(!body.to_string().contains("tool-sentinel"), "body: {body}");
+        assert!(
+            server
+                .head(0)
+                .to_lowercase()
+                .starts_with("patch /api/v1/instances/i1/env"),
+            "head: {}",
+            server.head(0)
+        );
+    }
+
+    #[tokio::test]
+    async fn configure_refuses_an_empty_patch_without_an_upstream_call() {
+        let server = full_scope_upstream();
+        let (_, body) = tools_call(
+            &app(&server),
+            PAT_FULL,
+            "instances_configure",
+            json!({"id": "i1"}),
+        )
+        .await;
+        assert_eq!(result(&body)["isError"], true);
+        assert_eq!(
+            result(&body)["content"][0]["text"],
+            "nothing to change — pass at least one env key to set or remove"
+        );
+        assert_eq!(
+            server.head_count(),
+            0,
+            "no upstream call for an empty patch"
         );
     }
 

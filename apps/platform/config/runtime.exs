@@ -366,6 +366,43 @@ if config_env() != :test do
   end
 end
 
+# #765: the MCP endpoint the agent handoff advertises. The explicit
+# override wins (a review env can point at its own host); otherwise
+# staging and local get their own names — the same host split the
+# apps/mcp README documents.
+mcp_server_url =
+  case System.get_env("MCP_SERVER_URL") do
+    value when value in [nil, ""] ->
+      case {config_env(), System.get_env("PLATFORM_ENV")} do
+        {:dev, _} -> "https://mcp.fluxvale.lvh.me/mcp"
+        {_, "staging"} -> "https://mcp-staging.fluxvale.com/mcp"
+        {_, "local"} -> "https://mcp.fluxvale.lvh.me/mcp"
+        _ -> "https://mcp.fluxvale.com/mcp"
+      end
+
+    value ->
+      value
+  end
+
+config :flux_vale, :mcp_server_url, mcp_server_url
+
+# #765: the handoff's auth copy is one switch (config.exs's :pat). The
+# runtime arm exists so staging can flip to the OAuth sentence the
+# moment #766 deploys, without a code change.
+case System.get_env("MCP_AUTH_MODE") do
+  value when value in [nil, ""] ->
+    :ok
+
+  "pat" ->
+    config :flux_vale, :mcp_auth_mode, :pat
+
+  "oauth" ->
+    config :flux_vale, :mcp_auth_mode, :oauth
+
+  other ->
+    raise ArgumentError, "MCP_AUTH_MODE=#{inspect(other)} is not pat | oauth"
+end
+
 # HitPay gateway (#136, ADR-0029): BWS-injected in the cluster
 # (ADR-0021), never committed. Unset in dev/test — checkout answers
 # {:error, :missing_config} and the top-up UI says so plainly; sandbox

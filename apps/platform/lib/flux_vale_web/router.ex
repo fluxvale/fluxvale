@@ -43,6 +43,14 @@ defmodule FluxValeWeb.Router do
     plug(FluxValeWeb.Plugs.SeoNoindex)
   end
 
+  # #765: the machine-readable agent entry point. Deliberately no
+  # `accepts` plug — an agent fetching this may send `text/plain`, and
+  # a 406 would hide the one URL it was told to read.
+  pipeline :text_plain do
+    plug(:put_secure_browser_headers)
+    plug(FluxValeWeb.Plugs.SeoNoindex)
+  end
+
   pipeline :api do
     # "json" maps to the JSON:API media type (config.exs, per the ash_json_api
     # installer) — accepts ["json"] negotiates application/vnd.api+json
@@ -227,6 +235,15 @@ defmodule FluxValeWeb.Router do
     get("/feedback/:slug", FeedbackController, :show)
   end
 
+  # #765: the machine-readable agent entry point — one stable link for
+  # any agent, rendered from the same fixture as `/agent` and
+  # `/docs/agents`.
+  scope "/", FluxValeWeb do
+    pipe_through(:text_plain)
+
+    get("/llms.txt", LlmsTxtController, :show)
+  end
+
   scope "/", FluxValeWeb do
     pipe_through(:sitemap)
 
@@ -269,6 +286,10 @@ defmodule FluxValeWeb.Router do
     pipe_through([:browser, :public_seo])
 
     get("/docs", DocsController, :index)
+    # #765: the agent handoff's public page — a literal route before
+    # the section param, because "agents" is a page, not a section.
+    # It renders from the same fixture as `/agent` and `/llms.txt`.
+    get("/docs/agents", AgentDocsController, :show)
     get("/docs/:section", DocsController, :section)
     get("/docs/:section/:slug", DocsController, :show)
   end
@@ -349,6 +370,10 @@ defmodule FluxValeWeb.Router do
         {FluxValeWeb.OrgNav, :assign_orgs},
         {FluxValeWeb.NavSection, :derive}
       ] do
+      # #765: the post-registration handoff — reachable later too. The
+      # invite acceptance redirects here; the dashboard's empty state
+      # links it for anyone who lands at `/` first.
+      live("/agent", AgentLive)
       live("/apps", CatalogLive.Index)
       live("/apps/:slug", CatalogLive.Show)
       live("/apps/:slug/deploy", CatalogLive.Deploy)

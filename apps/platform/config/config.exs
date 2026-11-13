@@ -82,6 +82,15 @@ config :flux_vale,
   # same "local" and re-open the cross-env deletion); "local" is the
   # dev default.
   platform_env: "local",
+  # The MCP endpoint the agent first-run panel, /docs/agents and
+  # /llms.txt advertise (#765). The runtime override picks the staging
+  # host, and the local k3d host in dev; this default is the prod URL
+  # every non-deployed context (test included) sees.
+  mcp_server_url: "https://mcp.fluxvale.com/mcp",
+  # #765: the agent handoff's auth copy. `:pat` is today's token mint;
+  # flip to `:oauth` when the MCP OAuth slice (#766) ships, and the
+  # prompt sentence plus every install snippet's header switch together.
+  mcp_auth_mode: :pat,
   # The namespace edge ingress is admitted FROM in instance
   # NetworkPolicies (the Traefik chart's namespace locally; M4's fleet
   # repo overrides for prod — same override story as instance_rbac).

@@ -147,6 +147,23 @@ pub enum InstancesCommand {
         /// The app version id (default: the newest published)
         #[arg(long, value_name = "ID")]
         version: Option<String>,
+        /// An env var for the new instance, repeatable (KEY=VALUE).
+        /// Values are write-only — never echoed.
+        #[arg(long = "env", value_name = "KEY=VALUE")]
+        env: Vec<String>,
+    },
+    /// Merge env vars on an existing instance (in place)
+    Configure {
+        /// The instance ID
+        instance: String,
+        /// Add or replace an env var, repeatable (KEY=VALUE). Values
+        /// are write-only — never echoed.
+        #[arg(long = "env", value_name = "KEY=VALUE")]
+        env: Vec<String>,
+        /// Remove an env var by name, repeatable. An empty string is a
+        /// value, not a removal — use this flag.
+        #[arg(long = "remove", value_name = "KEY")]
+        remove: Vec<String>,
     },
     /// Stop a running instance
     Stop {
@@ -384,6 +401,7 @@ pub fn run(cli: &Cli) -> anyhow::Result<()> {
                 memory_mb,
                 storage_gb,
                 version,
+                env,
             } => {
                 let (client, _) = reads::read_client(&config)?;
                 let flags = DeployFlags {
@@ -393,8 +411,20 @@ pub fn run(cli: &Cli) -> anyhow::Result<()> {
                     memory_mb: *memory_mb,
                     storage_gb: *storage_gb,
                     version: version.clone(),
+                    env: writes::parse_env_assignments(env)?,
                 };
                 print(writes::instances_deploy(&client, &flags, cli.output))
+            }
+            InstancesCommand::Configure {
+                instance,
+                env,
+                remove,
+            } => {
+                let (client, _) = reads::read_client(&config)?;
+                let set = writes::parse_env_assignments(env)?;
+                print(writes::instances_configure(
+                    &client, instance, &set, remove, cli.output,
+                ))
             }
             InstancesCommand::Stop { instance } => {
                 let (client, _) = reads::read_client(&config)?;
@@ -618,6 +648,10 @@ mod tests {
             "5",
             "--version",
             "01JVER",
+            "--env",
+            "API_KEY=sekrit",
+            "--env",
+            "TZ=UTC",
         ])
         .command
         {
@@ -630,6 +664,7 @@ mod tests {
                         memory_mb,
                         storage_gb,
                         version,
+                        env,
                     },
             } => {
                 assert_eq!(app, "forgejo");
@@ -638,6 +673,7 @@ mod tests {
                 assert_eq!(memory_mb, Some(1024));
                 assert_eq!(storage_gb, Some(5));
                 assert_eq!(version.as_deref(), Some("01JVER"));
+                assert_eq!(env, ["API_KEY=sekrit", "TZ=UTC"]);
             }
             other => panic!("wrong: {other:?}"),
         }
@@ -652,6 +688,32 @@ mod tests {
             Cli::try_parse_from(["fluxvale", "instances", "deploy", "01ABC"]).is_err(),
             "deploy takes --app, not a positional id"
         );
+        // configure takes the merge flags, both repeatable.
+        match parse(&[
+            "instances",
+            "configure",
+            "01ABC",
+            "--env",
+            "API_KEY=sekrit",
+            "--remove",
+            "OLD",
+        ])
+        .command
+        {
+            Command::Instances {
+                command:
+                    InstancesCommand::Configure {
+                        instance,
+                        env,
+                        remove,
+                    },
+            } => {
+                assert_eq!(instance, "01ABC");
+                assert_eq!(env, ["API_KEY=sekrit"]);
+                assert_eq!(remove, ["OLD"]);
+            }
+            other => panic!("wrong: {other:?}"),
+        }
         // The destroy gate: --confirm parses on and off.
         match parse(&["instances", "destroy", "01ABC"]).command {
             Command::Instances {
