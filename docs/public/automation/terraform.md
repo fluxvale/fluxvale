@@ -115,7 +115,7 @@ resource "fluxvale_instance" "reading" {
 }
 ```
 
-Deployer-owned keys — the OIDC recipe, backing service URLs, and the instance URL — are refused on set and skipped on remove. A null element is rejected: remove the key instead (an empty string is a value). The API never echoes the map, so a plan cannot see server-side drift by design, and the configured values are kept in state.
+Deployer-owned keys — the OIDC recipe, backing service URLs, and the instance URL — are refused on set and skipped on remove. The app's first-run contract keys are fixed: a set or remove is refused, and a contract key already in state dead-ends until you remove it from state and configuration by hand. A null element is rejected: remove the key instead (an empty string is a value). The API never echoes the map, so a plan cannot see server-side drift by design, and the configured values are kept in state.
 
 ### Read an existing instance
 
@@ -128,7 +128,7 @@ data "fluxvale_instance" "wiki" {
 }
 ```
 
-Read by `id` (always unambiguous) or `slug`. A slug is unique only per cluster, so pass `organization` when your token spans several. Your token's memberships decide what is visible — an instance in another organization reads as not found.
+Read by `id` (always unambiguous) or `slug`. A slug is unique only per cluster, so pass `organization` when your token spans several (it falls back to the provider-level `organization`). If a slug still matches more than one instance in one organization, the API answers `multiple_results` — use the `id`. Your token's memberships decide what is visible — an instance in another organization reads as not found.
 
 ### Wire PocketID sign-in
 
@@ -137,12 +137,12 @@ Read by `id` (always unambiguous) or `slug`. A slug is unique only per cluster, 
 ```hcl
 resource "fluxvale_pocket_id_sso" "vault" {
   instance_id           = fluxvale_instance.vaultwarden.id
-  pocket_id_instance_id = fluxvale_instance.pocket_id.id # a PocketID instance in the same organization
+  pocket_id_instance_id = fluxvale_instance.pocket_id.id # a public PocketID instance in the same organization, with its API key stored (held-key custody)
   rotate_secret_on      = "2026-11-13"                  # bump to rotate the client secret in place
 }
 ```
 
-`rotate_secret_on` is a rotation trigger, not a replacement: changing it mints a second active secret, rolls the workload, then retires the old one — the client id and the resource id survive. Changing `instance_id` or `pocket_id_instance_id` replaces the wiring (disconnect and a fresh client). The client secret's value never travels through Terraform; the platform writes it into the instance's environment. Connect, disconnect, and rotate are gated by the platform's `pocketid_sso_wiring` flag (seeded enabled); the wiring read stays available while the flag is off.
+`rotate_secret_on` is a rotation trigger, not a replacement: changing it mints a second active secret, applies it to the workload, then deletes the old one once the workload patch is accepted — the client id and the resource id survive. The delete is best effort: a refused PocketID delete leaves the old secret active there, so check and remove it by hand. Pods still on the old value return 401 until the rollout cycles them. Changing `instance_id` or `pocket_id_instance_id` replaces the wiring (disconnect and a fresh client). The client secret's value never travels through Terraform; the platform writes it into the instance's environment. Connect, disconnect, and rotate are gated by the platform's `pocketid_sso_wiring` flag (seeded enabled); the wiring read stays available while the flag is off.
 
 ## Compatibility
 
