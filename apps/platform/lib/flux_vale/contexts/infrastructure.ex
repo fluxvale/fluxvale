@@ -25,6 +25,7 @@ defmodule FluxVale.Infrastructure do
   alias FluxVale.Infrastructure.Operations.ConnectPocketId
   alias FluxVale.Infrastructure.Operations.DetachInstance
   alias FluxVale.Infrastructure.Operations.InstanceEnvSecret
+  alias FluxVale.Infrastructure.Operations.MintCustomHostname
   alias FluxVale.Infrastructure.Operations.ObserveAccessGateway
   alias FluxVale.Infrastructure.Operations.ProbePocketIdSetup
   alias FluxVale.Infrastructure.Operations.ReadBackupCredential
@@ -32,6 +33,7 @@ defmodule FluxVale.Infrastructure do
   alias FluxVale.Infrastructure.Operations.RegisterAccessDomain
   alias FluxVale.Infrastructure.Operations.RejectStorageRequest
   alias FluxVale.Infrastructure.Operations.RemoveAccessDomain
+  alias FluxVale.Infrastructure.Operations.RemoveCustomHostname
   alias FluxVale.Infrastructure.Operations.ResizePreview
   alias FluxVale.Infrastructure.Operations.RestoreInstanceBackup
   alias FluxVale.Infrastructure.Operations.RestoreServingEdge
@@ -128,6 +130,17 @@ defmodule FluxVale.Infrastructure do
   defdelegate verify_access_domains(opts \\ []), to: VerifyAccessDomains, as: :call
 
   defdelegate remove_access_domain(domain, opts \\ []), to: RemoveAccessDomain, as: :call
+
+  # S6 (#751): the member custom-hostname mint/remove — ownership and
+  # the domain/state guards live in the operations; the resource's
+  # generic actions are the wire seam.
+  defdelegate mint_custom_hostname(instance_id, access_domain_id, label, opts \\ []),
+    to: MintCustomHostname,
+    as: :call
+
+  defdelegate remove_custom_hostname(hostname_id, opts \\ []),
+    to: RemoveCustomHostname,
+    as: :call
 
   # ADR-0040 S3: the tailnet-claiming seam — store the API token (the
   # §5 intake; the form is a later slice), claim a verified domain on

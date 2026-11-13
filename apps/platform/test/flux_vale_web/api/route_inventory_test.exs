@@ -45,6 +45,10 @@ defmodule FluxValeWeb.Api.RouteInventoryTest do
     {:post, "/instances/:id/disconnect-pocketid"},
     {:post, "/instances/:id/rotate-pocketid-secret"},
     {:get, "/instances/:instance_id/pocket-id-wiring"},
+    # S6 (#751): the member custom-address verbs.
+    {:post, "/instances/:instance_id/hostnames"},
+    {:get, "/instances/:instance_id/hostnames"},
+    {:delete, "/instance-hostnames/:id"},
     # backups:read / backups:write
     {:get, "/instances/:instance_id/backup-setting"},
     {:post, "/instances/:instance_id/backup-setting"},

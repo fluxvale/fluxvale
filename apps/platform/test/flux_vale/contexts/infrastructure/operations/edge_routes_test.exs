@@ -937,6 +937,45 @@ defmodule FluxVale.Infrastructure.Operations.EdgeRoutesTest do
     end
   end
 
+  describe "apply_access_none_for_hostname/3 (the S6 member remove's cluster limb)" do
+    test "removes that row's app and dav routes, nothing else" do
+      stub_kubeconfig()
+      owner = user()
+      instance = instance!(%{file_access: true}, %{}, owner)
+      ns = "fluxvale-app-#{instance.id}"
+
+      domain = custom_domain!(owner, verified?: true)
+
+      row =
+        InstanceHostname.mint!(
+          %{instance_id: instance.id, access_domain_id: domain.id, label: "git"},
+          authorize?: false
+        )
+
+      tail =
+        row.id
+        |> to_string()
+        |> String.replace("-", "")
+        |> String.slice(-10, 10)
+
+      parent = self()
+
+      stub(Ingress, :delete, fn _kc, ^ns, name ->
+        send(parent, {:deleted, name})
+        :ok
+      end)
+
+      assert :ok = EdgeRoutes.apply_access_none_for_hostname(%{}, instance, row)
+
+      assert_received {:deleted, app_name}
+      assert app_name == "access-" <> tail
+
+      assert_received {:deleted, dav_name}
+      assert dav_name == "access-" <> tail <> "-dav"
+      refute_received {:deleted, _}
+    end
+  end
+
   describe "apply_serving/2" do
     test "app route targets the app Service with the beacon attached" do
       stub_kubeconfig()

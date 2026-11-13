@@ -26,6 +26,8 @@ Verification runs on a regular pass with a cadence of about 15 minutes, so allow
 
 Registration is available through the API and the Terraform provider. The [Terraform guide](/docs/automation/terraform) shows a working example with the `fluxvale_custom_domain` resource, including how to wait out verification. If you are setting a domain up today, write to [support@fluxvale.com](mailto:support@fluxvale.com) and we will walk you through the records.
 
-One honest caveat. A verified domain proves the certificate and its wildcard. Wiring the domain's names to answer on your private network is the remaining half of the feature and is still being built. Today the working private-access setup uses the gateway's own hostname on your tailnet, which you will find in the access tab of your organization's settings.
+The mint is live. Once a custom domain is verified, add an address on the instance page: **Custom addresses** takes a label such as `git` and mints `git.<your-domain>`. The member API carries the same three verbs, `POST`/`GET /api/v1/instances/:instance_id/hostnames` and `DELETE /api/v1/instance-hostnames/:id`.
+
+A custom address serves only when all three are true: the domain is verified, your organization's gateway has claimed it, and the instance is private and attached to that gateway. Claiming a freshly verified domain on the gateway is not yet a self-serve surface — write to [support@fluxvale.com](mailto:support@fluxvale.com) and we will claim it for you. Until the three conditions hold, the address is recorded and serves nothing yet. The certificate and the DNS records do not change — the wildcard you verified covers every label you mint under it.
 
 The DNS records you create now are the ones the finished feature will use. No re-registration will be needed.

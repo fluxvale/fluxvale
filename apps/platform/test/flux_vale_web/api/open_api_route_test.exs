@@ -36,6 +36,8 @@ defmodule FluxValeWeb.Api.OpenApiRouteTest do
             "/api/v1/instances/{id}/disconnect-pocketid",
             "/api/v1/instances/{id}/rotate-pocketid-secret",
             "/api/v1/instances/{instance_id}/pocket-id-wiring",
+            "/api/v1/instances/{instance_id}/hostnames",
+            "/api/v1/instance-hostnames/{id}",
             "/api/v1/instances/by-slug/{slug}",
             "/api/v1/instances/{id}/backup-runs",
             "/api/v1/instances/{id}/backup-runs/{backup_run_id}/restore",
