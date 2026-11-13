@@ -129,16 +129,16 @@ stack (the zero-balance sweeper). The dogfood costs real metered money
 either way — roughly, at catalog sizes: Forgejo small + 10 GB ≈ $7.00,
 Umami (bundled; small for headroom, micro boots near the 512 MB line)
 ≈ $6.60–7.70, PocketID micro + 2 GB ≈ $3.40, gateway ≈ $2.00 —
-**≈ $16–19/month total**.
+**≈ $19–20/month total**.
 
 Recommendation: **one real top-up, $20 suggested** ($5 is the guide's
 own minimum bar). It completes the payments dogfood end to end
 (checkout → webhook → wallet credit → ledger), lands in FluxVale's own
-Polar account so the net cost is the processor fee, and covers ~5
-weeks past the welcome credit. The waiver is the fallback if the owner
-wants the payment path isolated from this initiative. His call, stated
-plainly: **real money now (how much), or waiver first and top up when
-the stack sticks.**
+Polar account so the net cost is the processor fee, and covers about a
+month past the welcome credit (~5 weeks total at these sizes). The
+waiver is the fallback if the owner wants the payment path isolated
+from this initiative. His call, stated plainly: **real money now (how
+much), or waiver first and top up when the stack sticks.**
 
 ## 6. Phased slices
 
