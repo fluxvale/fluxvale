@@ -58,9 +58,15 @@ defmodule FluxValeWeb.Api.ScopeRouteCoverageTest do
       |> Enum.flat_map(&AshJsonApi.Resource.Info.routes/1)
 
     # Enum.concat (not a cons) keeps the refute above honest — the
-    # compiler can't prove the enumeration non-empty.
+    # compiler can't prove the enumeration non-empty. The plain-JSON
+    # token mint (#772) is a controller, not an AshJsonApi route, so
+    # it is listed by hand; its POST /api/v1/tokens table row is
+    # what the boundary plug reads.
     Enum.concat(
-      [%{method: "GET", route: "/open_api"}],
+      [
+        %{method: "GET", route: "/open_api"},
+        %{method: "POST", route: "/tokens"}
+      ],
       Enum.concat(domain_routes, resource_routes)
     )
   end

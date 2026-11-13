@@ -9,7 +9,10 @@
 use crate::cli::Output;
 use crate::reads;
 use crate::token::{Token, TokenLocation, TokenStore};
+use fluxvale_api::tokens::{MintRequest, MintedToken, TokenClient};
 use fluxvale_api::{ApiClient, DeviceClient, poll_loop};
+use std::ffi::OsString;
+use std::process::{Command, ExitStatus};
 use std::time::Duration;
 
 /// The S1 scope catalog (FluxVale.Api.Scopes, #360) — login's default
@@ -119,6 +122,83 @@ pub fn logout_store(store: &TokenStore, host: &str) -> anyhow::Result<String> {
         || Ok(store.load(host)?.map(|(token, _)| token)),
         || store.delete(host),
     )
+}
+
+/// `--ttl` → seconds. Deliberately small: `s`, `m`, `h`, `d`, one
+/// integer each (`30m`, `12h`, `7d`). A bare number is refused —
+/// "3600" is ambiguous at a glance, and the platform caps the value
+/// at one year anyway (and at the caller token's own expiry).
+pub fn parse_ttl(raw: &str) -> anyhow::Result<u64> {
+    let normalized = raw.trim().to_ascii_lowercase();
+    let invalid = || anyhow::anyhow!("invalid duration {raw:?}: use a value like 30m, 12h, or 7d");
+    let (digits, unit_seconds) = [("s", 1u64), ("m", 60), ("h", 3600), ("d", 86_400)]
+        .iter()
+        .find_map(|(suffix, seconds)| {
+            normalized
+                .strip_suffix(*suffix)
+                .map(|digits| (digits, *seconds))
+        })
+        .ok_or_else(invalid)?;
+    let count: u64 = digits.parse().map_err(|_| invalid())?;
+    if count == 0 {
+        anyhow::bail!("--ttl must be greater than zero");
+    }
+    count
+        .checked_mul(unit_seconds)
+        .ok_or_else(|| anyhow::anyhow!("--ttl is too large"))
+}
+
+/// `auth token`: mint a scoped, short-lived credential through the
+/// caller's existing sign-in. The raw value stays in [`MintedToken`];
+/// the caller prints it once and never writes it to disk.
+pub fn mint(
+    base_url: &str,
+    caller: Token,
+    name: Option<&str>,
+    scopes: &[String],
+    ttl_seconds: u64,
+) -> anyhow::Result<MintedToken> {
+    TokenClient::new(base_url, caller).mint(&MintRequest {
+        name: name.map(str::to_owned),
+        scopes: scopes.to_vec(),
+        ttl_seconds,
+    })
+}
+
+/// The stderr line beside the one stdout value: what was minted, with
+/// the server's effective scopes and expiry — never the value itself.
+pub fn mint_summary(minted: &MintedToken) -> String {
+    let scopes = if minted.scopes.is_empty() {
+        "no scopes".to_string()
+    } else {
+        minted.scopes.join(", ")
+    };
+    format!(
+        "minted {:?} — scopes: {scopes}; expires {}",
+        minted.name, minted.expires_at
+    )
+}
+
+/// `auth exec`: run `command` with the stored token in the child's
+/// environment ONLY, as `FLUXVALE_PAT`. The token never rides argv,
+/// never prints, and the parent shell's environment is untouched. The
+/// child's exit status is returned so the caller can pass it through.
+pub fn exec(
+    load: impl FnOnce() -> anyhow::Result<Option<Token>>,
+    command: &[OsString],
+) -> anyhow::Result<ExitStatus> {
+    let Some(token) = load()? else {
+        anyhow::bail!("Not signed in. Run `fluxvale auth login` to sign in.")
+    };
+    let Some((program, args)) = command.split_first() else {
+        anyhow::bail!("no command given — run `fluxvale auth exec -- <command>`")
+    };
+
+    Command::new(program)
+        .args(args)
+        .env("FLUXVALE_PAT", token.expose())
+        .status()
+        .map_err(|err| anyhow::anyhow!("failed to run {}: {err}", program.to_string_lossy()))
 }
 
 #[cfg(test)]
@@ -504,6 +584,140 @@ mod tests {
         let load = || Ok(store.get("fluxvale.com").unwrap());
         let delete = || store.remove("fluxvale.com");
         assert_eq!(logout(load, delete).unwrap(), "not signed in");
+    }
+
+    // ---- auth exec
+
+    #[cfg(unix)]
+    #[test]
+    fn exec_puts_the_token_in_the_child_environment_only() {
+        let dir = temp_dir();
+        let out = dir.join("pat.txt");
+        let before = std::env::var("FLUXVALE_PAT").ok();
+        let script = format!("printf '%s' \"$FLUXVALE_PAT\" > '{}'", out.display());
+
+        let status = exec(
+            || Ok(Some(Token::new("fvpat_child_secret"))),
+            &[
+                OsString::from("sh"),
+                OsString::from("-c"),
+                OsString::from(script),
+            ],
+        )
+        .unwrap();
+
+        assert!(status.success());
+        assert_eq!(
+            std::fs::read_to_string(&out).unwrap(),
+            "fvpat_child_secret",
+            "the child must see the stored token"
+        );
+        assert_eq!(
+            std::env::var("FLUXVALE_PAT").ok(),
+            before,
+            "the parent environment must not be mutated"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn exec_refuses_without_a_stored_token_and_runs_nothing() {
+        let marker = temp_dir().join("ran");
+        let script = format!("touch '{}'", marker.display());
+        let err = exec(
+            || Ok(None),
+            &[
+                OsString::from("sh"),
+                OsString::from("-c"),
+                OsString::from(script),
+            ],
+        )
+        .unwrap_err();
+
+        assert!(err.to_string().contains("Not signed in"), "err: {err}");
+        assert!(!marker.exists(), "no child may run without a token");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn exec_returns_the_child_status_unchanged() {
+        let status = exec(
+            || Ok(Some(Token::new("fvpat_any"))),
+            &[
+                OsString::from("sh"),
+                OsString::from("-c"),
+                OsString::from("exit 7"),
+            ],
+        )
+        .unwrap();
+        assert_eq!(status.code(), Some(7));
+    }
+
+    #[test]
+    fn exec_reports_a_missing_program_without_leaking_the_token() {
+        let err = exec(
+            || Ok(Some(Token::new("fvpat_never_printed"))),
+            &[OsString::from("fluxvale-no-such-program-772")],
+        )
+        .unwrap_err();
+
+        let message = err.to_string();
+        assert!(message.contains("failed to run"), "err: {message}");
+        assert!(
+            !message.contains("fvpat_never_printed"),
+            "leaked: {message}"
+        );
+    }
+
+    // ---- auth token
+
+    #[test]
+    fn parse_ttl_reads_the_four_units_and_refuses_junk() {
+        assert_eq!(parse_ttl("30s").unwrap(), 30);
+        assert_eq!(parse_ttl("5m").unwrap(), 300);
+        assert_eq!(parse_ttl("12h").unwrap(), 43_200);
+        assert_eq!(parse_ttl("7d").unwrap(), 604_800);
+        // Whitespace and case are forgiven; the unit is what matters.
+        assert_eq!(parse_ttl(" 2H ").unwrap(), 7200);
+
+        for raw in [
+            "",
+            "10",
+            "0s",
+            "-1h",
+            "1.5h",
+            "1w",
+            "h",
+            "999999999999999999999d",
+        ] {
+            assert!(parse_ttl(raw).is_err(), "{raw:?} must be refused");
+        }
+    }
+
+    #[test]
+    fn the_summary_names_the_effective_grant_but_never_the_token() {
+        let minted = MintedToken {
+            id: "01JTOKEN".to_string(),
+            name: "ci-terraform".to_string(),
+            token: Token::new("fvpat_never_printed"),
+            scopes: vec!["instances:read".to_string(), "backups:read".to_string()],
+            expires_at: "2026-11-13T23:30:00Z".to_string(),
+        };
+
+        let summary = mint_summary(&minted);
+        assert!(summary.contains("ci-terraform"), "summary: {summary}");
+        assert!(summary.contains("instances:read, backups:read"));
+        assert!(summary.contains("2026-11-13T23:30:00Z"));
+        assert!(
+            !summary.contains("fvpat_never_printed"),
+            "leaked: {summary}"
+        );
+
+        let empty = MintedToken {
+            scopes: vec![],
+            ..minted
+        };
+        assert!(mint_summary(&empty).contains("no scopes"));
     }
 
     fn temp_dir() -> std::path::PathBuf {

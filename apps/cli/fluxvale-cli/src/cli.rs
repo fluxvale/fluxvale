@@ -11,6 +11,7 @@ use crate::terraform;
 use crate::token::TokenStore;
 use crate::writes::{self, ConfigureBackup, DeployFlags};
 use clap::{Parser, Subcommand, ValueEnum};
+use std::ffi::OsString;
 use std::path::PathBuf;
 
 /// The FluxVale command line.
@@ -105,6 +106,27 @@ pub enum AuthCommand {
     Logout,
     /// Show who you are signed in as
     Status,
+    /// Run a command with the stored token in its environment only
+    /// (`FLUXVALE_PAT`) — e.g. `fluxvale auth exec -- tofu apply`
+    Exec {
+        /// The command and its arguments, after `--`
+        #[arg(last = true, required = true, num_args = 1.., value_name = "COMMAND")]
+        command: Vec<OsString>,
+    },
+    /// Mint a scoped, short-lived token for CI or a container — printed
+    /// once to stdout; the CLI never writes it to disk
+    Token {
+        /// Comma-separated scopes (required; the server refuses any you
+        /// do not already hold)
+        #[arg(long, value_name = "SCOPE,SCOPE")]
+        scopes: String,
+        /// Lifetime: one integer plus s, m, h, or d (e.g. 30m, 12h, 7d)
+        #[arg(long, value_name = "DURATION")]
+        ttl: String,
+        /// A name for the token row (default: "fluxvale auth token")
+        #[arg(long, value_name = "NAME")]
+        name: Option<String>,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -367,6 +389,35 @@ pub fn run(cli: &Cli) -> anyhow::Result<()> {
                 let (client, location) = reads::read_client(&config)?;
                 print(reads::whoami(&client, location, cli.output))
             }
+            AuthCommand::Exec { command } => {
+                let store = TokenStore::at(TokenStore::default_dir()?);
+                let host = config::host_from_base_url(&config.base_url);
+                let status =
+                    auth::exec(|| Ok(store.load(&host)?.map(|(token, _)| token)), command)?;
+                // Pass the child's status through untouched: a wrapper
+                // must not dress a failed tofu plan as a CLI error.
+                match status.code() {
+                    Some(0) => Ok(()),
+                    Some(code) => std::process::exit(code),
+                    None => std::process::exit(1),
+                }
+            }
+            AuthCommand::Token { scopes, ttl, name } => {
+                let caller = reads::stored_token(&config)?;
+                let scopes = auth::parse_scopes(Some(scopes.as_str()))?;
+                let ttl_seconds = auth::parse_ttl(ttl)?;
+                let minted = auth::mint(
+                    &config.base_url,
+                    caller,
+                    name.as_deref(),
+                    &scopes,
+                    ttl_seconds,
+                )?;
+                // stdout carries the secret and nothing else, so the
+                // caller can pipe it straight into a secret store.
+                eprintln!("{}", auth::mint_summary(&minted));
+                print(Ok(minted.token.expose().to_string()))
+            }
         },
         Command::Whoami => {
             let (client, location) = reads::read_client(&config)?;
@@ -605,6 +656,60 @@ mod tests {
                 command: AuthCommand::Status
             }
         ));
+        // The exec hand-off: only values after `--`, hyphens intact.
+        match parse(&["auth", "exec", "--", "tofu", "plan", "-var", "x=1"]).command {
+            Command::Auth {
+                command: AuthCommand::Exec { command },
+            } => assert_eq!(
+                command,
+                vec![
+                    OsString::from("tofu"),
+                    OsString::from("plan"),
+                    OsString::from("-var"),
+                    OsString::from("x=1")
+                ]
+            ),
+            other => panic!("wrong: {other:?}"),
+        }
+        assert!(
+            Cli::try_parse_from(["fluxvale", "auth", "exec"]).is_err(),
+            "exec needs a command"
+        );
+        assert!(
+            Cli::try_parse_from(["fluxvale", "auth", "exec", "--"]).is_err(),
+            "the -- separator alone is not a command"
+        );
+        // The mint flags: --scopes and --ttl are required; --name is not.
+        match parse(&[
+            "auth",
+            "token",
+            "--scopes",
+            "instances:read,backups:read",
+            "--ttl",
+            "1h",
+            "--name",
+            "ci",
+        ])
+        .command
+        {
+            Command::Auth {
+                command: AuthCommand::Token { scopes, ttl, name },
+            } => {
+                assert_eq!(scopes, "instances:read,backups:read");
+                assert_eq!(ttl, "1h");
+                assert_eq!(name.as_deref(), Some("ci"));
+            }
+            other => panic!("wrong: {other:?}"),
+        }
+        assert!(
+            Cli::try_parse_from(["fluxvale", "auth", "token", "--ttl", "1h"]).is_err(),
+            "--scopes is required"
+        );
+        assert!(
+            Cli::try_parse_from(["fluxvale", "auth", "token", "--scopes", "instances:read"])
+                .is_err(),
+            "--ttl is required"
+        );
         assert!(matches!(parse(&["whoami"]).command, Command::Whoami));
         assert!(matches!(
             parse(&["apps", "list"]).command,

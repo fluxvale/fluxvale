@@ -232,6 +232,12 @@ defmodule FluxValeWeb.Router do
       default_model_expand_depth: 4
     )
 
+    # #772: the CLI's scoped-token mint — plain JSON (a one-time
+    # secret), authenticated by the caller's own PAT. Declared BEFORE
+    # the AshJsonApi catch-all; the scope table maps it :any and the
+    # controller enforces the caller's scope subset.
+    post("/tokens", FluxValeWeb.Api.TokenController, :create)
+
     forward("/", FluxValeWeb.AshJsonApiRouter)
   end
 

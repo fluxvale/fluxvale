@@ -19,6 +19,14 @@ Versions follow semver.
 
 ### Added
 
+- `auth exec -- <command>`: run a command with the stored sign-in token
+  in its environment as `FLUXVALE_PAT`, and only there. `fluxvale auth
+  exec -- tofu apply` is the Terraform UX — no token in the shell, no
+  token on screen.
+- `auth token --scopes <list> --ttl <duration>`: mint a scoped,
+  short-lived token for CI or a container. It prints once to stdout for
+  the caller's secret store, never writes to disk, and can only narrow
+  the sign-in that minted it (scopes and lifetime).
 - `terraform import --org <slug> [--out <dir>]`: discover an
   organization's live instances, backup settings, access gateway, custom
   domains, and PocketID SSO wirings, then write `versions.tf`,

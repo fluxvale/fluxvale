@@ -11,14 +11,27 @@ use crate::token::{TokenLocation, TokenStore};
 use fluxvale_api::{ApiClient, ApiError, Document, Resource};
 use serde_json::{Value, json};
 
+/// The stored credential for this environment (OS keychain, 0600-file
+/// fallback) — the one token every authenticated command rides.
+pub fn stored_token(config: &Config) -> anyhow::Result<crate::token::Token> {
+    Ok(stored_token_and_location(config)?.0)
+}
+
+fn stored_token_and_location(
+    config: &Config,
+) -> anyhow::Result<(crate::token::Token, TokenLocation)> {
+    let store = TokenStore::at(TokenStore::default_dir()?);
+    let host = config::host_from_base_url(&config.base_url);
+    match store.load(&host)? {
+        Some(answer) => Ok(answer),
+        None => anyhow::bail!("Not signed in. Run `fluxvale auth login` to sign in."),
+    }
+}
+
 /// The client for a read command: token from the store (OS keychain,
 /// 0600-file fallback), its location along for `whoami`'s line.
 pub fn read_client(config: &Config) -> anyhow::Result<(ApiClient, TokenLocation)> {
-    let store = TokenStore::at(TokenStore::default_dir()?);
-    let host = config::host_from_base_url(&config.base_url);
-    let Some((token, location)) = store.load(&host)? else {
-        anyhow::bail!("Not signed in. Run `fluxvale auth login` to sign in.")
-    };
+    let (token, location) = stored_token_and_location(config)?;
     Ok((ApiClient::new(&config.base_url, token), location))
 }
 

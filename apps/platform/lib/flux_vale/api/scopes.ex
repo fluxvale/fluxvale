@@ -68,6 +68,11 @@ defmodule FluxVale.Api.Scopes do
     # /me and the OpenAPI document are scopeless — any live token.
     {{"GET", ["me"]}, :any},
     {{"GET", ["open_api"]}, :any},
+    # #772: minting a scoped token is scopeless (any live token), and
+    # the controller's own rule keeps the child within the caller's
+    # scopes and lifetime — the privilege boundary is relative to the
+    # caller, so no fixed route scope describes it.
+    {{"POST", ["tokens"]}, :any},
     # The actor's own orgs (#362 T6a): identity-adjacent like /me —
     # membership IS the policy (the action filters on the actor's
     # memberships), so the route takes no domain scope. Any live token
