@@ -18,6 +18,15 @@ const testInboxToken = process.env.E2E_TESTINBOX_TOKEN;
 const runId = process.env.E2E_RUN_ID ?? `run${Date.now()}`;
 const runtime = runtimeFor(process.env.BASE_URL);
 
+// The hostname identity is (domain, label) platform-wide, so a fixed
+// label collides with any other instance's row under the same domain.
+// Run-scoped keeps the spec repeatable; the grammar is DNS lowercase.
+const label = `e2e-${runId}`
+  .toLowerCase()
+  .replace(/[^a-z0-9-]/g, "-")
+  .slice(0, 63)
+  .replace(/-$/, "");
+
 test.skip(
   !testInboxToken,
   "E2E_TESTINBOX_TOKEN not set — bootstrap the stack first (apps/e2e/README.md)",
@@ -88,11 +97,11 @@ test("custom hostname: mint on the instance page → API list → remove", async
     expect(domainId).toBeTruthy();
 
     await domainSelect.selectOption(domainId!);
-    await page.getByTestId("hostname-label-input").fill("git");
+    await page.getByTestId("hostname-label-input").fill(label);
     await page.getByTestId("hostname-add").click();
 
     const address = page.getByTestId("hostname-value");
-    await expect(address).toHaveText("git.apps.fluxvale.com");
+    await expect(address).toHaveText(`${label}.apps.fluxvale.com`);
     await expect(page.getByTestId("hostname-remove")).toBeVisible();
 
     // The member API agrees with the page — the row is real, not a
@@ -106,7 +115,7 @@ test("custom hostname: mint on the instance page → API list → remove", async
     expect(
       hostnames.some(
         (row: { attributes: { label: string } }) =>
-          row.attributes.label === "git",
+          row.attributes.label === label,
       ),
     ).toBe(true);
 

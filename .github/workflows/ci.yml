@@ -689,7 +689,7 @@ jobs:
           # the warm-up step pre-pulls their images before the suite.
           # Empty on pages: its specs deploy nothing.
           - name: pages
-            specs: tests/health.spec.ts tests/landing.spec.ts tests/org-pages.spec.ts tests/policies.spec.ts tests/public-pages.spec.ts tests/root-session.spec.ts tests/sign-in.spec.ts tests/switcher-dismiss.spec.ts
+            specs: tests/custom-hostname.spec.ts tests/health.spec.ts tests/landing.spec.ts tests/org-pages.spec.ts tests/policies.spec.ts tests/public-pages.spec.ts tests/root-session.spec.ts tests/sign-in.spec.ts tests/switcher-dismiss.spec.ts
             warm_apps: ""
           - name: lifecycle
             # pocket-id joined here in #510's pass — it had shipped
