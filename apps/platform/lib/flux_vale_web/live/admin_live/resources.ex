@@ -948,31 +948,13 @@ defmodule FluxValeWeb.AdminLive.Resources do
 
   defp seed_value(record, name, %{type: Ash.Type.Map}) do
     value = Map.get(record, name)
-    safe = json_safe(value)
+    safe = AdminResource.json_safe(value)
     Jason.encode!(safe)
   end
 
   defp seed_value(record, name, _composite_casts_from_its_in_memory_shape) do
     Map.get(record, name)
   end
-
-  # The composites' in-memory shapes nest structs in maps and lists
-  # (EnvVarSpec inside EnvVarSchema's map, BackingService structs in
-  # the backing_services list) — json_safe recurses every container so
-  # a rendered serialization degrades structs to data, never a crash.
-  defp json_safe(value) when is_map(value) and is_map_key(value, :__struct__) do
-    value
-    |> Map.from_struct()
-    |> Map.new(fn {key, item} -> {key, json_safe(item)} end)
-  end
-
-  defp json_safe(value) when is_map(value) do
-    Map.new(value, fn {key, item} -> {key, json_safe(item)} end)
-  end
-
-  defp json_safe(value) when is_list(value), do: Enum.map(value, &json_safe/1)
-
-  defp json_safe(value), do: value
 
   # The show page's Edit items: the registry's allowed update actions
   # the actor may run (intent AND truth at render — the plan's two
@@ -1626,7 +1608,7 @@ defmodule FluxValeWeb.AdminLive.Resources do
   end
 
   defp encode_json_value(value) do
-    safe = json_safe(value)
+    safe = AdminResource.json_safe(value)
     Jason.encode!(safe)
   end
 end

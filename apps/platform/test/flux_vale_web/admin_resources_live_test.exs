@@ -2138,7 +2138,7 @@ defmodule FluxValeWeb.AdminResourcesLiveTest do
       assert String.trim(first_run) == ""
     end
 
-    test "the version show renders first_run and oidc_wiring through the inspect fallback", %{
+    test "the version show renders composites and arrays as JSON details", %{
       conn: conn,
       admin: admin
     } do
@@ -2151,6 +2151,7 @@ defmodule FluxValeWeb.AdminResourcesLiveTest do
           backing_services: [],
           configurable_env_vars: %{
             "PORT" => %{"label" => "Port", "type" => "integer"},
+            "DATABASE_URL" => %{"label" => "Database URL", "type" => "string", "secret" => true},
             "OIDC_ISSUER" => %{"label" => "OIDC issuer", "type" => "string"},
             "OIDC_CLIENT_ID" => %{"label" => "OIDC client id", "type" => "string"},
             "OIDC_CLIENT_SECRET" => %{
@@ -2176,16 +2177,29 @@ defmodule FluxValeWeb.AdminResourcesLiveTest do
 
       {:ok, view, _html} = live(conn, "/admin/resources/catalog/app_version/#{version.id}")
 
-      # Composites stay the unknown-type inspect fallback this slice —
-      # a JSON-details view is a flagged follow-up.
+      # Composites and arrays render as read-only JSON details (slice
+      # 7's parity fix); the map-of-structs value serializes through
+      # json_safe, so each env-var key and its data reach the block.
+      json = "[data-testid='admin-resource-json']"
+
       assert text_of(
                view,
-               "[data-testid='admin-resource-field-first_run'] [data-testid='admin-resource-unknown']"
+               "[data-testid='admin-resource-field-configurable_env_vars'] #{json}"
+             ) =~ "DATABASE_URL"
+
+      refute has_element?(
+               view,
+               "[data-testid='admin-resource-field-configurable_env_vars'] [data-testid='admin-resource-unknown']"
+             )
+
+      assert text_of(
+               view,
+               "[data-testid='admin-resource-field-first_run'] #{json}"
              ) =~ "first_registered_user_admin"
 
       assert text_of(
                view,
-               "[data-testid='admin-resource-field-oidc_wiring'] [data-testid='admin-resource-unknown']"
+               "[data-testid='admin-resource-field-oidc_wiring'] #{json}"
              ) =~ "OIDC_CLIENT_SECRET"
     end
 
@@ -2480,11 +2494,14 @@ defmodule FluxValeWeb.AdminResourcesLiveTest do
           "/admin/resources/infrastructure/access_gateway/#{gateway.id}/edit?action=update_credential"
         )
 
-      assert has_element?(credential_view, "[data-testid='admin-resource-input-auth_key'] input")
+      assert has_element?(
+               credential_view,
+               "[data-testid='admin-resource-input-auth_key'] input[type='password']"
+             )
 
       assert has_element?(
                credential_view,
-               "[data-testid='admin-resource-input-tailnet_domain'] input"
+               "[data-testid='admin-resource-input-tailnet_domain'] input[type='text']"
              )
 
       {:ok, snapshot_view, _html} =
