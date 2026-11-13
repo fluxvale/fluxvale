@@ -52,3 +52,18 @@ also stays out of public docs** — product docs describe what the product *is*;
 strategy is published deliberately, if ever, not by repo leakage.
 Names of our **chosen stack vendors** (Netcup, Cloudflare, CNPG, Traefik, …)
 remain in ADRs — those are engineering facts, not positioning.
+
+## Amendment 2 (2026-11-13)
+
+One narrow carve-out from the operational-specifics rule: **our own
+platform DR runbook may live in this repo** (marked **Internal**),
+because the launch gate requires repeatable evidence here (#758). The
+carve-out also permits the minimum chain facts needed to verify a drill
+— schedule cadence, retention policy, PITR window — but never
+credentials, bucket names, endpoint URLs, IPs, ports, or host inventory.
+The runbook reads the backup destination and endpoint from the live
+`Cluster` spec at run time. Cluster, namespace, Secret, and
+secret-manager item names are permitted — they are identifiers, not
+credentials. The fleet repo stays the source of the operational map and
+the production recovery procedure; this repo carries the
+verification/drill procedure and its evidence.
