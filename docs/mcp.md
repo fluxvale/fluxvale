@@ -11,10 +11,8 @@ doc mirrors it and carries the tool-surface
 record the app cannot: the catalog and the changelog below.
 
 Endpoints (the protocol nests at `/mcp` — `apps/mcp/src/main.rs`
-`MCP_PATH`; DNS records pending rollout — if a URL doesn't resolve
-yet, the endpoint is rolling out): prod
-`https://mcp.fluxvale.com/mcp`, staging
-`https://mcp.staging.fluxvale.com/mcp`.
+`MCP_PATH`): prod `https://mcp.fluxvale.com/mcp`, staging
+`https://mcp-staging.fluxvale.com/mcp`.
 
 ## The recipe (two steps, one token)
 

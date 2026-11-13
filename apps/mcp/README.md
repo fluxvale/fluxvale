@@ -148,10 +148,10 @@ the hostname the IngressRoute routes.
 ## Deployed (fleet #157)
 
 - **W3b landed** (fluxvale/fleet#157) — the staging and prod
-  manifests are live: `https://mcp.staging.fluxvale.com/mcp` and
+  manifests are live: `https://mcp-staging.fluxvale.com/mcp` and
   `https://mcp.fluxvale.com/mcp` (the protocol path — `MCP_PATH`
-  above). DNS records are pending rollout: the hostnames go live
-  with the beta rollout and don't resolve until then.
+  above). Both hosts are live; the staging host is one label so the
+  zone's `*.fluxvale.com` Universal SSL covers the edge.
 
 ## Gates
 

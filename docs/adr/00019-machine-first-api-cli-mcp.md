@@ -179,7 +179,8 @@ A client that cannot confirm gets an honest error naming the panel —
 never a silent no-op, and the verb never runs.
 
 The host is a dedicated subdomain — `mcp.fluxvale.com` /
-`mcp.staging.fluxvale.com` (DNS records pending rollout), the
+`mcp-staging.fluxvale.com` (staging is one label so the zone's
+`*.fluxvale.com` Universal SSL covers the edge), the
 protocol nesting at `/mcp` on that host. Subdomain over path-on-the-app-host: ecosystem convention (an
 MCP server is advertised as one URL), traffic isolation, independent
 edge rules, and a clean OAuth resource origin. Certs are DNS-01; the
