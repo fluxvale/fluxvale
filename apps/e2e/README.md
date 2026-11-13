@@ -38,6 +38,7 @@ BASE_URL=https://staging.fluxvale.com E2E_TESTINBOX_TOKEN=<pat> npx playwright t
 | Variable | Purpose |
 |---|---|
 | `BASE_URL` | Target stack (default: `https://app.fluxvale.lvh.me`) |
+| `E2E_ALLOWED_ORIGINS` | Comma-separated allow-list of cross-origin request origins permitted during public-page navigation; empty by default (the guard is strict). Set it to the Umami origin when the target stack configures `UMAMI_SCRIPT_URL` — the one sanctioned external script, `SiteAnalytics` (#576) |
 | `E2E_TESTINBOX_TOKEN` | Admin PAT for the TestInbox JSON API ([ADR-0024](../../docs/adr/00024-e2e-review-environments.md) Am. 1); the sign-in and lifecycle tests skip without it |
 | `E2E_RUNTIME` | Narrows what runs; the BASE_URL host sets the ceiling — any non-local, non-staging host is production-class (read-only) no matter what this says. Gates: lifecycle runs on local + staging (#116); sign-in never runs against production |
 | `E2E_RUN_ID` | Run-scoped uniqueness (email + instance names); defaults to a timestamp |

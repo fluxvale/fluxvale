@@ -1,4 +1,8 @@
 import { expect, test } from "@playwright/test";
+import {
+  allowedOriginsFromEnv,
+  watchRequestOrigins,
+} from "./helpers/request-origins";
 import { runtimeFor } from "./helpers/runtime";
 
 // Read-only surface checks — safe on every runtime including
@@ -40,7 +44,9 @@ test("clicking a catalog card opens the public app detail", async ({ page }) => 
 // third-party icon whose host hangs never errors — it silently holds
 // the page's load event hostage (the Nov 11 fleet-wide pages-leg
 // outage: one hanging icon host timed every /catalog navigation out).
-test("catalog pages carry no third-party image sources", async ({ page }) => {
+// The request listener covers every subresource, not just img src.
+test("catalog pages make no cross-origin subresource requests", async ({ page, baseURL }) => {
+  const guard = watchRequestOrigins(page, new URL(baseURL!).origin);
   // Origins, not strings: currentSrc is the browser-resolved URL, so
   // protocol-relative and malformed srcs cannot slip a string sniff.
   const foreignImgSrcs = () =>
@@ -74,12 +80,82 @@ test("catalog pages carry no third-party image sources", async ({ page }) => {
   expect(await foreignImgSrcs()).toEqual([]);
   expect(await iconImgs().count()).toBeGreaterThan(0);
   await expect.poll(undecodedIconSrcs).toEqual([]);
+  expect(guard.violations(), "cross-origin subresource requests during /catalog navigation").toEqual(
+    [],
+  );
 
   await page.locator("[data-testid^='app-']").first().click();
   await expect(page).toHaveURL(/\/catalog\//);
   expect(await foreignImgSrcs()).toEqual([]);
   expect(await iconImgs().count()).toBeGreaterThan(0);
   await expect.poll(undecodedIconSrcs).toEqual([]);
+  expect(guard.violations(), "cross-origin subresource requests during /catalog navigation").toEqual(
+    [],
+  );
+});
+
+// The guard's own proof: planted subresources — not just img src — are
+// flagged, and the allow-list control is not.
+test("the origin guard flags a planted cross-origin subresource", async ({ page, baseURL }) => {
+  const guard = watchRequestOrigins(page, new URL(baseURL!).origin, ["https://allowed.example"]);
+
+  await page.route("https://planted.example/**", (route) =>
+    route.fulfill({ status: 200, contentType: "text/plain", body: "" }),
+  );
+  await page.route("https://allowed.example/**", (route) =>
+    route.fulfill({ status: 200, contentType: "text/plain", body: "" }),
+  );
+
+  await page.goto("/catalog");
+
+  await page.evaluate(() => {
+    const img = document.createElement("img");
+    img.src = "https://planted.example/pixel.png";
+    document.body.append(img);
+
+    const stylesheet = document.createElement("link");
+    stylesheet.rel = "stylesheet";
+    stylesheet.href = "https://planted.example/style.css";
+    document.head.append(stylesheet);
+
+    const frame = document.createElement("iframe");
+    frame.src = "https://planted.example/frame";
+    document.body.append(frame);
+
+    const allowed = document.createElement("img");
+    allowed.src = "https://allowed.example/ok.png";
+    document.body.append(allowed);
+  });
+
+  await expect
+    .poll(() => guard.violations())
+    .toEqual(
+      expect.arrayContaining([
+        "https://planted.example/pixel.png",
+        "https://planted.example/style.css",
+        "https://planted.example/frame",
+      ]),
+    );
+  expect(guard.violations()).not.toContain("https://allowed.example/ok.png");
+});
+
+test("E2E_ALLOWED_ORIGINS normalizes origins and rejects malformed entries", () => {
+  // The undefined case must mean "no config": an ambient allow-list (the
+  // staging/Umami workflow sets it) would otherwise leak into the
+  // default-parameter path and make this assertion environment-dependent.
+  const ambient = process.env.E2E_ALLOWED_ORIGINS;
+  delete process.env.E2E_ALLOWED_ORIGINS;
+
+  try {
+    expect(
+      allowedOriginsFromEnv("https://analytics.example.com/script.js, https://b.example:8443"),
+    ).toEqual(["https://analytics.example.com", "https://b.example:8443"]);
+    expect(allowedOriginsFromEnv("")).toEqual([]);
+    expect(allowedOriginsFromEnv(undefined)).toEqual([]);
+    expect(() => allowedOriginsFromEnv("analytics.example.com")).toThrow(/not a URL/);
+  } finally {
+    if (ambient !== undefined) process.env.E2E_ALLOWED_ORIGINS = ambient;
+  }
 });
 
 test("an anonymous deploy CTA lands on /sign-in — the auth boundary", async ({ page }) => {
