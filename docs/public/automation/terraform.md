@@ -51,7 +51,7 @@ terraform {
   required_providers {
     fluxvale = {
       source  = "registry.terraform.io/fluxvale/fluxvale"
-      version = "~> 0.3"
+      version = "~> 0.4" # 0.4.0+ (pending release): write-only secret_env_vars
     }
   }
 }
@@ -153,6 +153,16 @@ terraform {
   }
 }
 
+resource "fluxvale_instance" "reading" {
+  # …
+  secret_env_vars         = { SMTP_PASSWORD = var.smtp_password }
+  secret_env_vars_version = 1
+}
+```
+
+On Terraform 1.12+, drop the `encryption` block and rely on your backend's encryption at rest; the instance inputs are the same:
+
+```hcl
 resource "fluxvale_instance" "reading" {
   # …
   secret_env_vars         = { SMTP_PASSWORD = var.smtp_password }

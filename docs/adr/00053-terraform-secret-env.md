@@ -2,9 +2,9 @@
 
 **Status**: Accepted for design; implementation deferred until T1–T3 (owner go Nov 12, 2026, #731 — the plan is
 [plans/731-terraform-integrations.md](../plans/731-terraform-integrations.md)).
-**Amended 2026-11-13 by #764**: Terraform 1.12+ / OpenTofu 1.13+ write-only inputs are now the provider's
-recommended modern input (`secret_env_vars` + version + computed key list); the `enc:v1:` marker stays the
-portable fallback design and its build remains deferred.
+**Amended 2026-11-13 by #764**: the provider implements Terraform 1.12+ / OpenTofu 1.13+ write-only inputs
+(`secret_env_vars` + version + computed key list) as the recommended modern path, pending the 0.4.0 release;
+the `enc:v1:` marker stays the portable fallback design and its build remains deferred.
 **Date**: 2026-11-12
 
 **Context**: Terraform is a first-class deploy surface, and app
@@ -199,7 +199,8 @@ runtime Secret — that is the trust boundary, stated plainly.
 ## Amendment — #764 (2026-11-13)
 
 Terraform 1.12+ and OpenTofu 1.13+ support write-only attributes, so
-the provider now ships `secret_env_vars` (map, write-only, sensitive),
+the provider implements `secret_env_vars` (map, write-only, sensitive)
+pending the 0.4.0 release,
 `secret_env_vars_version` (the rotation integer), and the computed
 sorted `secret_env_vars_keys` list. The three objections in the rejected
 alternative are answered in the provider:
