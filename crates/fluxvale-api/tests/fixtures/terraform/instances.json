@@ -6,12 +6,8 @@
       "attributes": {
         "name": "Web",
         "slug": "web-a1b2",
-        "namespace": "fluxvale-app-i-web",
-        "status": "running",
-        "exposure": "public",
-        "always_on": true,
         "organization_id": "org-acme",
-        "app_version_id": "av-wordpress-1"
+        "status": "running"
       }
     },
     {
@@ -20,12 +16,8 @@
       "attributes": {
         "name": "API",
         "slug": "api-c3d4",
-        "namespace": "fluxvale-app-i-api",
-        "status": "running",
-        "exposure": "private",
-        "always_on": false,
         "organization_id": "org-acme",
-        "app_version_id": "av-forgejo-1"
+        "status": "running"
       }
     },
     {
@@ -34,12 +26,18 @@
       "attributes": {
         "name": "Foreign",
         "slug": "foreign-e5f6",
-        "namespace": "fluxvale-app-i-foreign",
-        "status": "running",
-        "exposure": "public",
-        "always_on": false,
         "organization_id": "org-other",
-        "app_version_id": "av-memos-1"
+        "status": "running"
+      }
+    },
+    {
+      "type": "instance",
+      "id": "i-dying",
+      "attributes": {
+        "name": "Dying",
+        "slug": "dying-g7h8",
+        "organization_id": "org-acme",
+        "status": "deleting"
       }
     }
   ]

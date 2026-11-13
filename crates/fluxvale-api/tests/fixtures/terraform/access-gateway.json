@@ -4,7 +4,7 @@
     "id": "g-acme",
     "attributes": {
       "organization_id": "org-acme",
-      "hostname": "acme-gateway",
+      "hostname": "fv-7fa67f86",
       "tailnet_domain": "acme.ts.net",
       "provider": "tailscale",
       "state": "active",

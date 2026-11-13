@@ -10,6 +10,7 @@ use fluxvale_api::ApiClient;
 use fluxvale_api::terraform::{Bundle, bundle};
 use serde_json::json;
 use std::fs;
+use std::io::Write as _;
 use std::path::{Path, PathBuf};
 
 /// Fetch the bundle and write its files into `out`. Refuses to clobber
@@ -23,20 +24,48 @@ pub fn import(client: &ApiClient, org: &str, out: &Path, output: Output) -> anyh
 }
 
 fn write_bundle(out: &Path, bundle: &Bundle) -> anyhow::Result<()> {
+    fs::create_dir_all(out)?;
+    let mut written: Vec<PathBuf> = Vec::new();
     for file in &bundle.files {
         let path = out.join(file.name);
-        if path.exists() {
-            anyhow::bail!(
-                "{} already exists — choose an empty --out directory (or move the old file first)",
-                path.display()
-            );
+        let mut handle = match fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)
+        {
+            Ok(handle) => handle,
+            Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => {
+                remove_written(&written);
+                anyhow::bail!(
+                    "{} already exists — choose an empty --out directory (or move the old file first)",
+                    path.display()
+                );
+            }
+            Err(err) => {
+                remove_written(&written);
+                return Err(err.into());
+            }
+        };
+        if let Err(err) = handle
+            .write_all(file.contents.as_bytes())
+            .and_then(|()| handle.flush())
+        {
+            drop(handle);
+            let _ = fs::remove_file(&path);
+            remove_written(&written);
+            return Err(err.into());
         }
-    }
-    fs::create_dir_all(out)?;
-    for file in &bundle.files {
-        fs::write(out.join(file.name), &file.contents)?;
+        written.push(path);
     }
     Ok(())
+}
+
+/// A failed run must not leave half a scaffold behind: the next run
+/// refuses an existing file, so clean up only what THIS run created.
+fn remove_written(paths: &[PathBuf]) {
+    for path in paths {
+        let _ = fs::remove_file(path);
+    }
 }
 
 fn render(out: &Path, bundle: &Bundle, output: Output) -> String {
@@ -48,12 +77,19 @@ fn render(out: &Path, bundle: &Bundle, output: Output) -> String {
                 .map(|file| file.name)
                 .collect::<Vec<_>>()
                 .join(", ");
+            let next = if out == Path::new(".") {
+                "tofu init && tofu plan -generate-config-out=generated.tf && tofu apply".to_string()
+            } else {
+                format!(
+                    "cd {} && tofu init && tofu plan -generate-config-out=generated.tf && tofu apply",
+                    out.display()
+                )
+            };
             format!(
                 "terraform import scaffold for {}\n\
                  wrote {names} to {}\n\
-                 next: cd {} && tofu init && tofu plan -generate-config-out=generated.tf && tofu apply",
+                 next: {next}",
                 bundle.organization,
-                out.display(),
                 out.display()
             )
         }
@@ -138,6 +174,30 @@ mod tests {
             fs::read_to_string(out.join("imports.tf")).unwrap(),
             "hand edited\n"
         );
+        assert!(!out.join("versions.tf").exists());
+    }
+
+    #[test]
+    fn the_default_directory_does_not_print_a_pointless_cd() {
+        let rendered = render(Path::new("."), &bundle(), Output::Table);
+        assert!(rendered.contains("next: tofu init &&"), "{rendered}");
+        assert!(!rendered.contains("cd ."), "{rendered}");
+        let elsewhere = render(Path::new("/tmp/scaffold"), &bundle(), Output::Table);
+        assert!(
+            elsewhere.contains("next: cd /tmp/scaffold && tofu init &&"),
+            "{elsewhere}"
+        );
+    }
+
+    #[test]
+    fn a_write_failure_cleans_up_what_this_run_created() {
+        let out = temp_dir();
+        let blocker = out.join("blocker");
+        fs::write(&blocker, "not a directory").unwrap();
+        let err = write_bundle(&blocker, &bundle()).unwrap_err();
+        assert!(!err.to_string().is_empty());
+        // The blocker file is untouched; no scaffold leaked into its parent.
+        assert_eq!(fs::read_to_string(&blocker).unwrap(), "not a directory");
         assert!(!out.join("versions.tf").exists());
     }
 

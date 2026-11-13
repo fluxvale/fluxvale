@@ -1076,7 +1076,7 @@ mod tests {
         testapi::serve(&[
             ("/api/v1/organizations", 200, orgs_doc()),
             (
-                "/api/v1/instances?fields[instance]=id,name,slug,organization_id",
+                "/api/v1/instances?fields[instance]=id,name,slug,organization_id,status",
                 200,
                 json!({"data": [{
                     "type": "instance", "id": "i1",
@@ -1577,6 +1577,25 @@ mod tests {
             heads.iter().all(|head| head.starts_with("GET ")),
             "{heads:?}"
         );
+    }
+
+    #[tokio::test]
+    async fn terraform_import_bundle_surfaces_an_upstream_refusal_as_a_tool_error() {
+        let server = testapi::serve(&[(
+            "/api/v1/organizations",
+            403,
+            forbidden_doc("token lacks the instances:read scope"),
+        )]);
+        let (_, body) = tools_call(
+            &app(&server),
+            PAT_FULL,
+            "terraform_import_bundle",
+            json!({"organization": "personal"}),
+        )
+        .await;
+        assert_eq!(result(&body)["isError"], true);
+        let text = result(&body)["content"][0]["text"].as_str().unwrap();
+        assert_eq!(text, "403 Forbidden: token lacks the instances:read scope");
     }
 
     #[tokio::test]

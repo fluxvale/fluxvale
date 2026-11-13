@@ -1,7 +1,8 @@
 //! Golden-file test for the Terraform import scaffold (#763): a
 //! recorded `/api/v1` conversation in, the three files out. The
-//! fixtures are the raw JSON:API documents the platform returned when
-//! they were recorded — no hand-shaped estate.
+//! fixtures mirror the platform's response shapes (staging captures plus
+//! the committed OpenAPI artifact), with ids and names replaced by stable
+//! values — not a hand-invented estate.
 
 use fluxvale_api::{ApiClient, Token, terraform};
 use std::collections::HashMap;
@@ -80,7 +81,7 @@ fn the_recorded_estate_renders_the_golden_scaffold() {
     let api = RecordedApi::start(vec![
         ("/api/v1/organizations", 200, fixture("organizations.json")),
         (
-            "/api/v1/instances?fields[instance]=id,name,slug,organization_id",
+            "/api/v1/instances?fields[instance]=id,name,slug,organization_id,status",
             200,
             fixture("instances.json"),
         ),
@@ -148,6 +149,23 @@ fn an_unknown_org_lists_the_memberships_and_renders_nothing() {
 }
 
 #[test]
+fn a_missing_org_id_is_loud_instead_of_an_empty_estate() {
+    let api = RecordedApi::start(vec![
+        ("/api/v1/organizations", 200, fixture("organizations.json")),
+        (
+            "/api/v1/instances?fields[instance]=id,name,slug,organization_id,status",
+            200,
+            r#"{"data":[{"type":"instance","id":"i-x","attributes":{"name":"x","slug":"x","status":"running"}}]}"#
+                .to_string(),
+        ),
+    ]);
+    let client = ApiClient::new(&api.base_url, Token::new("fvpat_testtoken"));
+    let error = terraform::bundle(&client, "acme").unwrap_err().to_string();
+    assert!(error.contains("did not echo organization_id"), "{error}");
+    assert!(error.contains("i-x"), "{error}");
+}
+
+#[test]
 fn discovery_never_writes() {
     // Every upstream call in the recorded conversation is a GET: the
     // scaffold is read-shaped by construction, and a mutation would
@@ -155,7 +173,7 @@ fn discovery_never_writes() {
     let api = RecordedApi::start(vec![
         ("/api/v1/organizations", 200, fixture("organizations.json")),
         (
-            "/api/v1/instances?fields[instance]=id,name,slug,organization_id",
+            "/api/v1/instances?fields[instance]=id,name,slug,organization_id,status",
             200,
             fixture("instances.json"),
         ),

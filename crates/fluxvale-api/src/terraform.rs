@@ -116,11 +116,25 @@ pub fn bundle_with(client: &ApiClient, org: &str, api_url: &str) -> Result<Bundl
 pub fn discover(client: &ApiClient, org: &str) -> Result<Estate, TerraformError> {
     let org = resolve_org(client, org)?;
 
-    // The list route's default fields omit organization_id; ask for it
-    // explicitly so the org filter is a wire fact, not an inference.
-    let instances_doc = client.get("/instances?fields[instance]=id,name,slug,organization_id")?;
-    let mut instances: Vec<Instance> = instances_doc
-        .resources()
+    // The list route's default fields omit organization_id and status;
+    // ask for them explicitly so the org filter is a wire fact and a
+    // dying row is not offered for import.
+    let instances_doc =
+        client.get("/instances?fields[instance]=id,name,slug,organization_id,status")?;
+    let resources = instances_doc.resources();
+    if let Some(resource) = resources.iter().find(|resource| {
+        resource
+            .attributes
+            .get("organization_id")
+            .and_then(Value::as_str)
+            .is_none()
+    }) {
+        return Err(TerraformError::Message(format!(
+            "the API did not echo organization_id for instance {} — refusing to guess which organization it belongs to",
+            resource.id
+        )));
+    }
+    let mut instances: Vec<Instance> = resources
         .into_iter()
         .filter(|resource| {
             resource
@@ -128,6 +142,12 @@ pub fn discover(client: &ApiClient, org: &str) -> Result<Estate, TerraformError>
                 .get("organization_id")
                 .and_then(Value::as_str)
                 == Some(org.id.as_str())
+                // A deleting/lost row has no importable remote object;
+                // importing it dies at apply rather than adopting it.
+                && !matches!(
+                    resource.attributes.get("status").and_then(Value::as_str),
+                    Some("deleting" | "lost")
+                )
         })
         .map(|resource| Instance {
             name: string_attr(&resource, "name").unwrap_or_default(),
@@ -340,14 +360,15 @@ fn render_with(estate: &Estate, api_url: Option<&str>) -> Bundle {
         if !estate.sso_wirings.is_empty() {
             imports.push_str(
                 "\n# PocketID SSO wirings\n\
-                 # Provider 0.3.0 does not implement import for this resource yet.\n",
+                 # Provider 0.3.0 does not implement import for this resource.\n\
+                 # Uncomment these blocks after the provider gains import support.\n",
             );
             for wiring in &estate.sso_wirings {
                 let name = &sso_by_instance[wiring.instance_id.as_str()];
-                imports.push_str(&import_block(
+                imports.push_str(&commented_import_block(
                     &format!("fluxvale_pocket_id_sso.{name}"),
-                    // One wiring per instance; the instance id is the
-                    // provider's import id.
+                    // One wiring per instance; the instance id would be
+                    // the provider's import id once it supports import.
                     &wiring.instance_id,
                 ));
             }
@@ -411,7 +432,9 @@ fn versions_tf(api_url: Option<&str>) -> String {
 
 fn readme(estate: &Estate) -> String {
     let org = match &estate.org.name {
-        Some(name) if !name.is_empty() => format!("{} ({})", name, estate.org.slug),
+        Some(name) if !name.is_empty() && name != &estate.org.slug => {
+            format!("{} ({})", name, estate.org.slug)
+        }
         _ => estate.org.slug.clone(),
     };
     let mut readme = format!(
@@ -444,8 +467,8 @@ fn readme(estate: &Estate) -> String {
          ## Caveats\n\
          \n\
          - **Write-only values are never readable back.** `generated.tf` cannot\n\
-         \x20\x20carry `env_vars` or a backup's `secret_access_key`; set them through\n\
-         \x20\x20the secrets path (or the panel) after adoption.\n\
+         \x20\x20carry `env_vars` or a backup's `secret_access_key`; set them in the\n\
+         \x20\x20panel after adoption.\n\
          - **Generated config may need small edits before the plan is clean.**\n\
          \x20\x20`app`/`app_version` on an imported instance have no wire echo, the\n\
          \x20\x20gateway's `instances` set is config-authoritative and starts null,\n\
@@ -468,9 +491,9 @@ fn readme(estate: &Estate) -> String {
     if !estate.sso_wirings.is_empty() {
         readme.push_str(
             "\n**Provider limitation:** provider 0.3.0 does not implement\n\
-             `import` for `fluxvale_pocket_id_sso`. The block is present with the\n\
-             instance id as its import id; remove it (or upgrade the provider)\n\
-             until import support lands.\n",
+             `import` for `fluxvale_pocket_id_sso`. Its blocks are commented out\n\
+             in `imports.tf`, with the instance id as the import id; uncomment\n\
+             them after upgrading to a provider that supports import.\n",
         );
     }
     readme
@@ -479,6 +502,13 @@ fn readme(estate: &Estate) -> String {
 fn import_block(address: &str, id: &str) -> String {
     format!(
         "\nimport {{\n  to = {address}\n  id = \"{}\"\n}}\n",
+        hcl_string(id)
+    )
+}
+
+fn commented_import_block(address: &str, id: &str) -> String {
+    format!(
+        "\n# import {{\n#   to = {address}\n#   id = \"{}\"\n# }}\n",
         hcl_string(id)
     )
 }
@@ -508,6 +538,12 @@ fn get_singleton(
         Err(ApiError::NotFound) => return Ok(None),
         Err(err) => return Err(err.into()),
     };
+    one_resource(document, what)
+}
+
+/// A singleton document's resource: absent or exactly one is normal; a
+/// duplicate is a contract violation, not a silent pick.
+fn one_resource(document: Document, what: &str) -> Result<Option<Resource>, TerraformError> {
     let mut resources = document.resources();
     match resources.len() {
         0 => Ok(None),
@@ -656,7 +692,10 @@ mod tests {
         assert!(imports.contains("to = fluxvale_access_gateway.acme_gateway\n"));
         assert!(imports.contains("to = fluxvale_custom_domain.apps_example_com\n"));
         assert!(imports.contains("to = fluxvale_custom_domain.apps_example_com_2\n"));
-        assert!(imports.contains("to = fluxvale_pocket_id_sso.web_a1b2_sso\n"));
+        assert!(imports.contains("# import {\n#   to = fluxvale_pocket_id_sso.web_a1b2_sso\n"));
+        // Provider 0.3.0 has no importer for SSO: an active block would
+        // fail the whole adoption plan, so it must stay commented.
+        assert!(!imports.contains("\nimport {\n  to = fluxvale_pocket_id_sso"));
 
         // Rendering the same estate twice is byte-identical.
         assert_eq!(render(&estate()), bundle);
@@ -672,7 +711,9 @@ mod tests {
         assert!(imports.contains("to = fluxvale_instance.web_a1b2\n  id = \"i-web\""));
         // Backups and SSO import by instance id, not their row id.
         assert!(imports.contains("fluxvale_instance_backups.web_a1b2_backups\n  id = \"i-web\""));
-        assert!(imports.contains("fluxvale_pocket_id_sso.web_a1b2_sso\n  id = \"i-web\""));
+        assert!(
+            imports.contains("#   to = fluxvale_pocket_id_sso.web_a1b2_sso\n#   id = \"i-web\"")
+        );
         // The gateway imports by org slug; domains by access-domain id.
         assert!(imports.contains("fluxvale_access_gateway.acme_gateway\n  id = \"acme\""));
         assert!(imports.contains("fluxvale_custom_domain.apps_example_com\n  id = \"d1\""));
@@ -695,7 +736,9 @@ mod tests {
         assert!(readme.contains("`env_vars`"));
         assert!(readme.contains("`secret_access_key`"));
         assert!(readme.contains("provider 0.3.0 does not implement"));
+        assert!(readme.contains("Its blocks are commented out"));
         assert!(readme.contains("`platform` domain is not"));
+        assert!(!readme.contains("secrets path"));
     }
 
     #[test]
@@ -709,6 +752,9 @@ mod tests {
         // Production is the provider default: keep the block empty.
         let prod = versions_tf(Some("https://fluxvale.com"));
         assert!(prod.contains("provider \"fluxvale\" {}"));
+        // An empty origin is not a URL to write.
+        let empty = versions_tf(Some(""));
+        assert!(empty.contains("provider \"fluxvale\" {}"));
     }
 
     #[test]
@@ -729,7 +775,58 @@ mod tests {
                 .contents
                 .contains("# No importable resources found in this organization.")
         );
-        assert!(!bundle.file("README.md").unwrap().contents.contains("| 1 |"));
+        let readme = &bundle.file("README.md").unwrap().contents;
+        assert!(!readme.contains("| 1 |"));
+        assert!(readme.contains("for **empty**."));
+        assert!(!readme.contains("empty (empty)"));
+    }
+
+    #[test]
+    fn a_resource_whose_instance_vanished_falls_back_to_its_id() {
+        let orphan = Estate {
+            org: Org {
+                id: "org1".into(),
+                slug: "acme".into(),
+                name: Some("Acme".into()),
+            },
+            backup_settings: vec![BackupSetting {
+                instance_id: "i-gone".into(),
+            }],
+            sso_wirings: vec![SsoWiring {
+                instance_id: "i-gone".into(),
+                pocket_id_instance_id: "i-id".into(),
+            }],
+            ..Estate::default()
+        };
+        let bundle = render(&orphan);
+        let imports = &bundle.file("imports.tf").unwrap().contents;
+        assert!(imports.contains("fluxvale_instance_backups.i_gone_backups"));
+        assert!(imports.contains("#   to = fluxvale_pocket_id_sso.i_gone_sso"));
+    }
+
+    #[test]
+    fn a_duplicate_singleton_document_is_loud() {
+        let document: Document = serde_json::from_value(serde_json::json!({"data": [
+            {"type": "backup_setting", "id": "b1", "attributes": {}},
+            {"type": "backup_setting", "id": "b2", "attributes": {}}
+        ]}))
+        .unwrap();
+        let error = one_resource(document, "backup setting")
+            .unwrap_err()
+            .to_string();
+        assert_eq!(
+            error,
+            "the API returned 2 backup setting resources, expected one"
+        );
+    }
+
+    #[test]
+    fn an_empty_org_spec_is_refused_before_the_wire() {
+        // The client points at a dead port; reaching it would mean the
+        // local fence failed.
+        let client = ApiClient::new("http://127.0.0.1:1", crate::Token::new("fvpat_test"));
+        let error = resolve_org(&client, "  ").unwrap_err().to_string();
+        assert_eq!(error, "an organization slug or id is required");
     }
 
     #[test]

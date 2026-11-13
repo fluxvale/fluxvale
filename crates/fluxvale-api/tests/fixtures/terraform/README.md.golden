@@ -27,8 +27,8 @@ Review it, then run `tofu plan` again until it is clean.
 ## Caveats
 
 - **Write-only values are never readable back.** `generated.tf` cannot
-  carry `env_vars` or a backup's `secret_access_key`; set them through
-  the secrets path (or the panel) after adoption.
+  carry `env_vars` or a backup's `secret_access_key`; set them in the
+  panel after adoption.
 - **Generated config may need small edits before the plan is clean.**
   `app`/`app_version` on an imported instance have no wire echo, the
   gateway's `instances` set is config-authoritative and starts null,
@@ -39,6 +39,6 @@ Only user-owned (`custom`) access domains are exported; the
 org's system-minted `platform` domain is not.
 
 **Provider limitation:** provider 0.3.0 does not implement
-`import` for `fluxvale_pocket_id_sso`. The block is present with the
-instance id as its import id; remove it (or upgrade the provider)
-until import support lands.
+`import` for `fluxvale_pocket_id_sso`. Its blocks are commented out
+in `imports.tf`, with the instance id as the import id; uncomment
+them after upgrading to a provider that supports import.

@@ -36,9 +36,10 @@ import {
 }
 
 # PocketID SSO wirings
-# Provider 0.3.0 does not implement import for this resource yet.
+# Provider 0.3.0 does not implement import for this resource.
+# Uncomment these blocks after the provider gains import support.
 
-import {
-  to = fluxvale_pocket_id_sso.web_a1b2_sso
-  id = "i-web"
-}
+# import {
+#   to = fluxvale_pocket_id_sso.web_a1b2_sso
+#   id = "i-web"
+# }
