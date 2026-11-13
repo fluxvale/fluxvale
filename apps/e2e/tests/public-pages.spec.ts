@@ -45,7 +45,10 @@ test("clicking a catalog card opens the public app detail", async ({ page }) => 
 // the page's load event hostage (the Nov 11 fleet-wide pages-leg
 // outage: one hanging icon host timed every /catalog navigation out).
 // The request listener covers every subresource, not just img src.
-test("catalog pages make no cross-origin subresource requests", async ({ page, baseURL }) => {
+test("catalog pages make no cross-origin subresource requests during load", async ({
+  page,
+  baseURL,
+}) => {
   const guard = watchRequestOrigins(page, new URL(baseURL!).origin);
   // Origins, not strings: currentSrc is the browser-resolved URL, so
   // protocol-relative and malformed srcs cannot slip a string sniff.
@@ -80,24 +83,28 @@ test("catalog pages make no cross-origin subresource requests", async ({ page, b
   expect(await foreignImgSrcs()).toEqual([]);
   expect(await iconImgs().count()).toBeGreaterThan(0);
   await expect.poll(undecodedIconSrcs).toEqual([]);
-  expect(guard.violations(), "cross-origin subresource requests during /catalog navigation").toEqual(
-    [],
-  );
+  expect(
+    guard.violations(),
+    "cross-origin subresource requests during /catalog navigation",
+  ).toEqual([]);
 
   await page.locator("[data-testid^='app-']").first().click();
   await expect(page).toHaveURL(/\/catalog\//);
   expect(await foreignImgSrcs()).toEqual([]);
   expect(await iconImgs().count()).toBeGreaterThan(0);
   await expect.poll(undecodedIconSrcs).toEqual([]);
-  expect(guard.violations(), "cross-origin subresource requests during /catalog navigation").toEqual(
-    [],
-  );
+  expect(
+    guard.violations(),
+    "cross-origin subresource requests during /catalog navigation",
+  ).toEqual([]);
 });
 
 // The guard's own proof: planted subresources — not just img src — are
 // flagged, and the allow-list control is not.
 test("the origin guard flags a planted cross-origin subresource", async ({ page, baseURL }) => {
-  const guard = watchRequestOrigins(page, new URL(baseURL!).origin, ["https://allowed.example"]);
+  // Path-bearing entry: normalization must reduce it to its origin, or
+  // the allowed control below would register as a violation.
+  const guard = watchRequestOrigins(page, new URL(baseURL!).origin, ["https://allowed.example/"]);
 
   await page.route("https://planted.example/**", (route) =>
     route.fulfill({ status: 200, contentType: "text/plain", body: "" }),
@@ -108,10 +115,25 @@ test("the origin guard flags a planted cross-origin subresource", async ({ page,
 
   await page.goto("/catalog");
 
+  const allowedSeen = page.waitForRequest("https://allowed.example/ok.png");
+
   await page.evaluate(() => {
     const img = document.createElement("img");
     img.src = "https://planted.example/pixel.png";
     document.body.append(img);
+
+    const srcset = document.createElement("img");
+    srcset.srcset = "https://planted.example/srcset.png 1x";
+    document.body.append(srcset);
+
+    const picture = document.createElement("picture");
+    const source = document.createElement("source");
+    source.srcset = "https://planted.example/source.png";
+    picture.append(source);
+    const fallback = document.createElement("img");
+    fallback.src = "https://planted.example/fallback.png";
+    picture.append(fallback);
+    document.body.append(picture);
 
     const stylesheet = document.createElement("link");
     stylesheet.rel = "stylesheet";
@@ -122,20 +144,32 @@ test("the origin guard flags a planted cross-origin subresource", async ({ page,
     frame.src = "https://planted.example/frame";
     document.body.append(frame);
 
+    const background = document.createElement("div");
+    background.style.width = "1px";
+    background.style.height = "1px";
+    background.style.backgroundImage = "url(https://planted.example/background.png)";
+    document.body.append(background);
+
     const allowed = document.createElement("img");
     allowed.src = "https://allowed.example/ok.png";
     document.body.append(allowed);
   });
+
+  await allowedSeen;
 
   await expect
     .poll(() => guard.violations())
     .toEqual(
       expect.arrayContaining([
         "https://planted.example/pixel.png",
+        "https://planted.example/srcset.png",
+        "https://planted.example/source.png",
         "https://planted.example/style.css",
         "https://planted.example/frame",
+        "https://planted.example/background.png",
       ]),
     );
+  // The <picture> fallback is not asserted: the browser may never request it.
   expect(guard.violations()).not.toContain("https://allowed.example/ok.png");
 });
 

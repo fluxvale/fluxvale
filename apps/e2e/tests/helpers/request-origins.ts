@@ -13,13 +13,7 @@ export function allowedOriginsFromEnv(raw = process.env.E2E_ALLOWED_ORIGINS): st
     .split(",")
     .map((entry) => entry.trim())
     .filter((entry) => entry !== "")
-    .map((entry) => {
-      try {
-        return new URL(entry).origin;
-      } catch {
-        throw new Error(`E2E_ALLOWED_ORIGINS entry is not a URL: ${entry}`);
-      }
-    });
+    .map((entry) => originFor(entry, "E2E_ALLOWED_ORIGINS entry"));
 }
 
 // Register before page.goto: a request that starts during the load is
@@ -29,16 +23,30 @@ export function watchRequestOrigins(
   pageOrigin: string,
   allowedOrigins: string[] = allowedOriginsFromEnv(),
 ): { violations: () => string[] } {
+  // Normalize explicit entries too: "https://allowed.example/" and the
+  // bare origin are the same allow-list entry.
+  const allowed = new Set(
+    allowedOrigins.map((entry) => originFor(entry, "allowed origin entry")),
+  );
   const seen = new Set<string>();
 
   page.on("request", (request) => {
     const url = new URL(request.url());
     // data:, blob:, about: never touch a host and cannot hang load.
     if (url.protocol !== "http:" && url.protocol !== "https:") return;
-    if (url.origin === pageOrigin || allowedOrigins.includes(url.origin)) return;
+    if (url.origin === pageOrigin || allowed.has(url.origin)) return;
     seen.add(request.url());
   });
 
   // A Set keeps first-seen order and drops duplicates.
   return { violations: () => [...seen] };
+}
+
+// The origin is the allow-list key: paths and queries never match.
+function originFor(entry: string, label: string): string {
+  try {
+    return new URL(entry).origin;
+  } catch {
+    throw new Error(`${label} is not a URL: ${entry}`);
+  }
 }
