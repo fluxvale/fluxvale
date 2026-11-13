@@ -135,6 +135,14 @@ pub(crate) struct OrgParams {
     pub organization_id: String,
 }
 
+/// `terraform_import_bundle`'s input — the org whose live estate to
+/// render. `whoami` lists every membership's slug and id.
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+pub(crate) struct TerraformImportParams {
+    /// The organization's slug or id (from `whoami`).
+    pub organization: String,
+}
+
 /// `wallet_ledger`'s input.
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 pub(crate) struct LedgerParams {
@@ -237,6 +245,26 @@ when the id is not one of your instances.",
     ) -> Result<CallToolResult, ErrorData> {
         let token = self.token(&context)?;
         tool_result(upstream::instances_status(self.api_base_url.clone(), token, id).await)
+    }
+
+    #[tool(
+        description = "Render a Terraform import scaffold for an organization: \
+versions.tf, imports.tf (one import block per live instance, backup \
+setting, access gateway, custom domain, and PocketID SSO wiring), and \
+README.md with the adoption steps. Read-only — returns the file \
+contents and writes nothing. Addresses come from slugs/names; the \
+resource bodies are left to `tofu plan -generate-config-out`.",
+        annotations(read_only_hint = true)
+    )]
+    async fn terraform_import_bundle(
+        &self,
+        Parameters(TerraformImportParams { organization }): Parameters<TerraformImportParams>,
+        context: RequestContext<RoleServer>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let token = self.token(&context)?;
+        tool_result(
+            upstream::terraform_import_bundle(self.api_base_url.clone(), token, organization).await,
+        )
     }
 
     #[tool(
@@ -1044,6 +1072,27 @@ mod tests {
         "wallet:read",
     ];
 
+    fn terraform_upstream() -> CannedApi {
+        testapi::serve(&[
+            ("/api/v1/organizations", 200, orgs_doc()),
+            (
+                "/api/v1/instances?fields[instance]=id,name,slug,organization_id",
+                200,
+                json!({"data": [{
+                    "type": "instance", "id": "i1",
+                    "attributes": {"name": "web", "slug": "web-a1b2",
+                                   "status": "running", "organization_id": "01JORG1"}
+                }]})
+                .to_string(),
+            ),
+            (
+                "/api/v1/organizations/01JORG1/access-domains",
+                200,
+                json!({"data": []}).to_string(),
+            ),
+        ])
+    }
+
     fn full_scope_upstream() -> CannedApi {
         testapi::serve(&[
             ("/api/v1/me", 200, me_doc(&ALL_SCOPES)),
@@ -1293,13 +1342,13 @@ mod tests {
         // The full-scope list, same as the handshake rev's — and one
         // upstream read either way (the driver asserts the count in
         // the filter matrix tests above).
-        assert_eq!(tool_names(&body).len(), 17);
+        assert_eq!(tool_names(&body).len(), 18);
         assert!(tool_names(&body).contains(&"instances_deploy"));
         assert!(tool_names(&body).contains(&"topup"));
     }
 
     #[tokio::test]
-    async fn a_full_scope_token_sees_all_seventeen_tools() {
+    async fn a_full_scope_token_sees_all_eighteen_tools() {
         let server = full_scope_upstream();
         assert_eq!(
             listed_tools(&server, PAT_FULL).await,
@@ -1316,6 +1365,7 @@ mod tests {
                 "instances_start",
                 "instances_status",
                 "instances_stop",
+                "terraform_import_bundle",
                 "topup",
                 "wallet_balance",
                 "wallet_ledger",
@@ -1356,6 +1406,7 @@ mod tests {
                 "instances_start",
                 "instances_status",
                 "instances_stop",
+                "terraform_import_bundle",
                 "topup",
                 "whoami",
             ]
@@ -1487,6 +1538,45 @@ mod tests {
         let (_, body) = tools_call(&app(&server), PAT_FULL, "instances_status", json!({})).await;
         let structured = &result(&body)["structuredContent"];
         assert_eq!(structured["instances"][0]["id"], "i1");
+    }
+
+    #[tokio::test]
+    async fn terraform_import_bundle_returns_the_three_files_without_writing() {
+        let server = terraform_upstream();
+        let before = server.head_count();
+        let (status, body) = tools_call(
+            &app(&server),
+            PAT_FULL,
+            "terraform_import_bundle",
+            json!({"organization": "personal"}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let structured = &result(&body)["structuredContent"];
+        assert_eq!(structured["organization"], "personal");
+        let files = structured["files"].as_array().unwrap();
+        assert_eq!(files.len(), 3);
+        assert_eq!(files[0]["path"], "versions.tf");
+        assert!(
+            files[0]["content"]
+                .as_str()
+                .unwrap()
+                .contains("required_providers")
+        );
+        assert_eq!(files[1]["path"], "imports.tf");
+        let imports = files[1]["content"].as_str().unwrap();
+        assert!(imports.contains("to = fluxvale_instance.web_a1b2"));
+        assert!(imports.contains("id = \"i1\""));
+        assert_eq!(files[2]["path"], "README.md");
+        assert!(files[2]["content"].as_str().unwrap().contains("tofu init"));
+        // The read-shaped claim: discovery made GETs, never a write.
+        let heads = (before..server.head_count())
+            .map(|index| server.head(index))
+            .collect::<Vec<_>>();
+        assert!(
+            heads.iter().all(|head| head.starts_with("GET ")),
+            "{heads:?}"
+        );
     }
 
     #[tokio::test]

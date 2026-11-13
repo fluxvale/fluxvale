@@ -11,5 +11,6 @@ pub mod config;
 pub mod human;
 pub mod reads;
 pub mod render;
+pub mod terraform;
 pub mod token;
 pub mod writes;

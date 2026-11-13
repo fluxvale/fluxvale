@@ -1,0 +1,13 @@
+{
+  "data": {
+    "type": "pocket_id_wiring",
+    "id": "w-web",
+    "attributes": {
+      "instance_id": "i-web",
+      "pocket_id_instance_id": "i-pocket-id",
+      "pocket_id_client_id": "client-123",
+      "pocket_id_secret_id": "secret-456",
+      "wired_at": "2026-11-12T09:00:00Z"
+    }
+  }
+}

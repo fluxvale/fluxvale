@@ -7,6 +7,7 @@
 use crate::auth;
 use crate::config::{self, Config};
 use crate::reads;
+use crate::terraform;
 use crate::token::TokenStore;
 use crate::writes::{self, ConfigureBackup, DeployFlags};
 use clap::{Parser, Subcommand, ValueEnum};
@@ -69,6 +70,11 @@ pub enum Command {
     Access {
         #[command(subcommand)]
         command: AccessCommand,
+    },
+    /// Promote live resources into Terraform import blocks
+    Terraform {
+        #[command(subcommand)]
+        command: TerraformCommand,
     },
     /// Show your wallet balance and runway
     Wallet {
@@ -253,6 +259,19 @@ pub enum AccessCommand {
     Resume {
         /// The gateway ID
         gateway: String,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum TerraformCommand {
+    /// Write versions.tf, imports.tf, and README.md for an org's live estate
+    Import {
+        /// The organization's slug or id
+        #[arg(long)]
+        org: String,
+        /// Directory to write the scaffold into (default: the current directory)
+        #[arg(long, value_name = "DIR")]
+        out: Option<PathBuf>,
     },
 }
 
@@ -456,6 +475,13 @@ pub fn run(cli: &Cli) -> anyhow::Result<()> {
             AccessCommand::Resume { gateway } => {
                 let (client, _) = reads::read_client(&config)?;
                 print(writes::access_resume(&client, gateway, cli.output))
+            }
+        },
+        Command::Terraform { command } => match command {
+            TerraformCommand::Import { org, out } => {
+                let (client, _) = reads::read_client(&config)?;
+                let out = out.clone().unwrap_or_else(terraform::default_out);
+                print(terraform::import(&client, org, &out, cli.output))
             }
         },
         Command::Wallet { command } => match command {
@@ -813,6 +839,26 @@ mod tests {
             } => assert_eq!(gateway, "g1"),
             other => panic!("wrong: {other:?}"),
         }
+        // The Terraform import scaffold: --org is required, --out optional.
+        match parse(&["terraform", "import", "--org", "acme", "--out", "infra"]).command {
+            Command::Terraform {
+                command: TerraformCommand::Import { org, out },
+            } => {
+                assert_eq!(org, "acme");
+                assert_eq!(out, Some(PathBuf::from("infra")));
+            }
+            other => panic!("wrong: {other:?}"),
+        }
+        match parse(&["terraform", "import", "--org", "acme"]).command {
+            Command::Terraform {
+                command: TerraformCommand::Import { out, .. },
+            } => assert_eq!(out, None),
+            other => panic!("wrong: {other:?}"),
+        }
+        assert!(
+            Cli::try_parse_from(["fluxvale", "terraform", "import"]).is_err(),
+            "--org is required"
+        );
         for action in ["balance", "runway"] {
             assert!(
                 matches!(parse(&["wallet", action]).command, Command::Wallet { .. }),

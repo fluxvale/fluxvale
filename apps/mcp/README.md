@@ -25,6 +25,7 @@ CI publish, and the k3d exposure ([running in k3d](#running-in-k3d)).
 | `backups_configure` | `backups:write` | Save the backup destination (identifiers only — see below). |
 | `backups_run` | `backups:write` | Run a backup now. |
 | `backups_restore` | `backups:write` — **confirm-gated** | Restore a volume from the newest successful backup, after a yes/no confirmation. |
+| `terraform_import_bundle` | `instances:read` (calls also need `backups:read` + `gateways:read`) | The Terraform import scaffold for an org: `versions.tf`, `imports.tf`, `README.md`. Read-only; returns the contents, writes nothing. |
 | `wallet_balance` | `wallet:read` | The org wallet row. |
 | `wallet_runway` | `wallet:read` | The runway projection (burn rate, hours left). |
 | `wallet_ledger` | `wallet:read` | The ledger history, keyset-paginated (`next_cursor`). |

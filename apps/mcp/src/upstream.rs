@@ -134,6 +134,30 @@ pub(crate) async fn instances_status(
     .await
 }
 
+/// `terraform_import_bundle` — discover the org's live estate and
+/// render the same three files the CLI writes. Read-only: the shared
+/// module makes GET calls only, and the tool returns the contents
+/// instead of touching a filesystem.
+pub(crate) async fn terraform_import_bundle(
+    base: Arc<str>,
+    token: Token,
+    organization: String,
+) -> Result<Value, String> {
+    on_blocking_string(move || {
+        let bundle = fluxvale_api::terraform::bundle(&ApiClient::new(&base, token), &organization)
+            .map_err(|err| err.to_string())?;
+        Ok(json!({
+            "organization": bundle.organization,
+            "files": bundle
+                .files
+                .iter()
+                .map(|file| json!({"path": file.name, "content": file.contents}))
+                .collect::<Vec<_>>(),
+        }))
+    })
+    .await
+}
+
 /// The tools/list scope source (W2b): GET /me once — the auth and
 /// liveness gate AND the coverage oracle in one read — and take the
 /// calling token's exact scope list from top-level `meta.scopes`

@@ -17,6 +17,10 @@ pub(crate) fn required_scope(tool: &str) -> Option<&'static str> {
         "whoami" | "topup" => None,
         "apps_list" | "apps_show" => Some("catalog:read"),
         "instances_list" | "instances_status" => Some("instances:read"),
+        // The scaffold reads instances, backups, gateways, and domains;
+        // its primary scope is the instance read. Callers need the
+        // union — the platform's route scopes are the enforcement.
+        "terraform_import_bundle" => Some("instances:read"),
         "instances_deploy" | "instances_stop" | "instances_start" | "instances_destroy" => {
             Some("instances:write")
         }
@@ -65,7 +69,7 @@ mod tests {
     use super::*;
 
     /// The catalog, in tools/list order (rmcp's list_all sorts by name).
-    const CATALOG: [&str; 17] = [
+    const CATALOG: [&str; 18] = [
         "apps_list",
         "apps_show",
         "backups_configure",
@@ -78,6 +82,7 @@ mod tests {
         "instances_start",
         "instances_status",
         "instances_stop",
+        "terraform_import_bundle",
         "topup",
         "wallet_balance",
         "wallet_ledger",
@@ -98,7 +103,7 @@ mod tests {
     }
 
     #[test]
-    fn a_full_scope_token_sees_all_seventeen_tools() {
+    fn a_full_scope_token_sees_all_eighteen_tools() {
         assert_eq!(
             visible(&[
                 "catalog:read",
@@ -109,7 +114,7 @@ mod tests {
                 "wallet:read"
             ])
             .len(),
-            17
+            18
         );
     }
 
@@ -126,7 +131,13 @@ mod tests {
         // Read scope: the reads, never the write verbs.
         assert_eq!(
             visible(&["instances:read"]),
-            ["instances_list", "instances_status", "topup", "whoami"]
+            [
+                "instances_list",
+                "instances_status",
+                "terraform_import_bundle",
+                "topup",
+                "whoami"
+            ]
         );
     }
 
@@ -144,6 +155,7 @@ mod tests {
                 "instances_start",
                 "instances_status",
                 "instances_stop",
+                "terraform_import_bundle",
                 "topup",
                 "whoami"
             ]
@@ -203,6 +215,10 @@ mod tests {
         assert_eq!(required_scope("backups_status"), Some("backups:read"));
         assert_eq!(required_scope("backups_restore"), Some("backups:write"));
         assert_eq!(required_scope("wallet_ledger"), Some("wallet:read"));
+        assert_eq!(
+            required_scope("terraform_import_bundle"),
+            Some("instances:read")
+        );
     }
 
     #[test]
