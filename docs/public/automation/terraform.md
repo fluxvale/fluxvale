@@ -119,7 +119,7 @@ Deployer-owned keys — the OIDC recipe, backing service URLs, and the instance 
 
 ### Secrets never enter state
 
-`sensitive` only hides a value in the console; the plaintext still lands in state and plan files. For values that must never be written there, use the write-only `secret_env_vars` map with its rotation integer:
+`sensitive` only hides a value in the console; the plaintext still lands in state and plan files. For values that must never be written there, use the write-only `secret_env_vars` map with its rotation integer. The attributes need provider 0.4.0+ (the release containing #764, pending) and Terraform 1.12+ or OpenTofu 1.13+. The encryption block below is OpenTofu-only; Terraform users should keep backend encryption at rest.
 
 ```hcl
 variable "smtp_password" {
@@ -160,14 +160,16 @@ resource "fluxvale_instance" "reading" {
 }
 ```
 
-The values never appear in `terraform.tfstate` or the saved plan. Because Terraform cannot see a write-only change, the version integer is the rotation signal: change a value and bump it. Remove a key by dropping it from the map and bumping again — the computed `secret_env_vars_keys` list is how the provider tracks which keys it manages. A key in both `env_vars` and `secret_env_vars` is a plan-time error. With no secrets, leave both attributes unset. Proving it after an apply:
+The values never appear in `terraform.tfstate` or the saved plan. Because Terraform cannot see a write-only change, the version integer is the rotation signal: change a value and bump it, and bump on any key add, removal, or move between the two maps. Removing a key is drop-key-plus-bump; a key-set change with an unchanged version is refused. The computed `secret_env_vars_keys` list is how the provider tracks which keys it manages. A key in both `env_vars` and `secret_env_vars` is a plan-time error. With no secrets, leave both attributes unset. Proving it after an apply — on an encrypted state, grep the decrypted form:
 
 ```sh
-grep -c 'the-secret-value' terraform.tfstate
+tofu state pull | grep -c 'the-secret-value'
 # 0
 ```
 
-Write-only inputs need Terraform 1.12+ or OpenTofu 1.13+. Existing configurations need no change, and older CLIs can keep using `env_vars` with encrypted state. The provider's [Secrets in Terraform guide](https://github.com/fluxvale/terraform-provider-fluxvale/blob/main/docs/guides/secrets.md) has the full ladder, the unencrypted-state migration, and AWS KMS, GCP KMS, Azure Key Vault, and OpenBao key variants.
+The platform rolls a running app after an env change. If the app's quota cannot fit a second pod during that rollout, stop it (`running = false`), apply the bump, then start it again (`running = true`); otherwise the rollout can mark the instance `error`.
+
+Write-only inputs need Terraform 1.12+ or OpenTofu 1.13+ and provider 0.4.0+ (pending release). Existing configurations need no change, and older CLIs can keep using `env_vars` with state encryption at rest. The provider's [Secrets in Terraform guide](https://github.com/fluxvale/terraform-provider-fluxvale/blob/main/docs/guides/secrets.md) has the full ladder, the unencrypted-state migration, and the OpenTofu AWS KMS, GCP KMS, Azure Key Vault, and OpenBao key variants.
 
 ### Read an existing instance
 
@@ -232,4 +234,4 @@ The provider follows the platform's API, and 0.x may still adjust computed field
 
 From 0.3.0, `env_vars` updates in place; it is write-only on the wire — never echoed — but a normal Terraform attribute, not a Terraform write-only attribute. Plaintext values still live in state.
 
-`secret_env_vars`, `secret_env_vars_version`, and the computed `secret_env_vars_keys` are additive: existing configurations need no change. The new attributes require Terraform 1.12+ or OpenTofu 1.13+; on an older CLI, leave them out and use `env_vars` plus state encryption.
+`secret_env_vars`, `secret_env_vars_version`, and the computed `secret_env_vars_keys` are additive: existing configurations need no change. The new attributes require Terraform 1.12+ or OpenTofu 1.13+ and provider 0.4.0+ (pending release); on an older CLI, leave them out and use `env_vars` plus state encryption at rest.
