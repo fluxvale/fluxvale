@@ -1,35 +1,102 @@
 ---
 title: Single sign-on with Pocket ID
-description: One passkey identity for your app suite, wired app by app with Pocket ID.
+description: One passkey identity for your apps, with the Pocket ID and Forgejo wiring verified end to end.
 order: 50
 slug: sso
 ---
 
-Pocket ID is the identity app in the catalog. Deploy it, claim it, add a passkey, and your other apps can hand their sign-in to it over OpenID Connect.
+Pocket ID is the identity app in the catalog. Deploy it, claim it, add a passkey, and your other apps hand their sign-in to it over OpenID Connect. This page is the shared setup plus the full Pocket ID + Forgejo recipe, verified against a live stack. The other apps' fields and callbacks are in the [sign-in with Pocket ID guide](https://fluxvale.com/guides/sign-in-with-pocket-id).
 
-## What it gives you
+## What it covers
 
 One identity, one passkey, across your apps. No password reuse, no per-app credential sprawl. Pocket ID speaks OpenID Connect, which most self-hosted apps understand natively.
 
-Six catalog apps consume it today: Forgejo, Kavita, Vaultwarden, ActualBudget, Memos, and Vikunja.
+Six catalog apps consume it today: Forgejo, Kavita, Vaultwarden, ActualBudget, Memos, and Vikunja. Umami is not one of them. The self-hosted Umami in the catalog has no OIDC client; SSO is an Umami Cloud feature.
 
-## Deploy it first
+## Before you wire an app
 
-Deploy Pocket ID from the [catalog](https://fluxvale.com/catalog) before the apps that will use it. Keep the instance public, because the other apps' servers fetch tokens from it directly. The issuer URL has to work from their containers, not only in your browser.
+### Deploy Pocket ID first
 
-Run it always-on. If the identity instance sleeps, the first sign-in after a wake can fail. Turn on **Always on** on the instance page after deploy. An always-on instance bills its running rate around the clock, so size it small.
+Deploy Pocket ID before the apps that will use it. Keep the instance public. The apps' servers fetch tokens from it directly, so the issuer URL has to work from their containers, not only in your browser.
 
-## Wire your apps
+Turn on **Always on** on the instance page after deploy. An identity instance that sleeps fails the first sign-in after a wake, and the apps that point at it fail with it. Always-on bills its running rate around the clock, so size it small.
 
-Create one OIDC client per app in Pocket ID, then wire each app with its client ID and secret:
+### Keep a second passkey outside it
 
-- Some apps, such as Vaultwarden, ActualBudget, and Vikunja, take the provider settings on the deploy form.
-- Others, such as Forgejo, Kavita, and Memos, are configured inside the app after deploy.
+Add a second passkey from a device that does not depend on Pocket ID, such as a phone or a hardware key. If the only passkey lives in an app whose sign-in goes through Pocket ID, one lost device or one broken instance locks you out of both.
 
-The full wiring walkthrough, with every app's callback path and the exact fields, lives in the [sign-in with Pocket ID guide](https://fluxvale.com/guides/sign-in-with-pocket-id).
+### Create the user, then the client
+
+In Pocket ID open **Administration**, then **Users**, and create one user per person.
+
+Then open **Administration**, then **OIDC Clients**, then **Add OIDC Client**. Name the client `Forgejo` and set the callback to:
+
+```
+https://<forgejo-host>/user/oauth2/PocketID/callback
+```
+
+The `PocketID` segment is the Forgejo authentication source name. Name the source `PocketID`, or change the callback to match. Other apps use the same shape with their own name and callback. The client page shows the client ID, the client secret, and the discovery URL.
+
+### Unrestrict the client
+
+A new client starts restricted to **Selected user groups** with no groups selected. **All Users** is not the default, even though it looks like the obvious choice. The first sign-in then fails inside Pocket ID with:
+
+```
+You are not allowed to access this service.
+```
+
+Open the client's **Access** tab and choose **Unrestrict**, then **All Users**. The dialog says the change removes all group assignments for the client and lets any user sign in. Do this for every client that should be open to everyone.
+
+## Forgejo end to end
+
+Verified with Pocket ID 2.19.2 and Forgejo 16.0.5.
+
+### Add the authentication source
+
+In Forgejo open **Site Administration**, then **Identity & Access**, then **Authentication Sources**, then **Add OAuth2**, and choose **OpenID Connect**.
+
+Set:
+
+- **Name**: `PocketID`. This name is part of the callback path.
+- **Discovery URL**: the one on the Pocket ID client page, ending in `/.well-known/openid-configuration`.
+- **Client ID** and **Client secret**: from the same client page.
+- **Additional scopes**: `openid email profile`.
+- Tick **This authentication source is activated**.
+
+Save. The source appears in the list, marked active.
+
+### Create the Forgejo user first
+
+Forgejo 16.0.5 has no auto-registration control on the authentication-source form. Its global `[oauth2_client] ENABLE_AUTO_REGISTRATION` setting defaults to `false`, so Forgejo does not create an account for an unknown Pocket ID user. That user lands on `/user/link_account` instead of the dashboard. With registration disabled, that page cannot create the account either.
+
+Pre-create the user instead. In **Site Administration**, then **Users**, create the account, then:
+
+- Set **Authentication source** to `PocketID`.
+- Set **Authentication sign-in name** to the Pocket ID user's `sub`, the UUID shown on their user page in Pocket ID. It is not the email.
+- Use the same email address as Pocket ID.
+
+The first passkey sign-in then matches that account and lands on the dashboard.
+
+If you want self-service onboarding, the only lever is the global `[oauth2_client] ENABLE_AUTO_REGISTRATION` setting. Turn it on and any Pocket ID user this client admits gets a Forgejo account. This recipe stays on the default and pre-creates users.
+
+### Sign in
+
+On Forgejo's sign-in page choose the `PocketID` source and approve with the passkey. The first sign-in lands on `/` as the pre-created user, and later sign-ins take the same path.
+
+### The local admin still works
+
+The local admin account keeps working after the OAuth2 source is active. Sign in with its username and password on Forgejo's own form, and keep it as the recovery path.
+
+## Wire your other apps
+
+Five other catalog apps consume Pocket ID: Kavita, Vaultwarden, ActualBudget, Memos, and Vikunja. Their callback paths and exact fields are in the [sign-in with Pocket ID guide](https://fluxvale.com/guides/sign-in-with-pocket-id).
+
+The Pocket ID side is the same for every app: create the client with the app's callback, then unrestrict it if everyone should sign in. The app side differs.
 
 ## If Pocket ID goes down
 
 Connected apps degrade, they do not die. Already-signed-in sessions persist. New sign-ins fail while the issuer is unreachable and come back when it is reachable again.
 
-Keep one local way in per app. And keep the Pocket ID instance backed up. Destroying it loses the identities it holds, unless you can restore from a backup you own. The [backups guide](/docs/guides/backups) covers the setup, including the backup password you will want to have saved.
+Keep one local way in per app. Forgejo's local admin is the one verified here; the other apps' recovery notes are in the [sign-in guide](https://fluxvale.com/guides/sign-in-with-pocket-id).
+
+Destroying Pocket ID is permanent. The destroy deletes the instance and its data, so the identities it holds are lost unless you can restore from a backup you own. The [backups guide](/docs/guides/backups) covers the setup, including the backup password you will want to have saved.
