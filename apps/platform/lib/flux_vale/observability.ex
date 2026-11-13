@@ -27,6 +27,16 @@ defmodule FluxVale.Observability do
     :context_lines
   ]
 
+  # The Bandit adapter's header-capture list (lowercase per its schema):
+  # the request span gets these as `http.request.header.*` attributes,
+  # the fallback the SDK's span processor reads when process context is
+  # empty.
+  @posthog_tracing_headers ["x-posthog-session-id", "x-posthog-distinct-id"]
+
+  # The exporter-gated trace chain (ADR-0012 Am. 1): runtime.exs arms this
+  # tuple only when the OTLP endpoint env is set.
+  @otel_batch_processor {:otel_batch_processor, %{exporter: {:otel_exporter_traces_otlp, %{}}}}
+
   @doc """
   True when the PromEx metrics tree should start (prod-shaped runs via
   PROMEX_ENABLED; test.exs pins the answer off).
@@ -121,6 +131,50 @@ defmodule FluxVale.Observability do
   end
 
   @doc """
+  The OpenTelemetry processors under the OTLP exporter gate: the batch
+  processor, with the PostHog context processor prepended when the
+  PostHog tree is configured.
+
+  Prepend is the SDK's contract — its processor documents "before the
+  existing export processors". It stamps person and session ids onto
+  spans so PostHog traces correlate to the signed-in person (ADR-0049
+  D1). Unarmed, the chain is exactly the pre-PostHog one.
+
+  The default reads the app env (the boot truth). runtime.exs passes the
+  env answer explicitly: it assembles config before `config :flux_vale,
+  :posthog` reaches the app env.
+  """
+  @spec otel_processors(boolean()) :: list()
+  def otel_processors(configured? \\ posthog_configured?()) do
+    if configured? do
+      [
+        {PostHog.OpenTelemetry.ContextSpanProcessor, %{supervisor_name: PostHog}},
+        @otel_batch_processor
+      ]
+    else
+      [@otel_batch_processor]
+    end
+  end
+
+  @doc """
+  Bandit adapter options — the PostHog tracing headers when the tree is
+  configured, `[]` otherwise.
+
+  opentelemetry_bandit 0.3.0 supports `request_headers` (verified in the
+  pinned adapter's schema and docs), so a fetch/XHR request span carries
+  the header fallback the SDK's processor reads: correlation covers that
+  request span too, not only child spans. Header names are lowercase per
+  the adapter, and header-sourced ids are client-controlled (process
+  context wins for child spans). Document navigations carry no tracing
+  headers. An adapter bump that drops the option fails loudly at boot
+  (NimbleOptions validation), not silently.
+  """
+  @spec bandit_setup_opts() :: keyword()
+  def bandit_setup_opts do
+    if posthog_configured?(), do: [request_headers: @posthog_tracing_headers], else: []
+  end
+
+  @doc """
   Attaches the request/query tracing handlers (called once at boot).
   """
   @spec setup_instrumentation() :: :ok
@@ -128,7 +182,7 @@ defmodule FluxVale.Observability do
     # The bandit handler owns the server span (adapter-matched per the
     # opentelemetry_phoenix docs — without it, HTTP requests produce no
     # spans); opentelemetry_phoenix layers router/LiveView events onto it.
-    OpentelemetryBandit.setup()
+    OpentelemetryBandit.setup(bandit_setup_opts())
     OpentelemetryPhoenix.setup(adapter: :bandit)
     OpentelemetryEcto.setup([:flux_vale, :repo])
 
@@ -156,6 +210,17 @@ defmodule FluxVale.Observability do
         :logger.add_handler(:posthog, PostHog.Handler, %{config: posthog_runtime_config()})
 
         :ok
+    end
+  end
+
+  # The boot/tree truth: runtime.exs applies this only after the file
+  # finishes, so otel_processors/1 takes the env answer separately. Only
+  # a real armed map counts — false/%{} would arm here while the tree
+  # stays disabled (posthog_children/0 owns that truthiness gate).
+  defp posthog_configured? do
+    case Application.get_env(:flux_vale, :posthog) do
+      %{api_key: key} when is_binary(key) and key != "" -> true
+      _unarmed -> false
     end
   end
 

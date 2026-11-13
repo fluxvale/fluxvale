@@ -251,6 +251,109 @@ defmodule FluxVale.ObservabilityTest do
     end
   end
 
+  describe "otel_processors/0" do
+    setup do
+      original = Application.get_env(:flux_vale, :posthog)
+
+      on_exit(fn ->
+        case original do
+          nil -> Application.delete_env(:flux_vale, :posthog)
+          value -> Application.put_env(:flux_vale, :posthog, value)
+        end
+      end)
+
+      :ok
+    end
+
+    test "the plain batch processor when unarmed (the dev/test shape)" do
+      Application.delete_env(:flux_vale, :posthog)
+
+      assert Observability.otel_processors() == [
+               {:otel_batch_processor, %{exporter: {:otel_exporter_traces_otlp, %{}}}}
+             ]
+    end
+
+    test "the PostHog context processor prepended when armed" do
+      with_env("POSTHOG_API_KEY", "phc_test_posthog_key", fn ->
+        {:ok, cfg} = Observability.posthog_config()
+        Application.put_env(:flux_vale, :posthog, cfg)
+
+        assert Observability.otel_processors() == [
+                 {PostHog.OpenTelemetry.ContextSpanProcessor, %{supervisor_name: PostHog}},
+                 {:otel_batch_processor, %{exporter: {:otel_exporter_traces_otlp, %{}}}}
+               ]
+      end)
+    end
+
+    test "a stray POSTHOG_API_KEY does not arm the suite (app env is the truth)" do
+      with_env("POSTHOG_API_KEY", "phc_stray_test_key", fn ->
+        Application.delete_env(:flux_vale, :posthog)
+
+        assert Observability.otel_processors() == [
+                 {:otel_batch_processor, %{exporter: {:otel_exporter_traces_otlp, %{}}}}
+               ]
+      end)
+    end
+
+    test "runtime.exs arms the processor when both env gates are set" do
+      # runtime.exs passes the env answer explicitly because
+      # `config :flux_vale, :posthog` has not reached the app env yet —
+      # this pins the real file (the ordering bug pure-helper tests miss,
+      # #753 review).
+      with_env("POSTHOG_API_KEY", "phc_test_posthog_key", fn ->
+        with_env("OTEL_EXPORTER_OTLP_ENDPOINT", "http://alloy:4318", fn ->
+          path = Path.expand("../../config/runtime.exs", __DIR__)
+          config = Config.Reader.read!(path, env: :dev)
+
+          assert config[:opentelemetry][:processors] == [
+                   {PostHog.OpenTelemetry.ContextSpanProcessor, %{supervisor_name: PostHog}},
+                   {:otel_batch_processor, %{exporter: {:otel_exporter_traces_otlp, %{}}}}
+                 ]
+        end)
+      end)
+    end
+  end
+
+  describe "bandit_setup_opts/0" do
+    setup do
+      original = Application.get_env(:flux_vale, :posthog)
+
+      on_exit(fn ->
+        case original do
+          nil -> Application.delete_env(:flux_vale, :posthog)
+          value -> Application.put_env(:flux_vale, :posthog, value)
+        end
+      end)
+
+      :ok
+    end
+
+    test "no extra options when unarmed (the dev/test shape)" do
+      Application.delete_env(:flux_vale, :posthog)
+
+      assert Observability.bandit_setup_opts() == []
+    end
+
+    test "the PostHog tracing headers when armed" do
+      with_env("POSTHOG_API_KEY", "phc_test_posthog_key", fn ->
+        {:ok, cfg} = Observability.posthog_config()
+        Application.put_env(:flux_vale, :posthog, cfg)
+
+        assert Observability.bandit_setup_opts() == [
+                 request_headers: ["x-posthog-session-id", "x-posthog-distinct-id"]
+               ]
+      end)
+    end
+
+    test "a stray POSTHOG_API_KEY does not capture headers (app env is the truth)" do
+      with_env("POSTHOG_API_KEY", "phc_stray_test_key", fn ->
+        Application.delete_env(:flux_vale, :posthog)
+
+        assert Observability.bandit_setup_opts() == []
+      end)
+    end
+  end
+
   describe "setup_posthog/0" do
     setup do
       original = Application.get_env(:flux_vale, :posthog)

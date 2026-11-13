@@ -6,7 +6,7 @@
     </.header>
 
     <p class="text-xs text-ink-subtle">
-      Last updated: November 11, 2026
+      Last updated: November 13, 2026
       <%!-- set at the pre-merge push; the
       final push after sign-off re-verifies the date --%>
     </p>
@@ -20,7 +20,8 @@
         cookieless, public pages only). The PostHog analytics and
         error sentences deliberately lead their env flip (#706,
         ADR-0049, the same arc): the policy is never behind the tag.
-        Traces are disclosed at their activation in the later phase.
+        Traces are disclosed here and their PostHog export activates
+        in Phase 2.
         Advisory edits land here. The copy rules apply: plain
         sentences, no em-dashes, no semicolons. --%>
     <.card class="space-y-4" data-testid="privacy-policy">
@@ -179,6 +180,11 @@
         also go to PostHog, a second analytics service. They carry no
         cookies and no advertising trackers, and we do not use them to
         advertise to you or to profile you.
+      </p>
+      <p class="text-sm text-ink-muted">
+        Technical traces of requests to our platform also go to PostHog,
+        so we can follow a problem from your click to the code that
+        served it.
       </p>
     </.card>
 
