@@ -51,7 +51,7 @@ terraform {
   required_providers {
     fluxvale = {
       source  = "registry.terraform.io/fluxvale/fluxvale"
-      version = "~> 0.4" # 0.4.0+ (pending release): write-only secret_env_vars
+      version = "~> 0.3" # released line; the secrets section names the 0.4.0+ constraint
     }
   }
 }
@@ -119,12 +119,15 @@ Deployer-owned keys — the OIDC recipe, backing service URLs, and the instance 
 
 ### Secrets never enter state
 
-`sensitive` only hides a value in the console; the plaintext still lands in state and plan files. For values that must never be written there, use the write-only `secret_env_vars` map with its rotation integer. The attributes need provider 0.4.0+ (the release containing #764, pending) and Terraform 1.12+ or OpenTofu 1.13+. The encryption block below is OpenTofu-only; Terraform users should keep backend encryption at rest.
+`sensitive` only hides a value in the console; the plaintext still lands in state and plan files. For values that must never be written there, use the write-only `secret_env_vars` map with its rotation integer. The attributes need provider 0.4.0+ (the release containing #764, pending) and Terraform 1.12+ or OpenTofu 1.13+; pin `version = "~> 0.4"` once that release is published. The encryption block below is OpenTofu-only; Terraform users should keep backend encryption at rest.
+
+Mark the input `ephemeral = true` as well as `sensitive = true`: Terraform then keeps the variable value out of the saved plan too. Applying a saved plan requires supplying the variable again (`TF_VAR_smtp_password=…`), because an ephemeral value is never stored.
 
 ```hcl
 variable "smtp_password" {
   type      = string
   sensitive = true
+  ephemeral = true
 }
 
 variable "state_passphrase" {
@@ -160,7 +163,7 @@ resource "fluxvale_instance" "reading" {
 }
 ```
 
-On Terraform 1.12+, drop the `encryption` block and rely on your backend's encryption at rest; the instance inputs are the same:
+On Terraform 1.12+, drop the `encryption` block, change `required_version` to `>= 1.12.0`, and rely on your backend's encryption at rest; the instance inputs are the same:
 
 ```hcl
 resource "fluxvale_instance" "reading" {
@@ -170,7 +173,7 @@ resource "fluxvale_instance" "reading" {
 }
 ```
 
-The values never appear in `terraform.tfstate` or the saved plan. Because Terraform cannot see a write-only change, the version integer is the rotation signal: change a value and bump it, and bump on any key add, removal, or move between the two maps. Removing a key is drop-key-plus-bump; a key-set change with an unchanged version is refused. The computed `secret_env_vars_keys` list is how the provider tracks which keys it manages. A key in both `env_vars` and `secret_env_vars` is a plan-time error. With no secrets, leave both attributes unset. Proving it after an apply — on an encrypted state, grep the decrypted form:
+The values never appear in `terraform.tfstate` or the saved plan. Because Terraform cannot see a write-only change, the version integer is the rotation signal: change a value and bump it, and bump on any key add, removal, or move between the two maps. Removing a key is drop-key-plus-bump; a key-set change with an unchanged version is refused. The computed `secret_env_vars_keys` list is how the provider tracks which keys it manages. A key in both `env_vars` and `secret_env_vars` is a plan-time error when both maps are known; if `secret_env_vars` is unknown at plan time the overlap check runs at apply, where an overlap fails the update and a still-unknown map skips the update with a warning. With no secrets, leave both attributes unset. Proving it after an apply — on an encrypted state, grep the decrypted form:
 
 ```sh
 tofu state pull | grep -c 'the-secret-value'
