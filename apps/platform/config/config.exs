@@ -56,6 +56,7 @@ config :flux_vale,
     FluxVale.Infrastructure,
     FluxVale.Pricing,
     FluxVale.Api,
+    FluxVale.OAuth,
     FluxVale.Feedback
   ],
   generators: [timestamp_type: :utc_datetime],
@@ -453,6 +454,10 @@ config :flux_vale, Oban,
        # 03:30 (same queue, same one-lock stance; the janitor quartet
        # staggers).
        {"45 3 * * *", FluxVale.Janitor.PruneDeviceCodes},
+       # #766: OAuth authorization codes are 60-second capabilities and
+       # audit rows keep the API trail's 90-day horizon.
+       {"0 4 * * *", FluxVale.Janitor.PruneOAuthCodes},
+       {"15 4 * * *", FluxVale.Janitor.PruneOAuthAuditEvents},
        # #124's ladder sweep, hourly at :07 — off the top-of-hour rush
        # (#113's stance; the reconciler minute-tick and smoke crons sit
        # there).

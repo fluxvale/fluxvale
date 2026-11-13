@@ -3,12 +3,14 @@ defmodule FluxValeWeb.Plugs.Authenticate do
   Resolves the current user — bearer-PAT-first, session-fallback
   (#360; the JWT bearer of #24 lives on only outside /api/v1).
 
-  Bearer PAT: a value starting `fvpat_` resolves through the
-  `personal_access_tokens` table — the SHA-256 hash lookup must find
-  a row that is neither revoked nor expired. On success the token's
+  Bearer token: a value starting `fvpat_` (PAT) or `fvoat_` (OAuth
+  access token) resolves through the `personal_access_tokens` table —
+  the SHA-256 hash lookup must find a row that is neither revoked nor
+  expired AND whose kind matches the prefix. On success the token's
   user is assigned (`current_user`) and the row itself (`api_pat`,
   the boundary plug's scope source). The raw value is never stored
   or logged; `last_used_at` is touched at most once a minute.
+  Refresh tokens (`fvort_`) never authenticate a request.
 
   JWT bearer: only consulted OFF `/api/v1` (test-inbox, admin) — on
   `/api/v1` a JWT bearer is refused outright. The #23 JWT PAT mint is
@@ -40,6 +42,7 @@ defmodule FluxValeWeb.Plugs.Authenticate do
   require Logger
 
   @pat_prefix "fvpat_"
+  @oauth_access_prefix "fvoat_"
   # last_used_at granularity — coarser stamps buy nothing (nothing
   # displays finer than "recently") and the write is per-request.
   @last_used_granularity_seconds 60
@@ -72,13 +75,13 @@ defmodule FluxValeWeb.Plugs.Authenticate do
     end
   end
 
-  # PAT bearers resolve everywhere; the JWT bearer only off /api/v1
-  # (see the moduledoc — ADR-0019 Am. 1).
+  # PAT and OAuth access bearers resolve everywhere; the JWT bearer
+  # only off /api/v1 (see the moduledoc — ADR-0019 Am. 1).
   defp resolve_bearer(conn) do
-    case pat_bearer_value(conn) do
+    case token_bearer_value(conn) do
       nil ->
         if api_v1?(conn) do
-          # A JWT (or any non-PAT value) on /api/v1 is refused — no
+          # A JWT (or any non-token value) on /api/v1 is refused — no
           # fallback into the JWT verifier. Failure posture is the
           # shared one: no current_user from this branch, session
           # still consulted below.
@@ -87,12 +90,12 @@ defmodule FluxValeWeb.Plugs.Authenticate do
           Helpers.retrieve_from_bearer(conn, :flux_vale)
         end
 
-      raw ->
-        from_pat(conn, raw)
+      {raw, kind} ->
+        from_token(conn, raw, kind)
     end
   end
 
-  defp from_pat(conn, raw) do
+  defp from_token(conn, raw, expected_kind) do
     # System lookup (seeds/janitor posture): the plug has no actor to
     # authorize — the raw-value/hash match IS the proof, revoked and
     # expired are checked right here, and downstream policies bite
@@ -100,8 +103,15 @@ defmodule FluxValeWeb.Plugs.Authenticate do
     hash = PersonalAccessToken.token_hash(raw)
 
     case PersonalAccessToken.get_by_token_hash(hash, authorize?: false) do
-      {:ok, pat} when is_nil(pat.revoked_at) ->
-        resolve_user(conn, pat)
+      {:ok, token} when is_nil(token.revoked_at) ->
+        # The prefix is a claim, not the proof: a refresh token
+        # presented as an access token must not authenticate, and a
+        # PAT prefix on an OAuth row is a mismatch too.
+        if token.kind == expected_kind do
+          resolve_user(conn, token)
+        else
+          conn
+        end
 
       _revoked_or_missing ->
         conn
@@ -188,15 +198,23 @@ defmodule FluxValeWeb.Plugs.Authenticate do
     end
   end
 
-  # The bearer value when it is a PAT, nil otherwise (JWT, garbage, or
-  # absent).
-  defp pat_bearer_value(conn) do
+  # The bearer value + its expected kind when it is a PAT or OAuth
+  # access token, nil otherwise (JWT, refresh token, garbage, absent).
+  defp token_bearer_value(conn) do
     authorization_headers = Plug.Conn.get_req_header(conn, "authorization")
 
     Enum.find_value(authorization_headers, fn
-      "Bearer " <> rest -> if String.starts_with?(rest, @pat_prefix), do: rest
+      "Bearer " <> rest -> bearer_kind(rest)
       _other_header -> nil
     end)
+  end
+
+  defp bearer_kind(rest) do
+    cond do
+      String.starts_with?(rest, @pat_prefix) -> {rest, :pat}
+      String.starts_with?(rest, @oauth_access_prefix) -> {rest, :oauth_access}
+      true -> nil
+    end
   end
 
   defp api_v1?(%Plug.Conn{path_info: ["api", "v1" | _rest]}), do: true

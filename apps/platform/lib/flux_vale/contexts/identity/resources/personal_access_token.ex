@@ -38,6 +38,16 @@ defmodule FluxVale.Identity.PersonalAccessToken do
     # lookup could never resolve).
     references do
       reference(:user, on_delete: :delete)
+      # #766: deleting a registered client takes its token rows along
+      # (the derivative-credential posture; no orphan can resolve).
+      reference(:oauth_client, on_delete: :delete)
+    end
+
+    custom_indexes do
+      # The connection-family read (settings Disconnect, refresh reuse)
+      # filters and orders on the family.
+      index([:token_family_id])
+      index([:oauth_client_id])
     end
   end
 
@@ -158,11 +168,38 @@ defmodule FluxVale.Identity.PersonalAccessToken do
       allow_nil?(false)
       public?(true)
     end
+
+    # #766: the row's credential class. PATs keep the :pat default
+    # (every existing row and every existing caller is unchanged);
+    # OAuth access/refresh rows are minted only by the authorization
+    # server's create_oauth action.
+    attribute :kind, FluxVale.Identity.PersonalAccessToken.Kind do
+      allow_nil?(false)
+      default(:pat)
+      public?(false)
+    end
+
+    # The OAuth binding: which registered client a token pair belongs
+    # to, the RFC 8707 resource it was issued for, and the rotation
+    # family shared by an access/refresh pair. All nil on PATs.
+    attribute :resource, :string do
+      public?(false)
+      constraints(max_length: 2048)
+    end
+
+    attribute :token_family_id, :uuid do
+      public?(false)
+    end
   end
 
   relationships do
     belongs_to :user, FluxVale.Identity.User do
       allow_nil?(false)
+      public?(false)
+    end
+
+    belongs_to :oauth_client, FluxVale.OAuth.Client do
+      allow_nil?(true)
       public?(false)
     end
   end
@@ -200,6 +237,32 @@ defmodule FluxVale.Identity.PersonalAccessToken do
       validate(ScopesCatalog, where: changing(:scopes))
     end
 
+    # #766: the authorization server's mint — the same table and the
+    # same hash/scopes/expiry machinery, plus the OAuth binding. A
+    # dedicated action keeps the PAT create surface untouched and makes
+    # the kind/ client / resource / family fields system-only (private
+    # arguments, never accepted from a caller).
+    create :create_oauth do
+      description("System write — one OAuth access or refresh token row")
+      accept([:name, :scopes, :expires_at, :user_id])
+
+      argument(:token_hash, :string, allow_nil?: false, sensitive?: true, public?: false)
+      argument(:kind, :atom, allow_nil?: false, public?: false)
+      argument(:oauth_client_id, :uuid, allow_nil?: false, public?: false)
+      argument(:resource, :string, allow_nil?: false, public?: false)
+      argument(:token_family_id, :uuid, allow_nil?: false, public?: false)
+      argument(:metadata, :map, allow_nil?: false, default: %{}, public?: false)
+
+      change(set_attribute(:token_hash, arg(:token_hash)))
+      change(set_attribute(:kind, arg(:kind)))
+      change(set_attribute(:oauth_client_id, arg(:oauth_client_id)))
+      change(set_attribute(:resource, arg(:resource)))
+      change(set_attribute(:token_family_id, arg(:token_family_id)))
+      change(set_attribute(:metadata, arg(:metadata)))
+
+      validate(ScopesCatalog, where: changing(:scopes))
+    end
+
     read :get do
       description("Fetch a PAT by id — owner or platform admin per policy")
       get?(true)
@@ -217,7 +280,23 @@ defmodule FluxVale.Identity.PersonalAccessToken do
     read :list_for_user do
       description("A user's PAT rows — owner or platform admin per policy")
       argument(:user_id, :uuid, allow_nil?: false)
-      filter(expr(user_id == ^arg(:user_id)))
+      filter(expr(user_id == ^arg(:user_id) and kind == :pat))
+    end
+
+    # #766: the settings page's Connected apps section reads OAuth
+    # token rows separately — the API tokens panel must keep showing
+    # PATs only, and vice versa.
+    read :list_oauth_tokens do
+      description("A user's OAuth token rows — owner or platform admin per policy")
+      argument(:user_id, :uuid, allow_nil?: false)
+      filter(expr(user_id == ^arg(:user_id) and kind in [:oauth_access, :oauth_refresh]))
+    end
+
+    read :list_oauth_family do
+      description("One OAuth connection family — owner or platform admin per policy")
+      argument(:user_id, :uuid, allow_nil?: false)
+      argument(:token_family_id, :uuid, allow_nil?: false)
+      filter(expr(user_id == ^arg(:user_id) and token_family_id == ^arg(:token_family_id)))
     end
 
     update :revoke do
@@ -226,6 +305,17 @@ defmodule FluxVale.Identity.PersonalAccessToken do
       # SetRevokedAt reads the row's current state (idempotence) — a
       # plain change Ash cannot run atomically (set_primary's trade).
       require_atomic?(false)
+      change(SetRevokedAt)
+    end
+
+    # #766: rotation's conditional sever. Unlike :revoke (idempotent by
+    # contract), this one only wins while the row is live — a stale
+    # refusal is the refresh-reuse signal.
+    update :revoke_if_live do
+      description("Revoke only a live token — the OAuth refresh rotation's race guard")
+      accept([])
+      require_atomic?(false)
+      change(FluxVale.Identity.PersonalAccessToken.RequireLive)
       change(SetRevokedAt)
     end
 
@@ -242,7 +332,10 @@ defmodule FluxVale.Identity.PersonalAccessToken do
     define(:get, args: [:id])
     define(:get_by_token_hash, args: [:token_hash])
     define(:list_for_user, args: [:user_id])
+    define(:list_oauth_tokens, args: [:user_id])
+    define(:list_oauth_family, args: [:user_id, :token_family_id])
     define(:revoke)
+    define(:revoke_if_live)
     define(:touch_last_used)
   end
 

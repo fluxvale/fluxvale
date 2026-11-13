@@ -3,13 +3,14 @@ defmodule FluxValeWeb.Plugs.AuthenticateTest do
 
   use FluxValeWeb.ConnCase, async: true
 
+  import FluxVale.TestSupport.OAuthFixtures
+
   alias AshAuthentication.Jwt
   alias AshAuthentication.Plug.Helpers
   alias AshAuthentication.TokenResource.Actions
   alias FluxVale.Identity.User
   alias FluxVale.Identity.UserEmail
   alias FluxVale.Ops.AccessRule
-  alias FluxVale.TestSupport.AccountsFixtures
   alias FluxValeWeb.Plugs.Authenticate
 
   setup do
@@ -75,6 +76,58 @@ defmodule FluxValeWeb.Plugs.AuthenticateTest do
         |> Authenticate.call([])
 
       assert conn.assigns.current_user.id == user.id
+    end
+
+    test "an OAuth access token authenticates through the same path", %{conn: conn} do
+      user = user!()
+      client = client!()
+
+      %{tokens: tokens} =
+        tokens!(client, user, %{"scope" => "instances:read wallet:read"})
+
+      conn =
+        conn
+        |> plug_conn()
+        |> Plug.Conn.put_req_header("authorization", "Bearer " <> tokens.access_token)
+        |> Authenticate.call([])
+
+      assert conn.assigns.current_user.id == user.id
+      assert conn.assigns.api_pat.kind == :oauth_access
+      assert conn.assigns.api_pat.scopes == ["instances:read", "wallet:read"]
+    end
+
+    test "an OAuth refresh token never authenticates an API call", %{conn: conn} do
+      user = user!()
+      client = client!()
+
+      %{tokens: tokens} = tokens!(client, user)
+
+      conn =
+        conn
+        |> plug_conn()
+        |> Plug.Conn.put_req_header("authorization", "Bearer " <> tokens.refresh_token)
+        |> Authenticate.call([])
+
+      refute conn.assigns[:current_user]
+    end
+
+    test "a kind/prefix mismatch is refused", %{conn: conn} do
+      user = user!()
+      client = client!()
+
+      %{tokens: tokens} = tokens!(client, user)
+
+      # The same OAuth row with the PAT prefix is not a PAT.
+      conn =
+        conn
+        |> plug_conn()
+        |> Plug.Conn.put_req_header(
+          "authorization",
+          "Bearer fvpat_" <> String.replace_prefix(tokens.access_token, "fvoat_", "")
+        )
+        |> Authenticate.call([])
+
+      refute conn.assigns[:current_user]
     end
   end
 

@@ -1,0 +1,32 @@
+defmodule FluxVale.OAuth.Operations.RevokeConnection do
+  @moduledoc """
+  The settings page's Disconnect (#766): revoke every token row in one
+  OAuth family, owner-scoped by the token read policy. The next MCP
+  call presents a revoked access token and gets 401.
+
+  Idempotent: an already-severed family still answers `{:ok, count}`.
+  """
+
+  alias FluxVale.OAuth.Operations.RecordAuditEvent
+  alias FluxVale.OAuth.Operations.RevokeFamily
+
+  @doc """
+  Revokes `family_id` for `actor`. Returns `{:ok, count}` or an Ash
+  policy/read error.
+  """
+  @spec call(term(), String.t(), keyword()) :: {:ok, non_neg_integer()} | {:error, term()}
+  def call(actor, family_id, opts \\ []) do
+    opts = Keyword.put(opts, :actor, actor)
+
+    with {:ok, count} <- RevokeFamily.call(actor.id, family_id, opts) do
+      RecordAuditEvent.call(%{
+        kind: :connection_revoked,
+        actor_id: actor.id,
+        token_family_id: family_id,
+        metadata: %{"tokens_revoked" => count}
+      })
+
+      {:ok, count}
+    end
+  end
+end
