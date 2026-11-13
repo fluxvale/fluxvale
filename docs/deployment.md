@@ -384,7 +384,7 @@ rollout undo` (Flux reasserts git state within minutes), never
 | Additive migration, feature broke | **Revert code only; leave schema — but only if the schema remains write-compatible with the previous image** (nullable additions yes; new `NOT NULL`/constraints the old code can't satisfy → harmful-migration row). Orphaned additive schema is harmless; clean up in a later contract release. The default — counter-migrations are rare
    ([ADR-0014](adr/00014-rollback-protocol.md) Am. 1). |
 | Harmful migration itself | Revert PR = code revert **+ counter-migration** (new migration N+1): revert the resource code, let the Ash migration generator diff the undo, review. One deploy, code and schema revert in lockstep. |
-| One-way door | Fix forward or restore from backup. |
+| One-way door | Fix forward or restore from [backup](runbooks/platform-db-dr.md). |
 
 Manifest-caused failures (bad limits, Traefik config): revert the
 **fleet repo** PR — same protocol, different repo.

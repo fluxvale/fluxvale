@@ -14,6 +14,7 @@ what's still open. v1: <https://github.com/fluxvale/fluxvale_old>
 | [deployment.md](deployment.md) | Deploy pipeline, smoke tests, migration rules, rollback protocol |
 | [runbooks/block-storage.md](runbooks/block-storage.md) | **Internal** operator runbook: storage beyond the self-service threshold — the capacity pool ledger, when to order a block, attach steps, approve/verify (#250) |
 | [runbooks/google-oauth-client.md](runbooks/google-oauth-client.md) | **Internal** owner runbook: creating the Google OAuth client for Sign in with Google — consent screen, redirect URIs, BWS staging, launch-day flip (#642) |
+| [runbooks/platform-db-dr.md](runbooks/platform-db-dr.md) | **Internal** operator runbook: platform database backup verification + isolated PITR restore drill — chain checks, exact restore commands, row evidence, teardown (#758) |
 | [observability.md](observability.md) | Monitoring stack, instrumentation plan, alert set |
 | [mcp.md](mcp.md) | The MCP tool surface ([#484](https://github.com/fluxvale/fluxvale/issues/484)): the agent quickstart (mirrors the in-app `/settings/agents` page), the 17-tool catalog, and the tool-surface changelog — any tool add/rename/removal updates it in the same PR |
 | [pricing-calibration.md](pricing-calibration.md) | The ADR-0028 launch-gate check: price table, market anchor, density math |
