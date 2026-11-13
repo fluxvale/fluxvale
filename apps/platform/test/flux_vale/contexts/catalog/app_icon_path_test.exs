@@ -49,7 +49,7 @@ defmodule FluxVale.Catalog.AppIconPathTest do
     end
   end
 
-  test "rejects a javascript: icon_url at update (the :update accept list runs the type)" do
+  test "rejects a javascript: icon_url at update (the update action change runs the type)" do
     app = app!(%{icon_url: "/images/catalog/forgejo/icon.svg"})
 
     assert_raise Ash.Error.Invalid, fn ->

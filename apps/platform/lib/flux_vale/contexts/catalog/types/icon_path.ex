@@ -21,6 +21,8 @@ defmodule FluxVale.Catalog.Types.IconPath do
   one contract. Reads use the string attribute, so rows written before
   the contract (a legacy hotlink) stay readable and the seed can heal
   them. A `NewType` over `:string` keeps the JSON:API schema a string.
+  The directory must be slug shaped; it is not cross-checked against
+  the row's own slug, so any vendored icon path is accepted.
 
   Not every path that can touch the column is gated: `Ash.Seed.seed!`,
   `Repo.update_all/2`, and direct SQL bypass action changes by design.
