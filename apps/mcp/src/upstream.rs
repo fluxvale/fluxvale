@@ -142,10 +142,17 @@ pub(crate) async fn terraform_import_bundle(
     base: Arc<str>,
     token: Token,
     organization: String,
+    api_url: Option<String>,
 ) -> Result<Value, String> {
     on_blocking_string(move || {
-        let bundle = fluxvale_api::terraform::bundle(&ApiClient::new(&base, token), &organization)
-            .map_err(|err| err.to_string())?;
+        let client = ApiClient::new(&base, token);
+        let bundle = match api_url.as_deref() {
+            Some(url) => fluxvale_api::terraform::bundle_with(&client, &organization, url),
+            // No implicit upstream origin: it can be an in-cluster
+            // service name the caller's machine cannot resolve.
+            None => fluxvale_api::terraform::bundle_default(&client, &organization),
+        }
+        .map_err(|err| err.to_string())?;
         Ok(json!({
             "organization": bundle.organization,
             "files": bundle

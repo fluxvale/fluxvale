@@ -164,14 +164,14 @@ tofu apply
 
 No resource bodies are rendered. `-generate-config-out` is the official, provider-schema-aware writer; hand-rendered HCL would rot as the schema moves.
 
-The MCP tool `terraform_import_bundle` returns the same three files (path and content) without writing anywhere. It reads instances, backup settings, the access gateway, and custom domains, so its full scope set is `instances:read` + `backups:read` + `gateways:read`.
+The MCP tool `terraform_import_bundle` returns the same three files (path and content) without writing anywhere. The CLI stamps its configured base URL into `versions.tf`; the MCP tool leaves the provider on its production default unless the caller passes `api_url` (for staging, pass `https://staging.fluxvale.com` — the server's own upstream URL can be cluster-internal). It reads instances, backup settings, the access gateway, and custom domains, so its full scope set is `instances:read` + `backups:read` + `gateways:read`.
 
 ### Caveats
 
 - **Write-only values are never readable back.** `generated.tf` cannot carry `env_vars` or a backup's `secret_access_key`; set them in the panel after adoption. The encrypted-env path in [ADR-0053](https://github.com/fluxvale/fluxvale/blob/main/docs/adr/00053-terraform-secret-env.md) is design-only and not in provider 0.3.0.
 - **Generated config may need small edits before a clean plan.** `app`/`app_version` on an imported instance have no wire echo, the gateway's `instances` set is config-authoritative and starts null, and `rotate_secret_on` is config-only posture. Fill in what you want Terraform to manage, then re-plan.
 - **Only user-owned domains are exported.** The org's system-minted `platform` access domain is skipped; `fluxvale_custom_domain` manages `custom` rows.
-- **PocketID SSO import is a provider gap.** Provider 0.3.0 does not implement `import` for `fluxvale_pocket_id_sso`. The scaffold comments those blocks out, with the instance id as the import id; uncomment them after upgrading to a provider that supports import. Live `deleting` and `lost` instances are skipped for the same reason — there is no remote object to adopt.
+- **PocketID SSO import is a provider gap.** Provider 0.3.0 does not implement `import` for `fluxvale_pocket_id_sso`. The scaffold comments those blocks out, with the instance id as the import id; raise the provider constraint to the release that adds import, then uncomment them. Live `deleting` and `lost` instances are skipped for the same reason — there is no remote object to adopt.
 - **Gateway attachments are not discoverable.** The API has no attachment list, so `instances` stays null after import. Add the set by hand if Terraform should own it.
 
 ## Compatibility

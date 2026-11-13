@@ -144,7 +144,7 @@ the surface change and the PR.
 
 ### 2026-11-13 — Terraform promotion
 
-- `terraform_import_bundle` renders the same three-file scaffold as `fluxvale terraform import`: `versions.tf`, `imports.tf` (one import block per live resource, with each resource's own import-id shape), and `README.md`. Read-only, no filesystem writes. ([#763](https://github.com/fluxvale/fluxvale/issues/763))
+- `terraform_import_bundle` renders the same three-file scaffold as `fluxvale terraform import`: `versions.tf`, `imports.tf` (one import block per live instance, backup setting, gateway, and custom domain — plus commented PocketID SSO blocks, because provider 0.3.0 cannot import them — with each resource's own import-id shape), and `README.md`. Read-only, no filesystem writes. Pass `api_url` for staging; omit it for production. ([#763](https://github.com/fluxvale/fluxvale/issues/763))
 
 ### 2026-11-09 — the initial surface
 

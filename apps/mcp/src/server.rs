@@ -141,6 +141,11 @@ pub(crate) struct OrgParams {
 pub(crate) struct TerraformImportParams {
     /// The organization's slug or id (from `whoami`).
     pub organization: String,
+    /// The platform origin to pin in `versions.tf`, e.g.
+    /// `https://staging.fluxvale.com`. Omit for production (the
+    /// provider's default). The server's upstream URL may be an
+    /// in-cluster service name, so it is not used implicitly.
+    pub api_url: Option<String>,
 }
 
 /// `wallet_ledger`'s input.
@@ -253,17 +258,28 @@ versions.tf, imports.tf (one import block per live instance, backup \
 setting, access gateway, custom domain, and PocketID SSO wiring), and \
 README.md with the adoption steps. Read-only — returns the file \
 contents and writes nothing. Addresses come from slugs/names; the \
-resource bodies are left to `tofu plan -generate-config-out`.",
+resource bodies are left to `tofu plan -generate-config-out`. Pass \
+`api_url` for a non-production platform (e.g. staging); omit it for \
+production.",
         annotations(read_only_hint = true)
     )]
     async fn terraform_import_bundle(
         &self,
-        Parameters(TerraformImportParams { organization }): Parameters<TerraformImportParams>,
+        Parameters(TerraformImportParams {
+            organization,
+            api_url,
+        }): Parameters<TerraformImportParams>,
         context: RequestContext<RoleServer>,
     ) -> Result<CallToolResult, ErrorData> {
         let token = self.token(&context)?;
         tool_result(
-            upstream::terraform_import_bundle(self.api_base_url.clone(), token, organization).await,
+            upstream::terraform_import_bundle(
+                self.api_base_url.clone(),
+                token,
+                organization,
+                api_url,
+            )
+            .await,
         )
     }
 
@@ -1569,6 +1585,19 @@ mod tests {
         assert!(imports.contains("id = \"i1\""));
         assert_eq!(files[2]["path"], "README.md");
         assert!(files[2]["content"].as_str().unwrap().contains("tofu init"));
+
+        // A caller on staging names its public origin explicitly.
+        let (_, body) = tools_call(
+            &app(&server),
+            PAT_FULL,
+            "terraform_import_bundle",
+            json!({"organization": "personal", "api_url": "https://staging.fluxvale.com"}),
+        )
+        .await;
+        let versions = result(&body)["structuredContent"]["files"][0]["content"]
+            .as_str()
+            .unwrap();
+        assert!(versions.contains("api_url = \"https://staging.fluxvale.com\""));
         // The read-shaped claim: discovery made GETs, never a write.
         let heads = (before..server.head_count())
             .map(|index| server.head(index))

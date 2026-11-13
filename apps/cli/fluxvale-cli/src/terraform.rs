@@ -77,12 +77,12 @@ fn render(out: &Path, bundle: &Bundle, output: Output) -> String {
                 .map(|file| file.name)
                 .collect::<Vec<_>>()
                 .join(", ");
-            let next = if out == Path::new(".") {
+            let next = if is_current_dir(out) {
                 "tofu init && tofu plan -generate-config-out=generated.tf && tofu apply".to_string()
             } else {
                 format!(
                     "cd {} && tofu init && tofu plan -generate-config-out=generated.tf && tofu apply",
-                    out.display()
+                    shell_quote(&out.display().to_string())
                 )
             };
             format!(
@@ -104,6 +104,24 @@ fn render(out: &Path, bundle: &Bundle, output: Output) -> String {
 /// The default `--out`: the current directory.
 pub fn default_out() -> PathBuf {
     PathBuf::from(".")
+}
+
+fn is_current_dir(path: &Path) -> bool {
+    path == Path::new(".") || path.as_os_str() == "./"
+}
+
+/// A single shell word for the printed next-step command. Paths with
+/// spaces or shell metacharacters get single-quoted; the embedded-quote
+/// form is the POSIX `'\''` dance.
+fn shell_quote(value: &str) -> String {
+    let safe = value
+        .chars()
+        .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.' | '/'));
+    if safe {
+        value.to_string()
+    } else {
+        format!("'{}'", value.replace('\'', "'\\''"))
+    }
 }
 
 #[cfg(test)]
@@ -190,6 +208,22 @@ mod tests {
     }
 
     #[test]
+    fn paths_with_spaces_are_quoted_in_the_next_step() {
+        let rendered = render(Path::new("infra/my org"), &bundle(), Output::Table);
+        assert!(
+            rendered.contains("next: cd 'infra/my org' && tofu init &&"),
+            "{rendered}"
+        );
+        assert_eq!(shell_quote("plain/path"), "plain/path");
+        assert_eq!(shell_quote("a'b"), "'a'\\''b'");
+    }
+
+    #[test]
+    fn the_default_out_is_the_current_directory() {
+        assert_eq!(default_out(), PathBuf::from("."));
+    }
+
+    #[test]
     fn a_write_failure_cleans_up_what_this_run_created() {
         let out = temp_dir();
         let blocker = out.join("blocker");
@@ -199,6 +233,18 @@ mod tests {
         // The blocker file is untouched; no scaffold leaked into its parent.
         assert_eq!(fs::read_to_string(&blocker).unwrap(), "not a directory");
         assert!(!out.join("versions.tf").exists());
+    }
+
+    #[test]
+    fn a_mid_write_failure_removes_the_files_this_run_created() {
+        let out = temp_dir();
+        // A directory where the second file belongs makes the open fail
+        // after versions.tf was already written.
+        fs::create_dir(out.join("imports.tf")).unwrap();
+        let err = write_bundle(&out, &bundle()).unwrap_err();
+        assert!(!err.to_string().is_empty());
+        assert!(!out.join("versions.tf").exists());
+        assert!(out.join("imports.tf").is_dir());
     }
 
     #[test]
@@ -214,5 +260,56 @@ mod tests {
     fn import_rendered_for_test(out: &Path) -> String {
         write_bundle(out, &bundle()).unwrap();
         render(out, &bundle(), Output::Table)
+    }
+
+    #[test]
+    fn import_discovers_then_writes_the_scaffold() {
+        use std::io::{Read as _, Write as _};
+        use std::net::TcpListener;
+
+        let responses = vec![
+            (200, r#"{"data":[{"type":"organization","id":"org1","attributes":{"slug":"acme","name":"Acme"}}]}"#.to_string()),
+            (200, r#"{"data":[{"type":"instance","id":"i1","attributes":{"name":"Web","slug":"web-a1b2","organization_id":"org1","status":"running"}}]}"#.to_string()),
+            (404, "{}".to_string()),
+            (404, "{}".to_string()),
+            (404, "{}".to_string()),
+            (200, r#"{"data":[]}"#.to_string()),
+        ];
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let base_url = format!("http://{}", listener.local_addr().unwrap());
+        std::thread::spawn(move || {
+            for (status, body) in responses {
+                let (mut stream, _) = listener.accept().unwrap();
+                let mut head = String::new();
+                let mut buf = [0u8; 4096];
+                while !head.contains("\r\n\r\n") {
+                    let read = stream.read(&mut buf).unwrap();
+                    if read == 0 {
+                        break;
+                    }
+                    head.push_str(&String::from_utf8_lossy(&buf[..read]));
+                }
+                let reason = if status == 200 { "OK" } else { "Not Found" };
+                let response = format!(
+                    "HTTP/1.1 {status} {reason}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                let _ = stream.write_all(response.as_bytes());
+            }
+        });
+        let client = ApiClient::new(&base_url, fluxvale_api::Token::new("fvpat_test"));
+        let out = temp_dir();
+        let rendered = import(&client, "acme", &out, Output::Table).unwrap();
+        assert!(rendered.contains("terraform import scaffold for acme"));
+        assert!(
+            fs::read_to_string(out.join("imports.tf"))
+                .unwrap()
+                .contains("fluxvale_instance.web_a1b2")
+        );
+        assert!(
+            fs::read_to_string(out.join("README.md"))
+                .unwrap()
+                .contains("**Acme (acme)**")
+        );
     }
 }

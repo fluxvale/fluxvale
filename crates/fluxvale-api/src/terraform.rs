@@ -100,15 +100,31 @@ pub struct Estate {
 /// backup setting, no wiring) is a normal absence; anything else
 /// propagates verbatim.
 pub fn bundle(client: &ApiClient, org: &str) -> Result<Bundle, TerraformError> {
-    bundle_with(client, org, client.base_url())
+    bundle_at(client, org, Some(client.base_url()))
 }
 
-/// [`bundle`] with an explicit provider origin. The CLI passes its
-/// configured base URL; tests pass a stable one so the golden output
-/// does not carry a random test-server port.
+/// [`bundle`] with the provider's production default origin — no
+/// `api_url` in `versions.tf`. The MCP tool uses this when the caller
+/// did not name an origin, because its upstream URL may be an
+/// in-cluster service name that a user's machine cannot resolve.
+pub fn bundle_default(client: &ApiClient, org: &str) -> Result<Bundle, TerraformError> {
+    bundle_at(client, org, None)
+}
+
+/// [`bundle`] with an explicit provider origin. Tests pass a stable
+/// origin so the golden output does not carry a random test-server
+/// port.
 pub fn bundle_with(client: &ApiClient, org: &str, api_url: &str) -> Result<Bundle, TerraformError> {
+    bundle_at(client, org, Some(api_url))
+}
+
+fn bundle_at(
+    client: &ApiClient,
+    org: &str,
+    api_url: Option<&str>,
+) -> Result<Bundle, TerraformError> {
     let estate = discover(client, org)?;
-    Ok(render_with(&estate, Some(api_url)))
+    Ok(render_with(&estate, api_url))
 }
 
 /// The read half, exposed so tests can pin discovery separately from
@@ -116,9 +132,9 @@ pub fn bundle_with(client: &ApiClient, org: &str, api_url: &str) -> Result<Bundl
 pub fn discover(client: &ApiClient, org: &str) -> Result<Estate, TerraformError> {
     let org = resolve_org(client, org)?;
 
-    // The list route's default fields omit organization_id and status;
-    // ask for them explicitly so the org filter is a wire fact and a
-    // dying row is not offered for import.
+    // The list route's default fields omit organization_id (status is
+    // already included); ask for both explicitly so the org filter is a
+    // wire fact and a dying row is not offered for import.
     let instances_doc =
         client.get("/instances?fields[instance]=id,name,slug,organization_id,status")?;
     let resources = instances_doc.resources();
@@ -473,7 +489,9 @@ fn readme(estate: &Estate) -> String {
          \x20\x20`app`/`app_version` on an imported instance have no wire echo, the\n\
          \x20\x20gateway's `instances` set is config-authoritative and starts null,\n\
          \x20\x20and `rotate_secret_on` is config-only posture. Fill in what you want\n\
-         \x20\x20Terraform to manage, then re-plan.\n",
+         \x20\x20Terraform to manage, then re-plan.\n\
+         - **Dying instances are skipped.** `deleting` and `lost` rows are not\n\
+         \x20\x20offered for import — there is no remote object to adopt.\n",
         estate.org.slug,
         org,
         estate.instances.len(),
@@ -492,8 +510,9 @@ fn readme(estate: &Estate) -> String {
         readme.push_str(
             "\n**Provider limitation:** provider 0.3.0 does not implement\n\
              `import` for `fluxvale_pocket_id_sso`. Its blocks are commented out\n\
-             in `imports.tf`, with the instance id as the import id; uncomment\n\
-             them after upgrading to a provider that supports import.\n",
+             in `imports.tf`, with the instance id as the import id; raise the\n\
+             provider constraint to the release that adds import, then uncomment\n\
+             them.\n",
         );
     }
     readme
