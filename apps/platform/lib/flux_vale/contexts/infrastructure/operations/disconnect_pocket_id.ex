@@ -203,10 +203,16 @@ defmodule FluxVale.Infrastructure.Operations.DisconnectPocketId do
     end
   end
 
-  # The strip's cluster leg: a deployed instance carries the removal
-  # to the Secret + rollout (the app's own unset semantics — missing
-  # keys are feature-off); a pre-deploy instance's row is the whole
-  # truth until first deploy, nothing to reach.
+  # The strip's cluster leg: only a status the platform still manages
+  # reaches the Secret + rollout. `:lost` (the namespace vanished
+  # externally) and `:deleting` (teardown owns the namespace) have no
+  # workload to reach — refusing here would strand the wiring and the
+  # client delete, so the row + wiring clear is the whole disconnect.
+  # An undeployed row (nil namespace) is the same row-only shape.
+  defp apply_strip(%Instance{status: status}, _recipe_keys)
+       when status in [:lost, :deleting],
+       do: :ok
+
   defp apply_strip(%Instance{namespace: nil}, _recipe_keys), do: :ok
 
   defp apply_strip(%Instance{} = app_instance, recipe_keys) do

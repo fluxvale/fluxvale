@@ -75,6 +75,11 @@ defmodule FluxVale.Api.Scopes do
     {{"DELETE", ["instances", :_]}, "instances:write"},
     # #597 S4: the PocketID wiring verb — an instance write.
     {{"POST", ["instances", :_, "connect-pocketid"]}, "instances:write"},
+    # #731 T3: the wiring's other verbs — disconnect/rotate write, the
+    # provider's state read is a plain instance read.
+    {{"POST", ["instances", :_, "disconnect-pocketid"]}, "instances:write"},
+    {{"POST", ["instances", :_, "rotate-pocketid-secret"]}, "instances:write"},
+    {{"GET", ["instances", :_, "pocket-id-wiring"]}, "instances:read"},
     # Backups.
     {{"GET", ["instances", :_, "backup-setting"]}, "backups:read"},
     {{"GET", ["instances", :_, "backup-runs"]}, "backups:read"},

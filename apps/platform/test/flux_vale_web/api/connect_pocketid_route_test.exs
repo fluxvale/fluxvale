@@ -15,6 +15,7 @@ defmodule FluxValeWeb.Api.ConnectPocketIdRouteTest do
   setup :verify_on_exit!
 
   alias FluxVale.Clients.K8s
+  alias FluxVale.Clients.K8s.Resources.Deployment
   alias FluxVale.Clients.K8s.Resources.Secret
   alias FluxVale.Infrastructure.Instance
   alias FluxVale.Infrastructure.PocketId.ApiClient
@@ -140,12 +141,25 @@ defmodule FluxValeWeb.Api.ConnectPocketIdRouteTest do
     assert reloaded.env_vars["SSO_CLIENT_SECRET"] == @minted_secret
   end
 
-  test "a deployed instance refuses honestly — the S5 posture, by name", %{conn: conn} do
+  # #731 T3: the dispatch changed this arm — a deployed instance now
+  # rides the retrofit (row + live workload), rather than refusing with
+  # "wire before deploy". The refusal that remains is :deleting below.
+  test "a deployed instance wires through the retrofit — row + live workload", %{conn: conn} do
     user = elem(ApiPat.member!(), 0)
-    {app, pocket_id} = member_with_pocket_id(user)
+    {pending_app, pocket_id} = member_with_pocket_id(user)
     green_stubs!(pocket_id)
 
-    InstanceFixtures.walk_to!(app, :running)
+    app =
+      pending_app
+      |> InstanceFixtures.walk_to!(:running)
+      |> InstanceFixtures.pin!(namespace: "ns-retro")
+
+    expect(Secret, :upsert, fn _kc, "ns-retro", "app-env", data ->
+      send(self(), {:applied, data})
+      {:ok, %{}}
+    end)
+
+    expect(Deployment, :restart, fn _kc, "ns-retro", "app", _opts -> {:ok, %{}} end)
 
     pat = ApiPat.mint!(user, ["instances:write"])
 
@@ -157,9 +171,17 @@ defmodule FluxValeWeb.Api.ConnectPocketIdRouteTest do
         "data" => %{"pocket_id_instance_id" => pocket_id.id}
       })
 
-    assert [%{"detail" => detail} | _rest] = json_response(conn, 400)["errors"]
-    assert detail =~ "already deployed"
-    assert detail =~ "instance page"
+    assert body = json_response(conn, 201)
+    assert body["pocket_id_client_id"] == "pid-1"
+
+    # The running workload carried the wiring's env, and the row is the
+    # next deploy's truth.
+    assert_received {:applied, applied}
+    assert applied["SSO_AUTHORITY"] == @issuer
+    assert applied["SSO_CLIENT_SECRET"] == @minted_secret
+
+    assert Instance.get_by_id!(app.id, actor: user).env_vars["SSO_CLIENT_SECRET"] ==
+             @minted_secret
   end
 
   test "a deleting instance refuses honestly — nothing to wire", %{conn: conn} do
@@ -242,10 +264,11 @@ defmodule FluxValeWeb.Api.ConnectPocketIdRouteTest do
     assert detail =~ "turned off"
   end
 
-  # The key read's cluster-outage shape: use_pocket_id_key passes the
-  # K8s client's error struct verbatim — honest words on the wire,
-  # and D3's posture holds (instance untouched, deployable).
-  test "a cluster outage at the key read answers in honest words", %{conn: conn} do
+  # A cluster leg of the wiring (here the key read) hands the K8s
+  # client's error struct through: one copy true for every cluster leg
+  # (key read or Secret apply), and D3's posture holds (instance
+  # untouched, deployable).
+  test "a cluster outage during the wiring answers in honest words", %{conn: conn} do
     user = elem(ApiPat.member!(), 0)
     {app, pocket_id} = member_with_pocket_id(user)
 
@@ -269,7 +292,8 @@ defmodule FluxValeWeb.Api.ConnectPocketIdRouteTest do
       })
 
     assert [%{"detail" => detail} | _rest] = json_response(conn, 400)["errors"]
-    assert detail =~ "could not be read from the cluster"
+    assert detail =~ "cluster operation for the sign-in wiring failed"
+    assert detail =~ "retry in a moment"
 
     reloaded = Instance.get_by_id!(app.id, actor: user)
     assert reloaded.status == :pending
