@@ -195,11 +195,19 @@ defmodule FluxVale.Infrastructure.Instance do
       route(:post, "instances/:id/backup-runs", :run_backup)
       route(:post, "instances/:id/backup-runs/:backup_run_id/restore", :restore_backup)
 
-      # instances:write — #597 S4: wire this instance's sign-in to an
-      # org PocketID before deploy. Body: the PocketID instance id.
-      # Returns the wiring row (ids only — the secret lives in the
-      # instance's env, never on the wire).
+      # instances:write — #597 S4 / #731 T3: wire this instance's sign-in
+      # to an org PocketID. Body: the PocketID instance id. A
+      # pre-deploy row ships the env on its next deploy; a deployed row
+      # rides the retrofit (row + live workload). Returns the wiring row
+      # (ids only — the secret lives in the instance's env, never on the
+      # wire).
       route(:post, "instances/:id/connect-pocketid", :connect_pocketid)
+
+      # instances:write — #731 T3: unwire (idempotent: no wiring is a
+      # success with client_deleted false) and rotate the client secret.
+      route(:post, "instances/:id/disconnect-pocketid", :disconnect_pocketid)
+
+      route(:post, "instances/:id/rotate-pocketid-secret", :rotate_pocketid_secret)
     end
   end
 
@@ -420,11 +428,11 @@ defmodule FluxVale.Infrastructure.Instance do
       authorize_if(actor_present())
     end
 
-    # #597 S4: the wiring verb joins the backup posture — ownership is
-    # the authorized get_by_id inside (the operation adds the org
+    # #597 S4: the wiring verbs join the backup posture — ownership is
+    # the authorized get_by_id inside (the operations add the org
     # fence against the PocketID's own org, the status guard, and the
-    # custody requirement).
-    policy action(:connect_pocketid) do
+    # custody requirement). #731 T3 adds disconnect and rotate.
+    policy action([:connect_pocketid, :disconnect_pocketid, :rotate_pocketid_secret]) do
       description("Ownership is enforced by the authorized get_by_id read inside the action")
       authorize_if(actor_present())
     end
@@ -1351,12 +1359,13 @@ defmodule FluxVale.Infrastructure.Instance do
     # #597 S4: wire an instance's sign-in to the org's PocketID — the
     # operation's public seam (the run_backup posture: ownership is
     # the authorized get_by_id inside; every operation refusal maps
-    # to honest words below). Works on not-yet-deployed instances
-    # only; a deployed one needs S5's env-update + rollout primitive,
-    # and the error says exactly that.
+    # to honest words below). #731 T3: dispatches on the row's status —
+    # not-yet-deployed rows (pending/error/lost) ship the env on their
+    # next deploy (`ConnectPocketId.call/3`); deployed rows ride the
+    # retrofit (row + live workload, `ConnectPocketId.retrofit/3`).
     action :connect_pocketid, :struct do
       description("""
-      Mints a PocketID OIDC client for this instance and wires its sign-in env — #597. The instance must not be deployed yet (pending/error/lost); the PocketID instance must belong to the same org, be public, and have held-key custody.
+      Mints a PocketID OIDC client for this instance and wires its sign-in env — #597. A not-yet-deployed instance (pending/error/lost) ships the env on its next deploy; a deployed one rides the retrofit (row + running workload). The PocketID instance must belong to the same org, be public, and have held-key custody.
       """)
 
       argument(:id, :uuid, allow_nil?: false, public?: true)
@@ -1368,8 +1377,9 @@ defmodule FluxVale.Infrastructure.Instance do
           {:ok, instance} ->
             # The domain is the public seam (never the operation
             # direct); both posture values propagate (the nested-call
-            # rule — never hard-code either).
-            case FluxVale.Infrastructure.connect_pocket_id(
+            # rule — never hard-code either). The domain dispatches
+            # pre-deploy vs deployed from the row's status.
+            case FluxVale.Infrastructure.wire_pocket_id(
                    instance,
                    input.arguments.pocket_id_instance_id,
                    actor: actor,
@@ -1378,6 +1388,68 @@ defmodule FluxVale.Infrastructure.Instance do
               {:ok, wiring} -> {:ok, wiring}
               {:error, reason} -> {:error, wiring_error(reason)}
             end
+
+          {:error, _reason} = error ->
+            error
+        end
+      end)
+    end
+
+    # #731 T3: the wiring's teardown over the wire. Ownership is the
+    # authorized get_by_id inside; the operation owns the client
+    # delete, the env strip (row + workload), and the wiring clear.
+    # IDEMPOTENT by contract: no wiring is a success with
+    # `client_deleted: false`, never a 404 — a Terraform destroy of an
+    # already-gone wiring must converge.
+    action :disconnect_pocketid, :map do
+      description("""
+      Removes this instance's PocketID sign-in wiring: best-effort client delete, strip the recipe's env from the row and the running workload, then clear the wiring. Idempotent — an instance with no wiring answers success with client_deleted false.
+      """)
+
+      argument(:id, :uuid, allow_nil?: false, public?: true)
+
+      run(fn input, %{actor: actor, authorize?: authorize?} ->
+        case get_by_id(input.arguments.id, actor: actor, authorize?: authorize?) do
+          {:ok, instance} ->
+            case FluxVale.Infrastructure.disconnect_pocket_id(instance,
+                   actor: actor,
+                   authorize?: authorize?
+                 ) do
+              {:ok, %{client_deleted: deleted}} ->
+                {:ok, %{instance_id: instance.id, client_deleted: deleted}}
+
+              # The idempotent arm: nothing wired is already the
+              # desired state (the Terraform destroy's convergence).
+              {:error, :not_wired} ->
+                {:ok, %{instance_id: instance.id, client_deleted: false}}
+
+              {:error, reason} ->
+                {:error, wiring_error(reason)}
+            end
+
+          {:error, _reason} = error ->
+            error
+        end
+      end)
+    end
+
+    # #731 T3: the zero-downtime secret rotation over the wire. The
+    # wiring row is loaded authorize?: false — the authorized
+    # get_by_id above already fenced ownership, and the operation's
+    # own guards cover the rest. A missing wiring is an honest
+    # refusal, never an invented one.
+    action :rotate_pocketid_secret, :struct do
+      description("""
+      Rotates this instance's PocketID client secret: a second active secret, the running workload carries it, then the old secret dies. Returns the wiring row with the new secret id. Rotation is the deployed-workload verb — a not-yet-deployed wiring re-ships at its next deploy.
+      """)
+
+      argument(:id, :uuid, allow_nil?: false, public?: true)
+      constraints(instance_of: PocketIdWiring)
+
+      run(fn input, %{actor: actor, authorize?: authorize?} ->
+        case get_by_id(input.arguments.id, actor: actor, authorize?: authorize?) do
+          {:ok, instance} ->
+            rotate_wiring(instance, actor, authorize?)
 
           {:error, _reason} = error ->
             error
@@ -1578,12 +1650,36 @@ defmodule FluxVale.Infrastructure.Instance do
 
   # --- the wiring verb's helpers (#597 S4) -----------------------------
 
+  # The rotation's tail: load the active wiring (authorize?: false —
+  # the authorized get_by_id already fenced ownership) and rotate. No
+  # wiring is an honest refusal, never an invented row.
+  defp rotate_wiring(instance, actor, authorize?) do
+    case PocketIdWiring.get_by_instance(instance.id, authorize?: false) do
+      {:ok, wiring} ->
+        case FluxVale.Infrastructure.rotate_pocket_id_secret(wiring,
+               actor: actor,
+               authorize?: authorize?
+             ) do
+          {:ok, rotated} -> {:ok, rotated}
+          {:error, reason} -> {:error, wiring_error(reason)}
+        end
+
+      {:error, _none} ->
+        {:error, wiring_error(:not_wired)}
+    end
+  end
+
   # The operation's guard atoms carry no message of their own; give
   # them the panel's plain words. Anything else (an Ash error, a
   # refused mint's status map) passes through untouched — the
   # :delete action's stance.
   @wiring_refusals %{
     flag_disabled: "Pocket ID sign-in wiring is turned off right now",
+    not_wired: "this app has no Pocket ID sign-in wiring",
+    not_deployed:
+      "this app has not been deployed yet — the secret rotates onto the running workload, so deploy it first",
+    pocket_id_gone:
+      "the Pocket ID this app was wired to is gone — clear the wiring, then wire a new one",
     instance_running:
       "this app is already deployed — wiring sign-in lands with the instance page's Pocket ID card instead",
     instance_deleting: "this app is being deleted — there is nothing to wire",
@@ -1608,9 +1704,16 @@ defmodule FluxVale.Infrastructure.Instance do
       "the held Pocket ID key is unreadable — re-paste it on the Pocket ID's instance page"
   }
 
+  # coveralls-ignore-start - the action's deployed arm is dead by
+  # construction: `wire_pocket_id` dispatches every deployed status to
+  # the retrofit, so only a direct `connect_pocket_id/3` caller (the
+  # wizard's race with a deploy) can produce the tuple — and that
+  # caller maps its own copy.
   defp wiring_error({:instance_running, _status}) do
     InvalidArgument.exception(message: Map.get(@wiring_refusals, :instance_running))
   end
+
+  # coveralls-ignore-stop
 
   defp wiring_error(reason) when is_atom(reason) do
     message = Map.get(@wiring_refusals, reason, "sign-in wiring refused: #{reason}")

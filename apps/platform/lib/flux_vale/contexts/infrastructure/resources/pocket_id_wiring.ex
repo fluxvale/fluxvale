@@ -43,14 +43,27 @@ defmodule FluxVale.Infrastructure.PocketIdWiring do
   alias FluxVale.Infrastructure.Instance
 
   json_api do
-    # No routes of its own: the one wire surface is the Instance's
-    # `connect-pocketid` generic action (the run_backup shape), which
-    # renders the returned row through this type. The rendered set is
-    # the public attributes — ids only: PocketID's client id and
-    # secret id are identifiers, not credentials (the secret VALUE
-    # exists once, in the instance's env_vars, and is never stored
-    # here).
+    # The wiring's own read surface (#731 T3): the provider's state
+    # read. The rendered set is the public attributes — ids only:
+    # PocketID's client id and secret id are identifiers, not
+    # credentials (the secret VALUE exists once, in the instance's
+    # env_vars, and is never stored here). The member read policy
+    # scopes it; an unwired instance is Ash's honest NotFound.
     type("pocket_id_wiring")
+
+    routes do
+      # instances:read
+      get(:get_by_instance,
+        route: "/instances/:instance_id/pocket-id-wiring",
+        default_fields: [
+          :instance_id,
+          :pocket_id_instance_id,
+          :pocket_id_client_id,
+          :pocket_id_secret_id,
+          :wired_at
+        ]
+      )
+    end
   end
 
   policies do

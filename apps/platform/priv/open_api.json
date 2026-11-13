@@ -7921,6 +7921,325 @@
         ],
         "type": "object"
       },
+      "pocket_id_wiring-filter": {
+        "additionalProperties": false,
+        "description": "Filters the query to results matching the given filter object",
+        "example": "",
+        "properties": {
+          "and": {
+            "items": {
+              "$ref": "#/components/schemas/pocket_id_wiring-filter"
+            },
+            "type": "array",
+            "uniqueItems": true
+          },
+          "id": {
+            "$ref": "#/components/schemas/pocket_id_wiring-filter-id"
+          },
+          "instance": {
+            "$ref": "#/components/schemas/instance-filter"
+          },
+          "instance_id": {
+            "$ref": "#/components/schemas/pocket_id_wiring-filter-instance_id"
+          },
+          "not": {
+            "$ref": "#/components/schemas/pocket_id_wiring-filter"
+          },
+          "or": {
+            "items": {
+              "$ref": "#/components/schemas/pocket_id_wiring-filter"
+            },
+            "type": "array",
+            "uniqueItems": true
+          },
+          "pocket_id_client_id": {
+            "$ref": "#/components/schemas/pocket_id_wiring-filter-pocket_id_client_id"
+          },
+          "pocket_id_instance_id": {
+            "$ref": "#/components/schemas/pocket_id_wiring-filter-pocket_id_instance_id"
+          },
+          "pocket_id_secret_id": {
+            "$ref": "#/components/schemas/pocket_id_wiring-filter-pocket_id_secret_id"
+          },
+          "wired_at": {
+            "$ref": "#/components/schemas/pocket_id_wiring-filter-wired_at"
+          }
+        },
+        "type": "deepObject"
+      },
+      "pocket_id_wiring-filter-id": {
+        "additionalProperties": false,
+        "properties": {
+          "eq": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "greater_than": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "greater_than_or_equal": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "in": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "less_than": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "less_than_or_equal": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "not_eq": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "pocket_id_wiring-filter-instance_id": {
+        "additionalProperties": false,
+        "properties": {
+          "eq": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "greater_than": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "greater_than_or_equal": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "in": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "less_than": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "less_than_or_equal": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "not_eq": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "pocket_id_wiring-filter-pocket_id_client_id": {
+        "additionalProperties": false,
+        "properties": {
+          "contains": {
+            "type": "string"
+          },
+          "eq": {
+            "type": "string"
+          },
+          "greater_than": {
+            "type": "string"
+          },
+          "greater_than_or_equal": {
+            "type": "string"
+          },
+          "ilike": {
+            "type": "string"
+          },
+          "in": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "type": "string"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "type": "string"
+          },
+          "less_than": {
+            "type": "string"
+          },
+          "less_than_or_equal": {
+            "type": "string"
+          },
+          "like": {
+            "type": "string"
+          },
+          "not_eq": {
+            "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "pocket_id_wiring-filter-pocket_id_instance_id": {
+        "additionalProperties": false,
+        "properties": {
+          "eq": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "greater_than": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "greater_than_or_equal": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "in": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "less_than": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "less_than_or_equal": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "not_eq": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "pocket_id_wiring-filter-pocket_id_secret_id": {
+        "additionalProperties": false,
+        "properties": {
+          "contains": {
+            "type": "string"
+          },
+          "eq": {
+            "type": "string"
+          },
+          "greater_than": {
+            "type": "string"
+          },
+          "greater_than_or_equal": {
+            "type": "string"
+          },
+          "ilike": {
+            "type": "string"
+          },
+          "in": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "type": "string"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "type": "string"
+          },
+          "less_than": {
+            "type": "string"
+          },
+          "less_than_or_equal": {
+            "type": "string"
+          },
+          "like": {
+            "type": "string"
+          },
+          "not_eq": {
+            "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "pocket_id_wiring-filter-wired_at": {
+        "additionalProperties": false,
+        "properties": {
+          "eq": {},
+          "greater_than": {},
+          "greater_than_or_equal": {},
+          "in": {
+            "items": {},
+            "type": "array"
+          },
+          "is_distinct_from": {},
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {},
+          "less_than": {},
+          "less_than_or_equal": {},
+          "not_eq": {}
+        },
+        "type": "object"
+      },
       "pocket_id_wiring-type": {
         "additionalProperties": false,
         "properties": {
@@ -14408,7 +14727,7 @@
       "post": {
         "callbacks": {},
         "deprecated": false,
-        "description": "Mints a PocketID OIDC client for this instance and wires its sign-in env — #597. The instance must not be deployed yet (pending/error/lost); the PocketID instance must belong to the same org, be public, and have held-key custody.\n",
+        "description": "Mints a PocketID OIDC client for this instance and wires its sign-in env — #597. A not-yet-deployed instance (pending/error/lost) ships the env on its next deploy; a deployed one rides the retrofit (row + running workload). The PocketID instance must belong to the same org, be public, and have held-key custody.\n",
         "parameters": [
           {
             "in": "path",
@@ -14841,6 +15160,43 @@
                       "type": "object"
                     }
                   }
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/errors"
+          }
+        },
+        "tags": [
+          "instance"
+        ]
+      }
+    },
+    "/api/v1/instances/{id}/disconnect-pocketid": {
+      "post": {
+        "callbacks": {},
+        "deprecated": false,
+        "description": "Removes this instance's PocketID sign-in wiring: best-effort client delete, strip the recipe's env from the row and the running workload, then clear the wiring. Idempotent — an instance with no wiring answers success with client_deleted false.\n",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "style": "form"
+          }
+        ],
+        "responses": {
+          "201": {
+            "content": {
+              "application/vnd.api+json": {
+                "schema": {
+                  "type": "object"
                 }
               }
             },
@@ -16063,6 +16419,43 @@
                       "type": "object"
                     }
                   }
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/errors"
+          }
+        },
+        "tags": [
+          "instance"
+        ]
+      }
+    },
+    "/api/v1/instances/{id}/rotate-pocketid-secret": {
+      "post": {
+        "callbacks": {},
+        "deprecated": false,
+        "description": "Rotates this instance's PocketID client secret: a second active secret, the running workload carries it, then the old secret dies. Returns the wiring row with the new secret id. Rotation is the deployed-workload verb — a not-yet-deployed wiring re-ships at its next deploy.\n",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "style": "form"
+          }
+        ],
+        "responses": {
+          "201": {
+            "content": {
+              "application/vnd.api+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/pocket_id_wiring-type"
                 }
               }
             },
@@ -17612,6 +18005,174 @@
         },
         "tags": [
           "backup_setting"
+        ]
+      }
+    },
+    "/api/v1/instances/{instance_id}/pocket-id-wiring": {
+      "get": {
+        "callbacks": {},
+        "deprecated": false,
+        "description": "The instance's active wiring, if any (the identity's one-row shape).",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "instance_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "style": "form"
+          },
+          {
+            "description": "Relationship paths to include in the response",
+            "explode": false,
+            "in": "query",
+            "name": "include",
+            "required": false,
+            "schema": {
+              "pattern": "^()(,())*$",
+              "type": "string"
+            },
+            "style": "form"
+          },
+          {
+            "description": "Limits the response fields to only those listed for each type",
+            "in": "query",
+            "name": "fields",
+            "required": false,
+            "schema": {
+              "additionalProperties": true,
+              "example": {
+                "pocket_id_wiring": "id,pocket_id_client_id,pocket_id_secret_id,pocket_id_instance_id,wired_at,instance_id"
+              },
+              "properties": {
+                "pocket_id_wiring": {
+                  "description": "Comma separated field names for pocket_id_wiring",
+                  "example": "id,pocket_id_client_id,pocket_id_secret_id,pocket_id_instance_id,wired_at,instance_id",
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "style": "deepObject"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/vnd.api+json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "additionalProperties": false,
+                      "description": "A \"Resource object\" representing a pocket_id_wiring",
+                      "properties": {
+                        "attributes": {
+                          "additionalProperties": false,
+                          "description": "An attributes object for a pocket_id_wiring",
+                          "properties": {
+                            "instance_id": {
+                              "description": "Field included by default.",
+                              "format": "uuid",
+                              "type": "string"
+                            },
+                            "pocket_id_client_id": {
+                              "description": "Field included by default.",
+                              "type": "string"
+                            },
+                            "pocket_id_instance_id": {
+                              "description": "Field included by default.",
+                              "format": "uuid",
+                              "type": "string"
+                            },
+                            "pocket_id_secret_id": {
+                              "description": "Field included by default.",
+                              "type": "string"
+                            },
+                            "wired_at": {
+                              "description": "Field included by default."
+                            }
+                          },
+                          "required": [
+                            "pocket_id_client_id",
+                            "pocket_id_secret_id",
+                            "pocket_id_instance_id",
+                            "wired_at",
+                            "instance_id"
+                          ],
+                          "type": "object"
+                        },
+                        "id": {
+                          "type": "string"
+                        },
+                        "relationships": {
+                          "additionalProperties": false,
+                          "description": "A relationships object for a pocket_id_wiring",
+                          "properties": {
+                            "instance": {
+                              "properties": {
+                                "data": {
+                                  "additionalProperties": false,
+                                  "description": "An identifier for instance",
+                                  "nullable": true,
+                                  "properties": {
+                                    "id": {
+                                      "type": "string"
+                                    },
+                                    "meta": {
+                                      "additionalProperties": true,
+                                      "type": "object"
+                                    },
+                                    "type": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "type",
+                                    "id"
+                                  ],
+                                  "type": "object"
+                                }
+                              }
+                            }
+                          },
+                          "type": "object"
+                        },
+                        "type": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "id"
+                      ],
+                      "type": "object"
+                    },
+                    "included": {
+                      "items": {
+                        "oneOf": []
+                      },
+                      "type": "array",
+                      "uniqueItems": true
+                    },
+                    "meta": {
+                      "additionalProperties": true,
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/errors"
+          }
+        },
+        "tags": [
+          "pocket_id_wiring"
         ]
       }
     },

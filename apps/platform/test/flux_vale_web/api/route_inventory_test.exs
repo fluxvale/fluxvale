@@ -41,6 +41,10 @@ defmodule FluxValeWeb.Api.RouteInventoryTest do
     {:delete, "/instances/:id"},
     # #597 S4: the PocketID wiring verb.
     {:post, "/instances/:id/connect-pocketid"},
+    # #731 T3: the wiring's disconnect/rotate + the provider's read.
+    {:post, "/instances/:id/disconnect-pocketid"},
+    {:post, "/instances/:id/rotate-pocketid-secret"},
+    {:get, "/instances/:instance_id/pocket-id-wiring"},
     # backups:read / backups:write
     {:get, "/instances/:instance_id/backup-setting"},
     {:post, "/instances/:instance_id/backup-setting"},

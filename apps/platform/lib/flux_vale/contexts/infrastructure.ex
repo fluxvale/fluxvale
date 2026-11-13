@@ -17,6 +17,7 @@ defmodule FluxVale.Infrastructure do
     extensions: [AshAdmin.Domain, AshJsonApi.Domain, AshPaperTrail.Domain]
 
   alias FluxVale.Infrastructure.BackupSetting
+  alias FluxVale.Infrastructure.Instance
   alias FluxVale.Infrastructure.Operations.ApproveStorageRequest
   alias FluxVale.Infrastructure.Operations.AttachInstance
   alias FluxVale.Infrastructure.Operations.ClaimAccessDomain
@@ -47,6 +48,7 @@ defmodule FluxVale.Infrastructure do
   alias FluxVale.Infrastructure.Operations.UsePocketIdKey
   alias FluxVale.Infrastructure.Operations.VerifyAccessDomains
   alias FluxVale.Infrastructure.Operations.WakeInstance
+  alias FluxVale.Infrastructure.PocketIdWiring
 
   admin do
     show?(true)
@@ -277,6 +279,23 @@ defmodule FluxVale.Infrastructure do
   defdelegate retrofit_pocket_id(instance, pocket_id_instance_id, opts \\ []),
     to: ConnectPocketId,
     as: :retrofit
+
+  # #731 T3: the one connect verb the API exposes — a not-yet-deployed
+  # row rides the pre-deploy `call/3` (env ships on the next deploy);
+  # every other status rides the retrofit (row + live workload). The
+  # operations keep their own guards, so `:deleting` and the deployed /
+  # pre-deploy mismatches still refuse honestly.
+  @pre_deploy_statuses [:pending, :error, :lost]
+
+  @spec wire_pocket_id(Instance.t(), Ash.UUID.t(), keyword()) ::
+          {:ok, PocketIdWiring.t()} | {:error, term()}
+  def wire_pocket_id(%Instance{status: status} = instance, pocket_id_instance_id, opts \\ []) do
+    if status in @pre_deploy_statuses do
+      ConnectPocketId.call(instance, pocket_id_instance_id, opts)
+    else
+      ConnectPocketId.retrofit(instance, pocket_id_instance_id, opts)
+    end
+  end
 
   # #597 S5 (§4.6): the zero-downtime secret rotation — second active
   # secret, apply, delete the old one.
