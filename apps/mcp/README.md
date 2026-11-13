@@ -13,11 +13,14 @@ CI publish, and the k3d exposure ([running in k3d](#running-in-k3d)).
 | Tool | Scope | Answers |
 | --- | --- | --- |
 | `whoami` | any | The identity the token carries — user id, email, platform role, username, organizations (id/slug/name). |
+| `onboarding_status` | `wallet:read` (+ `instances:read` for the count) | Account verified, organizations, the chosen org's wallet balance + runway, instance count, next step (`choose_org`/`fund`/`deploy`/`connect_domain`). Composed from existing reads. |
+| `organizations_create` | any | Create a team org (name + slug, reserved slugs refused), the actor as owner. |
 | `apps_list` | `catalog:read` | The deployable app catalog, one entry per app. |
-| `apps_show` | `catalog:read` | One catalog app by its URL slug, plus its versions (default allocation, `monthly_cents`). |
-| `instances_list` | `instances:read` | Your instances, one entry each. |
+| `apps_show` | `catalog:read` | One catalog app by its URL slug: its versions (default allocation, `monthly_cents`) and the agent manual — the newest version's env contract (`configurable_env_vars` names/defaults), `first_run`, `backing_services`, OIDC wiring env names, default allocation and server-computed default price. |
+| `pricing_quote` | `catalog:read` | A truthful quote for any allocation — `cpu`, `memory_mb`, `storage_gb` in, monthly/stopped cents out; the platform computes it. |
+| `instances_list` | `instances:read` | Your instances, one entry each; an optional `organization` (id or slug) narrows to that org. |
 | `instances_status` | `instances:read` | One instance's full detail by id (including `url`) — or, with no id, the verbose list. |
-| `instances_deploy` | `instances:write` | Deploy an app: resolve the slug, pick the newest version (or an exact one), create the instance (you name it, optional `env` map), enqueue the deploy. |
+| `instances_deploy` | `instances:write` (+ `catalog:read` for the app/version resolve) | Deploy an app: resolve the slug, pick the newest version (or an exact one), resolve the organization (named, or sole-org fallback), create the instance (you name it, optional `env` map), enqueue the deploy. |
 | `instances_configure` | `instances:write` | Merge env vars on a live instance: `set` adds/replaces, `remove` deletes. Values are write-only. |
 | `instances_stop` | `instances:write` | Scale to zero — the pause (storage keeps accruing). |
 | `instances_start` | `instances:write` | Start a stopped/sleeping instance back up. |

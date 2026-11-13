@@ -50,6 +50,18 @@ defmodule FluxVale.Accounts.Organization do
         route: "/organizations",
         default_fields: [:id, :slug, :name]
       )
+
+      # #770: the agent's org-creation door — the actor path (#408) on
+      # the machine API, so a fresh account's agent can choose where to
+      # deploy. The action's own policies are the gate (actor present,
+      # below the org cap) and ReservedSlug + the length caps keep the
+      # reservation list honest; the route adds no scope of its own
+      # (identity-adjacent like the list above). Returns the switcher's
+      # key set, never org-internal fields.
+      post(:create_with_owner,
+        route: "/organizations",
+        default_fields: [:id, :slug, :name]
+      )
     end
   end
 

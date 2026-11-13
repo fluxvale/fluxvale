@@ -10,6 +10,8 @@ defmodule FluxValeWeb.Api.InstanceRouteTest do
   use Mimic
 
   alias FluxVale.Accounts
+  alias FluxVale.Accounts.Membership
+  alias FluxVale.Accounts.Organization
   alias FluxVale.Clients.K8s
   alias FluxVale.Clients.K8s.Resources.Deployment
   alias FluxVale.Clients.K8s.Resources.Ingress
@@ -93,6 +95,67 @@ defmodule FluxValeWeb.Api.InstanceRouteTest do
 
       refute Map.has_key?(row["attributes"], "failure_reason")
       refute Map.has_key?(row["attributes"], "running_since")
+    end
+  end
+
+  describe "GET /api/v1/organizations/:organization_id/instances" do
+    test "lists exactly that organization's instances (#770)", %{conn: conn} do
+      {user, _pat} = ApiPat.member!()
+      {:ok, personal} = Accounts.personal_org_for_user(user.id, authorize?: false)
+      BillingFixtures.mark_user_paid!(user)
+      version = InstanceFixtures.app_version!()
+      InstanceFixtures.local_cluster!()
+      instance = InstanceFixtures.instance!(version, user)
+
+      # A second org the user owns, with its own funded wallet and
+      # instance — the org-scoped read must never blend the two.
+      team =
+        Organization.create!(
+          %{name: "Team", slug: "team-#{System.unique_integer([:positive])}"},
+          authorize?: false
+        )
+
+      Membership.create!(%{organization_id: team.id, user_id: user.id}, authorize?: false)
+      BillingFixtures.funded_wallet!(org: team, balance_cents: 5_000)
+
+      team_instance =
+        Instance.create!(
+          %{name: "Team", app_version_id: version.id, organization_id: team.id},
+          actor: user
+        )
+
+      pat = ApiPat.mint!(user, ["instances:read"])
+
+      conn =
+        conn
+        |> auth(pat)
+        |> get("/api/v1/organizations/#{personal.id}/instances")
+
+      assert %{"data" => rows} = json_response(conn, 200)
+      ids = Enum.map(rows, & &1["id"])
+      assert ids == [instance.id]
+
+      team_conn =
+        build_conn()
+        |> auth(ApiPat.mint!(user, ["instances:read"]))
+        |> get("/api/v1/organizations/#{team.id}/instances")
+
+      assert %{"data" => [row]} = json_response(team_conn, 200)
+      assert row["id"] == team_instance.id
+    end
+
+    test "a foreign org answers an empty set, never a leak", %{conn: conn} do
+      {user, _pat} = ApiPat.member!()
+      {:ok, _personal} = Accounts.personal_org_for_user(user.id, authorize?: false)
+      {foreign, _owner} = BillingFixtures.grant_free_org!()
+      pat = ApiPat.mint!(user, ["instances:read"])
+
+      conn =
+        conn
+        |> auth(pat)
+        |> get("/api/v1/organizations/#{foreign.id}/instances")
+
+      assert %{"data" => []} = json_response(conn, 200)
     end
   end
 

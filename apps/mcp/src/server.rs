@@ -58,6 +58,14 @@ pub(crate) struct InstanceStatusParams {
     pub id: Option<String>,
 }
 
+/// `instances_list`'s input — an organization narrows the list (#770).
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+pub(crate) struct InstanceListParams {
+    /// Your organization's id or slug (from `whoami`/`onboarding_status`).
+    /// Omit for every instance you can see.
+    pub organization: Option<String>,
+}
+
 /// `instances_deploy`'s input — the CLI's deploy flags, with `name`
 /// required: the platform's create refuses a nameless body (the
 /// attribute is allow_nil?-false and nothing derives it — there is no
@@ -83,6 +91,11 @@ pub(crate) struct DeployParams {
     /// the API never echoes the values, and this server never logs
     /// them.
     pub env: Option<std::collections::BTreeMap<String, String>>,
+    /// The organization to deploy into — its id or slug (from
+    /// `whoami`/`onboarding_status`). Omit only when the account has a
+    /// sole organization; several memberships without a name refuse,
+    /// listing them.
+    pub organization: Option<String>,
 }
 
 /// `instances_configure`'s input: the merge verb's `set` + `remove`.
@@ -96,6 +109,37 @@ pub(crate) struct ConfigureEnvParams {
     /// Env var names to remove. An empty string is a value, not a
     /// removal — use this list.
     pub remove: Option<Vec<String>>,
+}
+
+/// `pricing_quote`'s input (#770) — the deploy flags' allocation
+/// shape, priced by the platform.
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+pub(crate) struct PricingQuoteParams {
+    /// CPU cores as a decimal string, e.g. "0.5" (the deploy flag's
+    /// own shape).
+    pub cpu: String,
+    /// Memory in megabytes.
+    pub memory_mb: i64,
+    /// Storage in gigabytes (0 is legal — config-only apps).
+    pub storage_gb: i64,
+}
+
+/// `organizations_create`'s input (#770).
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+pub(crate) struct OrganizationCreateParams {
+    /// The organization's display name (at most 100 characters).
+    pub name: String,
+    /// The URL slug — lowercase letters, digits, and hyphens
+    /// (at most 39 characters); the platform's reserved words refuse.
+    pub slug: String,
+}
+
+/// `onboarding_status`'s input (#770) — an organization to report on.
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+pub(crate) struct OnboardingParams {
+    /// Your organization's id or slug. Omit to fall back to your sole
+    /// organization; several memberships answer `choose_org`.
+    pub organization: Option<String>,
 }
 
 /// The one-id tools' input (`instances_stop`, `instances_start`,
@@ -225,6 +269,47 @@ other tools take.",
     }
 
     #[tool(
+        description = "Create a team organization with you as its owner: `name` and \
+`slug` (lowercase letters, digits, hyphens; at most 39 characters). The \
+platform's reserved words (www, app, api, admin, docs, billing, settings, \
+organizations, …) refuse, and the per-user org cap applies. Returns the \
+new org's id, slug and name — the values `instances_deploy` and \
+`onboarding_status` take as `organization`.",
+        annotations(destructive_hint = false)
+    )]
+    async fn organizations_create(
+        &self,
+        Parameters(OrganizationCreateParams { name, slug }): Parameters<OrganizationCreateParams>,
+        context: RequestContext<RoleServer>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let token = self.token(&context)?;
+        tool_result(
+            upstream::organizations_create(self.api_base_url.clone(), token, name, slug).await,
+        )
+    }
+
+    #[tool(
+        description = "Where this account stands right now, composed from reads: the \
+identity (email, verified), every organization (id/slug/name), the chosen \
+org's wallet balance and runway, the instance count, and the next step — \
+`choose_org` (several orgs, none named), `fund` (the org wallet has no \
+balance), `deploy` (no instances yet), or `connect_domain` (deployed). \
+Pass `organization` (id or slug) to report on one; omit to fall back to \
+your sole organization. No new state is written.",
+        annotations(read_only_hint = true)
+    )]
+    async fn onboarding_status(
+        &self,
+        Parameters(OnboardingParams { organization }): Parameters<OnboardingParams>,
+        context: RequestContext<RoleServer>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let token = self.token(&context)?;
+        tool_result(
+            upstream::onboarding_status(self.api_base_url.clone(), token, organization).await,
+        )
+    }
+
+    #[tool(
         description = "The deployable app catalog: one entry per app — id, name, \
 slug, tagline, description, icon/source/docs URLs, file-access flag, \
 category id. Slugs from here are what `apps_show` takes.",
@@ -239,11 +324,16 @@ category id. Slugs from here are what `apps_show` takes.",
     }
 
     #[tool(
-        description = "One catalog app by its URL slug: name, tagline, description, \
-icon/source/docs URLs, file-access flag, and its versions. Each version \
-carries the default CPU/memory/storage allocation and `monthly_cents` \
-(the recommended running rate) — quote that before deploying. Get the \
-slug from `apps_list`. Errors when no app carries the slug.",
+        description = "One catalog app by its URL slug: the marketing fields, `versions` \
+(each with the default CPU/memory/storage allocation and `monthly_cents`, \
+the recommended running rate — quote that before deploying), and \
+`version`, the newest version's agent manual: `configurable_env_vars` \
+(each key is the env name; label, description, type, required, secret and \
+the catalog default — never an instance's value), the `first_run` contract \
+(pattern, guaranteed env, forbidden keys, guidance), bundled \
+`backing_services`, the OIDC wiring env names, and the server-computed \
+default-size monthly and stopped price. Get the slug from `apps_list`. \
+Errors when no app carries the slug.",
         annotations(read_only_hint = true)
     )]
     async fn apps_show(
@@ -256,17 +346,45 @@ slug from `apps_list`. Errors when no app carries the slug.",
     }
 
     #[tool(
+        description = "Price any allocation before you deploy it: cpu (CPU cores as a \
+decimal string, e.g. \"0.5\"), memory_mb, and storage_gb in, the monthly \
+and stopped rates out — monthly_cents/stopped_monthly_cents plus the \
+display strings. The platform computes the cents through the same pricing \
+operation the ledger charges, so a quote is the price. The app manual \
+(`apps_show`) already carries the newest version's default-size quote; \
+use this for custom sizes.",
+        annotations(read_only_hint = true)
+    )]
+    async fn pricing_quote(
+        &self,
+        Parameters(PricingQuoteParams {
+            cpu,
+            memory_mb,
+            storage_gb,
+        }): Parameters<PricingQuoteParams>,
+        context: RequestContext<RoleServer>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let token = self.token(&context)?;
+        tool_result(
+            upstream::pricing_quote(self.api_base_url.clone(), token, cpu, memory_mb, storage_gb)
+                .await,
+        )
+    }
+
+    #[tool(
         description = "Your instances: one entry per deployed app — id, name, slug, \
-namespace, lifecycle status, exposure, always-on flag, deployed-at. The \
-ids are what `instances_status` takes.",
+namespace, lifecycle status, exposure, always-on flag, deployed-at. Pass \
+`organization` (id or slug) to list just that org's instances; omit for \
+every instance you can see. The ids are what `instances_status` takes.",
         annotations(read_only_hint = true)
     )]
     async fn instances_list(
         &self,
+        Parameters(InstanceListParams { organization }): Parameters<InstanceListParams>,
         context: RequestContext<RoleServer>,
     ) -> Result<CallToolResult, ErrorData> {
         let token = self.token(&context)?;
-        tool_result(upstream::instances_list(self.api_base_url.clone(), token).await)
+        tool_result(upstream::instances_list(self.api_base_url.clone(), token, organization).await)
     }
 
     #[tool(
@@ -323,8 +441,11 @@ production.",
 you pass), creates the instance, and enqueues the deploy. You name \
 the instance (required); cpu/memory_mb/storage_gb optionally override \
 the version's defaults, and `env` sets env vars at create (values are \
-write-only — never echoed or logged). The org wallet must be funded — \
-a 403 names the top-up path (the `topup` tool returns it). NOT \
+write-only — never echoed or logged). `organization` (id or slug from \
+`whoami`) picks the org; omit only when the account has a sole \
+organization — several memberships without a name refuse, listing them. \
+The org wallet must be funded — a 403 refuses until it is; \
+`onboarding_status` returns that org's `funding_url`. NOT \
 idempotent: every call deploys a new instance.",
         annotations(destructive_hint = false)
     )]
@@ -338,6 +459,7 @@ idempotent: every call deploys a new instance.",
             storage_gb,
             version,
             env,
+            organization,
         }): Parameters<DeployParams>,
         context: RequestContext<RoleServer>,
     ) -> Result<CallToolResult, ErrorData> {
@@ -354,6 +476,7 @@ idempotent: every call deploys a new instance.",
                     storage_gb,
                     version,
                     env,
+                    organization,
                 },
             )
             .await,
@@ -1207,6 +1330,12 @@ mod tests {
             ("/api/v1/apps", 200, apps_doc()),
             ("/api/v1/apps/wordpress", 200, app_doc()),
             ("/api/v1/apps/1/versions", 200, versions_doc()),
+            ("/api/v1/app-versions/v2/quote", 200, quote_doc()),
+            (
+                "/api/v1/pricing/quote?cpu_cores=0.5&memory_mb=512&storage_gb=10",
+                200,
+                quote_doc(),
+            ),
             ("/api/v1/instances", 200, instances_doc()),
             ("/api/v1/instances/i1", 200, instance_doc()),
             ("/api/v1/instances/i1/stop", 200, instance_doc()),
@@ -1452,13 +1581,14 @@ mod tests {
         // The full-scope list, same as the handshake rev's — and one
         // upstream read either way (the driver asserts the count in
         // the filter matrix tests above).
-        assert_eq!(tool_names(&body).len(), 19);
+        assert_eq!(tool_names(&body).len(), 22);
         assert!(tool_names(&body).contains(&"instances_deploy"));
+        assert!(tool_names(&body).contains(&"pricing_quote"));
         assert!(tool_names(&body).contains(&"topup"));
     }
 
     #[tokio::test]
-    async fn a_full_scope_token_sees_all_nineteen_tools() {
+    async fn a_full_scope_token_sees_all_twenty_two_tools() {
         let server = full_scope_upstream();
         assert_eq!(
             listed_tools(&server, PAT_FULL).await,
@@ -1476,6 +1606,9 @@ mod tests {
                 "instances_start",
                 "instances_status",
                 "instances_stop",
+                "onboarding_status",
+                "organizations_create",
+                "pricing_quote",
                 "terraform_import_bundle",
                 "topup",
                 "wallet_balance",
@@ -1494,7 +1627,14 @@ mod tests {
         let server = testapi::serve(&[("/api/v1/me", 200, me_doc(&["catalog:read"]))]);
         assert_eq!(
             listed_tools(&server, PAT_CATALOG).await,
-            ["apps_list", "apps_show", "topup", "whoami"]
+            [
+                "apps_list",
+                "apps_show",
+                "organizations_create",
+                "pricing_quote",
+                "topup",
+                "whoami"
+            ]
         );
     }
 
@@ -1518,6 +1658,7 @@ mod tests {
                 "instances_start",
                 "instances_status",
                 "instances_stop",
+                "organizations_create",
                 "terraform_import_bundle",
                 "topup",
                 "whoami",
@@ -1533,7 +1674,7 @@ mod tests {
         let server = testapi::serve(&[("/api/v1/me", 200, me_doc(&[]))]);
         assert_eq!(
             listed_tools(&server, "fvpat_no_domains").await,
-            ["topup", "whoami"]
+            ["organizations_create", "topup", "whoami"]
         );
     }
 
@@ -1640,6 +1781,135 @@ mod tests {
         assert_eq!(structured["slug"], "wordpress");
         assert_eq!(structured["tagline"], "Blogging");
         assert_eq!(structured["versions"][0]["version"], "1.2");
+
+        // #770: the newest version's manual + the default quote.
+        let version = &structured["version"];
+        assert_eq!(version["id"], "v2");
+        assert_eq!(version["default_cpu_cores"], "0.5");
+        assert_eq!(version["default_memory_mb"], 512);
+        assert_eq!(version["default_storage_gb"], 10);
+        assert_eq!(
+            version["configurable_env_vars"]["WP_SITE_URL"]["required"],
+            false
+        );
+        assert_eq!(
+            version["configurable_env_vars"]["WP_SITE_URL"]["default"],
+            "https://example.test"
+        );
+        assert_eq!(
+            version["first_run"]["pattern"],
+            "first_registered_user_admin"
+        );
+        assert_eq!(version["backing_services"][0]["kind"], "postgres");
+        assert_eq!(version["oidc_wiring"]["client_id_env"], "OIDC_CLIENT_ID");
+        assert_eq!(version["pricing"]["monthly_cents"], 335);
+        assert_eq!(version["pricing"]["stopped"], "$0.40 while stopped");
+    }
+
+    #[tokio::test]
+    async fn pricing_quote_answers_the_platform_cents() {
+        let server = full_scope_upstream();
+        let (_, body) = tools_call(
+            &app(&server),
+            PAT_FULL,
+            "pricing_quote",
+            json!({"cpu": "0.5", "memory_mb": 512, "storage_gb": 10}),
+        )
+        .await;
+        assert_eq!(result(&body)["isError"], false);
+        let structured = &result(&body)["structuredContent"];
+        assert_eq!(structured["monthly_cents"], 335);
+        assert_eq!(structured["stopped_monthly_cents"], 40);
+        assert_eq!(structured["monthly"], "$3.35/mo · billed hourly");
+    }
+
+    #[tokio::test]
+    async fn organizations_create_answers_the_new_org() {
+        let created = json!({"data": {"type": "organization", "id": "01JORG9",
+            "attributes": {"slug": "team", "name": "Team"}}});
+        let server = testapi::serve(&[("POST /api/v1/organizations", 201, created.to_string())]);
+        let (_, body) = tools_call(
+            &app(&server),
+            PAT_FULL,
+            "organizations_create",
+            json!({"name": "Team", "slug": "team"}),
+        )
+        .await;
+        assert_eq!(result(&body)["isError"], false);
+        let structured = &result(&body)["structuredContent"];
+        assert_eq!(structured["id"], "01JORG9");
+        assert_eq!(structured["slug"], "team");
+        assert!(
+            server
+                .head(0)
+                .to_lowercase()
+                .starts_with("post /api/v1/organizations"),
+            "head: {}",
+            server.head(0)
+        );
+    }
+
+    #[tokio::test]
+    async fn onboarding_status_answers_the_composed_row() {
+        let wallet = json!({"data": {"type": "wallet", "id": "w1",
+            "attributes": {"id": "w1", "organization_id": "01JORG1",
+                           "balance": 300, "paywall_waived": false}}});
+        let server = testapi::serve(&[
+            ("/api/v1/me", 200, me_doc(&ALL_SCOPES)),
+            ("/api/v1/organizations", 200, orgs_doc()),
+            (
+                "GET /api/v1/organizations/01JORG1/wallet",
+                200,
+                wallet.to_string(),
+            ),
+            (
+                "GET /api/v1/organizations/01JORG1/wallet/runway",
+                200,
+                r#"{"balance_cents":300,"burn_micro_cents_per_hour":0,"runway_hours":"infinity"}"#
+                    .to_string(),
+            ),
+            (
+                "GET /api/v1/organizations/01JORG1/instances",
+                200,
+                instances_doc(),
+            ),
+        ]);
+        let (_, body) = tools_call(&app(&server), PAT_FULL, "onboarding_status", json!({})).await;
+        assert_eq!(result(&body)["isError"], false);
+        let structured = &result(&body)["structuredContent"];
+        assert_eq!(structured["account"]["email"], "me@example.com");
+        assert_eq!(structured["organization"]["slug"], "personal");
+        assert_eq!(structured["wallet"]["balance_cents"], 300);
+        assert_eq!(structured["instance_count"], 1);
+        assert_eq!(structured["next_step"], "connect_domain");
+    }
+
+    #[tokio::test]
+    async fn instances_list_takes_an_organization() {
+        let org_instances = json!({"data": [
+            {"type": "instance", "id": "i9",
+             "attributes": {"id": "i9", "name": "org app", "status": "running"}}
+        ]});
+        let server = testapi::serve(&[
+            ("/api/v1/organizations", 200, orgs_doc()),
+            (
+                "GET /api/v1/organizations/01JORG1/instances",
+                200,
+                org_instances.to_string(),
+            ),
+        ]);
+        let (_, body) = tools_call(
+            &app(&server),
+            PAT_FULL,
+            "instances_list",
+            json!({"organization": "personal"}),
+        )
+        .await;
+        assert_eq!(result(&body)["isError"], false);
+        assert_eq!(
+            result(&body)["structuredContent"]["instances"][0]["id"],
+            "i9"
+        );
     }
 
     #[tokio::test]
@@ -1809,9 +2079,38 @@ mod tests {
 
     fn versions_doc() -> String {
         json!({"data": [
-            {"type": "app_version", "id": "v2", "attributes": {"version": "1.2"}},
+            {"type": "app_version", "id": "v2", "attributes": {
+                "version": "1.2",
+                "default_cpu_cores": "0.5",
+                "default_memory_mb": 512,
+                "default_storage_gb": 10,
+                "configurable_env_vars": {"WP_SITE_URL": {
+                    "label": "Site URL", "description": "The public address.",
+                    "type": "string", "required": false, "secret": false,
+                    "default": "https://example.test"
+                }},
+                "first_run": {"pattern": "first_registered_user_admin",
+                              "env": {"INSTALL_LOCK": "true"},
+                              "forbidden_env": ["DISABLE_REGISTRATION"],
+                              "guidance": "Open the instance and register."},
+                "backing_services": [{"kind": "postgres", "version": "18",
+                                      "url_env": "DATABASE_URL"}],
+                "oidc_wiring": {"kind": "env", "issuer_env": "OIDC_ISSUER",
+                                "client_id_env": "OIDC_CLIENT_ID",
+                                "client_secret_env": "OIDC_CLIENT_SECRET",
+                                "pkce": true}
+            }},
             {"type": "app_version", "id": "v1", "attributes": {"version": "1.0"}}
         ]})
+        .to_string()
+    }
+
+    /// The quote route's bare-JSON answer (the generic action's shape).
+    fn quote_doc() -> String {
+        json!({"cpu_cores": "0.5", "memory_mb": 512, "storage_gb": 10,
+               "monthly_cents": 335, "stopped_monthly_cents": 40,
+               "monthly": "$3.35/mo · billed hourly",
+               "stopped": "$0.40 while stopped"})
         .to_string()
     }
 
@@ -1821,6 +2120,7 @@ mod tests {
         let deployed = json!({"data": {"type": "instance", "id": "i2",
             "attributes": {"id": "i2", "name": "new", "slug": "new-a1", "status": "deploying"}}});
         testapi::serve(&[
+            ("GET /api/v1/organizations", 200, orgs_doc()),
             ("GET /api/v1/apps/wordpress", 200, app_doc()),
             ("GET /api/v1/apps/1/versions", 200, versions_doc()),
             ("POST /api/v1/instances", 201, created.to_string()),
@@ -1839,7 +2139,8 @@ mod tests {
             &app(&server),
             PAT_FULL,
             "instances_deploy",
-            json!({"app": "wordpress", "name": "new", "env": {"API_KEY": "server-sentinel"}}),
+            json!({"app": "wordpress", "name": "new", "env": {"API_KEY": "server-sentinel"},
+                   "organization": "personal"}),
         )
         .await;
         assert_eq!(result(&body)["isError"], false);
@@ -1850,21 +2151,25 @@ mod tests {
             !body.to_string().contains("server-sentinel"),
             "body: {body}"
         );
-        // The four-call sequence, in order (app → versions → create →
-        // deploy). The create BODY (newest version, given flags) is
-        // pinned in upstream's own script-server tests.
-        let heads: Vec<String> = (0..4).map(|n| server.head(n).to_lowercase()).collect();
+        // The five-call sequence, in order (orgs → app → versions →
+        // create → deploy). The create BODY (newest version, given
+        // flags, resolved org) is pinned in upstream's own tests.
+        let heads: Vec<String> = (0..5).map(|n| server.head(n).to_lowercase()).collect();
         assert!(
-            heads[0].starts_with("get /api/v1/apps/wordpress"),
+            heads[0].starts_with("get /api/v1/organizations"),
             "{heads:?}"
         );
         assert!(
-            heads[1].starts_with("get /api/v1/apps/1/versions"),
+            heads[1].starts_with("get /api/v1/apps/wordpress"),
             "{heads:?}"
         );
-        assert!(heads[2].starts_with("post /api/v1/instances"), "{heads:?}");
         assert!(
-            heads[3].starts_with("patch /api/v1/instances/i2/deploy"),
+            heads[2].starts_with("get /api/v1/apps/1/versions"),
+            "{heads:?}"
+        );
+        assert!(heads[3].starts_with("post /api/v1/instances"), "{heads:?}");
+        assert!(
+            heads[4].starts_with("patch /api/v1/instances/i2/deploy"),
             "{heads:?}"
         );
     }
@@ -1919,8 +2224,11 @@ mod tests {
 
     #[tokio::test]
     async fn deploy_refusals_are_tool_errors_with_their_own_words() {
-        // Unknown app — the friendly line.
-        let server = testapi::serve(&[("GET /api/v1/apps/ghost", 404, r#"{"errors": []}"#.into())]);
+        // Unknown app — the friendly line (after the org resolve).
+        let server = testapi::serve(&[
+            ("GET /api/v1/organizations", 200, orgs_doc()),
+            ("GET /api/v1/apps/ghost", 404, r#"{"errors": []}"#.into()),
+        ]);
         let (_, body) = tools_call(
             &app(&server),
             PAT_FULL,
@@ -1939,6 +2247,7 @@ mod tests {
         let gate = json!({"errors": [{"status": "403", "title": "Forbidden",
             "detail": "the org wallet needs funds — top up at /billing/topup"}]});
         let server = testapi::serve(&[
+            ("GET /api/v1/organizations", 200, orgs_doc()),
             ("GET /api/v1/apps/wordpress", 200, app_doc()),
             ("GET /api/v1/apps/1/versions", 200, versions_doc()),
             ("POST /api/v1/instances", 403, gate.to_string()),

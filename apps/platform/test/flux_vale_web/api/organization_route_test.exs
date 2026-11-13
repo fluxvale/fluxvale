@@ -15,6 +15,8 @@ defmodule FluxValeWeb.Api.OrganizationRouteTest do
   alias FluxVale.TestSupport.AccountsFixtures
   alias FluxVale.TestSupport.ApiPat
 
+  require Ash.Query
+
   defp auth(conn, pat), do: put_req_header(conn, "authorization", "Bearer " <> pat)
 
   # A team org (null personal marker) the user joins through the system
@@ -98,5 +100,101 @@ defmodule FluxValeWeb.Api.OrganizationRouteTest do
     assert %{"data" => rows} = json_response(conn, 200)
     assert [row] = rows
     assert row["id"] == personal.id
+  end
+
+  describe "POST /api/v1/organizations (#770)" do
+    test "a member creates a team org — the switcher's key set, an owner membership", %{
+      conn: conn
+    } do
+      {user, pat} = ApiPat.member!()
+      AccountsFixtures.personal_org!(user)
+      slug = "team-#{System.unique_integer([:positive])}"
+
+      conn =
+        conn
+        |> auth(pat)
+        |> put_req_header("content-type", "application/vnd.api+json")
+        |> post("/api/v1/organizations", %{
+          "data" => %{
+            "type" => "organization",
+            "attributes" => %{"name" => "Team", "slug" => slug}
+          }
+        })
+
+      assert %{"data" => row} = json_response(conn, 201)
+      assert row["type"] == "organization"
+      assert row["attributes"] == %{"slug" => slug, "name" => "Team"}
+
+      # The action's own transaction wrote the actor's owner
+      # membership; the org is a team org (no personal marker).
+      org = Organization.get_by_slug!(slug, authorize?: false)
+      assert is_nil(org.personal_owner_id)
+
+      assert {:ok, membership} =
+               Membership
+               |> Ash.Query.filter(organization_id == ^org.id and user_id == ^user.id)
+               |> Ash.read_one(authorize?: false)
+
+      assert membership.role == :owner
+    end
+
+    test "the reserved-slug list refuses before anything is written", %{conn: conn} do
+      {user, pat} = ApiPat.member!()
+      AccountsFixtures.personal_org!(user)
+
+      conn =
+        conn
+        |> auth(pat)
+        |> put_req_header("content-type", "application/vnd.api+json")
+        |> post("/api/v1/organizations", %{
+          "data" => %{
+            "type" => "organization",
+            "attributes" => %{"name" => "Docs", "slug" => "docs"}
+          }
+        })
+
+      assert %{"errors" => [error]} = json_response(conn, 400)
+      assert error["detail"] =~ "reserved"
+      assert {:error, _reason} = Organization.get_by_slug("docs", authorize?: false)
+    end
+
+    test "a duplicate slug is refused with the identity's own words", %{conn: conn} do
+      {user, pat} = ApiPat.member!()
+      personal = AccountsFixtures.personal_org!(user)
+
+      conn =
+        conn
+        |> auth(pat)
+        |> put_req_header("content-type", "application/vnd.api+json")
+        |> post("/api/v1/organizations", %{
+          "data" => %{
+            "type" => "organization",
+            "attributes" => %{"name" => "Copy", "slug" => personal.slug}
+          }
+        })
+
+      assert %{"errors" => [error]} = json_response(conn, 400)
+      assert error["detail"] == "has already been taken"
+    end
+
+    test "a session cookie cannot drive the write", %{conn: conn} do
+      user = AccountsFixtures.user!()
+      AccountsFixtures.personal_org!(user)
+      {:ok, session_token, _claims} = AshAuthentication.Jwt.token_for_user(user)
+
+      conn =
+        conn
+        |> Plug.Test.init_test_session(%{"user_token" => session_token})
+        |> put_req_header("content-type", "application/vnd.api+json")
+        |> post("/api/v1/organizations", %{
+          "data" => %{
+            "type" => "organization",
+            "attributes" => %{"name" => "Cookie", "slug" => "cookie-org"}
+          }
+        })
+
+      assert %{"errors" => [error]} = json_response(conn, 401)
+      assert error["detail"] =~ "personal access token"
+    end
   end
 end

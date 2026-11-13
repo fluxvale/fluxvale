@@ -2431,6 +2431,32 @@
                     "type": "object"
                   }
                 }
+              },
+              "recommended_size": {
+                "properties": {
+                  "data": {
+                    "additionalProperties": false,
+                    "description": "An identifier for recommended_size",
+                    "nullable": true,
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "meta": {
+                        "additionalProperties": true,
+                        "type": "object"
+                      },
+                      "type": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "type",
+                      "id"
+                    ],
+                    "type": "object"
+                  }
+                }
               }
             },
             "type": "object"
@@ -2517,6 +2543,9 @@
           },
           "published_at": {
             "$ref": "#/components/schemas/app_version-filter-published_at"
+          },
+          "recommended_size": {
+            "$ref": "#/components/schemas/pricing-filter"
           },
           "recommended_size_id": {
             "$ref": "#/components/schemas/app_version-filter-recommended_size_id"
@@ -8733,6 +8762,317 @@
         ],
         "type": "object"
       },
+      "pricing": {
+        "additionalProperties": false,
+        "description": "A \"Resource object\" representing a pricing",
+        "properties": {
+          "attributes": {
+            "additionalProperties": false,
+            "description": "An attributes object for a pricing",
+            "properties": {
+              "cpu_cores": {
+                "description": "Field included by default.",
+                "type": "string"
+              },
+              "memory_mb": {
+                "description": "Field included by default.",
+                "type": "integer"
+              },
+              "monthly_cents": {
+                "description": "Field included by default.",
+                "type": "integer"
+              },
+              "slug": {
+                "description": "Field included by default.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "slug",
+              "cpu_cores",
+              "memory_mb",
+              "monthly_cents"
+            ],
+            "type": "object"
+          },
+          "id": {
+            "type": "string"
+          },
+          "relationships": {
+            "additionalProperties": false,
+            "description": "A relationships object for a pricing",
+            "properties": {},
+            "type": "object"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "id"
+        ],
+        "type": "object"
+      },
+      "pricing-filter": {
+        "additionalProperties": false,
+        "description": "Filters the query to results matching the given filter object",
+        "example": "",
+        "properties": {
+          "and": {
+            "items": {
+              "$ref": "#/components/schemas/pricing-filter"
+            },
+            "type": "array",
+            "uniqueItems": true
+          },
+          "cpu_cores": {
+            "$ref": "#/components/schemas/pricing-filter-cpu_cores"
+          },
+          "id": {
+            "$ref": "#/components/schemas/pricing-filter-id"
+          },
+          "memory_mb": {
+            "$ref": "#/components/schemas/pricing-filter-memory_mb"
+          },
+          "monthly_cents": {
+            "$ref": "#/components/schemas/pricing-filter-monthly_cents"
+          },
+          "not": {
+            "$ref": "#/components/schemas/pricing-filter"
+          },
+          "or": {
+            "items": {
+              "$ref": "#/components/schemas/pricing-filter"
+            },
+            "type": "array",
+            "uniqueItems": true
+          },
+          "slug": {
+            "$ref": "#/components/schemas/pricing-filter-slug"
+          }
+        },
+        "type": "deepObject"
+      },
+      "pricing-filter-cpu_cores": {
+        "additionalProperties": false,
+        "properties": {
+          "eq": {
+            "type": "string"
+          },
+          "greater_than": {
+            "type": "string"
+          },
+          "greater_than_or_equal": {
+            "type": "string"
+          },
+          "in": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "type": "string"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "type": "string"
+          },
+          "less_than": {
+            "type": "string"
+          },
+          "less_than_or_equal": {
+            "type": "string"
+          },
+          "not_eq": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "pricing-filter-id": {
+        "additionalProperties": false,
+        "properties": {
+          "eq": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "greater_than": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "greater_than_or_equal": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "in": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "less_than": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "less_than_or_equal": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "not_eq": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "pricing-filter-memory_mb": {
+        "additionalProperties": false,
+        "properties": {
+          "eq": {
+            "type": "integer"
+          },
+          "greater_than": {
+            "type": "integer"
+          },
+          "greater_than_or_equal": {
+            "type": "integer"
+          },
+          "in": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "type": "integer"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "type": "integer"
+          },
+          "less_than": {
+            "type": "integer"
+          },
+          "less_than_or_equal": {
+            "type": "integer"
+          },
+          "not_eq": {
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "pricing-filter-monthly_cents": {
+        "additionalProperties": false,
+        "properties": {
+          "eq": {
+            "type": "integer"
+          },
+          "greater_than": {
+            "type": "integer"
+          },
+          "greater_than_or_equal": {
+            "type": "integer"
+          },
+          "in": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "type": "integer"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "type": "integer"
+          },
+          "less_than": {
+            "type": "integer"
+          },
+          "less_than_or_equal": {
+            "type": "integer"
+          },
+          "not_eq": {
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "pricing-filter-slug": {
+        "additionalProperties": false,
+        "properties": {
+          "contains": {
+            "type": "string"
+          },
+          "eq": {
+            "type": "string"
+          },
+          "greater_than": {
+            "type": "string"
+          },
+          "greater_than_or_equal": {
+            "type": "string"
+          },
+          "ilike": {
+            "type": "string"
+          },
+          "in": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "type": "string"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "type": "string"
+          },
+          "less_than": {
+            "type": "string"
+          },
+          "less_than_or_equal": {
+            "type": "string"
+          },
+          "like": {
+            "type": "string"
+          },
+          "not_eq": {
+            "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "storage_request": {
         "additionalProperties": false,
         "description": "A \"Resource object\" representing a storage_request",
@@ -11931,6 +12271,32 @@
                                   "type": "object"
                                 }
                               }
+                            },
+                            "recommended_size": {
+                              "properties": {
+                                "data": {
+                                  "additionalProperties": false,
+                                  "description": "An identifier for recommended_size",
+                                  "nullable": true,
+                                  "properties": {
+                                    "id": {
+                                      "type": "string"
+                                    },
+                                    "meta": {
+                                      "additionalProperties": true,
+                                      "type": "object"
+                                    },
+                                    "type": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "type",
+                                    "id"
+                                  ],
+                                  "type": "object"
+                                }
+                              }
                             }
                           },
                           "type": "object"
@@ -11957,6 +12323,43 @@
                       "type": "object"
                     }
                   }
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/errors"
+          }
+        },
+        "tags": [
+          "app_version"
+        ]
+      }
+    },
+    "/api/v1/app-versions/{id}/quote": {
+      "get": {
+        "callbacks": {},
+        "deprecated": false,
+        "description": "The version's default-size monthly and stopped rates.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "style": "form"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/vnd.api+json": {
+                "schema": {
+                  "type": "object"
                 }
               }
             },
@@ -12576,6 +12979,32 @@
                                   "data": {
                                     "additionalProperties": false,
                                     "description": "An identifier for app",
+                                    "nullable": true,
+                                    "properties": {
+                                      "id": {
+                                        "type": "string"
+                                      },
+                                      "meta": {
+                                        "additionalProperties": true,
+                                        "type": "object"
+                                      },
+                                      "type": {
+                                        "type": "string"
+                                      }
+                                    },
+                                    "required": [
+                                      "type",
+                                      "id"
+                                    ],
+                                    "type": "object"
+                                  }
+                                }
+                              },
+                              "recommended_size": {
+                                "properties": {
+                                  "data": {
+                                    "additionalProperties": false,
+                                    "description": "An identifier for recommended_size",
                                     "nullable": true,
                                     "properties": {
                                       "id": {
@@ -20261,6 +20690,199 @@
         "tags": [
           "organization"
         ]
+      },
+      "post": {
+        "callbacks": {},
+        "deprecated": false,
+        "description": "/organizations operation on organization resource",
+        "parameters": [
+          {
+            "description": "Relationship paths to include in the response",
+            "explode": false,
+            "in": "query",
+            "name": "include",
+            "required": false,
+            "schema": {
+              "pattern": "^()(,())*$",
+              "type": "string"
+            },
+            "style": "form"
+          },
+          {
+            "description": "Limits the response fields to only those listed for each type",
+            "in": "query",
+            "name": "fields",
+            "required": false,
+            "schema": {
+              "additionalProperties": true,
+              "example": {
+                "organization": "id,name,slug"
+              },
+              "properties": {
+                "organization": {
+                  "description": "Comma separated field names for organization",
+                  "example": "id,name,slug",
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "style": "deepObject"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/vnd.api+json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "data": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "attributes": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "name": {
+                            "type": "string"
+                          },
+                          "slug": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "name",
+                          "slug"
+                        ],
+                        "type": "object"
+                      },
+                      "relationships": {
+                        "additionalProperties": false,
+                        "properties": {},
+                        "type": "object"
+                      },
+                      "type": {
+                        "enum": [
+                          "organization"
+                        ]
+                      }
+                    },
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "data"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "description": "Request body for the /organizations operation on organization resource",
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/vnd.api+json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "additionalProperties": false,
+                      "description": "A \"Resource object\" representing a organization",
+                      "properties": {
+                        "attributes": {
+                          "additionalProperties": false,
+                          "description": "An attributes object for a organization",
+                          "properties": {
+                            "name": {
+                              "description": "Field included by default.",
+                              "type": "string"
+                            },
+                            "slug": {
+                              "description": "Field included by default.",
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "name",
+                            "slug"
+                          ],
+                          "type": "object"
+                        },
+                        "id": {
+                          "type": "string"
+                        },
+                        "relationships": {
+                          "additionalProperties": false,
+                          "description": "A relationships object for a organization",
+                          "properties": {
+                            "members": {
+                              "properties": {
+                                "data": {
+                                  "description": "Relationship data for members",
+                                  "items": {
+                                    "additionalProperties": false,
+                                    "description": "Resource identifiers for members",
+                                    "properties": {
+                                      "id": {
+                                        "type": "string"
+                                      },
+                                      "meta": {
+                                        "additionalProperties": true,
+                                        "type": "object"
+                                      },
+                                      "type": {
+                                        "type": "string"
+                                      }
+                                    },
+                                    "required": [
+                                      "type",
+                                      "id"
+                                    ],
+                                    "type": "object"
+                                  },
+                                  "type": "array",
+                                  "uniqueItems": true
+                                }
+                              }
+                            }
+                          },
+                          "type": "object"
+                        },
+                        "type": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "id"
+                      ],
+                      "type": "object"
+                    },
+                    "included": {
+                      "items": {
+                        "oneOf": []
+                      },
+                      "type": "array",
+                      "uniqueItems": true
+                    },
+                    "meta": {
+                      "additionalProperties": true,
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/errors"
+          }
+        },
+        "tags": [
+          "organization"
+        ]
       }
     },
     "/api/v1/organizations/{organization_id}/access-domains": {
@@ -20699,6 +21321,367 @@
         ]
       }
     },
+    "/api/v1/organizations/{organization_id}/instances": {
+      "get": {
+        "callbacks": {},
+        "deprecated": false,
+        "description": "The org's instances (#124's runway/burn-rate input; the Access tab's attachable list)",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "organization_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "style": "form"
+          },
+          {
+            "description": "Filters the query to results with attributes matching the given filter object",
+            "in": "query",
+            "name": "filter",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/instance-filter"
+            },
+            "style": "deepObject"
+          },
+          {
+            "description": "Sort order to apply to the results",
+            "explode": false,
+            "in": "query",
+            "name": "sort",
+            "required": false,
+            "schema": {
+              "pattern": "^(id|-id|\\+\\+id|--id|name|-name|\\+\\+name|--name|slug|-slug|\\+\\+slug|--slug|namespace|-namespace|\\+\\+namespace|--namespace|image|-image|\\+\\+image|--image|port|-port|\\+\\+port|--port|healthcheck_path|-healthcheck_path|\\+\\+healthcheck_path|--healthcheck_path|storage_mount_path|-storage_mount_path|\\+\\+storage_mount_path|--storage_mount_path|file_access|-file_access|\\+\\+file_access|--file_access|status|-status|\\+\\+status|--status|deployed_at|-deployed_at|\\+\\+deployed_at|--deployed_at|always_on|-always_on|\\+\\+always_on|--always_on|exposure|-exposure|\\+\\+exposure|--exposure|cpu_cores|-cpu_cores|\\+\\+cpu_cores|--cpu_cores|memory_mb|-memory_mb|\\+\\+memory_mb|--memory_mb|storage_gb|-storage_gb|\\+\\+storage_gb|--storage_gb|organization_id|-organization_id|\\+\\+organization_id|--organization_id|cluster_id|-cluster_id|\\+\\+cluster_id|--cluster_id|app_version_id|-app_version_id|\\+\\+app_version_id|--app_version_id)(,(id|-id|\\+\\+id|--id|name|-name|\\+\\+name|--name|slug|-slug|\\+\\+slug|--slug|namespace|-namespace|\\+\\+namespace|--namespace|image|-image|\\+\\+image|--image|port|-port|\\+\\+port|--port|healthcheck_path|-healthcheck_path|\\+\\+healthcheck_path|--healthcheck_path|storage_mount_path|-storage_mount_path|\\+\\+storage_mount_path|--storage_mount_path|file_access|-file_access|\\+\\+file_access|--file_access|status|-status|\\+\\+status|--status|deployed_at|-deployed_at|\\+\\+deployed_at|--deployed_at|always_on|-always_on|\\+\\+always_on|--always_on|exposure|-exposure|\\+\\+exposure|--exposure|cpu_cores|-cpu_cores|\\+\\+cpu_cores|--cpu_cores|memory_mb|-memory_mb|\\+\\+memory_mb|--memory_mb|storage_gb|-storage_gb|\\+\\+storage_gb|--storage_gb|organization_id|-organization_id|\\+\\+organization_id|--organization_id|cluster_id|-cluster_id|\\+\\+cluster_id|--cluster_id|app_version_id|-app_version_id|\\+\\+app_version_id|--app_version_id))*$",
+              "type": "string"
+            },
+            "style": "form"
+          },
+          {
+            "description": "Relationship paths to include in the response",
+            "explode": false,
+            "in": "query",
+            "name": "include",
+            "required": false,
+            "schema": {
+              "pattern": "^()(,())*$",
+              "type": "string"
+            },
+            "style": "form"
+          },
+          {
+            "description": "Limits the response fields to only those listed for each type",
+            "in": "query",
+            "name": "fields",
+            "required": false,
+            "schema": {
+              "additionalProperties": true,
+              "example": {
+                "instance": "id,name,slug,namespace,image,port,healthcheck_path,storage_mount_path,file_access,status,deployed_at,always_on,exposure,cpu_cores,memory_mb,storage_gb,organization_id,cluster_id,app_version_id"
+              },
+              "properties": {
+                "instance": {
+                  "description": "Comma separated field names for instance",
+                  "example": "id,name,slug,namespace,image,port,healthcheck_path,storage_mount_path,file_access,status,deployed_at,always_on,exposure,cpu_cores,memory_mb,storage_gb,organization_id,cluster_id,app_version_id",
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "style": "deepObject"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/vnd.api+json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "description": "An array of resource objects representing a instance",
+                      "items": {
+                        "additionalProperties": false,
+                        "description": "A \"Resource object\" representing a instance",
+                        "properties": {
+                          "attributes": {
+                            "additionalProperties": false,
+                            "description": "An attributes object for a instance",
+                            "properties": {
+                              "always_on": {
+                                "description": "Field included by default.",
+                                "type": "boolean"
+                              },
+                              "app_version_id": {
+                                "format": "uuid",
+                                "type": "string"
+                              },
+                              "cluster_id": {
+                                "anyOf": [
+                                  {
+                                    "format": "uuid",
+                                    "nullable": true,
+                                    "type": "string"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "cpu_cores": {
+                                "anyOf": [
+                                  {
+                                    "nullable": true,
+                                    "type": "string"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "deployed_at": {
+                                "anyOf": [
+                                  {},
+                                  {
+                                    "type": "null"
+                                  }
+                                ],
+                                "description": "Field included by default."
+                              },
+                              "exposure": {
+                                "description": "Field included by default.",
+                                "enum": [
+                                  "public",
+                                  "private"
+                                ],
+                                "type": "string"
+                              },
+                              "file_access": {
+                                "type": "boolean"
+                              },
+                              "healthcheck_path": {
+                                "anyOf": [
+                                  {
+                                    "nullable": true,
+                                    "type": "string"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "image": {
+                                "anyOf": [
+                                  {
+                                    "nullable": true,
+                                    "type": "string"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "memory_mb": {
+                                "anyOf": [
+                                  {
+                                    "nullable": true,
+                                    "type": "integer"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "name": {
+                                "description": "Field included by default.",
+                                "type": "string"
+                              },
+                              "namespace": {
+                                "anyOf": [
+                                  {
+                                    "nullable": true,
+                                    "type": "string"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ],
+                                "description": "Field included by default."
+                              },
+                              "organization_id": {
+                                "anyOf": [
+                                  {
+                                    "format": "uuid",
+                                    "nullable": true,
+                                    "type": "string"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "port": {
+                                "anyOf": [
+                                  {
+                                    "nullable": true,
+                                    "type": "integer"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "slug": {
+                                "description": "Field included by default.",
+                                "type": "string"
+                              },
+                              "status": {
+                                "description": "Field included by default.",
+                                "enum": [
+                                  "pending",
+                                  "deploying",
+                                  "starting",
+                                  "running",
+                                  "sleeping",
+                                  "restoring",
+                                  "stopped",
+                                  "error",
+                                  "deleting",
+                                  "lost"
+                                ],
+                                "type": "string"
+                              },
+                              "storage_gb": {
+                                "anyOf": [
+                                  {
+                                    "nullable": true,
+                                    "type": "integer"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "storage_mount_path": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "name",
+                              "slug",
+                              "storage_mount_path",
+                              "file_access",
+                              "status",
+                              "always_on",
+                              "exposure",
+                              "app_version_id"
+                            ],
+                            "type": "object"
+                          },
+                          "id": {
+                            "type": "string"
+                          },
+                          "relationships": {
+                            "additionalProperties": false,
+                            "description": "A relationships object for a instance",
+                            "properties": {
+                              "app_version": {
+                                "properties": {
+                                  "data": {
+                                    "additionalProperties": false,
+                                    "description": "An identifier for app_version",
+                                    "nullable": true,
+                                    "properties": {
+                                      "id": {
+                                        "type": "string"
+                                      },
+                                      "meta": {
+                                        "additionalProperties": true,
+                                        "type": "object"
+                                      },
+                                      "type": {
+                                        "type": "string"
+                                      }
+                                    },
+                                    "required": [
+                                      "type",
+                                      "id"
+                                    ],
+                                    "type": "object"
+                                  }
+                                }
+                              },
+                              "organization": {
+                                "properties": {
+                                  "data": {
+                                    "additionalProperties": false,
+                                    "description": "An identifier for organization",
+                                    "nullable": true,
+                                    "properties": {
+                                      "id": {
+                                        "type": "string"
+                                      },
+                                      "meta": {
+                                        "additionalProperties": true,
+                                        "type": "object"
+                                      },
+                                      "type": {
+                                        "type": "string"
+                                      }
+                                    },
+                                    "required": [
+                                      "type",
+                                      "id"
+                                    ],
+                                    "type": "object"
+                                  }
+                                }
+                              }
+                            },
+                            "type": "object"
+                          },
+                          "type": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "type",
+                          "id"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array",
+                      "uniqueItems": true
+                    },
+                    "included": {
+                      "items": {
+                        "oneOf": []
+                      },
+                      "type": "array",
+                      "uniqueItems": true
+                    },
+                    "meta": {
+                      "additionalProperties": true,
+                      "type": "object"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/errors"
+          }
+        },
+        "tags": [
+          "instance"
+        ]
+      }
+    },
     "/api/v1/organizations/{organization_id}/wallet": {
       "get": {
         "callbacks": {},
@@ -20928,6 +21911,60 @@
         },
         "tags": [
           "wallet"
+        ]
+      }
+    },
+    "/api/v1/pricing/quote": {
+      "get": {
+        "callbacks": {},
+        "deprecated": false,
+        "description": "Price an allocation — the curve behind every rate.",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "cpu_cores",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "style": "form"
+          },
+          {
+            "in": "query",
+            "name": "memory_mb",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            },
+            "style": "form"
+          },
+          {
+            "in": "query",
+            "name": "storage_gb",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            },
+            "style": "form"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/vnd.api+json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/errors"
+          }
+        },
+        "tags": [
+          "pricing"
         ]
       }
     },

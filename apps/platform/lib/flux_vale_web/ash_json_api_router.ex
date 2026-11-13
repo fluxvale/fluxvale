@@ -11,7 +11,9 @@ defmodule FluxValeWeb.AshJsonApiRouter do
       FluxVale.Infrastructure,
       FluxVale.Billing,
       FluxVale.Catalog,
-      FluxVale.Accounts
+      FluxVale.Accounts,
+      # #770: the pricing quote — the agent's truthful-cost seam.
+      FluxVale.Pricing
     ],
     prefix: "/api/v1",
     open_api: "/open_api"
