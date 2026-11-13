@@ -9,7 +9,10 @@ defmodule FluxVale.Infrastructure.InstanceHostname do
   that exists anywhere else first is a bug: mint here, then derive.
 
   Rows are system-minted (`:mint`): the instance create path's
-  `MintDefaultHostname` puts `<slug>` on the org's platform domain.
+  `MintDefaultHostname` puts `<slug>` on the org's platform domain. A
+  member mints a custom label under a verified custom domain through
+  the `:mint_member` action (the operation seam, `MintCustomHostname`),
+  and removes one through `:remove_member` (`RemoveCustomHostname`).
   Uniqueness is (access_domain, label) — the same label under one
   domain twice would be a silent hijack of the first row's traffic, so
   the identity below is a boundary, not tidiness. Reads ride the
@@ -20,11 +23,52 @@ defmodule FluxVale.Infrastructure.InstanceHostname do
     otp_app: :flux_vale,
     domain: FluxVale.Infrastructure,
     data_layer: AshPostgres.DataLayer,
-    extensions: [AshPaperTrail.Resource],
+    extensions: [AshJsonApi.Resource, AshPaperTrail.Resource],
     authorizers: [Ash.Policy.Authorizer]
 
+  alias Ash.Error.Changes.InvalidArgument
   alias FluxVale.Infrastructure.AccessDomain
   alias FluxVale.Infrastructure.Instance
+
+  # The wire surface: a hostname is only its identity and where it
+  # sits. The domain's name rides the page's loaded relationship, not
+  # the row.
+  @hostname_fields [:id, :label, :instance_id, :access_domain_id, :created_at]
+
+  # The operation's guard atoms carry no message of their own; give
+  # them the owner's plain words (the AccessDomain remove verbs' stance).
+  @mint_refusals %{
+    different_organization: "that domain belongs to a different organization",
+    not_custom: "only a custom domain can host a custom address",
+    not_verified: "verify the domain before adding addresses to it"
+  }
+
+  @remove_refusals %{
+    platform_domain: "the default address is not removable"
+  }
+
+  json_api do
+    type("instance_hostname")
+
+    routes do
+      # instances:write — the member mint; ownership is the authorized
+      # instance read inside the operation.
+      post(:mint_member,
+        route: "/instances/:instance_id/hostnames",
+        default_fields: @hostname_fields
+      )
+
+      # instances:read — the instance's addresses.
+      index(:list_for_instance,
+        route: "/instances/:instance_id/hostnames",
+        default_fields: @hostname_fields
+      )
+
+      # instances:write — the member remove; ownership is the authorized
+      # hostname + instance reads inside the operation.
+      route(:delete, "instance-hostnames/:id", :remove_member)
+    end
+  end
 
   postgres do
     table("instance_hostnames")
@@ -95,11 +139,21 @@ defmodule FluxVale.Infrastructure.InstanceHostname do
       authorize_if(relates_to_actor_via([:instance, :organization, :members]))
     end
 
-    # Minted and deleted by the system paths (instance create, re-homing
-    # in later slices); members never write a hostname directly.
+    # Minted and deleted by the system paths (instance create, the
+    # operation seam's row writes); members never write a hostname
+    # directly. The member verbs below are generic actions whose
+    # ownership fence is the authorized read inside the operation.
     policy action_type([:create, :destroy]) do
       description("System-only: MintDefaultHostname owns the writes (authorize?: false)")
       forbid_if(always())
+    end
+
+    # The member verbs (the AccessDomain.remove_via_api posture): the
+    # actor's hand is checked by the authorized instance/domain reads
+    # inside the operation; a non-member's row is a not-found there.
+    policy action([:mint_member, :remove_member]) do
+      description("Member hostname verbs — ownership is enforced inside the operation")
+      authorize_if(actor_present())
     end
   end
 
@@ -146,6 +200,62 @@ defmodule FluxVale.Infrastructure.InstanceHostname do
     destroy :destroy do
       description("System-only: re-homing/deleting a hostname (later slices' re-home path).")
     end
+
+    read :list_for_instance do
+      description("The instance's addresses, oldest first (the page card and the API route).")
+      argument(:instance_id, :uuid, allow_nil?: false)
+      filter(expr(instance_id == ^arg(:instance_id)))
+      prepare(build(sort: [created_at: :asc, id: :asc]))
+    end
+
+    # The member mint — the operation owns the ownership fence, the
+    # domain/state guards, the edge re-apply, and the render hook.
+    action :mint_member, :struct do
+      description("""
+      Adds a custom address under a verified custom domain owned by the
+      instance's organization. Refuses a foreign domain, a platform
+      domain, and an unverified one.
+      """)
+
+      argument(:instance_id, :uuid, allow_nil?: false, public?: true)
+      argument(:access_domain_id, :uuid, allow_nil?: false, public?: true)
+      argument(:label, :string, allow_nil?: false, public?: true)
+      constraints(instance_of: __MODULE__)
+
+      run(fn input, %{actor: actor, authorize?: authorize?, source_context: context} ->
+        case FluxVale.Infrastructure.mint_custom_hostname(
+               input.arguments.instance_id,
+               input.arguments.access_domain_id,
+               input.arguments.label,
+               actor: actor,
+               authorize?: authorize?,
+               context: context
+             ) do
+          {:ok, hostname} -> {:ok, hostname}
+          {:error, reason} -> {:error, mint_error(reason)}
+        end
+      end)
+    end
+
+    # The member remove — the operation deletes the row's edge routes,
+    # then the row, then re-renders the resolver view.
+    action :remove_member, :struct do
+      description("Removes one of the instance's custom addresses.")
+
+      argument(:id, :uuid, allow_nil?: false, public?: true)
+      constraints(instance_of: __MODULE__)
+
+      run(fn input, %{actor: actor, authorize?: authorize?, source_context: context} ->
+        case FluxVale.Infrastructure.remove_custom_hostname(input.arguments.id,
+               actor: actor,
+               authorize?: authorize?,
+               context: context
+             ) do
+          {:ok, hostname} -> {:ok, hostname}
+          {:error, reason} -> {:error, remove_error(reason)}
+        end
+      end)
+    end
   end
 
   code_interface do
@@ -153,10 +263,31 @@ defmodule FluxVale.Infrastructure.InstanceHostname do
 
     define(:mint)
     define(:destroy)
+    define(:list_for_instance, args: [:instance_id])
+    define(:mint_member, args: [:instance_id, :access_domain_id, :label])
+    define(:remove_member, args: [:id])
   end
 
   identities do
     # One label per domain — the traffic-hijack boundary (see moduledoc).
     identity(:unique_label_per_domain, [:access_domain_id, :label])
   end
+
+  # The mint's guard atoms get the owner's words; anything else (a
+  # duplicate label, a K8s failure, Forbidden) passes through untouched.
+  defp mint_error(reason) when is_map_key(@mint_refusals, reason) do
+    message = Map.fetch!(@mint_refusals, reason)
+
+    InvalidArgument.exception(message: message)
+  end
+
+  defp mint_error(reason), do: reason
+
+  defp remove_error(reason) when is_map_key(@remove_refusals, reason) do
+    message = Map.fetch!(@remove_refusals, reason)
+
+    InvalidArgument.exception(message: message)
+  end
+
+  defp remove_error(reason), do: reason
 end

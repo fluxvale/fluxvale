@@ -264,11 +264,24 @@ defmodule FluxVale.Infrastructure.Operations.EdgeRoutes do
     |> hostname_rows()
     |> Enum.filter(&(&1.access_domain_id == access_domain.id))
     |> Enum.reduce_while(:ok, fn hostname, :ok ->
-      case delete_hostname_routes(kubeconfig, instance, hostname) do
+      case apply_access_none_for_hostname(kubeconfig, instance, hostname) do
         :ok -> {:cont, :ok}
         {:error, _error} = error -> {:halt, error}
       end
     end)
+  end
+
+  @doc """
+  Removes ONE hostname row's access routes — its Host-keyed app route
+  and the `/dav` sibling when the instance is file-access. The member
+  remove's cluster limb (S6): the row still names the objects while
+  they go, so a retry converges from the same record. Same safe-delete
+  stance as `apply_access_none/2` — 404 tolerated, idempotent.
+  """
+  @spec apply_access_none_for_hostname(Kubereq.Kubeconfig.t(), Instance.t(), InstanceHostname.t()) ::
+          :ok | {:error, term()}
+  def apply_access_none_for_hostname(kubeconfig, instance, hostname) do
+    delete_hostname_routes(kubeconfig, instance, hostname)
   end
 
   # The dormant access-wake targets: the `wake` ExternalName Service

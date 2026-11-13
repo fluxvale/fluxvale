@@ -15,10 +15,12 @@ defmodule FluxValeWeb.InstanceLive.Show do
   alias FluxVale.Checks.ActorIsOrganizationOwner
   alias FluxVale.Checks.ActorIsPlatformAdmin
   alias FluxVale.Infrastructure
+  alias FluxVale.Infrastructure.AccessDomain
   alias FluxVale.Infrastructure.AccessGateway
   alias FluxVale.Infrastructure.AccessRoute
   alias FluxVale.Infrastructure.BackupRun
   alias FluxVale.Infrastructure.Instance
+  alias FluxVale.Infrastructure.InstanceHostname
   alias FluxVale.Infrastructure.PocketIdCustody
   alias FluxVale.Infrastructure.PocketIdWiring
   alias FluxVale.Infrastructure.StorageRequest
@@ -26,6 +28,8 @@ defmodule FluxValeWeb.InstanceLive.Show do
   alias FluxValeWeb.AllocationSliders
   alias FluxValeWeb.InstanceLive.DavSnippet
   alias FluxValeWeb.InstanceStatus
+
+  require Ash.Query
 
   @impl Phoenix.LiveView
   def mount(%{"id" => id}, _session, socket) do
@@ -88,6 +92,7 @@ defmodule FluxValeWeb.InstanceLive.Show do
           # does not self-heal live (no route notifier; see
           # assign_access).
           |> assign_access(instance, user)
+          |> assign_hostnames(instance, user)
           |> assign_pocketid_custody(instance, user)
           |> assign_pocketid_sso(instance, user)
           |> assign_storage_request(instance, user)
@@ -503,6 +508,112 @@ defmodule FluxValeWeb.InstanceLive.Show do
               >
                 {if(@instance.exposure == :private, do: "Make public", else: "Make private")}
               </.button>
+            </.card>
+
+            <%!-- S6 (#751): the custom-address mint — one row per
+            custom hostname, the add form under a verified custom
+            domain. The default platform address lives in the page
+            header; this card is the member's own names only. --%>
+            <.card class="card space-y-3" data-testid="instance-hostnames">
+              <div class="flex items-center justify-between gap-3">
+                <h2 class="text-sm font-semibold text-ink">Custom addresses</h2>
+              </div>
+
+              <p class="text-sm text-ink-subtle">
+                A custom address serves when this instance is private and attached to
+                your gateway. Until then the address is recorded here and serves nothing
+                yet.
+              </p>
+
+              <%= if @hostname_domains == [] do %>
+                <div class="space-y-2" data-testid="hostname-empty">
+                  <p class="text-sm text-ink-subtle">
+                    No verified custom domain yet. Register one through the member API or
+                    the Terraform provider and wait for its certificate; its addresses
+                    appear here.
+                  </p>
+                  <.link
+                    navigate={~p"/docs/guides/custom-domains"}
+                    class="text-sm underline underline-offset-2 hover:text-ink"
+                    data-testid="hostname-guide-link"
+                  >
+                    Read the custom-domains guide
+                  </.link>
+                </div>
+              <% else %>
+                <div :if={@hostnames == []} class="text-sm text-ink-subtle">
+                  No custom addresses yet. Add one below.
+                </div>
+
+                <div class="divide-y divide-line text-sm">
+                  <div
+                    :for={hostname <- @hostnames}
+                    class="flex min-w-0 items-center justify-between gap-3 py-2.5"
+                    data-testid="hostname-row"
+                  >
+                    <code
+                      class="min-w-0 font-mono text-xs text-ink [overflow-wrap:anywhere]"
+                      data-testid="hostname-value"
+                    >
+                      {hostname.label}.{hostname.access_domain.domain}
+                    </code>
+                    <div class="flex shrink-0 items-center gap-2">
+                      <.copy_button
+                        id={"copy-hostname-#{hostname.id}"}
+                        value={"#{hostname.label}.#{hostname.access_domain.domain}"}
+                        label="Copy"
+                        testid="hostname-copy"
+                      />
+                      <.button
+                        size="sm"
+                        variant="ghost"
+                        phx-click="remove-hostname"
+                        phx-value-id={hostname.id}
+                        phx-disable-with="Removing…"
+                        data-testid="hostname-remove"
+                      >
+                        Remove
+                      </.button>
+                    </div>
+                  </div>
+                </div>
+
+                <.form for={@hostname_form} id="hostname-form" phx-submit="mint-hostname">
+                  <div class="flex flex-wrap items-end gap-3">
+                    <div class="min-w-0 flex-1">
+                      <.input
+                        field={@hostname_form[:access_domain_id]}
+                        type="select"
+                        label="Domain"
+                        prompt="Choose a verified domain"
+                        options={hostname_domain_options(@hostname_domains)}
+                        required
+                        data-testid="hostname-domain-select"
+                      />
+                    </div>
+                    <div class="min-w-0 flex-1">
+                      <.input
+                        field={@hostname_form[:label]}
+                        type="text"
+                        label="Address"
+                        placeholder="git"
+                        maxlength={63}
+                        pattern="[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?"
+                        required
+                        data-testid="hostname-label-input"
+                      />
+                    </div>
+                    <.button
+                      type="submit"
+                      size="sm"
+                      phx-disable-with="Adding…"
+                      data-testid="hostname-add"
+                    >
+                      Add address
+                    </.button>
+                  </div>
+                </.form>
+              <% end %>
             </.card>
 
             <%!-- #597 §4.3 (S2): the PocketID admin-key custody card —
@@ -2025,6 +2136,56 @@ defmodule FluxValeWeb.InstanceLive.Show do
 
   def handle_event("storage-request-submit", _unmatched, socket), do: {:noreply, socket}
 
+  # S6 (#751): the custom-address card's two verbs. The operations own
+  # the ownership fence and the domain/state guards; the page only
+  # refreshes its list on success and hands retry ownership to the
+  # owner on failure (the exposure card's flash stance).
+  def handle_event(
+        "mint-hostname",
+        %{"hostname" => %{"access_domain_id" => domain_id, "label" => label}},
+        socket
+      ) do
+    case Infrastructure.mint_custom_hostname(
+           socket.assigns.instance.id,
+           domain_id,
+           label,
+           actor: socket.assigns.current_user
+         ) do
+      {:ok, _hostname} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, "Address added.")
+         |> refresh_hostnames()}
+
+      {:error, _reason} ->
+        {:noreply,
+         put_flash(
+           socket,
+           :error,
+           "Couldn't add that address. Check the domain is verified and the label is available."
+         )}
+    end
+  end
+
+  def handle_event("mint-hostname", _unmatched, socket), do: {:noreply, socket}
+
+  def handle_event("remove-hostname", %{"id" => hostname_id}, socket) do
+    case Infrastructure.remove_custom_hostname(hostname_id,
+           actor: socket.assigns.current_user
+         ) do
+      {:ok, _hostname} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, "Address removed.")
+         |> refresh_hostnames()}
+
+      {:error, _reason} ->
+        {:noreply, put_flash(socket, :error, "Couldn't remove that address. Try again.")}
+    end
+  end
+
+  def handle_event("remove-hostname", _unmatched, socket), do: {:noreply, socket}
+
   # #493: the resize panel. The entry buttons are presentation — the
   # action's own guards stay the fence for every state question.
 
@@ -2416,6 +2577,46 @@ defmodule FluxValeWeb.InstanceLive.Show do
       {:ok, route} -> Ash.load!(route, :gateway, actor: user)
       {:error, _not_found} -> nil
     end
+  end
+
+  # S6 (#751): the custom-address card's mount-time reads — the
+  # instance's own rows (the default platform address lives in the page
+  # header, not this list) and the org's verified custom domains (the
+  # add form's choices). Like the access assigns above, these move via
+  # this card's own events, not instance broadcasts.
+  defp assign_hostnames(socket, instance, user) do
+    query = Ash.Query.filter(InstanceHostname, instance_id == ^instance.id)
+    loaded_query = Ash.Query.load(query, :access_domain)
+    rows = Ash.read!(loaded_query, actor: user)
+    hostnames = Enum.filter(rows, &(&1.access_domain.kind == :custom))
+
+    org_domains = AccessDomain.list_for_org!(instance.organization_id, actor: user)
+    verified = Enum.filter(org_domains, &(&1.kind == :custom and &1.state == :verified))
+    domains = Enum.sort_by(verified, & &1.domain)
+
+    assign(socket,
+      hostnames: hostnames,
+      hostname_domains: domains,
+      hostname_form: hostname_form(domains)
+    )
+  end
+
+  defp refresh_hostnames(socket) do
+    assign_hostnames(socket, socket.assigns.instance, socket.assigns.current_user)
+  end
+
+  defp hostname_form(domains) do
+    default_domain =
+      case domains do
+        [first | _rest] -> first.id
+        [] -> nil
+      end
+
+    to_form(%{"access_domain_id" => default_domain, "label" => ""}, as: :hostname)
+  end
+
+  defp hostname_domain_options(domains) do
+    Enum.map(domains, &{&1.domain, &1.id})
   end
 
   # ------------------------------------------------------------------

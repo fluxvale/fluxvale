@@ -33,11 +33,14 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
   alias FluxVale.Catalog.AppVersion
   alias FluxVale.Catalog.AppVersion.SetSortKey
   alias FluxVale.Identity.User
+  alias FluxVale.Infrastructure.AccessDomain
   alias FluxVale.Infrastructure.AccessProviders.Tailscale
   alias FluxVale.Infrastructure.AccessRoute
   alias FluxVale.Infrastructure.Instance
   alias FluxVale.Infrastructure.Instance.PricingSnapshot
+  alias FluxVale.Infrastructure.InstanceHostname
   alias FluxVale.Infrastructure.Operations.InstanceK8s
+  alias FluxVale.Infrastructure.Operations.RenderAccessDNS
   alias FluxVale.Pricing
   alias FluxVale.Pricing.Size
   alias FluxVale.TestSupport.AccessFixtures
@@ -1793,6 +1796,192 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
     end
   end
 
+  describe "custom addresses (S6, #751)" do
+    test "the empty state names the fix and links the guide", %{
+      conn: conn,
+      user: user,
+      version: version
+    } do
+      instance = create_instance!(version, user)
+      {:ok, view, _html} = live(conn, ~p"/instances/#{instance.id}")
+
+      assert has_element?(view, "[data-testid='instance-hostnames']")
+      assert has_element?(view, "[data-testid='hostname-empty']")
+      assert has_element?(view, "[data-testid='hostname-guide-link']")
+      refute has_element?(view, "#hostname-form")
+    end
+
+    test "lists verified custom domains as options and custom addresses as rows", %{
+      conn: conn,
+      user: user,
+      version: version
+    } do
+      instance = create_instance!(version, user)
+      domain = verified_custom_domain!(instance, user)
+      hostname = custom_hostname!(instance, domain, "git")
+
+      {:ok, view, _html} = live(conn, ~p"/instances/#{instance.id}")
+
+      assert has_element?(view, "#hostname-form")
+
+      assert has_element?(
+               view,
+               "[data-testid='hostname-domain-select'] option[value='#{domain.id}']"
+             )
+
+      assert has_element?(view, "[data-testid='hostname-label-input']")
+
+      assert has_element?(
+               view,
+               "[data-testid='hostname-value']",
+               "git.#{domain.domain}"
+             )
+
+      assert has_element?(view, "[data-testid='hostname-copy']")
+      assert has_element?(view, "[data-testid='hostname-remove']")
+
+      # The default platform address is the header's, not this card's.
+      refute has_element?(view, "[data-testid='hostname-value']", instance.slug)
+
+      assert hostname.label == "git"
+    end
+
+    test "mints an address through the form and refreshes the card", %{
+      conn: conn,
+      user: user,
+      version: version
+    } do
+      instance = create_instance!(version, user)
+      domain = verified_custom_domain!(instance, user)
+
+      stub(RenderAccessDNS, :call, fn -> :ok end)
+
+      {:ok, view, _html} = live(conn, ~p"/instances/#{instance.id}")
+
+      view
+      |> form("#hostname-form", %{
+        "hostname" => %{"access_domain_id" => domain.id, "label" => "git"}
+      })
+      |> render_submit()
+
+      assert has_element?(view, "[data-testid='hostname-value']", "git.#{domain.domain}")
+      assert has_element?(view, "[data-testid='hostname-remove']")
+    end
+
+    test "removes an address through its row button", %{
+      conn: conn,
+      user: user,
+      version: version
+    } do
+      instance = create_instance!(version, user)
+      domain = verified_custom_domain!(instance, user)
+      _hostname = custom_hostname!(instance, domain, "git")
+
+      stub(RenderAccessDNS, :call, fn -> :ok end)
+
+      {:ok, view, _html} = live(conn, ~p"/instances/#{instance.id}")
+
+      assert has_element?(view, "[data-testid='hostname-value']", "git.#{domain.domain}")
+
+      view
+      |> element("[data-testid='hostname-remove']")
+      |> render_click()
+
+      refute has_element?(view, "[data-testid='hostname-value']", "git.#{domain.domain}")
+    end
+
+    test "a bad label flashes instead of landing a row", %{
+      conn: conn,
+      user: user,
+      version: version
+    } do
+      instance = create_instance!(version, user)
+      domain = verified_custom_domain!(instance, user)
+
+      {:ok, view, _html} = live(conn, ~p"/instances/#{instance.id}")
+
+      view
+      |> form("#hostname-form", %{
+        "hostname" => %{"access_domain_id" => domain.id, "label" => "Git"}
+      })
+      |> render_submit()
+
+      assert has_element?(view, "#flash-error")
+      refute has_element?(view, "[data-testid='hostname-value']", "Git.#{domain.domain}")
+    end
+
+    test "unmatched mint and remove payloads are no-ops", %{
+      conn: conn,
+      user: user,
+      version: version
+    } do
+      instance = create_instance!(version, user)
+      domain = verified_custom_domain!(instance, user)
+      _hostname = custom_hostname!(instance, domain, "git")
+
+      {:ok, view, _html} = live(conn, ~p"/instances/#{instance.id}")
+
+      render_submit(view, "mint-hostname", %{"bogus" => "payload"})
+
+      assert has_element?(view, "[data-testid='hostname-value']", "git.#{domain.domain}")
+
+      render_click(view, "remove-hostname", %{"bogus" => "payload"})
+
+      assert has_element?(view, "[data-testid='hostname-value']", "git.#{domain.domain}")
+    end
+
+    test "a failed remove flashes and keeps the row", %{
+      conn: conn,
+      user: user,
+      version: version
+    } do
+      instance = create_instance!(version, user)
+      domain = verified_custom_domain!(instance, user)
+      _hostname = custom_hostname!(instance, domain, "git")
+
+      # The cluster limb fails (a realistic remove failure); the row
+      # must stand and the owner gets the retry flash.
+      stub(AccessRoute, :get_by_instance, fn _id, _opts -> {:error, :db_oops} end)
+
+      {:ok, view, _html} = live(conn, ~p"/instances/#{instance.id}")
+
+      view
+      |> element("[data-testid='hostname-remove']")
+      |> render_click()
+
+      assert has_element?(view, "#flash-error")
+      assert has_element?(view, "[data-testid='hostname-value']", "git.#{domain.domain}")
+    end
+  end
+
+  defp verified_custom_domain!(instance, user) do
+    stub(K8s, :kubeconfig, fn -> {:ok, %{}} end)
+    stub(Kubereq, :attach, fn req, _opts -> req end)
+
+    stub(Kubereq, :apply, fn _req, manifest, _fm ->
+      {:ok, %{status: 201, body: manifest}}
+    end)
+
+    name = "apps-#{System.unique_integer([:positive])}.customer.test"
+
+    domain =
+      AccessDomain.register!(
+        %{domain: name, organization_id: instance.organization_id},
+        actor: user,
+        authorize?: false
+      )
+
+    {:ok, verified} = AccessDomain.mark_verified(domain, authorize?: false)
+    verified
+  end
+
+  defp custom_hostname!(instance, domain, label) do
+    InstanceHostname.mint!(
+      %{instance_id: instance.id, access_domain_id: domain.id, label: label},
+      authorize?: false
+    )
+  end
+
   # --- #493: the resize panel ------------------------------------------
 
   # The capability probe resolves the cluster's kubeconfig (the
@@ -2052,6 +2241,30 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
                view,
                "[data-testid='resize-storage-fixed']",
                "Storage: 7 GB · stays unchanged (can't expand on this cluster yet)"
+             )
+    end
+
+    test "a failed probe on an off-ladder row states the row's storage with the try-again note",
+         %{
+           conn: conn,
+           user: user,
+           version: version
+         } do
+      stub(K8s, :kubeconfig, fn nil -> {:ok, %{}} end)
+
+      stub(StorageClass, :default_allows_expansion?, fn _kc ->
+        {:error, K8s.Error.connection_error("api server on fire")}
+      end)
+
+      stopped = stopped_instance!(version, user, %{storage_gb: 7})
+      {:ok, view, _html} = live(conn, ~p"/instances/#{stopped.id}")
+
+      open_resize_panel(view)
+
+      assert has_element?(
+               view,
+               "[data-testid='resize-storage-fixed']",
+               "Storage: 7 GB · stays unchanged (couldn't check storage expansion — try again)"
              )
     end
 

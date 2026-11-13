@@ -80,6 +80,11 @@ defmodule FluxVale.Api.Scopes do
     {{"POST", ["instances", :_, "disconnect-pocketid"]}, "instances:write"},
     {{"POST", ["instances", :_, "rotate-pocketid-secret"]}, "instances:write"},
     {{"GET", ["instances", :_, "pocket-id-wiring"]}, "instances:read"},
+    # S6 (#751): the member custom-address verbs — an instance write to
+    # mint/remove, an instance read to list.
+    {{"POST", ["instances", :_, "hostnames"]}, "instances:write"},
+    {{"GET", ["instances", :_, "hostnames"]}, "instances:read"},
+    {{"DELETE", ["instance-hostnames", :_]}, "instances:write"},
     # Backups.
     {{"GET", ["instances", :_, "backup-setting"]}, "backups:read"},
     {{"GET", ["instances", :_, "backup-runs"]}, "backups:read"},

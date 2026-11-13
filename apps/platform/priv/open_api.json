@@ -65,6 +65,36 @@
             "additionalProperties": false,
             "description": "A relationships object for a access_domain",
             "properties": {
+              "instance_hostnames": {
+                "properties": {
+                  "data": {
+                    "description": "Relationship data for instance_hostnames",
+                    "items": {
+                      "additionalProperties": false,
+                      "description": "Resource identifiers for instance_hostnames",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "meta": {
+                          "additionalProperties": true,
+                          "type": "object"
+                        },
+                        "type": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "id"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array",
+                    "uniqueItems": true
+                  }
+                }
+              },
               "organization": {
                 "properties": {
                   "data": {
@@ -121,6 +151,9 @@
           },
           "id": {
             "$ref": "#/components/schemas/access_domain-filter-id"
+          },
+          "instance_hostnames": {
+            "$ref": "#/components/schemas/instance_hostname-filter"
           },
           "kind": {
             "$ref": "#/components/schemas/access_domain-filter-kind"
@@ -6619,6 +6652,386 @@
         ],
         "type": "object"
       },
+      "instance_hostname": {
+        "additionalProperties": false,
+        "description": "A \"Resource object\" representing a instance_hostname",
+        "properties": {
+          "attributes": {
+            "additionalProperties": false,
+            "description": "An attributes object for a instance_hostname",
+            "properties": {
+              "access_domain_id": {
+                "description": "Field included by default.",
+                "format": "uuid",
+                "type": "string"
+              },
+              "instance_id": {
+                "description": "Field included by default.",
+                "format": "uuid",
+                "type": "string"
+              },
+              "label": {
+                "description": "Field included by default.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "label",
+              "instance_id",
+              "access_domain_id"
+            ],
+            "type": "object"
+          },
+          "id": {
+            "type": "string"
+          },
+          "relationships": {
+            "additionalProperties": false,
+            "description": "A relationships object for a instance_hostname",
+            "properties": {
+              "access_domain": {
+                "properties": {
+                  "data": {
+                    "additionalProperties": false,
+                    "description": "An identifier for access_domain",
+                    "nullable": true,
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "meta": {
+                        "additionalProperties": true,
+                        "type": "object"
+                      },
+                      "type": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "type",
+                      "id"
+                    ],
+                    "type": "object"
+                  }
+                }
+              },
+              "instance": {
+                "properties": {
+                  "data": {
+                    "additionalProperties": false,
+                    "description": "An identifier for instance",
+                    "nullable": true,
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "meta": {
+                        "additionalProperties": true,
+                        "type": "object"
+                      },
+                      "type": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "type",
+                      "id"
+                    ],
+                    "type": "object"
+                  }
+                }
+              }
+            },
+            "type": "object"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "id"
+        ],
+        "type": "object"
+      },
+      "instance_hostname-filter": {
+        "additionalProperties": false,
+        "description": "Filters the query to results matching the given filter object",
+        "example": "",
+        "properties": {
+          "access_domain": {
+            "$ref": "#/components/schemas/access_domain-filter"
+          },
+          "access_domain_id": {
+            "$ref": "#/components/schemas/instance_hostname-filter-access_domain_id"
+          },
+          "and": {
+            "items": {
+              "$ref": "#/components/schemas/instance_hostname-filter"
+            },
+            "type": "array",
+            "uniqueItems": true
+          },
+          "id": {
+            "$ref": "#/components/schemas/instance_hostname-filter-id"
+          },
+          "instance": {
+            "$ref": "#/components/schemas/instance-filter"
+          },
+          "instance_id": {
+            "$ref": "#/components/schemas/instance_hostname-filter-instance_id"
+          },
+          "label": {
+            "$ref": "#/components/schemas/instance_hostname-filter-label"
+          },
+          "not": {
+            "$ref": "#/components/schemas/instance_hostname-filter"
+          },
+          "or": {
+            "items": {
+              "$ref": "#/components/schemas/instance_hostname-filter"
+            },
+            "type": "array",
+            "uniqueItems": true
+          }
+        },
+        "type": "deepObject"
+      },
+      "instance_hostname-filter-access_domain_id": {
+        "additionalProperties": false,
+        "properties": {
+          "eq": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "greater_than": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "greater_than_or_equal": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "in": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "less_than": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "less_than_or_equal": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "not_eq": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "instance_hostname-filter-id": {
+        "additionalProperties": false,
+        "properties": {
+          "eq": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "greater_than": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "greater_than_or_equal": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "in": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "less_than": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "less_than_or_equal": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "not_eq": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "instance_hostname-filter-instance_id": {
+        "additionalProperties": false,
+        "properties": {
+          "eq": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "greater_than": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "greater_than_or_equal": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "in": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "less_than": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "less_than_or_equal": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "not_eq": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "instance_hostname-filter-label": {
+        "additionalProperties": false,
+        "properties": {
+          "contains": {
+            "type": "string"
+          },
+          "eq": {
+            "type": "string"
+          },
+          "greater_than": {
+            "type": "string"
+          },
+          "greater_than_or_equal": {
+            "type": "string"
+          },
+          "ilike": {
+            "type": "string"
+          },
+          "in": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "type": "string"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "type": "string"
+          },
+          "less_than": {
+            "type": "string"
+          },
+          "less_than_or_equal": {
+            "type": "string"
+          },
+          "like": {
+            "type": "string"
+          },
+          "not_eq": {
+            "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "instance_hostname-type": {
+        "additionalProperties": false,
+        "properties": {
+          "access_domain_id": {
+            "description": "Field included by default.",
+            "format": "uuid",
+            "type": "string"
+          },
+          "id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Field included by default."
+          },
+          "instance_id": {
+            "description": "Field included by default.",
+            "format": "uuid",
+            "type": "string"
+          },
+          "label": {
+            "description": "Field included by default.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "label",
+          "instance_id",
+          "access_domain_id"
+        ],
+        "type": "object"
+      },
       "ledger_entry": {
         "additionalProperties": false,
         "description": "A \"Resource object\" representing a ledger_entry",
@@ -9954,6 +10367,36 @@
                           "additionalProperties": false,
                           "description": "A relationships object for a access_domain",
                           "properties": {
+                            "instance_hostnames": {
+                              "properties": {
+                                "data": {
+                                  "description": "Relationship data for instance_hostnames",
+                                  "items": {
+                                    "additionalProperties": false,
+                                    "description": "Resource identifiers for instance_hostnames",
+                                    "properties": {
+                                      "id": {
+                                        "type": "string"
+                                      },
+                                      "meta": {
+                                        "additionalProperties": true,
+                                        "type": "object"
+                                      },
+                                      "type": {
+                                        "type": "string"
+                                      }
+                                    },
+                                    "required": [
+                                      "type",
+                                      "id"
+                                    ],
+                                    "type": "object"
+                                  },
+                                  "type": "array",
+                                  "uniqueItems": true
+                                }
+                              }
+                            },
                             "organization": {
                               "properties": {
                                 "data": {
@@ -10163,6 +10606,36 @@
                           "additionalProperties": false,
                           "description": "A relationships object for a access_domain",
                           "properties": {
+                            "instance_hostnames": {
+                              "properties": {
+                                "data": {
+                                  "description": "Relationship data for instance_hostnames",
+                                  "items": {
+                                    "additionalProperties": false,
+                                    "description": "Resource identifiers for instance_hostnames",
+                                    "properties": {
+                                      "id": {
+                                        "type": "string"
+                                      },
+                                      "meta": {
+                                        "additionalProperties": true,
+                                        "type": "object"
+                                      },
+                                      "type": {
+                                        "type": "string"
+                                      }
+                                    },
+                                    "required": [
+                                      "type",
+                                      "id"
+                                    ],
+                                    "type": "object"
+                                  },
+                                  "type": "array",
+                                  "uniqueItems": true
+                                }
+                              }
+                            },
                             "organization": {
                               "properties": {
                                 "data": {
@@ -10380,6 +10853,36 @@
                           "additionalProperties": false,
                           "description": "A relationships object for a access_domain",
                           "properties": {
+                            "instance_hostnames": {
+                              "properties": {
+                                "data": {
+                                  "description": "Relationship data for instance_hostnames",
+                                  "items": {
+                                    "additionalProperties": false,
+                                    "description": "Resource identifiers for instance_hostnames",
+                                    "properties": {
+                                      "id": {
+                                        "type": "string"
+                                      },
+                                      "meta": {
+                                        "additionalProperties": true,
+                                        "type": "object"
+                                      },
+                                      "type": {
+                                        "type": "string"
+                                      }
+                                    },
+                                    "required": [
+                                      "type",
+                                      "id"
+                                    ],
+                                    "type": "object"
+                                  },
+                                  "type": "array",
+                                  "uniqueItems": true
+                                }
+                              }
+                            },
                             "organization": {
                               "properties": {
                                 "data": {
@@ -12734,6 +13237,43 @@
         },
         "tags": [
           "backup_setting"
+        ]
+      }
+    },
+    "/api/v1/instance-hostnames/{id}": {
+      "delete": {
+        "callbacks": {},
+        "deprecated": false,
+        "description": "Removes one of the instance's custom addresses.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "style": "form"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/vnd.api+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/instance_hostname-type"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/errors"
+          }
+        },
+        "tags": [
+          "instance_hostname"
         ]
       }
     },
@@ -18008,6 +18548,452 @@
         ]
       }
     },
+    "/api/v1/instances/{instance_id}/hostnames": {
+      "get": {
+        "callbacks": {},
+        "deprecated": false,
+        "description": "The instance's addresses, oldest first (the page card and the API route).",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "instance_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "style": "form"
+          },
+          {
+            "description": "Filters the query to results with attributes matching the given filter object",
+            "in": "query",
+            "name": "filter",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/instance_hostname-filter"
+            },
+            "style": "deepObject"
+          },
+          {
+            "description": "Sort order to apply to the results",
+            "explode": false,
+            "in": "query",
+            "name": "sort",
+            "required": false,
+            "schema": {
+              "pattern": "^(id|-id|\\+\\+id|--id|label|-label|\\+\\+label|--label|instance_id|-instance_id|\\+\\+instance_id|--instance_id|access_domain_id|-access_domain_id|\\+\\+access_domain_id|--access_domain_id)(,(id|-id|\\+\\+id|--id|label|-label|\\+\\+label|--label|instance_id|-instance_id|\\+\\+instance_id|--instance_id|access_domain_id|-access_domain_id|\\+\\+access_domain_id|--access_domain_id))*$",
+              "type": "string"
+            },
+            "style": "form"
+          },
+          {
+            "description": "Relationship paths to include in the response",
+            "explode": false,
+            "in": "query",
+            "name": "include",
+            "required": false,
+            "schema": {
+              "pattern": "^()(,())*$",
+              "type": "string"
+            },
+            "style": "form"
+          },
+          {
+            "description": "Limits the response fields to only those listed for each type",
+            "in": "query",
+            "name": "fields",
+            "required": false,
+            "schema": {
+              "additionalProperties": true,
+              "example": {
+                "instance_hostname": "id,label,instance_id,access_domain_id"
+              },
+              "properties": {
+                "instance_hostname": {
+                  "description": "Comma separated field names for instance_hostname",
+                  "example": "id,label,instance_id,access_domain_id",
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "style": "deepObject"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/vnd.api+json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "description": "An array of resource objects representing a instance_hostname",
+                      "items": {
+                        "additionalProperties": false,
+                        "description": "A \"Resource object\" representing a instance_hostname",
+                        "properties": {
+                          "attributes": {
+                            "additionalProperties": false,
+                            "description": "An attributes object for a instance_hostname",
+                            "properties": {
+                              "access_domain_id": {
+                                "description": "Field included by default.",
+                                "format": "uuid",
+                                "type": "string"
+                              },
+                              "instance_id": {
+                                "description": "Field included by default.",
+                                "format": "uuid",
+                                "type": "string"
+                              },
+                              "label": {
+                                "description": "Field included by default.",
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "label",
+                              "instance_id",
+                              "access_domain_id"
+                            ],
+                            "type": "object"
+                          },
+                          "id": {
+                            "type": "string"
+                          },
+                          "relationships": {
+                            "additionalProperties": false,
+                            "description": "A relationships object for a instance_hostname",
+                            "properties": {
+                              "access_domain": {
+                                "properties": {
+                                  "data": {
+                                    "additionalProperties": false,
+                                    "description": "An identifier for access_domain",
+                                    "nullable": true,
+                                    "properties": {
+                                      "id": {
+                                        "type": "string"
+                                      },
+                                      "meta": {
+                                        "additionalProperties": true,
+                                        "type": "object"
+                                      },
+                                      "type": {
+                                        "type": "string"
+                                      }
+                                    },
+                                    "required": [
+                                      "type",
+                                      "id"
+                                    ],
+                                    "type": "object"
+                                  }
+                                }
+                              },
+                              "instance": {
+                                "properties": {
+                                  "data": {
+                                    "additionalProperties": false,
+                                    "description": "An identifier for instance",
+                                    "nullable": true,
+                                    "properties": {
+                                      "id": {
+                                        "type": "string"
+                                      },
+                                      "meta": {
+                                        "additionalProperties": true,
+                                        "type": "object"
+                                      },
+                                      "type": {
+                                        "type": "string"
+                                      }
+                                    },
+                                    "required": [
+                                      "type",
+                                      "id"
+                                    ],
+                                    "type": "object"
+                                  }
+                                }
+                              }
+                            },
+                            "type": "object"
+                          },
+                          "type": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "type",
+                          "id"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array",
+                      "uniqueItems": true
+                    },
+                    "included": {
+                      "items": {
+                        "oneOf": []
+                      },
+                      "type": "array",
+                      "uniqueItems": true
+                    },
+                    "meta": {
+                      "additionalProperties": true,
+                      "type": "object"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/errors"
+          }
+        },
+        "tags": [
+          "instance_hostname"
+        ]
+      },
+      "post": {
+        "callbacks": {},
+        "deprecated": false,
+        "description": "Adds a custom address under a verified custom domain owned by the\ninstance's organization. Refuses a foreign domain, a platform\ndomain, and an unverified one.\n",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "instance_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "style": "form"
+          },
+          {
+            "description": "Relationship paths to include in the response",
+            "explode": false,
+            "in": "query",
+            "name": "include",
+            "required": false,
+            "schema": {
+              "pattern": "^()(,())*$",
+              "type": "string"
+            },
+            "style": "form"
+          },
+          {
+            "description": "Limits the response fields to only those listed for each type",
+            "in": "query",
+            "name": "fields",
+            "required": false,
+            "schema": {
+              "additionalProperties": true,
+              "example": {
+                "instance_hostname": "id,label,instance_id,access_domain_id"
+              },
+              "properties": {
+                "instance_hostname": {
+                  "description": "Comma separated field names for instance_hostname",
+                  "example": "id,label,instance_id,access_domain_id",
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "style": "deepObject"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/vnd.api+json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "data": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "attributes": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "access_domain_id": {
+                            "format": "uuid",
+                            "type": "string"
+                          },
+                          "label": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "access_domain_id",
+                          "label"
+                        ],
+                        "type": "object"
+                      },
+                      "relationships": {
+                        "additionalProperties": false,
+                        "properties": {},
+                        "type": "object"
+                      },
+                      "type": {
+                        "enum": [
+                          "instance_hostname"
+                        ]
+                      }
+                    },
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "data"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "description": "Request body for the /instances/:instance_id/hostnames operation on instance_hostname resource",
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/vnd.api+json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "additionalProperties": false,
+                      "description": "A \"Resource object\" representing a instance_hostname",
+                      "properties": {
+                        "attributes": {
+                          "additionalProperties": false,
+                          "description": "An attributes object for a instance_hostname",
+                          "properties": {
+                            "access_domain_id": {
+                              "description": "Field included by default.",
+                              "format": "uuid",
+                              "type": "string"
+                            },
+                            "instance_id": {
+                              "description": "Field included by default.",
+                              "format": "uuid",
+                              "type": "string"
+                            },
+                            "label": {
+                              "description": "Field included by default.",
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "label",
+                            "instance_id",
+                            "access_domain_id"
+                          ],
+                          "type": "object"
+                        },
+                        "id": {
+                          "type": "string"
+                        },
+                        "relationships": {
+                          "additionalProperties": false,
+                          "description": "A relationships object for a instance_hostname",
+                          "properties": {
+                            "access_domain": {
+                              "properties": {
+                                "data": {
+                                  "additionalProperties": false,
+                                  "description": "An identifier for access_domain",
+                                  "nullable": true,
+                                  "properties": {
+                                    "id": {
+                                      "type": "string"
+                                    },
+                                    "meta": {
+                                      "additionalProperties": true,
+                                      "type": "object"
+                                    },
+                                    "type": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "type",
+                                    "id"
+                                  ],
+                                  "type": "object"
+                                }
+                              }
+                            },
+                            "instance": {
+                              "properties": {
+                                "data": {
+                                  "additionalProperties": false,
+                                  "description": "An identifier for instance",
+                                  "nullable": true,
+                                  "properties": {
+                                    "id": {
+                                      "type": "string"
+                                    },
+                                    "meta": {
+                                      "additionalProperties": true,
+                                      "type": "object"
+                                    },
+                                    "type": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "type",
+                                    "id"
+                                  ],
+                                  "type": "object"
+                                }
+                              }
+                            }
+                          },
+                          "type": "object"
+                        },
+                        "type": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "id"
+                      ],
+                      "type": "object"
+                    },
+                    "included": {
+                      "items": {
+                        "oneOf": []
+                      },
+                      "type": "array",
+                      "uniqueItems": true
+                    },
+                    "meta": {
+                      "additionalProperties": true,
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/errors"
+          }
+        },
+        "tags": [
+          "instance_hostname"
+        ]
+      }
+    },
     "/api/v1/instances/{instance_id}/pocket-id-wiring": {
       "get": {
         "callbacks": {},
@@ -19221,6 +20207,36 @@
                             "additionalProperties": false,
                             "description": "A relationships object for a access_domain",
                             "properties": {
+                              "instance_hostnames": {
+                                "properties": {
+                                  "data": {
+                                    "description": "Relationship data for instance_hostnames",
+                                    "items": {
+                                      "additionalProperties": false,
+                                      "description": "Resource identifiers for instance_hostnames",
+                                      "properties": {
+                                        "id": {
+                                          "type": "string"
+                                        },
+                                        "meta": {
+                                          "additionalProperties": true,
+                                          "type": "object"
+                                        },
+                                        "type": {
+                                          "type": "string"
+                                        }
+                                      },
+                                      "required": [
+                                        "type",
+                                        "id"
+                                      ],
+                                      "type": "object"
+                                    },
+                                    "type": "array",
+                                    "uniqueItems": true
+                                  }
+                                }
+                              },
                               "organization": {
                                 "properties": {
                                   "data": {
