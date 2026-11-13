@@ -29,7 +29,8 @@ end
 # passed explicitly: config assembly runs before `config :flux_vale,
 # :posthog` reaches the app env.
 if FluxVale.Observability.otel_exporter_on?() do
-  posthog_configured? = match?({:ok, _}, FluxVale.Observability.posthog_config())
+  posthog_configured? =
+    config_env() != :test and match?({:ok, _}, FluxVale.Observability.posthog_config())
 
   config :opentelemetry, processors: FluxVale.Observability.otel_processors(posthog_configured?)
 end

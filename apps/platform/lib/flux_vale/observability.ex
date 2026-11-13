@@ -144,7 +144,6 @@ defmodule FluxVale.Observability do
   env answer explicitly: it assembles config before `config :flux_vale,
   :posthog` reaches the app env.
   """
-  @spec otel_processors() :: list()
   @spec otel_processors(boolean()) :: list()
   def otel_processors(configured? \\ posthog_configured?()) do
     if configured? do
@@ -215,8 +214,15 @@ defmodule FluxVale.Observability do
   end
 
   # The boot/tree truth: runtime.exs applies this only after the file
-  # finishes, so otel_processors/1 takes the env answer separately.
-  defp posthog_configured?, do: Application.get_env(:flux_vale, :posthog) != nil
+  # finishes, so otel_processors/1 takes the env answer separately. Only
+  # a real armed map counts — false/%{} would arm here while the tree
+  # stays disabled (posthog_children/0 owns that truthiness gate).
+  defp posthog_configured? do
+    case Application.get_env(:flux_vale, :posthog) do
+      %{api_key: key} when is_binary(key) and key != "" -> true
+      _unarmed -> false
+    end
+  end
 
   # The supervisor-facing assembly: the armed map (runtime.exs) with
   # config.exs's :posthog source-context keys merged in, then validate!/1

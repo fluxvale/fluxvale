@@ -285,6 +285,16 @@ defmodule FluxVale.ObservabilityTest do
       end)
     end
 
+    test "a stray POSTHOG_API_KEY does not arm the suite (app env is the truth)" do
+      with_env("POSTHOG_API_KEY", "phc_stray_test_key", fn ->
+        Application.delete_env(:flux_vale, :posthog)
+
+        assert Observability.otel_processors() == [
+                 {:otel_batch_processor, %{exporter: {:otel_exporter_traces_otlp, %{}}}}
+               ]
+      end)
+    end
+
     test "runtime.exs arms the processor when both env gates are set" do
       # runtime.exs passes the env answer explicitly because
       # `config :flux_vale, :posthog` has not reached the app env yet —
@@ -332,6 +342,14 @@ defmodule FluxVale.ObservabilityTest do
         assert Observability.bandit_setup_opts() == [
                  request_headers: ["x-posthog-session-id", "x-posthog-distinct-id"]
                ]
+      end)
+    end
+
+    test "a stray POSTHOG_API_KEY does not capture headers (app env is the truth)" do
+      with_env("POSTHOG_API_KEY", "phc_stray_test_key", fn ->
+        Application.delete_env(:flux_vale, :posthog)
+
+        assert Observability.bandit_setup_opts() == []
       end)
     end
   end
