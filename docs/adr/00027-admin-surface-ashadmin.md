@@ -227,8 +227,8 @@ against the next tick.
 Slice 7 of #595 walks the six parity criteria against live AshAdmin and
 the console, per resource. Result: the 23 registry resources meet all
 six criteria; the 14 AshAdmin-shown rows outside the registry are
-deliberate and recorded below. The per-resource table lives in the
-#595 parity PR; this amendment is the decision record.
+deliberate and recorded below. The per-resource results are the table
+below; the PR body carries the same table with the capture index.
 
 Coverage. All 23: a stable domain-grouped URL, index plus show for
 every public attribute with created_at pinned on the index, the
@@ -242,6 +242,34 @@ Machinery actions (Instance's perform_*, settle, teardown, state
 markers and the system env merge; AccessGateway's observe, provision,
 settle and teardown) never render — the curated workflow surfaces own
 them.
+
+Per-resource record (all 23, live enumeration on the slice-7 branch):
+
+| Domain | Resource | Create | Update | Destroy |
+|---|---|---|---|---|
+| Ops | FeatureFlag | `create` | `update` | `destroy` |
+| Ops | AccessRule | `create` | `update` | `destroy` |
+| Pricing | Size | `create` | `update` | `destroy` |
+| Pricing | TaxRate | `create` | `update` | `destroy` |
+| Billing | Wallet | none | `set_waiver` | none |
+| Billing | LedgerEntry | `grant_goodwill` | none | none |
+| Catalog | Category | `create` | `update` | `destroy` |
+| Catalog | App | `create` | `update` | `destroy` |
+| Catalog | AppVersion | `create` | `update` | `destroy` |
+| Infrastructure | Cluster | `create` | `update` | `destroy` |
+| Infrastructure | Instance | `create` | `deploy`, `grow_storage`, `resize`, `set_always_on`, `set_exposure`, `sleep`, `start`, `stop`, `touch`, `update_env`, `update_status` | `destroy` |
+| Infrastructure | InstanceAllocationSnapshot | none | none | none |
+| Infrastructure | BackupSetting | `create`, `save` | `update`, `save_settings` | `destroy` |
+| Infrastructure | BackupRun | none | none | none |
+| Infrastructure | AccessGateway | none | `update_credential`, `suspend`, `resume` | none |
+| Infrastructure | AccessRoute | none | none | none |
+| Infrastructure | AccessDomain | `register` | `resume` | `remove` |
+| Infrastructure | InstanceHostname | none | none | none |
+| Feedback | Post | `create` | `update`, `set_status`, `set_tags` | `destroy` |
+| Feedback | Vote | `cast` | none | `retract` |
+| Feedback | Comment | `create` | none | `destroy` |
+| Feedback | Tag | `create` | `update` | `destroy` |
+| Feedback | PostTag | `create` | none | `destroy` |
 
 The deliberate difference. AshAdmin runs authorize?: false (Am. 1);
 the console enforces. Its action set is therefore the intersection of
