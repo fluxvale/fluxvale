@@ -28,7 +28,9 @@ pub(crate) enum ScopeError {
 
 // ---- the async surface: per-request client, blocking pool
 
-/// `GET /me` — the initialize gate: 401/403 refuse the connection.
+/// `GET /me` — the legacy PAT initialize/discover gate: 401/403
+/// refuse the connection. OAuth access tokens are validated by the
+/// middleware's `me_scopes` call instead (#766).
 pub(crate) async fn check_me(base: Arc<str>, token: Token) -> Result<(), ApiError> {
     on_blocking(move || ApiClient::new(&base, token).get("/me").map(|_| ())).await
 }
