@@ -238,8 +238,7 @@ defmodule FluxValeWeb.PolicyControllerTest do
       assert flat =~ "carry no cookies and no advertising trackers"
       assert flat =~ "advertise to you or to profile you"
 
-      assert flat =~
-               "Technical traces of requests to the app, including public pages, also go to PostHog"
+      assert flat =~ "Technical traces of requests to our platform also go to PostHog"
 
       # Retention: the one category that outlives an account, said
       # plainly (the data-deletion stance).
