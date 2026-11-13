@@ -16,12 +16,18 @@ defmodule FluxVale.Catalog.App do
   # #360 (ADR-0019 §1): the catalog's wire contract — the public browse
   # surface (ADR-00025); first cut is the authenticated read (every
   # /api/v1 route rides the auth pipeline).
+  #
+  # #719: icon_url is absolute on the wire — the canonical origin, the
+  # JSON-LD screenshots' precedent (CatalogController prepends it).
+  # The API's own read actions run App.AbsolutizeIconUrl; the stored
+  # value stays relative so the SSR pages resolve icons same-origin
+  # (#718), which is why they keep :list / :get_by_slug.
   json_api do
     type("app")
 
     routes do
       # catalog:read
-      index(:list,
+      index(:api_list,
         route: "/apps",
         default_fields: [
           :id,
@@ -38,7 +44,7 @@ defmodule FluxVale.Catalog.App do
 
       # catalog:read — one segment in the path; the param name is the
       # action's own argument (`:slug` feeds it by name).
-      get(:get_by_slug,
+      get(:api_get_by_slug,
         route: "/apps/:slug",
         default_fields: [
           :id,
@@ -143,6 +149,8 @@ defmodule FluxVale.Catalog.App do
     # stays :string so ash_json_api keeps the icon_url string filter
     # predicates; Types.IconPath owns the one contract, attached as an
     # action change (App.CastIconPath) on both create and update.
+    # Reads carry the stored relative path; the JSON:API wire
+    # absolutizes it (#719, the json_api block).
     attribute :icon_url, :string do
       public?(true)
     end
@@ -318,6 +326,24 @@ defmodule FluxVale.Catalog.App do
     read :list do
       description("The catalog's apps, by name — the browse surface's flat list")
       prepare(build(sort: :name))
+    end
+
+    # #719: the JSON:API twins — the only difference is the wire shape.
+    # Same descriptions as :list / :get_by_slug so the OpenAPI artifact
+    # keeps naming the read, not the shaping. Mirror semantic changes
+    # on both pairs: nothing guards the copies against drift.
+    read :api_list do
+      description("The catalog's apps, by name — the browse surface's flat list")
+      prepare(build(sort: :name))
+      prepare(FluxVale.Catalog.App.AbsolutizeIconUrl)
+    end
+
+    read :api_get_by_slug do
+      description("Get an app by its slug")
+      get?(true)
+      argument(:slug, :string, allow_nil?: false)
+      filter(expr(slug == ^arg(:slug)))
+      prepare(FluxVale.Catalog.App.AbsolutizeIconUrl)
     end
   end
 

@@ -8,6 +8,10 @@ defmodule FluxValeWeb.Api.CatalogRouteTest do
   # Sync: fabricates app rows with a seeded unique slug (#669).
   use FluxValeWeb.ConnCase, async: false
 
+  import Ecto.Query
+
+  alias FluxVale.Catalog.App
+  alias FluxVale.Repo
   alias FluxVale.TestSupport.ApiPat
   alias FluxVale.TestSupport.InstanceFixtures
 
@@ -58,6 +62,109 @@ defmodule FluxValeWeb.Api.CatalogRouteTest do
         |> get("/api/v1/apps/no-such-app")
 
       assert %{"errors" => [%{"status" => "404"}]} = json_response(conn, 404)
+    end
+  end
+
+  # #719: icon_url is absolute on the wire — the screenshot precedent
+  # at the API edge. The stored and SSR reads keep the relative path so
+  # icons stay same-origin (#718).
+  describe "icon_url on the wire (#719)" do
+    test "the list renders a stored relative path on the canonical origin", %{
+      conn: conn,
+      pat: pat
+    } do
+      slug = "icon-list-#{System.unique_integer([:positive])}"
+      InstanceFixtures.app_version!(app_slug: slug, icon_url: "/images/catalog/forgejo/icon.svg")
+
+      conn =
+        conn
+        |> auth(pat)
+        |> get("/api/v1/apps")
+
+      assert %{"data" => rows} = json_response(conn, 200)
+      row = Enum.find(rows, &(&1["attributes"]["slug"] == slug))
+
+      assert row["attributes"]["icon_url"] ==
+               "https://fluxvale.com/images/catalog/forgejo/icon.svg"
+
+      # The shaping is the API edge only — the code-interface read the
+      # SSR pages ride still returns the stored path.
+      assert App.get_by_slug!(slug, authorize?: false).icon_url ==
+               "/images/catalog/forgejo/icon.svg"
+    end
+
+    test "the detail renders it absolute too", %{conn: conn, pat: pat} do
+      slug = "icon-detail-#{System.unique_integer([:positive])}"
+      InstanceFixtures.app_version!(app_slug: slug, icon_url: "/images/catalog/forgejo/icon.svg")
+
+      conn =
+        conn
+        |> auth(pat)
+        |> get("/api/v1/apps/#{slug}")
+
+      assert %{"data" => row} = json_response(conn, 200)
+
+      assert row["attributes"]["icon_url"] ==
+               "https://fluxvale.com/images/catalog/forgejo/icon.svg"
+    end
+
+    test "an absent icon_url stays null", %{conn: conn, pat: pat} do
+      # The setup's forgejo fixture carries no icon: the designed absent
+      # state (#718's contract allows nil).
+      conn =
+        conn
+        |> auth(pat)
+        |> get("/api/v1/apps/forgejo")
+
+      assert %{"data" => row} = json_response(conn, 200)
+      # The key is present, its value null — not dropped by a
+      # default_fields regression.
+      assert Map.has_key?(row["attributes"], "icon_url")
+      assert row["attributes"]["icon_url"] == nil
+    end
+
+    test "a pre-contract absolute icon_url passes through untouched", %{conn: conn, pat: pat} do
+      slug = "icon-legacy-#{System.unique_integer([:positive])}"
+      %{app_id: app_id} = InstanceFixtures.app_version!(app_slug: slug)
+
+      # Repo.update_all is the seed test's action-bypass — the #718 write
+      # contract rejects a hotlink at the action — and plants the legacy
+      # shape the lenient read keeps visible.
+      plant =
+        from(a in App,
+          where: a.id == ^app_id,
+          update: [set: [icon_url: "https://hotlink.example/legacy.svg"]]
+        )
+
+      {1, _result} = Repo.update_all(plant, [])
+
+      conn =
+        conn
+        |> auth(pat)
+        |> get("/api/v1/apps/#{slug}")
+
+      assert %{"data" => row} = json_response(conn, 200)
+      assert row["attributes"]["icon_url"] == "https://hotlink.example/legacy.svg"
+    end
+
+    test "the origin is the configured canonical origin", %{conn: conn, pat: pat} do
+      # Mutates VM-global config — this module stays async: false.
+      slug = "icon-origin-#{System.unique_integer([:positive])}"
+      InstanceFixtures.app_version!(app_slug: slug, icon_url: "/images/catalog/forgejo/icon.svg")
+
+      original = Application.get_env(:flux_vale, :canonical_origin)
+      on_exit(fn -> Application.put_env(:flux_vale, :canonical_origin, original) end)
+      Application.put_env(:flux_vale, :canonical_origin, "https://sentinel.example")
+
+      conn =
+        conn
+        |> auth(pat)
+        |> get("/api/v1/apps/#{slug}")
+
+      assert %{"data" => row} = json_response(conn, 200)
+
+      assert row["attributes"]["icon_url"] ==
+               "https://sentinel.example/images/catalog/forgejo/icon.svg"
     end
   end
 
