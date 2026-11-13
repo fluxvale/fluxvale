@@ -221,3 +221,67 @@ the blip. #671's bound, restated: the window is per-event on custom
 surfaces and at most one cadence on the generated ones — bounded,
 not closed; a cid-targeted save still runs if it wins the race
 against the next tick.
+
+## Amendment 7 (2026-11-13): the parity review — the console carries AshAdmin's operator usage
+
+Slice 7 of #595 walks the six parity criteria against live AshAdmin and
+the console, per resource. Result: the 23 registry resources meet all
+six criteria; the 14 AshAdmin-shown rows outside the registry are
+deliberate and recorded below. The per-resource table lives in the
+#595 parity PR; this amendment is the decision record.
+
+Coverage. All 23: a stable domain-grouped URL, index plus show for
+every public attribute and the declared created_at/updated_at, the
+operator-legal writes enforced through the policies, destructive
+confirms with honest refusals, 25-row offset pages, and light/dark
+operator-width renders. The action sets match AshAdmin's operator use:
+Wallets expose set_waiver and nothing else, LedgerEntry exposes
+grant_goodwill, and the six full-CRUD domains expose create, update and
+destroy. Machinery actions (Instance's perform_*, settle, teardown and
+state markers; AccessGateway's observe, provision, settle and teardown)
+never render — the curated workflow surfaces own them.
+
+The deliberate difference. AshAdmin runs authorize?: false (Am. 1);
+the console enforces. Its action set is therefore the intersection of
+can?-true and the registry's intent curation, and every button is
+checked twice, at render and at dispatch. This is stricter than parity,
+not a gap: an action AshAdmin would run unguarded is refused here when
+the policy says so.
+
+D2, as shipped. The #644 blanket authority already carries the
+platform-admin bypass on the seven member-scoped Infrastructure
+resources, so slice 5 did not duplicate the planned authorize_if arms.
+InstanceAllocationSnapshot gained the bypass because its reads were
+system-only, and machine-API callers keep the forbid. The proof tests
+pin admin cross-org reads, unchanged member scoping, and non-admin
+refusal. A future member-scoped resource carries its arm decision at
+registry intake, which the parity test forces.
+
+AshAdmin-only rows, accepted. The live AshAdmin set is 37, not
+appendix A's 23: the domains without show_resources also expose their
+12 paper-trail Version tables (Ops 2, Pricing 2, Catalog 3, Feedback
+5). The console excludes every Version module by name — the Audit
+section (#645, [ADR-0048](00048-ash-paper-trail-audit.md)) is their
+surface, with redaction and attribution the raw tables do not carry.
+After the removal PR, that section is the Version tables' ONLY operator
+surface — the slice-8 gate should be read with that explicit. (The
+earlier slice map said only the custody pair sat outside the registry;
+the live enumeration corrects that to 14 rows, and this amendment
+carries the corrected split.)
+PocketIdCustody and PocketIdCustodyEvent expose one public attribute
+each (the primary key); every operator attribute is non-public, so a
+public-attribute console would render an id and timestamps. The curated
+SSO card is their surface. Neither expansion buys an operator anything.
+
+Accepted usage deltas, on record: no authorizing toggle (we enforce),
+no non-public columns (Am. 1's credential references stay unrendered),
+no generic-action runner, no relationship editor (Post tags render
+read-only and set_tags takes pasted ids), no actor impersonation, and
+25-row pages against AshAdmin's 250, which is unbounded in practice.
+The Snapshot index's id+created_at shape can collide on short ids; the
+columns are plan-mandated.
+
+Residual demotion. AshAdmin stays mounted and untouched at /admin/ash
+until the removal PR, which remains gated on the owner's explicit go.
+Nothing in this amendment removes the fallback; the console is additive
+to the last.

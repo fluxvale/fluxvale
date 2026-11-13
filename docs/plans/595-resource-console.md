@@ -452,8 +452,9 @@ fixes it uncovers):
 
 - Walk the parity checklist (below) per domain against live AshAdmin
   and the new console; record the result table in the PR body and in
-  ADR-0027 as Am. 5 (the replacement record: what the console covers,
-  the D2 read-arm decision, the residual AshAdmin demotion).
+  ADR-0027 as Am. 7 (renumbered: Am. 5 and Am. 6 landed first for
+  #671 — the replacement record: what the console covers, the D2
+  read-arm decision, the residual AshAdmin demotion).
 - Per-domain screenshot sets (light + dark) embedded — the issue's
   acceptance asks for them; the review PR is where the complete set
   lives in one place.
@@ -461,7 +462,7 @@ fixes it uncovers):
   fixes, or is explicitly listed as accepted loss with your sign-off.
 
 Done when: the checklist table is complete, every gap is either fixed
-or accepted in writing, and ADR-0027 Am. 5 records the decision.
+or accepted in writing, and ADR-0027 Am. 7 records the decision.
 
 ### Slice 8 — AshAdmin removal (needs Terence's explicit go)
 
@@ -471,8 +472,8 @@ router import, the dep and its lock entries, every `admin do` block
 slices 3-6 migrated them), the config.exs ash_domains comment updates,
 and the AdminShell deep-debugging group copy (AshAdmin entry gone,
 LiveDashboard stays; the group copy no longer says "tools" plural if
-that reads wrong). ADR-0027 Am. 5's removal clause flips to executed
-(or this PR appends Am. 6 if slice 7 already merged). The router's
+that reads wrong). ADR-0027 Am. 7's removal clause flips to executed
+(or this PR appends Am. 8 if slice 7 already merged). The router's
 ORDER-MATTERS comment about ash_admin dies with the route; keep
 LiveDashboard's own ordering note intact. Screenshot: the sidebar
 without the entry.
