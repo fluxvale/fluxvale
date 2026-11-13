@@ -229,7 +229,7 @@ defmodule FluxValeWeb.PolicyControllerTest do
       # Logs: honest about IP addresses, bounded retention, named
       # monitoring services. PostHog rides beside Grafana Cloud
       # (#706); traces are disclosed here and their export activates
-      # with this slice (Phase 2).
+      # in Phase 2.
       assert flat =~ "IP addresses"
       assert flat =~ "limited window"
       assert flat =~ "Grafana Cloud"
@@ -237,7 +237,9 @@ defmodule FluxValeWeb.PolicyControllerTest do
       # PostHog-only fragment: Grafana's sentence does not carry it.
       assert flat =~ "carry no cookies and no advertising trackers"
       assert flat =~ "advertise to you or to profile you"
-      assert flat =~ "Technical traces of requests in the signed-in app also go to PostHog"
+
+      assert flat =~
+               "Technical traces of requests to the app, including public pages, also go to PostHog"
 
       # Retention: the one category that outlives an account, said
       # plainly (the data-deletion stance).

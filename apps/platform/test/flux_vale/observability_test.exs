@@ -284,6 +284,24 @@ defmodule FluxVale.ObservabilityTest do
                ]
       end)
     end
+
+    test "runtime.exs arms the processor when both env gates are set" do
+      # runtime.exs passes the env answer explicitly because
+      # `config :flux_vale, :posthog` has not reached the app env yet —
+      # this pins the real file (the ordering bug pure-helper tests miss,
+      # #753 review).
+      with_env("POSTHOG_API_KEY", "phc_test_posthog_key", fn ->
+        with_env("OTEL_EXPORTER_OTLP_ENDPOINT", "http://alloy:4318", fn ->
+          path = Path.expand("../../config/runtime.exs", __DIR__)
+          config = Config.Reader.read!(path, env: :dev)
+
+          assert config[:opentelemetry][:processors] == [
+                   {PostHog.OpenTelemetry.ContextSpanProcessor, %{supervisor_name: PostHog}},
+                   {:otel_batch_processor, %{exporter: {:otel_exporter_traces_otlp, %{}}}}
+                 ]
+        end)
+      end)
+    end
   end
 
   describe "bandit_setup_opts/0" do

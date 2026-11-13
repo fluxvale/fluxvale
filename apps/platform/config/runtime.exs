@@ -23,11 +23,15 @@ end
 # otel_exporter_traces_otlp is the traces exporter (merges the standard
 # OTLP env itself); the generic otel_exporter_otlp has no export/3 —
 # the batch processor's calls would crash (CodeRabbit, verified in
-# source). The chain stays in FluxVale.Observability.otel_processors/0:
+# source). The chain stays in FluxVale.Observability.otel_processors/1:
 # this gate arms the exporter, and the module prepends the PostHog span
-# processor when the PostHog tree is configured (ADR-0049).
+# processor when POSTHOG_API_KEY is armed (ADR-0049). The armed answer is
+# passed explicitly: config assembly runs before `config :flux_vale,
+# :posthog` reaches the app env.
 if FluxVale.Observability.otel_exporter_on?() do
-  config :opentelemetry, processors: FluxVale.Observability.otel_processors()
+  posthog_configured? = match?({:ok, _}, FluxVale.Observability.posthog_config())
+
+  config :opentelemetry, processors: FluxVale.Observability.otel_processors(posthog_configured?)
 end
 
 # /metrics bearer gate (FluxValeWeb.Plugs.MetricsEndpoint) — unset in
