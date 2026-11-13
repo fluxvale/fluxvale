@@ -135,7 +135,17 @@ fn validate_api_url(raw: Option<&str>) -> Result<Option<&str>, TerraformError> {
     if url.is_empty() || url == "https://fluxvale.com" {
         return Ok(None);
     }
-    let shaped = (url.starts_with("http://") || url.starts_with("https://"))
+    let lower = url.to_ascii_lowercase();
+    let (scheme, rest) = if let Some(rest) = lower.strip_prefix("http://") {
+        ("http", rest)
+    } else if let Some(rest) = lower.strip_prefix("https://") {
+        ("https", rest)
+    } else {
+        ("", "")
+    };
+    let host = rest.split(['/', '?', '#']).next().unwrap_or_default();
+    let shaped = !scheme.is_empty()
+        && !host.is_empty()
         && !url.chars().any(|ch| ch.is_whitespace() || ch.is_control());
     if shaped {
         Ok(Some(url))
@@ -552,12 +562,15 @@ fn commented_import_block(address: &str, id: &str) -> String {
 /// control characters too, so a URL can never become HCL expressions.
 fn hcl_string(value: &str) -> String {
     let mut out = String::with_capacity(value.len());
-    for ch in value.chars() {
+    let mut chars = value.chars().peekable();
+    while let Some(ch) = chars.next() {
         match ch {
             '\\' => out.push_str("\\\\"),
             '"' => out.push_str("\\\""),
-            '$' => out.push_str("$$"),
-            '%' => out.push_str("%%"),
+            // HCL only treats `$${`/`%%{` as template escapes; a bare
+            // `$$` or `%%` stays doubled, so look one char ahead.
+            '$' if chars.peek() == Some(&'{') => out.push_str("$$"),
+            '%' if chars.peek() == Some(&'{') => out.push_str("%%"),
             '\n' => out.push_str("\\n"),
             '\r' => out.push_str("\\r"),
             '\t' => out.push_str("\\t"),
@@ -876,10 +889,15 @@ mod tests {
             validate_api_url(Some("https://staging.fluxvale.com/")).unwrap(),
             Some("https://staging.fluxvale.com")
         );
+        assert_eq!(
+            validate_api_url(Some("HTTPS://Staging.Fluxvale.com/")).unwrap(),
+            Some("HTTPS://Staging.Fluxvale.com")
+        );
         for bad in [
             "ftp://example.com",
             "https://example.com/with space",
             "https://example.com/\n",
+            "https://?nohost",
             "staging.fluxvale.com",
         ] {
             let error = validate_api_url(Some(bad)).unwrap_err().to_string();
@@ -894,7 +912,9 @@ mod tests {
             hcl_string("${file(\"/etc/passwd\")}"),
             "$${file(\\\"/etc/passwd\\\")}"
         );
-        assert_eq!(hcl_string("100%"), "100%%");
+        assert_eq!(hcl_string("100%"), "100%");
+        assert_eq!(hcl_string("100%{"), "100%%{");
+        assert_eq!(hcl_string("a$b"), "a$b");
         assert_eq!(hcl_string("a\nb"), "a\\nb");
     }
 
