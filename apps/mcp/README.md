@@ -14,10 +14,11 @@ CI publish, and the k3d exposure ([running in k3d](#running-in-k3d)).
 | --- | --- | --- |
 | `whoami` | any | The identity the token carries — user id, email, platform role, username, organizations (id/slug/name). |
 | `apps_list` | `catalog:read` | The deployable app catalog, one entry per app. |
-| `apps_show` | `catalog:read` | One catalog app by its URL slug. |
+| `apps_show` | `catalog:read` | One catalog app by its URL slug, plus its versions (default allocation, `monthly_cents`). |
 | `instances_list` | `instances:read` | Your instances, one entry each. |
-| `instances_status` | `instances:read` | One instance's full detail by id — or, with no id, the verbose list. |
-| `instances_deploy` | `instances:write` | Deploy an app: resolve the slug, pick the newest version (or an exact one), create the instance (you name it), enqueue the deploy. |
+| `instances_status` | `instances:read` | One instance's full detail by id (including `url`) — or, with no id, the verbose list. |
+| `instances_deploy` | `instances:write` | Deploy an app: resolve the slug, pick the newest version (or an exact one), create the instance (you name it, optional `env` map), enqueue the deploy. |
+| `instances_configure` | `instances:write` | Merge env vars on a live instance: `set` adds/replaces, `remove` deletes. Values are write-only. |
 | `instances_stop` | `instances:write` | Scale to zero — the pause (storage keeps accruing). |
 | `instances_start` | `instances:write` | Start a stopped/sleeping instance back up. |
 | `instances_destroy` | `instances:write` — **confirm-gated** | Destroy an instance and all its data, after a yes/no confirmation. |
@@ -41,10 +42,11 @@ tool called directly still refuses, with the API's own message
 verbatim (the funded-wallet gate included: agents hit the same gate
 as the UI, no exceptions).
 
-Note that trace-level logging is unsafe on this server: a dependency
-dumps HTTP heads at trace, the Authorization header included — cap at
-`debug` (`RUST_LOG=info` is the default, and `ureq_proto` is pinned to
-`info` regardless).
+Logging is pinned: `ureq_proto` (HTTP heads, the Authorization header
+included) and `rmcp` (the whole inbound request, tool arguments
+included) stay at `info` regardless of `RUST_LOG`, so a trace/debug
+export cannot leak a token or an env value. `RUST_LOG=info` is the
+default; do not raise those two targets.
 
 ## Destructive tools: elicitation, honestly
 

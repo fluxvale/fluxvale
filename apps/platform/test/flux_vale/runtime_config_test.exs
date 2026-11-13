@@ -180,6 +180,46 @@ defmodule FluxVale.RuntimeConfigTest do
     end
   end
 
+  describe "MCP handoff (#765)" do
+    test "is inert in test — a stray MCP_* export never flips the fixtures" do
+      with_env(
+        %{"MCP_AUTH_MODE" => "oauth", "MCP_SERVER_URL" => "https://evil.example/mcp"},
+        fn ->
+          read = read!(:test)[:flux_vale]
+          refute Keyword.has_key?(read || [], :mcp_auth_mode)
+          refute Keyword.has_key?(read || [], :mcp_server_url)
+        end
+      )
+    end
+
+    test "picks the staging MCP host from PLATFORM_ENV" do
+      with_env(Map.put(@prod_env, "PLATFORM_ENV", "staging"), fn ->
+        assert read!(:prod)[:flux_vale][:mcp_server_url] ==
+                 "https://mcp-staging.fluxvale.com/mcp"
+      end)
+    end
+
+    test "the explicit URL wins, trailing slash trimmed, and must be https" do
+      with_env(Map.put(@prod_env, "MCP_SERVER_URL", "https://mcp.example/mcp/"), fn ->
+        assert read!(:prod)[:flux_vale][:mcp_server_url] == "https://mcp.example/mcp"
+      end)
+
+      with_env(Map.put(@prod_env, "MCP_SERVER_URL", "http://mcp.example/mcp"), fn ->
+        assert_raise ArgumentError, ~r/MCP_SERVER_URL must be an https/, fn ->
+          read!(:prod)
+        end
+      end)
+    end
+
+    test "the auth mode switch refuses an unknown value" do
+      with_env(Map.put(@prod_env, "MCP_AUTH_MODE", "saml"), fn ->
+        assert_raise ArgumentError, ~r/MCP_AUTH_MODE=.* is not pat/, fn ->
+          read!(:prod)
+        end
+      end)
+    end
+  end
+
   defp with_env(vars, fun) do
     originals = Map.new(vars, fn {name, _value} -> {name, System.get_env(name)} end)
 

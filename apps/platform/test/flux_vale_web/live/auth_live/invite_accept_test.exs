@@ -75,8 +75,9 @@ defmodule FluxValeWeb.AuthLive.InviteAcceptTest do
       session_form = form(view, "#session-form")
       conn = follow_trigger_action(session_form, conn)
 
-      # SessionController verified the JWT, stored the session, landed home
-      assert redirected_to(conn) == ~p"/"
+      # #765: a fresh account lands on the agent handoff, not the
+      # empty dashboard.
+      assert redirected_to(conn) == ~p"/agent"
       session = Plug.Conn.get_session(conn)
       assert %{id: id} = UserAuth.resolve_user(session)
       assert id == invited.id

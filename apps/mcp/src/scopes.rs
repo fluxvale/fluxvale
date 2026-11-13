@@ -21,9 +21,11 @@ pub(crate) fn required_scope(tool: &str) -> Option<&'static str> {
         // its primary scope is the instance read. Callers need the
         // union — the platform's route scopes are the enforcement.
         "terraform_import_bundle" => Some("instances:read"),
-        "instances_deploy" | "instances_stop" | "instances_start" | "instances_destroy" => {
-            Some("instances:write")
-        }
+        "instances_deploy"
+        | "instances_configure"
+        | "instances_stop"
+        | "instances_start"
+        | "instances_destroy" => Some("instances:write"),
         "backups_status" => Some("backups:read"),
         "backups_configure" | "backups_run" | "backups_restore" => Some("backups:write"),
         "wallet_balance" | "wallet_runway" | "wallet_ledger" => Some("wallet:read"),
@@ -69,13 +71,14 @@ mod tests {
     use super::*;
 
     /// The catalog, in tools/list order (rmcp's list_all sorts by name).
-    const CATALOG: [&str; 18] = [
+    const CATALOG: [&str; 19] = [
         "apps_list",
         "apps_show",
         "backups_configure",
         "backups_restore",
         "backups_run",
         "backups_status",
+        "instances_configure",
         "instances_deploy",
         "instances_destroy",
         "instances_list",
@@ -103,7 +106,7 @@ mod tests {
     }
 
     #[test]
-    fn a_full_scope_token_sees_all_eighteen_tools() {
+    fn a_full_scope_token_sees_all_nineteen_tools() {
         assert_eq!(
             visible(&[
                 "catalog:read",
@@ -114,7 +117,7 @@ mod tests {
                 "wallet:read"
             ])
             .len(),
-            18
+            19
         );
     }
 
@@ -149,6 +152,7 @@ mod tests {
         assert_eq!(
             visible(&["instances:write"]),
             [
+                "instances_configure",
                 "instances_deploy",
                 "instances_destroy",
                 "instances_list",

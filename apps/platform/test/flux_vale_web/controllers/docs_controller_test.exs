@@ -36,6 +36,10 @@ defmodule FluxValeWeb.DocsControllerTest do
       assert html =~ "Help"
       assert html =~ "Page fixture-faq"
 
+      # #765: the agent handoff rides above the section map.
+      assert html =~ ~s(data-testid="docs-agent-handoff")
+      assert html =~ ~s(href="/docs/agents")
+
       # The footer carries the docs link on every public page (ADR-0044 §5).
       assert html =~ ~s(data-testid="footer-docs")
     end

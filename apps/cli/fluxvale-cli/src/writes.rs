@@ -20,6 +20,7 @@ use crate::reads::{
 use crate::render::{Detail, cell, to_pretty, yes_no};
 use fluxvale_api::{ApiClient, ApiError, Document, Resource};
 use serde_json::{Value, json};
+use std::collections::BTreeMap;
 
 // ---- the instance lifecycle (T5 of #362): deploy, stop, start,
 // destroy. The version id is the wire's own currency: the app row
@@ -29,9 +30,8 @@ use serde_json::{Value, json};
 // named in the output.
 
 /// The `instances deploy` flags as parsed — the create body's source.
-/// `env_vars` is deliberately absent: the create route's wire schema
-/// refuses it (hide_fields strips it in both directions —
-/// instance_route_test), so the API cannot set env vars today.
+/// `env` is the create's write-only `env_vars` map (#482); an empty
+/// map stays off the body so the version's defaults apply.
 pub struct DeployFlags {
     pub app: String,
     pub name: Option<String>,
@@ -41,6 +41,24 @@ pub struct DeployFlags {
     pub storage_gb: Option<i64>,
     /// The app version id; `None` takes the newest published.
     pub version: Option<String>,
+    pub env: BTreeMap<String, String>,
+}
+
+/// Parse repeatable `--env KEY=VALUE` assignments. The value may be
+/// empty and may contain `=`; a missing `=` or empty key is refused
+/// without echoing the raw flag (it may already hold a secret).
+pub fn parse_env_assignments(raw: &[String]) -> anyhow::Result<BTreeMap<String, String>> {
+    let mut env = BTreeMap::new();
+    for assignment in raw {
+        let Some((key, value)) = assignment.split_once('=') else {
+            anyhow::bail!("--env expects KEY=VALUE");
+        };
+        if key.is_empty() {
+            anyhow::bail!("an env key cannot be empty");
+        }
+        env.insert(key.to_string(), value.to_string());
+    }
+    Ok(env)
 }
 
 /// `instances deploy --app <slug>` — resolve the app, resolve the
@@ -125,7 +143,8 @@ fn resolve_version(
 /// The create body's attributes: the resolved version always; the
 /// resource flags only when given, so absent keys take the version's
 /// own defaults (catalog defaults apply server-side). `env_vars` is
-/// never here — see [`DeployFlags`].
+/// the write-only create argument (#482): present replaces the whole
+/// map before the catalog defaults merge under it.
 fn deploy_attributes(flags: &DeployFlags, version_id: &str) -> Value {
     let mut attrs = json!({"app_version_id": version_id});
     if let Some(name) = &flags.name {
@@ -139,6 +158,9 @@ fn deploy_attributes(flags: &DeployFlags, version_id: &str) -> Value {
     }
     if let Some(storage_gb) = flags.storage_gb {
         attrs["storage_gb"] = json!(storage_gb);
+    }
+    if !flags.env.is_empty() {
+        attrs["env_vars"] = json!(flags.env);
     }
     attrs
 }
@@ -156,6 +178,7 @@ fn deploy_rendered(
     detail.field("name", cell(attrs.get("name")));
     detail.field("slug", cell(attrs.get("slug")));
     detail.field("status", cell(attrs.get("status")));
+    detail.field("url", cell(attrs.get("url")));
     detail.field("image", cell(attrs.get("image")));
     detail.field("cpu cores", cell(attrs.get("cpu_cores")));
     detail.field("memory (MB)", cell(attrs.get("memory_mb")));
@@ -166,6 +189,69 @@ fn deploy_rendered(
         rendered.push_str(&format!(
             "\ndeploying {slug} {version_label} — watch with: fluxvale instances status {id}"
         ));
+    }
+    Ok(rendered)
+}
+
+/// `instances configure <id> --env KEY=VALUE --remove KEY` — the
+/// in-place env merge (#731, ADR-0052). The API returns the standard
+/// detail row; values are write-only, so the table names the changed
+/// key NAMES only and the JSON is the wire row.
+pub fn instances_configure(
+    client: &ApiClient,
+    id: &str,
+    set: &BTreeMap<String, String>,
+    remove: &[String],
+    output: Output,
+) -> anyhow::Result<String> {
+    safe_segment("instance id", id)?;
+    if set.is_empty() && remove.is_empty() {
+        anyhow::bail!("nothing to change — pass --env KEY=VALUE and/or --remove KEY");
+    }
+    let mut attrs = json!({});
+    if !set.is_empty() {
+        attrs["set"] = json!(set);
+    }
+    if !remove.is_empty() {
+        attrs["remove"] = json!(remove);
+    }
+    let body = json!({"data": {"type": "instance", "id": id, "attributes": attrs}});
+    let updated = client
+        .send(
+            "PATCH",
+            &format!("/instances/{id}/env"),
+            Some(body.to_string()),
+        )
+        .map_err(|err| friendly_404(err, "instance"))?;
+    env_configure_rendered(updated, set, remove, output)
+}
+
+fn env_configure_rendered(
+    document: Document,
+    set: &BTreeMap<String, String>,
+    remove: &[String],
+    output: Output,
+) -> anyhow::Result<String> {
+    let resource = one_resource(document, "instance")?;
+    let attrs = with_id(&resource);
+    let mut detail = Detail::new(attrs.clone());
+    detail.field("id", cell(attrs.get("id")));
+    detail.field("name", cell(attrs.get("name")));
+    detail.field("status", cell(attrs.get("status")));
+    detail.field("url", cell(attrs.get("url")));
+    if !set.is_empty() {
+        detail.field(
+            "env set",
+            set.keys().cloned().collect::<Vec<_>>().join(", "),
+        );
+    }
+    if !remove.is_empty() {
+        detail.field("env removed", remove.join(", "));
+    }
+    let mut rendered = detail.render(output);
+    if output == Output::Table {
+        rendered
+            .push_str("\nthe change is saved; a running app rolls once. Values are write-only.");
     }
     Ok(rendered)
 }
@@ -1768,6 +1854,7 @@ mod tests {
             memory_mb: None,
             storage_gb: None,
             version: None,
+            env: BTreeMap::new(),
         }
     }
 
@@ -1876,6 +1963,150 @@ mod tests {
         assert!(create.contains("\"memory_mb\":1024"), "create: {create}");
         assert!(create.contains("\"storage_gb\":5"), "create: {create}");
         assert!(!create.contains("\"name\""), "create: {create}");
+    }
+
+    #[test]
+    fn deploy_carries_env_vars_and_never_prints_their_values() {
+        let server = script(vec![
+            envelope(json!({"data": app_row("forgejo", "app1")})),
+            envelope(json!({"data": [version_row("v2", "1.2")]})),
+            respond(
+                "201 Created",
+                &json!({"data": instance_row("i1", "pending")}).to_string(),
+            ),
+            respond(
+                "200 OK",
+                &json!({"data": instance_row("i1", "deploying")}).to_string(),
+            ),
+        ]);
+        let flags = DeployFlags {
+            env: BTreeMap::from([
+                ("API_KEY".to_string(), "deploy-sentinel".to_string()),
+                ("TZ".to_string(), "UTC".to_string()),
+            ]),
+            ..deploy_flags()
+        };
+        let rendered = instances_deploy(&client(&server.base_url), &flags, Output::Table).unwrap();
+        assert!(
+            !rendered.contains("deploy-sentinel"),
+            "rendered:\n{rendered}"
+        );
+        let create = &captured_requests(&server)[2];
+        assert!(
+            create.contains("\"env_vars\":{\"api_key\":\"deploy-sentinel\",\"tz\":\"utc\"}"),
+            "create: {create}"
+        );
+        // The helper lowercases; env names are case-sensitive, so pin
+        // the RAW capture too (API_KEY must not arrive as api_key).
+        let raw = server.requests.lock().unwrap();
+        assert!(
+            raw[2].contains("\"env_vars\":{\"API_KEY\":\"deploy-sentinel\",\"TZ\":\"UTC\"}"),
+            "raw create: {}",
+            raw[2]
+        );
+    }
+
+    #[test]
+    fn configure_merges_env_and_prints_key_names_only() {
+        let server = script(vec![respond(
+            "200 OK",
+            &json!({"data": instance_row("i1", "running")}).to_string(),
+        )]);
+        let set = BTreeMap::from([("API_KEY".to_string(), "configure-sentinel".to_string())]);
+        let remove = vec!["OLD".to_string()];
+        let rendered = instances_configure(
+            &client(&server.base_url),
+            "i1",
+            &set,
+            &remove,
+            Output::Table,
+        )
+        .unwrap();
+        assert!(
+            rendered.contains("env set      API_KEY"),
+            "rendered:\n{rendered}"
+        );
+        assert!(
+            rendered.contains("env removed  OLD"),
+            "rendered:\n{rendered}"
+        );
+        assert!(
+            !rendered.contains("configure-sentinel"),
+            "rendered:\n{rendered}"
+        );
+
+        let request = &captured_requests(&server)[0];
+        assert!(
+            request.starts_with("patch /api/v1/instances/i1/env http/1.1"),
+            "request: {request}"
+        );
+        assert!(
+            request.contains(
+                "{\"data\":{\"attributes\":{\"remove\":[\"old\"],\"set\":{\"api_key\":\"configure-sentinel\"}},\"id\":\"i1\",\"type\":\"instance\"}}"
+            ),
+            "request: {request}"
+        );
+    }
+
+    #[test]
+    fn configure_json_is_the_wire_row() {
+        let server = script(vec![respond(
+            "200 OK",
+            &json!({"data": instance_row("i1", "running")}).to_string(),
+        )]);
+        let rendered = instances_configure(
+            &client(&server.base_url),
+            "i1",
+            &BTreeMap::from([("API_KEY".to_string(), "v".to_string())]),
+            &[],
+            Output::Json,
+        )
+        .unwrap();
+        let map: Value = serde_json::from_str(&rendered).unwrap();
+        assert_eq!(map["id"], "i1");
+        assert_eq!(map["status"], "running");
+        assert!(!rendered.contains("\"v\""));
+    }
+
+    #[test]
+    fn configure_refuses_an_empty_patch_and_a_bad_id_without_sending() {
+        let client = client("http://127.0.0.1:1");
+        let err =
+            instances_configure(&client, "i1", &BTreeMap::new(), &[], Output::Table).unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "nothing to change — pass --env KEY=VALUE and/or --remove KEY"
+        );
+        let err = instances_configure(
+            &client,
+            "a/b",
+            &BTreeMap::from([("K".to_string(), "v".to_string())]),
+            &[],
+            Output::Table,
+        )
+        .unwrap_err();
+        assert_eq!(err.to_string(), "invalid instance id: a/b");
+    }
+
+    #[test]
+    fn env_assignments_parse_and_refuse_without_echoing_values() {
+        let parsed = parse_env_assignments(&[
+            "API_KEY=one=two".to_string(),
+            "EMPTY=".to_string(),
+            "TZ=UTC".to_string(),
+        ])
+        .unwrap();
+        assert_eq!(parsed["API_KEY"], "one=two");
+        assert_eq!(parsed["EMPTY"], "");
+        assert_eq!(parsed["TZ"], "UTC");
+
+        let err = parse_env_assignments(&["NO_EQUALS_secret".to_string()]).unwrap_err();
+        assert_eq!(err.to_string(), "--env expects KEY=VALUE");
+        assert!(!err.to_string().contains("NO_EQUALS_secret"));
+
+        let err = parse_env_assignments(&["=secret".to_string()]).unwrap_err();
+        assert_eq!(err.to_string(), "an env key cannot be empty");
+        assert!(!err.to_string().contains("secret"));
     }
 
     #[test]

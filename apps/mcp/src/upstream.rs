@@ -76,14 +76,24 @@ pub(crate) async fn apps_list(base: Arc<str>, token: Token) -> Result<Value, Str
     .await
 }
 
-/// `apps_show` — GET /apps/{slug}: one catalog app, all its fields.
+/// `apps_show` — GET /apps/{slug}, then the app's versions: one
+/// catalog app with its `versions` (each carrying the default
+/// allocation and `monthly_cents` — the price an agent quotes before
+/// deploy). The app row alone cannot answer "what will this cost".
 pub(crate) async fn apps_show(base: Arc<str>, token: Token, slug: String) -> Result<Value, String> {
     safe_segment("app slug", &slug)?;
     on_blocking_string(move || {
-        let document = ApiClient::new(&base, token)
+        let client = ApiClient::new(&base, token);
+        let document = client
             .get(&format!("/apps/{slug}"))
             .map_err(|err| friendly_404(err, "app"))?;
-        one_resource(document, "app").map(|resource| with_id(&resource))
+        let app = one_resource(document, "app")?;
+        let versions = client
+            .get(&format!("/apps/{}/versions", app.id))
+            .map_err(message)?;
+        let mut row = with_id(&app);
+        row["versions"] = rows(&versions);
+        Ok(row)
     })
     .await
 }
@@ -231,6 +241,9 @@ pub(crate) struct DeployWire {
     /// The exact app version id; `None` takes the newest (the
     /// versions route's own newest-first order).
     pub version: Option<String>,
+    /// The create's env vars. Write-only: the API never echoes them,
+    /// and nothing here logs or renders the values.
+    pub env: Option<std::collections::BTreeMap<String, String>>,
 }
 
 /// The `instances deploy` sequence exactly: resolve the app by slug,
@@ -259,7 +272,8 @@ pub(crate) async fn instances_deploy(
 
         // Only the given flags ride — absent keys take the version's
         // own defaults (catalog defaults apply server-side). env_vars
-        // is never here: the create route's wire schema refuses it.
+        // is the create's write-only input (#482): present replaces
+        // the whole map before the catalog defaults merge under it.
         // name always rides: the wire requires it.
         let mut attrs = json!({"app_version_id": version_id, "name": flags.name});
         if let Some(cpu) = &flags.cpu {
@@ -270,6 +284,9 @@ pub(crate) async fn instances_deploy(
         }
         if let Some(storage_gb) = flags.storage_gb {
             attrs["storage_gb"] = json!(storage_gb);
+        }
+        if let Some(env) = &flags.env {
+            attrs["env_vars"] = json!(env);
         }
         let body = json!({"data": {"type": "instance", "attributes": attrs}});
         let created = client
@@ -286,6 +303,44 @@ pub(crate) async fn instances_deploy(
             )
             .map_err(message)?;
         one_resource(deployed, "instance").map(|resource| with_id(&resource))
+    })
+    .await
+}
+
+/// `instances_configure` — PATCH /instances/{id}/env (#731,
+/// ADR-0052): the explicit set/remove merge. The response is the
+/// standard detail row; values never ride either direction. An empty
+/// patch is refused locally (nothing to merge, nothing to say).
+pub(crate) async fn instances_configure(
+    base: Arc<str>,
+    token: Token,
+    id: String,
+    set: Option<std::collections::BTreeMap<String, String>>,
+    remove: Option<Vec<String>>,
+) -> Result<Value, String> {
+    on_blocking_string(move || {
+        safe_segment("instance id", &id)?;
+        let set = set.unwrap_or_default();
+        let remove = remove.unwrap_or_default();
+        if set.is_empty() && remove.is_empty() {
+            return Err("nothing to change — pass at least one env key to set or remove".into());
+        }
+        let mut attrs = json!({});
+        if !set.is_empty() {
+            attrs["set"] = json!(set);
+        }
+        if !remove.is_empty() {
+            attrs["remove"] = json!(remove);
+        }
+        let body = json!({"data": {"type": "instance", "id": id, "attributes": attrs}});
+        let updated = ApiClient::new(&base, token)
+            .send(
+                "PATCH",
+                &format!("/instances/{id}/env"),
+                Some(body.to_string()),
+            )
+            .map_err(|err| friendly_404(err, "instance"))?;
+        one_resource(updated, "instance").map(|resource| with_id(&resource))
     })
     .await
 }
@@ -873,16 +928,29 @@ mod tests {
         let body = &envelope(json!({"data": {
             "type": "app", "id": "1", "attributes": {"name": "WordPress", "slug": "wordpress"}
         }}));
-        let server = serve(&[("/api/v1/apps/wordpress", 200, body)]);
+        let versions = &envelope(json!({"data": [
+            {"type": "app_version", "id": "v1", "attributes": {"version": "1.2", "monthly_cents": 500}}
+        ]}));
+        let server = serve(&[
+            ("/api/v1/apps/wordpress", 200, body),
+            ("/api/v1/apps/1/versions", 200, versions),
+        ]);
         let row = apps_show(base(&server), token(), "wordpress".into())
             .await
             .unwrap();
         assert_eq!(row["id"], "1");
         assert_eq!(row["name"], "WordPress");
+        assert_eq!(row["versions"][0]["id"], "v1");
+        assert_eq!(row["versions"][0]["monthly_cents"], 500);
         let head = server.head(0).to_lowercase();
         assert!(
             head.starts_with("get /api/v1/apps/wordpress"),
             "head: {head}"
+        );
+        let versions_head = server.head(1).to_lowercase();
+        assert!(
+            versions_head.starts_with("get /api/v1/apps/1/versions"),
+            "head: {versions_head}"
         );
     }
 
@@ -1209,6 +1277,7 @@ mod tests {
             memory_mb: None,
             storage_gb: None,
             version: None,
+            env: None,
         }
     }
 
@@ -1300,6 +1369,98 @@ mod tests {
             create.contains("\"name\":\"my forgejo\""),
             "create: {create}"
         );
+    }
+
+    #[tokio::test]
+    async fn deploy_carries_env_vars_on_the_create() {
+        let server = script(deploy_responses());
+        let flags = DeployWire {
+            env: Some(std::collections::BTreeMap::from([
+                ("API_KEY".to_string(), "sekrit".to_string()),
+                ("TZ".to_string(), "UTC".to_string()),
+            ])),
+            ..deploy_wire()
+        };
+        instances_deploy(base_of(&server), token(), flags)
+            .await
+            .unwrap();
+        let create = &captured_requests(&server)[2];
+        assert!(
+            create.contains("\"env_vars\":{\"api_key\":\"sekrit\",\"tz\":\"utc\"}"),
+            "create: {create}"
+        );
+        // captured_requests lowercases; env names are case-sensitive,
+        // so pin the RAW capture too.
+        let raw = server.requests.lock().unwrap();
+        assert!(
+            raw[2].contains("\"env_vars\":{\"API_KEY\":\"sekrit\",\"TZ\":\"UTC\"}"),
+            "raw create: {}",
+            raw[2]
+        );
+    }
+
+    #[tokio::test]
+    async fn configure_patches_set_and_remove_and_never_echoes_values() {
+        let updated = json!({"data": {"type": "instance", "id": "i1", "attributes": {"id": "i1", "status": "running"}}});
+        let server = script(vec![respond_envelope("200 OK", updated)]);
+        let row = instances_configure(
+            base_of(&server),
+            token(),
+            "i1".into(),
+            Some(std::collections::BTreeMap::from([(
+                "API_KEY".to_string(),
+                "sekrit".to_string(),
+            )])),
+            Some(vec!["OLD".to_string()]),
+        )
+        .await
+        .unwrap();
+        assert_eq!(row["status"], "running");
+        assert!(!row.to_string().contains("sekrit"));
+
+        let requests = captured_requests(&server);
+        assert_eq!(requests.len(), 1);
+        assert!(
+            requests[0].starts_with("patch /api/v1/instances/i1/env http/1.1"),
+            "req0: {}",
+            requests[0]
+        );
+        assert!(
+            requests[0]
+                .contains("{\"data\":{\"attributes\":{\"remove\":[\"old\"],\"set\":{\"api_key\":\"sekrit\"}},\"id\":\"i1\",\"type\":\"instance\"}}"),
+            "req0: {}",
+            requests[0]
+        );
+    }
+
+    #[tokio::test]
+    async fn configure_refuses_an_empty_patch_before_any_request() {
+        let server = script(vec![]);
+        let err = instances_configure(base_of(&server), token(), "i1".into(), None, Some(vec![]))
+            .await
+            .unwrap_err();
+        assert_eq!(
+            err,
+            "nothing to change — pass at least one env key to set or remove"
+        );
+        assert_eq!(captured_requests(&server).len(), 0);
+    }
+
+    #[tokio::test]
+    async fn configure_refuses_a_route_hijacking_id() {
+        let err = instances_configure(
+            Arc::from("http://127.0.0.1:1"),
+            token(),
+            "a/b".into(),
+            Some(std::collections::BTreeMap::from([(
+                "K".to_string(),
+                "v".to_string(),
+            )])),
+            None,
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(err, "invalid instance id: a/b");
     }
 
     #[tokio::test]

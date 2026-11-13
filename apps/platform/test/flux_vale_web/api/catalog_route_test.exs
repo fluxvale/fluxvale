@@ -180,6 +180,8 @@ defmodule FluxValeWeb.Api.CatalogRouteTest do
       assert row["id"] == version.id
       assert row["attributes"]["image"] == "registry.example.com/app:1.0"
       assert row["attributes"]["port"] == 3000
+      # #765: the recommended size's monthly rate, for the agent quote.
+      assert is_integer(row["attributes"]["monthly_cents"])
     end
 
     # #700: the route sorts semver-newest-first — the order the

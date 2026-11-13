@@ -25,6 +25,7 @@ defmodule FluxValeWeb.SettingsLive.Agents do
   use FluxValeWeb, :live_view
 
   alias FluxValeWeb.AccountSettings
+  alias FluxValeWeb.AgentPrompt
 
   @impl Phoenix.LiveView
   def render(assigns) do
@@ -77,6 +78,18 @@ defmodule FluxValeWeb.SettingsLive.Agents do
                   Give an agent — Claude, Cursor, opencode — your FluxVale account as
                   tools, over MCP: deploy and manage instances, watch the wallet, run
                   backups.
+                </p>
+                <p class="mt-2 text-sm text-ink-muted">
+                  Want the whole first run in one prompt?
+                  <.link
+                    navigate={~p"/agent"}
+                    data-testid="agents-first-run-link"
+                    class="font-medium text-ink underline decoration-line underline-offset-2 transition-colors hover:decoration-line-strong"
+                  >
+                    Finish setup with your agent
+                  </.link>
+                  — it checks the wallet, proposes an app, and confirms the spend
+                  before deploying.
                 </p>
               </div>
 
@@ -322,9 +335,9 @@ defmodule FluxValeWeb.SettingsLive.Agents do
   # placeholder, no per-visitor interpolation — the placeholder rule
   # holds by construction, not by filtering.
 
-  # The protocol nests at /mcp (apps/mcp/src/main.rs MCP_PATH) — the
-  # client-facing endpoint is the path, not the bare origin.
-  defp server_url, do: "https://mcp.fluxvale.com/mcp"
+  # The configured endpoint (prod, staging, or the local k3d host) —
+  # the same source the agent handoff renders (#765).
+  defp server_url, do: AgentPrompt.mcp_url()
 
   defp claude_header_value, do: "Authorization: Bearer fvpat_…"
 

@@ -204,7 +204,13 @@ defmodule FluxValeWeb.DashboardLive do
             </div>
 
             <.empty_state :if={@instance_count == 0} title="No instances yet">
-              Deploy your first app from the catalog.
+              Deploy your first app from the catalog, or <.link
+                navigate={~p"/agent"}
+                class="font-medium text-link transition-colors hover:text-ink"
+                data-testid="dashboard-agent-link"
+              >
+                finish setup with your agent
+              </.link>.
             </.empty_state>
             <%!-- The fresh-account onboarding nudge (#205): a welcome
             grant on the balance is exactly the "your first deploy is

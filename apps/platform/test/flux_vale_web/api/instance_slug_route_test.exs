@@ -32,7 +32,8 @@ defmodule FluxValeWeb.Api.InstanceSlugRouteTest do
                  "cpu_cores",
                  "memory_mb",
                  "storage_gb",
-                 "deployed_at"
+                 "deployed_at",
+                 "url"
                ])
 
   @duplicate_slug "dup-slug"

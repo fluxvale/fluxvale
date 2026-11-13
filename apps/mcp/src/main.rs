@@ -170,8 +170,13 @@ async fn main() -> anyhow::Result<()> {
 fn init_tracing() {
     let filter = tracing_subscriber::EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
-    // Target-specific directives win over a global trace level.
-    let filter = filter.add_directive("ureq_proto=info".parse().expect("literal directive parses"));
+    // Target-specific directives win over a global trace level. rmcp
+    // logs the whole inbound request (env values included) at debug, so
+    // the protocol crate stays at info regardless of RUST_LOG — the
+    // env-var tools' write-only promise holds at every level.
+    let filter = filter
+        .add_directive("ureq_proto=info".parse().expect("literal directive parses"))
+        .add_directive("rmcp=info".parse().expect("literal directive parses"));
     tracing_subscriber::fmt().with_env_filter(filter).init();
 }
 

@@ -115,7 +115,8 @@ defmodule FluxVale.Infrastructure.Instance do
     :cpu_cores,
     :memory_mb,
     :storage_gb,
-    :deployed_at
+    :deployed_at,
+    :url
   ]
 
   json_api do
@@ -1613,6 +1614,42 @@ defmodule FluxVale.Infrastructure.Instance do
     identity(:unique_slug_per_cluster, [:slug, :cluster_id])
   end
 
+  validations do
+    # Derived fields (allow_nil? true above) get explicit presence here —
+    # validations run after changes (v1 pattern, see attributes notes).
+    validate(present(:organization_id), on: :create, message: "is required")
+
+    validate(present(:cluster_id), on: :create, message: "is required")
+
+    validate(present(:image), on: :create, message: "is required")
+
+    validate(present(:port), on: :create, message: "is required")
+
+    validate(present(:healthcheck_path), on: :create, message: "is required")
+
+    validate(present(:cpu_cores), on: :create, message: "is required")
+
+    validate(present(:memory_mb), on: :create, message: "is required")
+
+    validate(present(:storage_gb), on: :create, message: "is required")
+
+    validate(
+      match(:slug, ~r/^[a-z0-9][a-z0-9-]*[a-z0-9]$/),
+      on: :create,
+      message: "must contain only lowercase alphanumeric characters and hyphens"
+    )
+
+    validate(string_length(:status_message, max: 500), where: [present(:status_message)])
+
+    validate({ValidateEnvVars, []}, on: :create)
+
+    validate(
+      compare(:port, greater_than_or_equal_to: 1, less_than_or_equal_to: 65_535),
+      on: :create,
+      message: "must be a valid port number (1-65535)"
+    )
+  end
+
   # The set_exposure cluster gate (#265): only a namespace the platform
   # still owns gets a synchronous cluster apply. Never-deployed rows
   # (nil namespace) and :lost ones (namespace gone — re-deploy applies
@@ -1796,39 +1833,11 @@ defmodule FluxVale.Infrastructure.Instance do
       # coveralls-ignore-stop
   end
 
-  validations do
-    # Derived fields (allow_nil? true above) get explicit presence here —
-    # validations run after changes (v1 pattern, see attributes notes).
-    validate(present(:organization_id), on: :create, message: "is required")
-
-    validate(present(:cluster_id), on: :create, message: "is required")
-
-    validate(present(:image), on: :create, message: "is required")
-
-    validate(present(:port), on: :create, message: "is required")
-
-    validate(present(:healthcheck_path), on: :create, message: "is required")
-
-    validate(present(:cpu_cores), on: :create, message: "is required")
-
-    validate(present(:memory_mb), on: :create, message: "is required")
-
-    validate(present(:storage_gb), on: :create, message: "is required")
-
-    validate(
-      match(:slug, ~r/^[a-z0-9][a-z0-9-]*[a-z0-9]$/),
-      on: :create,
-      message: "must contain only lowercase alphanumeric characters and hyphens"
-    )
-
-    validate(string_length(:status_message, max: 500), where: [present(:status_message)])
-
-    validate({ValidateEnvVars, []}, on: :create)
-
-    validate(
-      compare(:port, greater_than_or_equal_to: 1, less_than_or_equal_to: 65_535),
-      on: :create,
-      message: "must be a valid port number (1-65535)"
-    )
+  calculations do
+    # #765: the default public URL the agent handoff reads back. The
+    # detail projection carries it; custom hostnames are additions.
+    calculate :url, :string, FluxVale.Infrastructure.Instance.Url do
+      public?(true)
+    end
   end
 end

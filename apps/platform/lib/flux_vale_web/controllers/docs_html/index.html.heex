@@ -12,6 +12,21 @@ IS the navigation. --%>
       </p>
     </header>
 
+    <%!-- #765: the agent handoff is a page, not a docs section — one
+    row above the section map so both humans and crawlers can find it
+    (the machine-readable entry point is /llms.txt). --%>
+    <section class="docs-section" data-testid="docs-agent-handoff">
+      <h2 class="docs-section-title">
+        <a href={~p"/docs/agents"}>Set up with your agent</a>
+      </h2>
+      <p class="docs-section-description">
+        One copyable prompt finishes setup over MCP — check the wallet, propose an
+        app with its cost, deploy, set env vars, and verify the URL. The
+        <a href={~p"/llms.txt"}>llms.txt</a>
+        entry point is the same prompt for agents.
+      </p>
+    </section>
+
     <section :for={{section, pages} <- @sections} class="docs-section">
       <h2 class="docs-section-title">
         <a href={~p"/docs/#{section.key}"}>{section.title}</a>

@@ -118,6 +118,10 @@ defmodule FluxValeWeb.AuthLive.InviteAccept do
         >
           <input type="hidden" name="_csrf_token" value={Phoenix.Controller.get_csrf_token()} />
           <input type="hidden" name="token" value={@token} />
+          <%!-- #765: a fresh account lands on the agent handoff, not
+          the empty dashboard. The POST body carries it (SessionController
+          re-validates with ReturnPath); later sign-ins keep `/`. --%>
+          <input type="hidden" name="return_to" value={~p"/agent"} />
         </.form>
       </div>
     </Layouts.auth>

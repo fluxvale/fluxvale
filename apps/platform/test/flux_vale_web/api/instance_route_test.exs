@@ -111,6 +111,9 @@ defmodule FluxValeWeb.Api.InstanceRouteTest do
       assert row["attributes"]["name"] == instance.name
       assert row["attributes"]["status"] == "pending"
 
+      base = Application.fetch_env!(:flux_vale, :instances_base_domain)
+      assert row["attributes"]["url"] == "https://#{instance.slug}.#{base}"
+
       # env_vars carries whatever the deployer typed, credentials
       # included — hide_fields keeps it off the wire entirely.
       refute Map.has_key?(row["attributes"], "env_vars")
@@ -188,7 +191,8 @@ defmodule FluxValeWeb.Api.InstanceRouteTest do
                  "cpu_cores",
                  "memory_mb",
                  "storage_gb",
-                 "deployed_at"
+                 "deployed_at",
+                 "url"
                ])
 
       # env_vars never rides the wire in either direction (hide_fields

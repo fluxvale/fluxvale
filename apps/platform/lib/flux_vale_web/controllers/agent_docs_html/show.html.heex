@@ -1,0 +1,78 @@
+<%!-- The public agent handoff (#765): the same prompt the `/agent`
+panel and `/llms.txt` render, with the org left as a placeholder. The
+docs reading surface (ADR-0044 §5) — sidebar left, article column
+centered; zero JS, so no copy button here (the panel has one). --%>
+<Layouts.public flash={@flash} current_user={@current_user} return_to={@return_to}>
+  <div class="docs docs-with-nav">
+    <FluxValeWeb.DocsHTML.sidebar sections={@sections} />
+
+    <article class="docs-main">
+      <header class="docs-article-head">
+        <p class="docs-crumb">
+          <a href={~p"/docs"}>Docs</a>
+          <span aria-hidden="true">/</span>
+          <span>Agent setup</span>
+        </p>
+        <h1 class="docs-title text-balance">Set up with your agent</h1>
+        <p class="docs-standfirst">
+          One prompt finishes setup over the FluxVale MCP server: check the wallet,
+          propose an app with its cost, deploy it with your env vars, and hand back
+          the URL. Paste it into Claude Code, Cursor, VS Code, or any MCP client.
+        </p>
+      </header>
+
+      <div class="docs-body md-body">
+        <h2>The prompt</h2>
+        <p>
+          Replace <span class="font-mono">&lt;your-org-slug&gt;</span> with your org if
+          your client can't discover it from <span class="font-mono">whoami</span>.
+          The prompt names the API base and MCP server, so it works as-is on this
+          environment.
+        </p>
+
+        <pre
+          class="whitespace-pre-wrap break-words"
+          data-testid="agent-docs-prompt"
+          phx-no-curly-interpolation
+        ><code><%= @prompt %></code></pre>
+
+        <h2>Connect a client</h2>
+        <p data-testid="agent-docs-snippet-note">{@snippet_note}</p>
+
+        <div :for={client <- @clients} class="mt-6">
+          <h3>{client.title}</h3>
+          <pre
+            class={["whitespace-pre-wrap", client.wrap]}
+            data-testid={"agent-docs-client-#{client.key}"}
+            phx-no-curly-interpolation
+          ><code><%= client.code %></code></pre>
+        </div>
+
+        <h2>What it will do</h2>
+        <ol>
+          <li :for={step <- @what_it_will_do}>{step}</li>
+        </ol>
+
+        <p>
+          <strong>It asks before it spends.</strong>
+          {@commit_rule}
+        </p>
+
+        <h2>Keep reading</h2>
+        <ul>
+          <li :for={{title, url} <- @links}>
+            <a href={url}>{title}</a>
+          </li>
+        </ul>
+
+        <p>
+          Prefer to read the tool surface first? The
+          <a href={~p"/docs/automation/mcp"}>MCP server guide</a>
+          lists every tool and its scope; the
+          <a href={~p"/docs/automation/terraform"}>Terraform provider</a>
+          is the option to offer once an app is running.
+        </p>
+      </div>
+    </article>
+  </div>
+</Layouts.public>

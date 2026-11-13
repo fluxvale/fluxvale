@@ -51,6 +51,10 @@ defmodule FluxValeWeb.DashboardLiveTest do
            )
 
     assert html =~ "No instances yet"
+
+    # #765: the empty state points at the agent handoff too.
+    assert has_element?(view, "[data-testid='dashboard-agent-link'][href='/agent']")
+
     assert html =~ "Welcome credit ready"
     assert html =~ "in your wallet. Your first deploy is on us."
     # Quick actions (#205): deploy from catalog, top up.

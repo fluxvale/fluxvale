@@ -62,7 +62,8 @@ The token never appears on screen; `fluxvale auth logout` removes it.
 | `fluxvale apps list` / `apps show <slug>` | Browse the app catalog |
 | `fluxvale instances list` | List your instances |
 | `fluxvale instances status [id]` | One instance's status, or a verbose list |
-| `fluxvale instances deploy --app <slug>` | Install an app — a new running instance |
+| `fluxvale instances deploy --app <slug> [--env KEY=VALUE]` | Install an app — a new running instance, optionally with env vars |
+| `fluxvale instances configure <id> [--env KEY=VALUE] [--remove KEY]` | Merge env vars on a live instance (values are write-only) |
 | `fluxvale instances stop/start <id>` | Pause and resume an instance |
 | `fluxvale instances destroy <id> --confirm` | Delete an instance and ALL its data |
 | `fluxvale backups configure <id> --endpoint … --bucket … --access-key-id …` | Point an instance's backups at your S3 |
