@@ -121,6 +121,59 @@ defmodule FluxVale.OAuth.Operations.RegisterClientTest do
                })
     end
 
+    test "malformed metadata shapes are refused", %{} do
+      assert {:error, {:invalid_client_metadata, "redirect_uris must be a non-empty array"}} =
+               OAuth.register_client(%{"redirect_uris" => "https://client.example/cb"})
+
+      assert {:error, {:invalid_client_metadata, "redirect_uris must be strings"}} =
+               OAuth.register_client(%{"redirect_uris" => [123]})
+
+      assert {:error, {:invalid_client_metadata, "grant_types must be an array"}} =
+               OAuth.register_client(%{
+                 "redirect_uris" => ["https://client.example/cb"],
+                 "grant_types" => "authorization_code"
+               })
+
+      assert {:error, {:invalid_client_metadata, "scope must be a space-delimited string"}} =
+               OAuth.register_client(%{
+                 "redirect_uris" => ["https://client.example/cb"],
+                 "scope" => 123
+               })
+    end
+
+    test "a non-string client name falls back to the generic label" do
+      {:ok, client} =
+        OAuth.register_client(%{
+          "redirect_uris" => ["https://client.example/cb"],
+          "client_name" => 123
+        })
+
+      assert client.client_name == "MCP client"
+    end
+
+    test "more than five redirect URIs fail the resource backstop" do
+      uris = for n <- 1..6, do: "https://client.example/cb#{n}"
+
+      assert {:error, %Ash.Error.Invalid{}} =
+               OAuth.register_client(%{"redirect_uris" => uris})
+    end
+
+    test "explicit public-client metadata and a blank name are accepted" do
+      assert {:ok, client} =
+               OAuth.register_client(%{
+                 "redirect_uris" => ["https://client.example/cb"],
+                 "token_endpoint_auth_method" => "none",
+                 "client_name" => "   "
+               })
+
+      assert client.token_endpoint_auth_method == "none"
+      assert client.client_name == "MCP client"
+    end
+
+    test "a non-map body is malformed metadata" do
+      assert {:error, {:invalid_client_metadata, _message}} = OAuth.register_client("nope")
+    end
+
     test "an empty redirect list is refused" do
       assert {:error, {:invalid_client_metadata, "redirect_uris must be a non-empty array"}} =
                OAuth.register_client(%{"redirect_uris" => []})

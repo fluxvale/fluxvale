@@ -78,18 +78,18 @@ defmodule FluxVale.OAuth.Operations.MintTokens do
              scopes: scopes
            }}
 
+        # coveralls-ignore-start - the refresh half failing is a DB
+        # outage mid-mint; the access half is revoked and the client
+        # restarts the flow.
         {:error, error} ->
           # The access half exists; a half-pair is not a connection.
           # Revoke it and let the client restart the flow.
           PersonalAccessToken.revoke(access, authorize?: false)
           {:error, error}
+          # coveralls-ignore-stop
       end
     end
   end
-
-  @doc "The access token lifetime the token endpoint reports."
-  @spec access_ttl_seconds() :: pos_integer()
-  def access_ttl_seconds, do: @access_ttl_seconds
 
   defp create(raw, kind, expires_at, params, metadata, opts) do
     attrs = %{

@@ -32,6 +32,20 @@ defmodule FluxVale.OAuth.Operations.RevokeConnectionTest do
     assert Enum.all?(token_rows, &is_nil(&1.revoked_at))
   end
 
+  test "the connection read carries the latest last-used stamp", %{client: client, user: user} do
+    %{tokens: tokens} = tokens!(client, user)
+    hash = PersonalAccessToken.token_hash(tokens.access_token)
+    token_rows = rows(user)
+    access = Enum.find(token_rows, &(&1.token_hash == hash))
+    {:ok, _stamped} = PersonalAccessToken.touch_last_used(access, authorize?: false)
+
+    assert {:ok, [connection]} = OAuth.list_connections(user)
+    assert connection.client_name == "MCP Test Client"
+    assert connection.scopes == ["instances:read"]
+    assert connection.created_at
+    assert connection.last_used_at
+  end
+
   test "an unknown family is an idempotent zero", %{user: user} do
     assert {:ok, 0} = OAuth.revoke_connection(user, Ash.UUIDv7.generate())
   end

@@ -150,12 +150,16 @@ defmodule FluxValeWeb.DeveloperSettingsLive do
            |> assign(oauth_disconnect_armed_id: nil)
            |> refresh_oauth_connections()}
 
+        # coveralls-ignore-start - the owner read/revoke failing is a DB
+        # outage; the flash is the honest retry arm.
         {:error, _refused} ->
           {:noreply,
            socket
            |> put_flash(:error, "Couldn't disconnect the app. Refresh and try again.")
            |> assign(oauth_disconnect_armed_id: nil)
            |> refresh_oauth_connections()}
+
+          # coveralls-ignore-stop
       end
     else
       {:noreply, socket}
@@ -298,11 +302,15 @@ defmodule FluxValeWeb.DeveloperSettingsLive do
   defp refresh_oauth_connections(socket) do
     user = socket.assigns.current_user
 
+    # coveralls-ignore-start - the owner read failing is a DB outage;
+    # the empty list is the honest degraded arm.
     connections =
       case OAuth.list_connections(user) do
         {:ok, connections} -> connections
         {:error, _refused} -> []
       end
+
+    # coveralls-ignore-stop
 
     socket
     |> stream(:oauth_connections, connections, reset: true)

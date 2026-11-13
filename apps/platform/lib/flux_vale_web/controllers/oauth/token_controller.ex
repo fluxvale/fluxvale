@@ -70,9 +70,13 @@ defmodule FluxValeWeb.OAuth.TokenController do
     |> json(response)
   end
 
+  # coveralls-ignore-start - mint failure = DB outage; the domain's
+  # server_error arm, not sequentially stageable.
   defp token_result({:error, {:server_error, description}}, conn) do
     oauth_error(conn, :server_error, description, 500)
   end
+
+  # coveralls-ignore-stop
 
   defp token_result({:error, {kind, description}}, conn) do
     oauth_error(conn, kind, description, 400)

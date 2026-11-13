@@ -95,6 +95,49 @@ defmodule FluxVale.OAuth.Operations.RefreshTokenTest do
              })
   end
 
+  test "an omitted resource inherits the original grant", %{client: client, user: user} do
+    %{tokens: tokens} = tokens!(client, user)
+
+    assert {:ok, refreshed} =
+             OAuth.refresh_token(%{
+               "refresh_token" => tokens.refresh_token,
+               "client_id" => client.client_id
+             })
+
+    assert refreshed.scope == "instances:read"
+  end
+
+  test "a non-URI resource and a non-string scope are refused", %{
+    client: client,
+    user: user
+  } do
+    %{tokens: tokens} = tokens!(client, user)
+
+    assert {:error, {:invalid_target, _message}} =
+             OAuth.refresh_token(%{
+               "refresh_token" => tokens.refresh_token,
+               "client_id" => client.client_id,
+               "resource" => 123
+             })
+
+    assert {:error, {:invalid_scope, _message}} =
+             OAuth.refresh_token(%{
+               "refresh_token" => tokens.refresh_token,
+               "client_id" => client.client_id,
+               "scope" => 123
+             })
+
+    assert {:error, {:invalid_scope, _message}} =
+             OAuth.refresh_token(%{
+               "refresh_token" => tokens.refresh_token,
+               "client_id" => client.client_id,
+               "scope" => "admin"
+             })
+
+    assert {:error, {:invalid_request, _message}} =
+             OAuth.refresh_token(%{"client_id" => client.client_id})
+  end
+
   test "a refresh token from another client is invalid_grant", %{client: client, user: user} do
     %{tokens: tokens} = tokens!(client, user)
     other = client!(%{"client_name" => "Other"})

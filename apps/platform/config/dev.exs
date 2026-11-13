@@ -76,6 +76,12 @@ config :flux_vale, dev_routes: true
 # at runtime (config/runtime.exs)
 config :flux_vale, token_signing_secret: "xCq4tmbd9W+NYoOdKwh5lE4VaEg3UYa7"
 
+# #766: the MCP resource-indicator allowlist for a bare dev server —
+# `mix phx.server` plus `cargo run` in apps/mcp. The k3d stack runs the
+# prod release and reads MCP_RESOURCE_URLS from its manifest.
+config :flux_vale, :mcp_oauth,
+  resource_urls: ["http://localhost:4600/mcp", "http://127.0.0.1:4600/mcp"]
+
 # Do not include metadata nor timestamps in development logs
 config :logger, :default_formatter, format: "[$level] $message\n"
 

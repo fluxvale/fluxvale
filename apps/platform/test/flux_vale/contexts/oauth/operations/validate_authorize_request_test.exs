@@ -151,6 +151,70 @@ defmodule FluxVale.OAuth.Operations.ValidateAuthorizeRequestTest do
              })
   end
 
+  test "client_id and redirect_uri are required before any redirect", %{client: client} do
+    assert {:error, %{error: :invalid_request, redirect?: false}} =
+             OAuth.validate_authorize_request(%{
+               "redirect_uri" => redirect_uri(),
+               "response_type" => "code"
+             })
+
+    assert {:error, %{error: :invalid_request, redirect?: false}} =
+             OAuth.validate_authorize_request(%{
+               "client_id" => client.client_id,
+               "response_type" => "code"
+             })
+
+    assert {:error, %{error: :invalid_request, redirect?: false}} =
+             OAuth.validate_authorize_request(%{
+               "client_id" => "",
+               "redirect_uri" => redirect_uri()
+             })
+  end
+
+  test "scopes may arrive as a list; malformed values are refused", %{client: client} do
+    base = %{
+      "client_id" => client.client_id,
+      "redirect_uri" => redirect_uri(),
+      "response_type" => "code",
+      "code_challenge" => challenge(verifier()),
+      "code_challenge_method" => "S256"
+    }
+
+    list_scope = Map.put(base, "scope", ["instances:read"])
+    assert {:ok, request} = OAuth.validate_authorize_request(list_scope)
+    assert request.scopes == ["instances:read"]
+
+    unknown = Map.put(base, "scope", ["admin"])
+
+    assert {:error, %{error: :invalid_scope, redirect?: true}} =
+             OAuth.validate_authorize_request(unknown)
+
+    malformed = Map.put(base, "scope", 123)
+
+    assert {:error, %{error: :invalid_scope, redirect?: true}} =
+             OAuth.validate_authorize_request(malformed)
+  end
+
+  test "a non-URI resource and a non-string state are refused", %{client: client} do
+    base = %{
+      "client_id" => client.client_id,
+      "redirect_uri" => redirect_uri(),
+      "response_type" => "code",
+      "code_challenge" => challenge(verifier()),
+      "code_challenge_method" => "S256"
+    }
+
+    malformed_resource = Map.put(base, "resource", 123)
+
+    assert {:error, %{error: :invalid_target, redirect?: true}} =
+             OAuth.validate_authorize_request(malformed_resource)
+
+    malformed_state = Map.put(base, "state", 123)
+
+    assert {:error, %{error: :invalid_request, redirect?: true}} =
+             OAuth.validate_authorize_request(malformed_state)
+  end
+
   test "a non-map request is a local invalid_request" do
     assert {:error, %{error: :invalid_request, redirect?: false}} =
              OAuth.validate_authorize_request("nope")

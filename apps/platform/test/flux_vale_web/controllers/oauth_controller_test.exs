@@ -93,6 +93,18 @@ defmodule FluxValeWeb.OAuthControllerTest do
       assert json_response(conn, 400)["error"] == "invalid_client_metadata"
     end
 
+    test "an unknown scope and the resource backstop are metadata errors", %{conn: conn} do
+      unknown_scope = registration_params(%{"scope" => "instances:read admin"})
+      response = json_post(conn, "/oauth/register", unknown_scope)
+      assert json_response(response, 400)["error"] == "invalid_client_metadata"
+
+      uris = for n <- 1..6, do: "https://client.example/cb#{n}"
+      too_many = registration_params(%{"redirect_uris" => uris})
+      too_many_response = json_post(conn, "/oauth/register", too_many)
+      body = json_response(too_many_response, 400)
+      assert body["error"] == "invalid_client_metadata"
+    end
+
     test "the per-IP window answers 429 with Retry-After", %{conn: conn} do
       put_bucket_limit(:register, 1)
       first = with_ip(conn, {10, 10, 0, 1})
@@ -166,6 +178,38 @@ defmodule FluxValeWeb.OAuthControllerTest do
       assert query["error"] == "unsupported_response_type"
       assert query["state"] == "st-1"
       assert query["iss"] == Endpoint.url()
+    end
+
+    test "the authorize and consent POST share the per-IP window", %{conn: conn} do
+      put_bucket_limit(:authorize, 1)
+      client = client!()
+      params = authorize_params(client)
+
+      first = with_ip(conn, {10, 30, 0, 1})
+      response = get(first, "/oauth/authorize?" <> URI.encode_query(params))
+      assert response.status in [200, 302]
+
+      second = with_ip(conn, {10, 30, 0, 1})
+      second_response = get(second, "/oauth/authorize?" <> URI.encode_query(params))
+      assert html_response(second_response, 429) =~ "Too many authorization attempts"
+
+      third = with_ip(conn, {10, 30, 0, 1})
+
+      consent_response =
+        post(third, "/oauth/authorize", %{"consent_token" => "x", "decision" => "approve"})
+
+      assert html_response(consent_response, 429) =~ "Too many authorization attempts"
+    end
+
+    test "a missing consent token is a local error page", %{conn: conn} do
+      client = client!()
+      user = user!()
+
+      response = consent_post(user, %{"decision" => "approve", "consent_token" => nil})
+
+      assert html_response(response, 400) =~ "expired"
+      _client = client
+      _conn = conn
     end
 
     test "a signed-in user sees the client, redirect host, and product-language scopes", %{
@@ -271,6 +315,50 @@ defmodule FluxValeWeb.OAuthControllerTest do
       response = consent_post(user, %{"consent_token" => token, "decision" => "approve"})
 
       assert html_response(response, 400) =~ "session changed"
+    end
+
+    test "a consent token naming a client that no longer resolves is refused", %{conn: _conn} do
+      user = user!()
+
+      base = consent_payload(client!(), user)
+      payload = Map.put(base, :client_id, nil)
+
+      token = Phoenix.Token.sign(Endpoint, @consent_salt, payload)
+
+      response = consent_post(user, %{"consent_token" => token, "decision" => "approve"})
+
+      assert html_response(response, 400) =~ "no longer registered"
+    end
+
+    test "a consent token naming an unknown client id is refused", %{conn: _conn} do
+      user = user!()
+
+      base = consent_payload(client!(), user)
+      payload = Map.put(base, :client_id, "fvoc_gone")
+
+      token = Phoenix.Token.sign(Endpoint, @consent_salt, payload)
+
+      response = consent_post(user, %{"consent_token" => token, "decision" => "approve"})
+
+      assert html_response(response, 400) =~ "no longer registered"
+    end
+
+    test "a custom-scheme redirect without an authority renders its whole value", %{
+      conn: conn
+    } do
+      {:ok, client} =
+        FluxVale.OAuth.register_client(%{
+          "client_name" => "Custom scheme",
+          "redirect_uris" => ["claude:callback"]
+        })
+
+      user = user!()
+      signed = SessionHelpers.sign_in(conn, user)
+      params = authorize_params(client, %{"redirect_uri" => "claude:callback"})
+
+      response = get(signed, "/oauth/authorize?" <> URI.encode_query(params))
+
+      assert html_response(response, 200) =~ "claude:callback"
     end
 
     test "an unrecognized decision is refused", %{conn: conn} do
@@ -408,6 +496,26 @@ defmodule FluxValeWeb.OAuthControllerTest do
         |> get("/api/v1/me")
 
       assert json_response(second_authed, 401)
+    end
+
+    test "the revoke endpoint's per-IP window answers 429", %{conn: conn} do
+      put_bucket_limit(:revoke, 1)
+      first = with_ip(conn, {10, 40, 0, 1})
+
+      assert form_post(first, "/oauth/revoke", %{
+               "token" => "fvoat_unknown",
+               "client_id" => "fvoc_unknown"
+             }).status == 200
+
+      second = with_ip(conn, {10, 40, 0, 1})
+
+      response =
+        form_post(second, "/oauth/revoke", %{
+          "token" => "fvoat_unknown",
+          "client_id" => "fvoc_unknown"
+        })
+
+      assert json_response(response, 429)["error"] == "temporarily_unavailable"
     end
 
     test "unknown tokens and missing parameters", %{conn: conn} do

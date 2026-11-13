@@ -24,12 +24,16 @@ defmodule FluxVale.OAuth.Operations.RecordAuditEvent do
       {:ok, _row} ->
         :ok
 
+      # coveralls-ignore-start - a failed audit write means the DB went
+      # away mid-success-path; the caller already did the thing, and the
+      # guarded seam is the documented swallow.
       {:error, error} ->
         Logger.warning(
           "OAuth audit write failed kind=#{attrs[:kind]}: #{Exception.message(error)}"
         )
 
         :ok
+        # coveralls-ignore-stop
     end
   end
 end

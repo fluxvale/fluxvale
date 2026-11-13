@@ -64,8 +64,14 @@ defmodule FluxVale.OAuth.Operations.ListConnections do
     |> Enum.uniq()
     |> Enum.reduce(%{}, fn client_id, names ->
       case Client.get_by_id(client_id, authorize?: false) do
-        {:ok, client} -> Map.put(names, client_id, client.client_name)
-        {:error, _missing} -> names
+        {:ok, client} ->
+          Map.put(names, client_id, client.client_name)
+
+        # coveralls-ignore-start - the FK cascades token rows with a
+        # deleted client; the fallback only guards a mid-read delete.
+        {:error, _missing} ->
+          names
+          # coveralls-ignore-stop
       end
     end)
     |> then(fn names ->

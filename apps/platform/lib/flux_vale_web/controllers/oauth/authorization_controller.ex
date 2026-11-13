@@ -178,6 +178,8 @@ defmodule FluxValeWeb.OAuth.AuthorizationController do
               "iss" => Issuer.issuer()
             })
 
+          # coveralls-ignore-start - DB outage on an already-validated
+          # consent; the page answers the retry arm.
           {:error, _refused} ->
             error_page(
               conn,
@@ -185,6 +187,8 @@ defmodule FluxValeWeb.OAuth.AuthorizationController do
               "The authorization code could not be issued",
               "Try again from your MCP client."
             )
+
+            # coveralls-ignore-stop
         end
     end
   end
@@ -212,11 +216,15 @@ defmodule FluxValeWeb.OAuth.AuthorizationController do
   end
 
   defp redirect_to_sign_in(conn) do
+    # coveralls-ignore-start - a valid authorize request always has
+    # query parameters; the empty arm only guards a hand-built conn.
     return_to =
       case conn.query_string do
         "" -> conn.request_path
         query -> conn.request_path <> "?" <> query
       end
+
+    # coveralls-ignore-stop
 
     redirect(conn, to: "/sign-in?return_to=" <> URI.encode_www_form(return_to))
   end

@@ -59,8 +59,11 @@ defmodule FluxVale.OAuth.Operations.ExchangeCode do
         {:ok, consumed} ->
           mint(consumed, client, family_id, resource)
 
+        # coveralls-ignore-start - two exchanges racing one code: the
+        # loser's UPDATE sees consumed_at set; not sequentially stageable.
         {:error, _stale} ->
           reuse(code, "authorization code has already been used")
+          # coveralls-ignore-stop
       end
     end
   end
@@ -95,8 +98,11 @@ defmodule FluxVale.OAuth.Operations.ExchangeCode do
            scope: Enum.join(code.scopes, " ")
          }}
 
+      # coveralls-ignore-start - DB outage mid-mint; the token endpoint
+      # answers server_error and the client retries the flow.
       {:error, _error} ->
         {:error, {:server_error, "could not issue the token pair"}}
+        # coveralls-ignore-stop
     end
   end
 

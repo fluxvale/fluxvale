@@ -35,6 +35,15 @@ defmodule FluxValeWeb.SettingsLive.AgentsTest do
     # protocol path, not the bare origin (main.rs nests at /mcp).
     assert has_element?(view, "[data-testid='agents-server-url']", "https://mcp.fluxvale.com/mcp")
 
+    # #766: the no-token path leads — OAuth-capable clients add the URL
+    # and approve; the PAT snippets below are the fallback.
+    oauth = render(element(view, "[data-testid='agents-oauth']"))
+    assert oauth =~ "OAuth-capable clients need no token"
+    assert oauth =~ "consent page"
+    assert oauth =~ "all your organizations"
+    assert oauth =~ "revokes it immediately"
+    assert oauth =~ ~s(href="/settings/developer#connected-apps")
+
     assert render(element(view, "[data-testid='agents-server-url-copy']")) =~
              "https://mcp.fluxvale.com/mcp"
 

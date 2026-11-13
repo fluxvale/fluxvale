@@ -68,14 +68,13 @@ defmodule FluxVale.OAuth.Operations.IssueAuthorizationCode do
 
         {:ok, %{code: raw, record: record}}
 
+      # coveralls-ignore-start - DB outage on an already-validated
+      # request; the consent page answers the 500 arm.
       {:error, error} ->
         {:error, error}
+        # coveralls-ignore-stop
     end
   end
-
-  @doc "The code lifetime the redirect relies on."
-  @spec ttl_seconds() :: pos_integer()
-  def ttl_seconds, do: @ttl_seconds
 
   defp random do
     32

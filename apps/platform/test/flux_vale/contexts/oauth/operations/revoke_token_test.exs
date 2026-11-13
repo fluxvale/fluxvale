@@ -52,6 +52,31 @@ defmodule FluxVale.OAuth.Operations.RevokeTokenTest do
     assert Enum.all?(token_rows, &is_nil(&1.revoked_at))
   end
 
+  test "an OAuth row without a family is revoked on its own", %{client: client, user: user} do
+    random = :crypto.strong_rand_bytes(32)
+    raw = "fvoat_" <> Base.url_encode64(random, padding: false)
+
+    token =
+      Ash.Seed.seed!(PersonalAccessToken, %{
+        name: "OAuth: orphaned",
+        token_hash: PersonalAccessToken.token_hash(raw),
+        scopes: [],
+        expires_at: DateTime.add(DateTime.utc_now(), 3600, :second),
+        user_id: user.id,
+        kind: :oauth_access,
+        oauth_client_id: client.id,
+        resource: resource(),
+        token_family_id: nil
+      })
+
+    assert :ok = OAuth.revoke_token(%{"token" => raw, "client_id" => client.client_id})
+
+    assert %{revoked_at: revoked_at} =
+             PersonalAccessToken.get!(token.id, authorize?: false)
+
+    assert revoked_at
+  end
+
   test "missing parameters are invalid_request", %{client: client} do
     assert {:error, :invalid_request} = OAuth.revoke_token(%{})
     assert {:error, :invalid_request} = OAuth.revoke_token(%{"token" => "x"})

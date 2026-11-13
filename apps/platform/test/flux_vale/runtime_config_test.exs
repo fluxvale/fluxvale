@@ -96,7 +96,10 @@ defmodule FluxVale.RuntimeConfigTest do
         assert {"30 3 * * *", FluxVale.Janitor.PruneAuditEvents} in crontab
         # #362's device-code sweep (daily, off the 03:30 audit sweep).
         assert {"45 3 * * *", FluxVale.Janitor.PruneDeviceCodes} in crontab
-        assert length(crontab) == 10
+        # #766's OAuth sweeps (daily, off the 03:45 device codes).
+        assert {"0 4 * * *", FluxVale.Janitor.PruneOAuthCodes} in crontab
+        assert {"15 4 * * *", FluxVale.Janitor.PruneOAuthAuditEvents} in crontab
+        assert length(crontab) == 12
       end)
     end
 

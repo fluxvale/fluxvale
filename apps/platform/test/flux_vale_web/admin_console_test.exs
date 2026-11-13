@@ -24,7 +24,8 @@ defmodule FluxValeWeb.AdminConsoleTest do
 
   @n :erlang.unique_integer([:positive])
 
-  # The plan's appendix A target set: six domains in, three out.
+  # The plan's appendix A target set: six domains in, four out (the
+  # OAuth authorization server joined Api's machinery lane in #766).
   @target_included [
     FluxVale.Ops,
     FluxVale.Catalog,
@@ -41,7 +42,8 @@ defmodule FluxValeWeb.AdminConsoleTest do
   @target_excluded [
     FluxVale.Identity,
     FluxVale.Accounts,
-    FluxVale.Api
+    FluxVale.Api,
+    FluxVale.OAuth
   ]
 
   describe "the registry parity (every configured domain accounted for)" do

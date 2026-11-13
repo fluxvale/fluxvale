@@ -103,6 +103,19 @@ defmodule FluxVale.OAuth.Operations.ExchangeCodeTest do
              })
   end
 
+  test "a non-URI resource is invalid_target", %{client: client, user: user} do
+    issued = issue_code!(client, user)
+
+    assert {:error, {:invalid_target, _message}} =
+             OAuth.exchange_code(%{
+               "code" => issued.code,
+               "client_id" => client.client_id,
+               "redirect_uri" => redirect_uri(),
+               "code_verifier" => issued.request.verifier,
+               "resource" => 123
+             })
+  end
+
   test "a reused code is invalid_grant and revokes the family it produced", %{
     client: client,
     user: user
@@ -122,6 +135,28 @@ defmodule FluxVale.OAuth.Operations.ExchangeCodeTest do
 
     token_rows = rows(user)
     assert Enum.all?(token_rows, &(not is_nil(&1.revoked_at)))
+  end
+
+  test "an omitted resource inherits the code's grant", %{client: client, user: user} do
+    issued = issue_code!(client, user)
+
+    assert {:ok, tokens} =
+             OAuth.exchange_code(%{
+               "code" => issued.code,
+               "client_id" => client.client_id,
+               "redirect_uri" => redirect_uri(),
+               "code_verifier" => issued.request.verifier
+             })
+
+    assert tokens.access_token =~ ~r/^fvoat_/
+  end
+
+  test "missing parameters are protocol errors", %{client: client} do
+    assert {:error, {:invalid_request, "code is required"}} =
+             OAuth.exchange_code(%{"client_id" => client.client_id})
+
+    assert {:error, {:invalid_request, "client_id is required"}} =
+             OAuth.exchange_code(%{"code" => "fvac_whatever"})
   end
 
   test "an expired code is invalid_grant", %{client: client, user: user} do

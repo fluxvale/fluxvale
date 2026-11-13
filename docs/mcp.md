@@ -3,18 +3,49 @@
 FluxVale as tools for AI agents ([#484](https://github.com/fluxvale/fluxvale/issues/484)):
 the remote MCP server (the `apps/mcp` Rust crate — its
 [README](../apps/mcp/README.md) owns the server's env, auth, and deploy
-truth) serves FluxVale over MCP with a personal access token. The
-in-app quickstart lives at `/settings/agents` (#484 W5), one click
-from where the token is minted (the developer settings page's API
-tokens section, #483 — moved to `/settings/developer` by #638); this
-doc mirrors it and carries the tool-surface
-record the app cannot: the catalog and the changelog below.
+truth) serves FluxVale over MCP. OAuth-capable clients connect without
+a pasted token: the server advertises the platform's authorization
+server and the consent page asks you to approve. Clients without OAuth
+keep the personal-access-token path. The in-app quickstart lives at
+`/settings/agents` (#484 W5), one click from where the token is minted
+(the developer settings page's API tokens section, #483 — moved to
+`/settings/developer` by #638); this doc mirrors it and carries the
+tool-surface record the app cannot: the catalog and the changelog
+below.
 
 Endpoints (the protocol nests at `/mcp` — `apps/mcp/src/main.rs`
 `MCP_PATH`): prod `https://mcp.fluxvale.com/mcp`, staging
 `https://mcp-staging.fluxvale.com/mcp`.
 
-## The recipe (two steps, one token)
+## Connect with OAuth (no pasted token)
+
+The server is an OAuth 2.1 resource server ([ADR-0054](adr/00054-mcp-oauth.md)).
+A client that supports remote MCP OAuth needs only the URL:
+
+1. **Add the server**: `https://mcp.fluxvale.com/mcp` (staging:
+   `https://mcp-staging.fluxvale.com/mcp`).
+2. **Approve the consent page**: the client reads
+   `/.well-known/oauth-protected-resource`, registers itself with the
+   platform, and opens `https://fluxvale.com/oauth/authorize`. Sign in,
+   then review the client name, the host it returns to, and the scopes
+   in product language. **Allow** connects; **Deny** returns
+   `error=access_denied` to the client and grants nothing.
+3. **Done**: the client holds a one-hour access token and rotates a
+   thirty-day refresh token. Revoke it any time in
+   `/settings/developer#connected-apps`; disconnecting takes effect on
+   the next MCP request (401).
+
+The authorization server (`https://fluxvale.com`, staging
+`https://staging.fluxvale.com`) advertises its metadata at
+`/.well-known/oauth-authorization-server`: `S256` PKCE, public
+clients (`token_endpoint_auth_methods_supported: ["none"]`),
+authorization-code and refresh grants, and the scope catalog plus
+`offline_access`. PKCE is mandatory, redirect URIs match exactly,
+codes are single-use for 60 seconds, and the token is bound to the MCP
+resource. A mismatched `resource` is `invalid_target`; a request that
+omits it (older clients) binds the configured default.
+
+## The token fallback (clients without OAuth)
 
 1. **Mint a token** in the API tokens panel
    (`/settings/developer#api-tokens`): name it for the agent, pick its
@@ -37,9 +68,9 @@ mechanism). Customize → Connectors → **Add custom connector**:
 
 1. Name: `FluxVale`
 2. URL: `https://mcp.fluxvale.com/mcp`
-3. Auth: pick **No sign-in** (not OAuth — the header below is the
-   auth)
-4. Request headers: `Authorization: Bearer fvpat_…`
+3. Auth: pick **OAuth** when the client offers it (or
+   **No sign-in** for the PAT fallback below)
+4. Fallback only: request headers `Authorization: Bearer fvpat_…`
 
 Cursor (`.cursor/mcp.json` per project, `~/.cursor/mcp.json`
 everywhere — same shape either way; the token rides
@@ -91,10 +122,12 @@ dropped; `protocol: "auto"` because the default `legacy` caps at
 `tools/list` offers exactly the tools the token's scopes cover, write
 includes read, and a zero-scope token still identifies itself. The
 server reads the exact scope list from GET `/me`'s `meta.scopes`
-(#585) — one upstream read per `tools/list`. Some
-tools need two domains — the catalog table lists each tool's exact
-set; mint the union. The scope meanings are listed at mint time in
-the panel.
+(#585) — one upstream read per `tools/list`; for an OAuth access
+token the resource server's per-request validation read is that same
+read. Some tools need two domains — the catalog table lists each
+tool's exact set; mint (or request, on the consent screen) the union.
+The scope meanings are listed at mint time in the panel and in
+product language on the consent page.
 
 **Destructive actions.** `instances_destroy` and `backups_restore`
 confirm through the client before anything runs. A client that can't

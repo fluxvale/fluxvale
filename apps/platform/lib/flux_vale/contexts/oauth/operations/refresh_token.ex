@@ -52,8 +52,11 @@ defmodule FluxVale.OAuth.Operations.RefreshToken do
         {:ok, _revoked} ->
           mint(token, client, resource, scopes)
 
+        # coveralls-ignore-start - two refreshes racing one token: the
+        # loser's UPDATE sees revoked_at set; not sequentially stageable.
         {:error, _stale} ->
           reuse(token, "refresh token has already been rotated")
+          # coveralls-ignore-stop
       end
     end
   end
@@ -90,8 +93,11 @@ defmodule FluxVale.OAuth.Operations.RefreshToken do
            scope: Enum.join(scopes, " ")
          }}
 
+      # coveralls-ignore-start - DB outage mid-mint; the token endpoint
+      # answers server_error and the client retries.
       {:error, _error} ->
         {:error, {:server_error, "could not issue the token pair"}}
+        # coveralls-ignore-stop
     end
   end
 
