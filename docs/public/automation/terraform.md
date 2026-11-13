@@ -115,7 +115,7 @@ resource "fluxvale_instance" "reading" {
 }
 ```
 
-Deployer-owned keys — the OIDC recipe, backing service URLs, and the instance URL — are refused on set and skipped on remove. The app's first-run contract keys are fixed: a set or remove is refused, and a contract key already in state dead-ends until you remove it from state and configuration by hand. A null element is rejected: remove the key instead (an empty string is a value). The API never echoes the map, so a plan cannot see server-side drift by design, and the configured values are kept in state.
+Deployer-owned keys — the OIDC recipe, backing service URLs, and the instance URL — are refused on set and skipped on remove. The app's first-run contract `env` keys are fixed: a set or remove is refused, and a contract `env` key already in state dead-ends until you remove it from state and configuration by hand. Contract `forbidden_env` keys refuse a set but allow a remove. A null element is rejected: remove the key instead (an empty string is a value). The API never echoes the map, so a plan cannot see server-side drift by design, and the configured values are kept in state.
 
 ### Read an existing instance
 
@@ -132,7 +132,7 @@ Read by `id` (always unambiguous) or `slug`. A slug is unique only per cluster, 
 
 ### Wire PocketID sign-in
 
-`fluxvale_pocket_id_sso` connects an instance's sign-in to your PocketID instance. One wiring per instance; the resource's `id` is the instance id:
+`fluxvale_pocket_id_sso` connects an instance's sign-in to your PocketID instance. One wiring per instance; the resource's `id` is the instance id. The PocketID instance must be public and have held-key custody (its API key stored once); the platform refuses the connect otherwise.
 
 ```hcl
 resource "fluxvale_pocket_id_sso" "vault" {
