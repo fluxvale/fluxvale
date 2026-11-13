@@ -30,6 +30,7 @@ defmodule FluxVale.Api.Scopes do
   # a silent wrong answer (a bare atom in two modules degrades quietly
   # to "no scopes", indistinguishable from a session caller).
   @pat_scopes_context_key :pat_scopes
+  @pat_resource_context_key :pat_resource
 
   @read_scopes Enum.map(@read_domains, &"#{&1}:read")
   @write_scopes Enum.map(@write_domains, &"#{&1}:write")
@@ -45,8 +46,8 @@ defmodule FluxVale.Api.Scopes do
   @oauth_scopes @all_scopes ++ @oauth_pseudo_scopes
 
   # The consent screen's product language. One description per
-  # catalog scope; the developer settings page reuses the same lines
-  # so the two surfaces can never drift.
+  # catalog scope — the developer settings page has its own terse
+  # mint-time labels, so these lines are the consent surface's alone.
   @scope_descriptions %{
     "catalog:read" => "Browse the app catalog and its versions",
     "instances:read" => "See your instances and their status",
@@ -154,9 +155,8 @@ defmodule FluxVale.Api.Scopes do
   def oauth_scopes, do: @oauth_scopes
 
   @doc """
-  Product-language description for a catalog scope — the consent page
-  and the developer settings panel share it. An unknown scope falls
-  back to its raw string (never a crash).
+  Product-language description for a catalog scope — the consent page's
+  copy. An unknown scope falls back to its raw string (never a crash).
   """
   @spec describe(String.t()) :: String.t()
   def describe(scope), do: Map.get(@scope_descriptions, scope, scope)
@@ -193,6 +193,14 @@ defmodule FluxVale.Api.Scopes do
   """
   @spec pat_scopes_context_key() :: atom()
   def pat_scopes_context_key, do: @pat_scopes_context_key
+
+  @doc """
+  The Ash request-context key carrying the calling token's RFC 8707
+  resource (nil for a PAT) — `/me`'s meta render reads it so the MCP
+  resource server can check the audience it was issued for.
+  """
+  @spec pat_resource_context_key() :: atom()
+  def pat_resource_context_key, do: @pat_resource_context_key
 
   @doc """
   The route table itself — `{{method, pattern}, scope}` pairs — for

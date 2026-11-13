@@ -62,7 +62,7 @@ defmodule FluxVale.OAuth.Operations.ExchangeCode do
         # coveralls-ignore-start - two exchanges racing one code: the
         # loser's UPDATE sees consumed_at set; not sequentially stageable.
         {:error, _stale} ->
-          reuse(code, "authorization code has already been used")
+          reuse(stale_code(code), "authorization code has already been used")
           # coveralls-ignore-stop
       end
     end
@@ -98,6 +98,13 @@ defmodule FluxVale.OAuth.Operations.ExchangeCode do
            scope: Enum.join(code.scopes, " ")
          }}
 
+      # coveralls-ignore-start - a fresh code's family cannot be
+      # tombstoned before the exchange; the guard is the shared mint's.
+      {:error, :connection_revoked} ->
+        {:error, {:invalid_grant, "the connection has been revoked"}}
+
+      # coveralls-ignore-stop
+
       # coveralls-ignore-start - DB outage mid-mint; the token endpoint
       # answers server_error and the client retries the flow.
       {:error, _error} ->
@@ -105,6 +112,18 @@ defmodule FluxVale.OAuth.Operations.ExchangeCode do
         # coveralls-ignore-stop
     end
   end
+
+  # coveralls-ignore-start - the race arm's helper: a code fetched
+  # before the winner committed has no family yet; the re-read is what
+  # the loser revokes. Not sequentially stageable.
+  defp stale_code(code) do
+    case AuthorizationCode.get_by_code_hash(code.code_hash, authorize?: false) do
+      {:ok, fresh} -> fresh
+      {:error, _not_found} -> code
+    end
+  end
+
+  # coveralls-ignore-stop
 
   defp reuse(code, description) do
     if code.token_family_id do

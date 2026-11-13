@@ -31,7 +31,7 @@ defmodule FluxValeWeb.OAuthConnectionsLiveTest do
     assert meta =~ "Never used"
   end
 
-  test "hides a disconnected family", %{conn: conn, user: user} do
+  test "lists a live family and hides the empty state", %{conn: conn, user: user} do
     client = client!()
     _tokens = tokens!(client, user)
 
@@ -131,6 +131,45 @@ defmodule FluxValeWeb.OAuthConnectionsLiveTest do
 
     rows = PersonalAccessToken.list_oauth_tokens!(user.id, authorize?: false)
     assert Enum.all?(rows, &is_nil(&1.revoked_at))
+  end
+
+  test "the defensive hooks ignore malformed events", %{conn: conn, user: user} do
+    client = client!()
+    _tokens = tokens!(client, user)
+
+    {:ok, view, _html} = live(conn, ~p"/settings/developer")
+
+    render_hook(view, "arm-oauth-disconnect", %{})
+    render_hook(view, "disconnect-oauth", %{})
+
+    assert has_element?(view, "[data-testid='oauth-connection-row']")
+  end
+
+  test "display fallbacks for a nil or authority-less resource", %{conn: conn, user: user} do
+    client = client!(%{"client_name" => "Display fallbacks"})
+
+    for {resource, family} <- [
+          {nil, Ash.UUIDv7.generate()},
+          {"urn:fluxvale:mcp", Ash.UUIDv7.generate()}
+        ] do
+      Ash.Seed.seed!(PersonalAccessToken, %{
+        name: "OAuth: #{inspect(resource)}",
+        token_hash: PersonalAccessToken.token_hash("fvoat_#{family}"),
+        scopes: [],
+        expires_at: DateTime.add(DateTime.utc_now(), 3600, :second),
+        user_id: user.id,
+        kind: :oauth_access,
+        oauth_client_id: client.id,
+        resource: resource,
+        token_family_id: family
+      })
+    end
+
+    {:ok, view, _html} = live(conn, ~p"/settings/developer")
+
+    html = render(view)
+    assert html =~ "No resource"
+    assert html =~ "urn:fluxvale:mcp"
   end
 
   test "another user's family stays invisible", %{conn: conn, user: user} do

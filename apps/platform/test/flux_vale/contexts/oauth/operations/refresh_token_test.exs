@@ -84,6 +84,74 @@ defmodule FluxVale.OAuth.Operations.RefreshTokenTest do
              })
   end
 
+  test "an echoed offline_access is a no-op, not a refusal", %{
+    client: client,
+    user: user
+  } do
+    %{tokens: tokens} = tokens!(client, user, %{"scope" => "instances:read"})
+
+    assert {:ok, refreshed} =
+             OAuth.refresh_token(%{
+               "refresh_token" => tokens.refresh_token,
+               "client_id" => client.client_id,
+               "scope" => "instances:read offline_access"
+             })
+
+    assert refreshed.scope == "instances:read"
+  end
+
+  test "an expired refresh token is invalid_grant and leaves the family alone", %{
+    client: client,
+    user: user
+  } do
+    random = :crypto.strong_rand_bytes(32)
+    raw = "fvort_" <> Base.url_encode64(random, padding: false)
+    token_hash = PersonalAccessToken.token_hash(raw)
+
+    token =
+      Ash.Seed.seed!(PersonalAccessToken, %{
+        name: "OAuth: expired refresh",
+        token_hash: token_hash,
+        scopes: ["instances:read"],
+        expires_at: DateTime.add(DateTime.utc_now(), -60, :second),
+        user_id: user.id,
+        kind: :oauth_refresh,
+        oauth_client_id: client.id,
+        resource: resource(),
+        token_family_id: Ash.UUIDv7.generate()
+      })
+
+    assert {:error, {:invalid_grant, "refresh token is expired"}} =
+             OAuth.refresh_token(%{
+               "refresh_token" => raw,
+               "client_id" => client.client_id
+             })
+
+    refreshed = PersonalAccessToken.get!(token.id, authorize?: false)
+    assert is_nil(refreshed.revoked_at)
+  end
+
+  test "a family tombstone refuses a still-live refresh token", %{
+    client: client,
+    user: user
+  } do
+    %{tokens: tokens} = tokens!(client, user)
+    family_id = refresh_row(user, tokens.refresh_token).token_family_id
+
+    OAuth.record_audit_event(%{
+      kind: :connection_revoked,
+      actor_id: user.id,
+      token_family_id: family_id,
+      metadata: %{"tokens_revoked" => 2}
+    })
+
+    assert {:error, {:invalid_grant, "the connection has been revoked"}} =
+             OAuth.refresh_token(%{
+               "refresh_token" => tokens.refresh_token,
+               "client_id" => client.client_id
+             })
+  end
+
   test "a mismatched resource is invalid_target", %{client: client, user: user} do
     %{tokens: tokens} = tokens!(client, user)
 

@@ -80,6 +80,7 @@ defmodule FluxValeWeb.OAuth.AuthorizationController do
     |> render(:authorize, %{
       page_title: "Authorize #{request.client.client_name} — FluxVale",
       client_name: request.client.client_name,
+      signed_in_as: user.username,
       redirect_authority: redirect_authority(request.redirect_uri),
       scopes: Enum.map(request.scopes, &%{name: &1, description: Scopes.describe(&1)}),
       consent_token: consent_token

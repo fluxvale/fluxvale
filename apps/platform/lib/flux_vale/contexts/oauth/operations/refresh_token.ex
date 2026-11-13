@@ -93,6 +93,9 @@ defmodule FluxVale.OAuth.Operations.RefreshToken do
            scope: Enum.join(scopes, " ")
          }}
 
+      {:error, :connection_revoked} ->
+        {:error, {:invalid_grant, "the connection has been revoked"}}
+
       # coveralls-ignore-start - DB outage mid-mint; the token endpoint
       # answers server_error and the client retries.
       {:error, _error} ->
@@ -136,6 +139,9 @@ defmodule FluxVale.OAuth.Operations.RefreshToken do
       scope
       |> String.split()
       |> Enum.reject(&(&1 == ""))
+      # offline_access is a consent-time no-op; a client echoing its
+      # grant back must not be told the scope was never granted.
+      |> Scopes.strip_oauth()
 
     with :ok <- validate(requested) do
       subset(requested, token.scopes)

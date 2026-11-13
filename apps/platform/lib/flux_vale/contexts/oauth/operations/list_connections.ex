@@ -19,9 +19,11 @@ defmodule FluxVale.OAuth.Operations.ListConnections do
   def call(actor, opts \\ []) do
     with {:ok, rows} <-
            PersonalAccessToken.list_oauth_tokens(actor.id, Keyword.put(opts, :actor, actor)) do
+      now = DateTime.utc_now()
+
       connections =
         rows
-        |> Enum.reject(& &1.revoked_at)
+        |> Enum.reject(&(&1.revoked_at || not DateTime.after?(&1.expires_at, now)))
         |> Enum.group_by(& &1.token_family_id)
         |> Enum.map(&connection/1)
         |> attach_client_names()

@@ -13,6 +13,7 @@ defmodule FluxValeWeb.Api.MeRouteTest do
   use FluxValeWeb.ConnCase, async: true
 
   import FluxVale.TestSupport.AuthCodeHelpers
+  import FluxVale.TestSupport.OAuthFixtures
 
   alias AshAuthentication.Jwt
   alias AshJsonApi.Resource.Info
@@ -93,6 +94,23 @@ defmodule FluxValeWeb.Api.MeRouteTest do
       second_conn = pat_request(second)
 
       assert %{"meta" => %{"scopes" => ^other}} = json_response(second_conn, 200)
+    end
+
+    # #766: an OAuth access token's /me carries the same scope list
+    # plus the RFC 8707 resource the MCP resource server checks.
+    test "an OAuth access token renders meta.scopes and meta.resource", %{user: user} do
+      client = client!()
+
+      %{tokens: tokens} =
+        tokens!(client, user, %{"scope" => "instances:read wallet:read"})
+
+      conn = pat_request(tokens.access_token)
+
+      assert %{"meta" => %{"scopes" => scopes, "resource" => resource}} =
+               json_response(conn, 200)
+
+      assert scopes == ["instances:read", "wallet:read"]
+      assert resource == "https://mcp.fluxvale.com/mcp"
     end
 
     # A zero-scope PAT is a MINTED fact ("no grants"), not the absence

@@ -70,8 +70,12 @@ defmodule FluxVale.OAuth.SupportTest do
       assert message =~ "unsupported redirect URI"
     end
 
-    test "scheme-less, fragment, and userinfo URIs are invalid" do
+    test "scheme-less, fragment, userinfo, and raw-control URIs are invalid" do
       refute RedirectUris.valid?("not a uri")
+      refute RedirectUris.valid?("notauri")
+      refute RedirectUris.valid?("https://client.example/cb\r\nX-Evil: 1")
+      refute RedirectUris.valid?("https://client.example/cb with space")
+      refute RedirectUris.valid?("https://client.example/cb\x00")
       refute RedirectUris.valid?("https://client.example/cb#frag")
       refute RedirectUris.valid?("https://user:pass@client.example/cb")
       refute RedirectUris.valid?(nil)

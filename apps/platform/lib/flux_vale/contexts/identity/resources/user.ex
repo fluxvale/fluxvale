@@ -154,14 +154,28 @@ defmodule FluxVale.Identity.User do
         default_fields: [:primary_email, :platform_role, :username],
         metadata: fn _query, _user, request ->
           key = Scopes.pat_scopes_context_key()
+          resource_key = Scopes.pat_resource_context_key()
 
           case request.context do
-            %{^key => scopes} when is_list(scopes) -> %{scopes: scopes}
+            %{^key => scopes} when is_list(scopes) ->
+              metadata = %{scopes: scopes}
+
+              case request.context do
+                %{^resource_key => resource} when is_binary(resource) ->
+                  Map.put(metadata, :resource, resource)
+
+                _no_resource ->
+                  metadata
+              end
+
             # The plug only writes the row's {:array, :string}; drift
             # must crash, not render the session answer for a caller.
             # coveralls-ignore-next-line
-            %{^key => _not_a_list} -> raise "pat scopes context must be a list"
-            _no_pat_context -> %{}
+            %{^key => _not_a_list} ->
+              raise "pat scopes context must be a list"
+
+            _no_pat_context ->
+              %{}
           end
         end
       )

@@ -41,7 +41,8 @@ defmodule FluxVale.OAuth.Operations.ValidateAuthorizeRequest do
          {:ok, redirect_uri} <- redirect_uri(client, redirect_uri) do
       validate_rest(client, redirect_uri, state, params)
     else
-      {:error, error} -> {:error, Map.merge(%{redirect?: false, state: state}, error)}
+      {:error, error} ->
+        {:error, Map.merge(%{redirect?: false, state: safe_state(state)}, error)}
     end
   end
 
@@ -91,7 +92,7 @@ defmodule FluxVale.OAuth.Operations.ValidateAuthorizeRequest do
          Map.merge(error, %{
            redirect?: true,
            redirect_uri: redirect_uri,
-           state: state,
+           state: safe_state(state),
            client: client
          })}
     end
@@ -170,6 +171,12 @@ defmodule FluxVale.OAuth.Operations.ValidateAuthorizeRequest do
 
   defp resource(_resource),
     do: {:error, error(:invalid_target, "resource must be a URI", true, nil, nil)}
+
+  # A malformed state (query-string brackets decode to maps/lists) must
+  # not reach the redirect builder: URI.encode_query/1 would raise. The
+  # validation still rejects it; the error envelope just carries nil.
+  defp safe_state(state) when is_binary(state), do: state
+  defp safe_state(_state), do: nil
 
   defp error(kind, description, redirect?, redirect_uri, _state) do
     %{

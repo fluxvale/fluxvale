@@ -76,8 +76,8 @@ fallback.
 
 ## Auth: OAuth, or a pasted PAT
 
-The server is an OAuth 2.1 resource server (#766): a client that sends
-no credential (or a dead one) gets `401` with
+The server is an OAuth 2.1 resource server (#766): an OAuth client that
+sends no credential (or a dead access token) gets `401` with
 `WWW-Authenticate: Bearer resource_metadata="…"`, discovers the
 platform's authorization server, registers itself, and opens the
 consent page. Approving mints a one-hour access token

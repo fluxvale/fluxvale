@@ -95,6 +95,12 @@ defmodule FluxVale.OAuth.AuditEvent do
       ])
     end
 
+    read :for_family do
+      description("Revoke tombstones for one token family")
+      argument(:token_family_id, :uuid, allow_nil?: false)
+      filter(expr(kind == :connection_revoked and token_family_id == ^arg(:token_family_id)))
+    end
+
     read :stale do
       description("Rows older than the cutoff — the janitor prune feed")
       argument(:cutoff, :utc_datetime, allow_nil?: false)

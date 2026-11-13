@@ -79,6 +79,7 @@ defmodule FluxValeWeb.OAuth.RegistrationController do
   defp error(conn, status, code, description) do
     conn
     |> put_resp_header("cache-control", "no-store")
+    |> put_resp_header("pragma", "no-cache")
     |> put_status(status)
     |> json(%{error: code, error_description: description})
   end

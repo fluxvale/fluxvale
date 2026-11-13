@@ -37,6 +37,7 @@ defmodule FluxValeWeb.OAuthControllerTest do
       assert body["response_types_supported"] == ["code"]
       assert body["grant_types_supported"] == ["authorization_code", "refresh_token"]
       assert body["token_endpoint_auth_methods_supported"] == ["none"]
+      assert body["revocation_endpoint_auth_methods_supported"] == ["none"]
       assert body["code_challenge_methods_supported"] == ["S256"]
       assert body["authorization_response_iss_parameter_supported"] == true
       assert "offline_access" in body["scopes_supported"]
@@ -225,6 +226,7 @@ defmodule FluxValeWeb.OAuthControllerTest do
       html = html_response(response, 200)
       assert html =~ "MCP Test Client"
       assert html =~ "127.0.0.1:53682"
+      assert html =~ user.username
       assert html =~ Scopes.describe("instances:read")
       assert html =~ "instances:read"
       assert html =~ "all of your FluxVale organizations"

@@ -443,7 +443,10 @@ the panel instead.",
             // token gets its refusal without a human decision first.
             // The confirm round doesn't re-check: the seal already
             // proves this round passed it.
-            let granted = self.granted_scopes(&context, &token).await;
+            let granted = match self.granted_scopes(&context, &token).await {
+                Ok(granted) => granted,
+                Err(err) => return Err(err),
+            };
 
             if let Err(message) = require_domain_scope(&granted, "instances:write") {
                 return Ok(text_error(message).into());
@@ -606,7 +609,10 @@ tool refuses without touching anything — use the panel instead.",
             // The scope check before the question (Elixir parity:
             // require_scope before ask_confirm); the confirm round
             // doesn't re-check.
-            let granted = self.granted_scopes(&context, &token).await;
+            let granted = match self.granted_scopes(&context, &token).await {
+                Ok(granted) => granted,
+                Err(err) => return Err(err),
+            };
 
             if let Err(message) = require_domain_scope(&granted, "backups:write") {
                 return Ok(text_error(message).into());
@@ -810,13 +816,20 @@ impl FluxValeMcp {
         &self,
         context: &RequestContext<RoleServer>,
         token: &Token,
-    ) -> Vec<String> {
-        match self.scopes(context) {
-            Ok(Some(scopes)) => scopes,
-            Ok(None) => upstream::me_scopes(self.api_base_url.clone(), token.clone())
+    ) -> Result<Vec<String>, ErrorData> {
+        match self.scopes(context)? {
+            Some(scopes) => Ok(scopes),
+            // PAT path: the /me failure keeps its own words — a 401 is
+            // auth, a 5xx is upstream. Never a false "lacks scope".
+            None => upstream::me_scopes(self.api_base_url.clone(), token.clone())
                 .await
-                .unwrap_or_default(),
-            Err(_) => Vec::new(),
+                .map_err(|err| match err {
+                    upstream::ScopeError::Auth(message) => auth_error(message),
+                    upstream::ScopeError::Shape(message) => {
+                        ErrorData::internal_error(message, None)
+                    }
+                    upstream::ScopeError::Upstream(message) => upstream_error(message),
+                }),
         }
     }
 }
@@ -1208,7 +1221,10 @@ mod tests {
             "data": {"type": "user", "id": "01H",
                      "attributes": {"email": "me@example.com",
                                     "platform_role": "user", "username": "me"}},
-            "meta": {"scopes": scopes}
+            "meta": {
+                "scopes": scopes,
+                "resource": "http://localhost:4600/mcp"
+            }
         })
         .to_string()
     }

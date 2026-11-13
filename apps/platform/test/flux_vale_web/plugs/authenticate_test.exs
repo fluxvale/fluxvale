@@ -8,6 +8,7 @@ defmodule FluxValeWeb.Plugs.AuthenticateTest do
   alias AshAuthentication.Jwt
   alias AshAuthentication.Plug.Helpers
   alias AshAuthentication.TokenResource.Actions
+  alias FluxVale.Identity.PersonalAccessToken
   alias FluxVale.Identity.User
   alias FluxVale.Identity.UserEmail
   alias FluxVale.Ops.AccessRule
@@ -114,17 +115,29 @@ defmodule FluxValeWeb.Plugs.AuthenticateTest do
     test "a kind/prefix mismatch is refused", %{conn: conn} do
       user = user!()
       client = client!()
+      random = :crypto.strong_rand_bytes(32)
+      raw = "fvpat_" <> Base.url_encode64(random, padding: false)
+      token_hash = PersonalAccessToken.token_hash(raw)
 
-      %{tokens: tokens} = tokens!(client, user)
+      # A row whose stored hash is the PAT-shaped value but whose kind
+      # says OAuth: the prefix claims PAT, the row says otherwise. The
+      # lookup finds it; only the kind guard refuses it.
+      Ash.Seed.seed!(PersonalAccessToken, %{
+        name: "OAuth row with a PAT prefix",
+        token_hash: token_hash,
+        scopes: [],
+        expires_at: DateTime.add(DateTime.utc_now(), 3600, :second),
+        user_id: user.id,
+        kind: :oauth_access,
+        oauth_client_id: client.id,
+        resource: "https://mcp.fluxvale.com/mcp",
+        token_family_id: Ash.UUIDv7.generate()
+      })
 
-      # The same OAuth row with the PAT prefix is not a PAT.
       conn =
         conn
         |> plug_conn()
-        |> Plug.Conn.put_req_header(
-          "authorization",
-          "Bearer fvpat_" <> String.replace_prefix(tokens.access_token, "fvoat_", "")
-        )
+        |> Plug.Conn.put_req_header("authorization", "Bearer " <> raw)
         |> Authenticate.call([])
 
       refute conn.assigns[:current_user]

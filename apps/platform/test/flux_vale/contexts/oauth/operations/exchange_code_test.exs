@@ -34,7 +34,8 @@ defmodule FluxVale.OAuth.Operations.ExchangeCodeTest do
     assert tokens.expires_in == 3600
     assert tokens.scope == "instances:read wallet:read"
 
-    [access, refresh] = rows(user)
+    token_rows = rows(user)
+    [access, refresh] = Enum.sort_by(token_rows, & &1.kind)
     assert access.kind == :oauth_access
     assert refresh.kind == :oauth_refresh
     assert access.token_family_id == refresh.token_family_id

@@ -209,10 +209,12 @@ defmodule FluxVale.OAuth.Operations.ValidateAuthorizeRequestTest do
     assert {:error, %{error: :invalid_target, redirect?: true}} =
              OAuth.validate_authorize_request(malformed_resource)
 
-    malformed_state = Map.put(base, "state", 123)
+    for malformed <- [123, %{"nested" => "map"}, ["list"]] do
+      malformed_state = Map.put(base, "state", malformed)
 
-    assert {:error, %{error: :invalid_request, redirect?: true}} =
-             OAuth.validate_authorize_request(malformed_state)
+      assert {:error, %{error: :invalid_request, redirect?: true, state: nil}} =
+               OAuth.validate_authorize_request(malformed_state)
+    end
   end
 
   test "a non-map request is a local invalid_request" do

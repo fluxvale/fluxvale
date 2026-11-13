@@ -55,6 +55,7 @@ pub(crate) struct McpAuth {
 #[derive(Clone)]
 pub(crate) struct AuthState {
     api_base_url: Arc<str>,
+    resource: String,
     resource_metadata_url: String,
     challenge_scope: String,
 }
@@ -68,6 +69,7 @@ impl AuthState {
 
         Self {
             api_base_url: Arc::from(api_base_url),
+            resource: public_url.to_string(),
             resource_metadata_url: format!("{origin}/.well-known/oauth-protected-resource"),
             challenge_scope: SCOPES_SUPPORTED.join(" "),
         }
@@ -114,15 +116,19 @@ pub(crate) async fn require_bearer(
         return next.run(request).await;
     }
 
-    match upstream::me_scopes(state.api_base_url.clone(), token.clone()).await {
-        Ok(scopes) => {
+    match upstream::me_grant(state.api_base_url.clone(), token.clone()).await {
+        Ok(grant) if grant.resource.as_deref() == Some(state.resource.as_str()) => {
             let mut request = request;
             request.extensions_mut().insert(McpAuth {
                 token,
-                scopes: Some(scopes),
+                scopes: Some(grant.scopes),
             });
             next.run(request).await
         }
+        // A live token issued for another resource is not valid HERE:
+        // RFC 8707's audience check belongs to the resource server, not
+        // just to the authorization server's issuance.
+        Ok(_wrong_audience) => challenge(&state, Some("invalid_token")),
         Err(ScopeError::Auth(_message) | ScopeError::Shape(_message)) => {
             challenge(&state, Some("invalid_token"))
         }
@@ -211,7 +217,10 @@ mod tests {
             200,
             serde_json::json!({
                 "data": {"type": "user", "id": "u1", "attributes": {}},
-                "meta": {"scopes": ["instances:read", "wallet:read"]}
+                "meta": {
+                    "scopes": ["instances:read", "wallet:read"],
+                    "resource": "https://mcp.fluxvale.com/mcp"
+                }
             })
             .to_string(),
         )])
@@ -281,6 +290,31 @@ mod tests {
         let api = me_ok();
         let response = run(&api, Some("bearer fvpat_testtoken")).await;
         assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn an_oauth_token_for_another_resource_is_challenged() {
+        let api = testapi::serve(&[(
+            "/api/v1/me",
+            200,
+            serde_json::json!({
+                "data": {"type": "user", "id": "u1", "attributes": {}},
+                "meta": {
+                    "scopes": ["instances:read"],
+                    "resource": "https://mcp.elsewhere.example/mcp"
+                }
+            })
+            .to_string(),
+        )]);
+        let response = run(&api, Some("Bearer fvoat_other_audience")).await;
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+
+        let header = response
+            .headers()
+            .get(header::WWW_AUTHENTICATE)
+            .and_then(|value| value.to_str().ok())
+            .unwrap();
+        assert!(header.contains("error=\"invalid_token\""));
     }
 
     #[tokio::test]

@@ -95,9 +95,10 @@ per project, `~/.config/opencode/opencode.json` everywhere; entries
 nest under `mcp.servers` — direct-under-`mcp` entries are silently
 dropped; `protocol: "auto"` because the default `legacy` caps at
 2025-11-25 and the destructive tools' confirmations need the
-2026-07-28 stateless revision; `oauth: false` because the server's
-401 is a bearer challenge, not an OAuth dance; the token rides
-`{env:FLUXVALE_PAT}`, never the file:
+2026-07-28 stateless revision; `oauth: false` in this fallback
+because the snippet sends the PAT header — OAuth-capable clients
+use the flow above. The token rides `{env:FLUXVALE_PAT}`, never the
+file:
 
 ```json
 {

@@ -95,12 +95,17 @@ working. OAuth is additive, not a migration.
 
 9. **Revocation is immediate by construction.** RFC 7009 revoking
    either half of a pair severs the family; the settings page's
-   Disconnect calls the same family revoke. The MCP server validates
-   an OAuth access token against `GET /me` on every request — that
-   read is both the proof and the scope source for `tools/list` and
-   the destructive pre-checks — so a revoked token is refused on the
-   next call with the 401 challenge. No token state is cached in the
-   MCP process.
+   Disconnect calls the same family revoke. The family revoke commits
+   a `connection_revoked` tombstone in the same transaction, and the
+   mint path takes the same family advisory lock and refuses a
+   tombstoned family — a refresh already in flight cannot mint a pair
+   that outlives the disconnect. The MCP server validates an OAuth
+   access token against `GET /me` on every request (the body also
+   carries the token's RFC 8707 resource, which the server compares to
+   its own public URL) — that read is both the proof and the scope
+   source for `tools/list` and the destructive pre-checks — so a
+   revoked or wrong-audience token is refused on the next call with
+   the 401 challenge. No token state is cached in the MCP process.
 
 10. **No OpenID Connect, no third-party federation, no per-org
     consent.** The consent principal is the user, and a token is
@@ -171,6 +176,8 @@ working. OAuth is additive, not a migration.
   signed-token binding and rate limit are the security boundary.
 - The API audit and the OAuth audit are separate tables with the same
   retention posture; "what did this token do" still starts from the
-  token row.
+  token row. Expired OAuth token rows stay as audit history (the PAT
+  rows' posture); the Connected apps read hides expired families, and
+  the janitor prunes short-lived codes and OAuth audit rows.
 - Existing PAT documentation and client snippets remain valid; OAuth
   is the recommended path where the client supports it.

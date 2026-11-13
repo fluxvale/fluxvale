@@ -7,7 +7,6 @@ defmodule FluxVale.OAuth.Operations.RevokeConnection do
   Idempotent: an already-severed family still answers `{:ok, count}`.
   """
 
-  alias FluxVale.OAuth.Operations.RecordAuditEvent
   alias FluxVale.OAuth.Operations.RevokeFamily
 
   @doc """
@@ -18,15 +17,6 @@ defmodule FluxVale.OAuth.Operations.RevokeConnection do
   def call(actor, family_id, opts \\ []) do
     opts = Keyword.put(opts, :actor, actor)
 
-    with {:ok, count} <- RevokeFamily.call(actor.id, family_id, opts) do
-      RecordAuditEvent.call(%{
-        kind: :connection_revoked,
-        actor_id: actor.id,
-        token_family_id: family_id,
-        metadata: %{"tokens_revoked" => count}
-      })
-
-      {:ok, count}
-    end
+    RevokeFamily.call(actor.id, family_id, opts)
   end
 end

@@ -1,14 +1,14 @@
 //! The FluxVale MCP server — slice W2a of #484 (rmcp streamable HTTP
-//! over the shared `/api/v1` client, PAT passthrough, the read
-//! tools) plus W2b's write surface: deploy through destroy, the
-//! destructive pair elicitation-gated, and the /me `meta.scopes`
-//! filter. The container image + k3d exposure are W3a; the
-//! fleet-repo deploy is W3b.
+//! over the shared `/api/v1` client, the read tools) plus W2b's write
+//! surface: deploy through destroy, the destructive pair
+//! elicitation-gated, and the /me `meta.scopes` filter. The container
+//! image + k3d exposure are W3a; the fleet-repo deploy is W3b.
 //!
-//! Auth holds nothing: the client sends its PAT per request
-//! (`Authorization: Bearer fvpat_…`, how remote MCP clients are
-//! configured), the server validates it against the platform and
-//! forgets it. No token storage, no env token, no keychain.
+//! Auth holds nothing: an OAuth access token (or a PAT) rides the
+//! request's `Authorization` header, the server validates it against
+//! the platform and forgets it. No token storage, no env token, no
+//! keychain. The RFC 9728 metadata and 401 challenge tell OAuth
+//! clients where to authorize (#766).
 
 mod auth;
 mod elicit;
@@ -26,11 +26,10 @@ use rmcp::transport::streamable_http_server::{
 use serde_json::json;
 use std::sync::Arc;
 
-/// Env-only config: MCP_PORT, FLUXVALE_API_BASE_URL, and MCP_ALLOWED_HOSTS
-/// (added in W3a — the deployment knob W2a's "no other knobs" deferred to
-/// W3: rmcp's DNS-rebinding guard serves only loopback Host headers by
-/// default, so a container behind a real hostname — k3d's
-/// mcp.fluxvale.lvh.me, W3b's public hosts — names what it serves).
+/// Env-only config: MCP_PORT, FLUXVALE_API_BASE_URL, MCP_ALLOWED_HOSTS
+/// (the W3a DNS-rebinding knob), and the #766 discovery overrides
+/// MCP_PUBLIC_URL / MCP_AUTHORIZATION_SERVER. The public URL and
+/// authorization server derive from the first allowed host by default.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Config {
     pub port: u16,

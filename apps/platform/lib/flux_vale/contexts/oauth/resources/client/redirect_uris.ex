@@ -41,22 +41,26 @@ defmodule FluxVale.OAuth.Client.RedirectUris do
   @doc "Is this an allowed redirect URI shape?"
   @spec valid?(term()) :: boolean()
   def valid?(uri) when is_binary(uri) do
-    case URI.parse(uri) do
-      %URI{scheme: nil} ->
-        false
+    # Raw controls (CR/LF/NUL) and spaces are header-smuggling shapes;
+    # `put_resp_header/3` would raise on them at the redirect. Percent-
+    # encoded forms remain fine.
+    not String.match?(uri, ~r/[\x00-\x20\x7F]/) and
+      case URI.parse(uri) do
+        %URI{scheme: nil} ->
+          false
 
-      %URI{scheme: "https", host: host, userinfo: nil, fragment: nil} when is_binary(host) ->
-        host != ""
+        %URI{scheme: "https", host: host, userinfo: nil, fragment: nil} when is_binary(host) ->
+          host != ""
 
-      %URI{scheme: "http", host: host, userinfo: nil, fragment: nil} when is_binary(host) ->
-        host in @loopback_hosts
+        %URI{scheme: "http", host: host, userinfo: nil, fragment: nil} when is_binary(host) ->
+          host in @loopback_hosts
 
-      %URI{scheme: scheme, userinfo: nil, fragment: nil} ->
-        scheme in custom_schemes()
+        %URI{scheme: scheme, userinfo: nil, fragment: nil} ->
+          scheme in custom_schemes()
 
-      _other ->
-        false
-    end
+        _other ->
+          false
+      end
   end
 
   def valid?(_uri), do: false

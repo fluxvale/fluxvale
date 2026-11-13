@@ -7,6 +7,7 @@ defmodule FluxVale.OAuth.Operations.RevokeConnectionTest do
 
   alias FluxVale.Identity.PersonalAccessToken
   alias FluxVale.OAuth
+  alias FluxVale.OAuth.AuditEvent
 
   setup do
     %{client: client!(), user: user!()}
@@ -20,6 +21,13 @@ defmodule FluxVale.OAuth.Operations.RevokeConnectionTest do
 
     token_rows = rows(user)
     assert Enum.all?(token_rows, &(not is_nil(&1.revoked_at)))
+
+    assert {:ok, [tombstone]} =
+             AuditEvent
+             |> Ash.Query.for_read(:for_family, %{token_family_id: family_id})
+             |> Ash.read(authorize?: false)
+
+    assert tombstone.kind == :connection_revoked
   end
 
   test "a stranger cannot disconnect another user's family", %{client: client, user: user} do
@@ -44,6 +52,22 @@ defmodule FluxVale.OAuth.Operations.RevokeConnectionTest do
     assert connection.scopes == ["instances:read"]
     assert connection.created_at
     assert connection.last_used_at
+  end
+
+  test "an expired family is not a live connection", %{client: client, user: user} do
+    Ash.Seed.seed!(PersonalAccessToken, %{
+      name: "OAuth: expired",
+      token_hash: PersonalAccessToken.token_hash("fvoat_expired"),
+      scopes: [],
+      expires_at: DateTime.add(DateTime.utc_now(), -60, :second),
+      user_id: user.id,
+      kind: :oauth_access,
+      oauth_client_id: client.id,
+      resource: resource(),
+      token_family_id: Ash.UUIDv7.generate()
+    })
+
+    assert {:ok, []} = OAuth.list_connections(user)
   end
 
   test "an unknown family is an idempotent zero", %{user: user} do

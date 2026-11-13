@@ -98,6 +98,7 @@ defmodule FluxValeWeb.OAuth.TokenController do
   defp oauth_error(conn, kind, description, status) do
     conn
     |> put_resp_header("cache-control", "no-store")
+    |> put_resp_header("pragma", "no-cache")
     |> put_status(status)
     |> json(%{error: to_string(kind), error_description: description})
   end

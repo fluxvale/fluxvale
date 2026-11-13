@@ -27,6 +27,13 @@ defmodule FluxVale.OAuth.Client do
 
     # ADR-0032 §3: no DB-side id default — ids are Ash's job (see User).
     migration_defaults(id: "nil")
+
+    custom_indexes do
+      # The registration cap counts clients created inside a rolling
+      # window on every registration — the append-only table needs the
+      # range index the cap query reads.
+      index([:created_at])
+    end
   end
 
   # Deliberately empty: with the Policy authorizer attached, a
