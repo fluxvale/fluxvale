@@ -16,6 +16,29 @@ defmodule FluxVale.OAuth.Operations.RegisterClient do
   @allowed_grant_types ["authorization_code", "refresh_token"]
   @allowed_response_types ["code"]
   @max_name_length 100
+  @client_cap 50
+  @cap_window_seconds 60 * 60
+
+  @doc "The per-window global registration cap (runtime-overridable for tests)."
+  @spec client_cap() :: pos_integer()
+  def client_cap, do: config(:client_cap, @client_cap)
+
+  @doc "The client cap's rolling window."
+  @spec cap_window_seconds() :: pos_integer()
+  def cap_window_seconds, do: config(:cap_window_seconds, @cap_window_seconds)
+
+  @doc """
+  Has the global registration cap been reached in the current window?
+  The per-IP limiter is the primary gate; this bounds a distributed
+  flood that rotates addresses.
+  """
+  @spec cap_reached?() :: boolean()
+  def cap_reached? do
+    since = DateTime.add(DateTime.utc_now(), -cap_window_seconds(), :second)
+    query = Ash.Query.for_read(Client, :created_since, %{since: since})
+    {:ok, count} = Ash.count(query, authorize?: false)
+    count >= client_cap()
+  end
 
   @doc """
   Registers a client from RFC 7591 metadata.
@@ -170,4 +193,10 @@ defmodule FluxVale.OAuth.Operations.RegisterClient do
   end
 
   defp param(_params, _key), do: nil
+
+  defp config(key, default) do
+    :flux_vale
+    |> Application.get_env(:mcp_oauth, [])
+    |> Keyword.get(key, default)
+  end
 end

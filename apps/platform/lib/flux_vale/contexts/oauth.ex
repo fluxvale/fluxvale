@@ -29,6 +29,14 @@ defmodule FluxVale.OAuth do
     to: FluxVale.OAuth.Operations.RegisterClient,
     as: :call
 
+  defdelegate client_cap_reached?(),
+    to: FluxVale.OAuth.Operations.RegisterClient,
+    as: :cap_reached?
+
+  defdelegate client_cap_window_seconds(),
+    to: FluxVale.OAuth.Operations.RegisterClient,
+    as: :cap_window_seconds
+
   # The authorization request's validation: client, exact redirect,
   # S256 PKCE, scopes, resource (missing resource defaults).
   defdelegate validate_authorize_request(params),

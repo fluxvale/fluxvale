@@ -88,10 +88,12 @@ defmodule FluxVale.OAuth.Operations.ValidateAuthorizeRequest do
     else
       {:error, error} ->
         {:error,
-         Map.merge(
-           %{redirect?: true, redirect_uri: redirect_uri, state: state, client: client},
-           error
-         )}
+         Map.merge(error, %{
+           redirect?: true,
+           redirect_uri: redirect_uri,
+           state: state,
+           client: client
+         })}
     end
   end
 

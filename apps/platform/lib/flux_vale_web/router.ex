@@ -169,6 +169,39 @@ defmodule FluxValeWeb.Router do
     post("/polar", PolarController, :create)
   end
 
+  # #766: the MCP OAuth authorization server. The metadata,
+  # registration, token, and revocation endpoints are public and
+  # credential-free; CORS is theirs alone. The authorize page rides the
+  # browser pipeline (session + CSRF) and renders the consent card.
+  pipeline :oauth_api do
+    plug(FluxValeWeb.Plugs.OAuthCors)
+  end
+
+  scope "/", FluxValeWeb do
+    pipe_through(:oauth_api)
+
+    get("/.well-known/oauth-authorization-server", OAuth.MetadataController, :show)
+
+    match(
+      :options,
+      "/.well-known/oauth-authorization-server",
+      OAuth.PreflightController,
+      :options
+    )
+
+    post("/oauth/register", OAuth.RegistrationController, :create)
+    post("/oauth/token", OAuth.TokenController, :token)
+    post("/oauth/revoke", OAuth.TokenController, :revoke)
+    match(:options, "/oauth/*path", OAuth.PreflightController, :options)
+  end
+
+  scope "/", FluxValeWeb do
+    pipe_through(:browser)
+
+    get("/oauth/authorize", OAuth.AuthorizationController, :authorize)
+    post("/oauth/authorize", OAuth.AuthorizationController, :consent)
+  end
+
   # #362 (T3, OQ #9): the RFC 8628 device-flow wire — PLAIN JSON, not
   # JSON:API: the bodies are bare application/json (RFC 8628 §3.1/§3.5)
   # and the callers are unauthenticated BY DESIGN (the device has no

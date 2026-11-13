@@ -117,6 +117,12 @@ defmodule FluxVale.OAuth.Client do
       filter(expr(client_id == ^arg(:client_id)))
     end
 
+    read :created_since do
+      description("Clients registered at or after the cutoff — the registration cap's count")
+      argument(:since, :utc_datetime, allow_nil?: false)
+      filter(expr(created_at >= ^arg(:since)))
+    end
+
     update :touch_last_used do
       description("Stamp last_used_at — system write from the token endpoint")
       accept([])

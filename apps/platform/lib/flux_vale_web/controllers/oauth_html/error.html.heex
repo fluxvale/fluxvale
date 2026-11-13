@@ -1,0 +1,17 @@
+<Layouts.auth flash={@flash}>
+  <div class="bg-brand-gradient rounded-panel p-2 shadow-lg">
+    <div class="overflow-hidden rounded-panel border border-line-strong bg-panel shadow-sm">
+      <div class="space-y-4 p-6 sm:p-8" data-testid="oauth-error">
+        <h1 class="text-2xl font-bold tracking-tight text-ink" data-testid="oauth-error-title">
+          {@title}
+        </h1>
+        <p class="text-sm leading-6 text-ink-muted" data-testid="oauth-error-detail">
+          {@detail}
+        </p>
+        <p class="text-xs leading-5 text-ink-subtle">
+          You can close this tab and start again from your MCP client.
+        </p>
+      </div>
+    </div>
+  </div>
+</Layouts.auth>

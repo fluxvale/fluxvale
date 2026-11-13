@@ -114,3 +114,15 @@ config :flux_vale, FluxValeWeb.Plugs.ApiRateLimit,
 config :flux_vale, FluxValeWeb.Plugs.GoogleRateLimit,
   window_seconds: 86_400,
   max_requests: 50
+
+# #766: the OAuth endpoints' per-IP windows — day-long buckets like the
+# two above, wide enough that ordinary suites never trip them; the
+# throttle cases override per-test (config capture-and-restore).
+config :flux_vale, FluxValeWeb.Plugs.OAuthRateLimit,
+  max_rows: 10_000,
+  buckets: %{
+    register: [window_seconds: 86_400, max_requests: 100],
+    authorize: [window_seconds: 86_400, max_requests: 100],
+    token: [window_seconds: 86_400, max_requests: 100],
+    revoke: [window_seconds: 86_400, max_requests: 100]
+  }
