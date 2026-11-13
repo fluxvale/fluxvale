@@ -139,6 +139,18 @@ defmodule FluxValeWeb.Components.AdminResourceTest do
       assert html =~ ~s(title="#{long}")
     end
 
+    test "a show string preserves its newlines" do
+      html =
+        render_component(&AdminResource.value/1,
+          shape: :string,
+          value: "line one\nline two",
+          variant: :show
+        )
+
+      assert text_of(html, "span") == "line one\nline two"
+      assert html =~ "whitespace-pre-wrap"
+    end
+
     test "an integer index cell is right-aligned mono" do
       html = render_component(&AdminResource.value/1, shape: :integer, value: 42, variant: :index)
 
@@ -214,6 +226,73 @@ defmodule FluxValeWeb.Components.AdminResourceTest do
       assert text_of(html, "[data-testid='admin-resource-map']") == "map"
     end
 
+    test "a composite struct show value is a JSON details block, never the inspect fallback" do
+      spec = %FluxVale.Catalog.Types.EnvVarSpec{
+        label: "Database URL",
+        type: :string,
+        secret: true
+      }
+
+      html =
+        render_component(&AdminResource.value/1, shape: :unknown, value: spec, variant: :show)
+
+      details = "[data-testid='admin-resource-json']"
+
+      assert text_of(html, "#{details} summary") == "JSON"
+      assert text_of(html, "#{details} pre") =~ ~s("label": "Database URL")
+      assert text_of(html, "#{details} pre") =~ ~s("secret": true)
+      refute html =~ "admin-resource-unknown"
+      refute html =~ "EnvVarSpec"
+    end
+
+    test "a list of composites and plain maps is a JSON details block too" do
+      service = %FluxVale.Catalog.Types.BackingService{
+        kind: :postgres,
+        version: "18",
+        url_env: "DATABASE_URL"
+      }
+
+      html =
+        render_component(&AdminResource.value/1,
+          shape: :unknown,
+          value: [service, %{"label" => "plain map"}],
+          variant: :show
+        )
+
+      details = "[data-testid='admin-resource-json']"
+
+      assert text_of(html, "#{details} summary") == "JSON"
+      assert text_of(html, "#{details} pre") =~ ~s("url_env": "DATABASE_URL")
+      assert text_of(html, "#{details} pre") =~ ~s("label": "plain map")
+      refute html =~ "admin-resource-unknown"
+      refute html =~ "BackingService"
+    end
+
+    test "a map of structs show value serializes the structs to plain data" do
+      schema = %{
+        "DATABASE_URL" => %FluxVale.Catalog.Types.EnvVarSpec{
+          label: "Database URL",
+          type: :string,
+          secret: true
+        }
+      }
+
+      html =
+        render_component(&AdminResource.value/1,
+          shape: :unknown,
+          value: schema,
+          variant: :show
+        )
+
+      details = "[data-testid='admin-resource-json']"
+
+      assert text_of(html, "#{details} summary") == "JSON"
+      assert text_of(html, "#{details} pre") =~ ~s("DATABASE_URL")
+      assert text_of(html, "#{details} pre") =~ ~s("label": "Database URL")
+      refute html =~ "admin-resource-unknown"
+      refute html =~ "EnvVarSpec"
+    end
+
     test "a status attr renders the shared status badge" do
       html =
         render_component(&AdminResource.value/1,
@@ -280,11 +359,11 @@ defmodule FluxValeWeb.Components.AdminResourceTest do
       html =
         render_component(&AdminResource.value/1,
           shape: :unknown,
-          value: %{surprise: :map},
+          value: {:surprise, :map},
           variant: :show
         )
 
-      assert text_of(html, "[data-testid='admin-resource-unknown']") == "%{surprise: :map}"
+      assert text_of(html, "[data-testid='admin-resource-unknown']") == "{:surprise, :map}"
       assert html =~ "font-mono"
 
       cell =
@@ -380,6 +459,16 @@ defmodule FluxValeWeb.Components.AdminResourceTest do
       assert AdminResource.input_type(key) == "text"
       assert AdminResource.input_type(domain) == "text"
       assert AdminResource.input_type(%{type: Ash.Type.UUID}) == "text"
+    end
+
+    test "a sensitive string masks as a password input; plain strings stay text" do
+      assert AdminResource.input_type(%{type: Ash.Type.String, sensitive?: true}) == "password"
+      assert AdminResource.input_type(%{type: Ash.Type.String, sensitive?: false}) == "text"
+      assert AdminResource.input_type(%{type: Ash.Type.String}) == "text"
+    end
+
+    test "a sensitive map keeps its JSON textarea — only strings mask" do
+      assert AdminResource.input_type(%{type: Ash.Type.Map, sensitive?: true}) == "textarea"
     end
 
     test "integer shapes to number, boolean to checkbox" do

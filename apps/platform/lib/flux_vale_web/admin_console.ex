@@ -141,7 +141,7 @@ defmodule FluxValeWeb.AdminConsole do
               :perform_settle,
               :settle_anchors,
               :perform_teardown,
-              :merge_pocket_id_env,
+              :merge_system_env,
               :mark_deploy_error,
               :mark_teardown_error
             ],

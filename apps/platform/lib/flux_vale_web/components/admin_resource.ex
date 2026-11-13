@@ -15,7 +15,9 @@ defmodule FluxValeWeb.AdminResource do
   Shapes land slice by slice as their resources do (slice 1: Ops).
   Anything unrecognized renders through the fallback — the value's
   `inspect/1` in mono — so an introspected attribute is never a crash,
-  just an honest look at the raw value.
+  just an honest look at the raw value. Composites and arrays (maps,
+  structs, lists) are the exception: their show value renders as
+  read-only JSON details, the same treatment the map shape uses.
 
   Copy line: authored literals ride gettext; strings derived from
   schema identifiers (column labels, enum values) render as derived —
@@ -154,7 +156,7 @@ defmodule FluxValeWeb.AdminResource do
     <%= if @variant == :index do %>
       <span class="block max-w-48 truncate text-sm text-ink" title={@text}>{@text}</span>
     <% else %>
-      <span class="text-sm break-words text-ink">{@text}</span>
+      <span class="text-sm break-words whitespace-pre-wrap text-ink">{@text}</span>
     <% end %>
     """
   end
@@ -254,8 +256,10 @@ defmodule FluxValeWeb.AdminResource do
     """
   end
 
-  # The fallback every later shape leans on until its clause lands:
-  # the raw value, inspected, mono — honest rather than pretty.
+  # The fallback for unrecognized scalar values (index and show), and
+  # the index treatment for composites and arrays: the raw value,
+  # inspected, mono — honest rather than pretty. The JSON-details
+  # clause above upgrades containers on the show page.
   def value(%{variant: :index} = assigns) do
     assigns = assign(assigns, text: inspect(assigns.value))
 
@@ -263,6 +267,26 @@ defmodule FluxValeWeb.AdminResource do
     <span class="block max-w-48 truncate font-mono text-xs text-ink-muted" title={@text}>
       {@text}
     </span>
+    """
+  end
+
+  # Composites and arrays (the fallback shapes whose values are maps,
+  # structs or lists) render as the same read-only JSON details the map
+  # shape uses — slice 4's flagged follow-up. EnvVarSchema's in-memory
+  # value is a plain map of EnvVarSpec structs, so is_map covers it; an
+  # unencodable value falls back to inspect inside the block
+  # (pretty_json's rescue).
+  def value(%{variant: :show, value: value} = assigns)
+      when is_map(value) or is_list(value) do
+    assigns = assign(assigns, text: pretty_json(value))
+
+    ~H"""
+    <details class="text-sm text-ink" data-testid="admin-resource-json">
+      <summary class="cursor-pointer font-medium text-link underline-offset-2 hover:underline">
+        {gettext("JSON")}
+      </summary>
+      <pre class="mt-2 overflow-x-auto rounded-control bg-panel-raised p-3 font-mono text-xs whitespace-pre-wrap text-ink">{@text}</pre>
+    </details>
     """
   end
 
@@ -467,13 +491,36 @@ defmodule FluxValeWeb.AdminResource do
     String.capitalize(spaced)
   end
 
-  # Pretty JSON for the map details block; an unencodable value (a PID,
-  # a tuple) falls back to inspect — honest rather than pretty.
+  # Pretty JSON for the map and composite details blocks; an unencodable
+  # value (a PID, a tuple) falls back to inspect — honest rather than
+  # pretty.
   defp pretty_json(value) do
-    Jason.encode!(value, pretty: true)
+    safe = json_safe(value)
+    Jason.encode!(safe, pretty: true)
   rescue
     _unencodable -> inspect(value)
   end
+
+  @doc """
+  Degrades structs to plain data for JSON rendering: the composites'
+  in-memory shapes nest structs in maps and lists (EnvVarSpec inside
+  EnvVarSchema's map, BackingService structs in the backing_services
+  list), which Jason cannot encode directly.
+  """
+  @spec json_safe(term()) :: term()
+  def json_safe(value) when is_map(value) and is_map_key(value, :__struct__) do
+    value
+    |> Map.from_struct()
+    |> Map.new(fn {key, item} -> {key, json_safe(item)} end)
+  end
+
+  def json_safe(value) when is_map(value) do
+    Map.new(value, fn {key, item} -> {key, json_safe(item)} end)
+  end
+
+  def json_safe(value) when is_list(value), do: Enum.map(value, &json_safe/1)
+
+  def json_safe(value), do: value
 
   @doc """
   The first eight characters of a uuid — the console's short-id idiom
@@ -486,10 +533,11 @@ defmodule FluxValeWeb.AdminResource do
 
   @doc """
   The `<.input>` type for an attribute shape (the plan's input
-  mapping): string/ci_string and uuid FKs → text, integer → number,
-  decimal → number (stepped, see input_step/1), boolean → checkbox,
-  a one_of atom or a custom `Ash.Type.Enum` → select, utc datetimes
-  (either precision) → datetime-local.
+  mapping): string/ci_string and uuid FKs → text, sensitive strings
+  → password, integer → number, decimal → number (stepped, see
+  input_step/1), boolean → checkbox, a one_of atom or a custom
+  `Ash.Type.Enum` → select, utc datetimes (either precision) →
+  datetime-local.
 
   `nil` is a shape the engine still cannot map (array-of-array, an
   array whose inner maps to a non-textarea input, a non-atom non-array
@@ -502,6 +550,9 @@ defmodule FluxValeWeb.AdminResource do
   tests (the registry-intake discipline) surface it at intake.
   """
   @spec input_type(map()) :: String.t() | nil
+  # Sensitive string values mask at input (the gateway's credential
+  # recovery); sensitive maps (Instance.env_vars) keep their textarea.
+  def input_type(%{type: Ash.Type.String, sensitive?: true}), do: "password"
   def input_type(%{type: Ash.Type.String}), do: "text"
   def input_type(%{type: Ash.Type.CiString}), do: "text"
   # FK labels come from the relationship (slice 4); the input is text —
