@@ -117,6 +117,58 @@ resource "fluxvale_instance" "reading" {
 
 Deployer-owned keys — the OIDC recipe, backing service URLs, and the instance URL — are refused on set and skipped on remove. The app's first-run contract `env` keys are fixed: a set or remove is refused, and a contract `env` key already in state dead-ends until you remove it from state and configuration by hand. Contract `forbidden_env` keys refuse a set but allow a remove. A null element is rejected: remove the key instead (an empty string is a value). The API never echoes the map, so a plan cannot see server-side drift by design, and the configured values are kept in state.
 
+### Secrets never enter state
+
+`sensitive` only hides a value in the console; the plaintext still lands in state and plan files. For values that must never be written there, use the write-only `secret_env_vars` map with its rotation integer:
+
+```hcl
+variable "smtp_password" {
+  type      = string
+  sensitive = true
+}
+
+variable "state_passphrase" {
+  type      = string
+  sensitive = true
+}
+
+terraform {
+  required_version = ">= 1.13.0" # OpenTofu: write-only inputs + state/plan encryption
+
+  encryption {
+    key_provider "pbkdf2" "state" {
+      passphrase = var.state_passphrase # export TF_VAR_state_passphrase from your keychain
+    }
+    method "aes_gcm" "state" {
+      keys = key_provider.pbkdf2.state
+    }
+    state {
+      method   = method.aes_gcm.state
+      enforced = true
+    }
+    plan {
+      method   = method.aes_gcm.state
+      enforced = true
+    }
+  }
+}
+
+resource "fluxvale_instance" "reading" {
+  # …
+  secret_env_vars         = { SMTP_PASSWORD = var.smtp_password }
+  secret_env_vars_version = 1
+}
+```
+
+The values never appear in `terraform.tfstate` or the saved plan. Because Terraform cannot see a write-only change, the version integer is the rotation signal: change a value and bump it. Remove a key by dropping it from the map and bumping again — the computed `secret_env_vars_keys` list is how the provider tracks which keys it manages. A key in both `env_vars` and `secret_env_vars` is a plan-time error. With no secrets, leave both attributes unset. Proving it after an apply:
+
+```sh
+grep -c 'the-secret-value' terraform.tfstate
+# 0
+```
+
+Write-only inputs need Terraform 1.12+ or OpenTofu 1.13+. Existing configurations need no change, and older CLIs can keep using `env_vars` with encrypted state. The provider's [Secrets in Terraform guide](https://github.com/fluxvale/terraform-provider-fluxvale/blob/main/docs/guides/secrets.md) has the full ladder, the unencrypted-state migration, and AWS KMS, GCP KMS, Azure Key Vault, and OpenBao key variants.
+
 ### Read an existing instance
 
 `fluxvale_instance` is also a data source, for an instance managed in another stack or outside Terraform:
@@ -178,4 +230,6 @@ The MCP tool `terraform_import_bundle` returns the same three files (path and co
 
 The provider follows the platform's API, and 0.x may still adjust computed fields and add attributes. The published [compatibility notes](https://github.com/fluxvale/terraform-provider-fluxvale/blob/main/docs/guides/compatibility.md) state which names are stable from day one: the provider configuration, the `FLUXVALE_PAT` variable, and every resource and data source name listed above. Config you write against those names keeps working.
 
-From 0.3.0, `env_vars` updates in place; it is write-only on the wire — never echoed — but a normal Terraform attribute, not a Terraform 1.11 write-only attribute. Plaintext values still live in state.
+From 0.3.0, `env_vars` updates in place; it is write-only on the wire — never echoed — but a normal Terraform attribute, not a Terraform write-only attribute. Plaintext values still live in state.
+
+`secret_env_vars`, `secret_env_vars_version`, and the computed `secret_env_vars_keys` are additive: existing configurations need no change. The new attributes require Terraform 1.12+ or OpenTofu 1.13+; on an older CLI, leave them out and use `env_vars` plus state encryption.
