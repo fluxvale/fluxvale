@@ -17,6 +17,14 @@ Versions follow semver.
 
 ## [Unreleased]
 
+### Added
+
+- `terraform import --org <slug> [--out <dir>]`: discover an
+  organization's live instances, backup settings, access gateway, custom
+  domains, and PocketID SSO wirings, then write `versions.tf`,
+  `imports.tf`, and `README.md` for `tofu plan -generate-config-out`.
+  The scaffold imports resources; it never hand-renders their bodies.
+
 ## [0.1.0] - 2026-11-05
 
 ### Added

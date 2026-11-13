@@ -70,6 +70,7 @@ The token never appears on screen; `fluxvale auth logout` removes it.
 | `fluxvale backups status <id>` | Track the latest backup run |
 | `fluxvale backups restore <id> --from <run> --confirm` | Restore the volume from a backup run (overwrites it) |
 | `fluxvale access status/attach/detach/resume` | Private access to your instances over the gateway (`access create` is panel-first) |
+| `fluxvale terraform import --org <slug> [--out <dir>]` | Write a Terraform import scaffold for an org's live resources |
 | `fluxvale wallet balance` | Your prepaid wallet balance (org auto-resolved) |
 | `fluxvale wallet runway` | How long your balance lasts at current spend |
 | `fluxvale wallet ledger` | Your wallet ledger |

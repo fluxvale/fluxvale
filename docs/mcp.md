@@ -103,7 +103,7 @@ panel is the fallback.
 
 ## The tool catalog
 
-Seventeen tools at the initial surface. Scope-filtered per token: a
+Eighteen tools at the current surface. Scope-filtered per token: a
 tool the token's scopes don't cover never appears in `tools/list`
 (and a direct call still refuses — the platform's own 403s are the
 enforcement). The scope column is the FULL set the tool needs — a
@@ -127,6 +127,7 @@ the enforcement, so mint the union):
 | `backups_configure` | Save the backup destination (identifiers only) | `backups:write` | — |
 | `backups_run` | Run a backup now | `backups:write` | — |
 | `backups_restore` | Restore a volume from the newest successful backup | `backups:write` | confirm-gated |
+| `terraform_import_bundle` | Render a Terraform import scaffold (versions.tf, imports.tf, README.md) for an org's live instances, backups, gateway, custom domains, and PocketID SSO wirings; returns the file contents, writes nothing | `instances:read` + `backups:read` + `gateways:read` | — |
 | `wallet_balance` | The org wallet row | `wallet:read` | — |
 | `wallet_runway` | The runway projection (burn rate, hours left) | `wallet:read` | — |
 | `wallet_ledger` | The ledger history, keyset-paginated (`next_cursor`) | `wallet:read` | — |
@@ -141,9 +142,13 @@ the surface. The server's behavioral detail (elicitation, sealing,
 scope filtering) lives in the `apps/mcp` README; entries here name
 the surface change and the PR.
 
+### 2026-11-13 — Terraform promotion
+
+- `terraform_import_bundle` renders the same three-file scaffold as `fluxvale terraform import`: `versions.tf`, `imports.tf` (one import block per live instance, backup setting, gateway, and custom domain — plus commented PocketID SSO blocks, because provider 0.3.0 cannot import them — with each resource's own import-id shape), and `README.md`. Read-only, no filesystem writes. Pass `api_url` for staging; omit it for production. ([#763](https://github.com/fluxvale/fluxvale/issues/763))
+
 ### 2026-11-09 — the initial surface
 
-- The seventeen tools above: `whoami`, `topup`, the catalog pair, the
+- The initial surface's seventeen tools: `whoami`, `topup`, the catalog pair, the
   instances sextet, the backups quartet (destroy/restore
   confirm-gated), and the wallet trio. ([#484](https://github.com/fluxvale/fluxvale/issues/484) W2a+W2b)
 - The in-app quickstart ships with the surface: `/settings/agents`,

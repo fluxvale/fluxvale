@@ -144,6 +144,36 @@ resource "fluxvale_pocket_id_sso" "vault" {
 
 `rotate_secret_on` is a rotation trigger, not a replacement: changing it mints a second active secret, applies it to the workload, then deletes the old one once the workload patch is accepted — the client id and the resource id survive. The delete is best effort: a refused PocketID delete leaves the old secret active there, so check and remove it by hand. Pods still on the old value return 401 until the rollout cycles them. Changing `instance_id` or `pocket_id_instance_id` replaces the wiring (disconnect and a fresh client). The client secret's value never travels through Terraform; the platform writes it into the instance's environment. Connect, disconnect, and rotate are gated by the platform's `pocketid_sso_wiring` flag (seeded enabled); the wiring read stays available while the flag is off.
 
+## Promote existing resources
+
+The panel, the CLI, and the MCP server can create resources the provider can also manage. When the estate already exists, generate the import scaffold instead of writing every block by hand:
+
+```sh
+fluxvale terraform import --org acme --out infra/fluxvale
+cd infra/fluxvale
+tofu init
+tofu plan -generate-config-out=generated.tf
+tofu apply
+```
+
+`--out` defaults to the current directory, and the command refuses to overwrite an existing file. It writes three files:
+
+- `versions.tf` — the registry source, the provider block, and a commented state-encryption block pointing at the OpenTofu state-encryption guide.
+- `imports.tf` — one `import` block per live instance, backup setting, access gateway, and custom domain, plus commented blocks for PocketID SSO wirings (provider 0.3.0 cannot import them yet). Addresses come from slugs or names, with a numeric suffix when two sanitize to the same label. Import ids follow each resource's own shape: the instance id for instances, the instance id for backups and SSO, the org id or slug for the gateway, and the access-domain id for a domain.
+- `README.md` — the three commands above plus the caveats below.
+
+No resource bodies are rendered. `-generate-config-out` is the official, provider-schema-aware writer; hand-rendered HCL would rot as the schema moves.
+
+The MCP tool `terraform_import_bundle` returns the same three files (path and content) without writing anywhere. The CLI stamps its configured base URL into `versions.tf` when it differs from the provider's production default; the MCP tool leaves the provider on that default unless the caller passes `api_url` (for staging, pass `https://staging.fluxvale.com` — the server's own upstream URL can be cluster-internal). It reads instances, backup settings, the access gateway, and custom domains, so its full scope set is `instances:read` + `backups:read` + `gateways:read`.
+
+### Caveats
+
+- **Write-only values are never readable back.** `generated.tf` cannot carry `env_vars` or a backup's `secret_access_key`. Re-add `env_vars` in your Terraform config from your own records after adoption — the provider writes them in place; set the backup secret in the panel. The encrypted-env path in [ADR-0053](https://github.com/fluxvale/fluxvale/blob/main/docs/adr/00053-terraform-secret-env.md) is design-only and not in provider 0.3.0.
+- **Generated config may need small edits before a clean plan.** `app`/`app_version` on an imported instance have no wire echo, the gateway's `instances` set is config-authoritative and starts null, and `rotate_secret_on` is config-only posture. Fill in what you want Terraform to manage, then re-plan.
+- **Only user-owned domains are exported.** The org's system-minted `platform` access domain is skipped; `fluxvale_custom_domain` manages `custom` rows.
+- **PocketID SSO import is a provider gap.** Provider 0.3.0 does not implement `import` for `fluxvale_pocket_id_sso`. The scaffold comments those blocks out, with the instance id as the import id; uncomment them once the provider release you use supports import. Live `deleting` and `lost` instances are skipped for the same reason — there is no remote object to adopt.
+- **Gateway attachments are not discoverable.** The API has no attachment list, so `instances` stays null after import. Add the set by hand if Terraform should own it.
+
 ## Compatibility
 
 The provider follows the platform's API, and 0.x may still adjust computed fields and add attributes. The published [compatibility notes](https://github.com/fluxvale/terraform-provider-fluxvale/blob/main/docs/guides/compatibility.md) state which names are stable from day one: the provider configuration, the `FLUXVALE_PAT` variable, and every resource and data source name listed above. Config you write against those names keeps working.

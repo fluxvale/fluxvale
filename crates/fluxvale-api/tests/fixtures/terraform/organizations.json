@@ -1,0 +1,14 @@
+{
+  "data": [
+    {
+      "type": "organization",
+      "id": "org-acme",
+      "attributes": {"slug": "acme", "name": "Acme"}
+    },
+    {
+      "type": "organization",
+      "id": "org-other",
+      "attributes": {"slug": "other", "name": "Other"}
+    }
+  ]
+}

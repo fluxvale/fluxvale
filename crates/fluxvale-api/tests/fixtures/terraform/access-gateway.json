@@ -1,0 +1,16 @@
+{
+  "data": {
+    "type": "access_gateway",
+    "id": "g-acme",
+    "attributes": {
+      "organization_id": "org-acme",
+      "hostname": "fv-7fa67f86",
+      "tailnet_domain": "acme.ts.net",
+      "provider": "tailscale",
+      "state": "active",
+      "status_message": null,
+      "monthly_cents": 300,
+      "provisioned_at": "2026-11-01T12:00:00Z"
+    }
+  }
+}

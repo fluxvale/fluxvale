@@ -10,6 +10,7 @@
 pub mod device;
 pub mod error;
 pub mod jsonapi;
+pub mod terraform;
 pub mod token;
 pub mod types;
 
@@ -44,6 +45,13 @@ impl ApiClient {
             base_url: base_url.trim_end_matches('/').to_string(),
             token,
         }
+    }
+
+    /// The canonical origin this client addresses — the Terraform
+    /// scaffold carries it when it differs from the provider's
+    /// production default.
+    pub fn base_url(&self) -> &str {
+        &self.base_url
     }
 
     /// GET a collection or resource (a JSON:API document).

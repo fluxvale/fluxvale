@@ -1,0 +1,24 @@
+{
+  "data": [
+    {
+      "type": "access_domain",
+      "id": "d-platform",
+      "attributes": {
+        "domain": "apps.acme.fluxvale.app",
+        "kind": "platform",
+        "state": "verified",
+        "organization_id": "org-acme"
+      }
+    },
+    {
+      "type": "access_domain",
+      "id": "d-apps",
+      "attributes": {
+        "domain": "apps.example.com",
+        "kind": "custom",
+        "state": "verified",
+        "organization_id": "org-acme"
+      }
+    }
+  ]
+}

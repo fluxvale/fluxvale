@@ -1,0 +1,15 @@
+{
+  "data": {
+    "type": "backup_setting",
+    "id": "bs-web",
+    "attributes": {
+      "instance_id": "i-web",
+      "endpoint": "https://acct.r2.cloudflarestorage.com",
+      "bucket": "acme-backups",
+      "prefix": "fluxvale/web/",
+      "access_key_id": "R2ACCESS",
+      "retention_keep": 14,
+      "enabled": true
+    }
+  }
+}

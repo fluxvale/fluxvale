@@ -135,6 +135,19 @@ pub(crate) struct OrgParams {
     pub organization_id: String,
 }
 
+/// `terraform_import_bundle`'s input — the org whose live estate to
+/// render. `whoami` lists every membership's slug and id.
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+pub(crate) struct TerraformImportParams {
+    /// The organization's slug or id (from `whoami`).
+    pub organization: String,
+    /// The platform origin to pin in `versions.tf`, e.g.
+    /// `https://staging.fluxvale.com`. Omit for production (the
+    /// provider's default). The server's upstream URL may be an
+    /// in-cluster service name, so it is not used implicitly.
+    pub api_url: Option<String>,
+}
+
 /// `wallet_ledger`'s input.
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 pub(crate) struct LedgerParams {
@@ -237,6 +250,37 @@ when the id is not one of your instances.",
     ) -> Result<CallToolResult, ErrorData> {
         let token = self.token(&context)?;
         tool_result(upstream::instances_status(self.api_base_url.clone(), token, id).await)
+    }
+
+    #[tool(
+        description = "Render a Terraform import scaffold for an organization: \
+versions.tf, imports.tf (one import block per live instance, backup \
+setting, access gateway, custom domain, and PocketID SSO wiring), and \
+README.md with the adoption steps. Read-only — returns the file \
+contents and writes nothing. Addresses come from slugs/names; the \
+resource bodies are left to `tofu plan -generate-config-out`. Pass \
+`api_url` for a non-production platform (e.g. staging); omit it for \
+production.",
+        annotations(read_only_hint = true)
+    )]
+    async fn terraform_import_bundle(
+        &self,
+        Parameters(TerraformImportParams {
+            organization,
+            api_url,
+        }): Parameters<TerraformImportParams>,
+        context: RequestContext<RoleServer>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let token = self.token(&context)?;
+        tool_result(
+            upstream::terraform_import_bundle(
+                self.api_base_url.clone(),
+                token,
+                organization,
+                api_url,
+            )
+            .await,
+        )
     }
 
     #[tool(
@@ -1044,6 +1088,27 @@ mod tests {
         "wallet:read",
     ];
 
+    fn terraform_upstream() -> CannedApi {
+        testapi::serve(&[
+            ("/api/v1/organizations", 200, orgs_doc()),
+            (
+                "/api/v1/instances?fields[instance]=id,name,slug,organization_id,status",
+                200,
+                json!({"data": [{
+                    "type": "instance", "id": "i1",
+                    "attributes": {"name": "web", "slug": "web-a1b2",
+                                   "status": "running", "organization_id": "01JORG1"}
+                }]})
+                .to_string(),
+            ),
+            (
+                "/api/v1/organizations/01JORG1/access-domains",
+                200,
+                json!({"data": []}).to_string(),
+            ),
+        ])
+    }
+
     fn full_scope_upstream() -> CannedApi {
         testapi::serve(&[
             ("/api/v1/me", 200, me_doc(&ALL_SCOPES)),
@@ -1293,13 +1358,13 @@ mod tests {
         // The full-scope list, same as the handshake rev's — and one
         // upstream read either way (the driver asserts the count in
         // the filter matrix tests above).
-        assert_eq!(tool_names(&body).len(), 17);
+        assert_eq!(tool_names(&body).len(), 18);
         assert!(tool_names(&body).contains(&"instances_deploy"));
         assert!(tool_names(&body).contains(&"topup"));
     }
 
     #[tokio::test]
-    async fn a_full_scope_token_sees_all_seventeen_tools() {
+    async fn a_full_scope_token_sees_all_eighteen_tools() {
         let server = full_scope_upstream();
         assert_eq!(
             listed_tools(&server, PAT_FULL).await,
@@ -1316,6 +1381,7 @@ mod tests {
                 "instances_start",
                 "instances_status",
                 "instances_stop",
+                "terraform_import_bundle",
                 "topup",
                 "wallet_balance",
                 "wallet_ledger",
@@ -1356,6 +1422,7 @@ mod tests {
                 "instances_start",
                 "instances_status",
                 "instances_stop",
+                "terraform_import_bundle",
                 "topup",
                 "whoami",
             ]
@@ -1487,6 +1554,76 @@ mod tests {
         let (_, body) = tools_call(&app(&server), PAT_FULL, "instances_status", json!({})).await;
         let structured = &result(&body)["structuredContent"];
         assert_eq!(structured["instances"][0]["id"], "i1");
+    }
+
+    #[tokio::test]
+    async fn terraform_import_bundle_returns_the_three_files_without_writing() {
+        let server = terraform_upstream();
+        let before = server.head_count();
+        let (status, body) = tools_call(
+            &app(&server),
+            PAT_FULL,
+            "terraform_import_bundle",
+            json!({"organization": "personal"}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let structured = &result(&body)["structuredContent"];
+        assert_eq!(structured["organization"], "personal");
+        let files = structured["files"].as_array().unwrap();
+        assert_eq!(files.len(), 3);
+        assert_eq!(files[0]["path"], "versions.tf");
+        let versions = files[0]["content"].as_str().unwrap();
+        assert!(versions.contains("required_providers"));
+        // The server's upstream URL is not the user's platform origin.
+        assert!(!versions.contains("127.0.0.1"));
+        assert!(!versions.contains("api_url"));
+        assert_eq!(files[1]["path"], "imports.tf");
+        let imports = files[1]["content"].as_str().unwrap();
+        assert!(imports.contains("to = fluxvale_instance.web_a1b2"));
+        assert!(imports.contains("id = \"i1\""));
+        assert_eq!(files[2]["path"], "README.md");
+        assert!(files[2]["content"].as_str().unwrap().contains("tofu init"));
+
+        // A caller on staging names its public origin explicitly.
+        let (_, body) = tools_call(
+            &app(&server),
+            PAT_FULL,
+            "terraform_import_bundle",
+            json!({"organization": "personal", "api_url": "https://staging.fluxvale.com"}),
+        )
+        .await;
+        let versions = result(&body)["structuredContent"]["files"][0]["content"]
+            .as_str()
+            .unwrap();
+        assert!(versions.contains("api_url = \"https://staging.fluxvale.com\""));
+        // The read-shaped claim: discovery made GETs, never a write.
+        let heads = (before..server.head_count())
+            .map(|index| server.head(index))
+            .collect::<Vec<_>>();
+        assert!(
+            heads.iter().all(|head| head.starts_with("GET ")),
+            "{heads:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn terraform_import_bundle_surfaces_an_upstream_refusal_as_a_tool_error() {
+        let server = testapi::serve(&[(
+            "/api/v1/organizations",
+            403,
+            forbidden_doc("token lacks the instances:read scope"),
+        )]);
+        let (_, body) = tools_call(
+            &app(&server),
+            PAT_FULL,
+            "terraform_import_bundle",
+            json!({"organization": "personal"}),
+        )
+        .await;
+        assert_eq!(result(&body)["isError"], true);
+        let text = result(&body)["content"][0]["text"].as_str().unwrap();
+        assert_eq!(text, "403 Forbidden: token lacks the instances:read scope");
     }
 
     #[tokio::test]

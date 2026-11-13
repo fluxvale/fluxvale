@@ -1,0 +1,44 @@
+{
+  "data": [
+    {
+      "type": "instance",
+      "id": "i-web",
+      "attributes": {
+        "name": "Web",
+        "slug": "web-a1b2",
+        "organization_id": "org-acme",
+        "status": "running"
+      }
+    },
+    {
+      "type": "instance",
+      "id": "i-api",
+      "attributes": {
+        "name": "API",
+        "slug": "api-c3d4",
+        "organization_id": "org-acme",
+        "status": "running"
+      }
+    },
+    {
+      "type": "instance",
+      "id": "i-foreign",
+      "attributes": {
+        "name": "Foreign",
+        "slug": "foreign-e5f6",
+        "organization_id": "org-other",
+        "status": "running"
+      }
+    },
+    {
+      "type": "instance",
+      "id": "i-dying",
+      "attributes": {
+        "name": "Dying",
+        "slug": "dying-g7h8",
+        "organization_id": "org-acme",
+        "status": "deleting"
+      }
+    }
+  ]
+}
