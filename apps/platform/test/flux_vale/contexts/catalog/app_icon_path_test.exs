@@ -24,6 +24,12 @@ defmodule FluxVale.Catalog.AppIconPathTest do
     end
   end
 
+  test "rejects a whitespace-padded icon_url at create" do
+    assert_raise Ash.Error.Invalid, fn ->
+      app!(%{icon_url: " /images/catalog/forgejo/icon.svg"})
+    end
+  end
+
   test "rejects a javascript: icon_url at update (the :update accept list runs the type)" do
     app = app!(%{icon_url: "/images/catalog/forgejo/icon.svg"})
 

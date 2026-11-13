@@ -44,6 +44,16 @@ defmodule FluxVale.Catalog.Types.IconPathTest do
       end
     end
 
+    test "rejects a whitespace-padded path (the :string trim does not soften the gate)" do
+      for path <- [
+            " /images/catalog/forgejo/icon.svg",
+            "/images/catalog/forgejo/icon.svg "
+          ] do
+        assert {:error, message} = IconPath.cast_input(path, [])
+        assert message =~ inspect(path)
+      end
+    end
+
     test "rejects a missing vendored file" do
       # Other filename than `icon` (the shape arm).
       assert {:error, _message} = IconPath.cast_input("/images/catalog/forgejo/missing.svg", [])
