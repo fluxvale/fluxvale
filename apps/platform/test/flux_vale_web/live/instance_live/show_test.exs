@@ -1846,6 +1846,29 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
       assert hostname.label == "git"
     end
 
+    test "still renders rows under a needs_attention domain — no false empty state", %{
+      conn: conn,
+      user: user,
+      version: version
+    } do
+      instance = create_instance!(version, user)
+      domain = verified_custom_domain!(instance, user)
+      {:ok, needs_attention} = AccessDomain.mark_needs_attention(domain, authorize?: false)
+      _hostname = custom_hostname!(instance, needs_attention, "git")
+
+      {:ok, view, _html} = live(conn, ~p"/instances/#{instance.id}")
+
+      assert has_element?(
+               view,
+               "[data-testid='hostname-value']",
+               "git.#{domain.domain}"
+             )
+
+      refute has_element?(view, "[data-testid='hostname-empty']")
+      refute has_element?(view, "#hostname-form")
+      assert has_element?(view, "[data-testid='hostname-no-mintable-domain']")
+    end
+
     test "mints an address through the form and refreshes the card", %{
       conn: conn,
       user: user,

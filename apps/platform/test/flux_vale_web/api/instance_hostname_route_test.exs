@@ -73,7 +73,7 @@ defmodule FluxValeWeb.Api.InstanceHostnameRouteTest do
       attr_keys = Map.keys(row["attributes"])
 
       assert MapSet.new(attr_keys) ==
-               MapSet.new(["label", "instance_id", "access_domain_id", "created_at"])
+               MapSet.new(["label", "instance_id", "access_domain_id"])
 
       assert hostname_exists?(instance.id, "git")
     end

@@ -28,6 +28,6 @@ Registration is available through the API and the Terraform provider. The [Terra
 
 The mint is live. Once a custom domain is verified, add an address on the instance page: **Custom addresses** takes a label such as `git` and mints `git.<your-domain>`. The member API carries the same three verbs, `POST`/`GET /api/v1/instances/:instance_id/hostnames` and `DELETE /api/v1/instance-hostnames/:id`.
 
-A custom address serves when the instance is private and attached to your gateway. Until both are true the row is recorded and serves nothing yet. The certificate and the DNS records do not change — the wildcard you verified covers every label you mint under it.
+A custom address serves only when all three are true: the domain is verified, your organization's gateway has claimed it, and the instance is private and attached to that gateway. Claiming a freshly verified domain on the gateway is not yet a self-serve surface — write to [support@fluxvale.com](mailto:support@fluxvale.com) and we will claim it for you. Until the three conditions hold, the address is recorded and serves nothing yet. The certificate and the DNS records do not change — the wildcard you verified covers every label you mint under it.
 
 The DNS records you create now are the ones the finished feature will use. No re-registration will be needed.

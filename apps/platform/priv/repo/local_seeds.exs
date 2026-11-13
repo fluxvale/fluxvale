@@ -31,12 +31,14 @@ admin = FluxVale.Identity.User.get_by_email!("admin@fluxvale.com", authorize?: f
   FluxVale.Billing.credit_wallet(org, 500, idempotency_key: "local-seeds:paid-unlock")
 
 # S6 (#751): one verified custom domain so the local e2e can exercise the
-# custom-hostname mint without a real ACME round trip. Ash.Seed is the
-# honest exception here — verify-by-issuance needs a cluster Certificate
-# and public DNS, neither of which a dev box has. The cert ref names no
-# real Secret: nothing in this seed serves, the row only makes the mint
-# surface's domain selection real. Local-only, like everything above —
-# never move this into priv/repo/seeds.exs.
+# custom-hostname mint. Ash.Seed is the honest exception here because the
+# register action's MintCertificate change calls the cluster inside the
+# create, and a dev `mix setup` may have no reachable cluster. The seed
+# stands in for register + mark_verified (the state funnel), not for ACME:
+# the row is :verified directly, with a cert ref that names no real
+# Secret. Nothing in this seed serves; it only makes the mint surface's
+# domain selection real. Local-only, like everything above — never move
+# this into priv/repo/seeds.exs.
 require Ash.Query
 
 case Ash.Query.filter(

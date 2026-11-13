@@ -520,12 +520,12 @@ defmodule FluxValeWeb.InstanceLive.Show do
               </div>
 
               <p class="text-sm text-ink-subtle">
-                A custom address serves when this instance is private and attached to
-                your gateway. Until then the address is recorded here and serves nothing
-                yet.
+                A custom address serves when its domain is verified and claimed by your
+                gateway, and this instance is private and attached to it. Until then the
+                address is recorded here and serves nothing yet.
               </p>
 
-              <%= if @hostname_domains == [] do %>
+              <%= if @hostnames == [] and @hostname_domains == [] do %>
                 <div class="space-y-2" data-testid="hostname-empty">
                   <p class="text-sm text-ink-subtle">
                     No verified custom domain yet. Register one through the member API or
@@ -545,7 +545,7 @@ defmodule FluxValeWeb.InstanceLive.Show do
                   No custom addresses yet. Add one below.
                 </div>
 
-                <div class="divide-y divide-line text-sm">
+                <div :if={@hostnames != []} class="divide-y divide-line text-sm">
                   <div
                     :for={hostname <- @hostnames}
                     class="flex min-w-0 items-center justify-between gap-3 py-2.5"
@@ -578,7 +578,12 @@ defmodule FluxValeWeb.InstanceLive.Show do
                   </div>
                 </div>
 
-                <.form for={@hostname_form} id="hostname-form" phx-submit="mint-hostname">
+                <.form
+                  :if={@hostname_domains != []}
+                  for={@hostname_form}
+                  id="hostname-form"
+                  phx-submit="mint-hostname"
+                >
                   <div class="flex flex-wrap items-end gap-3">
                     <div class="min-w-0 flex-1">
                       <.input
@@ -613,6 +618,15 @@ defmodule FluxValeWeb.InstanceLive.Show do
                     </.button>
                   </div>
                 </.form>
+
+                <p
+                  :if={@hostnames != [] and @hostname_domains == []}
+                  class="text-sm text-ink-subtle"
+                  data-testid="hostname-no-mintable-domain"
+                >
+                  No verified custom domain is available to add another address right
+                  now.
+                </p>
               <% end %>
             </.card>
 

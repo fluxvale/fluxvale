@@ -50,7 +50,7 @@ defmodule FluxVale.Infrastructure.Operations.MintCustomHostnameTest do
       owner: owner
     } do
       domain = verified_domain!(org)
-      instance = instance!(org, owner)
+      instance = private_instance!(org, owner)
 
       expect(RenderAccessDNS, :call, fn -> :ok end)
       reject(EdgeRoutes, :apply_access_for_status, 3)
@@ -63,12 +63,30 @@ defmodule FluxVale.Infrastructure.Operations.MintCustomHostnameTest do
       assert hostname.access_domain_id == domain.id
     end
 
-    test "applies the access edge for an attached instance's current status", %{
+    test "records the row without re-minting a public attached instance's edge", %{
       org: org,
       owner: owner
     } do
       domain = verified_domain!(org)
-      instance = instance!(org, owner)
+      instance = public_instance!(org, owner)
+      gateway = AccessFixtures.gateway!(org)
+      _route = route!(gateway, instance)
+
+      expect(RenderAccessDNS, :call, fn -> :ok end)
+      reject(EdgeRoutes, :apply_access_for_status, 3)
+
+      assert {:ok, _hostname} =
+               Infrastructure.mint_custom_hostname(instance.id, domain.id, "git", actor: owner)
+
+      assert hostname_exists?(instance.id, "git")
+    end
+
+    test "applies the access edge for an attached private instance's current status", %{
+      org: org,
+      owner: owner
+    } do
+      domain = verified_domain!(org)
+      instance = private_instance!(org, owner)
       gateway = AccessFixtures.gateway!(org)
       route = route!(gateway, instance)
 
@@ -193,7 +211,7 @@ defmodule FluxVale.Infrastructure.Operations.MintCustomHostnameTest do
       owner: owner
     } do
       domain = verified_domain!(org)
-      instance = instance!(org, owner)
+      instance = private_instance!(org, owner)
       gateway = AccessFixtures.gateway!(org)
       _route = route!(gateway, instance)
 
@@ -214,12 +232,39 @@ defmodule FluxVale.Infrastructure.Operations.MintCustomHostnameTest do
       refute hostname_exists?(instance.id, "git")
     end
 
+    test "keeps the row when route cleanup fails, so a later remove converges", %{
+      org: org,
+      owner: owner
+    } do
+      domain = verified_domain!(org)
+      instance = private_instance!(org, owner)
+      gateway = AccessFixtures.gateway!(org)
+      _route = route!(gateway, instance)
+
+      expect(EdgeRoutes, :apply_access_for_status, fn _kc, _gateway, _instance ->
+        {:error, :edge_refused}
+      end)
+
+      expect(EdgeRoutes, :apply_access_none_for_hostname, fn _kc, _instance, _hostname ->
+        {:error, :cleanup_boom}
+      end)
+
+      reject(RenderAccessDNS, :call, 0)
+
+      assert {:error, :cleanup_boom} =
+               Infrastructure.mint_custom_hostname(instance.id, domain.id, "git", actor: owner)
+
+      # The row stands with its route name, so remove can delete the
+      # route first and then the row.
+      assert hostname_exists?(instance.id, "git")
+    end
+
     test "a kubeconfig failure unwinds the row without an edge cleanup call", %{
       org: org,
       owner: owner
     } do
       domain = verified_domain!(org)
-      instance = instance!(org, owner)
+      instance = private_instance!(org, owner)
       gateway = AccessFixtures.gateway!(org)
       _route = route!(gateway, instance)
 
@@ -238,7 +283,7 @@ defmodule FluxVale.Infrastructure.Operations.MintCustomHostnameTest do
       owner: owner
     } do
       domain = verified_domain!(org)
-      instance = instance!(org, owner)
+      instance = private_instance!(org, owner)
 
       stub(AccessRoute, :get_by_instance, fn _id, _opts -> {:error, :db_oops} end)
       reject(RenderAccessDNS, :call, 0)
@@ -253,6 +298,16 @@ defmodule FluxVale.Infrastructure.Operations.MintCustomHostnameTest do
   # ------------------------------------------------------------------
   # Helpers
   # ------------------------------------------------------------------
+
+  defp public_instance!(org, owner) do
+    instance = instance!(org, owner)
+    InstanceFixtures.pin!(instance, exposure: :public)
+  end
+
+  defp private_instance!(org, owner) do
+    instance = instance!(org, owner)
+    InstanceFixtures.pin!(instance, exposure: :private)
+  end
 
   defp instance!(org, owner) do
     version = InstanceFixtures.app_version!()

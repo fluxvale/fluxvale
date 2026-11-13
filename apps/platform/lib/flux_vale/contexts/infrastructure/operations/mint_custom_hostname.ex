@@ -86,9 +86,10 @@ defmodule FluxVale.Infrastructure.Operations.MintCustomHostname do
     )
   end
 
-  # An unattached instance has no AccessRoute: the row is recorded and
-  # serves nothing until the pairing lands (the page copy says so).
-  defp apply_edge(instance, hostname, read_opts) do
+  # A public instance holds no access edge (SetExposure's private arm
+  # mints it later), even when a stale AccessRoute row survives the
+  # public flip. Record the row; do not re-mint the private arm.
+  defp apply_edge(%{exposure: :private} = instance, hostname, read_opts) do
     case AccessRoute.get_by_instance(instance.id, read_opts) do
       {:ok, route} ->
         gateway = Ash.load!(route, :gateway, read_opts).gateway
@@ -103,6 +104,11 @@ defmodule FluxVale.Infrastructure.Operations.MintCustomHostname do
     end
   end
 
+  # An unattached or public instance has nothing to route: the row is
+  # recorded and serves nothing until the pairing + private posture land
+  # (the page copy says so).
+  defp apply_edge(_instance, _hostname, _read_opts), do: :ok
+
   defp apply_for_status(instance, hostname, gateway) do
     case InstanceK8s.kubeconfig_for(instance) do
       {:ok, kubeconfig} ->
@@ -116,15 +122,21 @@ defmodule FluxVale.Infrastructure.Operations.MintCustomHostname do
     end
   end
 
-  # The row must not stand when its edge failed: destroy it and remove
-  # any route the failed apply may already have minted. Both cleanup
-  # limbs are best-effort — the original failure is what the caller
-  # surfaces and retries on.
+  # The row must not stand when its edge failed, but it also must not
+  # vanish while a route it minted still answers — that orphan would be
+  # unsweepable (a re-mint gets a new row id, hence a new route name).
+  # Destroy only after the route cleanup succeeds; on a cleanup failure
+  # keep the row and return the cleanup error, so a later remove (which
+  # deletes routes first) converges from the same record.
   defp unwind(instance, hostname, kubeconfig, reason) do
-    _removed = remove_routes(kubeconfig, instance, hostname)
-    _destroyed = InstanceHostname.destroy(hostname, authorize?: false)
+    case remove_routes(kubeconfig, instance, hostname) do
+      :ok ->
+        _destroyed = InstanceHostname.destroy(hostname, authorize?: false)
+        {:error, reason}
 
-    {:error, reason}
+      {:error, cleanup_error} ->
+        {:error, cleanup_error}
+    end
   end
 
   defp remove_routes(nil, _instance, _hostname), do: :ok

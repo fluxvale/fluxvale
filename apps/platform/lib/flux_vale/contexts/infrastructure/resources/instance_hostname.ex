@@ -33,7 +33,7 @@ defmodule FluxVale.Infrastructure.InstanceHostname do
   # The wire surface: a hostname is only its identity and where it
   # sits. The domain's name rides the page's loaded relationship, not
   # the row.
-  @hostname_fields [:id, :label, :instance_id, :access_domain_id, :created_at]
+  @hostname_fields [:id, :label, :instance_id, :access_domain_id]
 
   # The operation's guard atoms carry no message of their own; give
   # them the owner's plain words (the AccessDomain remove verbs' stance).
