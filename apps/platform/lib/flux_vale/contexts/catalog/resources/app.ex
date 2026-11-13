@@ -139,7 +139,10 @@ defmodule FluxVale.Catalog.App do
       public?(true)
     end
 
-    attribute :icon_url, :string do
+    # Vendored only — icons ship same-origin (#716). Types.IconPath is
+    # the one enforcement point for seeds, admin, and the API: both the
+    # :create and :update accept lists carry :icon_url.
+    attribute :icon_url, FluxVale.Catalog.Types.IconPath do
       public?(true)
     end
 

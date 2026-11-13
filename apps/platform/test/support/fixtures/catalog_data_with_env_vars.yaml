@@ -17,7 +17,7 @@
       slug: testapp
       tagline: Test app
       description: A test app.
-      icon_url: https://example.com/icon.svg
+      icon_url: /images/catalog/forgejo/icon.svg
       source_url: https://example.com
       docs_url: https://example.com
       caveats:

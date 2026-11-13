@@ -458,7 +458,7 @@ defmodule FluxValeWeb.PricingCalculatorLiveTest do
   end
 
   test "each result row carries the app logo with an initial fallback", %{conn: conn} do
-    icon = "https://example.com/icons/tools.svg"
+    icon = "/images/catalog/vikunja/icon.png"
     fixture = InstanceFixtures.app_version!(icon_url: icon, default_memory_mb: 2048)
     slug = app_slug!(Ash.load!(fixture, :recommended_size, authorize?: false))
 
@@ -698,7 +698,7 @@ defmodule FluxValeWeb.PricingCalculatorLiveTest do
 
   test "Add appends the setup as a row with the app, logo, allocation, and price, then resets the calculator",
        %{conn: conn} do
-    icon = "https://example.com/icons/forgejo.svg"
+    icon = "/images/catalog/forgejo/icon.svg"
 
     fixture =
       InstanceFixtures.app_version!(

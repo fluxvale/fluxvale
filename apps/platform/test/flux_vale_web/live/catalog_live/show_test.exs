@@ -74,7 +74,7 @@ defmodule FluxValeWeb.CatalogLive.ShowTest do
         %{
           source_url: "https://example.com/src",
           docs_url: "https://example.com/docs",
-          icon_url: "https://example.com/forgejo.png"
+          icon_url: "/images/catalog/forgejo/icon.svg"
         },
         authorize?: false
       )
@@ -88,7 +88,7 @@ defmodule FluxValeWeb.CatalogLive.ShowTest do
 
     assert has_element?(
              view,
-             "[data-testid='app-icon'] img[src='https://example.com/forgejo.png']"
+             "[data-testid='app-icon'] img[src='/images/catalog/forgejo/icon.svg']"
            )
 
     assert has_element?(view, "p.eyebrow", app.category.name)
