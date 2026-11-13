@@ -139,6 +139,10 @@ defmodule FluxVale.Catalog.App do
       public?(true)
     end
 
+    # Vendored only — icons ship same-origin (#716). The stored type
+    # stays :string so ash_json_api keeps the icon_url string filter
+    # predicates; Types.IconPath owns the one contract, attached as an
+    # action change (App.CastIconPath) on both create and update.
     attribute :icon_url, :string do
       public?(true)
     end
@@ -263,6 +267,8 @@ defmodule FluxVale.Catalog.App do
       validate(
         {FluxVale.Catalog.ValidateCopyRules, fields: [:caveats, :alternatives, :in_action_intro]}
       )
+
+      change(FluxVale.Catalog.App.CastIconPath)
     end
 
     update :update do
@@ -293,6 +299,8 @@ defmodule FluxVale.Catalog.App do
       validate(
         {FluxVale.Catalog.ValidateCopyRules, fields: [:caveats, :alternatives, :in_action_intro]}
       )
+
+      change(FluxVale.Catalog.App.CastIconPath)
     end
 
     read :get_by_slug do

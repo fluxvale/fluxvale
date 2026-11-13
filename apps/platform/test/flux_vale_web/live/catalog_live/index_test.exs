@@ -42,7 +42,7 @@ defmodule FluxValeWeb.CatalogLive.IndexTest do
           name: "Gitea #{n}",
           slug: "gitea-#{n}",
           tagline: "Git service",
-          icon_url: "https://example.com/gitea.png",
+          icon_url: "/images/catalog/forgejo/icon.svg",
           category_id: category.id
         },
         authorize?: false
@@ -55,7 +55,7 @@ defmodule FluxValeWeb.CatalogLive.IndexTest do
     assert has_element?(view, "h2", "Forgejo #{n}")
     assert has_element?(view, "#app-#{app.id}", "Developer Tools #{n}")
     assert has_element?(view, "#app-#{app.id} a, #app-#{app.id}")
-    assert has_element?(view, "#app-#{iconed.id} img[src='https://example.com/gitea.png']")
+    assert has_element?(view, "#app-#{iconed.id} img[src='/images/catalog/forgejo/icon.svg']")
   end
 
   # #398: the mosaic cards carry the ladder floor — the public index's

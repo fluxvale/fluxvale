@@ -70,7 +70,7 @@ defmodule FluxValeWeb.CatalogControllerTest do
     test "renders category-grouped app cards for anonymous visitors", %{conn: conn} do
       # icon_url exercises the SSR tile's img arm — the LiveView twin
       # covers it, this file didn't (#277 T4 review).
-      app = catalog_app!(icon_url: "https://example.com/icon.png")
+      app = catalog_app!(icon_url: "/images/catalog/forgejo/icon.svg")
 
       conn = get(conn, ~p"/catalog")
       html = html_response(conn, 200)
@@ -79,7 +79,7 @@ defmodule FluxValeWeb.CatalogControllerTest do
       assert html =~ app.name
       assert html =~ app.tagline
       assert html =~ ~s(href="/catalog/#{app.slug}")
-      assert html =~ ~s(src="https://example.com/icon.png")
+      assert html =~ ~s(src="/images/catalog/forgejo/icon.svg")
     end
 
     # #462: the anonymous chrome's sign-in links carry the page back
@@ -244,7 +244,7 @@ defmodule FluxValeWeb.CatalogControllerTest do
         App.update!(
           app_row,
           %{
-            icon_url: "https://example.com/icon.png",
+            icon_url: "/images/catalog/forgejo/icon.svg",
             description: "A git forge with issues and pull requests.\nSecond authored paragraph.",
             source_url: "https://example.com/src",
             docs_url: "https://example.com/docs",
@@ -271,7 +271,7 @@ defmodule FluxValeWeb.CatalogControllerTest do
 
       assert [_tile_with_img] =
                Regex.run(
-                 ~r{data-testid="app-icon"[^>]*>\s*<img[^>]*src="https://example\.com/icon\.png"[^>]*alt=""},
+                 ~r{data-testid="app-icon"[^>]*>\s*<img[^>]*src="/images/catalog/forgejo/icon\.svg"[^>]*alt=""},
                  html
                )
 
@@ -366,7 +366,7 @@ defmodule FluxValeWeb.CatalogControllerTest do
                  html
                )
 
-      refute html =~ "https://example.com/icon.png"
+      refute html =~ ~r{data-testid="app-icon"[^>]*>\s*<img}
     end
 
     # The nil fields are the sanctioned nullable shape (the OpenAPI
@@ -742,11 +742,11 @@ defmodule FluxValeWeb.CatalogControllerTest do
       n = System.unique_integer([:positive])
 
       peer_specs = [
-        {"Umami", [tagline: "A peer app", icon_url: "https://example.com/icon.png"]},
-        {"Memos", [tagline: nil, icon_url: "https://example.com/icon.png"]},
+        {"Umami", [tagline: "A peer app", icon_url: "/images/catalog/forgejo/icon.svg"]},
+        {"Memos", [tagline: nil, icon_url: "/images/catalog/vikunja/icon.png"]},
         {"Kavita", [tagline: "A peer app", icon_url: nil]},
-        {"ActualBudget", [tagline: "A peer app", icon_url: "https://example.com/icon.png"]},
-        {"Zebra", [tagline: "A peer app", icon_url: "https://example.com/icon.png"]}
+        {"ActualBudget", [tagline: "A peer app", icon_url: "/images/catalog/vikunja/icon.png"]},
+        {"Zebra", [tagline: "A peer app", icon_url: "/images/catalog/forgejo/icon.svg"]}
       ]
 
       for {prefix, overrides} <- peer_specs do

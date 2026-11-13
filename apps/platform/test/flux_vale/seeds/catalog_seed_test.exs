@@ -1076,6 +1076,32 @@ defmodule FluxVale.Seeds.CatalogSeedTest do
       assert App.get_by_slug!("testapp", authorize?: false).tagline == "Test app"
     end
 
+    test "heals a drifted absolute icon_url back to the YAML path (#718)" do
+      assert :ok == seed_fixture!()
+
+      app = App.get_by_slug!("testapp", authorize?: false)
+
+      # Repo.update_all bypasses the type: the only way to plant a row
+      # the old contract accepted, and exactly the legacy shape this
+      # heals.
+      plant =
+        from(a in App,
+          where: a.id == ^app.id,
+          update: [set: [icon_url: "https://hotlink.example/legacy.svg"]]
+        )
+
+      {1, _result} = Repo.update_all(plant, [])
+
+      # The lenient read keeps the pre-contract row visible.
+      assert App.get_by_slug!("testapp", authorize?: false).icon_url ==
+               "https://hotlink.example/legacy.svg"
+
+      assert :ok == seed_fixture!()
+
+      assert App.get_by_slug!("testapp", authorize?: false).icon_url ==
+               "/images/catalog/forgejo/icon.svg"
+    end
+
     test "heals a legacy nil-size version on re-seed (#125)" do
       assert :ok == seed_fixture!()
 
