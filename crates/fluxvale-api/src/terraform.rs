@@ -121,8 +121,29 @@ fn bundle_at(
     org: &str,
     api_url: Option<&str>,
 ) -> Result<Bundle, TerraformError> {
+    let api_url = validate_api_url(api_url)?;
     let estate = discover(client, org)?;
     Ok(render_with(&estate, api_url))
+}
+
+/// The provider's `api_url` is a URL, not arbitrary HCL text. An empty
+/// or production-default origin means "omit it"; anything else must be
+/// an http(s) origin with no whitespace or control characters.
+fn validate_api_url(raw: Option<&str>) -> Result<Option<&str>, TerraformError> {
+    let Some(raw) = raw else { return Ok(None) };
+    let url = raw.trim_end_matches('/');
+    if url.is_empty() || url == "https://fluxvale.com" {
+        return Ok(None);
+    }
+    let shaped = (url.starts_with("http://") || url.starts_with("https://"))
+        && !url.chars().any(|ch| ch.is_whitespace() || ch.is_control());
+    if shaped {
+        Ok(Some(url))
+    } else {
+        Err(TerraformError::Message(format!(
+            "invalid api_url {raw:?}: expected an http(s) origin"
+        )))
+    }
 }
 
 /// The read half, exposed so tests can pin discovery separately from
@@ -477,8 +498,9 @@ fn readme(estate: &Estate) -> String {
          \n\
          - **Write-only values are never readable back.** `generated.tf` cannot\n\
          \x20\x20carry `env_vars` or a backup's `secret_access_key`; re-add\n\
-         \x20\x20`env_vars` in your Terraform config after adoption (the provider\n\
-         \x20\x20writes them in place), and set the backup secret in the panel.\n\
+         \x20\x20`env_vars` in your Terraform config from your own records (the\n\
+         \x20\x20provider writes them in place), and set the backup secret in the\n\
+         \x20\x20panel.\n\
          - **Generated config may need small edits before the plan is clean.**\n\
          \x20\x20`app`/`app_version` on an imported instance have no wire echo, the\n\
          \x20\x20gateway's `instances` set is config-authoritative and starts null,\n\
@@ -504,9 +526,8 @@ fn readme(estate: &Estate) -> String {
         readme.push_str(
             "\n**Provider limitation:** provider 0.3.0 does not implement\n\
              `import` for `fluxvale_pocket_id_sso`. Its blocks are commented out\n\
-             in `imports.tf`, with the instance id as the import id; raise the\n\
-             provider constraint to the release that adds import, then uncomment\n\
-             them.\n",
+             in `imports.tf`, with the instance id as the import id; uncomment\n\
+             them once the provider release you use supports import.\n",
         );
     }
     readme
@@ -526,10 +547,24 @@ fn commented_import_block(address: &str, id: &str) -> String {
     )
 }
 
-/// HCL's quoted-string escapes: a backslash and a quote are the only
-/// characters the API's ids/slugs could carry that need them.
+/// HCL's quoted-string escapes. Ids/slugs only need the quote/backslash
+/// pair, but `api_url` is caller-supplied: escape the template sigils and
+/// control characters too, so a URL can never become HCL expressions.
 fn hcl_string(value: &str) -> String {
-    value.replace('\\', "\\\\").replace('"', "\\\"")
+    let mut out = String::with_capacity(value.len());
+    for ch in value.chars() {
+        match ch {
+            '\\' => out.push_str("\\\\"),
+            '"' => out.push_str("\\\""),
+            '$' => out.push_str("$$"),
+            '%' => out.push_str("%%"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            other => out.push(other),
+        }
+    }
+    out
 }
 
 fn string_attr(resource: &Resource, name: &str) -> Option<String> {
@@ -749,7 +784,7 @@ mod tests {
         assert!(readme.contains("`platform` domain is not"));
         assert!(!readme.contains("secrets path"));
         assert!(readme.contains("re-add"));
-        assert!(readme.contains("backup secret in the panel"));
+        assert!(readme.contains("backup secret"));
     }
 
     #[test]
@@ -828,6 +863,39 @@ mod tests {
             error,
             "the API returned 2 backup setting resources, expected one"
         );
+    }
+
+    #[test]
+    fn an_api_url_must_be_an_http_origin() {
+        assert_eq!(validate_api_url(None).unwrap(), None);
+        assert_eq!(
+            validate_api_url(Some("https://fluxvale.com/")).unwrap(),
+            None
+        );
+        assert_eq!(
+            validate_api_url(Some("https://staging.fluxvale.com/")).unwrap(),
+            Some("https://staging.fluxvale.com")
+        );
+        for bad in [
+            "ftp://example.com",
+            "https://example.com/with space",
+            "https://example.com/\n",
+            "staging.fluxvale.com",
+        ] {
+            let error = validate_api_url(Some(bad)).unwrap_err().to_string();
+            assert!(error.contains("invalid api_url"), "{bad}: {error}");
+        }
+    }
+
+    #[test]
+    fn hcl_strings_cannot_become_template_expressions() {
+        assert_eq!(hcl_string("a\"b\\c"), "a\\\"b\\\\c");
+        assert_eq!(
+            hcl_string("${file(\"/etc/passwd\")}"),
+            "$${file(\\\"/etc/passwd\\\")}"
+        );
+        assert_eq!(hcl_string("100%"), "100%%");
+        assert_eq!(hcl_string("a\nb"), "a\\nb");
     }
 
     #[test]

@@ -1573,12 +1573,11 @@ mod tests {
         let files = structured["files"].as_array().unwrap();
         assert_eq!(files.len(), 3);
         assert_eq!(files[0]["path"], "versions.tf");
-        assert!(
-            files[0]["content"]
-                .as_str()
-                .unwrap()
-                .contains("required_providers")
-        );
+        let versions = files[0]["content"].as_str().unwrap();
+        assert!(versions.contains("required_providers"));
+        // The server's upstream URL is not the user's platform origin.
+        assert!(!versions.contains("127.0.0.1"));
+        assert!(!versions.contains("api_url"));
         assert_eq!(files[1]["path"], "imports.tf");
         let imports = files[1]["content"].as_str().unwrap();
         assert!(imports.contains("to = fluxvale_instance.web_a1b2"));
