@@ -475,7 +475,11 @@ defmodule FluxVale.Catalog.AppVersion do
                  actor: context.actor,
                  authorize?: context.authorize?
                ),
-             {:ok, version} <- Ash.load(version, :recommended_size, authorize?: false) do
+             {:ok, version} <-
+               Ash.load(version, :recommended_size,
+                 actor: context.actor,
+                 authorize?: context.authorize?
+               ) do
           case FluxVale.Pricing.version_rates(version) do
             nil ->
               {:error,

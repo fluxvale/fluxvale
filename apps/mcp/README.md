@@ -13,11 +13,11 @@ CI publish, and the k3d exposure ([running in k3d](#running-in-k3d)).
 | Tool | Scope | Answers |
 | --- | --- | --- |
 | `whoami` | any | The identity the token carries — user id, email, platform role, username, organizations (id/slug/name). |
-| `onboarding_status` | `wallet:read` (+ `instances:read` for the count) | Account verified, organizations, the chosen org's wallet balance + runway, instance count, next step (`choose_org`/`fund`/`deploy`/`connect_domain`). Composed from existing reads. |
-| `organizations_create` | any | Create a team org (name + slug, reserved slugs refused), the actor as owner. |
+| `onboarding_status` | `wallet:read` (+ `instances:read` for the count) | Account verified, organizations, the chosen org's wallet balance + runway, instance count, next step (`choose_org`/`fund`/`deploy`/`connect_domain`), and the chosen org's own `funding_url`. Composed from existing reads. |
+| `organizations_create` | any | Create a team org (name + slug, reserved slugs refused), the actor as owner; scopeless like the org list — the actor policy and the 10-org cap are the gate. |
 | `apps_list` | `catalog:read` | The deployable app catalog, one entry per app. |
 | `apps_show` | `catalog:read` | One catalog app by its URL slug: its versions (default allocation, `monthly_cents`) and the agent manual — the newest version's env contract (`configurable_env_vars` names/defaults), `first_run`, `backing_services`, OIDC wiring env names, default allocation and server-computed default price. |
-| `pricing_quote` | `catalog:read` | A truthful quote for any allocation — `cpu`, `memory_mb`, `storage_gb` in, monthly/stopped cents out; the platform computes it. |
+| `pricing_quote` | `catalog:read` | A truthful quote for a custom allocation — `cpu`, `memory_mb`, `storage_gb` in, monthly/stopped cents out; the platform computes it. A deploy at the recommended size bills the manual's default quote instead. |
 | `instances_list` | `instances:read` | Your instances, one entry each; an optional `organization` (id or slug) narrows to that org. |
 | `instances_status` | `instances:read` | One instance's full detail by id (including `url`) — or, with no id, the verbose list. |
 | `instances_deploy` | `instances:write` (+ `catalog:read` for the app/version resolve) | Deploy an app: resolve the slug, pick the newest version (or an exact one), resolve the organization (named, or sole-org fallback), create the instance (you name it, optional `env` map), enqueue the deploy. |
@@ -38,9 +38,10 @@ CI publish, and the k3d exposure ([running in k3d](#running-in-k3d)).
 Tools are scope-filtered: `tools/list` uses the calling token's
 EXACT scope list from GET /me's `meta.scopes` (one upstream read —
 the OAuth middleware's validation read when the token is an OAuth
-access token) and offers only what it covers — `whoami`/`topup` for any live token,
+access token) and offers only what it covers —
+`whoami`/`topup`/`organizations_create` for any live token,
 each domain's tools under its scope, and a domain's `write` scope
-implies its `read`. A zero-scope token still gets the scopeless pair.
+implies its `read`. A zero-scope token still gets the scopeless tools.
 The platform's own 403s are the real enforcement — a filtered-out
 tool called directly still refuses, with the API's own message
 verbatim (the funded-wallet gate included: agents hit the same gate

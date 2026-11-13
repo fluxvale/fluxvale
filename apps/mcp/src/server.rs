@@ -293,7 +293,8 @@ new org's id, slug and name — the values `instances_deploy` and \
 identity (email, verified), every organization (id/slug/name), the chosen \
 org's wallet balance and runway, the instance count, and the next step — \
 `choose_org` (several orgs, none named), `fund` (the org wallet has no \
-balance), `deploy` (no instances yet), or `connect_domain` (deployed). \
+balance), `deploy` (no instances yet), or `connect_domain` (deployed); \
+`funding_url` is the chosen org's own top-up page. \
 Pass `organization` (id or slug) to report on one; omit to fall back to \
 your sole organization. No new state is written.",
         annotations(read_only_hint = true)
@@ -349,8 +350,11 @@ Errors when no app carries the slug.",
         description = "Price any allocation before you deploy it: cpu (CPU cores as a \
 decimal string, e.g. \"0.5\"), memory_mb, and storage_gb in, the monthly \
 and stopped rates out — monthly_cents/stopped_monthly_cents plus the \
-display strings. The platform computes the cents through the same pricing \
-operation the ledger charges, so a quote is the price. The app manual \
+display strings. The platform computes the cents through the ledger's \
+own pricing operation: a custom allocation prices by the same curve \
+the ledger charges, while a deploy at the app's recommended size \
+bills the manual's default-size quote (a size row an admin reprice \
+can move independently). The app manual \
 (`apps_show`) already carries the newest version's default-size quote; \
 use this for custom sizes.",
         annotations(read_only_hint = true)
@@ -1686,7 +1690,14 @@ mod tests {
         let server = testapi::serve(&[("/api/v1/me", 200, me_doc(&["catalog:read"]))]);
         assert_eq!(
             listed_tools(&server, "fvoat_catalog").await,
-            ["apps_list", "apps_show", "topup", "whoami"]
+            [
+                "apps_list",
+                "apps_show",
+                "organizations_create",
+                "pricing_quote",
+                "topup",
+                "whoami"
+            ]
         );
         assert_eq!(server.head_count(), 1);
         assert!(server.head(0).to_lowercase().starts_with("get /api/v1/me"));

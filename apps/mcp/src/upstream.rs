@@ -276,6 +276,8 @@ pub(crate) async fn onboarding_status(
             "connect_domain"
         };
 
+        let funding = chosen.as_ref().and_then(|org| funding_url(&base, org));
+
         Ok(json!({
             "account": {
                 "id": user.id,
@@ -290,6 +292,7 @@ pub(crate) async fn onboarding_status(
             "wallet": wallet,
             "instance_count": instance_count,
             "next_step": next_step,
+            "funding_url": funding,
         }))
     })
     .await
@@ -1094,6 +1097,19 @@ pub(crate) fn topup_url(base: &str) -> String {
     format!("{}/billing/topup", base.trim_end_matches('/'))
 }
 
+/// The org-scoped top-up page (#770): the org wallet funds the org's
+/// instances (ADR-0042 Option A), so the onboarding `fund` step links
+/// that org's wizard — the personal route is only right for the
+/// personal org.
+fn funding_url(base: &str, org: &OrganizationRow) -> Option<String> {
+    org.slug.as_deref().map(|slug| {
+        format!(
+            "{}/organizations/{slug}/billing/topup",
+            base.trim_end_matches('/')
+        )
+    })
+}
+
 // ---- the blocking helpers
 
 async fn on_blocking<T: Send + 'static>(call: impl FnOnce() -> T + Send + 'static) -> T {
@@ -1373,13 +1389,10 @@ mod tests {
             .unwrap();
         assert_eq!(row["id"], "01JORG9");
         assert_eq!(row["slug"], "team");
-        let head = captured_requests(&server)[0].clone();
-        assert!(
-            head.starts_with("post /api/v1/organizations"),
-            "head: {head}"
-        );
-        assert!(head.contains("\"name\":\"team\""), "head: {head}");
-        assert!(head.contains("\"slug\":\"team\""), "head: {head}");
+        let raw = server.requests.lock().unwrap()[0].clone();
+        assert!(raw.starts_with("POST /api/v1/organizations"), "raw: {raw}");
+        assert!(raw.contains("\"name\":\"Team\""), "raw: {raw}");
+        assert!(raw.contains("\"slug\":\"team\""), "raw: {raw}");
     }
 
     #[tokio::test]
@@ -1467,6 +1480,10 @@ mod tests {
         assert_eq!(status["wallet"]["runway_hours"], "infinity");
         assert_eq!(status["instance_count"], 0);
         assert_eq!(status["next_step"], "deploy");
+        assert_eq!(
+            status["funding_url"].as_str().unwrap(),
+            format!("{}/organizations/personal/billing/topup", base(&server))
+        );
         // The composed reads, in order: me, orgs, wallet, runway, instances.
         assert_eq!(server.head_count(), 5);
     }
@@ -1484,6 +1501,7 @@ mod tests {
             .unwrap();
         assert_eq!(status["organization"], Value::Null);
         assert_eq!(status["next_step"], "choose_org");
+        assert_eq!(status["funding_url"], Value::Null);
 
         // A chosen org without a wallet row (team org, lazily billed):
         // fund, balance 0.
@@ -1502,6 +1520,10 @@ mod tests {
         assert_eq!(status["organization"]["slug"], "acme");
         assert_eq!(status["wallet"], Value::Null);
         assert_eq!(status["next_step"], "fund");
+        assert_eq!(
+            status["funding_url"].as_str().unwrap(),
+            format!("{}/organizations/acme/billing/topup", base(&server))
+        );
 
         // Funded with an instance: the last onboarding step.
         let wallet = envelope(json!({"data": {"type": "wallet", "id": "w1",
@@ -2871,6 +2893,29 @@ mod tests {
             topup_url("http://127.0.0.1:4000/"),
             "http://127.0.0.1:4000/billing/topup"
         );
+    }
+
+    #[test]
+    fn funding_url_is_org_scoped_and_needs_a_slug() {
+        let org = OrganizationRow {
+            id: "01JORG2".into(),
+            slug: Some("acme".into()),
+            name: None,
+        };
+        assert_eq!(
+            funding_url("https://fluxvale.com", &org).as_deref(),
+            Some("https://fluxvale.com/organizations/acme/billing/topup")
+        );
+        assert_eq!(
+            funding_url("http://127.0.0.1:4000/", &org).as_deref(),
+            Some("http://127.0.0.1:4000/organizations/acme/billing/topup")
+        );
+        let slugless = OrganizationRow {
+            id: "01JORG3".into(),
+            slug: None,
+            name: Some("No slug".into()),
+        };
+        assert_eq!(funding_url("https://fluxvale.com", &slugless), None);
     }
 
     #[test]
