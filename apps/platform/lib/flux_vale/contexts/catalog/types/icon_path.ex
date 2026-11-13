@@ -10,24 +10,21 @@ defmodule FluxVale.Catalog.Types.IconPath do
       /images/catalog/<slug>/icon.png
       /images/catalog/<slug>/icon.svg
 
-  `<slug>` is the App slug shape, and the file must be committed under
-  `apps/platform/priv/static`. Whitespace, `..` segments, query
+  The type owns the write contract: a slug shaped like `App.slug`, the
+  `icon` filename with a `png`/`svg` extension, and a file committed
+  under `apps/platform/priv/static`. Whitespace, `..` segments, query
   strings, external URLs, `javascript:`, any other filename, and any
-  other extension fail at write time. Like `ScreenshotList`: casting
-  and validation live here so seeds, AshAdmin, and the API enforce one
-  contract.
+  other extension fail at write time.
 
-  A `NewType` over `:string` rather than a bare `Ash.Type`, so its own
-  JSON schema resolves to a string. The resource stores the plain
-  `:string` type and runs this cast through `App.CastIconPath`:
-  `ash_json_api` 1.7.1 matches filter operators against the raw
-  attribute type, so a NewType on the attribute would drop the string
-  predicates (`contains`, `like`, ...) from the public filter schema.
+  The App attribute stays `:string` and `App.CastIconPath` runs this
+  cast on create and update, so seeds, AshAdmin, and the API share the
+  one contract. Reads use the string attribute, so rows written before
+  the contract (a legacy hotlink) stay readable and the seed can heal
+  them. A `NewType` over `:string` keeps the JSON:API schema a string.
 
-  `cast_stored/2` is deliberately lenient, the one difference from
-  `ScreenshotList`'s re-cast-on-read: rows written before the contract
-  (a hotlinked legacy icon) must stay readable so the seed can heal
-  them. The write path is the gate, the read path is not.
+  Not every path that can touch the column is gated: `Ash.Seed.seed!`,
+  `Repo.update_all/2`, and direct SQL bypass action changes by design.
+  The YAML seed runner goes through the actions and is gated.
   """
 
   use Ash.Type.NewType, subtype_of: :string
@@ -39,6 +36,11 @@ defmodule FluxVale.Catalog.Types.IconPath do
 
   @impl Ash.Type
   def cast_input(nil, constraints), do: super(nil, constraints)
+
+  # An empty AshAdmin text field submits "" — the designed absent state
+  # is nil. Whitespace-only input is not blank: it falls to the binary
+  # clause, `:string` trims it, and the pin below rejects it.
+  def cast_input("", _constraints), do: {:ok, nil}
 
   def cast_input(path, constraints) when is_binary(path) do
     # `:string` trims by default: a padded path comes back changed, so
@@ -53,16 +55,6 @@ defmodule FluxVale.Catalog.Types.IconPath do
 
   # `:string` would coerce atoms and numbers; the icon contract must not.
   def cast_input(other, _constraints), do: {:error, shape_error(other)}
-
-  @impl Ash.Type
-  def dump_to_native(nil, _constraints), do: {:ok, nil}
-  def dump_to_native(path, _constraints) when is_binary(path), do: {:ok, path}
-  def dump_to_native(_other, _constraints), do: {:error, "expected a string icon path"}
-
-  @impl Ash.Type
-  def cast_stored(nil, _constraints), do: {:ok, nil}
-  def cast_stored(path, _constraints) when is_binary(path), do: {:ok, path}
-  def cast_stored(_other, _constraints), do: {:error, "expected a string icon path"}
 
   defp check_vendored(path) do
     full_path = static_path(path)

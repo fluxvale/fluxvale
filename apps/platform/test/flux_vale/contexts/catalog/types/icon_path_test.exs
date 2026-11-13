@@ -78,36 +78,14 @@ defmodule FluxVale.Catalog.Types.IconPathTest do
     test "nil is the absent state" do
       assert IconPath.cast_input(nil, []) == {:ok, nil}
     end
-  end
 
-  describe "cast_stored/2" do
-    # Deliberate leniency: pre-contract rows (a hotlinked legacy icon)
-    # must stay readable so the seed can heal them. The write path is
-    # the gate.
-    test "passes a legacy hotlinked icon_url through unchanged (lenient read)" do
-      assert IconPath.cast_stored("https://hotlink.example/legacy.svg", []) ==
-               {:ok, "https://hotlink.example/legacy.svg"}
+    test "the exact empty string is the absent state (the AshAdmin blank field)" do
+      assert IconPath.cast_input("", []) == {:ok, nil}
     end
 
-    test "passes nil through" do
-      assert IconPath.cast_stored(nil, []) == {:ok, nil}
-    end
-
-    test "rejects a non-binary" do
-      assert {:error, _message} = IconPath.cast_stored(:atom, [])
-    end
-  end
-
-  describe "dump_to_native/2" do
-    test "passes nil and a path through" do
-      assert IconPath.dump_to_native(nil, []) == {:ok, nil}
-
-      assert IconPath.dump_to_native("/images/catalog/forgejo/icon.svg", []) ==
-               {:ok, "/images/catalog/forgejo/icon.svg"}
-    end
-
-    test "rejects a non-binary" do
-      assert {:error, _message} = IconPath.dump_to_native(:atom, [])
+    test "whitespace-only is not blank and stays rejected" do
+      assert {:error, message} = IconPath.cast_input("   ", [])
+      assert message =~ inspect("   ")
     end
   end
 end

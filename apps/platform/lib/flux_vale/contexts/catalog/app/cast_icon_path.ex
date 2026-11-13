@@ -11,9 +11,12 @@ defmodule FluxVale.Catalog.App.CastIconPath do
   the stored type a string keeps the wire contract intact while the
   change runs the same validation the type owns.
 
-  The raw params are checked ahead of the cast attributes: `:string`
-  trims before a change sees the value, so a padded path must be
-  rejected from the input the caller actually sent.
+  The raw params are checked ahead of the cast attributes for a changed
+  value supplied in params: `:string` trims before a change sees the
+  value, so a padded path is rejected from what the caller sent. A
+  programmatic `change_attribute`/`force_change_attribute` reaches only
+  the trimmed fallback, and a padded value equal to the current value
+  is dropped as a no-op; both store a safe, trimmed path.
   """
 
   use Ash.Resource.Change

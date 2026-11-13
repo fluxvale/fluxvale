@@ -366,7 +366,7 @@ defmodule FluxValeWeb.CatalogControllerTest do
                  html
                )
 
-      refute html =~ "/images/catalog/forgejo/icon.svg"
+      refute html =~ ~r{data-testid="app-icon"[^>]*>\s*<img}
     end
 
     # The nil fields are the sanctioned nullable shape (the OpenAPI
