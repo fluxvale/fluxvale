@@ -535,10 +535,12 @@ sole membership. Reads need `gateways:read`; attach/detach need \
 a domain (pending until certificate issuance); verify re-reads one \
 domain's state (issuance is the only verifier and this action triggers \
 nothing); delete removes the row (the server refuses a domain still \
-serving hostnames). Every row carries `live`, `healthy`, and a \
-machine-readable `serving.reason_code`: `platform`, `pending`, `failed`, \
-`needs_attention`, `suspended`, `no_gateway`, `no_api_token`, \
-`unclaimed`, `claimed`, `gateway_not_serving`, `removed`, or `unknown`. \
+serving hostnames). Every row carries `live` (serving right now), \
+`healthy` (the certificate/registration is untroubled — `live` is what \
+says it serves), and a machine-readable `serving.reason_code`: `platform`, \
+`pending`, `failed`, `needs_attention`, `suspended`, `no_gateway`, \
+`no_api_token`, `unclaimed`, `claimed`, `gateway_not_serving`, \
+`removed`, or `unknown`. \
 A verified-but-unclaimed domain is never reported live — claiming is not \
 a self-serve surface yet; `needs_attention` is live only while its \
 retained claim is active (the cert still serves, `healthy` stays false). \
