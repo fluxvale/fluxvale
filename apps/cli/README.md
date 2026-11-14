@@ -49,7 +49,7 @@ fluxvale auth login     # prints a code, opens the approval page
                         # the token lands in your OS keychain — done
 ```
 
-The token never appears on screen; `fluxvale auth logout` removes it.
+The sign-in token never appears on screen; `fluxvale auth logout` removes it. A minted CI token is the exception by design: `fluxvale auth token` prints it once to stdout.
 
 ## Commands
 

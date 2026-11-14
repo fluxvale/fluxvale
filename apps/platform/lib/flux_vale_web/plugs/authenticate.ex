@@ -46,6 +46,9 @@ defmodule FluxValeWeb.Plugs.Authenticate do
   # last_used_at granularity — coarser stamps buy nothing (nothing
   # displays finer than "recently") and the write is per-request.
   @last_used_granularity_seconds 60
+  # A derivation chain deeper than this is not a real CLI flow; the
+  # cap bounds the per-request ancestor reads (and any forged cycle).
+  @max_parent_depth 8
 
   @doc false
   @spec init(keyword) :: keyword
@@ -126,12 +129,17 @@ defmodule FluxValeWeb.Plugs.Authenticate do
   # minted by the panel or the device flow carry no parent and pass
   # on their own row alone. The chain cannot cycle: a parent row is
   # created before the child that names it.
-  defp lineage_live?(pat) do
+  defp lineage_live?(pat), do: lineage_live?(pat, @max_parent_depth)
+
+  defp lineage_live?(_pat, 0), do: false
+
+  defp lineage_live?(pat, depth) do
     case pat.metadata do
       %{"minted_parent_id" => parent_id} when is_binary(parent_id) ->
         case PersonalAccessToken.get(parent_id, authorize?: false) do
           {:ok, parent} when is_nil(parent.revoked_at) ->
-            DateTime.after?(parent.expires_at, DateTime.utc_now()) and lineage_live?(parent)
+            DateTime.after?(parent.expires_at, DateTime.utc_now()) and
+              lineage_live?(parent, depth - 1)
 
           _missing_or_revoked ->
             false

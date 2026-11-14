@@ -186,7 +186,15 @@ defmodule FluxValeWeb.Api.TokenRouteTest do
           {%{"name" => "   ", "scopes" => [], "ttl_seconds" => 60}, "name must not be blank"},
           {%{"name" => String.duplicate("a", 101), "scopes" => [], "ttl_seconds" => 60},
            "at most 100"},
-          {%{"name" => 7, "scopes" => [], "ttl_seconds" => 60}, "name must be a string"}
+          {%{
+             "name" => String.duplicate("e\u0301", 100),
+             "scopes" => [],
+             "ttl_seconds" => 60
+           }, "at most 100"},
+          {%{"name" => "a" <> <<0>>, "scopes" => [], "ttl_seconds" => 60}, "NUL"},
+          {%{"name" => 7, "scopes" => [], "ttl_seconds" => 60}, "name must be a string"},
+          {%{"scopes" => List.duplicate("instances:read", 9), "ttl_seconds" => 60},
+           "at most 8 scopes"}
         ] do
       # A fresh caller per row: the rate limiter keys on the token,
       # and this suite deliberately camps on the refusal paths.
@@ -261,6 +269,58 @@ defmodule FluxValeWeb.Api.TokenRouteTest do
 
     assert %{"errors" => [%{"status" => "500", "detail" => "the token could not be minted"}]} =
              json_response(conn, 500)
+  end
+
+  test "the live derived-token cap refuses the next mint", %{conn: conn} do
+    {user, caller} = ApiPat.member!(["instances:read"])
+
+    for n <- 1..25 do
+      {:ok, _pat} =
+        Identity.mint_pat(user, %{
+          user_id: user.id,
+          name: "derived #{n}",
+          scopes: [],
+          metadata: %{"minted_parent_id" => "00000000-0000-0000-0000-000000000000"}
+        })
+    end
+
+    conn = mint(conn, caller, %{"scopes" => [], "ttl_seconds" => 60})
+
+    assert %{"errors" => [%{"status" => "429", "detail" => detail}]} =
+             json_response(conn, 429)
+
+    assert detail =~ "too many live minted tokens"
+  end
+
+  test "a lineage deeper than the cap fails closed" do
+    {user, _caller} = ApiPat.member!()
+
+    {:ok, %{pat: root}} =
+      Identity.mint_pat(user, %{
+        user_id: user.id,
+        name: "root",
+        scopes: ["instances:read"]
+      })
+
+    {_last, token} =
+      Enum.reduce(1..9, {root, nil}, fn n, {parent, _token} ->
+        {:ok, %{pat: child, token: raw}} =
+          Identity.mint_pat(user, %{
+            user_id: user.id,
+            name: "child #{n}",
+            scopes: ["instances:read"],
+            metadata: %{"minted_parent_id" => parent.id}
+          })
+
+        {child, raw}
+      end)
+
+    denied =
+      build_conn()
+      |> auth(token)
+      |> get("/api/v1/instances")
+
+    assert %{"errors" => [%{"status" => "401"}]} = json_response(denied, 401)
   end
 
   test "a session write is refused — machine writes need a token", %{conn: conn} do

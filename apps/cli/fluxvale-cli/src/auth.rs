@@ -179,10 +179,6 @@ pub fn mint_summary(minted: &MintedToken) -> String {
     )
 }
 
-/// `auth exec`: run `command` with the stored token in the child's
-/// environment ONLY, as `FLUXVALE_PAT`. The token never rides argv,
-/// never prints, and the parent shell's environment is untouched. The
-/// child's exit status is returned so the caller can pass it through.
 /// The child's status as the CLI's own exit code: `None` means
 /// success (return normally), a child failure keeps its own code, and
 /// a signal death becomes 1. Kept separate from the `process::exit`
@@ -195,6 +191,10 @@ pub fn exit_code(status: ExitStatus) -> Option<i32> {
     }
 }
 
+/// `auth exec`: run `command` with the stored token in the child's
+/// environment ONLY, as `FLUXVALE_PAT`. The token never rides argv,
+/// never prints, and the parent shell's environment is untouched. The
+/// child's exit status is returned so the caller can pass it through.
 pub fn exec(
     load: impl FnOnce() -> anyhow::Result<Option<Token>>,
     command: &[OsString],
@@ -712,6 +712,7 @@ mod tests {
             "1w",
             "h",
             "999999999999999999999d",
+            "999999999999999999d",
         ] {
             assert!(parse_ttl(raw).is_err(), "{raw:?} must be refused");
         }

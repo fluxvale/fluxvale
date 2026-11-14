@@ -60,15 +60,27 @@ defmodule FluxValeWeb.Api.ScopeRouteCoverageTest do
     # Enum.concat (not a cons) keeps the refute above honest — the
     # compiler can't prove the enumeration non-empty. The plain-JSON
     # token mint (#772) is a controller, not an AshJsonApi route, so
-    # it is listed by hand; its POST /api/v1/tokens table row is
-    # what the boundary plug reads.
+    # its route comes from the router itself — deleting or renaming
+    # the `post("/tokens", …)` line makes the table row dead and
+    # fails the reverse assertion.
     Enum.concat(
-      [
-        %{method: "GET", route: "/open_api"},
-        %{method: "POST", route: "/tokens"}
-      ],
+      [%{method: "GET", route: "/open_api"}] ++ router_controller_routes(),
       Enum.concat(domain_routes, resource_routes)
     )
+  end
+
+  # The controller routes the scope table maps but AshJsonApi does not
+  # enumerate. Today that is the token mint (#772); the router is the
+  # source, so a removed route cannot leave a hand-fed row behind.
+  defp router_controller_routes do
+    FluxValeWeb.Router.__routes__()
+    |> Enum.filter(&(&1.plug == FluxValeWeb.Api.TokenController))
+    |> Enum.map(fn route ->
+      %{
+        method: route.verb,
+        route: String.replace_prefix(route.path, "/api/v1", "")
+      }
+    end)
   end
 
   # The table's own shape, mirrored positionally: `:_` matches any

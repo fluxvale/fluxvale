@@ -385,6 +385,28 @@ mod tests {
     }
 
     #[test]
+    fn the_oauth_shaped_fallbacks_surface_the_server_words() {
+        for body in [
+            json!({"error": "invalid_client", "error_description": "unknown client"}),
+            json!({"error": "invalid_scope"}),
+        ] {
+            let server = script(vec![respond("400 Bad Request", &body)]);
+            let err = TokenClient::new(&server.base_url, Token::new("fvpat_caller"))
+                .mint(&MintRequest {
+                    name: None,
+                    scopes: vec![],
+                    ttl_seconds: 60,
+                })
+                .unwrap_err();
+            let text = err.to_string();
+            assert!(
+                text.starts_with("unknown client") || text == "invalid_scope",
+                "err: {text}"
+            );
+        }
+    }
+
+    #[test]
     fn a_bare_error_body_still_names_the_status() {
         let server = script(vec![respond("502 Bad Gateway", &json!({}))]);
         let err = TokenClient::new(&server.base_url, Token::new("fvpat_caller"))

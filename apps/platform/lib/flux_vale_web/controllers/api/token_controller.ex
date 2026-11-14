@@ -19,6 +19,7 @@ defmodule FluxValeWeb.Api.TokenController do
 
   alias FluxVale.Api.Scopes
   alias FluxVale.Identity
+  alias FluxVale.Identity.PersonalAccessToken
 
   # The panel's own create form supplies a name; the CLI's default
   # keeps the row identifiable in /settings/developer without one.
@@ -27,6 +28,13 @@ defmodule FluxValeWeb.Api.TokenController do
   # MintPat's own one-year bound, repeated here before the DateTime
   # arithmetic: a huge ttl_seconds must not overflow the calendar.
   @max_ttl_seconds 365 * 24 * 60 * 60
+  # A catalog longer than this is invalid by definition; the bound
+  # also keeps the O(n²) duplicate check cheap on an 8 MB body.
+  @max_scopes length(Scopes.all_scopes())
+  # The mint route is programmatic, so an unbounded fleet of child
+  # tokens would multiply the per-token meter. The cap counts live
+  # children only; revoking one frees a slot.
+  @max_live_derived_tokens 25
 
   @doc """
   Mints a token for the authenticated user from the request's
@@ -48,7 +56,8 @@ defmodule FluxValeWeb.Api.TokenController do
     with {:ok, scopes} <- scopes(params["scopes"]),
          :ok <- within_caller_scopes(caller, scopes),
          {:ok, ttl_seconds} <- ttl(params["ttl_seconds"]),
-         {:ok, name} <- name(params["name"]) do
+         {:ok, name} <- name(params["name"]),
+         :ok <- below_derived_cap(conn.assigns.current_user) do
       mint(conn, name, scopes, ttl_seconds)
     else
       {:error, status, detail} -> error(conn, status, detail)
@@ -56,23 +65,32 @@ defmodule FluxValeWeb.Api.TokenController do
   end
 
   defp scopes(scopes) when is_list(scopes) do
-    if Enum.all?(scopes, &is_binary/1) do
-      case Scopes.validate(scopes) do
-        :ok ->
-          {:ok, scopes}
+    cond do
+      length(scopes) > @max_scopes ->
+        {:error, 400, "at most #{@max_scopes} scopes are allowed"}
 
-        {:error, {:invalid_scope, scope}} ->
-          {:error, 400, "unknown scope #{scope}"}
+      not Enum.all?(scopes, &is_binary/1) ->
+        {:error, 400, "scopes must be an array of scope strings"}
 
-        {:error, {:duplicate_scope, scope}} ->
-          {:error, 400, "duplicate scope #{scope}"}
-      end
-    else
-      {:error, 400, "scopes must be an array of scope strings"}
+      true ->
+        validate_scopes(scopes)
     end
   end
 
   defp scopes(_other), do: {:error, 400, "scopes must be an array of scope strings"}
+
+  defp validate_scopes(scopes) do
+    case Scopes.validate(scopes) do
+      :ok ->
+        {:ok, scopes}
+
+      {:error, {:invalid_scope, scope}} ->
+        {:error, 400, "unknown scope #{scope}"}
+
+      {:error, {:duplicate_scope, scope}} ->
+        {:error, 400, "duplicate scope #{scope}"}
+    end
+  end
 
   defp within_caller_scopes(caller, scopes) do
     case Enum.find(scopes, &(not Scopes.grants?(caller.scopes, &1))) do
@@ -96,8 +114,14 @@ defmodule FluxValeWeb.Api.TokenController do
       trimmed == "" ->
         {:error, 400, "name must not be blank"}
 
-      String.length(trimmed) > @max_name_length ->
+      # Ash counts codepoints, not graphemes; match the column rule
+      # here so a combining form cannot reach the create and 500.
+      length(String.codepoints(trimmed)) > @max_name_length ->
         {:error, 400, "name must be at most #{@max_name_length} characters"}
+
+      # A NUL is not valid Postgres text; refuse it before the write.
+      String.contains?(trimmed, <<0>>) ->
+        {:error, 400, "name must not contain a NUL character"}
 
       true ->
         {:ok, trimmed}
@@ -105,6 +129,24 @@ defmodule FluxValeWeb.Api.TokenController do
   end
 
   defp name(_other), do: {:error, 400, "name must be a string"}
+
+  defp below_derived_cap(user) do
+    live =
+      user.id
+      |> PersonalAccessToken.list_for_user!(actor: user)
+      |> Enum.count(&live_derived?/1)
+
+    if live < @max_live_derived_tokens do
+      :ok
+    else
+      {:error, 429, "too many live minted tokens — revoke one first"}
+    end
+  end
+
+  defp live_derived?(pat) do
+    is_binary(pat.metadata["minted_parent_id"]) and is_nil(pat.revoked_at) and
+      DateTime.after?(pat.expires_at, DateTime.utc_now())
+  end
 
   defp mint(conn, name, scopes, ttl_seconds) do
     now = DateTime.utc_now()
@@ -164,5 +206,6 @@ defmodule FluxValeWeb.Api.TokenController do
   defp title(400), do: "Bad Request"
   defp title(401), do: "Unauthorized"
   defp title(403), do: "Forbidden"
+  defp title(429), do: "Too Many Requests"
   defp title(_other), do: "Internal Server Error"
 end
