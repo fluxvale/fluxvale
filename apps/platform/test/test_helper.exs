@@ -50,6 +50,8 @@ if Mix.env() == :test do
   # The restore operation's status funnel: tests force the :restoring write
   # to fail (the row-settling arm) without a hand-edited state machine.
   Mimic.copy(FluxVale.Infrastructure.Operations.InstanceK8s)
+  # #776: recovery repairs an error row's saved env before promoting
+  Mimic.copy(FluxVale.Infrastructure.Operations.InstanceEnvSecret)
   # #238: the deploy's RBAC-propagation wait probes SelfSubjectAccessReview
   Mimic.copy(FluxVale.Clients.K8s.SelfAccessReview)
   # ADR-0040 S3: a test must be able to force the gateway row's system

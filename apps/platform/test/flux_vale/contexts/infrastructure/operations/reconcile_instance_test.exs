@@ -11,6 +11,7 @@ defmodule FluxVale.Infrastructure.Operations.ReconcileInstanceTest do
   alias FluxVale.Clients.K8s.Resources.Pod
   alias FluxVale.Identity.User
   alias FluxVale.Infrastructure.Instance
+  alias FluxVale.Infrastructure.Operations.InstanceEnvSecret
   alias FluxVale.Infrastructure.Operations.InstanceK8s
   alias FluxVale.Infrastructure.Operations.ReconcileInstance
   alias FluxVale.TestSupport.InstanceFixtures
@@ -26,12 +27,15 @@ defmodule FluxVale.Infrastructure.Operations.ReconcileInstanceTest do
     User.create!("reconciler-#{System.unique_integer()}@fluxvale.com", %{}, authorize?: false)
   end
 
-  defp instance!(status) do
+  defp instance!(status, env_vars \\ %{}) do
     version = InstanceFixtures.app_version!()
     InstanceFixtures.local_cluster!()
 
     instance =
-      Instance.create!(%{name: "App", app_version_id: version.id, env_vars: %{}}, actor: user())
+      Instance.create!(
+        %{name: "App", app_version_id: version.id, env_vars: env_vars},
+        actor: user()
+      )
 
     # pending → deploying → … — the legal chain to `status`; namespace is
     # write-once, so it is seed-pinned after the chain.
@@ -445,6 +449,28 @@ defmodule FluxVale.Infrastructure.Operations.ReconcileInstanceTest do
       assert errored.failure_reason == :rollout_failed
     end
 
+    test "an unobserved generation is not a settled revision" do
+      stub_kubeconfig()
+      instance = instance!(:starting)
+
+      # The controller has not observed the new spec yet: the replica
+      # counts still describe the previous generation.
+      expect(Deployment, :status, fn _kc, _ns, _n ->
+        {:ok,
+         deployment_status(%{
+           generation: 2,
+           observed_generation: 1,
+           actual_replicas: 1,
+           updated: 1,
+           ready: 1
+         })}
+      end)
+
+      assert {:ok, returned} = ReconcileInstance.call(instance)
+      assert returned.status == :starting
+      assert returned.updated_at == instance.updated_at
+    end
+
     test "a ready :starting row promotes despite a stale ReplicaFailure" do
       stub_kubeconfig()
       instance = instance!(:starting)
@@ -536,6 +562,26 @@ defmodule FluxVale.Infrastructure.Operations.ReconcileInstanceTest do
 
       assert {:ok, returned} = ReconcileInstance.call(instance)
       assert returned.status == :running
+    end
+
+    test "a pod read failure never turns a deadlined rollout into :error" do
+      stub_kubeconfig()
+      instance = instance!(:starting)
+
+      expect(Deployment, :status, fn _kc, _ns, _n ->
+        {:ok,
+         deployment_status(%{
+           conditions: [conditions("Progressing", "False", reason: "ProgressDeadlineExceeded")]
+         })}
+      end)
+
+      expect(Pod, :list_by_labels, fn _kc, _ns, _labels ->
+        {:error, Error.connection_error("pod list failed")}
+      end)
+
+      assert {:ok, returned} = ReconcileInstance.call(instance)
+      assert returned.status == :starting
+      assert returned.updated_at == instance.updated_at
     end
   end
 
@@ -747,6 +793,39 @@ defmodule FluxVale.Infrastructure.Operations.ReconcileInstanceTest do
       assert running.status == :running
       assert is_nil(running.failure_reason)
       assert running.running_since
+    end
+
+    test "a healthy errored row projects its saved env before :running" do
+      stub_kubeconfig()
+      instance = instance!(:error, %{"FOO" => "bar"})
+      ns = "fluxvale-app-#{instance.id}"
+
+      expect(Deployment, :status, fn _kc, ^ns, _n ->
+        {:ok, deployment_status(%{actual_replicas: 1, updated: 1, ready: 1})}
+      end)
+
+      expect(InstanceEnvSecret, :upsert, fn _kc, ^ns, %{"FOO" => "bar"}, [], false -> :ok end)
+      expect(InstanceEnvSecret, :restart, fn _kc, ^ns -> :ok end)
+
+      assert {:ok, running} = ReconcileInstance.call(instance)
+      assert running.status == :running
+      assert running.env_vars == %{"FOO" => "bar"}
+    end
+
+    test "a failed env repair leaves the error" do
+      stub_kubeconfig()
+      instance = instance!(:error, %{"FOO" => "bar"})
+
+      expect(Deployment, :status, fn _kc, _ns, _n ->
+        {:ok, deployment_status(%{actual_replicas: 1, updated: 1, ready: 1})}
+      end)
+
+      expect(InstanceEnvSecret, :upsert, fn _kc, _ns, _set, _remove, _existing ->
+        {:error, Error.connection_error("secret write failed")}
+      end)
+
+      assert {:ok, returned} = ReconcileInstance.call(instance)
+      assert returned.status == :error
     end
 
     test "a failed row with an unschedulable pod lands :no_capacity" do

@@ -99,6 +99,15 @@ defmodule FluxVale.Infrastructure.Operations.RestoringStateTest do
     test ":restore_failed is a failure reason" do
       assert :restore_failed in InstanceFailureReason.values()
     end
+
+    test "the recoverable set is the unintended failures (#776)" do
+      assert InstanceFailureReason.recoverable() == [
+               :stuck,
+               :missing,
+               :rollout_failed,
+               :start_failed
+             ]
+    end
   end
 
   describe "the reconciler leaves :restoring alone" do

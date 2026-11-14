@@ -472,6 +472,13 @@ export ID='<a running staging instance id>'      # from GET /api/v1/instances
 export SLUG='<that instance slug>'
 export NS=fluxvale-app-$ID
 api() { curl -fsS -H "Authorization: Bearer $PAT" -H 'content-type: application/vnd.api+json' "$@"; }
+# Event OBJECTS can stay constant while an Event repeats (count/series.count
+# grows), so count occurrences, never `.items|length`.
+failed_create_occurrences() {
+  kubectl --context admin@fluxvale -n "$NS" get events \
+    --field-selector reason=FailedCreate -o json \
+    | jq '[.items[] | (.series.count // .count // 1)] | add // 0'
+}
 
 curl -fsS "$BASE/health" | jq -r .version
 # sha-<merge>
@@ -480,9 +487,8 @@ curl -fsS "$BASE/health" | jq -r .version
 api "$BASE/api/v1/instances/$ID" | jq -r '.data.attributes.status'
 # running
 
-# 2. baseline events (the namespace may carry old events)
-BEFORE=$(kubectl --context admin@fluxvale -n "$NS" get events \
-  --field-selector reason=FailedCreate -o json | jq '.items|length')
+# 2. baseline occurrences (the namespace may carry old events)
+BEFORE=$(failed_create_occurrences)
 echo "before=$BEFORE"
 
 # 3. roll a running instance's env
@@ -517,11 +523,9 @@ kubectl --context admin@fluxvale -n "$NS" get deploy app \
 # (no ReplicaFailure line)
 
 # 8. quota events: the handoff burst must stop, not grow
-AFTER=$(kubectl --context admin@fluxvale -n "$NS" get events \
-  --field-selector reason=FailedCreate -o json | jq '.items|length')
+AFTER=$(failed_create_occurrences)
 sleep 30
-AFTER2=$(kubectl --context admin@fluxvale -n "$NS" get events \
-  --field-selector reason=FailedCreate -o json | jq '.items|length')
+AFTER2=$(failed_create_occurrences)
 echo "before=$BEFORE after=$AFTER after30=$AFTER2"
 # D1=A (maxSurge 0): after > before (the ~1s handoff burst), after30 == after
 #   (no sustained failures), and step 7 shows no ReplicaFailure.
@@ -535,8 +539,9 @@ condition persists until a new revision lands, which would muddy the roll
 assertion.
 
 **Done when**: the transcript above is in the PR/issue report with the
-raw numbers (`before`, `after`, `after30`, 18 × `running`, `200`,
-condition list) and D1's chosen assertion holds.
+raw occurrence counts (`before`, `after`, `after30` — not Event object
+counts), 18 × `running`, `200`, the condition list, and D1's chosen
+assertion holds.
 
 ## Overall PR gate
 

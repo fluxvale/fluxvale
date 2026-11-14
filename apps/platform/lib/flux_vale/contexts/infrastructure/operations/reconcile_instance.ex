@@ -25,9 +25,11 @@ defmodule FluxVale.Infrastructure.Operations.ReconcileInstance do
     into `:error` — the row waits for the scheduler (or the owner's
     stop) instead
   - `:error` rows whose failure is unintended (stuck/missing/rollout/
-    start) and whose current revision is now ready → `:running`; the
-    intent-bearing failures (`:stop_failed`, `:restore_failed`,
-    `:teardown_failed`) keep their error
+    start) and whose current revision is now ready → project any saved
+    env (upsert + restart; the row's error-time env writes are
+    row-only) then `:running`; the intent-bearing failures
+    (`:stop_failed`, `:restore_failed`, `:teardown_failed`) keep their
+    error
   - `:starting`/`:running` whose Deployment vanished (404) or became
     unreadable as **403** (the per-namespace RoleBinding dies with the
     namespace, so a deleted namespace answers Deployment reads with
@@ -50,6 +52,7 @@ defmodule FluxVale.Infrastructure.Operations.ReconcileInstance do
   alias FluxVale.Clients.K8s.Resources.Namespace
   alias FluxVale.Clients.K8s.Resources.Pod
   alias FluxVale.Infrastructure.Instance
+  alias FluxVale.Infrastructure.Operations.InstanceEnvSecret
   alias FluxVale.Infrastructure.Operations.InstanceK8s
 
   require Logger
@@ -213,13 +216,38 @@ defmodule FluxVale.Infrastructure.Operations.ReconcileInstance do
   end
 
   defp recover_if_ready(kubeconfig, instance, status) do
-    if current_revision_ready?(status) do
+    cond do
+      not current_revision_ready?(status) ->
+        case scheduling_state(kubeconfig, instance) do
+          {:unschedulable, reason} -> mark_no_capacity(instance, reason)
+          _scheduled_or_unreadable -> {:ok, instance}
+        end
+
+      instance.env_vars == %{} ->
+        promote_running(instance)
+
+      true ->
+        repair_env_and_promote(kubeconfig, instance)
+    end
+  end
+
+  # An :error row's env updates are row-only (UpdateEnv's pre-deploy
+  # stance), so a recovery must project the saved env before the row
+  # says :running. Upsert merges, preserving the Secret's system keys;
+  # the restart picks the values up. A failed repair leaves the error
+  # (redeploy owns the repair, as the env action tells the owner).
+  defp repair_env_and_promote(kubeconfig, instance) do
+    with :ok <-
+           InstanceEnvSecret.upsert(kubeconfig, instance.namespace, instance.env_vars, [], false),
+         :ok <- InstanceEnvSecret.restart(kubeconfig, instance.namespace) do
       promote_running(instance)
     else
-      case scheduling_state(kubeconfig, instance) do
-        {:unschedulable, reason} -> mark_no_capacity(instance, reason)
-        _scheduled_or_unreadable -> {:ok, instance}
-      end
+      {:error, error} ->
+        Logger.warning(
+          "Instance #{instance.id}: env repair before recovery failed (#{inspect(error)}); leaving error"
+        )
+
+        {:ok, instance}
     end
   end
 
@@ -300,7 +328,7 @@ defmodule FluxVale.Infrastructure.Operations.ReconcileInstance do
         promote_running(instance)
 
       other = unschedulable_pod(kubeconfig, instance) ->
-        mark_no_capacity(instance, other)
+        hold_or_mark_no_capacity(instance, other)
 
       failed_rollout?(conditions) ->
         fail_rollout(instance, conditions)
@@ -322,7 +350,10 @@ defmodule FluxVale.Infrastructure.Operations.ReconcileInstance do
   # honest, because ready old pods alone are not a rolled-out spec
   # (#776). Scaled-to-zero is handled by the caller's desired > 0 guard.
   defp current_revision_ready?(%{replicas: desired, ready: ready} = status) when desired > 0 do
-    ready >= desired and Map.get(status, :updated, 0) >= desired
+    generation = Map.get(status, :generation, 0)
+    observed = Map.get(status, :observed_generation, 0)
+
+    ready >= desired and Map.get(status, :updated, 0) >= desired and observed >= generation
   end
 
   # Defensive: every caller passes desired > 0 (transition_for's zero
@@ -368,9 +399,16 @@ defmodule FluxVale.Infrastructure.Operations.ReconcileInstance do
   defp unschedulable_pod(kubeconfig, instance) do
     case scheduling_state(kubeconfig, instance) do
       {:unschedulable, reason} -> reason
-      _scheduled_absent_or_unreadable -> nil
+      {:error, error} -> {:error, error}
+      _scheduled_or_absent -> nil
     end
   end
+
+  # A scheduling read failure is not evidence of a failed rollout: hold
+  # the status for this pass (scheduling_state already logged it).
+  defp hold_or_mark_no_capacity(instance, {:error, _error}), do: {:ok, instance}
+
+  defp hold_or_mark_no_capacity(instance, reason), do: mark_no_capacity(instance, reason)
 
   defp scheduling_state(kubeconfig, instance) do
     case Pod.list_by_labels(kubeconfig, instance.namespace, @app_labels) do
