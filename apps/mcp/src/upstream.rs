@@ -1533,7 +1533,27 @@ pub(crate) async fn instances_resize(
         }
 
         // The actual state is the read-back, not the start call's row.
+        // A reconciler can move a just-started row to :error before
+        // this read; that is a failed start, not a success.
         let final_row = read_instance(&client, &id).unwrap_or(last_row);
+        if final_row["status"] == "error" {
+            steps["start"] = json!("failed");
+            return Ok(json!({
+                "ok": false,
+                "step": "start",
+                "steps": steps,
+                "error": START_LANDED_ERROR,
+                "start_error": START_LANDED_ERROR,
+                "started": false,
+                "instance": final_row,
+                "previous_allocation": previous_allocation,
+                "new_allocation": new_allocation,
+                "price": price,
+                "price_currency": "USD",
+                "price_period": "monthly · billed hourly",
+                "price_basis": PRICE_BASIS,
+            }));
+        }
         Ok(json!({
             "ok": true,
             "step": "start",
@@ -4330,6 +4350,39 @@ mod tests {
                 .iter()
                 .all(|request| !request.starts_with("patch /api/v1/instances/i1/start"))
         );
+    }
+
+    #[tokio::test]
+    async fn a_read_back_that_lands_error_is_a_failed_start() {
+        let resized = json!({"data": {"type": "instance", "id": "i1",
+            "attributes": {"id": "i1", "status": "stopped", "cpu_cores": "2",
+                           "memory_mb": 2048, "storage_gb": 10}}});
+        let quote = json!({"cpu_cores": "2", "memory_mb": 2048, "storage_gb": 10,
+                           "monthly_cents": 900, "stopped_monthly_cents": 40,
+                           "monthly": "$9.00/mo", "stopped": "$0.40 while stopped"});
+        let server = script(vec![
+            respond_envelope("200 OK", json!({"data": instance_row("i1", "stopped")})),
+            respond_envelope("200 OK", resized),
+            respond_envelope("200 OK", json!({"data": instance_row("i1", "starting")})),
+            respond_envelope("200 OK", quote),
+            respond_envelope("200 OK", json!({"data": instance_row("i1", "error")})),
+        ]);
+        let value = instances_resize(
+            base_of(&server),
+            token(),
+            "i1".into(),
+            Some("2".into()),
+            Some(2048),
+            None,
+        )
+        .await
+        .unwrap();
+        assert_eq!(value["ok"], false);
+        assert_eq!(value["step"], "start");
+        assert_eq!(value["steps"]["start"], "failed");
+        assert_eq!(value["started"], false);
+        assert_eq!(value["error"], START_LANDED_ERROR);
+        assert_eq!(value["instance"]["status"], "error");
     }
 
     #[tokio::test]
