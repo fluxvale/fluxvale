@@ -47,6 +47,14 @@ defmodule FluxVale.Checks.ActorIsOrganizationOwner do
     owner?(user_id, org_id)
   end
 
+  # The org-scoped update subject (#760): a gateway (or any row that
+  # carries its org id) is owned through that org's membership — the
+  # moduledoc's "the update changeset carries the org id" case.
+  def owner?(%{id: user_id}, %Ash.Changeset{data: %{organization_id: org_id}})
+      when is_binary(org_id) do
+    owner?(user_id, org_id)
+  end
+
   def owner?(_actor, _subject), do: false
 
   # authorize?: false — the check IS the authorization; the membership

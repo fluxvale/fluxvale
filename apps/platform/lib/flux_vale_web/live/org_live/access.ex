@@ -254,6 +254,38 @@ defmodule FluxValeWeb.OrganizationLive.Access do
     {:noreply, assign(socket, repaste_open?: not socket.assigns.repaste_open?)}
   end
 
+  # #760: the API token is a paste-only secret — the auth-key posture,
+  # one field, no reveal, no read-back. The submit runs the gateway's
+  # :set_api_token action, which also claims the org's verified domains.
+  def handle_event("validate-token", %{"gateway" => params}, socket) do
+    form =
+      socket.assigns.token_form
+      |> AshPhoenix.Form.validate(params)
+      |> clear_token_display()
+
+    {:noreply, assign(socket, token_form: form)}
+  end
+
+  def handle_event("save-token", %{"gateway" => params}, socket) do
+    case AshPhoenix.Form.submit(socket.assigns.token_form, params: params) do
+      {:ok, gateway} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, "Token saved.")
+         |> assign(gateway: gateway)
+         |> assign_forms()}
+
+      {:error, form} ->
+        # Field-less failures (and the write's own message) surface as a
+        # flash; the form rebuilds from the row with only its errors, so
+        # the submitted token never echoes back (ADR-0039 §4).
+        {:noreply,
+         socket
+         |> put_flash(:error, "Couldn't save the access token. Try again.")
+         |> rebuild_token_form_with_errors(form)}
+    end
+  end
+
   # The empty state is a normal state of this panel (the teardown can
   # delete the row out from under any card), so every event in the
   # remove family is a no-op there — a nil gateway has nothing to arm,
@@ -538,6 +570,7 @@ defmodule FluxValeWeb.OrganizationLive.Access do
                 <.gateway_card
                   gateway={@gateway}
                   form={@form}
+                  token_form={@token_form}
                   row_funded?={@row_funded?}
                   row_paid?={@row_paid?}
                   billing_path={@billing_path}
@@ -729,6 +762,7 @@ defmodule FluxValeWeb.OrganizationLive.Access do
 
   attr(:gateway, AccessGateway, required: true)
   attr(:form, :any, required: true)
+  attr(:token_form, :any, required: true)
   attr(:row_funded?, :boolean, required: true)
   attr(:row_paid?, :boolean, required: true)
   attr(:billing_path, :string, required: true)
@@ -783,6 +817,7 @@ defmodule FluxValeWeb.OrganizationLive.Access do
         <.gateway_actions
           gateway={@gateway}
           form={@form}
+          token_form={@token_form}
           row_funded?={@row_funded?}
           row_paid?={@row_paid?}
           billing_path={@billing_path}
@@ -796,6 +831,7 @@ defmodule FluxValeWeb.OrganizationLive.Access do
 
   attr(:gateway, AccessGateway, required: true)
   attr(:form, :any, required: true)
+  attr(:token_form, :any, required: true)
   attr(:row_funded?, :boolean, required: true)
   attr(:row_paid?, :boolean, required: true)
   attr(:billing_path, :string, required: true)
@@ -818,6 +854,7 @@ defmodule FluxValeWeb.OrganizationLive.Access do
             submit_label="Save key"
           />
         <% @gateway.state == :active -> %>
+          <.token_panel form={@token_form} token_set_at={@gateway.token_set_at} />
           <.repaste_panel
             form={@form}
             open?={@repaste_open?}
@@ -832,6 +869,7 @@ defmodule FluxValeWeb.OrganizationLive.Access do
               removed from your Tailscale admin console. Paste a fresh key to reconnect.
             </p>
           </.callout>
+          <.token_panel form={@token_form} token_set_at={@gateway.token_set_at} />
           <.repaste_panel
             form={@form}
             open?={@repaste_open?}
@@ -861,6 +899,63 @@ defmodule FluxValeWeb.OrganizationLive.Access do
             Retry removal
           </.button>
       <% end %>
+    </div>
+    """
+  end
+
+  attr(:form, :any, required: true)
+  attr(:token_set_at, :any, required: true)
+
+  # The token card (#760): the one field ADR-0040 Am. 3 asks for, pasted
+  # once and rotated before the 90-day expiry. The copy names the four
+  # scopes because the token is useless without them, and says plainly
+  # that saving claims already-verified domains.
+  defp token_panel(assigns) do
+    ~H"""
+    <div class="border-t border-line pt-4" data-testid="access-api-token">
+      <div>
+        <h3 class="text-sm font-medium text-ink">Tailscale API token</h3>
+        <p class="mt-1 text-xs text-ink-muted">
+          Needed to claim your domains on your tailnet. Create it in your Tailscale admin
+          console with the scopes <span class="font-mono">dns</span>, <span class="font-mono">devices:routes</span>,
+          <span class="font-mono">devices:core:read</span>
+          and <span class="font-mono">auth_keys</span>.
+        </p>
+        <p class="mt-1 text-xs text-ink-muted">
+          It is stored write-only and never shown again. Saving claims the domains you have
+          already verified.
+        </p>
+        <p
+          :if={@token_set_at}
+          class="mt-1 text-xs text-ink-subtle"
+          data-testid="access-api-token-age"
+        >
+          Token set {Calendar.strftime(@token_set_at, "%b %d, %Y")}. Tailscale API keys
+          expire within 90 days — paste a fresh one before then.
+        </p>
+      </div>
+
+      <.form
+        for={@form}
+        id="access-api-token-form"
+        phx-change="validate-token"
+        phx-submit="save-token"
+        class="space-y-3"
+      >
+        <.input
+          field={@form[:api_token]}
+          type="password"
+          label="API token"
+          placeholder="tskey-api-…"
+          required
+          data-testid="access-api-token-input"
+        />
+        <div class="flex justify-end">
+          <.button type="submit" size="sm" data-testid="access-api-token-save">
+            Save token
+          </.button>
+        </div>
+      </.form>
     </div>
     """
   end
@@ -1154,20 +1249,28 @@ defmodule FluxValeWeb.OrganizationLive.Access do
   defp assign_forms(socket) do
     user = socket.assigns.current_user
 
-    form =
-      case socket.assigns.gateway do
-        nil ->
+    case socket.assigns.gateway do
+      nil ->
+        form =
           AccessGateway
           |> AshPhoenix.Form.for_create(:create, actor: user, as: "gateway")
           |> to_form()
 
-        gateway ->
+        assign(socket, form: form, token_form: nil)
+
+      gateway ->
+        form =
           gateway
           |> AshPhoenix.Form.for_update(:update_credential, actor: user, as: "gateway")
           |> to_form()
-      end
 
-    assign(socket, form: form)
+        token_form =
+          gateway
+          |> AshPhoenix.Form.for_update(:set_api_token, actor: user, as: "gateway")
+          |> to_form()
+
+        assign(socket, form: form, token_form: token_form)
+    end
   end
 
   # The create form gets the panel-owned inputs merged in; the re-paste
@@ -1207,6 +1310,16 @@ defmodule FluxValeWeb.OrganizationLive.Access do
     %{ash_form | source: Ash.Changeset.set_argument(ash_form.source, :auth_key, "")}
   end
 
+  # The same posture for the API token (#760): a validate round-trip is
+  # a read-back, so the argument is cleared as soon as it is validated.
+  defp clear_token_display(%Phoenix.HTML.Form{source: %AshPhoenix.Form{} = ash_form} = form) do
+    %{form | source: strip_token_argument(ash_form)}
+  end
+
+  defp strip_token_argument(ash_form) do
+    %{ash_form | source: Ash.Changeset.set_argument(ash_form.source, :api_token, "")}
+  end
+
   # A failed submit rediscovers the form from the row — which has no
   # key — and carries only the errored form's field errors, so the
   # submitted key never echoes back (ADR-0039 §4; the backups panel's
@@ -1218,6 +1331,16 @@ defmodule FluxValeWeb.OrganizationLive.Access do
       errors = AshPhoenix.Form.errors(errored_form)
 
       assign(socket, form: %{socket.assigns.form | errors: errors})
+    end)
+  end
+
+  defp rebuild_token_form_with_errors(socket, errored_form) do
+    socket
+    |> assign_forms()
+    |> then(fn socket ->
+      errors = AshPhoenix.Form.errors(errored_form)
+
+      assign(socket, token_form: %{socket.assigns.token_form | errors: errors})
     end)
   end
 

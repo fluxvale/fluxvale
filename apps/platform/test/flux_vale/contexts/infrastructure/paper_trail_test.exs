@@ -411,4 +411,37 @@ defmodule FluxVale.Infrastructure.PaperTrailTest do
       assert teardown_error["kind"] == "Ash.Error.Invalid"
     end
   end
+
+  describe "the API-token intake leaves attributed, redacted evidence (#760)" do
+    test "a token paste versions the owner and never stores the token" do
+      token = "tskey-api-SECRET-marker"
+
+      {org, owner} = BillingFixtures.grant_free_org!()
+
+      stub(Tailscale, :provision_gateway, fn _gateway, _key ->
+        {:ok, %{credential_secret_ref: "credential-stub"}}
+      end)
+
+      stub(Tailscale, :write_api_credential, fn _gateway, _token ->
+        {:ok, %{api_token_secret_ref: "api-credential-abc"}}
+      end)
+
+      gateway = AccessFixtures.gateway!(org)
+
+      assert :ok =
+               FluxVale.Infrastructure.set_access_api_token(gateway, token, actor: owner)
+
+      gateway_versions = versions!(AccessGateway.Version, gateway.id)
+      paste = Enum.find(gateway_versions, &(&1.version_action_name == :set_api_token))
+
+      assert paste
+      assert paste.user_id == owner.id
+      assert paste.actor_label == owner.username
+
+      # The argument is sensitive: ADR-0048's stance stores the marker,
+      # and the value itself appears in no version row.
+      assert paste.version_action_inputs["api_token"] == "REDACTED"
+      refute Enum.any?(gateway_versions, &(inspect(&1) =~ token))
+    end
+  end
 end

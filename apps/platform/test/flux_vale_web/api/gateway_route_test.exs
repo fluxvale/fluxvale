@@ -456,4 +456,91 @@ defmodule FluxValeWeb.Api.GatewayRouteTest do
       assert %{"success" => true} = json_response(conn, 200)
     end
   end
+
+  describe "PATCH /api/v1/access-gateways/:id/api-token (#760)" do
+    test "the owner stores the token — 200, no token anywhere on the wire", %{conn: conn} do
+      {user, org} = paid_member!()
+      gateway = AccessFixtures.gateway!(org)
+
+      stub(Tailscale, :write_api_credential, fn gw, token ->
+        assert gw.id == gateway.id
+        assert token == "tskey-api-ROUTE-secret"
+        {:ok, %{api_token_secret_ref: "api-credential-abc"}}
+      end)
+
+      pat = ApiPat.mint!(user, ["gateways:write"])
+
+      conn =
+        conn
+        |> auth(pat)
+        |> put_req_header("content-type", "application/vnd.api+json")
+        |> patch("/api/v1/access-gateways/#{gateway.id}/api-token", %{
+          "data" => %{
+            "type" => "access_gateway",
+            "attributes" => %{"api_token" => "tskey-api-ROUTE-secret"}
+          }
+        })
+
+      assert %{"data" => row} = json_response(conn, 200)
+      assert row["attributes"]["api_token_set"] == true
+      assert row["attributes"]["claimed_domains"] == []
+      refute Map.has_key?(row["attributes"], "api_token")
+      refute conn.resp_body =~ "ROUTE-secret"
+
+      stored = AccessGateway.get_by_id!(gateway.id, authorize?: false)
+      assert stored.api_token_secret_ref == "api-credential-abc"
+    end
+
+    test "a read-only token is refused by the scope gate — 403", %{conn: conn} do
+      {user, org} = paid_member!()
+      gateway = AccessFixtures.gateway!(org)
+
+      pat = ApiPat.mint!(user, ["gateways:read"])
+
+      conn =
+        conn
+        |> auth(pat)
+        |> put_req_header("content-type", "application/vnd.api+json")
+        |> patch("/api/v1/access-gateways/#{gateway.id}/api-token", %{
+          "data" => %{
+            "type" => "access_gateway",
+            "attributes" => %{"api_token" => "tskey-api-ROUTE-secret"}
+          }
+        })
+
+      assert %{"errors" => [%{"status" => "403"}]} = json_response(conn, 403)
+
+      stored = AccessGateway.get_by_id!(gateway.id, authorize?: false)
+      assert stored.api_token_secret_ref == nil
+    end
+
+    test "a plain member of the org cannot paste — 403 Forbidden", %{conn: conn} do
+      {_owner_user, org} = paid_member!()
+      gateway = AccessFixtures.gateway!(org)
+
+      member = AccountsFixtures.user!()
+
+      Membership.create!(%{organization_id: org.id, user_id: member.id, role: :member},
+        authorize?: false
+      )
+
+      pat = ApiPat.mint!(member, ["gateways:write"])
+
+      conn =
+        conn
+        |> auth(pat)
+        |> put_req_header("content-type", "application/vnd.api+json")
+        |> patch("/api/v1/access-gateways/#{gateway.id}/api-token", %{
+          "data" => %{
+            "type" => "access_gateway",
+            "attributes" => %{"api_token" => "tskey-api-ROUTE-secret"}
+          }
+        })
+
+      assert %{"errors" => [%{"status" => "403"}]} = json_response(conn, 403)
+
+      stored = AccessGateway.get_by_id!(gateway.id, authorize?: false)
+      assert stored.api_token_secret_ref == nil
+    end
+  end
 end
