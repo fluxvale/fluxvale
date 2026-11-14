@@ -543,4 +543,36 @@ defmodule FluxValeWeb.Api.GatewayRouteTest do
       assert stored.api_token_secret_ref == nil
     end
   end
+
+  describe "PATCH /api/v1/access-gateways/:id/api-token — failure shapes (#760)" do
+    test "a provider failure is a JSON:API error, never a 500 raise", %{conn: conn} do
+      {user, org} = paid_member!()
+      gateway = AccessFixtures.gateway!(org)
+
+      stub(Tailscale, :write_api_credential, fn _gw, _t ->
+        {:error,
+         %FluxVale.Clients.K8s.Error{status_code: 500, reason: :api_error, message: "boom"}}
+      end)
+
+      pat = ApiPat.mint!(user, ["gateways:write"])
+
+      conn =
+        conn
+        |> auth(pat)
+        |> put_req_header("content-type", "application/vnd.api+json")
+        |> patch("/api/v1/access-gateways/#{gateway.id}/api-token", %{
+          "data" => %{
+            "type" => "access_gateway",
+            "attributes" => %{"api_token" => "tskey-api-ROUTE-secret"}
+          }
+        })
+
+      assert %{"errors" => [%{"status" => status} | _rest]} = json_response(conn, 400)
+      assert status == "400"
+      refute conn.resp_body =~ "ROUTE-secret"
+      refute conn.resp_body =~ "boom"
+
+      assert AccessGateway.get_by_id!(gateway.id, authorize?: false).api_token_secret_ref == nil
+    end
+  end
 end

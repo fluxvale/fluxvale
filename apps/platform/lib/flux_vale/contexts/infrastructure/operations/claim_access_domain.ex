@@ -59,7 +59,7 @@ defmodule FluxVale.Infrastructure.Operations.ClaimAccessDomain do
          {:ok, resolver_ip} <- resolver_ip(),
          result <-
            AccessProvider.impl_for(gateway).claim_domain(gateway, domain.domain, resolver_ip) do
-      land(result, gateway, domain, resolver_ip, render?)
+      land(result, gateway, domain, resolver_ip, render?, actor)
     end
   end
 
@@ -72,14 +72,14 @@ defmodule FluxVale.Infrastructure.Operations.ClaimAccessDomain do
   # The claims write committed = the view's source of truth moved, so the
   # Corefile re-renders best-effort after it (ADR-0040 §4's derived-state
   # stance) — a failed render never fails the claim.
-  defp land({:ok, _claimed}, gateway, domain, resolver_ip, render?) do
+  defp land({:ok, _claimed}, gateway, domain, resolver_ip, render?, actor) do
     claims =
       Map.put(gateway.dns_claims || %{}, domain.domain, %{
         "ip" => resolver_ip,
         "tailnet" => gateway.tailnet_domain
       })
 
-    case put_claims(gateway, domain.domain, claims, 1) do
+    case put_claims(gateway, domain.domain, claims, 1, actor) do
       {:ok, row} ->
         if render? do
           RenderAccessDNS.call()
@@ -92,13 +92,14 @@ defmodule FluxVale.Infrastructure.Operations.ClaimAccessDomain do
     end
   end
 
-  defp land({:error, kind} = error, gateway, _domain, _resolver_ip, _render?)
+  defp land({:error, kind} = error, gateway, _domain, _resolver_ip, _render?, _actor)
        when kind in [:unauthorized, :forbidden] do
     drift_to_needs_attention(gateway, kind)
     error
   end
 
-  defp land({:error, _reason} = error, _gateway, _domain, _resolver_ip, _render?), do: error
+  defp land({:error, _reason} = error, _gateway, _domain, _resolver_ip, _render?, _actor),
+    do: error
 
   # A racing claims write (two tabs, two domains) fails StaleRecord
   # under update_claims' optimistic lock — the retry re-reads the
@@ -106,31 +107,34 @@ defmodule FluxVale.Infrastructure.Operations.ClaimAccessDomain do
   # clobbering (P2-3's lost-update). One retry: the second read is the
   # committed row; a second stale means the row is genuinely contended
   # and the owner's retry owns it.
-  defp put_claims(gateway, domain, claims, effort) do
-    case AccessGateway.update_claims(gateway, %{dns_claims: claims}, authorize?: false) do
+  defp put_claims(gateway, domain, claims, effort, actor) do
+    case AccessGateway.update_claims(gateway, %{dns_claims: claims},
+           actor: actor,
+           authorize?: false
+         ) do
       {:ok, row} ->
         {:ok, row}
 
       {:error, error} = failure ->
-        maybe_retry(gateway, domain, claims, effort, error, failure)
+        maybe_retry(gateway, domain, claims, effort, error, failure, actor)
     end
   end
 
   # One retry on StaleRecord; a second stale (or a torn-down row)
   # leaves the failure standing — the owner's retry owns it.
-  defp maybe_retry(gateway, domain, claims, effort, error, failure) do
+  defp maybe_retry(gateway, domain, claims, effort, error, failure, actor) do
     if effort > 0 and stale_record?(error) do
-      retry_on_fresh(gateway, domain, claims, effort, failure)
+      retry_on_fresh(gateway, domain, claims, effort, failure, actor)
     else
       failure
     end
   end
 
-  defp retry_on_fresh(gateway, domain, claims, effort, failure) do
+  defp retry_on_fresh(gateway, domain, claims, effort, failure, actor) do
     case AccessGateway.get_by_id(gateway.id, authorize?: false) do
       {:ok, fresh} ->
         merged = Map.put(fresh.dns_claims || %{}, domain, Map.get(claims, domain))
-        put_claims(fresh, domain, merged, effort - 1)
+        put_claims(fresh, domain, merged, effort - 1, actor)
 
       {:error, _gone} ->
         failure

@@ -257,13 +257,25 @@ defmodule FluxValeWeb.OrganizationLive.Access do
   # #760: the API token is a paste-only secret — the auth-key posture,
   # one field, no reveal, no read-back. The submit runs the gateway's
   # :set_api_token action, which also claims the org's verified domains.
-  def handle_event("validate-token", %{"gateway" => params}, socket) do
-    form =
-      socket.assigns.token_form
-      |> AshPhoenix.Form.validate(params)
-      |> clear_token_display()
+  # The empty state (no gateway) has no token form; a stale or crafted
+  # event must be a no-op, never a crash whose report could carry the
+  # payload (the remove family's posture).
+  def handle_event("validate-token", _params, %{assigns: %{token_form: nil}} = socket),
+    do: {:noreply, socket}
 
-    {:noreply, assign(socket, token_form: form)}
+  def handle_event("save-token", _params, %{assigns: %{token_form: nil}} = socket),
+    do: {:noreply, socket}
+
+  def handle_event("validate-token", %{"gateway" => params}, socket) do
+    # A validate round-trip is a read-back (ADR-0039 §4): the errored
+    # form is used only for its messages, and the assigned form is
+    # rebuilt from the row, so neither the params nor the changeset ever
+    # holds the typed token (a crash dump would otherwise carry it). The
+    # DOM keeps the focused input's text; LiveView patches nothing.
+    errored = AshPhoenix.Form.validate(socket.assigns.token_form, params)
+    fresh = fresh_token_form(socket)
+
+    {:noreply, assign(socket, token_form: %{fresh | errors: AshPhoenix.Form.errors(errored)})}
   end
 
   def handle_event("save-token", %{"gateway" => params}, socket) do
@@ -907,19 +919,21 @@ defmodule FluxValeWeb.OrganizationLive.Access do
   attr(:token_set_at, :any, required: true)
 
   # The token card (#760): the one field ADR-0040 Am. 3 asks for, pasted
-  # once and rotated before the 90-day expiry. The copy names the four
-  # scopes because the token is useless without them, and says plainly
-  # that saving claims already-verified domains.
+  # once and rotated before the 90-day expiry. It is a Tailscale API
+  # access token (`tskey-api-`), which carries the creating account's
+  # permissions — scopes belong to trust credentials, a different
+  # credential type this single-field intake does not take. The copy
+  # says plainly that saving claims already-verified domains.
   defp token_panel(assigns) do
     ~H"""
     <div class="border-t border-line pt-4" data-testid="access-api-token">
       <div>
         <h3 class="text-sm font-medium text-ink">Tailscale API token</h3>
         <p class="mt-1 text-xs text-ink-muted">
-          Needed to claim your domains on your tailnet. Create it in your Tailscale admin
-          console with the scopes <span class="font-mono">dns</span>, <span class="font-mono">devices:routes</span>,
-          <span class="font-mono">devices:core:read</span>
-          and <span class="font-mono">auth_keys</span>.
+          Needed to claim your domains on your tailnet. Create an API access token in your
+          Tailscale admin console under <span class="font-mono">Keys → API access tokens</span>.
+          It carries the permissions of the account that created it, so use an owner or
+          admin account.
         </p>
         <p class="mt-1 text-xs text-ink-muted">
           It is stored write-only and never shown again. Saving claims the domains you have
@@ -1303,21 +1317,34 @@ defmodule FluxValeWeb.OrganizationLive.Access do
   # targets the changeset's ARGUMENT — that is what AshPhoenix's
   # input_value reads first, not the params maps.
   defp clear_key_display(%Phoenix.HTML.Form{source: %AshPhoenix.Form{} = ash_form} = form) do
-    %{form | source: strip_key_argument(ash_form)}
+    %{
+      form
+      | source: strip_secret(ash_form, :auth_key),
+        params: Map.delete(form.params, "auth_key")
+    }
   end
 
-  defp strip_key_argument(ash_form) do
-    %{ash_form | source: Ash.Changeset.set_argument(ash_form.source, :auth_key, "")}
+  # The form rebuilt on every token event: it carries no params and no
+  # arguments, so the secret cannot survive in the socket state.
+  defp fresh_token_form(socket) do
+    socket.assigns.gateway
+    |> AshPhoenix.Form.for_update(:set_api_token,
+      actor: socket.assigns.current_user,
+      as: "gateway"
+    )
+    |> to_form()
   end
 
-  # The same posture for the API token (#760): a validate round-trip is
-  # a read-back, so the argument is cleared as soon as it is validated.
-  defp clear_token_display(%Phoenix.HTML.Form{source: %AshPhoenix.Form{} = ash_form} = form) do
-    %{form | source: strip_token_argument(ash_form)}
-  end
-
-  defp strip_token_argument(ash_form) do
-    %{ash_form | source: Ash.Changeset.set_argument(ash_form.source, :api_token, "")}
+  # Both maps hold the submitted value after a validate round-trip (the
+  # Ash form's params and the Phoenix form's): the socket state — and so
+  # any crash report's status — must not carry a secret. `force_` because
+  # the changeset is already validated by then (Ash's own warning).
+  defp strip_secret(ash_form, argument) do
+    %{
+      ash_form
+      | source: Ash.Changeset.force_set_argument(ash_form.source, argument, ""),
+        params: Map.delete(ash_form.params, Atom.to_string(argument))
+    }
   end
 
   # A failed submit rediscovers the form from the row — which has no

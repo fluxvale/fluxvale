@@ -112,7 +112,7 @@ defmodule FluxVale.Infrastructure.Operations.SetAccessApiTokenTest do
     assert row.api_token_secret_ref == nil
   end
 
-  test "a Secret write failure leaves the row untouched and names the reason", %{
+  test "a Secret write failure leaves the row untouched and answers a stable tag", %{
     org: org,
     owner: owner
   } do
@@ -120,7 +120,7 @@ defmodule FluxVale.Infrastructure.Operations.SetAccessApiTokenTest do
 
     stub(Tailscale, :write_api_credential, fn _gw, _t -> {:error, :cluster_oops} end)
 
-    assert {:error, :cluster_oops} =
+    assert {:error, :api_token_write_failed} =
              Infrastructure.set_access_api_token(gateway, @token, actor: owner)
 
     row = AccessGateway.get_by_id!(gateway.id, authorize?: false)
@@ -187,7 +187,169 @@ defmodule FluxVale.Infrastructure.Operations.SetAccessApiTokenTest do
     assert row.dns_claims in [nil, %{}]
   end
 
-  defp verified_domain!(owner) do
+  test "one save claims every verified domain, not just the first", %{org: org, owner: owner} do
+    gateway = AccessFixtures.gateway!(org)
+
+    stub(Tailscale, :write_api_credential, fn _gw, _t ->
+      {:ok, %{api_token_secret_ref: "api-credential-abc"}}
+    end)
+
+    names = ["one.customer.com", "two.customer.com", "three.customer.com"]
+    Enum.each(names, &verified_domain!(owner, &1))
+
+    stub(Tailscale, :claim_domain, fn _gw, name, _ip ->
+      assert name in names
+      {:ok, %{device_id: "device-1", route: "10.43.0.20/32"}}
+    end)
+
+    assert :ok = Infrastructure.set_access_api_token(gateway, @token, actor: owner)
+
+    row = AccessGateway.get_by_id!(gateway.id, authorize?: false)
+
+    claim_names =
+      row.dns_claims
+      |> Map.keys()
+      |> Enum.sort()
+
+    assert claim_names == Enum.sort(names)
+  end
+
+  test "an already-claimed domain is skipped", %{org: org, owner: owner} do
+    gateway = AccessFixtures.gateway!(org)
+
+    stub(Tailscale, :write_api_credential, fn _gw, _t ->
+      {:ok, %{api_token_secret_ref: "api-credential-abc"}}
+    end)
+
+    held = verified_domain!(owner, "held.customer.com")
+
+    {:ok, held_gateway} =
+      AccessGateway.update_claims(
+        gateway,
+        %{dns_claims: %{held.domain => %{"ip" => @resolver_ip}}},
+        authorize?: false
+      )
+
+    stub(Tailscale, :claim_domain, fn _gw, name, _ip ->
+      assert name == "fresh.customer.com"
+      {:ok, %{device_id: "device-1", route: "10.43.0.20/32"}}
+    end)
+
+    _fresh = verified_domain!(owner, "fresh.customer.com")
+
+    assert :ok = Infrastructure.set_access_api_token(held_gateway, @token, actor: owner)
+
+    row = AccessGateway.get_by_id!(gateway.id, authorize?: false)
+
+    claim_names =
+      row.dns_claims
+      |> Map.keys()
+      |> Enum.sort()
+
+    assert claim_names == ["fresh.customer.com", "held.customer.com"]
+  end
+
+  test "another org's verified domain is never claimed", %{org: org, owner: owner} do
+    gateway = AccessFixtures.gateway!(org)
+
+    stub(Tailscale, :write_api_credential, fn _gw, _t ->
+      {:ok, %{api_token_secret_ref: "api-credential-abc"}}
+    end)
+
+    {other_org, _other_owner} = BillingFixtures.grant_free_org!()
+
+    Ash.Seed.seed!(FluxVale.Infrastructure.AccessDomain, %{
+      domain: "other.customer.com",
+      kind: :custom,
+      state: :verified,
+      organization_id: other_org.id,
+      cert_secret_ref: "cert-secret"
+    })
+
+    stub(Tailscale, :claim_domain, fn _gw, _name, _ip -> flunk("foreign domain") end)
+
+    assert :ok = Infrastructure.set_access_api_token(gateway, @token, actor: owner)
+  end
+
+  test "a deleted gateway is refused before any cluster call", %{org: org, owner: owner} do
+    gateway = AccessFixtures.gateway!(org)
+    gone = %{gateway | id: Ash.UUIDv7.generate()}
+
+    stub(Tailscale, :write_api_credential, fn _gw, _t ->
+      flunk("no Secret write for a row that no longer exists")
+    end)
+
+    assert {:error, _reason} =
+             Infrastructure.set_access_api_token(gone, @token, actor: owner)
+  end
+
+  test "a destroying gateway is refused before any cluster call", %{org: org, owner: owner} do
+    gateway = AccessFixtures.gateway!(org, state: :destroying)
+
+    stub(Tailscale, :write_api_credential, fn _gw, _t ->
+      flunk("no Secret write while tearing down")
+    end)
+
+    assert {:error, _reason} =
+             Infrastructure.set_access_api_token(gateway, @token, actor: owner)
+  end
+
+  test "a padded paste is stored trimmed", %{org: org, owner: owner} do
+    gateway = AccessFixtures.gateway!(org)
+
+    stub(Tailscale, :write_api_credential, fn _gw, token ->
+      assert token == @token
+      {:ok, %{api_token_secret_ref: "api-credential-abc"}}
+    end)
+
+    assert :ok =
+             Infrastructure.set_access_api_token(gateway, "  " <> @token <> "\n", actor: owner)
+
+    assert AccessGateway.get_by_id!(gateway.id, authorize?: false).api_token_secret_ref ==
+             "api-credential-abc"
+  end
+
+  test "a struct provider failure stays off the wire and names a safe tag", %{
+    org: org,
+    owner: owner
+  } do
+    gateway = AccessFixtures.gateway!(org)
+
+    stub(Tailscale, :write_api_credential, fn _gw, _t ->
+      {:error, %FluxVale.Clients.K8s.Error{status_code: 500, reason: :api_error, message: "boom"}}
+    end)
+
+    assert {:error, :api_token_write_failed} =
+             Infrastructure.set_access_api_token(gateway, @token, actor: owner)
+
+    assert AccessGateway.get_by_id!(gateway.id, authorize?: false).api_token_secret_ref == nil
+  end
+
+  test "the action returns the post-sweep row (the wire's claim state)", %{
+    org: org,
+    owner: owner
+  } do
+    gateway = AccessFixtures.gateway!(org)
+    domain = verified_domain!(owner)
+
+    stub(Tailscale, :write_api_credential, fn _gw, _t ->
+      {:ok, %{api_token_secret_ref: "api-credential-abc"}}
+    end)
+
+    stub(Tailscale, :claim_domain, fn _gw, _name, _ip ->
+      {:ok, %{device_id: "device-1", route: "10.43.0.20/32"}}
+    end)
+
+    assert {:ok, row} =
+             AccessGateway.set_api_token(gateway, %{api_token: @token},
+               actor: owner,
+               authorize?: true
+             )
+
+    assert row.dns_claims[domain.domain]["ip"] == @resolver_ip
+  end
+
+  defp verified_domain!(owner, name \\ @domain_name) do
     BillingFixtures.mark_user_paid!(owner)
 
     expect(Kubereq, :apply, fn _req, manifest, _fm ->
@@ -195,7 +357,7 @@ defmodule FluxVale.Infrastructure.Operations.SetAccessApiTokenTest do
     end)
 
     assert {:ok, pending} =
-             Infrastructure.register_access_domain(%{domain: @domain_name}, actor: owner)
+             Infrastructure.register_access_domain(%{domain: name}, actor: owner)
 
     Ash.update!(pending, %{cert_secret_ref: "cert-secret"},
       action: :mark_verified,
@@ -239,5 +401,19 @@ defmodule FluxVale.Infrastructure.Operations.SetAccessApiTokenTest do
 
     row = AccessGateway.get_by_id!(gateway.id, authorize?: false)
     assert row.api_token_secret_ref == "api-credential-abc"
+  end
+
+  test "a non-struct, non-atom provider failure is logged as unexpected", %{
+    org: org,
+    owner: owner
+  } do
+    gateway = AccessFixtures.gateway!(org)
+
+    stub(Tailscale, :write_api_credential, fn _gw, _t -> {:error, "not a struct"} end)
+
+    assert {:error, :api_token_write_failed} =
+             Infrastructure.set_access_api_token(gateway, @token, actor: owner)
+
+    assert AccessGateway.get_by_id!(gateway.id, authorize?: false).api_token_secret_ref == nil
   end
 end

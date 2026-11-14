@@ -978,13 +978,13 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale do
   # 401 (:unauthorized): expired and revoked present identically (§5 —
   # a key expires ≤90 days by design, so this WILL happen); "rejected"
   # is the one honest word for both.
-  # 403 (:forbidden): authenticated but scope-less — the copy NAMES the
-  # three scopes claiming needs, because a fresh key without them
-  # fails the same way again.
+  # 403 (:forbidden): authenticated but not allowed — an API access
+  # token carries its creating account's permissions, so the copy names
+  # the fix that exists (a key from an owner/admin account).
   @token_rejected_message "Your Tailscale API key was rejected. Paste a fresh one"
 
-  @token_scope_message ~s(Your Tailscale API key is missing the permissions FluxVale needs ) <>
-                         ~s(dns, devices:routes, devices:core:read. Paste a fresh key with them)
+  @token_scope_message ~s(Your Tailscale API key doesn't have the permissions FluxVale needs. ) <>
+                         ~s(Paste a key from a tailnet owner or admin)
 
   @spec token_drift_message(:unauthorized | :forbidden) :: String.t()
   def token_drift_message(:unauthorized), do: @token_rejected_message

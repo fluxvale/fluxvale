@@ -54,17 +54,24 @@ defmodule FluxVale.Infrastructure.Operations.SetAccessApiToken do
     end
   end
 
-  # The change carries the provider's reason in the error's vars; the
-  # op keeps the atom contract its callers and tests rely on.
+  # The change keeps the provider's raw reason out of the error (a
+  # struct there would crash the JSON:API encoder and could echo the
+  # Secret); the op answers a stable tag for the write arm and passes
+  # every other error class through untouched.
   defp unwrap(%Ash.Error.Invalid{errors: errors} = error) do
-    case Enum.find(errors, &match?(%Ash.Error.Changes.InvalidArgument{}, &1)) do
-      %Ash.Error.Changes.InvalidArgument{vars: vars} when is_list(vars) ->
-        Keyword.get(vars, :reason, error)
-
-      _none ->
-        error
+    if Enum.any?(
+         errors,
+         &match?(%Ash.Error.Changes.InvalidArgument{field: :api_token}, &1)
+       ) do
+      :api_token_write_failed
+    else
+      error
     end
   end
 
+  # coveralls-ignore-start - the action only ever answers Invalid here;
+  # this clause is the contract's floor (a non-Invalid error passes
+  # through untouched) and no actor path can produce it.
   defp unwrap(error), do: error
+  # coveralls-ignore-stop
 end

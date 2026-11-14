@@ -485,6 +485,39 @@ defmodule FluxValeWeb.OrganizationLive.AccessTest do
       refute_k8s_terms(render(view))
     end
 
+    test "a validate round-trip keeps the token out of the form state", %{
+      conn: conn,
+      org: org
+    } do
+      AccessFixtures.gateway!(org)
+
+      {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/settings/access")
+
+      html =
+        render_change(view, "validate-token", %{
+          "gateway" => %{"api_token" => "tskey-api-STATE-marker"}
+        })
+
+      refute html =~ "tskey-api-STATE-marker"
+
+      state = :sys.get_state(view.pid)
+      refute inspect(state) =~ "tskey-api-STATE-marker"
+    end
+
+    test "token events on the empty state are no-ops, never crashes", %{
+      conn: conn,
+      personal: personal
+    } do
+      {:ok, view, _html} = live(conn, ~p"/settings/access")
+
+      assert render_change(view, "validate-token", %{
+               "gateway" => %{"api_token" => "tskey-api-x"}
+             }) =~ "Private access"
+
+      assert render_click(view, "save-token", %{"gateway" => %{"api_token" => "tskey-api-x"}}) =~
+               "Private access"
+    end
+
     test "a failed token write keeps the form and never echoes the token", %{
       conn: conn,
       org: org

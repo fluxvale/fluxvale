@@ -143,10 +143,11 @@ defmodule FluxVale.Infrastructure do
     as: :call
 
   # ADR-0040 S3: the tailnet-claiming seam — store the API token (the
-  # §5 intake; the form is a later slice), claim a verified domain on
-  # the gateway's tailnet, and the mirror. All three carry the caller's
-  # actor/authorize? (membership enforced by the authorized reads
-  # inside).
+  # §5 intake; owner-only, write-only), claim a verified domain on the
+  # gateway's tailnet, and the mirror. The token op takes the actor
+  # (the owner fence) and ignores authorize? — the fence already ran;
+  # the claim pair carry both, with the claims' audit rows attributed
+  # to the actor when one is given.
   defdelegate set_access_api_token(gateway, token, opts \\ []),
     to: SetAccessApiToken,
     as: :call
