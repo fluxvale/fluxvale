@@ -32,9 +32,10 @@ CI publish, and the k3d exposure ([running in k3d](#running-in-k3d)).
 | `wallet_ledger` | `wallet:read` | The ledger history, keyset-paginated (`next_cursor`). |
 | `topup` | any | The panel's top-up URL — a pointer for the human, no API call. |
 
-Tools are scope-filtered: `tools/list` reads the calling token's
-EXACT scope list from GET /me's `meta.scopes` (one upstream read) and
-offers only what it covers — `whoami`/`topup` for any live token,
+Tools are scope-filtered: `tools/list` uses the calling token's
+EXACT scope list from GET /me's `meta.scopes` (one upstream read —
+the OAuth middleware's validation read when the token is an OAuth
+access token) and offers only what it covers — `whoami`/`topup` for any live token,
 each domain's tools under its scope, and a domain's `write` scope
 implies its `read`. A zero-scope token still gets the scopeless pair.
 The platform's own 403s are the real enforcement — a filtered-out
@@ -73,15 +74,33 @@ SDK retries the call with the answer automatically) and current
 Claude clients; when in doubt, the panel's destroy/restore is the
 fallback.
 
-## Auth: PAT passthrough, nothing stored
+## Auth: OAuth, or a pasted PAT
 
-The MCP client sends `Authorization: Bearer fvpat_…` on every request —
-that is how Claude Desktop, Cursor, and opencode configure remote
-servers. Each request's token is validated against the platform (a
-dead token refuses at the protocol level) and then used per call.
-The server holds no tokens, no session state, no secrets: no env-var
-token, no keychain. Mint a PAT in the panel with the scopes you want
-the agent to have.
+The server is an OAuth 2.1 resource server (#766): an OAuth client that
+sends no credential (or a dead access token) gets `401` with
+`WWW-Authenticate: Bearer resource_metadata="…"`, discovers the
+platform's authorization server, registers itself, and opens the
+consent page. Approving mints a one-hour access token
+(`fvoat_…`) and a rotating refresh token; the MCP client never sees a
+paste-a-token step.
+
+The protected-resource metadata lives at
+`https://mcp.fluxvale.com/.well-known/oauth-protected-resource` (the
+`/mcp`-suffixed path answers too): the resource identifier, the
+authorization server, the supported scopes, and the header bearer
+method. The platform serves RFC 8414 metadata at
+`https://fluxvale.com/.well-known/oauth-authorization-server`.
+
+OAuth access tokens are validated against the platform per request:
+the middleware's `/me` read is both the proof and the scope source,
+so a revoked connection refuses the next request with the same 401
+challenge. The server holds no tokens, no session state, no secrets:
+no env-var token, no keychain.
+
+The pasted-PAT path still works unchanged — `Authorization: Bearer
+fvpat_…` (Claude Desktop, Cursor, opencode's header config). Its
+handlers keep their existing `/me` gates. Mint a PAT in the panel
+with the scopes you want the agent to have when you want that model.
 
 No tool parameter ever carries a secret — identifiers only. The
 backup destination's S3 secret key and restic password are write-only
@@ -96,24 +115,27 @@ Env config, nothing else:
 | `MCP_PORT` | The port the server binds on 0.0.0.0. | `4600` |
 | `FLUXVALE_API_BASE_URL` | The platform origin the tools call. Required. | — |
 | `MCP_ALLOWED_HOSTS` | Comma-separated `Host` headers the DNS-rebinding guard admits. Unset or blank = rmcp's loopback-only default — a bare dev shell needs nothing. Never allow-all. Exact hosts only, optional `:port` — **no wildcards (a wildcard entry admits nothing)**. Add `localhost` alongside the ingress host if you `kubectl port-forward`. | — |
+| `MCP_PUBLIC_URL` | The public MCP endpoint (the RFC 9728 resource identifier) advertised in protected-resource metadata. | `https://<first allowed host>/mcp`; a bare run uses `http://localhost:<port>/mcp`. |
+| `MCP_AUTHORIZATION_SERVER` | The platform issuer advertised next to the resource. | Derived from the public host: prod → `https://fluxvale.com`, staging → `https://staging.fluxvale.com`, local k3d → `https://app.fluxvale.lvh.me`; anything else → `FLUXVALE_API_BASE_URL`. |
 
 Against a local platform (the repo-root stack):
 
 ```sh
 export FLUXVALE_API_BASE_URL=http://127.0.0.1:4000
 cargo run --manifest-path apps/mcp/Cargo.toml
-# -> MCP path  http://127.0.0.1:4600/mcp
+# -> MCP path  http://localhost:4600/mcp
 # -> health    http://127.0.0.1:4600/health  (no auth; probes)
 ```
 
-Point your MCP client's FluxVale server config at `/mcp` with the PAT
-as the bearer token:
+Point your MCP client's FluxVale server config at `/mcp`. Modern
+clients discover OAuth from the 401 challenge; a client without OAuth
+support can still send the PAT as the bearer token:
 
 ```json
 {
   "mcpServers": {
     "fluxvale": {
-      "url": "http://127.0.0.1:4600/mcp",
+      "url": "http://localhost:4600/mcp",
       "headers": { "Authorization": "Bearer fvpat_…" }
     }
   }

@@ -1,14 +1,14 @@
 //! The FluxVale MCP server — slice W2a of #484 (rmcp streamable HTTP
-//! over the shared `/api/v1` client, PAT passthrough, the read
-//! tools) plus W2b's write surface: deploy through destroy, the
-//! destructive pair elicitation-gated, and the /me `meta.scopes`
-//! filter. The container image + k3d exposure are W3a; the
-//! fleet-repo deploy is W3b.
+//! over the shared `/api/v1` client, the read tools) plus W2b's write
+//! surface: deploy through destroy, the destructive pair
+//! elicitation-gated, and the /me `meta.scopes` filter. The container
+//! image + k3d exposure are W3a; the fleet-repo deploy is W3b.
 //!
-//! Auth holds nothing: the client sends its PAT per request
-//! (`Authorization: Bearer fvpat_…`, how remote MCP clients are
-//! configured), the server validates it against the platform and
-//! forgets it. No token storage, no env token, no keychain.
+//! Auth holds nothing: an OAuth access token (or a PAT) rides the
+//! request's `Authorization` header, the server validates it against
+//! the platform and forgets it. No token storage, no env token, no
+//! keychain. The RFC 9728 metadata and 401 challenge tell OAuth
+//! clients where to authorize (#766).
 
 mod auth;
 mod elicit;
@@ -25,12 +25,12 @@ use rmcp::transport::streamable_http_server::{
 };
 use serde_json::json;
 use std::sync::Arc;
+use tower_http::cors::{Any, CorsLayer};
 
-/// Env-only config: MCP_PORT, FLUXVALE_API_BASE_URL, and MCP_ALLOWED_HOSTS
-/// (added in W3a — the deployment knob W2a's "no other knobs" deferred to
-/// W3: rmcp's DNS-rebinding guard serves only loopback Host headers by
-/// default, so a container behind a real hostname — k3d's
-/// mcp.fluxvale.lvh.me, W3b's public hosts — names what it serves).
+/// Env-only config: MCP_PORT, FLUXVALE_API_BASE_URL, MCP_ALLOWED_HOSTS
+/// (the W3a DNS-rebinding knob), and the #766 discovery overrides
+/// MCP_PUBLIC_URL / MCP_AUTHORIZATION_SERVER. The public URL and
+/// authorization server derive from the first allowed host by default.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Config {
     pub port: u16,
@@ -40,6 +40,14 @@ pub(crate) struct Config {
     /// because an empty allowlist means allow-ALL inside rmcp — the
     /// opposite of what an empty env value intends.
     pub allowed_hosts: Vec<String>,
+    /// The public MCP endpoint (the RFC 9728 resource identifier):
+    /// `MCP_PUBLIC_URL`, else `https://<first allowed host>/mcp`, else
+    /// the local bare-server default.
+    pub public_url: String,
+    /// The authorization server issuer advertised in the protected
+    /// resource metadata: `MCP_AUTHORIZATION_SERVER`, else derived from
+    /// the public host's deployment shape.
+    pub authorization_server: String,
 }
 
 impl Config {
@@ -67,12 +75,56 @@ impl Config {
             Ok(raw) => parse_allowed_hosts(&raw),
             Err(_) => Vec::new(),
         };
+        let public_url = match std::env::var("MCP_PUBLIC_URL") {
+            Ok(raw) if !raw.trim().is_empty() => raw.trim().trim_end_matches('/').to_string(),
+            _ => derive_public_url(&allowed_hosts, port),
+        };
+        let authorization_server = match std::env::var("MCP_AUTHORIZATION_SERVER") {
+            Ok(raw) if !raw.trim().is_empty() => raw.trim().trim_end_matches('/').to_string(),
+            _ => derive_authorization_server(&public_url, &api_base_url),
+        };
         Ok(Config {
             port,
             api_base_url,
             allowed_hosts,
+            public_url,
+            authorization_server,
         })
     }
+}
+
+/// The public endpoint without an explicit env override: the first
+/// allowed host is the deployment's ingress host (the local manifest
+/// lists the lvh.me host first, then localhost for port-forward), so
+/// `https://<host>/mcp` is the served URL. No allowed hosts means a
+/// bare local run.
+pub(crate) fn derive_public_url(allowed_hosts: &[String], port: u16) -> String {
+    match allowed_hosts.first() {
+        Some(host) => format!("https://{host}/mcp"),
+        None => format!("http://localhost:{port}/mcp"),
+    }
+}
+
+/// The authorization-server origin: the deployed MCP hosts map to the
+/// platform origins by convention (prod/staging/lvh.me), and an
+/// explicit `MCP_AUTHORIZATION_SERVER` overrides for anything else.
+/// Falling back to `FLUXVALE_API_BASE_URL` keeps a direct local run
+/// pointing at the same platform it calls.
+pub(crate) fn derive_authorization_server(public_url: &str, api_base_url: &str) -> String {
+    let host = url_host(public_url);
+
+    match host.as_deref() {
+        Some("mcp.fluxvale.com") => "https://fluxvale.com".to_string(),
+        Some("mcp-staging.fluxvale.com") => "https://staging.fluxvale.com".to_string(),
+        Some("mcp.fluxvale.lvh.me") => "https://app.fluxvale.lvh.me".to_string(),
+        _ => api_base_url.trim_end_matches('/').to_string(),
+    }
+}
+
+fn url_host(url: &str) -> Option<String> {
+    let rest = url.split_once("://")?.1;
+    let host = rest.split('/').next()?;
+    Some(host.split(':').next().unwrap_or(host).to_string())
 }
 
 /// Comma-separated host list → trimmed, empty entries dropped, order
@@ -102,7 +154,27 @@ pub(crate) const MCP_PATH: &str = "/mcp";
 /// `/health` rides the outer axum router, deliberately OUTSIDE the
 /// guard — probes must not depend on it (a k8s probe sends no Host a
 /// deployment could pre-authorize).
+#[cfg(test)]
 pub(crate) fn build_router(api_base_url: &str, allowed_hosts: &[String]) -> Router {
+    let public_url = derive_public_url(allowed_hosts, 4600);
+    let authorization_server = derive_authorization_server(&public_url, api_base_url);
+
+    build_router_with(
+        api_base_url,
+        allowed_hosts,
+        &public_url,
+        &authorization_server,
+    )
+}
+
+/// The full constructor: `serve` passes the Config's explicit public
+/// URL / authorization server, while tests keep the derived defaults.
+pub(crate) fn build_router_with(
+    api_base_url: &str,
+    allowed_hosts: &[String],
+    public_url: &str,
+    authorization_server: &str,
+) -> Router {
     let base: Arc<str> = Arc::from(api_base_url);
 
     // Stateless + JSON responses: every POST is independent, the
@@ -130,13 +202,54 @@ pub(crate) fn build_router(api_base_url: &str, allowed_hosts: &[String]) -> Rout
         http_config,
     );
 
-    let mcp_router = Router::new()
-        .nest_service(MCP_PATH, mcp)
-        .layer(axum::middleware::from_fn(auth::require_bearer));
+    let mcp_router =
+        Router::new()
+            .nest_service(MCP_PATH, mcp)
+            .layer(axum::middleware::from_fn_with_state(
+                auth::AuthState::new(api_base_url, public_url),
+                auth::require_bearer,
+            ));
+
+    // Browser MCP clients send an unauthenticated OPTIONS preflight and
+    // need the 401 challenge readable: the cors layer wraps the bearer
+    // middleware (answering preflight itself), and exposes
+    // WWW-Authenticate on real responses. Bearer tokens are explicit
+    // headers, not cookies, so permissive origins are the MCP posture.
+    let cors = CorsLayer::new()
+        .allow_origin(Any)
+        .allow_methods(Any)
+        .allow_headers(Any)
+        .expose_headers([axum::http::header::WWW_AUTHENTICATE]);
 
     Router::new()
         .route("/health", get(health))
+        .route(
+            "/.well-known/oauth-protected-resource",
+            get(protected_resource_metadata),
+        )
+        .route(
+            "/.well-known/oauth-protected-resource/mcp",
+            get(protected_resource_metadata),
+        )
         .merge(mcp_router)
+        .with_state(auth::MetadataState::new(public_url, authorization_server))
+        .layer(cors)
+}
+
+/// RFC 9728 protected-resource metadata (#766): the resource identifier,
+/// the authorization server, the scopes the MCP surface understands, and
+/// the header bearer method. The audience is this server alone.
+async fn protected_resource_metadata(
+    axum::extract::State(state): axum::extract::State<auth::MetadataState>,
+) -> Json<serde_json::Value> {
+    Json(json!({
+        "resource": state.public_url,
+        "authorization_servers": [state.authorization_server],
+        "scopes_supported": auth::SCOPES_SUPPORTED,
+        "bearer_methods_supported": ["header"],
+        "resource_name": "FluxVale MCP",
+        "resource_documentation": format!("{}/settings/agents", state.authorization_server),
+    }))
 }
 
 /// `/health` — k8s probes and W3's deploy gating. No auth, no deps.
@@ -209,7 +322,12 @@ async fn serve(
     config: Config,
     shutdown: impl std::future::Future<Output = ()> + Send + 'static,
 ) -> anyhow::Result<()> {
-    let app = build_router(&config.api_base_url, &config.allowed_hosts);
+    let app = build_router_with(
+        &config.api_base_url,
+        &config.allowed_hosts,
+        &config.public_url,
+        &config.authorization_server,
+    );
     let listener = tokio::net::TcpListener::bind(("0.0.0.0", config.port))
         .await
         .with_context(|| format!("bind 0.0.0.0:{}", config.port))?;
@@ -329,6 +447,236 @@ mod tests {
         assert!(config.allowed_hosts.is_empty());
     }
 
+    // ---- public URL / authorization server derivation (#766) ------------
+
+    #[test]
+    fn the_public_url_derives_from_the_first_allowed_host() {
+        assert_eq!(
+            derive_public_url(&["mcp.fluxvale.com".to_string()], 4600),
+            "https://mcp.fluxvale.com/mcp"
+        );
+        assert_eq!(
+            derive_public_url(
+                &["mcp.fluxvale.lvh.me".to_string(), "localhost".to_string()],
+                4600
+            ),
+            "https://mcp.fluxvale.lvh.me/mcp"
+        );
+        assert_eq!(derive_public_url(&[], 4600), "http://localhost:4600/mcp");
+    }
+
+    #[test]
+    fn the_authorization_server_follows_the_deployment_shape() {
+        assert_eq!(
+            derive_authorization_server("https://mcp.fluxvale.com/mcp", "http://127.0.0.1:4000"),
+            "https://fluxvale.com"
+        );
+        assert_eq!(
+            derive_authorization_server(
+                "https://mcp-staging.fluxvale.com/mcp",
+                "http://127.0.0.1:4000"
+            ),
+            "https://staging.fluxvale.com"
+        );
+        assert_eq!(
+            derive_authorization_server(
+                "https://mcp.fluxvale.lvh.me/mcp",
+                "http://fluxvale-platform.fluxvale-dev.svc.cluster.local:4000"
+            ),
+            "https://app.fluxvale.lvh.me"
+        );
+        assert_eq!(
+            derive_authorization_server(
+                "https://mcp.example.test/mcp",
+                "https://api.example.test/"
+            ),
+            "https://api.example.test"
+        );
+    }
+
+    #[test]
+    fn the_public_url_env_wins_over_derivation() {
+        let _guard = test_env_lock().lock().unwrap();
+        unsafe { std::env::set_var("FLUXVALE_API_BASE_URL", "https://fluxvale.com") };
+        unsafe { std::env::remove_var("MCP_PORT") };
+        unsafe { std::env::remove_var("MCP_ALLOWED_HOSTS") };
+        unsafe { std::env::set_var("MCP_PUBLIC_URL", "https://mcp.example.test/mcp/") };
+        let config = Config::from_env().unwrap();
+        assert_eq!(config.public_url, "https://mcp.example.test/mcp");
+        unsafe { std::env::remove_var("MCP_PUBLIC_URL") };
+    }
+
+    #[test]
+    fn the_authorization_server_env_wins_over_derivation() {
+        let _guard = test_env_lock().lock().unwrap();
+        unsafe { std::env::set_var("FLUXVALE_API_BASE_URL", "https://fluxvale.com") };
+        unsafe { std::env::remove_var("MCP_PORT") };
+        unsafe { std::env::remove_var("MCP_ALLOWED_HOSTS") };
+        unsafe { std::env::set_var("MCP_AUTHORIZATION_SERVER", "https://auth.example.test/") };
+        let config = Config::from_env().unwrap();
+        assert_eq!(config.authorization_server, "https://auth.example.test");
+        unsafe { std::env::remove_var("MCP_AUTHORIZATION_SERVER") };
+    }
+
+    // ---- RFC 9728 protected-resource metadata (#766) --------------------
+
+    async fn protected_resource(
+        public_url: &str,
+        authorization_server: &str,
+        path: &str,
+    ) -> (axum::http::StatusCode, serde_json::Value) {
+        use axum::body::Body;
+        use axum::http::{Method, Request};
+        use tower::ServiceExt;
+
+        let app = build_router_with("http://127.0.0.1:1", &[], public_url, authorization_server);
+        let request = Request::builder()
+            .method(Method::GET)
+            .uri(path)
+            .body(Body::empty())
+            .unwrap();
+        let response = app.oneshot(request).await.unwrap();
+        let status = response.status();
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let body = serde_json::from_slice(&bytes).unwrap_or(serde_json::Value::Null);
+        (status, body)
+    }
+
+    #[tokio::test]
+    async fn protected_resource_metadata_names_the_prod_pair() {
+        let (status, body) = protected_resource(
+            "https://mcp.fluxvale.com/mcp",
+            "https://fluxvale.com",
+            "/.well-known/oauth-protected-resource",
+        )
+        .await;
+
+        assert_eq!(status, axum::http::StatusCode::OK);
+        assert_eq!(body["resource"], "https://mcp.fluxvale.com/mcp");
+        assert_eq!(
+            body["authorization_servers"],
+            json!(["https://fluxvale.com"])
+        );
+        assert_eq!(body["bearer_methods_supported"], json!(["header"]));
+        assert_eq!(body["resource_name"], "FluxVale MCP");
+        assert_eq!(
+            body["resource_documentation"],
+            "https://fluxvale.com/settings/agents"
+        );
+        let scopes = body["scopes_supported"].as_array().expect("scopes array");
+        assert!(scopes.iter().any(|scope| scope == "instances:write"));
+        assert!(scopes.iter().any(|scope| scope == "wallet:read"));
+        assert!(!scopes.iter().any(|scope| scope == "offline_access"));
+    }
+
+    #[tokio::test]
+    async fn protected_resource_metadata_names_the_staging_pair() {
+        let (status, body) = protected_resource(
+            "https://mcp-staging.fluxvale.com/mcp",
+            "https://staging.fluxvale.com",
+            "/.well-known/oauth-protected-resource",
+        )
+        .await;
+
+        assert_eq!(status, axum::http::StatusCode::OK);
+        assert_eq!(body["resource"], "https://mcp-staging.fluxvale.com/mcp");
+        assert_eq!(
+            body["authorization_servers"],
+            json!(["https://staging.fluxvale.com"])
+        );
+    }
+
+    #[tokio::test]
+    async fn protected_resource_metadata_names_the_local_pair_and_the_path_variant() {
+        for path in [
+            "/.well-known/oauth-protected-resource",
+            "/.well-known/oauth-protected-resource/mcp",
+        ] {
+            let (status, body) = protected_resource(
+                "https://mcp.fluxvale.lvh.me/mcp",
+                "https://app.fluxvale.lvh.me",
+                path,
+            )
+            .await;
+
+            assert_eq!(status, axum::http::StatusCode::OK, "path {path}");
+            assert_eq!(body["resource"], "https://mcp.fluxvale.lvh.me/mcp");
+            assert_eq!(
+                body["authorization_servers"],
+                json!(["https://app.fluxvale.lvh.me"])
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn browser_preflight_is_answered_without_a_bearer() {
+        use axum::body::Body;
+        use axum::http::{Method, Request, header};
+        use tower::ServiceExt;
+
+        let app = build_router("http://127.0.0.1:1", &[]);
+
+        for path in ["/mcp", "/.well-known/oauth-protected-resource"] {
+            let request = Request::builder()
+                .method(Method::OPTIONS)
+                .uri(path)
+                .header(header::ORIGIN, "https://app.example")
+                .header(header::ACCESS_CONTROL_REQUEST_METHOD, "POST")
+                .body(Body::empty())
+                .unwrap();
+
+            let response = app.clone().oneshot(request).await.unwrap();
+
+            assert!(response.status().is_success(), "path {path}");
+            assert_eq!(
+                response
+                    .headers()
+                    .get(header::ACCESS_CONTROL_ALLOW_ORIGIN)
+                    .and_then(|value| value.to_str().ok()),
+                Some("*"),
+                "path {path}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn the_401_challenge_is_readable_by_browser_clients() {
+        use axum::body::Body;
+        use axum::http::{Method, Request, StatusCode, header};
+        use tower::ServiceExt;
+
+        let app = build_router("http://127.0.0.1:1", &[]);
+        let request = Request::builder()
+            .method(Method::POST)
+            .uri("/mcp")
+            .header(header::ORIGIN, "https://app.example")
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from("{}"))
+            .unwrap();
+
+        let response = app.oneshot(request).await.unwrap();
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        assert_eq!(
+            response
+                .headers()
+                .get(header::ACCESS_CONTROL_ALLOW_ORIGIN)
+                .and_then(|value| value.to_str().ok()),
+            Some("*")
+        );
+
+        let exposed = response
+            .headers()
+            .get(header::ACCESS_CONTROL_EXPOSE_HEADERS)
+            .and_then(|value| value.to_str().ok())
+            .unwrap_or_default()
+            .to_ascii_lowercase();
+
+        assert!(exposed.contains("www-authenticate"), "exposed: {exposed}");
+    }
+
     /// The plumbing proof: the env knob must reach the SERVED guard, not
     /// just the Config struct — a missed builder call would leave the
     /// loopback default and 403 the configured host (exactly the gap the
@@ -433,6 +781,8 @@ mod tests {
             port: 0,
             api_base_url: "http://127.0.0.1:1".to_string(),
             allowed_hosts: Vec::new(),
+            public_url: "http://localhost:4600/mcp".to_string(),
+            authorization_server: "http://127.0.0.1:1".to_string(),
         };
         let result = serve(config, async {
             tokio::time::sleep(std::time::Duration::from_millis(100)).await;

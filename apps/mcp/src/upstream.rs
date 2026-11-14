@@ -28,7 +28,9 @@ pub(crate) enum ScopeError {
 
 // ---- the async surface: per-request client, blocking pool
 
-/// `GET /me` — the initialize gate: 401/403 refuse the connection.
+/// `GET /me` — the legacy PAT initialize/discover gate: 401/403
+/// refuse the connection. OAuth access tokens are validated by the
+/// middleware's `me_scopes` call instead (#766).
 pub(crate) async fn check_me(base: Arc<str>, token: Token) -> Result<(), ApiError> {
     on_blocking(move || ApiClient::new(&base, token).get("/me").map(|_| ())).await
 }
@@ -184,6 +186,21 @@ pub(crate) async fn terraform_import_bundle(
 /// is why /me grew the list. The platform's own 403s stay the real
 /// enforcement; this list is what tools/list may offer.
 pub(crate) async fn me_scopes(base: Arc<str>, token: Token) -> Result<Vec<String>, ScopeError> {
+    me_grant(base, token).await.map(|grant| grant.scopes)
+}
+
+/// The `/me` token grant: the exact scope list plus the RFC 8707
+/// resource the token was issued for (None for a PAT, whose rows have
+/// no audience binding).
+pub(crate) struct MeGrant {
+    pub scopes: Vec<String>,
+    pub resource: Option<String>,
+}
+
+/// `GET /me` for the OAuth resource-server path: scopes + audience in
+/// one read. The middleware compares `resource` to this server's public
+/// URL; a mismatch is an invalid token for this audience.
+pub(crate) async fn me_grant(base: Arc<str>, token: Token) -> Result<MeGrant, ScopeError> {
     on_blocking(move || {
         // get_json, not get: `meta` rides the body's top level, outside
         // the crate's Document model — consume, don't extend the crate.
@@ -196,7 +213,7 @@ pub(crate) async fn me_scopes(base: Arc<str>, token: Token) -> Result<Vec<String
                 }
                 other => ScopeError::Upstream(other.to_string()),
             })
-            .and_then(|me| scopes_from_me(&me))
+            .and_then(|me| grant_from_me(&me))
     })
     .await
 }
@@ -206,19 +223,27 @@ pub(crate) async fn me_scopes(base: Arc<str>, token: Token) -> Result<Vec<String
 /// one is a shape mismatch with its OWN error line — never "the API is
 /// unavailable", never a silent "no tools", never a silent "all
 /// tools".
-fn scopes_from_me(me: &Value) -> Result<Vec<String>, ScopeError> {
+fn grant_from_me(me: &Value) -> Result<MeGrant, ScopeError> {
     let unexpected = || {
         ScopeError::Shape(
             "unexpected /me answer: no meta.scopes — not a PAT caller, or the platform predates #585"
                 .to_string(),
         )
     };
-    me["meta"]["scopes"]
+    let scopes = me["meta"]["scopes"]
         .as_array()
         .ok_or_else(unexpected)?
         .iter()
         .map(|scope| scope.as_str().map(str::to_owned).ok_or_else(unexpected))
-        .collect()
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let resource = match &me["meta"]["resource"] {
+        Value::Null => None,
+        Value::String(resource) => Some(resource.clone()),
+        _not_a_string => return Err(unexpected()),
+    };
+
+    Ok(MeGrant { scopes, resource })
 }
 
 // ---- the instance lifecycle writes (the CLI's writes.rs, verbatim
@@ -1064,6 +1089,34 @@ mod tests {
         // Exactly one upstream read per tools/list — the head count is
         // the audit line (W2a probed three).
         assert_eq!(server.head_count(), 1);
+    }
+
+    #[tokio::test]
+    async fn me_grant_carries_the_resource_audience() {
+        let server = serve(&[(
+            "/api/v1/me",
+            200,
+            &envelope(json!({
+                "data": {"type": "user", "id": "u1", "attributes": {}},
+                "meta": {
+                    "scopes": ["instances:read"],
+                    "resource": "https://mcp.fluxvale.com/mcp"
+                }
+            })),
+        )]);
+        let grant = me_grant(base(&server), token()).await.unwrap();
+        assert_eq!(grant.scopes, ["instances:read"]);
+        assert_eq!(
+            grant.resource.as_deref(),
+            Some("https://mcp.fluxvale.com/mcp")
+        );
+    }
+
+    #[tokio::test]
+    async fn me_grant_without_a_resource_is_a_pat_or_a_pre_766_answer() {
+        let server = serve(&[("/api/v1/me", 200, &me_doc_with_scopes(&["instances:read"]))]);
+        let grant = me_grant(base(&server), token()).await.unwrap();
+        assert!(grant.resource.is_none());
     }
 
     #[tokio::test]

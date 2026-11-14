@@ -22,7 +22,7 @@ use rmcp::{
 use std::{borrow::Cow, sync::Arc};
 
 use crate::{auth::McpAuth, elicit, scopes, upstream};
-use fluxvale_api::{ApiError, Token};
+use fluxvale_api::Token;
 use serde_json::Value;
 
 /// The agent-facing instructions: who this server serves, and that
@@ -190,8 +190,23 @@ impl FluxValeMcp {
     /// extensions). Per-request by design — the server stores nothing.
     fn token(&self, context: &RequestContext<RoleServer>) -> Result<Token, ErrorData> {
         let parts = context.extensions.get::<axum::http::request::Parts>();
-        let auth = parts.and_then(|parts| parts.extensions.get::<McpAuth>().map(|McpAuth(t)| t));
+        let auth =
+            parts.and_then(|parts| parts.extensions.get::<McpAuth>().map(|auth| &auth.token));
         token_from_parts(parts, auth)
+    }
+
+    /// The OAuth scope list the middleware cached, `None` for the
+    /// legacy PAT path (whose handlers keep their existing `/me` gates).
+    fn scopes(
+        &self,
+        context: &RequestContext<RoleServer>,
+    ) -> Result<Option<Vec<String>>, ErrorData> {
+        context
+            .extensions
+            .get::<axum::http::request::Parts>()
+            .and_then(|parts| parts.extensions.get::<McpAuth>())
+            .map(|auth| auth.scopes.clone())
+            .ok_or_else(|| auth_error("no bearer token in the request context".to_string()))
     }
 
     #[tool(
@@ -428,9 +443,12 @@ the panel instead.",
             // token gets its refusal without a human decision first.
             // The confirm round doesn't re-check: the seal already
             // proves this round passed it.
-            if let Err(message) =
-                require_domain_scope(self.api_base_url.clone(), &token, "instances:write").await
-            {
+            let granted = match self.granted_scopes(&context, &token).await {
+                Ok(granted) => granted,
+                Err(err) => return Err(err),
+            };
+
+            if let Err(message) = require_domain_scope(&granted, "instances:write") {
                 return Ok(text_error(message).into());
             }
             // Resolve first — the not-found posture surfaces BEFORE
@@ -591,9 +609,12 @@ tool refuses without touching anything — use the panel instead.",
             // The scope check before the question (Elixir parity:
             // require_scope before ask_confirm); the confirm round
             // doesn't re-check.
-            if let Err(message) =
-                require_domain_scope(self.api_base_url.clone(), &token, "backups:write").await
-            {
+            let granted = match self.granted_scopes(&context, &token).await {
+                Ok(granted) => granted,
+                Err(err) => return Err(err),
+            };
+
+            if let Err(message) = require_domain_scope(&granted, "backups:write") {
                 return Ok(text_error(message).into());
             }
             let instance = match upstream::instances_status(
@@ -788,22 +809,54 @@ fn field(row: &Value, name: &str) -> Option<String> {
 /// Elixir server's order (require_scope before ask_confirm). The
 /// refusal copy is its line too; anything /me itself fails with
 /// surfaces as-is.
-async fn require_domain_scope(
-    base: Arc<str>,
-    token: &Token,
-    required: &'static str,
-) -> Result<(), String> {
-    let granted = upstream::me_scopes(base, token.clone())
-        .await
-        .map_err(|err| match err {
-            upstream::ScopeError::Auth(message)
-            | upstream::ScopeError::Shape(message)
-            | upstream::ScopeError::Upstream(message) => message,
-        })?;
-    if scopes::grants(&granted, required) {
+impl FluxValeMcp {
+    /// The destructive verbs' pre-check source: the cached OAuth scopes
+    /// or, for a PAT, the existing `/me` read.
+    async fn granted_scopes(
+        &self,
+        context: &RequestContext<RoleServer>,
+        token: &Token,
+    ) -> Result<Vec<String>, ErrorData> {
+        match self.scopes(context)? {
+            Some(scopes) => Ok(scopes),
+            // PAT path: the /me failure keeps its own words — a 401 is
+            // auth, a 5xx is upstream. Never a false "lacks scope".
+            None => upstream::me_scopes(self.api_base_url.clone(), token.clone())
+                .await
+                .map_err(|err| match err {
+                    upstream::ScopeError::Auth(message) => auth_error(message),
+                    upstream::ScopeError::Shape(message) => {
+                        ErrorData::internal_error(message, None)
+                    }
+                    upstream::ScopeError::Upstream(message) => upstream_error(message),
+                }),
+        }
+    }
+}
+
+fn require_domain_scope(granted: &[String], required: &'static str) -> Result<(), String> {
+    if scopes::grants(granted, required) {
         Ok(())
     } else {
         Err(format!("this token lacks the {required} scope"))
+    }
+}
+
+/// Upstream is transiently unusable (429, 5xx, transport) — a protocol
+/// error, verbatim line inside, no retries.
+fn upstream_error(message: String) -> ErrorData {
+    ErrorData::internal_error(format!("the FluxVale API is unavailable: {message}"), None)
+}
+
+/// The PAT path's /me gate (initialize and discover): 401/403 are AUTH —
+/// the client must reconfigure its token; anything else is upstream,
+/// verbatim. OAuth tokens are validated by the middleware instead.
+fn gate_error(err: fluxvale_api::ApiError) -> ErrorData {
+    match err {
+        err @ (fluxvale_api::ApiError::Unauthorized | fluxvale_api::ApiError::Forbidden(_)) => {
+            auth_error(err.to_string())
+        }
+        other => upstream_error(other.to_string()),
     }
 }
 
@@ -815,22 +868,6 @@ fn auth_error(message: String) -> ErrorData {
         Cow::Owned(format!("authentication failed: {message}")),
         None,
     )
-}
-
-/// Upstream is transiently unusable (429, 5xx, transport) — a protocol
-/// error, verbatim line inside, no retries.
-fn upstream_error(message: String) -> ErrorData {
-    ErrorData::internal_error(format!("the FluxVale API is unavailable: {message}"), None)
-}
-
-/// The /me gate's error mapping (initialize and discover): 401/403 are
-/// AUTH — the client must reconfigure its token; anything else is
-/// upstream, verbatim.
-fn gate_error(err: ApiError) -> ErrorData {
-    match err {
-        err @ (ApiError::Unauthorized | ApiError::Forbidden(_)) => auth_error(err.to_string()),
-        other => upstream_error(other.to_string()),
-    }
 }
 
 #[tool_handler]
@@ -852,24 +889,32 @@ impl ServerHandler for FluxValeMcp {
         context: RequestContext<RoleServer>,
     ) -> Result<InitializeResult, ErrorData> {
         let token = self.token(&context)?;
-        upstream::check_me(self.api_base_url.clone(), token)
-            .await
-            .map_err(gate_error)?;
+
+        if self.scopes(&context)?.is_none() {
+            upstream::check_me(self.api_base_url.clone(), token)
+                .await
+                .map_err(gate_error)?;
+        }
+
         context.peer.set_peer_info(request.clone());
         self.negotiate_initialize(&request)
     }
 
-    /// The discovery gate — the 2026-07-28 rev's handshake
-    /// replacement. Same rule as [`Self::initialize`]: the bearer must
-    /// prove itself against /me before this server answers anything.
+    /// The discovery answer — the 2026-07-28 rev's handshake
+    /// replacement. The middleware already proved the bearer against
+    /// /me before this server answered anything.
     async fn discover(
         &self,
         context: RequestContext<RoleServer>,
     ) -> Result<DiscoverResult, ErrorData> {
         let token = self.token(&context)?;
-        upstream::check_me(self.api_base_url.clone(), token)
-            .await
-            .map_err(gate_error)?;
+
+        if self.scopes(&context)?.is_none() {
+            upstream::check_me(self.api_base_url.clone(), token)
+                .await
+                .map_err(gate_error)?;
+        }
+
         Ok(DiscoverResult::from_server_info(
             self.supported_protocol_versions().into_owned(),
             self.get_info(),
@@ -889,16 +934,20 @@ impl ServerHandler for FluxValeMcp {
         context: RequestContext<RoleServer>,
     ) -> Result<ListToolsResult, ErrorData> {
         let token = self.token(&context)?;
-        let granted = upstream::me_scopes(self.api_base_url.clone(), token)
-            .await
-            .map_err(|err| match err {
-                upstream::ScopeError::Auth(message) => auth_error(message),
-                // The shape mismatch's own line — not "the API is
-                // unavailable": this /me answered, just not as a PAT
-                // caller's /me does.
-                upstream::ScopeError::Shape(message) => ErrorData::internal_error(message, None),
-                upstream::ScopeError::Upstream(message) => upstream_error(message),
-            })?;
+
+        let granted = match self.scopes(&context)? {
+            Some(scopes) => scopes,
+            None => upstream::me_scopes(self.api_base_url.clone(), token)
+                .await
+                .map_err(|err| match err {
+                    upstream::ScopeError::Auth(message) => auth_error(message),
+                    upstream::ScopeError::Shape(message) => {
+                        ErrorData::internal_error(message, None)
+                    }
+                    upstream::ScopeError::Upstream(message) => upstream_error(message),
+                })?,
+        };
+
         let tools: Vec<Tool> = self
             .tool_router
             .list_all()
@@ -1172,7 +1221,10 @@ mod tests {
             "data": {"type": "user", "id": "01H",
                      "attributes": {"email": "me@example.com",
                                     "platform_role": "user", "username": "me"}},
-            "meta": {"scopes": scopes}
+            "meta": {
+                "scopes": scopes,
+                "resource": "http://localhost:4600/mcp"
+            }
         })
         .to_string()
     }
@@ -1483,6 +1535,42 @@ mod tests {
             listed_tools(&server, "fvpat_no_domains").await,
             ["topup", "whoami"]
         );
+    }
+
+    #[tokio::test]
+    async fn an_oauth_token_reads_its_tools_off_the_middleware_scopes() {
+        // For an OAuth access token the middleware's per-request /me IS
+        // the tools/list scope read — one upstream call, the same matrix
+        // the PAT path derives in its handler.
+        let server = testapi::serve(&[("/api/v1/me", 200, me_doc(&["catalog:read"]))]);
+        assert_eq!(
+            listed_tools(&server, "fvoat_catalog").await,
+            ["apps_list", "apps_show", "topup", "whoami"]
+        );
+        assert_eq!(server.head_count(), 1);
+        assert!(server.head(0).to_lowercase().starts_with("get /api/v1/me"));
+    }
+
+    #[tokio::test]
+    async fn an_oauth_read_only_token_gets_the_scope_refusal_without_extra_reads() {
+        let server = testapi::serve(&[("/api/v1/me", 200, me_doc(&["instances:read"]))]);
+        let (_, body) = stateless_tools_call(
+            &app(&server),
+            "fvoat_instances_read",
+            "instances_destroy",
+            json!({"id": "i1"}),
+            true,
+            None,
+        )
+        .await;
+
+        assert_eq!(result(&body)["isError"], true);
+        assert_eq!(
+            result(&body)["content"][0]["text"],
+            "this token lacks the instances:write scope"
+        );
+        // The middleware's /me alone — no deploy sequence, no second read.
+        assert_eq!(server.head_count(), 1);
     }
 
     #[tokio::test]

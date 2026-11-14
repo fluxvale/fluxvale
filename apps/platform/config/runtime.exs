@@ -724,6 +724,37 @@ if config_env() == :prod do
 
   host = System.get_env("PHX_HOST") || "example.com"
 
+  # #766: the resource-indicator allowlist the OAuth authorization
+  # server accepts. Defaults follow the two deployed MCP hosts and the
+  # local k3d host; MCP_RESOURCE_URLS overrides with a comma-separated
+  # list for any other deployment.
+  default_mcp_resource_urls =
+    case host do
+      "staging." <> _ -> "https://mcp-staging.fluxvale.com/mcp"
+      "app.fluxvale.lvh.me" -> "https://mcp.fluxvale.lvh.me/mcp"
+      _other -> "https://mcp.fluxvale.com/mcp"
+    end
+
+  mcp_resource_urls =
+    case System.get_env("MCP_RESOURCE_URLS") do
+      raw when is_binary(raw) ->
+        case String.trim(raw) do
+          "" -> default_mcp_resource_urls
+          trimmed -> trimmed
+        end
+
+      nil ->
+        default_mcp_resource_urls
+    end
+
+  mcp_resource_urls =
+    mcp_resource_urls
+    |> String.split(",", trim: true)
+    |> Enum.map(&String.trim/1)
+    |> Enum.reject(&(&1 == ""))
+
+  config :flux_vale, :mcp_oauth, resource_urls: mcp_resource_urls
+
   # The storybook host rides the same endpoint (#178): the LiveView
   # socket's Origin check would otherwise reject it (check_origin
   # defaults to PHX_HOST's origin only), leaving the workshop's UI

@@ -39,6 +39,9 @@ spec:
               value: "true"
             - name: PHX_HOST
               value: app.fluxvale.lvh.me
+            # #766: the local MCP resource the OAuth AS accepts.
+            - name: MCP_RESOURCE_URLS
+              value: https://mcp.fluxvale.lvh.me/mcp
             - name: SECRET_KEY_BASE
               # local-only static value (ADR-0020: deliberately differs from
               # prod — secrets arrive with the BWS operator at M4)

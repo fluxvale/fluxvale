@@ -307,7 +307,9 @@ defmodule FluxValeWeb.AdminConsole do
       "the auth surface: sessions, tokens, and credentials are not console data",
     FluxVale.Accounts =>
       "orgs and memberships belong to the curated orgs surfaces, not raw tables",
-    FluxVale.Api => "machine-client bookkeeping (audit, rate windows), not operator data"
+    FluxVale.Api => "machine-client bookkeeping (audit, rate windows), not operator data",
+    FluxVale.OAuth =>
+      "the MCP OAuth authorization server: registered clients, short-lived codes, and the OAuth audit are auth machinery, not operator data"
   }
 
   # Resources excluded by name from otherwise-live domains, keyed by

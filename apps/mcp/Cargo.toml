@@ -46,6 +46,10 @@ schemars = "1.0" # the tool schemas' derive (rmcp's own pin)
 anyhow = "1.0.104" # top-level error plumbing (matches the CLI's)
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+# Browser MCP clients (the 2026-07-28 auth spec) need CORS on the
+# discovery and endpoint routes; the cors layer answers preflight
+# before bearer auth and exposes the 401 challenge header.
+tower-http = { version = "0.6", features = ["cors"] }
 
 [dev-dependencies]
 # Collecting the axum response body in router-oneshot tests.

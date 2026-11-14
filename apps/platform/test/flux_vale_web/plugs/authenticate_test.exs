@@ -3,13 +3,15 @@ defmodule FluxValeWeb.Plugs.AuthenticateTest do
 
   use FluxValeWeb.ConnCase, async: true
 
+  import FluxVale.TestSupport.OAuthFixtures
+
   alias AshAuthentication.Jwt
   alias AshAuthentication.Plug.Helpers
   alias AshAuthentication.TokenResource.Actions
+  alias FluxVale.Identity.PersonalAccessToken
   alias FluxVale.Identity.User
   alias FluxVale.Identity.UserEmail
   alias FluxVale.Ops.AccessRule
-  alias FluxVale.TestSupport.AccountsFixtures
   alias FluxValeWeb.Plugs.Authenticate
 
   setup do
@@ -75,6 +77,70 @@ defmodule FluxValeWeb.Plugs.AuthenticateTest do
         |> Authenticate.call([])
 
       assert conn.assigns.current_user.id == user.id
+    end
+
+    test "an OAuth access token authenticates through the same path", %{conn: conn} do
+      user = user!()
+      client = client!()
+
+      %{tokens: tokens} =
+        tokens!(client, user, %{"scope" => "instances:read wallet:read"})
+
+      conn =
+        conn
+        |> plug_conn()
+        |> Plug.Conn.put_req_header("authorization", "Bearer " <> tokens.access_token)
+        |> Authenticate.call([])
+
+      assert conn.assigns.current_user.id == user.id
+      assert conn.assigns.api_pat.kind == :oauth_access
+      assert conn.assigns.api_pat.scopes == ["instances:read", "wallet:read"]
+    end
+
+    test "an OAuth refresh token never authenticates an API call", %{conn: conn} do
+      user = user!()
+      client = client!()
+
+      %{tokens: tokens} = tokens!(client, user)
+
+      conn =
+        conn
+        |> plug_conn()
+        |> Plug.Conn.put_req_header("authorization", "Bearer " <> tokens.refresh_token)
+        |> Authenticate.call([])
+
+      refute conn.assigns[:current_user]
+    end
+
+    test "a kind/prefix mismatch is refused", %{conn: conn} do
+      user = user!()
+      client = client!()
+      random = :crypto.strong_rand_bytes(32)
+      raw = "fvpat_" <> Base.url_encode64(random, padding: false)
+      token_hash = PersonalAccessToken.token_hash(raw)
+
+      # A row whose stored hash is the PAT-shaped value but whose kind
+      # says OAuth: the prefix claims PAT, the row says otherwise. The
+      # lookup finds it; only the kind guard refuses it.
+      Ash.Seed.seed!(PersonalAccessToken, %{
+        name: "OAuth row with a PAT prefix",
+        token_hash: token_hash,
+        scopes: [],
+        expires_at: DateTime.add(DateTime.utc_now(), 3600, :second),
+        user_id: user.id,
+        kind: :oauth_access,
+        oauth_client_id: client.id,
+        resource: "https://mcp.fluxvale.com/mcp",
+        token_family_id: Ash.UUIDv7.generate()
+      })
+
+      conn =
+        conn
+        |> plug_conn()
+        |> Plug.Conn.put_req_header("authorization", "Bearer " <> raw)
+        |> Authenticate.call([])
+
+      refute conn.assigns[:current_user]
     end
   end
 

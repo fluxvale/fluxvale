@@ -46,10 +46,11 @@ defmodule FluxValeWeb.Plugs.PutPatScopesInAshContext do
       pat ->
         CallOutsideMachineApi.mark_process!()
 
-        key = Scopes.pat_scopes_context_key()
+        scopes_key = Scopes.pat_scopes_context_key()
+        resource_key = Scopes.pat_resource_context_key()
 
         Ash.PlugHelpers.update_context(conn, fn context ->
-          Map.merge(context || %{}, %{key => pat.scopes})
+          Map.merge(context || %{}, %{scopes_key => pat.scopes, resource_key => pat.resource})
         end)
     end
   end

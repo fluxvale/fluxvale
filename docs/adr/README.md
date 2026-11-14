@@ -62,6 +62,7 @@ already ruled out.
 | [ADR-0051](00051-tfprovider-repo-extraction.md) | The Terraform/OpenTofu provider leaves the monorepo: fluxvale/terraform-provider-fluxvale, history kept via filter-repo, plain vX.Y.Z tags, versioned registry assets (manifest, SHA256SUMS, binary .sig) on GPG-signed releases — registry-ready | Accepted (amended — see Amendment 1) |
 | [ADR-0052](00052-instance-env-updates.md) | In-place instance env updates: one merge verb, row-is-truth / Secret-is-projection, explicit removes, platform-owned keys refused, restart-after-commit with an honest partial-failure answer | Accepted |
 | [ADR-0053](00053-terraform-secret-env.md) | Secret env values: `fluxvale secrets encrypt` produces an `enc:v1:` marker the platform opens at deploy; one platform key, ciphertext bound to org + variable; Terraform carries the locked box, never the secret | Accepted (amended — #764: write-only input is the modern path, pending 0.4.0; marker design deferred) |
+| [ADR-0054](00054-mcp-oauth.md) | MCP OAuth: the platform is the OAuth 2.1 authorization server, `apps/mcp` is the resource server; dynamic public clients, PKCE S256, signed full-request consent, rotating refresh tokens reusing the revocable-token table, RFC 8707 resource defaults, immediate family revocation, PATs unchanged | Accepted |
 
 ## Conventions
 

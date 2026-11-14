@@ -30,11 +30,34 @@ defmodule FluxVale.Api.Scopes do
   # a silent wrong answer (a bare atom in two modules degrades quietly
   # to "no scopes", indistinguishable from a session caller).
   @pat_scopes_context_key :pat_scopes
+  @pat_resource_context_key :pat_resource
 
   @read_scopes Enum.map(@read_domains, &"#{&1}:read")
   @write_scopes Enum.map(@write_domains, &"#{&1}:write")
 
   @all_scopes @read_scopes ++ @write_scopes
+
+  # #766: OAuth clients may ask for `offline_access` (the MCP guidance
+  # for refresh tokens). Refresh is always issued here, so the scope is
+  # accepted and advertised as a no-op, then stripped before anything
+  # is stored or granted. It is deliberately NOT in @all_scopes: PAT
+  # minting keeps its exact five-domain catalog.
+  @oauth_pseudo_scopes ["offline_access"]
+  @oauth_scopes @all_scopes ++ @oauth_pseudo_scopes
+
+  # The consent screen's product language. One description per
+  # catalog scope — the developer settings page has its own terse
+  # mint-time labels, so these lines are the consent surface's alone.
+  @scope_descriptions %{
+    "catalog:read" => "Browse the app catalog and its versions",
+    "instances:read" => "See your instances and their status",
+    "instances:write" => "Deploy, start, stop, resize, and destroy your instances",
+    "backups:read" => "See backup settings and backup history",
+    "backups:write" => "Configure backups, run them, and restore your instances",
+    "gateways:read" => "See private-access gateways and custom domains",
+    "gateways:write" => "Create and manage private-access gateways and custom domains",
+    "wallet:read" => "See your wallet balance, runway, and ledger"
+  }
 
   # One entry per {method, pattern} — a pattern is the path segments
   # under /api/v1, each a literal string or the `:_` wildcard. When
@@ -125,11 +148,59 @@ defmodule FluxVale.Api.Scopes do
   def all_scopes, do: @all_scopes
 
   @doc """
+  Every scope an OAuth authorization request may name (#766): the
+  five-domain catalog plus the `offline_access` no-op.
+  """
+  @spec oauth_scopes() :: [String.t()]
+  def oauth_scopes, do: @oauth_scopes
+
+  @doc """
+  Product-language description for a catalog scope — the consent page's
+  copy. An unknown scope falls back to its raw string (never a crash).
+  """
+  @spec describe(String.t()) :: String.t()
+  def describe(scope), do: Map.get(@scope_descriptions, scope, scope)
+
+  @doc """
+  Validates an OAuth scope list: every entry must be a catalog scope
+  or `offline_access`, and no entry may repeat.
+  """
+  @spec validate_oauth([String.t()]) ::
+          :ok | {:error, {:invalid_scope | :duplicate_scope, String.t()}}
+  def validate_oauth(scopes) do
+    cond do
+      duplicate = find_duplicate(scopes) ->
+        {:error, {:duplicate_scope, duplicate}}
+
+      invalid = Enum.find(scopes, &(&1 not in @oauth_scopes)) ->
+        {:error, {:invalid_scope, invalid}}
+
+      true ->
+        :ok
+    end
+  end
+
+  @doc """
+  Drops the `offline_access` no-op before a grant is stored or
+  returned.
+  """
+  @spec strip_oauth([String.t()]) :: [String.t()]
+  def strip_oauth(scopes), do: Enum.reject(scopes, &(&1 in @oauth_pseudo_scopes))
+
+  @doc """
   The Ash request-context key the boundary plug writes the calling
   PAT's scopes under (#484) — `/me`'s meta render reads the same key.
   """
   @spec pat_scopes_context_key() :: atom()
   def pat_scopes_context_key, do: @pat_scopes_context_key
+
+  @doc """
+  The Ash request-context key carrying the calling token's RFC 8707
+  resource (nil for a PAT) — `/me`'s meta render reads it so the MCP
+  resource server can check the audience it was issued for.
+  """
+  @spec pat_resource_context_key() :: atom()
+  def pat_resource_context_key, do: @pat_resource_context_key
 
   @doc """
   The route table itself — `{{method, pattern}, scope}` pairs — for

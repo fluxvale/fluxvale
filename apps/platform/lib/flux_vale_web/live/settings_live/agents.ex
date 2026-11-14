@@ -1,12 +1,13 @@
 defmodule FluxValeWeb.SettingsLive.Agents do
   @moduledoc """
   The agent quickstart (#484 W5): the remote MCP server's recipe at
-  one click from the tokens section — the server URL, the two-step
-  mint-and-paste, the per-client configs (file snippets for Cursor
-  and opencode; Claude Desktop's custom-connector form), the scopes
-  story, and the destructive-action gate. The owner ruling: a beta
-  friend with zero FluxVale exposure reaches a working agent config
-  in under two minutes.
+  one click from the tokens section — the server URL, the OAuth path
+  (add the URL, approve the consent page), the PAT fallback (mint and
+  paste, the per-client configs — file snippets for Cursor and
+  opencode; Claude Desktop's custom-connector form), the scopes story,
+  and the destructive-action gate. The owner ruling: a beta friend with
+  zero FluxVale exposure reaches a working agent config in under two
+  minutes.
 
   Documents the REMOTE server (`apps/mcp`, mcp.fluxvale.com) only —
   the platform's own endpoint is a different surface and is not
@@ -92,6 +93,28 @@ defmodule FluxValeWeb.SettingsLive.Agents do
                   before deploying.
                 </p>
               </div>
+
+              <%!-- #766: the no-token path. OAuth-capable clients
+              discover the platform from the 401 challenge; the PAT
+              snippets below stay the fallback for clients without it. --%>
+              <.callout id="agents-oauth" tone="info" data-testid="agents-oauth">
+                <p>
+                  <span class="font-medium text-ink">OAuth-capable clients need no token.</span>
+                  Add the server URL and your client discovers FluxVale's authorization
+                  server, registers itself, and opens a consent page — approve once and it
+                  connects. The page shows the client name, where it returns, and the
+                  scopes in plain language; access spans all your organizations, and
+                  disconnecting in
+                  <.link
+                    navigate={~p"/settings/developer#connected-apps"}
+                    class="font-medium text-ink underline decoration-line underline-offset-2 transition-colors hover:decoration-line-strong"
+                  >
+                    Developer settings
+                  </.link>
+                  revokes it immediately. The configs below are the fallback for clients
+                  without OAuth.
+                </p>
+              </.callout>
 
               <%!-- The recipe, numbered like the file-access quick-start
               (the dav snippet's circle idiom): two steps, nothing
@@ -180,8 +203,9 @@ defmodule FluxValeWeb.SettingsLive.Agents do
               than hand-edit) with protocol auto (the legacy default
               caps at 2025-11-25; the destructive tools'
               confirmations need the 2026-07-28 stateless revision)
-              and oauth off (the server's 401 is a bearer challenge,
-              not an OAuth dance). The file snippets reference the
+              and oauth off in this fallback (the snippet sends the PAT
+              header; OAuth-capable clients use the callout's flow
+              instead). The file snippets reference the
               token through each client's env syntax — never a
               committable PAT (CodeRabbit GNsI). --%>
               <div class="space-y-6" data-testid="agents-clients">

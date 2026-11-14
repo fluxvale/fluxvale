@@ -96,7 +96,10 @@ defmodule FluxVale.RuntimeConfigTest do
         assert {"30 3 * * *", FluxVale.Janitor.PruneAuditEvents} in crontab
         # #362's device-code sweep (daily, off the 03:30 audit sweep).
         assert {"45 3 * * *", FluxVale.Janitor.PruneDeviceCodes} in crontab
-        assert length(crontab) == 10
+        # #766's OAuth sweeps (daily, off the 03:45 device codes).
+        assert {"0 4 * * *", FluxVale.Janitor.PruneOAuthCodes} in crontab
+        assert {"15 4 * * *", FluxVale.Janitor.PruneOAuthAuditEvents} in crontab
+        assert length(crontab) == 12
       end)
     end
 
@@ -177,6 +180,38 @@ defmodule FluxVale.RuntimeConfigTest do
       with_env(Map.put(@prod_env, "ACCESS_DOMAINS_ISSUER", "letsencrypt-prod"), fn ->
         assert read!(:prod)[:flux_vale][:access_domains][:issuer] == "letsencrypt-prod"
       end)
+    end
+  end
+
+  describe "MCP_RESOURCE_URLS (#766)" do
+    test "an empty override is unset, so the staging default survives" do
+      env =
+        Map.merge(@prod_env, %{
+          "PHX_HOST" => "staging.fluxvale.com",
+          "MCP_RESOURCE_URLS" => ""
+        })
+
+      with_env(env, fn ->
+        assert read!(:prod)[:flux_vale][:mcp_oauth][:resource_urls] == [
+                 "https://mcp-staging.fluxvale.com/mcp"
+               ]
+      end)
+    end
+
+    test "a non-empty override is split and trimmed" do
+      with_env(
+        Map.put(
+          @prod_env,
+          "MCP_RESOURCE_URLS",
+          " https://mcp.example/mcp , https://alt.example/mcp "
+        ),
+        fn ->
+          assert read!(:prod)[:flux_vale][:mcp_oauth][:resource_urls] == [
+                   "https://mcp.example/mcp",
+                   "https://alt.example/mcp"
+                 ]
+        end
+      )
     end
   end
 

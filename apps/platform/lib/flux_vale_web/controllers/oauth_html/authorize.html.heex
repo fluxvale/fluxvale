@@ -1,0 +1,73 @@
+<Layouts.auth flash={@flash}>
+  <div class="bg-brand-gradient rounded-panel p-2 shadow-lg">
+    <div class="overflow-hidden rounded-panel border border-line-strong bg-panel shadow-sm">
+      <div class="space-y-5 p-6 sm:p-8" data-testid="oauth-consent">
+        <div class="space-y-1.5">
+          <p class="text-xs font-medium uppercase tracking-wide text-ink-subtle">
+            Authorize access
+          </p>
+          <h1 class="text-2xl font-bold tracking-tight text-ink" data-testid="oauth-client-name">
+            {@client_name}
+          </h1>
+          <p class="text-sm leading-6 text-ink-muted">
+            wants to connect to your FluxVale account, <span class="font-mono text-xs text-ink">{@signed_in_as}</span>.
+          </p>
+        </div>
+
+        <div class="space-y-2 rounded-control border border-line bg-panel-raised p-3">
+          <p class="text-sm font-medium text-ink">It will be able to:</p>
+          <ul class="space-y-1.5" data-testid="oauth-scopes">
+            <li :for={scope <- @scopes} class="flex gap-2 text-sm leading-5 text-ink-muted">
+              <span aria-hidden="true" class="mt-0.5 text-primary">✓</span>
+              <span class="min-w-0">
+                <span class="block text-ink">{scope.description}</span>
+                <code class="font-mono text-xs text-ink-subtle">{scope.name}</code>
+              </span>
+            </li>
+            <li :if={@scopes == []} class="text-sm text-ink-muted">
+              Identify your account only — no domain access.
+            </li>
+          </ul>
+        </div>
+
+        <p class="text-sm leading-6 text-ink-muted">
+          It will return to
+          <code class="rounded bg-panel-raised px-1 py-0.5 font-mono text-xs text-ink">
+            {@redirect_authority}
+          </code>
+          when you allow or deny.
+        </p>
+
+        <p class="text-xs leading-5 text-ink-subtle" data-testid="oauth-consent-scope">
+          This grants access to all of your FluxVale organizations, just like a personal access
+          token with these scopes. You can disconnect it later in Developer settings — disconnecting
+          revokes access immediately.
+        </p>
+
+        <form action={~p"/oauth/authorize"} method="post" class="flex flex-col gap-2">
+          <input type="hidden" name="_csrf_token" value={Plug.CSRFProtection.get_csrf_token()} />
+          <input type="hidden" name="consent_token" value={@consent_token} />
+          <.button
+            type="submit"
+            name="decision"
+            value="approve"
+            class="w-full"
+            data-testid="oauth-approve"
+          >
+            Allow access
+          </.button>
+          <.button
+            type="submit"
+            name="decision"
+            value="deny"
+            variant="secondary"
+            class="w-full"
+            data-testid="oauth-deny"
+          >
+            Deny
+          </.button>
+        </form>
+      </div>
+    </div>
+  </div>
+</Layouts.auth>
