@@ -95,6 +95,10 @@ defmodule FluxValeWeb.Api.GatewayRouteTest do
       assert row["id"] == gateway.id
       assert row["attributes"]["state"] == "active"
       assert row["attributes"]["monthly_cents"] == gateway.monthly_cents
+      # #771: the claim path's readable half rides the wire — a bool
+      # and the claimed domain names, never the map's values.
+      assert row["attributes"]["api_token_set"] == false
+      assert row["attributes"]["claimed_domains"] == []
 
       # The credential refs and the #613 operator-truth columns are
       # private by design — never on the wire, whoever the actor.
@@ -103,6 +107,42 @@ defmodule FluxValeWeb.Api.GatewayRouteTest do
       refute Map.has_key?(row["attributes"], "needs_attention_since")
       refute Map.has_key?(row["attributes"], "token_set_at")
       refute Map.has_key?(row["attributes"], "dns_claims")
+    end
+
+    test "the claim path's readable half: token set and claimed domain names (#771)", %{
+      conn: conn
+    } do
+      {user, org} = paid_member!()
+      pat = ApiPat.mint!(user, ["gateways:read"])
+
+      gateway =
+        org
+        |> AccessFixtures.gateway!()
+        |> AccessGateway.set_api_token_ref!(
+          %{api_token_secret_ref: "tok-stub"},
+          authorize?: false
+        )
+
+      claimed =
+        AccessGateway.update_claims!(
+          gateway,
+          %{dns_claims: %{"apps.customer.com" => %{"ip" => "100.64.0.1"}}},
+          authorize?: false
+        )
+
+      conn =
+        conn
+        |> auth(pat)
+        |> get("/api/v1/organizations/#{org.id}/access-gateway")
+
+      assert %{"data" => row} = json_response(conn, 200)
+      assert row["attributes"]["api_token_set"] == true
+      assert row["attributes"]["claimed_domains"] == ["apps.customer.com"]
+
+      # The claims map itself — its resolver IPs and tailnet data —
+      # stays private.
+      refute Map.has_key?(row["attributes"], "dns_claims")
+      assert claimed.id == row["id"]
     end
 
     test "an admin PAT reads a foreign org's row member-shaped — the machine-API arm of the blanket (#644)",

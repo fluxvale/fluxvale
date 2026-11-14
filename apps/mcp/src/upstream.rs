@@ -1,10 +1,12 @@
-//! The upstream calls: the tools' `/api/v1` verbs, mirroring the CLI's
-//! reads.rs/writes.rs exactly (same routes, same params, same bodies,
-//! the same flat `id`-hoisted row shape). Errors surface VERBATIM —
-//! the crate preserves the JSON:API detail and neither layer rewrites
-//! it; the one local addition is the CLI's friendly 404 for a missing
-//! single thing. Calls run on the blocking pool (the client crate is
-//! ureq).
+//! The upstream calls: the tools' `/api/v1` verbs. The deploy/lifecycle/
+//! backup/wallet/topup calls mirror the CLI's reads.rs/writes.rs
+//! (same routes, same params, same bodies, the same flat `id`-hoisted
+//! row shape); the #771 parity tools (resize, gateway, custom domains,
+//! Pocket ID wiring) ride the same `fluxvale-api` client and the same
+//! wire shapes. Errors surface VERBATIM — the crate preserves the
+//! JSON:API detail and neither layer rewrites it; the one local
+//! addition is the CLI's friendly 404 for a missing single thing.
+//! Calls run on the blocking pool (the client crate is ureq).
 
 use fluxvale_api::{ApiClient, ApiError, Document, Resource, Token};
 use serde_json::{Value, json};
@@ -510,6 +512,493 @@ pub(crate) async fn terraform_import_bundle(
     .await
 }
 
+/// `gateway` — status/attach/detach over the org's single gateway
+/// (#771). The org resolves like the deploy's (id/slug, or the sole
+/// membership); attach/detach re-read the status after the pairing, so
+/// the answer always shows what the gateway became.
+pub(crate) async fn gateway(
+    base: Arc<str>,
+    token: Token,
+    action: GatewayAction,
+    organization: Option<String>,
+    instance_id: Option<String>,
+) -> Result<Value, String> {
+    on_blocking_string(move || {
+        // The action's own required argument fails before any read.
+        let instance_id = match action {
+            GatewayAction::Status => None,
+            GatewayAction::Attach | GatewayAction::Detach => {
+                let instance_id = instance_id
+                    .as_deref()
+                    .ok_or_else(|| "instance_id is required for attach and detach".to_string())?;
+                safe_segment("instance id", instance_id)?;
+                Some(instance_id.to_string())
+            }
+        };
+
+        let client = ApiClient::new(&base, token);
+        let org = resolve_organization(&client, organization.as_deref())?;
+        let org_row = json!({"id": &org.id, "slug": &org.slug, "name": &org.name});
+
+        match action {
+            GatewayAction::Status => {
+                let gateway = read_gateway(&client, &org.id)?;
+                let message = gateway.is_none().then_some(
+                    "no access gateway for this organization — enable one in the panel's Access tab",
+                );
+                Ok(json!({
+                    "organization": org_row,
+                    "gateway": gateway.unwrap_or(Value::Null),
+                    "message": message,
+                }))
+            }
+            GatewayAction::Attach => {
+                let instance_id = instance_id.expect("validated for attach/detach");
+                let gateway_id = org_gateway_id(&client, &org)?;
+                let body = json!({"data": {"instance_id": instance_id}});
+                let attachment = client
+                    .send_json(
+                        "POST",
+                        &format!("/access-gateways/{gateway_id}/attachments"),
+                        Some(body.to_string()),
+                    )
+                    .map_err(friendly_pairing_404)?;
+                let (status, status_error) = gateway_after_pairing(&client, &org.id);
+                Ok(json!({
+                    "organization": org_row,
+                    "gateway": status,
+                    "status_error": status_error,
+                    "attachment": attachment,
+                }))
+            }
+            GatewayAction::Detach => {
+                let instance_id = instance_id.expect("validated for attach/detach");
+                let gateway_id = org_gateway_id(&client, &org)?;
+                let answer = client
+                    .send_json(
+                        "DELETE",
+                        &format!("/access-gateways/{gateway_id}/attachments/{instance_id}"),
+                        None,
+                    )
+                    .map_err(friendly_pairing_404)?;
+                let (status, status_error) = gateway_after_pairing(&client, &org.id);
+                Ok(json!({
+                    "organization": org_row,
+                    "gateway": status,
+                    "status_error": status_error,
+                    "detached": true,
+                    "result": answer,
+                }))
+            }
+        }
+    })
+    .await
+}
+
+/// The org's gateway row and its id; the "no gateway" refusal names
+/// the org so a multi-org caller knows which one to enable.
+fn org_gateway_id(client: &ApiClient, org: &OrganizationRow) -> Result<String, String> {
+    let gateway = read_gateway(client, &org.id)?.ok_or_else(|| {
+        format!(
+            "no access gateway for {} — enable one in the panel's Access tab",
+            org.label()
+        )
+    })?;
+    let gateway_id = gateway["id"]
+        .as_str()
+        .ok_or_else(|| "the gateway row carries no id".to_string())?
+        .to_string();
+    safe_segment("gateway id", &gateway_id)?;
+    Ok(gateway_id)
+}
+
+/// The pairing's re-read, split so a committed attach/detach is never
+/// hidden behind a status-read failure: the pairing row is the answer,
+/// and any read failure rides beside it.
+fn gateway_after_pairing(client: &ApiClient, org_id: &str) -> (Value, Value) {
+    match read_gateway(client, org_id) {
+        Ok(Some(gateway)) => (gateway, Value::Null),
+        Ok(None) => (
+            Value::Null,
+            json!("the gateway status read answered not found after the pairing"),
+        ),
+        Err(message) => (Value::Null, json!(message)),
+    }
+}
+
+/// The org's gateway row, or `None` for the honest 404 absence.
+fn read_gateway(client: &ApiClient, org_id: &str) -> Result<Option<Value>, String> {
+    match client.get(&format!("/organizations/{org_id}/access-gateway")) {
+        Ok(document) => {
+            one_resource(document, "access gateway").map(|resource| Some(with_id(&resource)))
+        }
+        Err(ApiError::NotFound) => Ok(None),
+        Err(err) => Err(message(err)),
+    }
+}
+
+/// The platform's attach/detach 404 can be the gateway or the
+/// instance, so the friendly line names both rather than guessing.
+fn friendly_pairing_404(err: ApiError) -> String {
+    match err {
+        ApiError::NotFound => "no such gateway or instance (or it's not yours)".to_string(),
+        other => message(other),
+    }
+}
+
+/// `custom_domain` — register/verify/list/remove over the access-domain
+/// routes (#771). Every reported row carries the honest serving state
+/// (`live`, `healthy`, and a machine-readable `reason_code` plus
+/// prose). A gateway status-read failure rides beside the row as
+/// `serving_error` — it never hides a committed registration.
+pub(crate) async fn custom_domain(
+    base: Arc<str>,
+    token: Token,
+    action: CustomDomainAction,
+    organization: Option<String>,
+    id: Option<String>,
+    domain: Option<String>,
+) -> Result<Value, String> {
+    on_blocking_string(move || {
+        let client = ApiClient::new(&base, token);
+
+        match action {
+            CustomDomainAction::List => {
+                let org = resolve_organization(&client, organization.as_deref())?;
+                let org_row = json!({"id": &org.id, "slug": &org.slug, "name": &org.name});
+                let document = client
+                    .get(&format!("/organizations/{}/access-domains", org.id))
+                    .map_err(message)?;
+                let (gateway, gateway_error) = gateway_view(&client, &org.id);
+                let domains = document
+                    .resources()
+                    .iter()
+                    .map(|resource| {
+                        annotate_domain(
+                            with_id(resource),
+                            gateway.as_ref(),
+                            gateway_error.as_deref(),
+                        )
+                    })
+                    .collect::<Vec<_>>();
+                let mut answer = json!({"organization": org_row, "domains": domains});
+                if let Some(err) = &gateway_error {
+                    answer["serving_error"] = json!(err);
+                }
+                Ok(answer)
+            }
+            CustomDomainAction::Create => {
+                let domain = domain.ok_or_else(|| "domain is required for create".to_string())?;
+                let org = resolve_organization(&client, organization.as_deref())?;
+                let body = json!({"data": {"type": "access_domain", "attributes": {
+                    "domain": domain,
+                    "organization_id": org.id,
+                }}});
+                let document = client
+                    .send("POST", "/access-domains", Some(body.to_string()))
+                    .map_err(message)?;
+                let resource = one_resource(document, "access domain")?;
+                let (gateway, gateway_error) = gateway_view(&client, &org.id);
+                Ok(with_serving_error(
+                    annotate_domain(
+                        with_id(&resource),
+                        gateway.as_ref(),
+                        gateway_error.as_deref(),
+                    ),
+                    gateway_error.as_deref(),
+                ))
+            }
+            CustomDomainAction::Verify => {
+                let id = id.ok_or_else(|| "id is required for verify and delete".to_string())?;
+                safe_segment("domain id", &id)?;
+                let document = client
+                    .get(&format!("/access-domains/{id}"))
+                    .map_err(|err| friendly_404(err, "domain"))?;
+                let resource = one_resource(document, "access domain")?;
+                // The row names its org; the gateway is that org's,
+                // never the caller-named one (a multi-org caller can
+                // pass any own org, but the domain's claim lives in
+                // its owner org).
+                let org_id = resource
+                    .attributes
+                    .get("organization_id")
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| "the domain row carries no organization_id".to_string())?;
+                safe_segment("organization id", org_id)?;
+                let (gateway, gateway_error) = gateway_view(&client, org_id);
+                Ok(with_serving_error(
+                    annotate_domain(
+                        with_id(&resource),
+                        gateway.as_ref(),
+                        gateway_error.as_deref(),
+                    ),
+                    gateway_error.as_deref(),
+                ))
+            }
+            CustomDomainAction::Delete => {
+                let id = id.ok_or_else(|| "id is required for verify and delete".to_string())?;
+                safe_segment("domain id", &id)?;
+                let row = client
+                    .send_json("DELETE", &format!("/access-domains/{id}"), None)
+                    .map_err(|err| friendly_404(err, "domain"))?;
+                Ok(json!({"removed": true, "domain": annotate_removed(row)}))
+            }
+        }
+    })
+    .await
+}
+
+/// The gateway read for annotation: the row when readable, and the
+/// failure beside it. A status outage must not hide a registered row.
+fn gateway_view(client: &ApiClient, org_id: &str) -> (Option<Value>, Option<String>) {
+    match read_gateway(client, org_id) {
+        Ok(gateway) => (gateway, None),
+        Err(message) => (None, Some(message)),
+    }
+}
+
+fn domain_state(row: &Value) -> &str {
+    row.get("state").and_then(Value::as_str).unwrap_or("")
+}
+
+/// The serving verdict. `live` is whether the domain serves right now;
+/// `reason_code` names why (or how). Resolution order: platform kind,
+/// blocking states, gateway read failure, gateway presence, gateway
+/// serving state, the claim (proof the token worked, checked before
+/// the nullable token stamp), the token stamp, then unclaimed.
+/// `needs_attention` keeps serving while its retained claim is active
+/// — the cert is still valid and the routes still stand — so its live
+/// value follows the claim rather than the state; `healthy` stays
+/// false.
+fn domain_serving(
+    row: &Value,
+    gateway: Option<&Value>,
+    gateway_error: Option<&str>,
+) -> (&'static str, &'static str, bool) {
+    // The platform row is fleet-served (the wildcard already covers
+    // it); it is never claimed and has no issuance to wait on.
+    if row.get("kind").and_then(Value::as_str) == Some("platform") {
+        return (
+            "platform",
+            "the platform domain is served by the fleet wildcard; instance addresses use it directly",
+            true,
+        );
+    }
+
+    match domain_state(row) {
+        "pending" => (
+            "pending",
+            "verification is certificate issuance; no certificate is issued yet",
+            false,
+        ),
+        "failed" => (
+            "failed",
+            "issuance did not complete — remove the row and re-register after fixing the DNS delegation",
+            false,
+        ),
+        "suspended" => (
+            "suspended",
+            "the domain is parked and serves nothing",
+            false,
+        ),
+        "verified" | "needs_attention" => {
+            if gateway_error.is_some() {
+                return (
+                    "unknown",
+                    "the gateway status could not be read; the serving state is unknown",
+                    false,
+                );
+            }
+            let Some(gateway) = gateway else {
+                return (
+                    "no_gateway",
+                    "the organization has no access gateway to claim the domain",
+                    false,
+                );
+            };
+            if gateway["state"].as_str() != Some("active") {
+                return (
+                    "gateway_not_serving",
+                    "the organization's gateway is not serving right now, so its retained claim cannot route",
+                    false,
+                );
+            }
+            let live = claimed(gateway, row);
+            if domain_state(row) == "needs_attention" {
+                return (
+                    "needs_attention",
+                    "the certificate is not ready; the domain serves only while its retained claim is active",
+                    live,
+                );
+            }
+            match live {
+                true => (
+                    "claimed",
+                    "the gateway has claimed the domain; hostnames under it serve from private attached instances",
+                    true,
+                ),
+                false if gateway["api_token_set"].as_bool() == Some(false) => (
+                    "no_api_token",
+                    "the gateway holds no Tailscale API token, so the domain cannot be claimed",
+                    false,
+                ),
+                false => (
+                    "unclaimed",
+                    "the certificate is issued, but the gateway has not claimed the domain; claiming is not a self-serve surface yet",
+                    false,
+                ),
+            }
+        }
+        _ => ("unknown", "the domain is not serving", false),
+    }
+}
+
+fn claimed(gateway: &Value, row: &Value) -> bool {
+    let domain = row.get("domain").and_then(Value::as_str);
+    let claimed = gateway.get("claimed_domains").and_then(Value::as_array);
+    match (domain, claimed) {
+        (Some(domain), Some(domains)) => domains.iter().any(|entry| entry.as_str() == Some(domain)),
+        _ => false,
+    }
+}
+
+fn annotate_domain(mut row: Value, gateway: Option<&Value>, gateway_error: Option<&str>) -> Value {
+    let (reason_code, reason, live) = domain_serving(&row, gateway, gateway_error);
+    let verified = domain_state(&row) == "verified";
+    let healthy = matches!(reason_code, "platform") || verified;
+    if let Value::Object(map) = &mut row {
+        map.insert("verified".to_string(), json!(verified));
+        map.insert("healthy".to_string(), json!(healthy));
+        map.insert("live".to_string(), json!(live));
+        map.insert(
+            "serving".to_string(),
+            json!({"live": live, "healthy": healthy, "reason_code": reason_code, "reason": reason}),
+        );
+    }
+    row
+}
+
+/// A committed row plus the annotation read's failure, when there was
+/// one — the registration is the answer, the failure rides beside it.
+fn with_serving_error(mut row: Value, gateway_error: Option<&str>) -> Value {
+    if let (Some(err), Value::Object(map)) = (gateway_error, &mut row) {
+        map.insert("serving_error".to_string(), json!(err));
+    }
+    row
+}
+
+/// A removed domain keeps its identity fields and says so — no serving
+/// annotation to misread as a live row.
+fn annotate_removed(mut row: Value) -> Value {
+    if let Value::Object(map) = &mut row {
+        map.insert("live".to_string(), json!(false));
+        map.insert("healthy".to_string(), json!(false));
+        map.insert(
+            "serving".to_string(),
+            json!({"live": false, "healthy": false, "reason_code": "removed", "reason": "the domain row is gone"}),
+        );
+    }
+    row
+}
+
+/// `sso` — status/connect over the instance's Pocket ID wiring (#771).
+/// Identifier fields only: the minted client secret lives in the
+/// instance's env and never rides the API or this tool. The success
+/// shape is projected explicitly, so a future wire field cannot leak
+/// through by accident.
+pub(crate) async fn sso(
+    base: Arc<str>,
+    token: Token,
+    action: SsoAction,
+    instance_id: String,
+    pocket_id_instance_id: Option<String>,
+) -> Result<Value, String> {
+    on_blocking_string(move || {
+        safe_segment("instance id", &instance_id)?;
+        if action == SsoAction::Connect {
+            let pocket_id_instance_id = pocket_id_instance_id
+                .as_deref()
+                .ok_or_else(|| "pocket_id_instance_id is required for connect".to_string())?;
+            safe_segment("pocket id instance id", pocket_id_instance_id)?;
+        }
+        let client = ApiClient::new(&base, token);
+
+        match action {
+            SsoAction::Status => {
+                // The wiring read is member-scoped and a missing row
+                // means unwired — but a foreign/mistyped instance also
+                // 404s there. Prove the instance first so `wired:false`
+                // only ever describes an instance the caller can see.
+                client
+                    .get(&format!("/instances/{instance_id}"))
+                    .map_err(|err| friendly_404(err, "instance"))?;
+                match client.get(&format!("/instances/{instance_id}/pocket-id-wiring")) {
+                    Ok(document) => {
+                        let resource = one_resource(document, "pocket id wiring")?;
+                        Ok(json!({
+                            "instance_id": instance_id,
+                            "wired": true,
+                            "wiring": project_wiring(with_id(&resource)),
+                        }))
+                    }
+                    Err(ApiError::NotFound) => Ok(json!({
+                        "instance_id": instance_id,
+                        "wired": false,
+                        "wiring": Value::Null,
+                    })),
+                    Err(err) => Err(message(err)),
+                }
+            }
+            SsoAction::Connect => {
+                let pocket_id_instance_id = pocket_id_instance_id.expect("validated for connect");
+                let body = json!({"data": {"pocket_id_instance_id": pocket_id_instance_id}});
+                let connected = client
+                    .send_json(
+                        "POST",
+                        &format!("/instances/{instance_id}/connect-pocketid"),
+                        Some(body.to_string()),
+                    )
+                    .map_err(|err| friendly_404(err, "instance"))?;
+                let wiring = project_wiring(connected);
+                // Read back the durable row; a 404 here (a create
+                // committed but invisible) still answers the connect
+                // row. Any other read failure rides beside the
+                // committed row — the connect already happened, and a
+                // retry would re-mint.
+                let (read_back, status_error) =
+                    match client.get(&format!("/instances/{instance_id}/pocket-id-wiring")) {
+                        Ok(document) => match one_resource(document, "pocket id wiring") {
+                            Ok(resource) => (project_wiring(with_id(&resource)), Value::Null),
+                            Err(message) => (wiring.clone(), json!(message)),
+                        },
+                        Err(ApiError::NotFound) => (wiring.clone(), Value::Null),
+                        Err(err) => (wiring.clone(), json!(message(err))),
+                    };
+                Ok(json!({
+                    "instance_id": instance_id,
+                    "wired": true,
+                    "wiring": read_back,
+                    "status_error": status_error,
+                }))
+            }
+        }
+    })
+    .await
+}
+
+/// The wiring's wire row projected to identifiers only. `env_vars`
+/// and any future secret-bearing field are deliberately absent.
+fn project_wiring(row: Value) -> Value {
+    json!({
+        "id": row.get("id").cloned().unwrap_or(Value::Null),
+        "instance_id": row.get("instance_id").cloned().unwrap_or(Value::Null),
+        "pocket_id_instance_id": row.get("pocket_id_instance_id").cloned().unwrap_or(Value::Null),
+        "pocket_id_client_id": row.get("pocket_id_client_id").cloned().unwrap_or(Value::Null),
+        "pocket_id_secret_id": row.get("pocket_id_secret_id").cloned().unwrap_or(Value::Null),
+        "wired_at": row.get("wired_at").cloned().unwrap_or(Value::Null),
+    })
+}
+
 /// The tools/list scope source (W2b): GET /me once — the auth and
 /// liveness gate AND the coverage oracle in one read — and take the
 /// calling token's exact scope list from top-level `meta.scopes`
@@ -528,6 +1017,42 @@ pub(crate) async fn me_scopes(base: Arc<str>, token: Token) -> Result<Vec<String
 pub(crate) struct MeGrant {
     pub scopes: Vec<String>,
     pub resource: Option<String>,
+}
+
+/// `gateway`'s verbs (#771) — one tool over the org's single gateway.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum GatewayAction {
+    /// Read the org's gateway row (the default).
+    Status,
+    /// Pair a private instance to the gateway.
+    Attach,
+    /// Unpair an instance (idempotent).
+    Detach,
+}
+
+/// `custom_domain`'s verbs (#771).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum CustomDomainAction {
+    /// The org's registered domains, with their honest serving state.
+    List,
+    /// Register a domain (`:pending` until certificate issuance).
+    Create,
+    /// Re-read one domain's verification state (issuance is the verifier).
+    Verify,
+    /// Remove a domain (the server refuses a domain still serving hostnames).
+    Delete,
+}
+
+/// `sso`'s verbs (#771).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum SsoAction {
+    /// The instance's wiring row, or `wired: false`.
+    Status,
+    /// Mint a Pocket ID OIDC client and wire the instance's env.
+    Connect,
 }
 
 /// `GET /me` for the OAuth resource-server path: scopes + audience in
@@ -772,17 +1297,532 @@ pub(crate) async fn instances_lifecycle(
 ) -> Result<Value, String> {
     on_blocking_string(move || {
         safe_segment("instance id", &id)?;
-        let body = json!({"data": {"type": "instance", "id": id, "attributes": {}}});
-        let document = ApiClient::new(&base, token)
-            .send(
-                "PATCH",
-                &format!("/instances/{id}/{verb}"),
-                Some(body.to_string()),
-            )
-            .map_err(|err| friendly_404(err, "instance"))?;
-        one_resource(document, "instance").map(|resource| with_id(&resource))
+        lifecycle(&ApiClient::new(&base, token), &id, verb)
     })
     .await
+}
+
+/// The lifecycle PATCH over an existing client (the resize's
+/// stop/start limbs share it).
+fn lifecycle(client: &ApiClient, id: &str, verb: &str) -> Result<Value, String> {
+    lifecycle_maybe(client, id, verb).map_err(|(_, message)| message)
+}
+
+/// The lifecycle PATCH with the "may have landed" bit kept: a 5xx or
+/// transport failure can follow a committed scale, while a 4xx guard
+/// proves nothing changed. The stop leg uses it to decide whether a
+/// row observed stopped is ours to restart.
+fn lifecycle_maybe(client: &ApiClient, id: &str, verb: &str) -> Result<Value, (bool, String)> {
+    let body = json!({"data": {"type": "instance", "id": id, "attributes": {}}});
+    match client.send(
+        "PATCH",
+        &format!("/instances/{id}/{verb}"),
+        Some(body.to_string()),
+    ) {
+        Ok(document) => match one_resource(document, "instance") {
+            Ok(resource) => Ok(with_id(&resource)),
+            // A 200 whose body we cannot read: the write may have
+            // committed, so the stop's row must be re-read before
+            // anything restarts it.
+            Err(message) => Err((true, message)),
+        },
+        Err(err) => {
+            let may_have_landed = match &err {
+                // The platform's error documents carry their status;
+                // a 4xx proves the guard refused before any scale. A
+                // 5xx, a statusless body, or a transport failure may
+                // follow a committed stop.
+                ApiError::Transport(_) => true,
+                ApiError::Api(message) => !message.starts_with('4'),
+                _ => false,
+            };
+            Err((may_have_landed, friendly_404(err, "instance")))
+        }
+    }
+}
+
+/// `instances_resize` — the stopped-first sequence (ADR-0043): a
+/// running row is stopped, the allocation PATCHed while stopped, then
+/// started. The response always carries the step reached and the
+/// instance's actual state; a resize failure restarts the instance
+/// only when this call stopped it, and reports both outcomes plus the
+/// final state — no instance this call stopped is left silently
+/// stranded. An already-stopped row stays stopped on a failed resize
+/// (this call never changed its state). A server refusal (`sleeping`,
+/// `starting`, a storage shrink, a missing expansion capability) is
+/// the server's line, verbatim.
+pub(crate) async fn instances_resize(
+    base: Arc<str>,
+    token: Token,
+    id: String,
+    cpu: Option<String>,
+    memory_mb: Option<i64>,
+    storage_gb: Option<i64>,
+) -> Result<Value, String> {
+    on_blocking_string(move || {
+        safe_segment("instance id", &id)?;
+        if cpu.is_none() && memory_mb.is_none() && storage_gb.is_none() {
+            return Err(
+                "nothing to resize — pass at least one of cpu, memory_mb, storage_gb".to_string(),
+            );
+        }
+        if let Some(cpu) = &cpu {
+            safe_query_value("cpu cores", cpu)?;
+        }
+        let client = ApiClient::new(&base, token);
+
+        let before = read_instance(&client, &id)?;
+        // The platform's ResizeGuard checks the state first. Only a
+        // row that can actually enter the sequence gets the local
+        // no-op/shrink pre-check; a sleeping/pending row gets the
+        // server's actionable state refusal instead.
+        if matches!(before["status"].as_str(), Some("running" | "stopped"))
+            && let Some(refusal) =
+                allocation_precheck(&before, cpu.as_deref(), memory_mb, storage_gb)
+        {
+            return Err(refusal);
+        }
+        let previous_allocation = allocation_of(&before);
+        let mut steps = json!({"stop": "skipped", "resize": "pending", "start": "pending"});
+        let mut last_row = before.clone();
+        let mut stopped_by_us = false;
+
+        if before["status"] == "running" {
+            match lifecycle_maybe(&client, &id, "stop") {
+                Ok(row) if row["status"] == "stopped" => {
+                    steps["stop"] = json!("done");
+                    last_row = row;
+                    stopped_by_us = true;
+                }
+                Ok(row) => {
+                    last_row = row.clone();
+                    return Ok(stop_failed(
+                        &client,
+                        &id,
+                        steps,
+                        &mut last_row,
+                        format!(
+                            "stop landed {} — the resize did not run",
+                            row["status"].as_str().unwrap_or("an unknown state")
+                        ),
+                        previous_allocation,
+                        true,
+                    ));
+                }
+                Err((may_have_landed, message)) => {
+                    return Ok(stop_failed(
+                        &client,
+                        &id,
+                        steps,
+                        &mut last_row,
+                        message,
+                        previous_allocation,
+                        may_have_landed,
+                    ));
+                }
+            }
+        }
+
+        let mut attrs = json!({});
+        if let Some(cpu) = &cpu {
+            attrs["cpu_cores"] = json!(cpu);
+        }
+        if let Some(memory_mb) = memory_mb {
+            attrs["memory_mb"] = json!(memory_mb);
+        }
+        if let Some(storage_gb) = storage_gb {
+            attrs["storage_gb"] = json!(storage_gb);
+        }
+        let body = json!({"data": {"type": "instance", "id": id, "attributes": attrs}});
+
+        let resized = match client.send(
+            "PATCH",
+            &format!("/instances/{id}/resize"),
+            Some(body.to_string()),
+        ) {
+            Ok(document) => match one_resource(document, "instance") {
+                Ok(resource) => with_id(&resource),
+                Err(message) => {
+                    steps["resize"] = json!("failed");
+                    return Ok(resize_failed(
+                        &client,
+                        &id,
+                        &mut steps,
+                        &mut last_row,
+                        message,
+                        previous_allocation,
+                        stopped_by_us,
+                    ));
+                }
+            },
+            Err(err) => {
+                steps["resize"] = json!("failed");
+                return Ok(resize_failed(
+                    &client,
+                    &id,
+                    &mut steps,
+                    &mut last_row,
+                    friendly_404(err, "instance"),
+                    previous_allocation,
+                    stopped_by_us,
+                ));
+            }
+        };
+        steps["resize"] = json!("done");
+        last_row = resized.clone();
+
+        let new_allocation = allocation_of(&resized);
+        // Start before quoting: the instance comes back first, and a
+        // slow pricing endpoint must not extend a stopped window.
+        let start = lifecycle(&client, &id, "start");
+        let price = price_for(&client, &new_allocation);
+
+        match start {
+            Ok(row) if row["status"] == "error" => {
+                // A 200 whose landed state is :error is a failed start
+                // (the action reports the row, not the cluster outcome).
+                steps["start"] = json!("failed");
+                last_row = row;
+                let final_row = read_instance(&client, &id).unwrap_or(last_row);
+                return Ok(json!({
+                    "ok": false,
+                    "step": "start",
+                    "steps": steps,
+                    "error": START_LANDED_ERROR,
+                    "start_error": START_LANDED_ERROR,
+                    "instance": final_row,
+                    "previous_allocation": previous_allocation,
+                    "new_allocation": new_allocation,
+                    "price": price,
+                    "price_currency": "USD",
+                    "price_period": "monthly · billed hourly",
+                    "price_basis": PRICE_BASIS,
+                }));
+            }
+            Ok(row) => {
+                steps["start"] = json!("done");
+                last_row = row;
+            }
+            Err(message) => {
+                // A start that failed after the scale may have landed
+                // anyway (5xx/timeout): a row already starting/running
+                // is the outcome the sequence wanted.
+                let after = read_instance(&client, &id).unwrap_or_else(|_| last_row.clone());
+                if matches!(after["status"].as_str(), Some("starting" | "running")) {
+                    steps["start"] = json!("skipped");
+                    last_row = after;
+                } else {
+                    steps["start"] = json!("failed");
+                    let final_row = read_instance(&client, &id).unwrap_or(last_row);
+                    return Ok(json!({
+                        "ok": false,
+                        "step": "start",
+                        "steps": steps,
+                        "error": message,
+                        "start_error": message,
+                        "instance": final_row,
+                        "previous_allocation": previous_allocation,
+                        "new_allocation": new_allocation,
+                        "price": price,
+                        "price_currency": "USD",
+                        "price_period": "monthly · billed hourly",
+                        "price_basis": PRICE_BASIS,
+                    }));
+                }
+            }
+        }
+
+        // The actual state is the read-back, not the start call's row.
+        // A reconciler can move a just-started row to :error before
+        // this read; that is a failed start, not a success.
+        let final_row = read_instance(&client, &id).unwrap_or(last_row);
+        if final_row["status"] == "error" {
+            steps["start"] = json!("failed");
+            return Ok(json!({
+                "ok": false,
+                "step": "start",
+                "steps": steps,
+                "error": START_LANDED_ERROR,
+                "start_error": START_LANDED_ERROR,
+                "started": false,
+                "instance": final_row,
+                "previous_allocation": previous_allocation,
+                "new_allocation": new_allocation,
+                "price": price,
+                "price_currency": "USD",
+                "price_period": "monthly · billed hourly",
+                "price_basis": PRICE_BASIS,
+            }));
+        }
+        Ok(json!({
+            "ok": true,
+            "step": "start",
+            "steps": steps,
+            "error": Value::Null,
+            "start_error": Value::Null,
+            "started": true,
+            "instance": final_row,
+            "previous_allocation": previous_allocation,
+            "new_allocation": new_allocation,
+            "price": price,
+            "price_currency": "USD",
+            "price_period": "monthly · billed hourly",
+            "price_basis": PRICE_BASIS,
+        }))
+    })
+    .await
+}
+
+/// The one line that keeps a formula quote from reading as the final
+/// charge at a recommended-size allocation.
+const PRICE_BASIS: &str = "the platform's formula quote for this allocation; \
+an allocation at the app version's recommended size bills that size's live rate instead";
+
+/// A start call that answered 200 but landed `:error` (the action
+/// reports the row, not the cluster outcome) — a failed start, never
+/// a silent success.
+const START_LANDED_ERROR: &str = "start landed error — the instance needs attention";
+
+/// A stop-leg failure: no resize runs. A 5xx/transport error can follow
+/// a committed scale, so when the error may have landed and the row is
+/// now stopped, this call did stop it — restart and report both
+/// outcomes. A definite 4xx refusal (or a row that is not stopped)
+/// leaves `start` not attempted. Every wire is terminal on this
+/// response (`resize`/`start` are `not_attempted`, never `pending`).
+fn stop_failed(
+    client: &ApiClient,
+    id: &str,
+    mut steps: Value,
+    last_row: &mut Value,
+    error: String,
+    previous_allocation: Value,
+    may_have_landed: bool,
+) -> Value {
+    let before = read_instance(client, id).unwrap_or_else(|_| last_row.clone());
+    steps["resize"] = json!("not_attempted");
+
+    let (start_error, started, error) = if may_have_landed && before["status"] == "stopped" {
+        steps["stop"] = json!("done");
+        match lifecycle(client, id, "start") {
+            Ok(row) if row["status"] == "error" => {
+                steps["start"] = json!("failed");
+                *last_row = row;
+                (
+                    json!(START_LANDED_ERROR),
+                    false,
+                    format!("{error}; the restart landed error"),
+                )
+            }
+            Ok(row) => {
+                steps["start"] = json!("done");
+                *last_row = row;
+                (
+                    Value::Null,
+                    true,
+                    format!("{error}; the instance was restarted"),
+                )
+            }
+            Err(message) => {
+                // A restart that failed after the scale may have
+                // landed anyway (5xx/timeout): a row already
+                // starting/running is up, not a failure.
+                let after = read_instance(client, id).unwrap_or_else(|_| last_row.clone());
+                if matches!(after["status"].as_str(), Some("starting" | "running")) {
+                    steps["start"] = json!("skipped");
+                    *last_row = after;
+                    (
+                        Value::Null,
+                        true,
+                        format!("{error}; the instance is running"),
+                    )
+                } else {
+                    steps["start"] = json!("failed");
+                    (
+                        json!(message),
+                        false,
+                        format!("{error}; the restart failed"),
+                    )
+                }
+            }
+        }
+    } else {
+        steps["stop"] = json!("failed");
+        steps["start"] = json!("not_attempted");
+        (Value::Null, false, error)
+    };
+
+    let final_row = read_instance(client, id).unwrap_or_else(|_| last_row.clone());
+    json!({
+        "ok": false,
+        "step": "stop",
+        "steps": steps,
+        "error": error,
+        "start_error": start_error,
+        "started": started,
+        "instance": final_row,
+        "previous_allocation": previous_allocation,
+        "new_allocation": Value::Null,
+        "price": Value::Null,
+        "price_currency": "USD",
+        "price_period": "monthly · billed hourly",
+        "price_basis": PRICE_BASIS,
+    })
+}
+
+/// A resize-leg failure: when this call stopped the instance, attempt
+/// the start and report both outcomes plus the actual state. A row
+/// this call never stopped (a sleeping/pending refusal, or a row that
+/// was already stopped) is left exactly as it was — waking it would be
+/// an unasked-for change. A racing start wins: a row already
+/// starting/running is reported as such, never started again.
+fn resize_failed(
+    client: &ApiClient,
+    id: &str,
+    steps: &mut Value,
+    last_row: &mut Value,
+    error: String,
+    previous_allocation: Value,
+    stopped_by_us: bool,
+) -> Value {
+    let (start_error, started) = if !stopped_by_us {
+        steps["start"] = json!("not_attempted");
+        (Value::Null, false)
+    } else {
+        match lifecycle(client, id, "start") {
+            Ok(row) if row["status"] == "error" => {
+                steps["start"] = json!("failed");
+                *last_row = row;
+                (json!(START_LANDED_ERROR), false)
+            }
+            Ok(row) => {
+                steps["start"] = json!("done");
+                *last_row = row;
+                (Value::Null, true)
+            }
+            Err(message) => {
+                // A concurrent start can make ours 400 on the
+                // platform's state guard; a row already
+                // starting/running is the outcome the sequence
+                // wanted, not a failure.
+                let after = read_instance(client, id).unwrap_or_else(|_| last_row.clone());
+                if matches!(after["status"].as_str(), Some("starting" | "running")) {
+                    steps["start"] = json!("skipped");
+                    *last_row = after;
+                    (Value::Null, true)
+                } else {
+                    steps["start"] = json!("failed");
+                    (json!(message), false)
+                }
+            }
+        }
+    };
+    let final_row = read_instance(client, id).unwrap_or_else(|_| last_row.clone());
+    json!({
+        "ok": false,
+        "step": "resize",
+        "steps": steps,
+        "error": error,
+        "start_error": start_error,
+        "started": started,
+        "instance": final_row,
+        "previous_allocation": previous_allocation,
+        "new_allocation": Value::Null,
+        "price": Value::Null,
+        "price_currency": "USD",
+        "price_period": "monthly · billed hourly",
+        "price_basis": PRICE_BASIS,
+    })
+}
+
+/// GET /instances/{id} as the flat row (the resize's state reads).
+fn read_instance(client: &ApiClient, id: &str) -> Result<Value, String> {
+    let document = client
+        .get(&format!("/instances/{id}"))
+        .map_err(|err| friendly_404(err, "instance"))?;
+    one_resource(document, "instance").map(|resource| with_id(&resource))
+}
+
+/// The allocation triple off a flat instance row.
+fn allocation_of(row: &Value) -> Value {
+    json!({
+        "cpu_cores": row.get("cpu_cores").cloned().unwrap_or(Value::Null),
+        "memory_mb": row.get("memory_mb").cloned().unwrap_or(Value::Null),
+        "storage_gb": row.get("storage_gb").cloned().unwrap_or(Value::Null),
+    })
+}
+
+/// The two refusals the platform's ResizeGuard decides entirely from
+/// the row the tool already read — a no-op allocation and a storage
+/// shrink. Refusing here keeps a doomed resize from stopping a serving
+/// instance first; the line mirrors the platform's `400 Invalid: …`
+/// shape, and the caller sees the same detail either way. Anything the
+/// row cannot answer (a missing dimension, a non-numeric current cpu)
+/// is left to the server. Callers gate this on the resize-able states,
+/// because the platform checks state first.
+fn allocation_precheck(
+    before: &Value,
+    cpu: Option<&str>,
+    memory_mb: Option<i64>,
+    storage_gb: Option<i64>,
+) -> Option<String> {
+    let cpu_same = match cpu {
+        None => true,
+        Some(requested) => {
+            let current = before["cpu_cores"].as_str();
+            match (
+                current.and_then(|value| value.parse::<f64>().ok()),
+                requested.parse::<f64>().ok(),
+            ) {
+                (Some(current), Some(requested)) => current == requested,
+                _ => false,
+            }
+        }
+    };
+    let memory_same = match memory_mb {
+        None => true,
+        Some(requested) => before["memory_mb"].as_i64() == Some(requested),
+    };
+    let storage_same = match storage_gb {
+        None => true,
+        Some(requested) => before["storage_gb"].as_i64() == Some(requested),
+    };
+
+    if cpu_same && memory_same && storage_same {
+        return Some("400 Invalid: allocation is unchanged".to_string());
+    }
+
+    match (storage_gb, before["storage_gb"].as_i64()) {
+        (Some(requested), Some(current)) if requested < current => Some(format!(
+            "400 Invalid: storage can never shrink (from {current} GB to {requested} GB)"
+        )),
+        _ => None,
+    }
+}
+
+/// The platform's quote for an allocation. Best-effort: the resize
+/// already committed, so a pricing outage reports the row and the
+/// price error instead of hiding the resize behind a failure.
+fn price_for(client: &ApiClient, allocation: &Value) -> Value {
+    let cpu = allocation["cpu_cores"]
+        .as_str()
+        .map(str::to_owned)
+        .or_else(|| allocation["cpu_cores"].as_f64().map(|n| n.to_string()));
+    let memory_mb = allocation["memory_mb"].as_i64();
+    let storage_gb = allocation["storage_gb"].as_i64();
+
+    let (Some(cpu), Some(memory_mb), Some(storage_gb)) = (cpu, memory_mb, storage_gb) else {
+        return json!({"error": "the resize response did not carry a complete allocation"});
+    };
+    if safe_query_value("cpu cores", &cpu).is_err() {
+        return json!({"error": format!("invalid cpu cores in the resize response: {cpu}")});
+    }
+
+    match client.get_json(&format!(
+        "/pricing/quote?cpu_cores={cpu}&memory_mb={memory_mb}&storage_gb={storage_gb}"
+    )) {
+        Ok(quote) => quote,
+        Err(err) => json!({"error": message(err)}),
+    }
 }
 
 /// `instances_destroy` — the DELETE; the wire answers the flat row
@@ -3005,6 +4045,421 @@ mod tests {
         assert_eq!(
             one_resource(many, "user").unwrap_err(),
             "the API returned 2 user resources, expected one"
+        );
+    }
+
+    fn instance_status_doc(status: &str) -> String {
+        json!({"data": {"type": "instance", "id": "i1",
+            "attributes": {"id": "i1", "status": status}}})
+        .to_string()
+    }
+
+    #[test]
+    fn stop_failed_restarts_a_row_the_stop_left_stopped() {
+        let stopped = instance_status_doc("stopped");
+        let starting = instance_status_doc("starting");
+        let server = serve(&[
+            ("/api/v1/instances/i1", 200, &stopped),
+            ("PATCH /api/v1/instances/i1/start", 200, &starting),
+        ]);
+        let client = ApiClient::new(&base(&server), token());
+        let mut last_row = json!({"status": "running"});
+        let value = stop_failed(
+            &client,
+            "i1",
+            json!({"stop": "failed", "resize": "pending", "start": "pending"}),
+            &mut last_row,
+            "stop timed out".to_string(),
+            json!({"cpu_cores": "0.5"}),
+            true,
+        );
+        assert_eq!(value["ok"], false);
+        assert_eq!(value["step"], "stop");
+        assert_eq!(value["steps"]["stop"], "done");
+        assert_eq!(value["steps"]["resize"], "not_attempted");
+        assert_eq!(value["steps"]["start"], "done");
+        assert_eq!(value["started"], true);
+        assert!(
+            value["error"].as_str().unwrap().contains("restarted"),
+            "error: {}",
+            value["error"]
+        );
+        assert!(
+            (0..server.head_count())
+                .map(|n| server.head(n).to_lowercase())
+                .any(|head| head.starts_with("patch /api/v1/instances/i1/start"))
+        );
+    }
+
+    #[test]
+    fn stop_failed_leaves_a_running_row_alone() {
+        let running = instance_status_doc("running");
+        let server = serve(&[("/api/v1/instances/i1", 200, &running)]);
+        let client = ApiClient::new(&base(&server), token());
+        let mut last_row = json!({"status": "running"});
+        let value = stop_failed(
+            &client,
+            "i1",
+            json!({"stop": "failed", "resize": "pending", "start": "pending"}),
+            &mut last_row,
+            "stop refused".to_string(),
+            json!({}),
+            false,
+        );
+        assert_eq!(value["steps"]["stop"], "failed");
+        assert_eq!(value["steps"]["resize"], "not_attempted");
+        assert_eq!(value["steps"]["start"], "not_attempted");
+        assert_eq!(value["started"], false);
+        assert!(
+            (0..server.head_count())
+                .map(|n| server.head(n).to_lowercase())
+                .all(|head| !head.starts_with("patch /api/v1/instances/i1/start"))
+        );
+    }
+
+    #[test]
+    fn stop_failed_does_not_restart_a_row_a_refusal_did_not_stop() {
+        // The row is stopped, but a definite 4xx proves our call did
+        // not do it — starting it would undo someone else's pause.
+        let stopped = instance_status_doc("stopped");
+        let server = serve(&[("/api/v1/instances/i1", 200, &stopped)]);
+        let client = ApiClient::new(&base(&server), token());
+        let mut last_row = json!({"status": "stopped"});
+        let value = stop_failed(
+            &client,
+            "i1",
+            json!({"stop": "failed", "resize": "pending", "start": "pending"}),
+            &mut last_row,
+            "400 Invalid: cannot stop instance in stopped state".to_string(),
+            json!({}),
+            false,
+        );
+        assert_eq!(value["steps"]["stop"], "failed");
+        assert_eq!(value["steps"]["start"], "not_attempted");
+        assert_eq!(value["started"], false);
+        assert_eq!(value["start_error"], Value::Null);
+        assert!(
+            (0..server.head_count())
+                .map(|n| server.head(n).to_lowercase())
+                .all(|head| !head.starts_with("patch /api/v1/instances/i1/start"))
+        );
+    }
+
+    #[test]
+    fn stop_failed_reports_a_restart_that_lands_error() {
+        let stopped = instance_status_doc("stopped");
+        let erred = instance_status_doc("error");
+        let server = serve(&[
+            ("/api/v1/instances/i1", 200, &stopped),
+            ("PATCH /api/v1/instances/i1/start", 200, &erred),
+        ]);
+        let client = ApiClient::new(&base(&server), token());
+        let mut last_row = json!({"status": "running"});
+        let value = stop_failed(
+            &client,
+            "i1",
+            json!({"stop": "failed", "resize": "pending", "start": "pending"}),
+            &mut last_row,
+            "stop timed out".to_string(),
+            json!({}),
+            true,
+        );
+        assert_eq!(value["steps"]["start"], "failed");
+        assert_eq!(value["started"], false);
+        assert_eq!(value["start_error"], START_LANDED_ERROR);
+        assert!(
+            value["error"]
+                .as_str()
+                .unwrap()
+                .contains("restart landed error"),
+            "error: {}",
+            value["error"]
+        );
+    }
+
+    #[test]
+    fn stop_failed_reports_a_restart_refusal() {
+        let stopped = instance_status_doc("stopped");
+        let server = serve(&[
+            ("/api/v1/instances/i1", 200, &stopped),
+            (
+                "PATCH /api/v1/instances/i1/start",
+                403,
+                r#"{"errors":[{"status":"403","detail":"token is missing the required scope instances:write"}]}"#,
+            ),
+        ]);
+        let client = ApiClient::new(&base(&server), token());
+        let mut last_row = json!({"status": "running"});
+        let value = stop_failed(
+            &client,
+            "i1",
+            json!({"stop": "failed", "resize": "pending", "start": "pending"}),
+            &mut last_row,
+            "stop timed out".to_string(),
+            json!({}),
+            true,
+        );
+        assert_eq!(value["steps"]["start"], "failed");
+        assert_eq!(value["started"], false);
+        assert!(
+            value["start_error"]
+                .as_str()
+                .unwrap()
+                .contains("instances:write"),
+            "start_error: {}",
+            value["start_error"]
+        );
+    }
+
+    #[test]
+    fn resize_failed_reports_a_start_refusal_when_the_row_stays_stopped() {
+        let stopped = instance_status_doc("stopped");
+        let server = serve(&[
+            ("/api/v1/instances/i1", 200, &stopped),
+            (
+                "PATCH /api/v1/instances/i1/start",
+                403,
+                r#"{"errors":[{"status":"403","detail":"token is missing the required scope instances:write"}]}"#,
+            ),
+        ]);
+        let client = ApiClient::new(&base(&server), token());
+        let mut steps = json!({"stop": "done", "resize": "failed", "start": "pending"});
+        let mut last_row = json!({"status": "stopped"});
+        let value = resize_failed(
+            &client,
+            "i1",
+            &mut steps,
+            &mut last_row,
+            "resize refused".to_string(),
+            json!({}),
+            true,
+        );
+        assert_eq!(value["steps"]["start"], "failed");
+        assert_eq!(value["started"], false);
+        assert!(
+            value["start_error"]
+                .as_str()
+                .unwrap()
+                .contains("instances:write"),
+            "start_error: {}",
+            value["start_error"]
+        );
+    }
+
+    #[test]
+    fn resize_failed_treats_a_racing_start_refusal_as_done() {
+        let starting = instance_status_doc("starting");
+        let server = serve(&[
+            ("/api/v1/instances/i1", 200, &starting),
+            (
+                "PATCH /api/v1/instances/i1/start",
+                400,
+                r#"{"errors":[{"detail":"cannot start instance in starting state"}]}"#,
+            ),
+        ]);
+        let client = ApiClient::new(&base(&server), token());
+        let mut steps = json!({"stop": "done", "resize": "failed", "start": "pending"});
+        let mut last_row = json!({"status": "stopped"});
+        let value = resize_failed(
+            &client,
+            "i1",
+            &mut steps,
+            &mut last_row,
+            "resize failed".to_string(),
+            json!({}),
+            true,
+        );
+        assert_eq!(value["steps"]["start"], "skipped");
+        assert_eq!(value["started"], true);
+        assert_eq!(value["start_error"], Value::Null);
+        assert!(
+            (0..server.head_count())
+                .map(|n| server.head(n).to_lowercase())
+                .any(|head| head.starts_with("patch /api/v1/instances/i1/start"))
+        );
+    }
+
+    #[tokio::test]
+    async fn a_stop_5xx_restarts_the_row_it_may_have_stopped() {
+        let server = script(vec![
+            respond_envelope("200 OK", json!({"data": instance_row("i1", "running")})),
+            respond(
+                "500 Internal Server Error",
+                r#"{"errors":[{"status":"500","title":"SomethingWentWrong","detail":"boom"}]}"#,
+            ),
+            respond_envelope("200 OK", json!({"data": instance_row("i1", "stopped")})),
+            respond_envelope("200 OK", json!({"data": instance_row("i1", "starting")})),
+            respond_envelope("200 OK", json!({"data": instance_row("i1", "starting")})),
+        ]);
+        let value = instances_resize(
+            base_of(&server),
+            token(),
+            "i1".into(),
+            None,
+            Some(2048),
+            None,
+        )
+        .await
+        .unwrap();
+        assert_eq!(value["ok"], false);
+        assert_eq!(value["step"], "stop");
+        assert_eq!(value["steps"]["stop"], "done");
+        assert_eq!(value["steps"]["resize"], "not_attempted");
+        assert_eq!(value["steps"]["start"], "done");
+        assert_eq!(value["started"], true);
+        assert!(
+            value["error"].as_str().unwrap().contains("restarted"),
+            "error: {}",
+            value["error"]
+        );
+        assert!(
+            captured_requests(&server)
+                .iter()
+                .any(|request| request.starts_with("patch /api/v1/instances/i1/start"))
+        );
+    }
+
+    #[tokio::test]
+    async fn a_stop_4xx_does_not_restart_a_row_it_did_not_stop() {
+        let server = script(vec![
+            respond_envelope("200 OK", json!({"data": instance_row("i1", "running")})),
+            respond(
+                "400 Bad Request",
+                r#"{"errors":[{"status":"400","title":"Invalid","detail":"cannot stop instance in stopped state (must be running)"}]}"#,
+            ),
+            respond_envelope("200 OK", json!({"data": instance_row("i1", "stopped")})),
+            respond_envelope("200 OK", json!({"data": instance_row("i1", "stopped")})),
+        ]);
+        let value = instances_resize(
+            base_of(&server),
+            token(),
+            "i1".into(),
+            None,
+            Some(2048),
+            None,
+        )
+        .await
+        .unwrap();
+        assert_eq!(value["ok"], false);
+        assert_eq!(value["steps"]["stop"], "failed");
+        assert_eq!(value["steps"]["start"], "not_attempted");
+        assert_eq!(value["started"], false);
+        assert!(!value["error"].as_str().unwrap().contains("restarted"));
+        assert!(
+            captured_requests(&server)
+                .iter()
+                .all(|request| !request.starts_with("patch /api/v1/instances/i1/start"))
+        );
+    }
+
+    #[tokio::test]
+    async fn a_read_back_that_lands_error_is_a_failed_start() {
+        let resized = json!({"data": {"type": "instance", "id": "i1",
+            "attributes": {"id": "i1", "status": "stopped", "cpu_cores": "2",
+                           "memory_mb": 2048, "storage_gb": 10}}});
+        let quote = json!({"cpu_cores": "2", "memory_mb": 2048, "storage_gb": 10,
+                           "monthly_cents": 900, "stopped_monthly_cents": 40,
+                           "monthly": "$9.00/mo", "stopped": "$0.40 while stopped"});
+        let server = script(vec![
+            respond_envelope("200 OK", json!({"data": instance_row("i1", "stopped")})),
+            respond_envelope("200 OK", resized),
+            respond_envelope("200 OK", json!({"data": instance_row("i1", "starting")})),
+            respond_envelope("200 OK", quote),
+            respond_envelope("200 OK", json!({"data": instance_row("i1", "error")})),
+        ]);
+        let value = instances_resize(
+            base_of(&server),
+            token(),
+            "i1".into(),
+            Some("2".into()),
+            Some(2048),
+            None,
+        )
+        .await
+        .unwrap();
+        assert_eq!(value["ok"], false);
+        assert_eq!(value["step"], "start");
+        assert_eq!(value["steps"]["start"], "failed");
+        assert_eq!(value["started"], false);
+        assert_eq!(value["error"], START_LANDED_ERROR);
+        assert_eq!(value["instance"]["status"], "error");
+    }
+
+    #[tokio::test]
+    async fn a_start_5xx_that_landed_is_not_reported_as_a_failure() {
+        let resized = json!({"data": {"type": "instance", "id": "i1",
+            "attributes": {"id": "i1", "status": "stopped", "cpu_cores": "2",
+                           "memory_mb": 2048, "storage_gb": 10}}});
+        let quote = json!({"cpu_cores": "2", "memory_mb": 2048, "storage_gb": 10,
+                           "monthly_cents": 900, "stopped_monthly_cents": 40,
+                           "monthly": "$9.00/mo", "stopped": "$0.40 while stopped"});
+        let server = script(vec![
+            respond_envelope("200 OK", json!({"data": instance_row("i1", "running")})),
+            respond_envelope("200 OK", json!({"data": instance_row("i1", "stopped")})),
+            respond_envelope("200 OK", resized),
+            respond(
+                "500 Internal Server Error",
+                r#"{"errors":[{"status":"500","title":"SomethingWentWrong","detail":"start boom"}]}"#,
+            ),
+            respond_envelope("200 OK", quote),
+            respond_envelope("200 OK", json!({"data": instance_row("i1", "starting")})),
+            respond_envelope("200 OK", json!({"data": instance_row("i1", "starting")})),
+        ]);
+        let value = instances_resize(
+            base_of(&server),
+            token(),
+            "i1".into(),
+            Some("2".into()),
+            Some(2048),
+            None,
+        )
+        .await
+        .unwrap();
+        assert_eq!(value["ok"], true);
+        assert_eq!(value["steps"]["start"], "skipped");
+        assert_eq!(value["started"], true);
+        assert_eq!(value["error"], Value::Null);
+        assert_eq!(value["price"]["monthly_cents"], 900);
+    }
+
+    #[test]
+    fn allocation_precheck_matches_the_platforms_refusals() {
+        let row = json!({"cpu_cores": "0.5", "memory_mb": 512, "storage_gb": 10});
+        assert_eq!(
+            allocation_precheck(&row, None, Some(512), None).unwrap(),
+            "400 Invalid: allocation is unchanged"
+        );
+        assert_eq!(
+            allocation_precheck(&row, Some("0.50"), None, None).unwrap(),
+            "400 Invalid: allocation is unchanged"
+        );
+        assert_eq!(
+            allocation_precheck(&row, None, None, Some(5)).unwrap(),
+            "400 Invalid: storage can never shrink (from 10 GB to 5 GB)"
+        );
+        // A real change and an unknowable current dimension pass
+        // through to the server.
+        assert!(allocation_precheck(&row, None, Some(2048), None).is_none());
+        assert!(allocation_precheck(&row, Some("2"), None, None).is_none());
+        assert!(allocation_precheck(&json!({}), None, Some(512), None).is_none());
+    }
+
+    #[test]
+    fn gateway_after_pairing_reports_a_missing_row_beside_the_pairing() {
+        let server = serve(&[(
+            "/api/v1/organizations/01JORG1/access-gateway",
+            404,
+            r#"{"errors":[]}"#,
+        )]);
+        let client = ApiClient::new(&base(&server), token());
+        let (gateway, error) = gateway_after_pairing(&client, "01JORG1");
+        assert_eq!(gateway, Value::Null);
+        assert!(
+            error
+                .as_str()
+                .unwrap()
+                .contains("not found after the pairing"),
+            "error: {error}"
         );
     }
 

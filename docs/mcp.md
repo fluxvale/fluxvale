@@ -137,7 +137,7 @@ panel is the fallback.
 
 ## The tool catalog
 
-Twenty-two tools at the current surface. Scope-filtered per token: a
+Twenty-six tools at the current surface. Scope-filtered per token: a
 tool the token's scopes don't cover never appears in `tools/list`
 (and a direct call still refuses — the platform's own 403s are the
 enforcement). The scope column is the FULL set the tool needs — a
@@ -160,7 +160,11 @@ the enforcement, so mint the union):
 | `instances_configure` | Merge env vars on a live instance: `set` adds/replaces, `remove` deletes (values are write-only) | `instances:write` | — |
 | `instances_stop` | Scale to zero — the pause (storage keeps accruing) | `instances:write` | — |
 | `instances_start` | Start a stopped/sleeping instance back up | `instances:write` | — |
+| `instances_resize` | Stopped-first re-allocation: stop (when running), resize, start; previous/new allocation and the platform's price quote in the response | `instances:write` | — |
 | `instances_destroy` | Destroy an instance and all its data | `instances:write` | confirm-gated |
+| `gateway` | The org's access gateway: `status`, `attach`, `detach`; attach returns the pairing row, detach the result, both with the re-read status (`status_error` if that read failed) | `gateways:read` + `gateways:write` for attach/detach | — |
+| `custom_domain` | `list`, `create`, `verify`, `delete` over the org's custom domains; every row carries `live` (serving now), `healthy` (certificate/registration untroubled — `live` says it serves), and a `reason_code` (`platform`/`pending`/`failed`/`needs_attention`/`suspended`/`no_gateway`/`no_api_token`/`unclaimed`/`claimed`/`gateway_not_serving`/`removed`/`unknown`) | `gateways:read` + `gateways:write` for create/delete | — |
+| `sso` | Wire an instance to the org's Pocket ID (`connect`) and read the wiring back (`status`); identifiers only, never the minted secret; a non-404 read-back failure rides as `status_error` beside the committed row (a 404 is an invisible row, not an error) | `instances:read` + `instances:write` for connect | — |
 | `backups_status` | An instance's backup settings + latest run | `instances:read` + `backups:read` (the instance read gates first — the runs list alone can't name a foreign id) | — |
 | `backups_configure` | Save the backup destination (identifiers only) | `backups:write` | — |
 | `backups_run` | Run a backup now | `backups:write` | — |
@@ -179,6 +183,47 @@ rename, or removal updates this file in the same PR** that changes
 the surface. The server's behavioral detail (elicitation, sealing,
 scope filtering) lives in the `apps/mcp` README; entries here name
 the surface change and the PR.
+
+### 2026-11-14 — agent parity (#771)
+
+- New `instances_resize`: the stopped-first sequence (stop when
+  running, resize, start), CPU/RAM both ways, storage up-only. The
+  response states the step reached, the instance's actual state, the
+  previous/new allocation, and the platform's `/pricing/quote` figure
+  (USD, monthly, billed hourly). A resize failure restarts the
+  instance only when this call stopped it, reports both the failure
+  and the final state, and answers `isError` with `ok: false`; an
+  already-stopped row stays as it was. A no-op allocation or a
+  storage shrink is refused before anything is stopped.
+- New `gateway` over the org's one access gateway: `status`,
+  `attach`, `detach`; attach returns the pairing row, detach the
+  result, and both carry the re-read status, with any status-read
+  failure in `status_error` beside the committed pairing.
+- New `custom_domain`: `list`, `create`, `verify`, `delete`. Every
+  row carries `live` (serving right now), `healthy` (the
+  certificate/registration is untroubled — `live` says it serves),
+  and a machine-readable `serving.reason_code`. The platform row is `platform` (fleet-served);
+  a custom domain is live only while its gateway is active and its
+  readable claim includes it, otherwise `no_gateway`, `no_api_token`,
+  `unclaimed`, `gateway_not_serving`, or a guard state (`pending`,
+  `failed`, `needs_attention`, `suspended`, `unknown`). A
+  `needs_attention` domain with a live retained claim still serves
+  (`live: true`, `healthy: false`). `verify` re-reads the row's state;
+  issuance is the only verifier and this action triggers nothing. A
+  gateway status-read outage rides as `serving_error` and never hides
+  a committed registration.
+- New `sso`: `status` answers `wired: false` for an unwired instance
+  (after proving the instance is visible); `connect` mints the Pocket
+  ID OIDC client, wires the env, and reads the durable row back. A
+  failed read-back rides as `status_error` beside the committed
+  connect row (a 404 is an invisible row, not an error) — a retry
+  would re-mint. Identifier fields only — the
+  minted client secret never rides the API or this tool.
+- Platform: the gateway read gains `api_token_set` (the token stamp
+  or the stored ref — a pre-stamp token still proves itself) and
+  `claimed_domains` (the claims map's domain names; its values stay
+  private), so the domain tool can name the claim-path reason rather
+  than guess. Catalog count 22 → 26.
 
 ### 2026-11-13 — the agent first-run spine (#770)
 

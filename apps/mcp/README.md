@@ -4,9 +4,11 @@ The FluxVale MCP server: FluxVale as tools for AI agents. Slices W2a
 + W2b of [#484](https://github.com/fluxvale/fluxvale/issues/484) —
 the server core (rmcp streamable HTTP over the shared `/api/v1`
 client crate `crates/fluxvale-api`, personal access token passthrough,
-the read tools) plus the write surface: deploy through destroy, the
-destructive pair elicitation-gated. W3a ships the container image,
-CI publish, and the k3d exposure ([running in k3d](#running-in-k3d)).
+the read tools) plus the write surface: deploy through destroy,
+resize, the access gateway, custom domains, and Pocket ID sign-in
+wiring, with the destructive pair elicitation-gated. W3a ships the
+container image, CI publish, and the k3d exposure
+([running in k3d](#running-in-k3d)).
 
 ## The tools (W2a + W2b)
 
@@ -24,7 +26,11 @@ CI publish, and the k3d exposure ([running in k3d](#running-in-k3d)).
 | `instances_configure` | `instances:write` | Merge env vars on a live instance: `set` adds/replaces, `remove` deletes. Values are write-only. |
 | `instances_stop` | `instances:write` | Scale to zero — the pause (storage keeps accruing). |
 | `instances_start` | `instances:write` | Start a stopped/sleeping instance back up. |
+| `instances_resize` | `instances:write` | Stopped-first re-allocation: stop when running, resize, start; previous/new allocation plus the platform's price quote. A partial failure reports the step and the actual state. |
 | `instances_destroy` | `instances:write` — **confirm-gated** | Destroy an instance and all its data, after a yes/no confirmation. |
+| `gateway` | `gateways:read` (+ `gateways:write` for attach/detach) | The org's access gateway: `status`, `attach`, `detach`; attach returns the pairing row, detach the result, both with the re-read status (`status_error` if that read failed). |
+| `custom_domain` | `gateways:read` (+ `gateways:write` for create/delete) | `list`, `create`, `verify`, `delete` over the org's custom domains; every row carries `live` (serving now), `healthy` (certificate/registration untroubled — `live` says it serves), and a `reason_code` (`platform`/guard states/claim-path states). A status outage rides as `serving_error`. |
+| `sso` | `instances:read` (+ `instances:write` for connect) | Wire an instance to the org's Pocket ID and read the wiring back; identifiers only, never the minted secret; a non-404 read-back failure rides as `status_error` beside the committed row. |
 | `backups_status` | `backups:read` | An instance's backup settings + latest run. |
 | `backups_configure` | `backups:write` | Save the backup destination (identifiers only — see below). |
 | `backups_run` | `backups:write` | Run a backup now. |
