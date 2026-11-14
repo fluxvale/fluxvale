@@ -46,8 +46,10 @@ defmodule FluxValeWeb.Plugs.Authenticate do
   # last_used_at granularity — coarser stamps buy nothing (nothing
   # displays finer than "recently") and the write is per-request.
   @last_used_granularity_seconds 60
-  # A derivation chain deeper than this is not a real CLI flow; the
+  # A derivation chain longer than this is not a real CLI flow; the
   # cap bounds the per-request ancestor reads (and any forged cycle).
+  # Eight LINKS (nine tokens) are allowed: the walk spends one step
+  # per edge and still inspects the root at zero.
   @max_parent_depth 8
 
   @doc false
@@ -131,11 +133,17 @@ defmodule FluxValeWeb.Plugs.Authenticate do
   # created before the child that names it.
   defp lineage_live?(pat), do: lineage_live?(pat, @max_parent_depth)
 
-  defp lineage_live?(_pat, 0), do: false
+  # Budget exhausted: only a root passes. A token that still names a
+  # parent here would need a ninth ancestor read, so the chain fails
+  # closed instead of trusting an unread link.
+  defp lineage_live?(pat, 0), do: is_nil(parent_id(pat))
 
   defp lineage_live?(pat, depth) do
-    case pat.metadata do
-      %{"minted_parent_id" => parent_id} when is_binary(parent_id) ->
+    case parent_id(pat) do
+      nil ->
+        true
+
+      parent_id ->
         case PersonalAccessToken.get(parent_id, authorize?: false) do
           {:ok, parent} when is_nil(parent.revoked_at) ->
             DateTime.after?(parent.expires_at, DateTime.utc_now()) and
@@ -144,9 +152,13 @@ defmodule FluxValeWeb.Plugs.Authenticate do
           _missing_or_revoked ->
             false
         end
+    end
+  end
 
-      _root ->
-        true
+  defp parent_id(pat) do
+    case pat.metadata do
+      %{"minted_parent_id" => parent_id} when is_binary(parent_id) -> parent_id
+      _root -> nil
     end
   end
 

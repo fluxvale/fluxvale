@@ -13,13 +13,17 @@ defmodule FluxValeWeb.Api.TokenController do
   Am. 1). The caller may grant only scopes it already holds, and the
   minted token may not outlive the caller: re-minting can narrow a
   credential, never escalate one.
+
+  A derived mint is also bounded by the resource's per-user cap on
+  live minted tokens (#772): the count and the insert serialize on
+  the user row, and an overflow is a 409 — the fix is revoking a
+  token, not retrying later.
   """
 
   use FluxValeWeb, :controller
 
   alias FluxVale.Api.Scopes
   alias FluxVale.Identity
-  alias FluxVale.Identity.PersonalAccessToken
 
   # The panel's own create form supplies a name; the CLI's default
   # keeps the row identifiable in /settings/developer without one.
@@ -31,10 +35,6 @@ defmodule FluxValeWeb.Api.TokenController do
   # A catalog longer than this is invalid by definition; the bound
   # also keeps the O(n²) duplicate check cheap on an 8 MB body.
   @max_scopes length(Scopes.all_scopes())
-  # The mint route is programmatic, so an unbounded fleet of child
-  # tokens would multiply the per-token meter. The cap counts live
-  # children only; revoking one frees a slot.
-  @max_live_derived_tokens 25
 
   @doc """
   Mints a token for the authenticated user from the request's
@@ -56,8 +56,7 @@ defmodule FluxValeWeb.Api.TokenController do
     with {:ok, scopes} <- scopes(params["scopes"]),
          :ok <- within_caller_scopes(caller, scopes),
          {:ok, ttl_seconds} <- ttl(params["ttl_seconds"]),
-         {:ok, name} <- name(params["name"]),
-         :ok <- below_derived_cap(conn.assigns.current_user) do
+         {:ok, name} <- name(params["name"]) do
       mint(conn, name, scopes, ttl_seconds)
     else
       {:error, status, detail} -> error(conn, status, detail)
@@ -130,24 +129,6 @@ defmodule FluxValeWeb.Api.TokenController do
 
   defp name(_other), do: {:error, 400, "name must be a string"}
 
-  defp below_derived_cap(user) do
-    live =
-      user.id
-      |> PersonalAccessToken.list_for_user!(actor: user)
-      |> Enum.count(&live_derived?/1)
-
-    if live < @max_live_derived_tokens do
-      :ok
-    else
-      {:error, 429, "too many live minted tokens — revoke one first"}
-    end
-  end
-
-  defp live_derived?(pat) do
-    is_binary(pat.metadata["minted_parent_id"]) and is_nil(pat.revoked_at) and
-      DateTime.after?(pat.expires_at, DateTime.utc_now())
-  end
-
   defp mint(conn, name, scopes, ttl_seconds) do
     now = DateTime.utc_now()
     requested = DateTime.add(now, ttl_seconds, :second)
@@ -178,6 +159,11 @@ defmodule FluxValeWeb.Api.TokenController do
           expires_at: DateTime.to_iso8601(pat.expires_at)
         })
 
+      # The cap is a state conflict, not a rate limit: retrying cannot
+      # help until the user revokes a token or one expires.
+      {:error, :too_many_live_tokens} ->
+        error(conn, 409, "too many live minted tokens — revoke one first")
+
       # Only a system failure can land here: scopes, name, and expiry
       # are validated above. Never echo the changeset — it carries the
       # private token hash.
@@ -206,6 +192,6 @@ defmodule FluxValeWeb.Api.TokenController do
   defp title(400), do: "Bad Request"
   defp title(401), do: "Unauthorized"
   defp title(403), do: "Forbidden"
-  defp title(429), do: "Too Many Requests"
+  defp title(409), do: "Conflict"
   defp title(_other), do: "Internal Server Error"
 end

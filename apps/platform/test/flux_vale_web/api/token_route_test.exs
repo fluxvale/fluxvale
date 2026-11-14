@@ -29,6 +29,24 @@ defmodule FluxValeWeb.Api.TokenRouteTest do
 
   defp rows(user), do: PersonalAccessToken.list_for_user!(user.id, actor: user)
 
+  defp caller_row(user, raw) do
+    raw
+    |> PersonalAccessToken.token_hash()
+    |> PersonalAccessToken.get_by_token_hash!(actor: user)
+  end
+
+  defp derived!(user, parent_id, name) do
+    {:ok, %{pat: pat}} =
+      Identity.mint_pat(user, %{
+        user_id: user.id,
+        name: name,
+        scopes: [],
+        metadata: %{"minted_parent_id" => parent_id}
+      })
+
+    pat
+  end
+
   defp expires_at(body) do
     {:ok, expires_at, _offset} = DateTime.from_iso8601(body["expires_at"])
     expires_at
@@ -231,6 +249,38 @@ defmodule FluxValeWeb.Api.TokenRouteTest do
     assert %{"errors" => [%{"status" => "401"}]} = json_response(denied, 401)
   end
 
+  test "a live child under a revoked parent is refused even without the cascade stamp" do
+    user = AccountsFixtures.user!()
+
+    {:ok, %{pat: parent}} =
+      Identity.mint_pat(user, %{
+        user_id: user.id,
+        name: "parent",
+        scopes: ["instances:read"]
+      })
+
+    {:ok, %{token: child}} =
+      Identity.mint_pat(user, %{
+        user_id: user.id,
+        name: "child",
+        scopes: ["instances:read"],
+        metadata: %{"minted_parent_id" => parent.id}
+      })
+
+    # The resource action alone does not cascade (the operation does).
+    # This is the drifted row the auth-path lineage walk must still
+    # refuse: the child itself is live, its parent is not.
+    assert {:ok, revoked} = PersonalAccessToken.revoke(parent, actor: user)
+    assert revoked.revoked_at
+
+    denied =
+      build_conn()
+      |> auth(child)
+      |> get("/api/v1/instances")
+
+    assert %{"errors" => [%{"status" => "401"}]} = json_response(denied, 401)
+  end
+
   test "an expired ancestor refuses the child" do
     user = AccountsFixtures.user!()
     expired_at = DateTime.add(DateTime.utc_now(), -60, :second)
@@ -273,26 +323,122 @@ defmodule FluxValeWeb.Api.TokenRouteTest do
 
   test "the live derived-token cap refuses the next mint", %{conn: conn} do
     {user, caller} = ApiPat.member!(["instances:read"])
+    parent = caller_row(user, caller)
 
     for n <- 1..25 do
-      {:ok, _pat} =
-        Identity.mint_pat(user, %{
-          user_id: user.id,
-          name: "derived #{n}",
-          scopes: [],
-          metadata: %{"minted_parent_id" => "00000000-0000-0000-0000-000000000000"}
-        })
+      derived!(user, parent.id, "derived #{n}")
     end
 
     conn = mint(conn, caller, %{"scopes" => [], "ttl_seconds" => 60})
 
-    assert %{"errors" => [%{"status" => "429", "detail" => detail}]} =
-             json_response(conn, 429)
+    # A quota conflict, not a rate limit: retrying cannot help until a
+    # token is revoked or expires, so there is no Retry-After and no 429.
+    assert %{"errors" => [%{"status" => "409", "detail" => detail}]} =
+             json_response(conn, 409)
 
     assert detail =~ "too many live minted tokens"
+    assert length(rows(user)) == 26, "a refused mint must not write a row"
   end
 
-  test "a lineage deeper than the cap fails closed" do
+  test "revoking one minted token frees its cap slot", %{conn: conn} do
+    {user, caller} = ApiPat.member!(["instances:read"])
+    parent = caller_row(user, caller)
+
+    children =
+      for n <- 1..25 do
+        derived!(user, parent.id, "derived #{n}")
+      end
+
+    assert {:ok, _revoked} = Identity.revoke_pat(user, hd(children))
+
+    conn = mint(conn, caller, %{"scopes" => [], "ttl_seconds" => 60})
+
+    assert json_response(conn, 201)["scope"] == ""
+  end
+
+  test "revoking a sign-in cascades to its minted tokens and frees their slots" do
+    {user, caller} = ApiPat.member!(["instances:read"])
+    parent = caller_row(user, caller)
+
+    children =
+      for n <- 1..25 do
+        derived!(user, parent.id, "derived #{n}")
+      end
+
+    assert {:ok, _revoked} = Identity.revoke_pat(user, parent)
+
+    for child <- children do
+      row = PersonalAccessToken.get!(child.id, actor: user)
+      assert row.revoked_at, "child #{child.id} must be revoked with its parent"
+    end
+
+    # A fresh sign-in for the same user can mint: the cascade freed
+    # every slot, not only the root's own.
+    {:ok, %{token: other}} =
+      Identity.mint_pat(user, %{user_id: user.id, name: "second sign-in", scopes: []})
+
+    conn =
+      build_conn()
+      |> auth(other)
+      |> post("/api/v1/tokens", %{"scopes" => [], "ttl_seconds" => 60})
+
+    assert json_response(conn, 201)["scope"] == ""
+  end
+
+  test "an expired minted token does not occupy a slot", %{conn: conn} do
+    {user, caller} = ApiPat.member!(["instances:read"])
+    parent = caller_row(user, caller)
+
+    for n <- 1..24 do
+      derived!(user, parent.id, "live #{n}")
+    end
+
+    {:ok, _expired} =
+      Identity.mint_pat(user, %{
+        user_id: user.id,
+        name: "expired",
+        scopes: [],
+        expires_at: DateTime.add(DateTime.utc_now(), -60, :second),
+        metadata: %{"minted_parent_id" => parent.id}
+      })
+
+    conn = mint(conn, caller, %{"scopes" => [], "ttl_seconds" => 60})
+
+    assert json_response(conn, 201)["scope"] == ""
+  end
+
+  test "a lineage of eight links still authenticates" do
+    {user, _caller} = ApiPat.member!()
+
+    {:ok, %{pat: root}} =
+      Identity.mint_pat(user, %{
+        user_id: user.id,
+        name: "root",
+        scopes: ["instances:read"]
+      })
+
+    {_last, token} =
+      Enum.reduce(1..8, {root, nil}, fn n, {parent, _token} ->
+        {:ok, %{pat: child, token: raw}} =
+          Identity.mint_pat(user, %{
+            user_id: user.id,
+            name: "child #{n}",
+            scopes: ["instances:read"],
+            metadata: %{"minted_parent_id" => parent.id}
+          })
+
+        {child, raw}
+      end)
+
+    conn =
+      build_conn()
+      |> auth(token)
+      |> get("/api/v1/instances")
+
+    assert json_response(conn, 200)["data"] == []
+  end
+
+  test "a ninth lineage link fails closed" do
     {user, _caller} = ApiPat.member!()
 
     {:ok, %{pat: root}} =

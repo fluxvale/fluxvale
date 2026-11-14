@@ -703,19 +703,17 @@ mod tests {
         // Whitespace and case are forgiven; the unit is what matters.
         assert_eq!(parse_ttl(" 2H ").unwrap(), 7200);
 
-        for raw in [
-            "",
-            "10",
-            "0s",
-            "-1h",
-            "1.5h",
-            "1w",
-            "h",
-            "999999999999999999999d",
-            "999999999999999999d",
-        ] {
+        for raw in ["", "10", "0s", "-1h", "1.5h", "1w", "h"] {
             assert!(parse_ttl(raw).is_err(), "{raw:?} must be refused");
         }
+
+        // The two overflow shapes: one fails the u64 parse, the other
+        // parses and then overflows the unit multiply. Pin the second
+        // message so a refactor cannot turn it into a generic parse
+        // error.
+        assert!(parse_ttl("999999999999999999999d").is_err());
+        let overflow = parse_ttl("999999999999999999d").unwrap_err().to_string();
+        assert!(overflow.contains("too large"), "err: {overflow}");
     }
 
     #[test]

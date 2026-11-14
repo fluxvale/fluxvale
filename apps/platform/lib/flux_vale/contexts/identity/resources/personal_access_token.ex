@@ -10,6 +10,10 @@ defmodule FluxVale.Identity.PersonalAccessToken do
   `revoked_at` is the instant sever (the auth lookup refuses revoked
   rows); `expires_at` bounds the worst case at one year.
 
+  Derived mints (#772) carry their parent's id in `metadata`: the
+  auth path rides that chain, the create action enforces a per-user
+  live-token cap, and revocation cascades to the minted subtree.
+
   Deliberately no JSON:API surface (a token is not a machine-API
   resource) and no AshAdmin (same stance as the rest of Identity,
   ADR-0027 §3). Mint/revoke ride the `FluxVale.Identity` operations.
@@ -22,8 +26,11 @@ defmodule FluxVale.Identity.PersonalAccessToken do
     extensions: [AshPaperTrail.Resource],
     authorizers: [Ash.Policy.Authorizer]
 
+  alias FluxVale.Identity.PersonalAccessToken.EnforceDerivedTokenCap
   alias FluxVale.Identity.PersonalAccessToken.ScopesCatalog
   alias FluxVale.Identity.PersonalAccessToken.SetRevokedAt
+
+  require Ash.Query
 
   postgres do
     table("personal_access_tokens")
@@ -48,6 +55,10 @@ defmodule FluxVale.Identity.PersonalAccessToken do
       # filters and orders on the family.
       index([:token_family_id])
       index([:oauth_client_id])
+
+      # The panel's list and the derived-token cap count both filter
+      # by user (#772) — the FK carries no index by itself.
+      index([:user_id])
     end
   end
 
@@ -235,6 +246,10 @@ defmodule FluxVale.Identity.PersonalAccessToken do
       # the resource, so no caller can bypass the mint operation's own
       # validation.
       validate(ScopesCatalog, where: changing(:scopes))
+
+      # The derived-token cap (#772) rides the resource too: a caller
+      # that bypasses the mint operation still cannot outrun it.
+      change(EnforceDerivedTokenCap)
     end
 
     # #766: the authorization server's mint — the same table and the
@@ -355,5 +370,36 @@ defmodule FluxVale.Identity.PersonalAccessToken do
     :sha256
     |> :crypto.hash(raw)
     |> Base.encode16(case: :lower)
+  end
+
+  @doc """
+  Count of a user's live minted tokens (#772) — the derived-token
+  cap's SQL count. System read: the cap guard has already resolved
+  the user, and the count is an invariant, not an authorization
+  question.
+  """
+  @spec count_live_derived!(String.t(), DateTime.t()) :: non_neg_integer()
+  def count_live_derived!(user_id, now) do
+    __MODULE__
+    |> Ash.Query.filter(
+      user_id == ^user_id and is_nil(revoked_at) and expires_at > ^now and
+        fragment("(?->>'minted_parent_id') IS NOT NULL", metadata)
+    )
+    |> Ash.count!(authorize?: false)
+  end
+
+  @doc """
+  A user's live tokens minted from `parent_id` (#772) — the revoke
+  cascade's read. System read: revoking the parent already passed
+  policy; severing the subtree it minted is the consequence.
+  """
+  @spec live_derived_children!(String.t(), String.t(), DateTime.t()) :: [t()]
+  def live_derived_children!(user_id, parent_id, now) do
+    __MODULE__
+    |> Ash.Query.filter(
+      user_id == ^user_id and is_nil(revoked_at) and expires_at > ^now and
+        fragment("(?->>'minted_parent_id') = ?", metadata, ^parent_id)
+    )
+    |> Ash.read!(authorize?: false)
   end
 end

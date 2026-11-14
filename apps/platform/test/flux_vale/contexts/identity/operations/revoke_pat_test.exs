@@ -31,6 +31,22 @@ defmodule FluxVale.Identity.Operations.RevokePatTest do
     pat
   end
 
+  defp derived!(user_id, parent_id, name) do
+    {:ok, %{pat: pat}} =
+      Identity.mint_pat(
+        nil,
+        %{
+          user_id: user_id,
+          name: name,
+          scopes: ["instances:read"],
+          metadata: %{"minted_parent_id" => parent_id}
+        },
+        authorize?: false
+      )
+
+    pat
+  end
+
   describe "call/3" do
     test "the owner revokes their own token" do
       member = member!("revoker@fluxvale.com")
@@ -60,6 +76,21 @@ defmodule FluxVale.Identity.Operations.RevokePatTest do
       # no-op, not a fresh read racing the same second's stamp.
       assert {:ok, second} = Identity.revoke_pat(member, first)
       assert second.revoked_at == first.revoked_at
+    end
+
+    test "revoking a token cascades to every token minted from it" do
+      member = member!("cascade@fluxvale.com")
+      root = mint!(member.id)
+      child = derived!(member.id, root.id, "child")
+      grandchild = derived!(member.id, child.id, "grandchild")
+
+      assert {:ok, _revoked} = Identity.revoke_pat(member, root)
+
+      assert PersonalAccessToken.get!(child.id, authorize?: false).revoked_at
+      assert PersonalAccessToken.get!(grandchild.id, authorize?: false).revoked_at
+
+      assert [%{kind: :mint}, %{kind: :revoke}] = audit_rows(child.id)
+      assert [%{kind: :mint}, %{kind: :revoke}] = audit_rows(grandchild.id)
     end
 
     test "a stranger sees neither the record nor its existence — by record and by id" do

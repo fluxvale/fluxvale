@@ -50,7 +50,9 @@ The command prints the token once to stdout and nothing else, so pipe it straigh
 fluxvale auth token --scopes instances:read --ttl 7d | gh secret set FLUXVALE_PAT
 ```
 
-A minted token is bounded by the sign-in that created it: it can only carry scopes that sign-in already holds, and it never expires after it. The platform also caps any token at one year, so use days, not months, for CI. The one-line summary (name, scopes, expiry) goes to stderr; stdout is only the value. One sign-in can keep at most 25 live minted tokens; revoke an old one before minting another.
+A minted token is bounded by the sign-in that created it: it can only carry scopes that sign-in already holds, and it never expires after it. The platform also caps any token at one year, so use days, not months, for CI. The one-line summary (name, scopes, expiry) goes to stderr; stdout is only the value.
+
+Each user can keep at most 25 live minted tokens, across every sign-in. Revoking one frees its slot, and revoking a token also revokes every token minted from it. Revoke from the [API tokens](/settings/developer#api-tokens) panel before minting another.
 
 A persistent secret must be re-minted before its TTL ends. A token minted with `--ttl 7d` expires seven days after minting; schedule the rotation (or use a longer TTL with a calendar reminder) or later pipeline runs fail with 401. A single job can use a much shorter token, for example `--ttl 1h` or `--ttl 30s`.
 
