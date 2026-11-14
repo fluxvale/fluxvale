@@ -137,7 +137,7 @@ panel is the fallback.
 
 ## The tool catalog
 
-Twenty-two tools at the current surface. Scope-filtered per token: a
+Twenty-six tools at the current surface. Scope-filtered per token: a
 tool the token's scopes don't cover never appears in `tools/list`
 (and a direct call still refuses — the platform's own 403s are the
 enforcement). The scope column is the FULL set the tool needs — a
@@ -160,7 +160,11 @@ the enforcement, so mint the union):
 | `instances_configure` | Merge env vars on a live instance: `set` adds/replaces, `remove` deletes (values are write-only) | `instances:write` | — |
 | `instances_stop` | Scale to zero — the pause (storage keeps accruing) | `instances:write` | — |
 | `instances_start` | Start a stopped/sleeping instance back up | `instances:write` | — |
+| `instances_resize` | Stopped-first re-allocation: stop (when running), resize, start; previous/new allocation and the platform's price quote in the response | `instances:write` | — |
 | `instances_destroy` | Destroy an instance and all its data | `instances:write` | confirm-gated |
+| `gateway` | The org's access gateway: `status`, `attach`, `detach`; pairing answers include the re-read status | `gateways:read` + `gateways:write` for attach/detach | — |
+| `custom_domain` | Register, verify (re-read), list, remove a custom domain; every row carries `live` and a claim-path `reason_code` (`no_gateway`/`no_api_token`/`pending`/`unclaimed`/`claimed`) | `gateways:read` + `gateways:write` for create/delete | — |
+| `sso` | Wire an instance to the org's Pocket ID (`connect`) and read the wiring back (`status`); identifier fields only, never the minted secret | `instances:read` + `instances:write` for connect | — |
 | `backups_status` | An instance's backup settings + latest run | `instances:read` + `backups:read` (the instance read gates first — the runs list alone can't name a foreign id) | — |
 | `backups_configure` | Save the backup destination (identifiers only) | `backups:write` | — |
 | `backups_run` | Run a backup now | `backups:write` | — |
@@ -179,6 +183,33 @@ rename, or removal updates this file in the same PR** that changes
 the surface. The server's behavioral detail (elicitation, sealing,
 scope filtering) lives in the `apps/mcp` README; entries here name
 the surface change and the PR.
+
+### 2026-11-14 — agent parity (#771)
+
+- New `instances_resize`: the stopped-first sequence (stop when
+  running, resize, start), CPU/RAM both ways, storage up-only. The
+  response states the step reached, the instance's actual state, the
+  previous/new allocation, and the platform's `/pricing/quote` figure
+  (USD, monthly, billed hourly). A resize or start failure still
+  attempts the start when the row was stopped and reports both the
+  failure and the final state.
+- New `gateway` over the org's one access gateway: `status`,
+  `attach`, `detach`; pairing answers carry the pairing row and the
+  re-read status.
+- New `custom_domain`: `list`, `create`, `verify`, `delete`. Every
+  row carries `live` plus a machine-readable `serving.reason_code`.
+  A verified domain is reported live only when the gateway's readable
+  claim state includes it; otherwise the code is `no_gateway`,
+  `no_api_token`, `unclaimed`, or a guard state (`pending`, `failed`,
+  `needs_attention`, `suspended`). `verify` re-reads after the pass.
+- New `sso`: `status` answers `wired: false` for an unwired instance;
+  `connect` mints the Pocket ID OIDC client, wires the env, and reads
+  the durable row back. Identifier fields only — the minted client
+  secret never rides the API or this tool.
+- Platform: the gateway read gains `api_token_set` and
+  `claimed_domains` (the claims map's domain names; its values stay
+  private), so the domain tool can name the claim-path reason rather
+  than guess. Catalog count 22 → 26.
 
 ### 2026-11-13 — the agent first-run spine (#770)
 

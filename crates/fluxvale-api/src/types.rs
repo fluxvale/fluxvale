@@ -1536,6 +1536,10 @@ pub struct AccessGateway {
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct AccessGatewayAttributes {
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub api_token_set: ::std::option::Option<bool>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub claimed_domains: ::std::option::Option<::std::vec::Vec<::std::string::String>>,
     ///Field included by default.
     pub hostname: ::std::string::String,
     ///Field included by default.
@@ -1672,6 +1676,8 @@ pub struct AccessGatewayFilter {
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub and: ::std::option::Option<::std::vec::Vec<AccessGatewayFilter>>,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub api_token_set: ::std::option::Option<AccessGatewayFilterApiTokenSet>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub hostname: ::std::option::Option<AccessGatewayFilterHostname>,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub id: ::std::option::Option<AccessGatewayFilterId>,
@@ -1695,6 +1701,35 @@ pub struct AccessGatewayFilter {
     pub status_message: ::std::option::Option<AccessGatewayFilterStatusMessage>,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub tailnet_domain: ::std::option::Option<AccessGatewayFilterTailnetDomain>,
+}
+///`AccessGatewayFilterApiTokenSet`
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
+#[serde(deny_unknown_fields)]
+pub struct AccessGatewayFilterApiTokenSet {
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub eq: ::std::option::Option<bool>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub greater_than: ::std::option::Option<bool>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub greater_than_or_equal: ::std::option::Option<bool>,
+    #[serde(
+        rename = "in",
+        default,
+        skip_serializing_if = "::std::vec::Vec::is_empty"
+    )]
+    pub in_: ::std::vec::Vec<bool>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub is_distinct_from: ::std::option::Option<bool>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub is_nil: ::std::option::Option<bool>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub is_not_distinct_from: ::std::option::Option<bool>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub less_than: ::std::option::Option<bool>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub less_than_or_equal: ::std::option::Option<bool>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub not_eq: ::std::option::Option<bool>,
 }
 ///`AccessGatewayFilterHostname`
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]

@@ -40,6 +40,7 @@ defmodule FluxVale.Infrastructure.AccessGateway do
     notifiers: [Ash.Notifier.PubSub]
 
   alias Ash.Error.Changes.InvalidArgument
+  alias FluxVale.Infrastructure.AccessGateway.ClaimedDomains
   alias FluxVale.Infrastructure.AccessGateway.GenerateHostname
   alias FluxVale.Infrastructure.AccessGateway.PerformSettle
   alias FluxVale.Infrastructure.AccessGateway.PerformTeardown
@@ -69,7 +70,12 @@ defmodule FluxVale.Infrastructure.AccessGateway do
           :state,
           :status_message,
           :monthly_cents,
-          :provisioned_at
+          :provisioned_at,
+          # #771: the claim state's readable half — whether the API
+          # token intake has landed, and which domain names the
+          # tailnet claims hold. The map values stay private.
+          :api_token_set,
+          :claimed_domains
         ]
       )
 
@@ -86,7 +92,9 @@ defmodule FluxVale.Infrastructure.AccessGateway do
           :provider,
           :state,
           :status_message,
-          :monthly_cents
+          :monthly_cents,
+          :api_token_set,
+          :claimed_domains
         ]
       )
 
@@ -99,7 +107,9 @@ defmodule FluxVale.Infrastructure.AccessGateway do
           :hostname,
           :state,
           :status_message,
-          :monthly_cents
+          :monthly_cents,
+          :api_token_set,
+          :claimed_domains
         ]
       )
 
@@ -904,6 +914,20 @@ defmodule FluxVale.Infrastructure.AccessGateway do
     # names are unique per tailnet, but our own table is the first
     # collision surface (and the CT ledger's).
     identity(:unique_hostname, [:hostname])
+  end
+
+  calculations do
+    # #771: the claim path's readable half. The token ref itself and
+    # the claims map's values stay private; the boolean and the domain
+    # names are what a caller needs to report "no token yet" vs
+    # "unclaimed" vs "claimed" honestly.
+    calculate :api_token_set, :boolean, expr(not is_nil(token_set_at)) do
+      public?(true)
+    end
+
+    calculate :claimed_domains, {:array, :string}, ClaimedDomains do
+      public?(true)
+    end
   end
 
   # The record, not a changeset: AshOban reads the resource's trigger

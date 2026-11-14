@@ -25,7 +25,16 @@ pub(crate) fn required_scope(tool: &str) -> Option<&'static str> {
         | "instances_configure"
         | "instances_stop"
         | "instances_start"
+        | "instances_resize"
         | "instances_destroy" => Some("instances:write"),
+        // #771: the SSO read is an instance read; connect (the write)
+        // is the platform's 403 for a read-only token.
+        "sso" => Some("instances:read"),
+        // #771: the gateway and domain tools each carry reads and
+        // writes; their primary read is visible on either scope
+        // (write implies read), and the platform's route scopes are
+        // the enforcement for the write actions.
+        "gateway" | "custom_domain" => Some("gateways:read"),
         "backups_status" => Some("backups:read"),
         "backups_configure" | "backups_run" | "backups_restore" => Some("backups:write"),
         // The onboarding read composes identity + orgs + this domain's
@@ -77,23 +86,27 @@ mod tests {
     use super::*;
 
     /// The catalog, in tools/list order (rmcp's list_all sorts by name).
-    const CATALOG: [&str; 22] = [
+    const CATALOG: [&str; 26] = [
         "apps_list",
         "apps_show",
         "backups_configure",
         "backups_restore",
         "backups_run",
         "backups_status",
+        "custom_domain",
+        "gateway",
         "instances_configure",
         "instances_deploy",
         "instances_destroy",
         "instances_list",
+        "instances_resize",
         "instances_start",
         "instances_status",
         "instances_stop",
         "onboarding_status",
         "organizations_create",
         "pricing_quote",
+        "sso",
         "terraform_import_bundle",
         "topup",
         "wallet_balance",
@@ -115,7 +128,7 @@ mod tests {
     }
 
     #[test]
-    fn a_full_scope_token_sees_all_twenty_two_tools() {
+    fn a_full_scope_token_sees_all_twenty_six_tools() {
         assert_eq!(
             visible(&[
                 "catalog:read",
@@ -123,10 +136,12 @@ mod tests {
                 "instances:write",
                 "backups:read",
                 "backups:write",
+                "gateways:read",
+                "gateways:write",
                 "wallet:read"
             ])
             .len(),
-            22
+            26
         );
     }
 
@@ -154,6 +169,7 @@ mod tests {
                 "instances_list",
                 "instances_status",
                 "organizations_create",
+                "sso",
                 "terraform_import_bundle",
                 "topup",
                 "whoami"
@@ -173,10 +189,12 @@ mod tests {
                 "instances_deploy",
                 "instances_destroy",
                 "instances_list",
+                "instances_resize",
                 "instances_start",
                 "instances_status",
                 "instances_stop",
                 "organizations_create",
+                "sso",
                 "terraform_import_bundle",
                 "topup",
                 "whoami"
@@ -194,10 +212,46 @@ mod tests {
         // The protocol stays; tools/list just omits what it can't call.
         // /me renders a zero-scope PAT's list as [], never an omission.
         assert_eq!(visible(&[]), ["organizations_create", "topup", "whoami"]);
+    }
+
+    #[test]
+    fn the_gateway_domain_family_gates_on_the_gateways_scope() {
         assert_eq!(
             visible(&["gateways:read"]),
-            ["organizations_create", "topup", "whoami"]
+            [
+                "custom_domain",
+                "gateway",
+                "organizations_create",
+                "topup",
+                "whoami"
+            ]
         );
+        // write implies read for the two tools' read halves.
+        assert_eq!(visible(&["gateways:write"]), visible(&["gateways:read"]));
+    }
+
+    #[test]
+    fn the_parity_tools_allow_and_deny_on_their_own_scopes() {
+        // The allow arm: the domain's own scope (write implies read).
+        assert!(tool_visible(
+            "instances_resize",
+            &granted(&["instances:write"])
+        ));
+        assert!(tool_visible("sso", &granted(&["instances:read"])));
+        assert!(tool_visible("gateway", &granted(&["gateways:read"])));
+        assert!(tool_visible("custom_domain", &granted(&["gateways:write"])));
+
+        // The deny arm: an unrelated domain never offers the tool.
+        assert!(!tool_visible(
+            "instances_resize",
+            &granted(&["gateways:write"])
+        ));
+        assert!(!tool_visible("sso", &granted(&["catalog:read"])));
+        assert!(!tool_visible("gateway", &granted(&["instances:write"])));
+        assert!(!tool_visible(
+            "custom_domain",
+            &granted(&["instances:write"])
+        ));
     }
 
     #[test]
@@ -240,7 +294,11 @@ mod tests {
         assert_eq!(required_scope("organizations_create"), None);
         assert_eq!(required_scope("apps_list"), Some("catalog:read"));
         assert_eq!(required_scope("instances_deploy"), Some("instances:write"));
+        assert_eq!(required_scope("instances_resize"), Some("instances:write"));
         assert_eq!(required_scope("instances_destroy"), Some("instances:write"));
+        assert_eq!(required_scope("sso"), Some("instances:read"));
+        assert_eq!(required_scope("gateway"), Some("gateways:read"));
+        assert_eq!(required_scope("custom_domain"), Some("gateways:read"));
         assert_eq!(required_scope("backups_status"), Some("backups:read"));
         assert_eq!(required_scope("backups_restore"), Some("backups:write"));
         assert_eq!(required_scope("wallet_ledger"), Some("wallet:read"));

@@ -510,6 +510,375 @@ pub(crate) async fn terraform_import_bundle(
     .await
 }
 
+/// `gateway` — status/attach/detach over the org's single gateway
+/// (#771). The org resolves like the deploy's (id/slug, or the sole
+/// membership); attach/detach re-read the status after the pairing, so
+/// the answer always shows what the gateway became.
+pub(crate) async fn gateway(
+    base: Arc<str>,
+    token: Token,
+    action: GatewayAction,
+    organization: Option<String>,
+    instance_id: Option<String>,
+) -> Result<Value, String> {
+    on_blocking_string(move || {
+        // The action's own required argument fails before any read.
+        if action != GatewayAction::Status {
+            let instance_id = instance_id
+                .as_deref()
+                .ok_or_else(|| "instance_id is required for attach and detach".to_string())?;
+            safe_segment("instance id", instance_id)?;
+        }
+
+        let client = ApiClient::new(&base, token);
+        let org = resolve_organization(&client, organization.as_deref())?;
+        let org_row = json!({"id": &org.id, "slug": &org.slug, "name": &org.name});
+
+        match action {
+            GatewayAction::Status => {
+                let gateway = read_gateway(&client, &org.id)?;
+                let message = gateway.is_none().then_some(
+                    "no access gateway for this organization — enable one in the panel's Access tab",
+                );
+                Ok(json!({
+                    "organization": org_row,
+                    "gateway": gateway.unwrap_or(Value::Null),
+                    "message": message,
+                }))
+            }
+            GatewayAction::Attach | GatewayAction::Detach => {
+                let instance_id = instance_id.ok_or_else(|| {
+                    "instance_id is required for attach and detach".to_string()
+                })?;
+                safe_segment("instance id", &instance_id)?;
+                let gateway = read_gateway(&client, &org.id)?.ok_or_else(|| {
+                    format!(
+                        "no access gateway for {} — enable one in the panel's Access tab",
+                        org.label()
+                    )
+                })?;
+                let gateway_id = gateway["id"]
+                    .as_str()
+                    .ok_or_else(|| "the gateway row carries no id".to_string())?;
+                safe_segment("gateway id", gateway_id)?;
+
+                match action {
+                    GatewayAction::Attach => {
+                        let body = json!({"data": {"instance_id": instance_id}});
+                        let attachment = client
+                            .send_json(
+                                "POST",
+                                &format!("/access-gateways/{gateway_id}/attachments"),
+                                Some(body.to_string()),
+                            )
+                            .map_err(friendly_pairing_404)?;
+                        let status = read_gateway(&client, &org.id)?.unwrap_or(gateway);
+                        Ok(json!({
+                            "organization": org_row,
+                            "gateway": status,
+                            "attachment": attachment,
+                        }))
+                    }
+                    GatewayAction::Detach => {
+                        let answer = client
+                            .send_json(
+                                "DELETE",
+                                &format!(
+                                    "/access-gateways/{gateway_id}/attachments/{instance_id}"
+                                ),
+                                None,
+                            )
+                            .map_err(friendly_pairing_404)?;
+                        let status = read_gateway(&client, &org.id)?.unwrap_or(gateway);
+                        Ok(json!({
+                            "organization": org_row,
+                            "gateway": status,
+                            "detached": true,
+                            "result": answer,
+                        }))
+                    }
+                    GatewayAction::Status => unreachable!("matched above"),
+                }
+            }
+        }
+    })
+    .await
+}
+
+/// The org's gateway row, or `None` for the honest 404 absence.
+fn read_gateway(client: &ApiClient, org_id: &str) -> Result<Option<Value>, String> {
+    match client.get(&format!("/organizations/{org_id}/access-gateway")) {
+        Ok(document) => {
+            one_resource(document, "access gateway").map(|resource| Some(with_id(&resource)))
+        }
+        Err(ApiError::NotFound) => Ok(None),
+        Err(err) => Err(message(err)),
+    }
+}
+
+/// Both pairing verbs re-read the gateway AND the instance, so a 404
+/// cannot say which side missed — the line stays honest about that.
+fn friendly_pairing_404(err: ApiError) -> String {
+    match err {
+        ApiError::NotFound => "no such gateway or instance (or it's not yours)".to_string(),
+        other => message(other),
+    }
+}
+
+/// `custom_domain` — register/verify/list/remove over the access-domain
+/// routes (#771). Every reported row carries the honest serving state:
+/// `live` only when the domain is verified AND the org's gateway has
+/// claimed it; otherwise a machine-readable `reason_code`
+/// (`no_gateway`/`no_api_token`/`pending`/`unclaimed` and the guard
+/// states) plus prose.
+pub(crate) async fn custom_domain(
+    base: Arc<str>,
+    token: Token,
+    action: CustomDomainAction,
+    organization: Option<String>,
+    id: Option<String>,
+    domain: Option<String>,
+) -> Result<Value, String> {
+    on_blocking_string(move || {
+        // The action's own required argument fails before any read.
+        match action {
+            CustomDomainAction::Create => {
+                domain
+                    .as_deref()
+                    .ok_or_else(|| "domain is required for create".to_string())?;
+            }
+            CustomDomainAction::Verify | CustomDomainAction::Delete => {
+                let id = id
+                    .as_deref()
+                    .ok_or_else(|| "id is required for verify and delete".to_string())?;
+                safe_segment("domain id", id)?;
+            }
+            CustomDomainAction::List => {}
+        }
+
+        let client = ApiClient::new(&base, token);
+        let org = resolve_organization(&client, organization.as_deref())?;
+        let org_row = json!({"id": &org.id, "slug": &org.slug, "name": &org.name});
+
+        match action {
+            CustomDomainAction::List => {
+                let document = client
+                    .get(&format!("/organizations/{}/access-domains", org.id))
+                    .map_err(message)?;
+                let gateway = read_gateway(&client, &org.id)?;
+                let domains = document
+                    .resources()
+                    .iter()
+                    .map(|resource| annotate_domain(with_id(resource), gateway.as_ref()))
+                    .collect::<Vec<_>>();
+                Ok(json!({"organization": org_row, "domains": domains}))
+            }
+            CustomDomainAction::Create => {
+                let domain = domain.ok_or_else(|| "domain is required for create".to_string())?;
+                let body = json!({"data": {"type": "access_domain", "attributes": {
+                    "domain": domain,
+                    "organization_id": org.id,
+                }}});
+                let document = client
+                    .send("POST", "/access-domains", Some(body.to_string()))
+                    .map_err(message)?;
+                let resource = one_resource(document, "access domain")?;
+                let gateway = read_gateway(&client, &org.id)?;
+                Ok(annotate_domain(with_id(&resource), gateway.as_ref()))
+            }
+            CustomDomainAction::Verify => {
+                let id = id.ok_or_else(|| "id is required for verify".to_string())?;
+                safe_segment("domain id", &id)?;
+                let document = client
+                    .get(&format!("/access-domains/{id}"))
+                    .map_err(|err| friendly_404(err, "domain"))?;
+                let resource = one_resource(document, "access domain")?;
+                let gateway = read_gateway(&client, &org.id)?;
+                Ok(annotate_domain(with_id(&resource), gateway.as_ref()))
+            }
+            CustomDomainAction::Delete => {
+                let id = id.ok_or_else(|| "id is required for delete".to_string())?;
+                safe_segment("domain id", &id)?;
+                let row = client
+                    .send_json("DELETE", &format!("/access-domains/{id}"), None)
+                    .map_err(|err| friendly_404(err, "domain"))?;
+                Ok(json!({"removed": true, "domain": annotate_removed(row)}))
+            }
+        }
+    })
+    .await
+}
+
+/// The gate's reason codes, in the order the tool resolves them:
+/// state first (a pending domain is not claimed regardless of gateway),
+/// then gateway presence, then the API-token intake, then the claim
+/// itself.
+fn domain_state(row: &Value) -> &str {
+    row.get("state").and_then(Value::as_str).unwrap_or("")
+}
+
+fn domain_reason(row: &Value, gateway: Option<&Value>) -> (&'static str, &'static str) {
+    match domain_state(row) {
+        "pending" => (
+            "pending",
+            "verification is certificate issuance; no certificate is issued yet",
+        ),
+        "failed" => (
+            "failed",
+            "issuance did not complete — remove the row and re-register after fixing the DNS delegation",
+        ),
+        "needs_attention" => (
+            "needs_attention",
+            "the certificate is not ready; the domain serves nothing new until issuance recovers",
+        ),
+        "suspended" => ("suspended", "the domain is parked and serves nothing"),
+        "verified" => match gateway {
+            None => (
+                "no_gateway",
+                "the certificate is issued, but the organization has no access gateway to claim the domain",
+            ),
+            Some(gateway) if gateway["api_token_set"].as_bool() == Some(false) => (
+                "no_api_token",
+                "the certificate is issued, but the gateway holds no Tailscale API token, so the domain cannot be claimed",
+            ),
+            Some(gateway) if claimed(gateway, row) => (
+                "claimed",
+                "the gateway has claimed the domain; hostnames under it serve from private attached instances",
+            ),
+            Some(_) => (
+                "unclaimed",
+                "the certificate is issued, but the gateway has not claimed the domain; claiming is not a self-serve surface yet",
+            ),
+        },
+        _ => ("unknown", "the domain is not serving"),
+    }
+}
+
+fn claimed(gateway: &Value, row: &Value) -> bool {
+    let domain = row.get("domain").and_then(Value::as_str);
+    let claimed = gateway.get("claimed_domains").and_then(Value::as_array);
+    match (domain, claimed) {
+        (Some(domain), Some(domains)) => domains.iter().any(|entry| entry.as_str() == Some(domain)),
+        _ => false,
+    }
+}
+
+fn annotate_domain(mut row: Value, gateway: Option<&Value>) -> Value {
+    let (reason_code, reason) = domain_reason(&row, gateway);
+    let verified = domain_state(&row) == "verified";
+    let live = reason_code == "claimed";
+    if let Value::Object(map) = &mut row {
+        map.insert("verified".to_string(), json!(verified));
+        map.insert("live".to_string(), json!(live));
+        map.insert(
+            "serving".to_string(),
+            json!({"live": live, "reason_code": reason_code, "reason": reason}),
+        );
+    }
+    row
+}
+
+/// A removed domain keeps its identity fields and says so — no serving
+/// annotation to misread as a live row.
+fn annotate_removed(mut row: Value) -> Value {
+    if let Value::Object(map) = &mut row {
+        map.insert("live".to_string(), json!(false));
+        map.insert(
+            "serving".to_string(),
+            json!({"live": false, "reason_code": "removed", "reason": "the domain row is gone"}),
+        );
+    }
+    row
+}
+
+/// `sso` — status/connect over the instance's Pocket ID wiring (#771).
+/// Identifier fields only: the minted client secret lives in the
+/// instance's env and never rides the API or this tool. The success
+/// shape is projected explicitly, so a future wire field cannot leak
+/// through by accident.
+pub(crate) async fn sso(
+    base: Arc<str>,
+    token: Token,
+    action: SsoAction,
+    instance_id: String,
+    pocket_id_instance_id: Option<String>,
+) -> Result<Value, String> {
+    on_blocking_string(move || {
+        safe_segment("instance id", &instance_id)?;
+        if action == SsoAction::Connect {
+            let pocket_id_instance_id = pocket_id_instance_id
+                .as_deref()
+                .ok_or_else(|| "pocket_id_instance_id is required for connect".to_string())?;
+            safe_segment("pocket id instance id", pocket_id_instance_id)?;
+        }
+        let client = ApiClient::new(&base, token);
+
+        match action {
+            SsoAction::Status => {
+                match client.get(&format!("/instances/{instance_id}/pocket-id-wiring")) {
+                    Ok(document) => {
+                        let resource = one_resource(document, "pocket id wiring")?;
+                        Ok(json!({
+                            "instance_id": instance_id,
+                            "wired": true,
+                            "wiring": project_wiring(with_id(&resource)),
+                        }))
+                    }
+                    Err(ApiError::NotFound) => Ok(json!({
+                        "instance_id": instance_id,
+                        "wired": false,
+                        "wiring": Value::Null,
+                    })),
+                    Err(err) => Err(message(err)),
+                }
+            }
+            SsoAction::Connect => {
+                let pocket_id_instance_id = pocket_id_instance_id
+                    .ok_or_else(|| "pocket_id_instance_id is required for connect".to_string())?;
+                safe_segment("pocket id instance id", &pocket_id_instance_id)?;
+                let body = json!({"data": {"pocket_id_instance_id": pocket_id_instance_id}});
+                let connected = client
+                    .send_json(
+                        "POST",
+                        &format!("/instances/{instance_id}/connect-pocketid"),
+                        Some(body.to_string()),
+                    )
+                    .map_err(|err| friendly_404(err, "instance"))?;
+                let wiring = project_wiring(connected);
+                // Read back the durable row; a 404 here (a create
+                // committed but invisible) still answers the connect row.
+                let read_back =
+                    match client.get(&format!("/instances/{instance_id}/pocket-id-wiring")) {
+                        Ok(document) => one_resource(document, "pocket id wiring")
+                            .map(|resource| project_wiring(with_id(&resource)))
+                            .unwrap_or_else(|_| wiring.clone()),
+                        Err(ApiError::NotFound) => wiring.clone(),
+                        Err(err) => return Err(message(err)),
+                    };
+                Ok(json!({
+                    "instance_id": instance_id,
+                    "wired": true,
+                    "wiring": read_back,
+                }))
+            }
+        }
+    })
+    .await
+}
+
+/// The wiring's wire row projected to identifiers only. `env_vars`
+/// and any future secret-bearing field are deliberately absent.
+fn project_wiring(row: Value) -> Value {
+    json!({
+        "id": row.get("id").cloned().unwrap_or(Value::Null),
+        "instance_id": row.get("instance_id").cloned().unwrap_or(Value::Null),
+        "pocket_id_instance_id": row.get("pocket_id_instance_id").cloned().unwrap_or(Value::Null),
+        "pocket_id_client_id": row.get("pocket_id_client_id").cloned().unwrap_or(Value::Null),
+        "pocket_id_secret_id": row.get("pocket_id_secret_id").cloned().unwrap_or(Value::Null),
+        "wired_at": row.get("wired_at").cloned().unwrap_or(Value::Null),
+    })
+}
+
 /// The tools/list scope source (W2b): GET /me once — the auth and
 /// liveness gate AND the coverage oracle in one read — and take the
 /// calling token's exact scope list from top-level `meta.scopes`
@@ -528,6 +897,42 @@ pub(crate) async fn me_scopes(base: Arc<str>, token: Token) -> Result<Vec<String
 pub(crate) struct MeGrant {
     pub scopes: Vec<String>,
     pub resource: Option<String>,
+}
+
+/// `gateway`'s verbs (#771) — one tool over the org's single gateway.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum GatewayAction {
+    /// Read the org's gateway row (the default).
+    Status,
+    /// Pair a private instance to the gateway.
+    Attach,
+    /// Unpair an instance (idempotent).
+    Detach,
+}
+
+/// `custom_domain`'s verbs (#771).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum CustomDomainAction {
+    /// The org's registered domains, with their honest serving state.
+    List,
+    /// Register a domain (`:pending` until certificate issuance).
+    Create,
+    /// Re-read one domain's verification state (issuance is the verifier).
+    Verify,
+    /// Remove a domain (the server refuses a domain still serving hostnames).
+    Delete,
+}
+
+/// `sso`'s verbs (#771).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum SsoAction {
+    /// The instance's wiring row, or `wired: false`.
+    Status,
+    /// Mint a Pocket ID OIDC client and wire the instance's env.
+    Connect,
 }
 
 /// `GET /me` for the OAuth resource-server path: scopes + audience in
@@ -772,17 +1177,309 @@ pub(crate) async fn instances_lifecycle(
 ) -> Result<Value, String> {
     on_blocking_string(move || {
         safe_segment("instance id", &id)?;
-        let body = json!({"data": {"type": "instance", "id": id, "attributes": {}}});
-        let document = ApiClient::new(&base, token)
-            .send(
-                "PATCH",
-                &format!("/instances/{id}/{verb}"),
-                Some(body.to_string()),
-            )
-            .map_err(|err| friendly_404(err, "instance"))?;
-        one_resource(document, "instance").map(|resource| with_id(&resource))
+        lifecycle(&ApiClient::new(&base, token), &id, verb)
     })
     .await
+}
+
+/// The lifecycle PATCH over an existing client (the resize's
+/// stop/start limbs share it).
+fn lifecycle(client: &ApiClient, id: &str, verb: &str) -> Result<Value, String> {
+    let body = json!({"data": {"type": "instance", "id": id, "attributes": {}}});
+    let document = client
+        .send(
+            "PATCH",
+            &format!("/instances/{id}/{verb}"),
+            Some(body.to_string()),
+        )
+        .map_err(|err| friendly_404(err, "instance"))?;
+    one_resource(document, "instance").map(|resource| with_id(&resource))
+}
+
+/// `instances_resize` — the stopped-first sequence (ADR-0043): a
+/// running row is stopped, the allocation PATCHed while stopped, then
+/// started. The response always carries the step reached and the
+/// instance's actual state; a resize or start failure attempts the
+/// start anyway and reports both the failure and the final state, so
+/// no stopped instance is left silently stranded. A server refusal
+/// (`sleeping`, `starting`, a storage shrink, a missing expansion
+/// capability) is the server's line, verbatim.
+pub(crate) async fn instances_resize(
+    base: Arc<str>,
+    token: Token,
+    id: String,
+    cpu: Option<String>,
+    memory_mb: Option<i64>,
+    storage_gb: Option<i64>,
+) -> Result<Value, String> {
+    on_blocking_string(move || {
+        safe_segment("instance id", &id)?;
+        if cpu.is_none() && memory_mb.is_none() && storage_gb.is_none() {
+            return Err(
+                "nothing to resize — pass at least one of cpu, memory_mb, storage_gb".to_string(),
+            );
+        }
+        if let Some(cpu) = &cpu {
+            safe_query_value("cpu cores", cpu)?;
+        }
+        let client = ApiClient::new(&base, token);
+
+        let before = read_instance(&client, &id)?;
+        let previous_allocation = allocation_of(&before);
+        let mut steps = json!({"stop": "skipped", "resize": "pending", "start": "pending"});
+        let mut last_row = before.clone();
+
+        if before["status"] == "running" {
+            match lifecycle(&client, &id, "stop") {
+                Ok(row) if row["status"] == "stopped" => {
+                    steps["stop"] = json!("done");
+                    last_row = row;
+                }
+                Ok(row) => {
+                    steps["stop"] = json!("failed");
+                    let final_row = read_instance(&client, &id).unwrap_or(row);
+                    return Ok(pause_response(
+                        "stop",
+                        steps,
+                        format!(
+                            "stop landed {} — the resize did not run",
+                            final_row["status"].as_str().unwrap_or("an unknown state")
+                        ),
+                        final_row,
+                        previous_allocation,
+                        Value::Null,
+                        Value::Null,
+                    ));
+                }
+                Err(message) => {
+                    steps["stop"] = json!("failed");
+                    let final_row = read_instance(&client, &id).unwrap_or(last_row);
+                    return Ok(pause_response(
+                        "stop",
+                        steps,
+                        message,
+                        final_row,
+                        previous_allocation,
+                        Value::Null,
+                        Value::Null,
+                    ));
+                }
+            }
+        }
+
+        let mut attrs = json!({});
+        if let Some(cpu) = &cpu {
+            attrs["cpu_cores"] = json!(cpu);
+        }
+        if let Some(memory_mb) = memory_mb {
+            attrs["memory_mb"] = json!(memory_mb);
+        }
+        if let Some(storage_gb) = storage_gb {
+            attrs["storage_gb"] = json!(storage_gb);
+        }
+        let body = json!({"data": {"type": "instance", "id": id, "attributes": attrs}});
+
+        let resized = match client.send(
+            "PATCH",
+            &format!("/instances/{id}/resize"),
+            Some(body.to_string()),
+        ) {
+            Ok(document) => match one_resource(document, "instance") {
+                Ok(resource) => with_id(&resource),
+                Err(message) => {
+                    steps["resize"] = json!("failed");
+                    return Ok(resize_failed(
+                        &client,
+                        &id,
+                        &mut steps,
+                        &mut last_row,
+                        message,
+                        previous_allocation,
+                    ));
+                }
+            },
+            Err(err) => {
+                steps["resize"] = json!("failed");
+                return Ok(resize_failed(
+                    &client,
+                    &id,
+                    &mut steps,
+                    &mut last_row,
+                    friendly_404(err, "instance"),
+                    previous_allocation,
+                ));
+            }
+        };
+        steps["resize"] = json!("done");
+        last_row = resized.clone();
+
+        let new_allocation = allocation_of(&resized);
+        let price = price_for(&client, &new_allocation);
+
+        match lifecycle(&client, &id, "start") {
+            Ok(row) => {
+                steps["start"] = json!("done");
+                last_row = row;
+            }
+            Err(message) => {
+                steps["start"] = json!("failed");
+                let final_row = read_instance(&client, &id).unwrap_or(last_row);
+                return Ok(json!({
+                    "ok": false,
+                    "step": "start",
+                    "steps": steps,
+                    "error": message,
+                    "start_error": message,
+                    "instance": final_row,
+                    "previous_allocation": previous_allocation,
+                    "new_allocation": new_allocation,
+                    "price": price,
+                    "price_currency": "USD",
+                    "price_period": "monthly · billed hourly",
+                    "price_basis": PRICE_BASIS,
+                }));
+            }
+        }
+
+        // The actual state is the read-back, not the start call's row.
+        let final_row = read_instance(&client, &id).unwrap_or(last_row);
+        Ok(json!({
+            "ok": true,
+            "step": "start",
+            "steps": steps,
+            "error": Value::Null,
+            "start_error": Value::Null,
+            "instance": final_row,
+            "previous_allocation": previous_allocation,
+            "new_allocation": new_allocation,
+            "price": price,
+            "price_currency": "USD",
+            "price_period": "monthly · billed hourly",
+            "price_basis": PRICE_BASIS,
+        }))
+    })
+    .await
+}
+
+/// The one line that keeps a formula quote from reading as the final
+/// charge at a recommended-size allocation.
+const PRICE_BASIS: &str = "the platform's formula quote for this allocation; \
+an allocation at the app version's recommended size bills that size's live rate instead";
+
+/// A stop-leg failure: no resize, no start attempt (the row never
+/// reached the stopped state the resize needs).
+fn pause_response(
+    step: &str,
+    steps: Value,
+    error: String,
+    instance: Value,
+    previous_allocation: Value,
+    new_allocation: Value,
+    price: Value,
+) -> Value {
+    json!({
+        "ok": false,
+        "step": step,
+        "steps": steps,
+        "error": error,
+        "instance": instance,
+        "previous_allocation": previous_allocation,
+        "new_allocation": new_allocation,
+        "price": price,
+        "price_currency": "USD",
+        "price_period": "monthly · billed hourly",
+        "price_basis": PRICE_BASIS,
+    })
+}
+
+/// A resize-leg failure: when the failed resize left the row stopped
+/// (the sequence got as far as the stop), attempt the start and report
+/// both outcomes plus the actual state. A row that never reached
+/// stopped (a sleeping/pending refusal) is left exactly as the server
+/// left it — waking it would be an unasked-for change.
+fn resize_failed(
+    client: &ApiClient,
+    id: &str,
+    steps: &mut Value,
+    last_row: &mut Value,
+    error: String,
+    previous_allocation: Value,
+) -> Value {
+    let (start_error, started) = if last_row["status"] == "stopped" {
+        match lifecycle(client, id, "start") {
+            Ok(row) => {
+                steps["start"] = json!("done");
+                *last_row = row;
+                (Value::Null, true)
+            }
+            Err(message) => {
+                steps["start"] = json!("failed");
+                (json!(message), false)
+            }
+        }
+    } else {
+        steps["start"] = json!("not_attempted");
+        (Value::Null, false)
+    };
+    let final_row = read_instance(client, id).unwrap_or_else(|_| last_row.clone());
+    json!({
+        "ok": false,
+        "step": "resize",
+        "steps": steps,
+        "error": error,
+        "start_error": start_error,
+        "started": started,
+        "instance": final_row,
+        "previous_allocation": previous_allocation,
+        "new_allocation": Value::Null,
+        "price": Value::Null,
+        "price_currency": "USD",
+        "price_period": "monthly · billed hourly",
+        "price_basis": PRICE_BASIS,
+    })
+}
+
+/// GET /instances/{id} as the flat row (the resize's state reads).
+fn read_instance(client: &ApiClient, id: &str) -> Result<Value, String> {
+    let document = client
+        .get(&format!("/instances/{id}"))
+        .map_err(|err| friendly_404(err, "instance"))?;
+    one_resource(document, "instance").map(|resource| with_id(&resource))
+}
+
+/// The allocation triple off a flat instance row.
+fn allocation_of(row: &Value) -> Value {
+    json!({
+        "cpu_cores": row.get("cpu_cores").cloned().unwrap_or(Value::Null),
+        "memory_mb": row.get("memory_mb").cloned().unwrap_or(Value::Null),
+        "storage_gb": row.get("storage_gb").cloned().unwrap_or(Value::Null),
+    })
+}
+
+/// The platform's quote for an allocation. Best-effort: the resize
+/// already committed, so a pricing outage reports the row and the
+/// price error instead of hiding the resize behind a failure.
+fn price_for(client: &ApiClient, allocation: &Value) -> Value {
+    let cpu = allocation["cpu_cores"]
+        .as_str()
+        .map(str::to_owned)
+        .or_else(|| allocation["cpu_cores"].as_f64().map(|n| n.to_string()));
+    let memory_mb = allocation["memory_mb"].as_i64();
+    let storage_gb = allocation["storage_gb"].as_i64();
+
+    let (Some(cpu), Some(memory_mb), Some(storage_gb)) = (cpu, memory_mb, storage_gb) else {
+        return json!({"error": "the resize response did not carry a complete allocation"});
+    };
+    if safe_query_value("cpu cores", &cpu).is_err() {
+        return json!({"error": format!("invalid cpu cores in the resize response: {cpu}")});
+    }
+
+    match client.get_json(&format!(
+        "/pricing/quote?cpu_cores={cpu}&memory_mb={memory_mb}&storage_gb={storage_gb}"
+    )) {
+        Ok(quote) => quote,
+        Err(err) => json!({"error": message(err)}),
+    }
 }
 
 /// `instances_destroy` — the DELETE; the wire answers the flat row

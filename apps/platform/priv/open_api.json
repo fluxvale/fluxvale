@@ -567,6 +567,31 @@
             "additionalProperties": false,
             "description": "An attributes object for a access_gateway",
             "properties": {
+              "api_token_set": {
+                "anyOf": [
+                  {
+                    "nullable": true,
+                    "type": "boolean"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "claimed_domains": {
+                "anyOf": [
+                  {
+                    "items": {
+                      "type": "string"
+                    },
+                    "nullable": true,
+                    "type": "array"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "hostname": {
                 "description": "Field included by default.",
                 "type": "string"
@@ -692,6 +717,9 @@
             "type": "array",
             "uniqueItems": true
           },
+          "api_token_set": {
+            "$ref": "#/components/schemas/access_gateway-filter-api_token_set"
+          },
           "hostname": {
             "$ref": "#/components/schemas/access_gateway-filter-hostname"
           },
@@ -734,6 +762,45 @@
           }
         },
         "type": "deepObject"
+      },
+      "access_gateway-filter-api_token_set": {
+        "additionalProperties": false,
+        "properties": {
+          "eq": {
+            "type": "boolean"
+          },
+          "greater_than": {
+            "type": "boolean"
+          },
+          "greater_than_or_equal": {
+            "type": "boolean"
+          },
+          "in": {
+            "items": {
+              "type": "boolean"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "type": "boolean"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "type": "boolean"
+          },
+          "less_than": {
+            "type": "boolean"
+          },
+          "less_than_or_equal": {
+            "type": "boolean"
+          },
+          "not_eq": {
+            "type": "boolean"
+          }
+        },
+        "type": "object"
       },
       "access_gateway-filter-hostname": {
         "additionalProperties": false,
@@ -11447,6 +11514,33 @@
                           "additionalProperties": false,
                           "description": "An attributes object for a access_gateway",
                           "properties": {
+                            "api_token_set": {
+                              "anyOf": [
+                                {
+                                  "nullable": true,
+                                  "type": "boolean"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ],
+                              "description": "Field included by default."
+                            },
+                            "claimed_domains": {
+                              "anyOf": [
+                                {
+                                  "items": {
+                                    "type": "string"
+                                  },
+                                  "nullable": true,
+                                  "type": "array"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ],
+                              "description": "Field included by default."
+                            },
                             "hostname": {
                               "description": "Field included by default.",
                               "type": "string"
@@ -11852,6 +11946,33 @@
                           "additionalProperties": false,
                           "description": "An attributes object for a access_gateway",
                           "properties": {
+                            "api_token_set": {
+                              "anyOf": [
+                                {
+                                  "nullable": true,
+                                  "type": "boolean"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ],
+                              "description": "Field included by default."
+                            },
+                            "claimed_domains": {
+                              "anyOf": [
+                                {
+                                  "items": {
+                                    "type": "string"
+                                  },
+                                  "nullable": true,
+                                  "type": "array"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ],
+                              "description": "Field included by default."
+                            },
                             "hostname": {
                               "description": "Field included by default.",
                               "type": "string"
@@ -21182,6 +21303,33 @@
                           "additionalProperties": false,
                           "description": "An attributes object for a access_gateway",
                           "properties": {
+                            "api_token_set": {
+                              "anyOf": [
+                                {
+                                  "nullable": true,
+                                  "type": "boolean"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ],
+                              "description": "Field included by default."
+                            },
+                            "claimed_domains": {
+                              "anyOf": [
+                                {
+                                  "items": {
+                                    "type": "string"
+                                  },
+                                  "nullable": true,
+                                  "type": "array"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ],
+                              "description": "Field included by default."
+                            },
                             "hostname": {
                               "description": "Field included by default.",
                               "type": "string"
