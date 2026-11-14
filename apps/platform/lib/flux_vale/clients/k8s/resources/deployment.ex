@@ -124,6 +124,15 @@ defmodule FluxVale.Clients.K8s.Resources.Deployment do
   @default_replicas 1
   @default_probe_path "/"
 
+  # #776: the instance namespace's quota is sized for exactly one pod
+  # (ResourceQuota's requests/limits == this Deployment's), so the API's
+  # default 25% surge can never be admitted. No surge pod: the old pod
+  # goes down before the new one starts, within the pod it already has.
+  @rollout_strategy %{
+    "type" => "RollingUpdate",
+    "rollingUpdate" => %{"maxSurge" => 0, "maxUnavailable" => 1}
+  }
+
   @doc """
   Creates (server-side-applies) a Deployment from a simplified spec.
   """
@@ -268,20 +277,21 @@ defmodule FluxVale.Clients.K8s.Resources.Deployment do
   end
 
   @doc "Scales a deployment to the given replica count."
-  @spec scale(Kubereq.Kubeconfig.t(), String.t(), String.t(), integer()) ::
+  @spec scale(Kubereq.Kubeconfig.t(), String.t(), String.t(), integer(), keyword()) ::
           {:ok, map()} | {:error, Error.t()}
   # v1-ported: get → strip managedFields → force-apply. The force flag makes
   # manager "fluxvale" claim every field of the fetched object, and the
   # get→apply window is last-write-wins — tolerable inside instance
   # namespaces, where fluxvale is the only writer (stop/start, #73). A
   # targeted patch on spec.replicas is the future refinement.
-  def scale(kubeconfig, namespace, name, replicas) when is_integer(replicas) and replicas >= 0 do
+  def scale(kubeconfig, namespace, name, replicas, opts \\ [])
+      when is_integer(replicas) and replicas >= 0 do
     case get(kubeconfig, namespace, name) do
       {:ok, deployment} ->
         # managedFields must go — Kubernetes rejects them in apply operations
         updated =
           deployment
-          |> strip_managed_fields()
+          |> prepare_for_apply(Keyword.get(opts, :strategy, @rollout_strategy))
           |> put_in(["spec", "replicas"], replicas)
 
         req = create_req(kubeconfig)
@@ -321,7 +331,7 @@ defmodule FluxVale.Clients.K8s.Resources.Deployment do
 
         updated =
           deployment
-          |> strip_managed_fields()
+          |> prepare_for_apply(Keyword.get(opts, :strategy, @rollout_strategy))
           |> ensure_app_env_from(Keyword.get(opts, :ensure_env_from))
           |> update_in(["spec", "template", "metadata", "annotations"], fn
             nil -> %{"fluxvale.io/restartedAt" => restart_at}
@@ -347,7 +357,7 @@ defmodule FluxVale.Clients.K8s.Resources.Deployment do
       {:ok, deployment} ->
         updated =
           deployment
-          |> strip_managed_fields()
+          |> prepare_for_apply(@rollout_strategy)
           |> ensure_app_env_from("app-env")
 
         apply_updated(
@@ -542,6 +552,7 @@ defmodule FluxVale.Clients.K8s.Resources.Deployment do
       },
       "spec" => %{
         "replicas" => Map.get(spec, :replicas, @default_replicas),
+        "strategy" => @rollout_strategy,
         "selector" => %{"matchLabels" => %{"app.kubernetes.io/name" => name}},
         "template" => %{
           "metadata" => %{
@@ -772,10 +783,23 @@ defmodule FluxVale.Clients.K8s.Resources.Deployment do
     }
   end
 
-  # Strips server-managed fields before apply — K8s rejects managedFields.
-  @spec strip_managed_fields(map()) :: map()
-  defp strip_managed_fields(resource) when is_map(resource) do
-    Map.update(resource, "metadata", %{}, fn meta -> Map.delete(meta, "managedFields") end)
+  # Prepares a fetched Deployment for SSA: drops server-managed fields
+  # (K8s rejects managedFields in apply) and applies the caller's rollout
+  # strategy. The default is the app's one-pod strategy: the API persists
+  # its own 25%/25% on Deployments created before #776, so re-applying a
+  # fetched object verbatim would keep the surge the instance quota cannot
+  # admit. The access gateway passes `Recreate` (its RWO state PVC cannot
+  # double-mount) — the module is shared, the strategy is not.
+  @spec prepare_for_apply(map(), map()) :: map()
+  defp prepare_for_apply(resource, strategy) when is_map(resource) do
+    metadata = Map.get(resource, "metadata", %{})
+    stripped_metadata = Map.delete(metadata, "managedFields")
+    spec = Map.get(resource, "spec", %{})
+    strategy_spec = Map.put(spec, "strategy", strategy)
+
+    resource
+    |> Map.put("metadata", stripped_metadata)
+    |> Map.put("spec", strategy_spec)
   end
 
   defp create_req(kubeconfig) do

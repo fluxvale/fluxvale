@@ -1,6 +1,6 @@
 defmodule FluxVale.PromEx.SeedBusinessCounters do
   @moduledoc """
-  Materializes the business families' 68 closed-enum series at 0,
+  Materializes the business families' 78 closed-enum series at 0,
   once per boot — a sibling child right after the PromEx tree in the
   application supervisor (children start in order, so the handlers
   are attached; FluxVale.Observability gates both on the same env).
@@ -27,7 +27,7 @@ defmodule FluxVale.PromEx.SeedBusinessCounters do
   same :temporary stance accepts one residual: a
   TelemetryMetricsPrometheus Core Registry crash+restart empties
   both ETS tables and re-attaches its handlers fresh, and this task
-  never re-runs — the 68 seeds (and the accumulated history) vanish
+  never re-runs — the 78 seeds (and the accumulated history) vanish
   until the next app restart, restoring first-event blindness for
   that window. Accepted (same class as the per-deploy in-memory
   reset); the stronger form (re-seed on Registry UP via monitor) is
@@ -48,7 +48,7 @@ defmodule FluxVale.PromEx.SeedBusinessCounters do
   end
 
   @doc """
-  Emits the 68 zero-samples — the emitters' own measurement/metadata
+  Emits the 78 zero-samples — the emitters' own measurement/metadata
   shapes with `count: 0` (the sum metrics accumulate it, so each
   series exists at 0 and stays there). Public so tests run it
   synchronously against a started tree.

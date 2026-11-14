@@ -20,6 +20,7 @@ defmodule FluxVale.Infrastructure.Instance.WakeMarkersTest do
   alias FluxVale.Clients.K8s.Resources.Deployment
   alias FluxVale.Clients.K8s.Resources.Ingress
   alias FluxVale.Clients.K8s.Resources.Middleware
+  alias FluxVale.Clients.K8s.Resources.Pod
   alias FluxVale.Clients.K8s.Resources.Service
   alias FluxVale.Identity.User
   alias FluxVale.Infrastructure.Instance
@@ -47,11 +48,12 @@ defmodule FluxVale.Infrastructure.Instance.WakeMarkersTest do
   defp stub_k8s do
     stub(K8s, :kubeconfig, fn nil -> {:ok, %{}} end)
     stub(Deployment, :scale, fn _kc, _ns, _n, _r -> {:ok, %{}} end)
+    stub(Pod, :list_by_labels, fn _kc, _ns, _labels -> {:ok, []} end)
   end
 
   defp stub_ready do
     stub(Deployment, :status, fn _kc, _ns, _n ->
-      {:ok, %{replicas: 1, ready: 1, conditions: []}}
+      {:ok, %{replicas: 1, updated: 1, ready: 1, conditions: []}}
     end)
   end
 

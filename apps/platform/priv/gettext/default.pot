@@ -3663,7 +3663,7 @@ msgstr ""
 
 #: lib/flux_vale_web/live/admin_live/audit.ex:518
 #: lib/flux_vale_web/live/admin_live/audit.ex:523
-#: lib/flux_vale_web/live/admin_live/health.ex:539
+#: lib/flux_vale_web/live/admin_live/health.ex:540
 #, elixir-autogen, elixir-format
 msgid "System"
 msgstr ""
@@ -3992,12 +3992,12 @@ msgstr ""
 msgid "Errors"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/health.ex:556
+#: lib/flux_vale_web/live/admin_live/health.ex:557
 #, elixir-autogen, elixir-format
 msgid "Failure"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/health.ex:550
+#: lib/flux_vale_web/live/admin_live/health.ex:551
 #, elixir-autogen, elixir-format
 msgid "In progress"
 msgstr ""
@@ -4007,7 +4007,7 @@ msgstr ""
 msgid "Last run: %{time}"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/health.ex:545
+#: lib/flux_vale_web/live/admin_live/health.ex:546
 #, elixir-autogen, elixir-format
 msgid "No runs"
 msgstr ""
@@ -4017,7 +4017,7 @@ msgstr ""
 msgid "No scheduled smoke runs returned."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/health.ex:561
+#: lib/flux_vale_web/live/admin_live/health.ex:562
 #, elixir-autogen, elixir-format
 msgid "No verdict"
 msgstr ""
@@ -4032,7 +4032,7 @@ msgstr ""
 msgid "Smoke status"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/health.ex:552
+#: lib/flux_vale_web/live/admin_live/health.ex:553
 #, elixir-autogen, elixir-format
 msgid "Success"
 msgstr ""
@@ -4042,7 +4042,7 @@ msgstr ""
 msgid "The GitHub runs API did not answer — check the public runs page."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/health.ex:544
+#: lib/flux_vale_web/live/admin_live/health.ex:545
 #, elixir-autogen, elixir-format
 msgid "Unreachable"
 msgstr ""

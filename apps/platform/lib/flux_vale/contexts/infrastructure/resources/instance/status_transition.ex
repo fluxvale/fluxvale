@@ -6,8 +6,8 @@ defmodule FluxVale.Infrastructure.Instance.StatusTransition do
 
   - pending → deploying, error
   - deploying → starting, error
-  - starting → running, error, lost
-  - running → stopped, sleeping, restoring, error, lost
+  - starting → running, no_capacity, error, lost
+  - running → stopped, sleeping, restoring, no_capacity, error, lost
   - sleeping → starting, restoring, stopped, error, lost (wake re-enters the start
     lane; #203 — restore returns the row to `:sleeping` without waking it,
     ADR-0037 §5; `stopped` is the sleep path's honest landing when the
@@ -16,7 +16,13 @@ defmodule FluxVale.Infrastructure.Instance.StatusTransition do
   - restoring → starting, stopped, sleeping, error, lost (#222, ADR-0037
     §5: back to the pre-restore state, or into the start lane when the
     app was running — the reconciler lands `:running`)
-  - error → deploying, starting, lost
+  - error → deploying, starting, running, no_capacity, restoring, lost
+    (#776: a stale failure whose workload is healthy recovers to
+    `:running`; an unschedulable pod reads as `:no_capacity`)
+  - no_capacity → stopped, starting, running, error, lost (#776:
+    capacity is a waiting state; the owner may stop it (the exit to
+    resize down), the pod schedules → `:starting`, ready → `:running`,
+    a real failure → `:error`, a vanished namespace → `:lost`)
   - lost → deploying (the re-deploy path; teardown rides `:deleting`
     from anywhere)
 
@@ -50,8 +56,8 @@ defmodule FluxVale.Infrastructure.Instance.StatusTransition do
   @valid_transitions %{
     pending: [:deploying, :error],
     deploying: [:starting, :error],
-    starting: [:running, :error, :lost],
-    running: [:stopped, :sleeping, :restoring, :error, :lost],
+    starting: [:running, :no_capacity, :error, :lost],
+    running: [:stopped, :sleeping, :restoring, :no_capacity, :error, :lost],
     sleeping: [:starting, :restoring, :stopped, :error, :lost],
     stopped: [:starting, :restoring, :error, :lost],
     # #222 (ADR-0037 §5): restore releases into the state it found — the
@@ -61,8 +67,15 @@ defmodule FluxVale.Infrastructure.Instance.StatusTransition do
     # :restoring here is the failed-restore RETRY (ADR-0037 §5): the
     # operation's guard admits only :error rows whose failure_reason is
     # :restore_failed — the table cannot see the reason, so the op's
-    # guard is the scope and this edge is the door.
-    error: [:deploying, :starting, :restoring, :lost],
+    # guard is the scope and this edge is the door. :running is the
+    # stale-failure recovery (#776); :no_capacity is capacity, not a
+    # crash. The reconciler's failure_reason gate keeps intent-bearing
+    # errors (stop/restore/teardown) out of both.
+    error: [:deploying, :starting, :running, :no_capacity, :restoring, :lost],
+    # #776: waiting for the scheduler. The owner can stop it (then resize
+    # down), a scheduled pod returns to the start lane, ready lands
+    # :running; a real failure/capacity loss exits through :error/:lost.
+    no_capacity: [:stopped, :starting, :running, :error, :lost],
     # Entered from any state (async teardown); its only exit on retry
     # exhaustion is :error (mark_teardown_error). A successful teardown
     # hard-deletes the row instead of transitioning.
@@ -76,7 +89,7 @@ defmodule FluxVale.Infrastructure.Instance.StatusTransition do
 
   @doc """
   The transition table — one writer (this validator). Read by
-  FluxVale.PromEx.Plugins.Business to derive the fleet's 42-pair
+  FluxVale.PromEx.Plugins.Business to derive the fleet's 52-pair
   ceiling; the catch-all arms (any → :error / any → :deleting) are
   validate/2 arms, not map entries, so the derivation adds them.
   """

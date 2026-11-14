@@ -245,7 +245,7 @@ defmodule FluxValeWeb.InstanceLive.Index do
   # (its copy is the app's longest; a flip is a behavior change,
   # hostile-339 F1).
   defp copy_status?(status),
-    do: status in [:pending, :deploying, :starting, :error, :deleting, :lost]
+    do: status in [:pending, :deploying, :starting, :no_capacity, :error, :deleting, :lost]
 
   defp subscribe(socket, instances) do
     Enum.reduce(instances, socket, fn instance, socket ->

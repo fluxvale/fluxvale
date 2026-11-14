@@ -183,8 +183,9 @@ repo lock) → status `:restoring` → scale the Deployment to 0 if
 running (`StopInstance` mechanics; sleeping/stopped rows are already
 at 0, and the wake endpoint's other-status arm 503s instead of
 waking — restore owns the instance exclusively; `StartInstance`'s
-status guard no-ops; the reconciler's trigger only selects
-`[:deploying, :starting, :running]`) → restore Job (`restic restore
+status guard no-ops; the reconciler's trigger selects
+`[:deploying, :starting, :running, :no_capacity, :error]` — with a
+failure-reason gate on `:error` — and never `:restoring`) → restore Job (`restic restore
 <latest>:<mount> --target <mount> --delete --verify` — the
 `<snapshot>:<subfolder>` form restores **in place**; a bare
 `--target <mount>` re-creates the snapshot's paths *under* the

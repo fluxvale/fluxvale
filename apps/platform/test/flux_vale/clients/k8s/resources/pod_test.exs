@@ -72,6 +72,54 @@ defmodule FluxVale.Clients.K8s.Resources.PodTest do
     end
   end
 
+  describe "unschedulable_reason/1" do
+    test "carries the scheduler's reason and message" do
+      pod = %{
+        "status" => %{
+          "conditions" => [
+            %{
+              "type" => "PodScheduled",
+              "status" => "False",
+              "reason" => "Unschedulable",
+              "message" => "0/3 nodes are available: 3 Insufficient cpu."
+            }
+          ]
+        }
+      }
+
+      assert Pod.unschedulable_reason(pod) ==
+               "Unschedulable: 0/3 nodes are available: 3 Insufficient cpu."
+    end
+
+    test "falls back to the bare reason when the message is absent" do
+      pod = %{
+        "status" => %{
+          "conditions" => [
+            %{"type" => "PodScheduled", "status" => "False", "reason" => "Unschedulable"}
+          ]
+        }
+      }
+
+      assert Pod.unschedulable_reason(pod) == "Unschedulable"
+    end
+
+    test "nil when the pod is scheduled (image pull / crash are not capacity)" do
+      pod = %{
+        "status" => %{
+          "conditions" => [
+            %{"type" => "PodScheduled", "status" => "True"}
+          ]
+        }
+      }
+
+      assert Pod.unschedulable_reason(pod) == nil
+    end
+
+    test "nil when the conditions are absent" do
+      assert Pod.unschedulable_reason(%{}) == nil
+    end
+  end
+
   describe "started_at/1" do
     test "parses the creationTimestamp" do
       pod = %{"metadata" => %{"creationTimestamp" => "2026-11-01T03:00:00Z"}}

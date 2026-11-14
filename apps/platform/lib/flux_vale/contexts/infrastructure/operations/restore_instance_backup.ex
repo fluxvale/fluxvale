@@ -66,9 +66,10 @@ defmodule FluxVale.Infrastructure.Operations.RestoreInstanceBackup do
   status is the *user-visible* claim — the instance page says "Restoring",
   the edge's restoring arm answers 503 instead of waking, and
   `StartInstance`'s status guard no-ops. It is also what the reconciler
-  leaves alone: its trigger selects only `[:deploying, :starting,
-  :running]`, so a restore's half-written volume is never mirrored into
-  `:running` or demoted mid-restore.
+  leaves alone: its trigger selects `[:deploying, :starting, :running,
+  :no_capacity, :error]` (#776, with a failure-reason gate on `:error`)
+  and never `:restoring`, so a restore's half-written volume is never
+  mirrored into `:running` or demoted mid-restore.
 
   The status is also why the sweep carries a crash-recovery arm
   (`SweepBackups`'s third pass): a crash between the sweep's finalize and

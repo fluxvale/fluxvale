@@ -219,7 +219,15 @@ defmodule FluxVale.Infrastructure.Operations.ConnectPocketId do
   # must be DEPLOYED (a namespace to reach) and not on its way out.
   # The deployed set is the funnel's live-workload statuses — anything
   # else routes to the wizard path (or refuses honestly).
-  @deployed_statuses [:deploying, :starting, :running, :stopped, :sleeping, :restoring]
+  @deployed_statuses [
+    :deploying,
+    :starting,
+    :running,
+    :no_capacity,
+    :stopped,
+    :sleeping,
+    :restoring
+  ]
 
   defp load_deployed(app_instance_id, actor, authorize?) do
     with {:ok, app_instance} <-

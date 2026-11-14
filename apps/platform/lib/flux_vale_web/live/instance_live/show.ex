@@ -166,7 +166,7 @@ defmodule FluxValeWeb.InstanceLive.Show do
                   stops now; the panel opens when the row lands :stopped
                   (open_resize_on_stop). --%>
                   <p
-                    :if={@instance.status == :running}
+                    :if={@instance.status in [:running, :no_capacity]}
                     class="text-xs text-ink-subtle"
                     data-testid="stop-to-resize-note"
                   >
@@ -1008,18 +1008,21 @@ defmodule FluxValeWeb.InstanceLive.Show do
   end
 
   # The status card's state families (S2): every state maps to one of
-  # four treatments — progress (the spinning conic pie), settled
-  # success, quiet rest, or danger (the loudest surface on the page).
-  # :deleting rides danger, not progress: the badge vocabulary already
-  # says danger (red Deleting pill), and a red pill over a calm amber
-  # card reads as two stories. Presentation only: the state machine and
-  # the copy are InstanceStatus's; an unknown state reads as danger
+  # five treatments — progress (the spinning conic pie), settled
+  # success, quiet rest, warning (waiting on the host), or danger (the
+  # loudest surface on the page). :deleting rides danger, not progress:
+  # the badge vocabulary already says danger (red Deleting pill), and a
+  # red pill over a calm amber card reads as two stories. :no_capacity
+  # is the warning family — the app is not broken, it is waiting for a
+  # scheduler slot (#776). Presentation only: the state machine and the
+  # copy are InstanceStatus's; an unknown state reads as danger
   # (attention demanded is the honest default).
   defp status_family(status) do
     case status do
       s when s in [:pending, :deploying, :starting, :restoring] -> :progress
       :running -> :success
       s when s in [:sleeping, :stopped] -> :quiet
+      :no_capacity -> :warning
       _failure -> :danger
     end
   end
@@ -1029,18 +1032,21 @@ defmodule FluxValeWeb.InstanceLive.Show do
   defp status_tile(:progress), do: "border-primary/25 bg-primary-muted"
   defp status_tile(:success), do: "border-line-success bg-success-muted"
   defp status_tile(:quiet), do: "border-line bg-panel-raised"
+  defp status_tile(:warning), do: "border-line-warning bg-warning-muted"
   defp status_tile(:danger), do: "border-line-danger bg-danger-muted"
 
   # The quiet family splits by state: asleep reads as the moon, the
   # owner's manual pause as a pause. Progress states render the pie,
-  # never an icon.
+  # never an icon; no_capacity is a clock (waiting, not failing).
   defp status_icon(:running), do: "hero-check-circle"
   defp status_icon(:sleeping), do: "hero-moon"
   defp status_icon(:stopped), do: "hero-pause-circle"
+  defp status_icon(:no_capacity), do: "hero-clock"
   defp status_icon(_failure), do: "hero-exclamation-triangle"
 
   defp status_icon_tone(:success), do: "text-success"
   defp status_icon_tone(:quiet), do: "text-ink-subtle"
+  defp status_icon_tone(:warning), do: "text-warning"
   defp status_icon_tone(:danger), do: "text-danger"
 
   # Lifecycle controls gated by the state machine's legal transitions —
@@ -1082,7 +1088,7 @@ defmodule FluxValeWeb.InstanceLive.Show do
     </.button>
 
     <.button
-      :if={@instance.status == :running}
+      :if={@instance.status in [:running, :no_capacity]}
       variant="ghost"
       size="sm"
       phx-click="stop"
@@ -1092,9 +1098,9 @@ defmodule FluxValeWeb.InstanceLive.Show do
     </.button>
 
     <%!-- #493: the resize entry — stopped opens the panel directly;
-    running must stop first (the guided stop→resize start). No entry
-    from the states that can't reach :stopped cleanly — wake or deploy
-    first, plain and honest. --%>
+    running (or #776's no_capacity) must stop first (the guided
+    stop→resize start). No entry from the states that can't reach
+    :stopped cleanly — wake or deploy first, plain and honest. --%>
     <.button
       :if={@instance.status == :stopped and not @panel_open}
       variant="ghost"
@@ -1106,7 +1112,7 @@ defmodule FluxValeWeb.InstanceLive.Show do
     </.button>
 
     <.button
-      :if={@instance.status == :running}
+      :if={@instance.status in [:running, :no_capacity]}
       variant="ghost"
       size="sm"
       phx-click="stop-to-resize"

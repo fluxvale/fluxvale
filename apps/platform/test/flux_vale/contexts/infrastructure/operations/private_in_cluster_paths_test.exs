@@ -19,6 +19,7 @@ defmodule FluxVale.Infrastructure.Operations.PrivateInClusterPathsTest do
   alias FluxVale.Clients.K8s.Error
   alias FluxVale.Clients.K8s.Resources.BackupJob
   alias FluxVale.Clients.K8s.Resources.Deployment
+  alias FluxVale.Clients.K8s.Resources.Pod
   alias FluxVale.Identity.User
   alias FluxVale.Infrastructure
   alias FluxVale.Infrastructure.BackupSetting
@@ -59,6 +60,7 @@ defmodule FluxVale.Infrastructure.Operations.PrivateInClusterPathsTest do
 
   defp stub_kubeconfig do
     stub(K8s, :kubeconfig, fn nil -> {:ok, %{}} end)
+    stub(Pod, :list_by_labels, fn _kc, _ns, _labels -> {:ok, []} end)
   end
 
   describe "panel operations (stop/start) still function" do
@@ -100,7 +102,7 @@ defmodule FluxVale.Infrastructure.Operations.PrivateInClusterPathsTest do
       ns = "fluxvale-app-#{instance.id}"
 
       expect(Deployment, :status, fn _kc, ^ns, "app" ->
-        {:ok, %{replicas: 1, ready: 1, conditions: []}}
+        {:ok, %{replicas: 1, updated: 1, ready: 1, conditions: []}}
       end)
 
       assert {:ok, running} = ReconcileInstance.call(instance)

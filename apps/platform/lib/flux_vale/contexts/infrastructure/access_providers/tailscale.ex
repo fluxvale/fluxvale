@@ -60,6 +60,12 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale do
   # the Secret this derives.
   @serve_file "serve.json"
 
+  # Recreate, not RollingUpdate: the state PVC is ReadWriteOnce and holds
+  # the tailscaled node identity, so the old pod must be gone before the
+  # new one mounts it. Shared `Deployment.restart/scale` default to the
+  # app's one-pod rolling strategy — this provider passes its own.
+  @gateway_rollout_strategy %{"type" => "Recreate"}
+
   # Per-gateway object names, never derived from an org or app name
   # (§1's opacity rule).
   #
@@ -522,7 +528,12 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale do
          :ok <- write_credential(kubeconfig, access_namespace(), gateway, auth_key) do
       # Restart, not recreate: the pod rejoins under the new key with the
       # persisted state, and the Secret update alone would not re-read.
-      case Deployment.restart(kubeconfig, access_namespace(), deployment_name(gateway)) do
+      case Deployment.restart(
+             kubeconfig,
+             access_namespace(),
+             deployment_name(gateway),
+             strategy: @gateway_rollout_strategy
+           ) do
         {:ok, _deployment} -> :ok
         {:error, _reason} = error -> error
       end
@@ -547,7 +558,13 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale do
   @impl FluxVale.Infrastructure.AccessProvider
   def scale_gateway(%AccessGateway{} = gateway, replicas) when replicas in [0, 1] do
     with {:ok, kubeconfig} <- kubeconfig() do
-      case Deployment.scale(kubeconfig, access_namespace(), deployment_name(gateway), replicas) do
+      case Deployment.scale(
+             kubeconfig,
+             access_namespace(),
+             deployment_name(gateway),
+             replicas,
+             strategy: @gateway_rollout_strategy
+           ) do
         {:ok, _deployment} -> :ok
         {:error, _reason} = error -> error
       end
@@ -1299,12 +1316,10 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale do
       },
       "spec" => %{
         "replicas" => 1,
-        # Recreate, not RollingUpdate: the state PVC is ReadWriteOnce and
-        # holds the tailscaled node identity, so the old pod must be gone
-        # before the new one mounts it (a rolling update can double-mount
-        # on one node, or Multi-Attach-timeout across nodes, during the
-        # re-paste restart).
-        "strategy" => %{"type" => "Recreate"},
+        # The re-paste restart and suspend/resume scale re-apply this
+        # same strategy; a rolling update can double-mount on one node,
+        # or Multi-Attach-timeout across nodes.
+        "strategy" => @gateway_rollout_strategy,
         # Per-gateway selector: a shared one would let each gateway's
         # Deployment adopt every other gateway's pods (they would fight
         # over the same ReplicaSets), and the NetworkPolicy's pod

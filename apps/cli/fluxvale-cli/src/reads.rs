@@ -331,6 +331,9 @@ pub fn status_line(status: &str) -> String {
         "pending" => "Submitted — setup will begin shortly.",
         "deploying" => "Provisioning — setting up your app.",
         "starting" => "Starting it up.",
+        "no_capacity" => {
+            "No capacity — we can't start your app on our machines right now; it starts automatically when it can."
+        }
         "running" => "Running — your app is up.",
         "sleeping" => {
             "Sleeping — wakes automatically on the next visit; storage-only cost while it rests."
@@ -940,6 +943,7 @@ mod tests {
             "pending",
             "deploying",
             "starting",
+            "no_capacity",
             "running",
             "sleeping",
             "restoring",

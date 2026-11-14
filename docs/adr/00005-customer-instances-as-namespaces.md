@@ -108,3 +108,32 @@ adopts the current row before it applies edge state
 ([ADR-0039](00039-private-access-layer-tailscale.md) §7), closing
 [ADR-0038](00038-instance-exposure-modes.md) §6's stale-sleep mint
 window.
+
+## Amendment 6 (2026-11-14)
+
+Per [#776](https://github.com/fluxvale/fluxvale/issues/776): the instance
+Deployment carries an explicit `RollingUpdate` strategy with `maxSurge: 0`
+/ `maxUnavailable: 1`. The namespace quota is sized for exactly one pod,
+so a surge pod can never be admitted; a rollout takes the old pod down
+before the new one starts (a short restart), and a running env/spec update
+no longer needs a stop/start.
+
+Reconcile treats `ReplicaFailure` as retryable while it is fresh (the
+ReplicaSet controller retries a rejected pod create, and a terminating pod
+holds the quota until it is gone). A scheduled workload flips to `:error`
+only after the failure outlives the deploy-stale bound (300s) or
+Kubernetes reports `Progressing: False` / `ProgressDeadlineExceeded`; a
+fresh failure leaves the instance in `:starting`/`:running`.
+
+The state machine also gains **`no_capacity`** — a scheduler rejection
+(`PodScheduled=False` / `Unschedulable`) is a waiting state, not a crash,
+and the pod condition's reason rides in `status_message`. It enters from
+`:starting`/`:running`/`:error` and returns through the start lane, or
+straight to `:running` once ready. Capacity wins over the rollout
+deadline: an unplaced pod stays `:no_capacity` rather than becoming a
+`:error` that reads as a crashed app; the owner can stop it (→
+`:stopped`) and resize down. Relatedly, `:error` is no longer sticky: a
+row whose unintended failure (rollout/start/stuck/missing — not
+`deploy_failed`, which retries through `:deploy`) is contradicted by a
+healthy current revision recovers to `:running`. Intent-bearing failures
+(`:stop_failed`, `:restore_failed`, `:teardown_failed`) keep their error.

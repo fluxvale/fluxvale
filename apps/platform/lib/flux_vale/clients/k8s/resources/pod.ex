@@ -2,14 +2,20 @@ defmodule FluxVale.Clients.K8s.Resources.Pod do
   @moduledoc """
   Read operations for Kubernetes Pods.
 
-  Today's only consumer is the access-DNS renderer (ADR-0040 §4): a
-  gateway view must answer with the gateway's CURRENT pod IP, and the
-  pod's phase must be Running — a restarting gateway is dark for DNS
-  until the next pass, the documented window.
+  Two consumers:
+
+  - the access-DNS renderer (ADR-0040 §4): a gateway view must answer
+    with the gateway's CURRENT pod IP, and the pod's phase must be
+    Running — a restarting gateway is dark for DNS until the next pass,
+    the documented window;
+  - the instance reconciler (#776): a not-ready app Deployment reads the
+    newest app pod's `PodScheduled` condition to tell a scheduler
+    rejection (`:no_capacity`) from a crash.
 
   Listing is namespaced; the label selector is applied client-side (the
-  access namespace holds only the platforms' own gateway pods — a
-  handful — so a selector parameter would buy nothing).
+  access namespace holds a handful of gateway pods, and an instance
+  namespace holds its app pod(s) — a selector parameter would buy
+  nothing).
   """
 
   alias FluxVale.Clients.K8s.Error
@@ -58,6 +64,43 @@ defmodule FluxVale.Clients.K8s.Resources.Pod do
   @spec terminating?(map()) :: boolean()
   def terminating?(pod) do
     get_in(pod, ["metadata", "deletionTimestamp"]) != nil
+  end
+
+  @doc """
+  The `PodScheduled=False` / `Unschedulable` condition as
+  `"Unschedulable: <message>"`, else nil. A scheduled pod (image pull,
+  crash-loop) returns nil — that is a different failure.
+
+  The message is the scheduler's own placement detail (nodes tried,
+  Insufficient cpu/memory, ...); the instance status keeps it in
+  `status_message`, admin-only.
+  """
+  @spec unschedulable_reason(map()) :: String.t() | nil
+  def unschedulable_reason(pod) do
+    conditions =
+      pod
+      |> get_in(["status", "conditions"])
+      |> List.wrap()
+
+    condition =
+      Enum.find(
+        conditions,
+        &match?(
+          %{"type" => "PodScheduled", "status" => "False", "reason" => "Unschedulable"},
+          &1
+        )
+      )
+
+    case condition do
+      %{"message" => message} when is_binary(message) and message != "" ->
+        "Unschedulable: #{message}"
+
+      %{} ->
+        "Unschedulable"
+
+      nil ->
+        nil
+    end
   end
 
   @doc """

@@ -20,6 +20,7 @@ defmodule FluxValeWeb.InstanceStatusTest do
       assert InstanceStatus.label(:pending) == "Submitted"
       assert InstanceStatus.label(:deploying) == "Provisioning"
       assert InstanceStatus.label(:starting) == "Starting"
+      assert InstanceStatus.label(:no_capacity) == "No capacity"
       assert InstanceStatus.label(:running) == "Running"
       assert InstanceStatus.label(:sleeping) == "Sleeping"
       assert InstanceStatus.label(:restoring) == "Restoring"
@@ -40,6 +41,7 @@ defmodule FluxValeWeb.InstanceStatusTest do
       # arrives on the instance's PubSub broadcast, not a status tick.
       for status <- [
             :pending,
+            :no_capacity,
             :running,
             :sleeping,
             :restoring,
@@ -92,6 +94,26 @@ defmodule FluxValeWeb.InstanceStatusTest do
 
       assert InstanceStatus.message(stale) ==
                "This is taking longer than usual. We're still working on it."
+    end
+
+    test ":no_capacity reads as waiting, not a crash (#776)", %{version: version} do
+      user = User.create!("vocab-#{System.unique_integer()}@fluxvale.com", %{}, authorize?: false)
+      instance = InstanceFixtures.instance!(version, user)
+      starting = InstanceFixtures.walk_to!(instance, :starting)
+
+      {:ok, waiting} =
+        InstanceK8s.update_status(
+          starting,
+          :no_capacity,
+          "Waiting for capacity — Unschedulable: 0/3 nodes are available"
+        )
+
+      message = InstanceStatus.message(waiting)
+
+      assert message =~ "can't start"
+      assert message =~ "automatically"
+      refute message =~ "went wrong"
+      refute_k8s_terms(message)
     end
 
     test "a start (no deployed_at) reads its clock off updated_at", %{version: version} do

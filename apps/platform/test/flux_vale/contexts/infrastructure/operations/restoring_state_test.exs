@@ -58,6 +58,33 @@ defmodule FluxVale.Infrastructure.Operations.RestoringStateTest do
     Instance.get_by_id!(instance.id, authorize?: false)
   end
 
+  # A deployed row landed in :error through the funnel — the shape the
+  # reconcile trigger's failure-reason gate has to filter in SQL.
+  defp errored_instance!(reason) do
+    version = InstanceFixtures.app_version!()
+
+    instance =
+      Instance.create!(
+        %{
+          name: "Errored #{System.unique_integer()}",
+          app_version_id: version.id,
+          env_vars: %{}
+        },
+        actor: user()
+      )
+
+    running =
+      instance
+      |> InstanceFixtures.pin!(
+        namespace: "fluxvale-app-#{instance.id}",
+        deployed_at: DateTime.utc_now()
+      )
+      |> InstanceFixtures.walk_to!(:running)
+
+    {:ok, errored} = InstanceK8s.update_status(running, :error, "boom", reason)
+    errored
+  end
+
   describe "the enums (text-stored, code-only)" do
     test ":restoring is an Instance status" do
       assert :restoring in InstanceStatus.values()
@@ -72,10 +99,19 @@ defmodule FluxVale.Infrastructure.Operations.RestoringStateTest do
     test ":restore_failed is a failure reason" do
       assert :restore_failed in InstanceFailureReason.values()
     end
+
+    test "the recoverable set is the unintended failures (#776)" do
+      assert InstanceFailureReason.recoverable() == [
+               :stuck,
+               :missing,
+               :rollout_failed,
+               :start_failed
+             ]
+    end
   end
 
   describe "the reconciler leaves :restoring alone" do
-    test "its trigger filter admits exactly the deployed/starting/running states" do
+    test "its trigger filter admits the reconciled states" do
       trigger = AshOban.Info.oban_trigger(Instance, :reconcile_status)
       query = Ash.Query.filter(Instance, trigger.where)
       domain = Infrastructure
@@ -90,7 +126,53 @@ defmodule FluxVale.Infrastructure.Operations.RestoringStateTest do
             {:ok, [_match]} <- [Runtime.filter_matches(domain, [row], query.filter)],
             do: status
 
-      assert matched == [:deploying, :starting, :running]
+      assert matched == [:deploying, :starting, :no_capacity, :running, :error]
+    end
+
+    test "the trigger admits only the recoverable error reasons (#776)" do
+      trigger = AshOban.Info.oban_trigger(Instance, :reconcile_status)
+      query = Ash.Query.filter(Instance, trigger.where)
+      domain = Infrastructure
+
+      admitted? = fn reason ->
+        row = %Instance{id: Ash.UUID.generate(), status: :error, failure_reason: reason}
+
+        match?(
+          {:ok, [_match]},
+          Runtime.filter_matches(domain, [row], query.filter)
+        )
+      end
+
+      for reason <- [nil, :stuck, :missing, :rollout_failed, :start_failed] do
+        assert admitted?.(reason), "expected #{inspect(reason)} to be admitted"
+      end
+
+      for reason <- [:deploy_failed, :stop_failed, :restore_failed, :teardown_failed] do
+        refute admitted?.(reason), "expected #{inspect(reason)} to stay out"
+      end
+    end
+
+    test "the trigger filter's SQL form queues recoverable errors, not intent-bearing ones" do
+      # One cluster for all three rows — the create resolves the single
+      # cluster row (more than one is ADR-0006's refused shape).
+      InstanceFixtures.local_cluster!()
+      trigger = AshOban.Info.oban_trigger(Instance, :reconcile_status)
+
+      recoverable = errored_instance!(:rollout_failed)
+      legacy = errored_instance!(nil)
+      intent_bearing = errored_instance!(:stop_failed)
+
+      query =
+        Instance
+        |> Ash.Query.filter(trigger.where)
+        |> Ash.Query.sort(:id)
+
+      {:ok, rows} = Ash.read(query, authorize?: false)
+      ids = Enum.map(rows, & &1.id)
+
+      assert recoverable.id in ids
+      assert legacy.id in ids
+      refute intent_bearing.id in ids
     end
 
     test "a direct reconcile call on a :restoring row is a no-op" do

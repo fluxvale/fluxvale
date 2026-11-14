@@ -389,5 +389,5 @@ defmodule FluxValeWeb.OrganizationLive.Home do
   # (its copy is the app's longest; a flip is a behavior change,
   # hostile-339 F1).
   defp copy_status?(status),
-    do: status in [:pending, :deploying, :starting, :error, :deleting, :lost]
+    do: status in [:pending, :deploying, :starting, :no_capacity, :error, :deleting, :lost]
 end

@@ -462,6 +462,33 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
     refute_k8s_terms(html)
   end
 
+  # #776: waiting for the scheduler reads as its own state — an amber
+  # warning and plain "no room" copy, never the red failure surface.
+  test "no capacity renders as waiting, not a crash", %{
+    conn: conn,
+    user: user,
+    version: version
+  } do
+    instance = create_instance!(version, user)
+    starting = InstanceFixtures.walk_to!(instance, :starting)
+
+    {:ok, waiting} =
+      InstanceK8s.update_status(
+        starting,
+        :no_capacity,
+        "Waiting for capacity — Unschedulable: 0/3 nodes are available: 3 Insufficient cpu."
+      )
+
+    {:ok, view, html} = live(conn, ~p"/instances/#{waiting.id}")
+
+    assert has_element?(view, "[data-testid=status-badge]", "No capacity")
+    assert has_element?(view, "[data-testid='status-message']", "can't start")
+    assert has_element?(view, "[data-testid=stop-button]")
+    assert html =~ "hero-clock"
+    refute has_element?(view, "[data-testid=status-badge]", "Failed")
+    refute_k8s_terms(html)
+  end
+
   test "a lingering provision swaps in the taking-longer copy", %{
     conn: conn,
     user: user,

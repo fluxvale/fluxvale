@@ -17,6 +17,7 @@ defmodule FluxVale.Infrastructure.InstanceTest do
   alias FluxVale.Clients.K8s.Resources.Namespace
   alias FluxVale.Clients.K8s.Resources.NetworkPolicy
   alias FluxVale.Clients.K8s.Resources.PersistentVolumeClaim
+  alias FluxVale.Clients.K8s.Resources.Pod
   alias FluxVale.Clients.K8s.Resources.ResourceQuota
   alias FluxVale.Clients.K8s.Resources.RoleBinding
   alias FluxVale.Clients.K8s.Resources.Secret
@@ -44,6 +45,7 @@ defmodule FluxVale.Infrastructure.InstanceTest do
     stub(Ingress, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
     stub(Middleware, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
     stub(Deployment, :scale, fn _kc, _ns, _n, _r -> {:ok, %{}} end)
+    stub(Pod, :list_by_labels, fn _kc, _ns, _labels -> {:ok, []} end)
 
     stub(Ingress, :delete, fn _kc, _ns, _n -> :ok end)
     stub(Service, :delete, fn _kc, _ns, _n -> :ok end)
@@ -1205,6 +1207,65 @@ defmodule FluxVale.Infrastructure.InstanceTest do
       assert restarted.unbilled_running_usec == stopped.unbilled_running_usec
     end
 
+    # #776: capacity is a waiting state, not a failure — it enters from
+    # starting/running, parks the running interval, and resumes through
+    # the start lane (or straight to running once ready).
+    test "no_capacity enters from starting/running and resumes without churn" do
+      instance = created!()
+
+      starting =
+        instance
+        |> status!(:deploying)
+        |> status!(:starting)
+
+      waiting = status!(starting, :no_capacity)
+      assert waiting.status == :no_capacity
+      assert is_nil(waiting.running_since)
+
+      resumed = status!(waiting, :starting)
+      running = status!(resumed, :running)
+      assert running.running_since
+
+      waiting_again = status!(running, :no_capacity)
+      assert waiting_again.running_since == nil
+      assert waiting_again.unbilled_running_usec >= 0
+      assert waiting_again.storage_metering_since == running.storage_metering_since
+
+      # The owner's exit: stop, resize down, start again.
+      stopped = status!(waiting_again, :stopped)
+      assert stopped.status == :stopped
+
+      # Capacity loss is not a dead end: the failure/lost exits stay open.
+      {:ok, errored} = InstanceK8s.update_status(waiting_again, :error, "boom", :rollout_failed)
+      assert errored.status == :error
+
+      lost = status!(waiting_again, :lost)
+      assert lost.status == :lost
+    end
+
+    # #776: a stale failure whose workload is healthy recovers, and the
+    # running anchors open exactly as a normal promotion would.
+    test "error → running recovers a stale failure and opens the running interval" do
+      instance = created!()
+
+      running =
+        instance
+        |> status!(:deploying)
+        |> status!(:starting)
+        |> status!(:running)
+
+      {:ok, errored} =
+        InstanceK8s.update_status(running, :error, "rollout failed", :rollout_failed)
+
+      assert errored.status == :error
+      assert errored.failure_reason == :rollout_failed
+
+      recovered = status!(errored, :running)
+      assert recovered.status == :running
+      assert is_nil(recovered.failure_reason)
+      assert recovered.running_since
+    end
+
     test "rejects invalid transitions; :error and :deleting from anywhere" do
       instance = created!()
 
@@ -1631,7 +1692,7 @@ defmodule FluxVale.Infrastructure.InstanceTest do
         |> then(&InstanceFixtures.pin!(&1, namespace: ns))
 
       expect(Deployment, :status, fn _kc, _ns, "app" ->
-        {:ok, %{replicas: 1, ready: 1, conditions: []}}
+        {:ok, %{replicas: 1, updated: 1, ready: 1, conditions: []}}
       end)
 
       {:ok, fresh} = Instance.get_by_id(instance.id, actor: owner_of(instance))

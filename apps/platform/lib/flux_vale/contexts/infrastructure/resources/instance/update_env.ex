@@ -17,16 +17,17 @@ defmodule FluxVale.Infrastructure.Instance.UpdateEnv do
     — a failure returns an `InvalidArgument` and rolls the row back
     (the Secret apply is atomic, so both stay old);
   - `after_transaction` deletes the stash, logs ONE key-name-only
-    info line, and — for `running`/`starting` only — restarts the
-    Deployment; a `stopped`/`sleeping` row whose pre-merge env was
-    empty instead gets the spec-only `envFrom` ensure (no rollout).
+    info line, and — for `running`/`starting`/`no_capacity` only —
+    restarts the Deployment; a `stopped`/`sleeping` row whose pre-merge
+    env was empty instead gets the spec-only `envFrom` ensure (no
+    rollout).
     A refused restart/ensure is a post-commit error ("... — redeploy
     to repair"): the row and Secret stay applied, the pods lag, and
     retrying the same patch is a no-op by design — a redeploy
     re-renders the spec and re-rolls.
 
   Status rules (ADR-0052 decision 5): `pending`/`error`/`lost` row
-  only; `running`/`starting` row + Secret + restart;
+  only; `running`/`starting`/`no_capacity` row + Secret + restart;
   `stopped`/`sleeping` row + Secret + spec-only ensure, no restart;
   `deploying`/`restoring`/`deleting` refuse. A no-op is the empty
   final effect (`added`/`changed`/`removed`/`composed` all empty and
@@ -54,7 +55,7 @@ defmodule FluxVale.Infrastructure.Instance.UpdateEnv do
   @stash_key :flux_vale_instance_update_env_plan
 
   @row_only [:pending, :error, :lost]
-  @live [:running, :starting]
+  @live [:running, :starting, :no_capacity]
   @secret_only [:stopped, :sleeping]
   @updatable @row_only ++ @live ++ @secret_only
   @deployed @live ++ @secret_only

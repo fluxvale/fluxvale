@@ -92,6 +92,7 @@ defmodule FluxVale.Infrastructure.Instance do
   alias FluxVale.Infrastructure.Operations.StartInstance
   alias FluxVale.Infrastructure.Operations.StopInstance
   alias FluxVale.Infrastructure.PocketIdWiring
+  alias FluxVale.Infrastructure.Types.InstanceFailureReason
 
   # #360 (ADR-0019 §1): the instance family's wire contract — each
   # route's field list is deliberate, public attributes only. Scope
@@ -226,6 +227,10 @@ defmodule FluxVale.Infrastructure.Instance do
     end
   end
 
+  # #776: the trigger's queue filter and the reconciler's recovery gate
+  # read the SAME list — a healthy workload may clear these failures.
+  @recoverable_error_reasons InstanceFailureReason.recoverable()
+
   oban do
     triggers do
       trigger :deploy do
@@ -241,7 +246,18 @@ defmodule FluxVale.Infrastructure.Instance do
         action(:perform_reconcile)
         queue(:reconciler)
         scheduler_cron("* * * * *")
-        where(expr(status in [:deploying, :starting, :running]))
+
+        # #776: :error joins the reconciled set only for the unintended
+        # failures the reconciler may clear; intent-bearing failures and
+        # deploy_failed (retry owns it) stay out of the queue.
+        where(
+          expr(
+            status in [:deploying, :starting, :running, :no_capacity, :error] and
+              (status != :error or is_nil(failure_reason) or
+                 failure_reason in ^@recoverable_error_reasons)
+          )
+        )
+
         worker_module_name(__MODULE__.Reconcile.Worker)
         scheduler_module_name(__MODULE__.Reconcile.Scheduler)
       end
@@ -973,14 +989,14 @@ defmodule FluxVale.Infrastructure.Instance do
       change(fn changeset, _context ->
         instance = changeset.data
 
-        if instance.status == :running do
+        if instance.status in [:running, :no_capacity] do
           Ash.Changeset.after_action(changeset, fn _changeset, instance ->
             StopInstance.call(instance)
           end)
         else
           Ash.Changeset.add_error(
             changeset,
-            "cannot stop instance in #{instance.status} state (must be running)"
+            "cannot stop instance in #{instance.status} state (must be running or waiting for capacity)"
           )
         end
       end)
