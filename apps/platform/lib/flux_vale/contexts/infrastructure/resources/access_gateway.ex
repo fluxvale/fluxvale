@@ -920,8 +920,12 @@ defmodule FluxVale.Infrastructure.AccessGateway do
     # #771: the claim path's readable half. The token ref itself and
     # the claims map's values stay private; the boolean and the domain
     # names are what a caller needs to report "no token yet" vs
-    # "unclaimed" vs "claimed" honestly.
-    calculate :api_token_set, :boolean, expr(not is_nil(token_set_at)) do
+    # "unclaimed" vs "claimed" honestly. The ref is checked as well as
+    # the stamp: `token_set_at` arrived nullable with no backfill, so
+    # a token stored before that column existed still proves itself.
+    calculate :api_token_set,
+              :boolean,
+              expr(not is_nil(token_set_at) or not is_nil(api_token_secret_ref)) do
       public?(true)
     end
 

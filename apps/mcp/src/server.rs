@@ -497,11 +497,12 @@ production.",
         description = "The organization's access gateway: `action` is `status` (the \
 default), `attach`, or `detach`. Status returns the gateway row (state, \
 hostname, tailnet domain, price). Attach pairs a private instance to the \
-gateway; detach unpairs it (idempotent). Both pairing actions return the \
-pairing row plus the gateway's re-read status. The org resolves by id or \
-slug, or falls back to a sole membership. Reads need `gateways:read`; \
-attach/detach need `gateways:write` — the platform's 403 names the \
-missing scope.",
+gateway and returns the pairing row; detach unpairs it (idempotent) and \
+returns the detach result. Both pairing actions carry the gateway's \
+re-read status, with any status-read failure in `status_error` beside \
+the committed result. The org resolves by id or slug, or falls back to a \
+sole membership. Reads need `gateways:read`; attach/detach need \
+`gateways:write` — the platform's 403 names the missing scope.",
         annotations(destructive_hint = false)
     )]
     async fn gateway(
@@ -532,13 +533,17 @@ missing scope.",
 a domain (pending until certificate issuance); verify re-reads one \
 domain's state (issuance is the only verifier and this action triggers \
 nothing); delete removes the row (the server refuses a domain still \
-serving hostnames). Every row carries `live` and a machine-readable \
-`serving.reason_code`: `platform`, `pending`, `failed`, \
+serving hostnames). Every row carries `live`, `healthy`, and a \
+machine-readable `serving.reason_code`: `platform`, `pending`, `failed`, \
 `needs_attention`, `suspended`, `no_gateway`, `no_api_token`, \
-`unclaimed`, `claimed`, or `unknown`. A verified-but-unclaimed domain is \
-never reported as live — claiming is not a self-serve surface yet. \
-Verify/delete act by id; `organization` is only for list/create. Reads \
-need `gateways:read`; create/delete need `gateways:write`.",
+`unclaimed`, `claimed`, `gateway_not_serving`, `removed`, or `unknown`. \
+A verified-but-unclaimed domain is never reported live — claiming is not \
+a self-serve surface yet; `needs_attention` is live only while its \
+retained claim is active (the cert still serves, `healthy` stays false). \
+A gateway status-read failure rides as `serving_error` and never hides \
+a committed registration. Verify/delete act by id; `organization` is \
+only for list/create. Reads need `gateways:read`; create/delete need \
+`gateways:write`.",
         annotations(destructive_hint = false)
     )]
     async fn custom_domain(
@@ -569,11 +574,14 @@ need `gateways:read`; create/delete need `gateways:write`.",
         description = "An instance's Pocket ID sign-in wiring: `action` is `status` (the \
 default) or `connect`. Connect takes `instance_id` and the org's \
 Pocket ID instance id (`pocket_id_instance_id`) and mints the OIDC \
-client + env wiring, then reads the durable wiring row back; status \
-answers `wired: false` for an unwired instance. Identifier fields only \
-— client id, secret id, timestamps. The minted client secret lives in \
-the instance's env and is never returned or logged by this tool. Needs \
-`instances:read` for status; connect is an `instances:write` call.",
+client + env wiring, then reads the durable wiring row back. The \
+committed connect row is the answer even when the read-back fails — the \
+failure rides as `status_error` beside it, and a retry would re-mint. \
+Status answers `wired: false` for an unwired instance after proving the \
+instance is visible. Identifier fields only — client id, secret id, \
+timestamps. The minted client secret lives in the instance's env and is \
+never returned or logged by this tool. Needs `instances:read` for \
+status; connect is an `instances:write` call.",
         annotations(destructive_hint = false)
     )]
     async fn sso(
@@ -709,11 +717,12 @@ string, e.g. \"2\"), `memory_mb`, `storage_gb`; omitted dimensions keep \
 the current value. CPU and memory move both ways; storage only grows. \
 The response carries the step reached, the instance's actual state, the \
 previous/new allocation, and the platform's price quote (USD, monthly, \
-billed hourly). A resize or start failure still attempts the start when \
-the row is stopped and reports both the failure and the final state \
-(isError true, `ok: false`, `step`, `steps`) — never a silently stranded \
-stopped instance. Only running/stopped rows resize; wake a sleeping row \
-to running with `instances_start` first.",
+billed hourly). A resize failure restarts the instance only when this \
+call stopped it and reports both the failure and the final state \
+(isError true, `ok: false`, `step`, `steps`); an already-stopped row \
+stays exactly as it was. Never a silently stranded instance this call \
+stopped. Only running/stopped rows resize; wake a sleeping row to \
+running with `instances_start` first.",
         annotations(destructive_hint = false)
     )]
     async fn instances_resize(
@@ -2756,6 +2765,132 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn a_failed_resize_of_a_pre_stopped_row_does_not_start_it() {
+        let server = testapi::serve(&[
+            ("GET /api/v1/instances/i1", 200, resize_stopped_doc()),
+            (
+                "PATCH /api/v1/instances/i1/resize",
+                400,
+                r#"{"errors":[{"status":"400","title":"InvalidArgument",
+                    "detail":"storage can never shrink (from 10 GB to 5 GB)"}]}"#
+                    .to_string(),
+            ),
+        ]);
+        let (_, body) = tools_call(
+            &app(&server),
+            PAT_FULL,
+            "instances_resize",
+            json!({"id": "i1", "storage_gb": 5}),
+        )
+        .await;
+        let structured = &result(&body)["structuredContent"];
+        assert_eq!(structured["ok"], false);
+        assert_eq!(structured["steps"]["start"], "not_attempted");
+        assert_eq!(structured["instance"]["status"], "stopped");
+        assert!(
+            (0..server.head_count())
+                .map(|n| server.head(n).to_lowercase())
+                .all(|head| !head.starts_with("patch /api/v1/instances/i1/start"))
+        );
+    }
+
+    #[tokio::test]
+    async fn a_failed_resize_whose_restart_lands_error_reports_it() {
+        let start_error = json!({"data": {"type": "instance", "id": "i1",
+            "attributes": {"id": "i1", "status": "error"}}})
+        .to_string();
+        let server = testapi::serve(&[
+            ("GET /api/v1/instances/i1", 200, resize_running_doc()),
+            ("PATCH /api/v1/instances/i1/stop", 200, resize_stopped_doc()),
+            (
+                "PATCH /api/v1/instances/i1/resize",
+                400,
+                r#"{"errors":[{"status":"400","title":"InvalidArgument",
+                    "detail":"storage can never shrink (from 10 GB to 5 GB)"}]}"#
+                    .to_string(),
+            ),
+            ("PATCH /api/v1/instances/i1/start", 200, start_error),
+        ]);
+        let (_, body) = tools_call(
+            &app(&server),
+            PAT_FULL,
+            "instances_resize",
+            json!({"id": "i1", "storage_gb": 5}),
+        )
+        .await;
+        let structured = &result(&body)["structuredContent"];
+        assert_eq!(result(&body)["isError"], true);
+        assert_eq!(structured["ok"], false);
+        assert_eq!(structured["steps"]["start"], "failed");
+        assert_eq!(structured["started"], false);
+        assert_eq!(
+            structured["start_error"],
+            "start landed error — the instance needs attention"
+        );
+    }
+
+    #[tokio::test]
+    async fn an_incomplete_resize_allocation_reports_a_price_error_not_a_failure() {
+        let incomplete = json!({"data": {"type": "instance", "id": "i1",
+            "attributes": {"id": "i1", "status": "stopped", "cpu_cores": "2"}}})
+        .to_string();
+        let server = testapi::serve(&[
+            ("GET /api/v1/instances/i1", 200, resize_stopped_doc()),
+            ("PATCH /api/v1/instances/i1/resize", 200, incomplete),
+            (
+                "PATCH /api/v1/instances/i1/start",
+                200,
+                resize_starting_doc(),
+            ),
+        ]);
+        let (_, body) = tools_call(
+            &app(&server),
+            PAT_FULL,
+            "instances_resize",
+            json!({"id": "i1", "cpu": "2"}),
+        )
+        .await;
+        let structured = &result(&body)["structuredContent"];
+        assert_eq!(structured["ok"], true);
+        assert!(
+            structured["price"]["error"]
+                .as_str()
+                .unwrap()
+                .contains("did not carry a complete allocation"),
+            "price: {}",
+            structured["price"]
+        );
+
+        // A malformed cpu in the response never reaches the query.
+        let malformed = json!({"data": {"type": "instance", "id": "i1",
+            "attributes": {"id": "i1", "status": "stopped", "cpu_cores": "2&x",
+                           "memory_mb": 512, "storage_gb": 10}}})
+        .to_string();
+        let server = testapi::serve(&[
+            ("GET /api/v1/instances/i1", 200, resize_stopped_doc()),
+            ("PATCH /api/v1/instances/i1/resize", 200, malformed),
+            (
+                "PATCH /api/v1/instances/i1/start",
+                200,
+                resize_starting_doc(),
+            ),
+        ]);
+        let (_, body) = tools_call(
+            &app(&server),
+            PAT_FULL,
+            "instances_resize",
+            json!({"id": "i1", "cpu": "2"}),
+        )
+        .await;
+        let structured = &result(&body)["structuredContent"];
+        assert_eq!(structured["ok"], true);
+        assert_eq!(
+            structured["price"]["error"],
+            "invalid cpu cores in the resize response: 2&x"
+        );
+    }
+
     fn gateway_doc() -> String {
         json!({"data": {"type": "access_gateway", "id": "g1",
             "attributes": {"id": "g1", "organization_id": "01JORG1",
@@ -3013,10 +3148,11 @@ mod tests {
 
     #[tokio::test]
     async fn custom_domain_delete_reports_the_removed_row() {
-        let removed = json!({"data": {"type": "access_domain", "id": "d1",
-            "attributes": {"id": "d1", "domain": "apps.fluxvale.com",
-                           "kind": "custom", "state": "verified",
-                           "organization_id": "01JORG1"}}})
+        // The generic-action DELETE renders the row flat (no `data`
+        // envelope) — the platform's own route test pins that shape.
+        let removed = json!({"id": "d1", "domain": "apps.fluxvale.com",
+            "kind": "custom", "state": "verified",
+            "organization_id": "01JORG1"})
         .to_string();
         let server = testapi::serve(&[
             ("/api/v1/organizations", 200, orgs_doc()),
@@ -3031,6 +3167,8 @@ mod tests {
         .await;
         let structured = &result(&body)["structuredContent"];
         assert_eq!(structured["removed"], true);
+        assert_eq!(structured["domain"]["id"], "d1");
+        assert_eq!(structured["domain"]["domain"], "apps.fluxvale.com");
         assert_eq!(structured["domain"]["live"], false);
         assert_eq!(structured["domain"]["serving"]["reason_code"], "removed");
     }
@@ -3092,6 +3230,143 @@ mod tests {
         let structured = &result(&body)["structuredContent"];
         assert_eq!(structured["live"], true);
         assert_eq!(structured["serving"]["reason_code"], "claimed");
+    }
+
+    #[tokio::test]
+    async fn a_suspended_gateway_with_a_retained_claim_is_not_live() {
+        let domain = json!({"data": {"type": "access_domain", "id": "d1",
+            "attributes": {"id": "d1", "domain": "apps.fluxvale.com",
+                           "kind": "custom", "state": "verified",
+                           "organization_id": "01JORG1"}}})
+        .to_string();
+        let gateway = json!({"data": {"type": "access_gateway", "id": "g1",
+            "attributes": {"id": "g1", "state": "suspended", "api_token_set": true,
+                           "claimed_domains": ["apps.fluxvale.com"]}}})
+        .to_string();
+        let server = testapi::serve(&[
+            ("/api/v1/access-domains/d1", 200, domain),
+            ("/api/v1/organizations/01JORG1/access-gateway", 200, gateway),
+        ]);
+        let (_, body) = tools_call(
+            &app(&server),
+            PAT_FULL,
+            "custom_domain",
+            json!({"action": "verify", "id": "d1"}),
+        )
+        .await;
+        let structured = &result(&body)["structuredContent"];
+        assert_eq!(structured["live"], false);
+        assert_eq!(structured["serving"]["reason_code"], "gateway_not_serving");
+    }
+
+    #[tokio::test]
+    async fn needs_attention_stays_live_while_its_claim_serves() {
+        let domain = json!({"data": {"type": "access_domain", "id": "d1",
+            "attributes": {"id": "d1", "domain": "apps.fluxvale.com",
+                           "kind": "custom", "state": "needs_attention",
+                           "organization_id": "01JORG1"}}})
+        .to_string();
+        let gateway = json!({"data": {"type": "access_gateway", "id": "g1",
+            "attributes": {"id": "g1", "state": "active", "api_token_set": true,
+                           "claimed_domains": ["apps.fluxvale.com"]}}})
+        .to_string();
+        let server = testapi::serve(&[
+            ("/api/v1/access-domains/d1", 200, domain),
+            ("/api/v1/organizations/01JORG1/access-gateway", 200, gateway),
+        ]);
+        let (_, body) = tools_call(
+            &app(&server),
+            PAT_FULL,
+            "custom_domain",
+            json!({"action": "verify", "id": "d1"}),
+        )
+        .await;
+        let structured = &result(&body)["structuredContent"];
+        assert_eq!(structured["live"], true);
+        assert_eq!(structured["healthy"], false);
+        assert_eq!(structured["serving"]["reason_code"], "needs_attention");
+    }
+
+    #[tokio::test]
+    async fn a_gateway_without_a_claims_array_is_unclaimed_not_a_crash() {
+        let domain = json!({"data": {"type": "access_domain", "id": "d1",
+            "attributes": {"id": "d1", "domain": "apps.fluxvale.com",
+                           "kind": "custom", "state": "verified",
+                           "organization_id": "01JORG1"}}})
+        .to_string();
+        let gateway = json!({"data": {"type": "access_gateway", "id": "g1",
+            "attributes": {"id": "g1", "state": "active", "api_token_set": true}}})
+        .to_string();
+        let server = testapi::serve(&[
+            ("/api/v1/access-domains/d1", 200, domain),
+            ("/api/v1/organizations/01JORG1/access-gateway", 200, gateway),
+        ]);
+        let (_, body) = tools_call(
+            &app(&server),
+            PAT_FULL,
+            "custom_domain",
+            json!({"action": "verify", "id": "d1"}),
+        )
+        .await;
+        assert_eq!(
+            result(&body)["structuredContent"]["serving"]["reason_code"],
+            "unclaimed"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_create_survives_a_gateway_status_outage_and_reports_it() {
+        let created = json!({"data": {"type": "access_domain", "id": "d4",
+            "attributes": {"id": "d4", "domain": "agent.example.com",
+                           "kind": "custom", "state": "pending",
+                           "organization_id": "01JORG1"}}})
+        .to_string();
+        let server = testapi::serve(&[
+            ("/api/v1/organizations", 200, orgs_doc()),
+            ("POST /api/v1/access-domains", 201, created),
+            (
+                "/api/v1/organizations/01JORG1/access-gateway",
+                500,
+                r#"{"errors":[{"detail":"gateway read exploded"}]}"#.to_string(),
+            ),
+        ]);
+        let (_, body) = tools_call(
+            &app(&server),
+            PAT_FULL,
+            "custom_domain",
+            json!({"action": "create", "domain": "agent.example.com"}),
+        )
+        .await;
+        let structured = &result(&body)["structuredContent"];
+        assert_eq!(structured["id"], "d4");
+        assert_eq!(structured["state"], "pending");
+        assert!(
+            !structured["serving_error"].as_str().unwrap().is_empty(),
+            "serving_error: {}",
+            structured["serving_error"]
+        );
+        assert_eq!(structured["serving"]["reason_code"], "pending");
+    }
+
+    #[tokio::test]
+    async fn a_domain_row_without_an_organization_is_refused() {
+        let domain = json!({"data": {"type": "access_domain", "id": "d1",
+            "attributes": {"id": "d1", "domain": "apps.example.com",
+                           "kind": "custom", "state": "verified"}}})
+        .to_string();
+        let server = testapi::serve(&[("/api/v1/access-domains/d1", 200, domain)]);
+        let (_, body) = tools_call(
+            &app(&server),
+            PAT_FULL,
+            "custom_domain",
+            json!({"action": "verify", "id": "d1"}),
+        )
+        .await;
+        assert_eq!(result(&body)["isError"], true);
+        assert_eq!(
+            result(&body)["content"][0]["text"],
+            "the domain row carries no organization_id"
+        );
     }
 
     #[tokio::test]
@@ -3330,8 +3605,11 @@ mod tests {
 
     #[tokio::test]
     async fn resize_surfaces_a_missing_write_scope_verbatim() {
+        // A running row: the stop lands, the resize 403s, and the
+        // restart attempt 403s too — both lines surface verbatim.
         let server = testapi::serve(&[
-            ("GET /api/v1/instances/i1", 200, resize_stopped_doc()),
+            ("GET /api/v1/instances/i1", 200, resize_running_doc()),
+            ("PATCH /api/v1/instances/i1/stop", 200, resize_stopped_doc()),
             (
                 "PATCH /api/v1/instances/i1/resize",
                 403,
@@ -3669,6 +3947,41 @@ mod tests {
         assert_eq!(
             result(&body)["structuredContent"]["wiring"]["pocket_id_secret_id"],
             "sec-1"
+        );
+    }
+
+    #[tokio::test]
+    async fn sso_connect_keeps_the_committed_row_when_the_read_back_errors() {
+        let wiring = json!({"id": "w1", "instance_id": "i1",
+            "pocket_id_instance_id": "p1", "pocket_id_client_id": "pid-1",
+            "pocket_id_secret_id": "sec-1", "wired_at": "2026-11-14T00:00:00Z"})
+        .to_string();
+        let server = testapi::serve(&[
+            ("POST /api/v1/instances/i1/connect-pocketid", 201, wiring),
+            (
+                "GET /api/v1/instances/i1/pocket-id-wiring",
+                500,
+                r#"{"errors":[{"detail":"read back exploded"}]}"#.to_string(),
+            ),
+        ]);
+        let (_, body) = tools_call(
+            &app(&server),
+            PAT_FULL,
+            "sso",
+            json!({"action": "connect", "instance_id": "i1",
+                    "pocket_id_instance_id": "p1"}),
+        )
+        .await;
+        let structured = &result(&body)["structuredContent"];
+        assert_eq!(structured["wired"], true);
+        assert_eq!(structured["wiring"]["pocket_id_secret_id"], "sec-1");
+        assert!(
+            structured["status_error"]
+                .as_str()
+                .unwrap()
+                .contains("read back exploded"),
+            "status_error: {}",
+            structured["status_error"]
         );
     }
 

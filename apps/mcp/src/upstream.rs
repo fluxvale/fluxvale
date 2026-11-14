@@ -645,11 +645,10 @@ fn friendly_pairing_404(err: ApiError) -> String {
 }
 
 /// `custom_domain` — register/verify/list/remove over the access-domain
-/// routes (#771). Every reported row carries the honest serving state:
-/// `live` only when the domain is verified AND the org's gateway has
-/// claimed it; otherwise a machine-readable `reason_code`
-/// (`no_gateway`/`no_api_token`/`pending`/`unclaimed` and the guard
-/// states) plus prose.
+/// routes (#771). Every reported row carries the honest serving state
+/// (`live`, `healthy`, and a machine-readable `reason_code` plus
+/// prose). A gateway status-read failure rides beside the row as
+/// `serving_error` — it never hides a committed registration.
 pub(crate) async fn custom_domain(
     base: Arc<str>,
     token: Token,
@@ -668,13 +667,23 @@ pub(crate) async fn custom_domain(
                 let document = client
                     .get(&format!("/organizations/{}/access-domains", org.id))
                     .map_err(message)?;
-                let gateway = read_gateway(&client, &org.id)?;
+                let (gateway, gateway_error) = gateway_view(&client, &org.id);
                 let domains = document
                     .resources()
                     .iter()
-                    .map(|resource| annotate_domain(with_id(resource), gateway.as_ref()))
+                    .map(|resource| {
+                        annotate_domain(
+                            with_id(resource),
+                            gateway.as_ref(),
+                            gateway_error.as_deref(),
+                        )
+                    })
                     .collect::<Vec<_>>();
-                Ok(json!({"organization": org_row, "domains": domains}))
+                let mut answer = json!({"organization": org_row, "domains": domains});
+                if let Some(err) = &gateway_error {
+                    answer["serving_error"] = json!(err);
+                }
+                Ok(answer)
             }
             CustomDomainAction::Create => {
                 let domain = domain.ok_or_else(|| "domain is required for create".to_string())?;
@@ -687,8 +696,15 @@ pub(crate) async fn custom_domain(
                     .send("POST", "/access-domains", Some(body.to_string()))
                     .map_err(message)?;
                 let resource = one_resource(document, "access domain")?;
-                let gateway = read_gateway(&client, &org.id)?;
-                Ok(annotate_domain(with_id(&resource), gateway.as_ref()))
+                let (gateway, gateway_error) = gateway_view(&client, &org.id);
+                Ok(with_serving_error(
+                    annotate_domain(
+                        with_id(&resource),
+                        gateway.as_ref(),
+                        gateway_error.as_deref(),
+                    ),
+                    gateway_error.as_deref(),
+                ))
             }
             CustomDomainAction::Verify => {
                 let id = id.ok_or_else(|| "id is required for verify and delete".to_string())?;
@@ -707,8 +723,15 @@ pub(crate) async fn custom_domain(
                     .and_then(Value::as_str)
                     .ok_or_else(|| "the domain row carries no organization_id".to_string())?;
                 safe_segment("organization id", org_id)?;
-                let gateway = read_gateway(&client, org_id)?;
-                Ok(annotate_domain(with_id(&resource), gateway.as_ref()))
+                let (gateway, gateway_error) = gateway_view(&client, org_id);
+                Ok(with_serving_error(
+                    annotate_domain(
+                        with_id(&resource),
+                        gateway.as_ref(),
+                        gateway_error.as_deref(),
+                    ),
+                    gateway_error.as_deref(),
+                ))
             }
             CustomDomainAction::Delete => {
                 let id = id.ok_or_else(|| "id is required for verify and delete".to_string())?;
@@ -723,21 +746,40 @@ pub(crate) async fn custom_domain(
     .await
 }
 
-/// The gate's reason codes, in the order the tool resolves them:
-/// state first (a pending domain is not claimed regardless of gateway),
-/// then gateway presence, then the API-token intake, then the claim
-/// itself.
+/// The gateway read for annotation: the row when readable, and the
+/// failure beside it. A status outage must not hide a registered row.
+fn gateway_view(client: &ApiClient, org_id: &str) -> (Option<Value>, Option<String>) {
+    match read_gateway(client, org_id) {
+        Ok(gateway) => (gateway, None),
+        Err(message) => (None, Some(message)),
+    }
+}
+
 fn domain_state(row: &Value) -> &str {
     row.get("state").and_then(Value::as_str).unwrap_or("")
 }
 
-fn domain_reason(row: &Value, gateway: Option<&Value>) -> (&'static str, &'static str) {
+/// The serving verdict. `live` is whether the domain serves right now;
+/// `reason_code` names why (or how). Resolution order: platform kind,
+/// blocking states, gateway read failure, gateway presence, gateway
+/// serving state, the claim (proof the token worked, checked before
+/// the nullable token stamp), the token stamp, then unclaimed.
+/// `needs_attention` keeps serving while its retained claim is active
+/// — the cert is still valid and the routes still stand — so its live
+/// value follows the claim rather than the state; `healthy` stays
+/// false.
+fn domain_serving(
+    row: &Value,
+    gateway: Option<&Value>,
+    gateway_error: Option<&str>,
+) -> (&'static str, &'static str, bool) {
     // The platform row is fleet-served (the wildcard already covers
     // it); it is never claimed and has no issuance to wait on.
     if row.get("kind").and_then(Value::as_str) == Some("platform") {
         return (
             "platform",
             "the platform domain is served by the fleet wildcard; instance addresses use it directly",
+            true,
         );
     }
 
@@ -745,38 +787,67 @@ fn domain_reason(row: &Value, gateway: Option<&Value>) -> (&'static str, &'stati
         "pending" => (
             "pending",
             "verification is certificate issuance; no certificate is issued yet",
+            false,
         ),
         "failed" => (
             "failed",
             "issuance did not complete — remove the row and re-register after fixing the DNS delegation",
+            false,
         ),
-        "needs_attention" => (
-            "needs_attention",
-            "the certificate is not ready; the domain serves nothing new until issuance recovers",
+        "suspended" => (
+            "suspended",
+            "the domain is parked and serves nothing",
+            false,
         ),
-        "suspended" => ("suspended", "the domain is parked and serves nothing"),
-        "verified" => match gateway {
-            // A claim in the map is proof the token worked; check it
-            // before the derived token stamp, which can lag a manual
-            // claim (the column is nullable and not backfilled).
-            Some(gateway) if claimed(gateway, row) => (
-                "claimed",
-                "the gateway has claimed the domain; hostnames under it serve from private attached instances",
-            ),
-            None => (
-                "no_gateway",
-                "the certificate is issued, but the organization has no access gateway to claim the domain",
-            ),
-            Some(gateway) if gateway["api_token_set"].as_bool() == Some(false) => (
-                "no_api_token",
-                "the certificate is issued, but the gateway holds no Tailscale API token, so the domain cannot be claimed",
-            ),
-            Some(_) => (
-                "unclaimed",
-                "the certificate is issued, but the gateway has not claimed the domain; claiming is not a self-serve surface yet",
-            ),
-        },
-        _ => ("unknown", "the domain is not serving"),
+        "verified" | "needs_attention" => {
+            if gateway_error.is_some() {
+                return (
+                    "unknown",
+                    "the gateway status could not be read; the serving state is unknown",
+                    false,
+                );
+            }
+            let Some(gateway) = gateway else {
+                return (
+                    "no_gateway",
+                    "the organization has no access gateway to claim the domain",
+                    false,
+                );
+            };
+            if gateway["state"].as_str() != Some("active") {
+                return (
+                    "gateway_not_serving",
+                    "the organization's gateway is not serving right now, so its retained claim cannot route",
+                    false,
+                );
+            }
+            let live = claimed(gateway, row);
+            if domain_state(row) == "needs_attention" {
+                return (
+                    "needs_attention",
+                    "the certificate is not ready; the domain serves only while its retained claim is active",
+                    live,
+                );
+            }
+            match live {
+                true => (
+                    "claimed",
+                    "the gateway has claimed the domain; hostnames under it serve from private attached instances",
+                    true,
+                ),
+                false if gateway["api_token_set"].as_bool() == Some(false) => (
+                    "no_api_token",
+                    "the gateway holds no Tailscale API token, so the domain cannot be claimed",
+                    false,
+                ),
+                false => (
+                    "unclaimed",
+                    "the certificate is issued, but the gateway has not claimed the domain; claiming is not a self-serve surface yet",
+                    false,
+                ),
+            }
+        }
+        _ => ("unknown", "the domain is not serving", false),
     }
 }
 
@@ -789,17 +860,27 @@ fn claimed(gateway: &Value, row: &Value) -> bool {
     }
 }
 
-fn annotate_domain(mut row: Value, gateway: Option<&Value>) -> Value {
-    let (reason_code, reason) = domain_reason(&row, gateway);
+fn annotate_domain(mut row: Value, gateway: Option<&Value>, gateway_error: Option<&str>) -> Value {
+    let (reason_code, reason, live) = domain_serving(&row, gateway, gateway_error);
     let verified = domain_state(&row) == "verified";
-    let live = matches!(reason_code, "claimed" | "platform");
+    let healthy = matches!(reason_code, "platform") || verified;
     if let Value::Object(map) = &mut row {
         map.insert("verified".to_string(), json!(verified));
+        map.insert("healthy".to_string(), json!(healthy));
         map.insert("live".to_string(), json!(live));
         map.insert(
             "serving".to_string(),
-            json!({"live": live, "reason_code": reason_code, "reason": reason}),
+            json!({"live": live, "healthy": healthy, "reason_code": reason_code, "reason": reason}),
         );
+    }
+    row
+}
+
+/// A committed row plus the annotation read's failure, when there was
+/// one — the registration is the answer, the failure rides beside it.
+fn with_serving_error(mut row: Value, gateway_error: Option<&str>) -> Value {
+    if let (Some(err), Value::Object(map)) = (gateway_error, &mut row) {
+        map.insert("serving_error".to_string(), json!(err));
     }
     row
 }
@@ -809,9 +890,10 @@ fn annotate_domain(mut row: Value, gateway: Option<&Value>) -> Value {
 fn annotate_removed(mut row: Value) -> Value {
     if let Value::Object(map) = &mut row {
         map.insert("live".to_string(), json!(false));
+        map.insert("healthy".to_string(), json!(false));
         map.insert(
             "serving".to_string(),
-            json!({"live": false, "reason_code": "removed", "reason": "the domain row is gone"}),
+            json!({"live": false, "healthy": false, "reason_code": "removed", "reason": "the domain row is gone"}),
         );
     }
     row
@@ -877,19 +959,24 @@ pub(crate) async fn sso(
                     .map_err(|err| friendly_404(err, "instance"))?;
                 let wiring = project_wiring(connected);
                 // Read back the durable row; a 404 here (a create
-                // committed but invisible) still answers the connect row.
-                let read_back =
+                // committed but invisible) still answers the connect
+                // row. Any other read failure rides beside the
+                // committed row — the connect already happened, and a
+                // retry would re-mint.
+                let (read_back, status_error) =
                     match client.get(&format!("/instances/{instance_id}/pocket-id-wiring")) {
-                        Ok(document) => one_resource(document, "pocket id wiring")
-                            .map(|resource| project_wiring(with_id(&resource)))
-                            .unwrap_or_else(|_| wiring.clone()),
-                        Err(ApiError::NotFound) => wiring.clone(),
-                        Err(err) => return Err(message(err)),
+                        Ok(document) => match one_resource(document, "pocket id wiring") {
+                            Ok(resource) => (project_wiring(with_id(&resource)), Value::Null),
+                            Err(message) => (wiring.clone(), json!(message)),
+                        },
+                        Err(ApiError::NotFound) => (wiring.clone(), Value::Null),
+                        Err(err) => (wiring.clone(), json!(message(err))),
                     };
                 Ok(json!({
                     "instance_id": instance_id,
                     "wired": true,
                     "wiring": read_back,
+                    "status_error": status_error,
                 }))
             }
         }
@@ -1230,11 +1317,13 @@ fn lifecycle(client: &ApiClient, id: &str, verb: &str) -> Result<Value, String> 
 /// `instances_resize` — the stopped-first sequence (ADR-0043): a
 /// running row is stopped, the allocation PATCHed while stopped, then
 /// started. The response always carries the step reached and the
-/// instance's actual state; a resize or start failure attempts the
-/// start anyway and reports both the failure and the final state, so
-/// no stopped instance is left silently stranded. A server refusal
-/// (`sleeping`, `starting`, a storage shrink, a missing expansion
-/// capability) is the server's line, verbatim.
+/// instance's actual state; a resize failure restarts the instance
+/// only when this call stopped it, and reports both outcomes plus the
+/// final state — no instance this call stopped is left silently
+/// stranded. An already-stopped row stays stopped on a failed resize
+/// (this call never changed its state). A server refusal (`sleeping`,
+/// `starting`, a storage shrink, a missing expansion capability) is
+/// the server's line, verbatim.
 pub(crate) async fn instances_resize(
     base: Arc<str>,
     token: Token,
@@ -1259,12 +1348,14 @@ pub(crate) async fn instances_resize(
         let previous_allocation = allocation_of(&before);
         let mut steps = json!({"stop": "skipped", "resize": "pending", "start": "pending"});
         let mut last_row = before.clone();
+        let mut stopped_by_us = false;
 
         if before["status"] == "running" {
             match lifecycle(&client, &id, "stop") {
                 Ok(row) if row["status"] == "stopped" => {
                     steps["stop"] = json!("done");
                     last_row = row;
+                    stopped_by_us = true;
                 }
                 Ok(row) => {
                     steps["stop"] = json!("failed");
@@ -1326,6 +1417,7 @@ pub(crate) async fn instances_resize(
                         &mut last_row,
                         message,
                         previous_allocation,
+                        stopped_by_us,
                     ));
                 }
             },
@@ -1338,6 +1430,7 @@ pub(crate) async fn instances_resize(
                     &mut last_row,
                     friendly_404(err, "instance"),
                     previous_allocation,
+                    stopped_by_us,
                 ));
             }
         };
@@ -1449,11 +1542,11 @@ fn pause_response(
     })
 }
 
-/// A resize-leg failure: when the failed resize left the row stopped
-/// (the sequence got as far as the stop), attempt the start and report
-/// both outcomes plus the actual state. A row that never reached
-/// stopped (a sleeping/pending refusal) is left exactly as the server
-/// left it — waking it would be an unasked-for change.
+/// A resize-leg failure: when this call stopped the instance, attempt
+/// the start and report both outcomes plus the actual state. A row
+/// this call never stopped (a sleeping/pending refusal, or a row that
+/// was already stopped) is left exactly as it was — waking it would be
+/// an unasked-for change.
 fn resize_failed(
     client: &ApiClient,
     id: &str,
@@ -1461,8 +1554,9 @@ fn resize_failed(
     last_row: &mut Value,
     error: String,
     previous_allocation: Value,
+    stopped_by_us: bool,
 ) -> Value {
-    let (start_error, started) = if last_row["status"] == "stopped" {
+    let (start_error, started) = if stopped_by_us {
         match lifecycle(client, id, "start") {
             Ok(row) if row["status"] == "error" => {
                 steps["start"] = json!("failed");
@@ -3764,6 +3858,25 @@ mod tests {
         assert_eq!(
             one_resource(many, "user").unwrap_err(),
             "the API returned 2 user resources, expected one"
+        );
+    }
+
+    #[test]
+    fn gateway_after_pairing_reports_a_missing_row_beside_the_pairing() {
+        let server = serve(&[(
+            "/api/v1/organizations/01JORG1/access-gateway",
+            404,
+            r#"{"errors":[]}"#,
+        )]);
+        let client = ApiClient::new(&base(&server), token());
+        let (gateway, error) = gateway_after_pairing(&client, "01JORG1");
+        assert_eq!(gateway, Value::Null);
+        assert!(
+            error
+                .as_str()
+                .unwrap()
+                .contains("not found after the pairing"),
+            "error: {error}"
         );
     }
 
