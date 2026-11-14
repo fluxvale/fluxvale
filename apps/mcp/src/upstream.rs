@@ -68,6 +68,267 @@ pub(crate) async fn whoami(base: Arc<str>, token: Token) -> Result<Value, String
     .await
 }
 
+/// One organization row as the tools report it: the switcher's key set
+/// (id/slug/name), never org-internal fields.
+#[derive(Debug, Clone, serde::Serialize)]
+pub(crate) struct OrganizationRow {
+    pub id: String,
+    pub slug: Option<String>,
+    pub name: Option<String>,
+}
+
+impl OrganizationRow {
+    /// The provider's diagnostic shape: `Acme (acme)`.
+    fn label(&self) -> String {
+        match (&self.name, &self.slug) {
+            (Some(name), Some(slug)) => format!("{name} ({slug})"),
+            (Some(name), None) => name.clone(),
+            (None, Some(slug)) => format!("({slug})"),
+            (None, None) => self.id.clone(),
+        }
+    }
+}
+
+/// GET /organizations — the actor's memberships, the org-resolution
+/// source for #770's optional `organization` arguments.
+pub(crate) fn organizations(client: &ApiClient) -> Result<Vec<OrganizationRow>, String> {
+    let document = client.get("/organizations").map_err(message)?;
+    Ok(document
+        .resources()
+        .iter()
+        .map(|org| OrganizationRow {
+            id: org.id.clone(),
+            slug: org
+                .attributes
+                .get("slug")
+                .and_then(Value::as_str)
+                .map(str::to_owned),
+            name: org
+                .attributes
+                .get("name")
+                .and_then(Value::as_str)
+                .map(str::to_owned),
+        })
+        .collect())
+}
+
+/// An org named by id or slug, from the actor's own list (the server
+/// member-fences the rest). An unknown name refuses listing the
+/// choices — never a silent pick (the provider's rule).
+pub(crate) fn find_organization(client: &ApiClient, spec: &str) -> Result<OrganizationRow, String> {
+    find_in(&organizations(client)?, spec)
+}
+
+/// [`find_organization`] over an already-fetched list (the onboarding
+/// read composes /me + orgs once and must not re-read them).
+fn find_in(orgs: &[OrganizationRow], spec: &str) -> Result<OrganizationRow, String> {
+    orgs.iter()
+        .find(|org| org.id == spec || org.slug.as_deref() == Some(spec))
+        .cloned()
+        .ok_or_else(|| {
+            format!(
+                "no organization with id or slug \"{spec}\". Yours: {}",
+                org_list(orgs)
+            )
+        })
+}
+
+/// The deploy/resolve rule (the Terraform provider's): an explicit
+/// name wins, else the sole membership; several without a name refuse
+/// listing them — never a silent pick.
+pub(crate) fn resolve_organization(
+    client: &ApiClient,
+    spec: Option<&str>,
+) -> Result<OrganizationRow, String> {
+    if let Some(spec) = spec {
+        return find_organization(client, spec);
+    }
+    let orgs = organizations(client)?;
+    match orgs.len() {
+        0 => Err(
+            "no organization to deploy into — the token belongs to no organization; \
+             create one with organizations_create"
+                .to_string(),
+        ),
+        1 => Ok(orgs[0].clone()),
+        _ => Err(format!(
+            "multiple organizations — pass `organization` (id or slug): {}",
+            org_list(&orgs)
+        )),
+    }
+}
+
+fn org_list(orgs: &[OrganizationRow]) -> String {
+    orgs.iter()
+        .map(OrganizationRow::label)
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// `organizations_create` — POST /organizations (#770): the actor
+/// path's own action (#408), so the server's policies (actor present,
+/// below the org cap) and the reserved-slug validation are the gate.
+/// The answer is the switcher's key set.
+pub(crate) async fn organizations_create(
+    base: Arc<str>,
+    token: Token,
+    name: String,
+    slug: String,
+) -> Result<Value, String> {
+    on_blocking_string(move || {
+        let body = json!({
+            "data": {
+                "type": "organization",
+                "attributes": {"name": name, "slug": slug}
+            }
+        });
+        let document = ApiClient::new(&base, token)
+            .send("POST", "/organizations", Some(body.to_string()))
+            .map_err(message)?;
+        one_resource(document, "organization").map(|resource| with_id(&resource))
+    })
+    .await
+}
+
+/// `pricing_quote` — GET /pricing/quote (#770): the platform's one
+/// pricing operation over the wire. The cents are computed
+/// server-side; this client never does price arithmetic.
+pub(crate) async fn pricing_quote(
+    base: Arc<str>,
+    token: Token,
+    cpu: String,
+    memory_mb: i64,
+    storage_gb: i64,
+) -> Result<Value, String> {
+    safe_query_value("cpu cores", &cpu)?;
+    on_blocking_string(move || {
+        ApiClient::new(&base, token)
+            .get_json(&format!(
+                "/pricing/quote?cpu_cores={cpu}&memory_mb={memory_mb}&storage_gb={storage_gb}"
+            ))
+            .map_err(message)
+    })
+    .await
+}
+
+/// `onboarding_status` — composed from existing reads (#770): /me, the
+/// orgs, the chosen org's wallet + runway, and the instance count. No
+/// new state; the next step is derived, never stored.
+///
+/// The org choice follows the deploy rule: an explicit name wins, a
+/// sole membership falls back, several without a name stay unchosen
+/// (`choose_org`) — never a silent pick.
+pub(crate) async fn onboarding_status(
+    base: Arc<str>,
+    token: Token,
+    organization: Option<String>,
+) -> Result<Value, String> {
+    on_blocking_string(move || {
+        let client = ApiClient::new(&base, token);
+        let me = client.get("/me").map_err(message)?;
+        let user = one_resource(me, "user")?;
+        let email = user.attributes.get("email").and_then(Value::as_str);
+        let orgs = organizations(&client)?;
+
+        let chosen = match organization.as_deref() {
+            Some(spec) => Some(find_in(&orgs, spec)?),
+            None if orgs.len() == 1 => Some(orgs[0].clone()),
+            None => None,
+        };
+
+        let wallet = match &chosen {
+            Some(org) => wallet_summary(&client, &org.id)?,
+            None => Value::Null,
+        };
+
+        let balance = match &wallet {
+            Value::Object(map) => map
+                .get("balance_cents")
+                .and_then(Value::as_i64)
+                .unwrap_or(0),
+            _ => 0,
+        };
+
+        // The count names the org in play when one is chosen; with no
+        // org chosen (several memberships) it stays the actor-wide
+        // read — the `choose_org` answer needs "you have resources
+        // somewhere", not a per-org guess.
+        let instance_count = match &chosen {
+            Some(org) => {
+                let document = client
+                    .get(&format!("/organizations/{}/instances", org.id))
+                    .map_err(message)?;
+                document.resources().len()
+            }
+            None => {
+                let document = client.get("/instances").map_err(message)?;
+                document.resources().len()
+            }
+        };
+
+        let next_step = if chosen.is_none() {
+            "choose_org"
+        } else if balance <= 0 {
+            "fund"
+        } else if instance_count == 0 {
+            "deploy"
+        } else {
+            "connect_domain"
+        };
+
+        let funding = chosen.as_ref().and_then(|org| funding_url(&base, org));
+
+        Ok(json!({
+            "account": {
+                "id": user.id,
+                "email": email,
+                "verified": email.is_some(),
+                "username": user.attributes.get("username"),
+            },
+            "organizations": orgs,
+            "organization": chosen.map(|org| json!({
+                "id": org.id, "slug": org.slug, "name": org.name,
+            })).unwrap_or(Value::Null),
+            "wallet": wallet,
+            "instance_count": instance_count,
+            "next_step": next_step,
+            "funding_url": funding,
+        }))
+    })
+    .await
+}
+
+/// The chosen org's wallet + runway, shaped for the onboarding answer.
+/// A 404 is the honest "no wallet row yet" (a team org bills lazily) —
+/// reported as null, with the caller reading it as an unfunded org;
+/// every other failure surfaces verbatim.
+fn wallet_summary(client: &ApiClient, org_id: &str) -> Result<Value, String> {
+    let document = match client.get(&format!("/organizations/{org_id}/wallet")) {
+        Ok(document) => document,
+        Err(ApiError::NotFound) => return Ok(Value::Null),
+        Err(err) => return Err(message(err)),
+    };
+    let wallet = one_resource(document, "wallet")?;
+    let balance_cents = wallet
+        .attributes
+        .get("balance")
+        .and_then(Value::as_i64)
+        .unwrap_or(0);
+    // The runway read is the wallet route's sibling; a wallet without
+    // one is the same unpriced shape the wallet read's nulls carry.
+    let runway = match client.get_json(&format!("/organizations/{org_id}/wallet/runway")) {
+        Ok(runway) => runway,
+        Err(ApiError::NotFound) => Value::Null,
+        Err(err) => return Err(message(err)),
+    };
+    Ok(json!({
+        "balance_cents": balance_cents,
+        "paywall_waived": wallet.attributes.get("paywall_waived"),
+        "burn_micro_cents_per_hour": runway["burn_micro_cents_per_hour"],
+        "runway_hours": runway["runway_hours"],
+    }))
+}
+
 /// `apps_list` — GET /apps: the catalog as `{"apps": […]}`, one flat
 /// row per app (the retiring server's response shape).
 pub(crate) async fn apps_list(base: Arc<str>, token: Token) -> Result<Value, String> {
@@ -81,7 +342,11 @@ pub(crate) async fn apps_list(base: Arc<str>, token: Token) -> Result<Value, Str
 /// `apps_show` — GET /apps/{slug}, then the app's versions: one
 /// catalog app with its `versions` (each carrying the default
 /// allocation and `monthly_cents` — the price an agent quotes before
-/// deploy). The app row alone cannot answer "what will this cost".
+/// deploy) and, from #770, the newest version's agent manual under
+/// `version` (env/first-run/backing contract plus the server-computed
+/// default-size quote). The app row alone cannot answer "what will
+/// this cost"; the manual is where the agent looks for the deploy
+/// contract. Names and defaults only, never an instance's values.
 pub(crate) async fn apps_show(base: Arc<str>, token: Token, slug: String) -> Result<Value, String> {
     safe_segment("app slug", &slug)?;
     on_blocking_string(move || {
@@ -95,19 +360,87 @@ pub(crate) async fn apps_show(base: Arc<str>, token: Token, slug: String) -> Res
             .map_err(message)?;
         let mut row = with_id(&app);
         row["versions"] = rows(&versions);
+        // #770: the newest version as the agent manual, beside the
+        // versions list (the bare deploy takes the same first row).
+        let newest = versions.resources().into_iter().next();
+        let version = match newest {
+            Some(version) => version_manual(&client, &version)?,
+            None => Value::Null,
+        };
+        if let Value::Object(map) = &mut row {
+            map.insert("version".to_string(), version);
+        }
         Ok(row)
     })
     .await
 }
 
-/// `instances_list` — GET /instances: `{"instances": […]}`, one flat
-/// row per instance (the retiring server's response shape).
-pub(crate) async fn instances_list(base: Arc<str>, token: Token) -> Result<Value, String> {
+/// One version row as the manual: the deploy contract's fields plus
+/// the default-size quote. `default_env_vars` stays off (its values
+/// are operator-owned, and the manual's contract is the configurable
+/// half); secrets have no catalog values to carry.
+fn version_manual(client: &ApiClient, version: &Resource) -> Result<Value, String> {
+    let mut manual = serde_json::Map::new();
+    manual.insert("id".to_string(), json!(version.id));
+    for key in [
+        "version",
+        "default_cpu_cores",
+        "default_memory_mb",
+        "default_storage_gb",
+        "configurable_env_vars",
+        "first_run",
+        "backing_services",
+        "oidc_wiring",
+    ] {
+        if let Some(value) = version.attributes.get(key) {
+            manual.insert(key.to_string(), value.clone());
+        }
+    }
+    manual.insert("pricing".to_string(), default_pricing(client, &version.id)?);
+    Ok(Value::Object(manual))
+}
+
+/// The default-size quote — the version's own rates from the platform:
+/// the recommended Size row plus the storage axis at the version's
+/// default (`Pricing.version_rates/1`), the figure settlement charges a
+/// default-size instance. Server-computed, never a client formula.
+fn default_pricing(client: &ApiClient, version_id: &str) -> Result<Value, String> {
+    safe_segment("version id", version_id)?;
+    let quote = client
+        .get_json(&format!("/app-versions/{version_id}/quote"))
+        .map_err(message)?;
+    Ok(json!({
+        "monthly_cents": quote["monthly_cents"],
+        "stopped_monthly_cents": quote["stopped_monthly_cents"],
+        "monthly": quote["monthly"],
+        "stopped": quote["stopped"],
+    }))
+}
+
+/// `instances_list` — GET /instances, or the org-scoped collection
+/// (#770) when an organization is named. The name resolves through the
+/// actor's own memberships (id or slug) — an unknown name refuses with
+/// the choices, never a silent empty list.
+pub(crate) async fn instances_list(
+    base: Arc<str>,
+    token: Token,
+    organization: Option<String>,
+) -> Result<Value, String> {
     on_blocking_string(move || {
-        let document = ApiClient::new(&base, token)
-            .get("/instances")
-            .map_err(message)?;
-        Ok(json!({ "instances": rows(&document) }))
+        let client = ApiClient::new(&base, token);
+        match organization {
+            None => {
+                let document = client.get("/instances").map_err(message)?;
+                Ok(json!({ "instances": rows(&document) }))
+            }
+            Some(spec) => {
+                let org = find_organization(&client, &spec)?;
+                let document = client
+                    .get(&format!("/organizations/{}/instances", org.id))
+                    .map_err(message)?;
+                Ok(json!({ "instances": rows(&document) }))
+            }
+        }
     })
     .await
 }
@@ -269,6 +602,9 @@ pub(crate) struct DeployWire {
     /// The create's env vars. Write-only: the API never echoes them,
     /// and nothing here logs or renders the values.
     pub env: Option<std::collections::BTreeMap<String, String>>,
+    /// #770: the org id/slug the instance lands in. `None` resolves to
+    /// the actor's sole organization (several without a name refuse).
+    pub organization: Option<String>,
 }
 
 /// The `instances deploy` sequence exactly: resolve the app by slug,
@@ -285,6 +621,10 @@ pub(crate) async fn instances_deploy(
     on_blocking_string(move || {
         safe_segment("app slug", &flags.app)?;
         let client = ApiClient::new(&base, token);
+        // #770: the org resolves BEFORE the app read — a nameless
+        // multi-org deploy refuses with the choices instead of
+        // silently landing in the personal org (the provider's rule).
+        let org = resolve_organization(&client, flags.organization.as_deref())?;
         let app = client
             .get(&format!("/apps/{}", flags.app))
             .map_err(|err| friendly_404(err, "app"))?;
@@ -299,8 +639,13 @@ pub(crate) async fn instances_deploy(
         // own defaults (catalog defaults apply server-side). env_vars
         // is the create's write-only input (#482): present replaces
         // the whole map before the catalog defaults merge under it.
-        // name always rides: the wire requires it.
-        let mut attrs = json!({"app_version_id": version_id, "name": flags.name});
+        // name always rides: the wire requires it; the org rides the
+        // create's own member-fenced argument (#770).
+        let mut attrs = json!({
+            "app_version_id": version_id,
+            "name": flags.name,
+            "organization_id": org.id,
+        });
         if let Some(cpu) = &flags.cpu {
             attrs["cpu_cores"] = json!(cpu);
         }
@@ -752,6 +1097,19 @@ pub(crate) fn topup_url(base: &str) -> String {
     format!("{}/billing/topup", base.trim_end_matches('/'))
 }
 
+/// The org-scoped top-up page (#770): the org wallet funds the org's
+/// instances (ADR-0042 Option A), so the onboarding `fund` step links
+/// that org's wizard — the personal route is only right for the
+/// personal org.
+fn funding_url(base: &str, org: &OrganizationRow) -> Option<String> {
+    org.slug.as_deref().map(|slug| {
+        format!(
+            "{}/organizations/{slug}/billing/topup",
+            base.trim_end_matches('/')
+        )
+    })
+}
+
 // ---- the blocking helpers
 
 async fn on_blocking<T: Send + 'static>(call: impl FnOnce() -> T + Send + 'static) -> T {
@@ -937,6 +1295,279 @@ mod tests {
         assert_eq!(err, "rate limited"); // verbatim, no scrubbing
     }
 
+    // ---- #770: org resolution, the quote, org creation, onboarding
+
+    fn two_orgs_doc() -> String {
+        envelope(json!({"data": [
+            {"type": "organization", "id": "01JORG1",
+             "attributes": {"slug": "personal", "name": "Personal"}},
+            {"type": "organization", "id": "01JORG2",
+             "attributes": {"slug": "acme", "name": "Acme"}}
+        ]}))
+    }
+
+    #[tokio::test]
+    async fn resolve_organization_takes_the_sole_org_or_refuses_listing_the_choices() {
+        // Sole: the fallback.
+        let sole = serve(&[("/api/v1/organizations", 200, &envelope(orgs_doc()))]);
+        let org = resolve_organization(&ApiClient::new(&sole.base_url, token()), None).unwrap();
+        assert_eq!(org.id, "01JORG1");
+
+        // Several, unnamed: refuse WITH the choices — never a pick.
+        let two = serve(&[("/api/v1/organizations", 200, &two_orgs_doc())]);
+        let err = resolve_organization(&ApiClient::new(&two.base_url, token()), None).unwrap_err();
+        assert!(err.contains("multiple organizations"), "err: {err}");
+        assert!(err.contains("Personal (personal)"), "err: {err}");
+        assert!(err.contains("Acme (acme)"), "err: {err}");
+
+        // None: the honest no-org line points at the creation tool.
+        let none = serve(&[("/api/v1/organizations", 200, &envelope(json!({"data": []})))]);
+        let err = resolve_organization(&ApiClient::new(&none.base_url, token()), None).unwrap_err();
+        assert!(err.contains("no organization to deploy into"), "err: {err}");
+        assert!(err.contains("organizations_create"), "err: {err}");
+
+        // An explicit slug or id wins; an unknown name refuses.
+        let two = serve(&[("/api/v1/organizations", 200, &two_orgs_doc())]);
+        let client = ApiClient::new(&two.base_url, token());
+        assert_eq!(
+            resolve_organization(&client, Some("acme")).unwrap().id,
+            "01JORG2"
+        );
+        assert_eq!(
+            resolve_organization(&client, Some("01JORG1")).unwrap().id,
+            "01JORG1"
+        );
+        let err = resolve_organization(&client, Some("ghost")).unwrap_err();
+        assert!(
+            err.contains("no organization with id or slug \"ghost\""),
+            "err: {err}"
+        );
+        assert!(err.contains("Acme (acme)"), "err: {err}");
+    }
+
+    #[tokio::test]
+    async fn pricing_quote_returns_the_platforms_cents() {
+        let server = serve(&[(
+            "/api/v1/pricing/quote?cpu_cores=0.5&memory_mb=512&storage_gb=10",
+            200,
+            r#"{"cpu_cores":"0.5","memory_mb":512,"storage_gb":10,
+                "monthly_cents":335,"stopped_monthly_cents":40,
+                "monthly":"$3.35/mo · billed hourly","stopped":"$0.40 while stopped"}"#,
+        )]);
+        let quote = pricing_quote(base(&server), token(), "0.5".into(), 512, 10)
+            .await
+            .unwrap();
+        assert_eq!(quote["monthly_cents"], 335);
+        assert_eq!(quote["stopped_monthly_cents"], 40);
+        let head = server.head(0).to_lowercase();
+        assert!(
+            head.starts_with("get /api/v1/pricing/quote?cpu_cores=0.5&memory_mb=512&storage_gb=10"),
+            "head: {head}"
+        );
+    }
+
+    #[tokio::test]
+    async fn pricing_quote_refuses_a_query_shaping_cpu_without_a_wire_call() {
+        let dead: Arc<str> = Arc::from("http://127.0.0.1:1");
+        for cpu in ["0.5&storage_gb=1", "0.5#x", "a b", ""] {
+            let err = pricing_quote(dead.clone(), token(), cpu.into(), 512, 10)
+                .await
+                .unwrap_err();
+            assert_eq!(err, format!("invalid cpu cores: {cpu}"));
+        }
+    }
+
+    #[tokio::test]
+    async fn organizations_create_posts_the_actor_path_body() {
+        let server = script(vec![respond_envelope(
+            "201 Created",
+            json!({"data": {"type": "organization", "id": "01JORG9",
+                            "attributes": {"slug": "team", "name": "Team"}}}),
+        )]);
+        let row = organizations_create(base_of(&server), token(), "Team".into(), "team".into())
+            .await
+            .unwrap();
+        assert_eq!(row["id"], "01JORG9");
+        assert_eq!(row["slug"], "team");
+        let raw = server.requests.lock().unwrap()[0].clone();
+        assert!(raw.starts_with("POST /api/v1/organizations"), "raw: {raw}");
+        assert!(raw.contains("\"name\":\"Team\""), "raw: {raw}");
+        assert!(raw.contains("\"slug\":\"team\""), "raw: {raw}");
+    }
+
+    #[tokio::test]
+    async fn organizations_create_surfaces_the_reserved_slug_refusal_verbatim() {
+        let server = script(vec![respond(
+            "400 Bad Request",
+            r#"{"errors":[{"status":"400","title":"InvalidAttribute","detail":"is reserved"}]}"#,
+        )]);
+        let err = organizations_create(base_of(&server), token(), "Docs".into(), "docs".into())
+            .await
+            .unwrap_err();
+        assert_eq!(err, "400 InvalidAttribute: is reserved");
+    }
+
+    #[tokio::test]
+    async fn instances_list_scopes_to_the_named_organization() {
+        let org_instances = envelope(json!({"data": [
+            {"type": "instance", "id": "i9",
+             "attributes": {"id": "i9", "name": "org app", "status": "running"}}
+        ]}));
+        let server = serve(&[
+            ("/api/v1/organizations", 200, &two_orgs_doc()),
+            (
+                "/api/v1/organizations/01JORG2/instances",
+                200,
+                &org_instances,
+            ),
+        ]);
+        let row = instances_list(base(&server), token(), Some("acme".into()))
+            .await
+            .unwrap();
+        assert_eq!(row["instances"][0]["id"], "i9");
+        let heads: Vec<String> = (0..2).map(|n| server.head(n).to_lowercase()).collect();
+        assert!(
+            heads[0].starts_with("get /api/v1/organizations"),
+            "{heads:?}"
+        );
+        assert!(
+            heads[1].starts_with("get /api/v1/organizations/01jorg2/instances"),
+            "{heads:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn instances_list_refuses_an_unknown_organization_listing_yours() {
+        let server = serve(&[("/api/v1/organizations", 200, &two_orgs_doc())]);
+        let err = instances_list(base(&server), token(), Some("ghost".into()))
+            .await
+            .unwrap_err();
+        assert!(
+            err.contains("no organization with id or slug \"ghost\""),
+            "err: {err}"
+        );
+        assert_eq!(server.head_count(), 1);
+    }
+
+    #[tokio::test]
+    async fn onboarding_status_fresh_account_reads_deploy() {
+        let wallet = envelope(json!({"data": {"type": "wallet", "id": "w1",
+            "attributes": {"id": "w1", "organization_id": "01JORG1",
+                           "balance": 300, "paywall_waived": false}}}));
+        let server = serve(&[
+            ("/api/v1/me", 200, &envelope(me_doc())),
+            ("/api/v1/organizations", 200, &envelope(orgs_doc())),
+            ("/api/v1/organizations/01JORG1/wallet", 200, &wallet),
+            (
+                "/api/v1/organizations/01JORG1/wallet/runway",
+                200,
+                r#"{"balance_cents":300,"burn_micro_cents_per_hour":0,"runway_hours":"infinity"}"#,
+            ),
+            (
+                "/api/v1/organizations/01JORG1/instances",
+                200,
+                &envelope(json!({"data": []})),
+            ),
+        ]);
+        let status = onboarding_status(base(&server), token(), None)
+            .await
+            .unwrap();
+        assert_eq!(status["account"]["email"], "me@example.com");
+        assert_eq!(status["account"]["verified"], true);
+        assert_eq!(status["organizations"][0]["slug"], "personal");
+        assert_eq!(status["organization"]["id"], "01JORG1");
+        assert_eq!(status["wallet"]["balance_cents"], 300);
+        assert_eq!(status["wallet"]["runway_hours"], "infinity");
+        assert_eq!(status["instance_count"], 0);
+        assert_eq!(status["next_step"], "deploy");
+        assert_eq!(
+            status["funding_url"].as_str().unwrap(),
+            format!("{}/organizations/personal/billing/topup", base(&server))
+        );
+        // The composed reads, in order: me, orgs, wallet, runway, instances.
+        assert_eq!(server.head_count(), 5);
+    }
+
+    #[tokio::test]
+    async fn onboarding_status_chooses_fund_and_connect_domain() {
+        // Several orgs, none named: choose_org (no wallet read).
+        let server = serve(&[
+            ("/api/v1/me", 200, &envelope(me_doc())),
+            ("/api/v1/organizations", 200, &two_orgs_doc()),
+            ("/api/v1/instances", 200, &envelope(json!({"data": []}))),
+        ]);
+        let status = onboarding_status(base(&server), token(), None)
+            .await
+            .unwrap();
+        assert_eq!(status["organization"], Value::Null);
+        assert_eq!(status["next_step"], "choose_org");
+        assert_eq!(status["funding_url"], Value::Null);
+
+        // A chosen org without a wallet row (team org, lazily billed):
+        // fund, balance 0.
+        let server = serve(&[
+            ("/api/v1/me", 200, &envelope(me_doc())),
+            ("/api/v1/organizations", 200, &two_orgs_doc()),
+            (
+                "/api/v1/organizations/01JORG2/instances",
+                200,
+                &envelope(json!({"data": []})),
+            ),
+        ]);
+        let status = onboarding_status(base(&server), token(), Some("acme".into()))
+            .await
+            .unwrap();
+        assert_eq!(status["organization"]["slug"], "acme");
+        assert_eq!(status["wallet"], Value::Null);
+        assert_eq!(status["next_step"], "fund");
+        assert_eq!(
+            status["funding_url"].as_str().unwrap(),
+            format!("{}/organizations/acme/billing/topup", base(&server))
+        );
+
+        // Funded with an instance: the last onboarding step.
+        let wallet = envelope(json!({"data": {"type": "wallet", "id": "w1",
+            "attributes": {"id": "w1", "organization_id": "01JORG1",
+                           "balance": 900, "paywall_waived": false}}}));
+        let server = serve(&[
+            ("/api/v1/me", 200, &envelope(me_doc())),
+            ("/api/v1/organizations", 200, &envelope(orgs_doc())),
+            ("/api/v1/organizations/01JORG1/wallet", 200, &wallet),
+            (
+                "/api/v1/organizations/01JORG1/wallet/runway",
+                200,
+                r#"{"balance_cents":900,"burn_micro_cents_per_hour":1,"runway_hours":900.0}"#,
+            ),
+            (
+                "/api/v1/organizations/01JORG1/instances",
+                200,
+                &envelope(json!({"data": [
+                    {"type": "instance", "id": "i1", "attributes": {"id": "i1"}}
+                ]})),
+            ),
+        ]);
+        let status = onboarding_status(base(&server), token(), None)
+            .await
+            .unwrap();
+        assert_eq!(status["instance_count"], 1);
+        assert_eq!(status["next_step"], "connect_domain");
+    }
+
+    #[tokio::test]
+    async fn onboarding_status_refuses_an_unknown_named_organization() {
+        let server = serve(&[
+            ("/api/v1/me", 200, &envelope(me_doc())),
+            ("/api/v1/organizations", 200, &envelope(orgs_doc())),
+        ]);
+        let err = onboarding_status(base(&server), token(), Some("ghost".into()))
+            .await
+            .unwrap_err();
+        assert!(
+            err.contains("no organization with id or slug \"ghost\""),
+            "err: {err}"
+        );
+    }
+
     #[tokio::test]
     async fn apps_list_renders_flat_rows_with_the_id_hoisted() {
         let body = &envelope(json!({"data": [
@@ -949,24 +1580,53 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn apps_show_addresses_the_slug_route_and_unwraps_one_resource() {
+    async fn apps_show_returns_the_manual_from_the_newest_version() {
         let body = &envelope(json!({"data": {
             "type": "app", "id": "1", "attributes": {"name": "WordPress", "slug": "wordpress"}
         }}));
-        let versions = &envelope(json!({"data": [
-            {"type": "app_version", "id": "v1", "attributes": {"version": "1.2", "monthly_cents": 500}}
+        // Newest first; the newest row carries the whole deploy
+        // contract (#770) and the platform's monthly_cents (#765).
+        // The older row is there to prove the read takes only the first.
+        let versions = envelope(json!({"data": [
+            {"type": "app_version", "id": "v2", "attributes": {
+                "version": "1.2",
+                "monthly_cents": 335,
+                "default_cpu_cores": "0.5",
+                "default_memory_mb": 512,
+                "default_storage_gb": 10,
+                "configurable_env_vars": {"WP_SITE_URL": {
+                    "label": "Site URL", "description": "The public address.",
+                    "type": "string", "required": false, "secret": false,
+                    "default": "https://example.test"
+                }},
+                "first_run": {"pattern": "first_registered_user_admin",
+                              "env": {"INSTALL_LOCK": "true"},
+                              "forbidden_env": ["DISABLE_REGISTRATION"],
+                              "guidance": "Open the instance and register."},
+                "backing_services": [{"kind": "postgres", "version": "18",
+                                      "url_env": "DATABASE_URL"}],
+                "oidc_wiring": {"kind": "env", "issuer_env": "OIDC_ISSUER",
+                                "client_id_env": "OIDC_CLIENT_ID",
+                                "client_secret_env": "OIDC_CLIENT_SECRET",
+                                "pkce": true}
+            }},
+            {"type": "app_version", "id": "v1", "attributes": {"version": "1.0"}}
         ]}));
+        let quote = r#"{"cpu_cores":"0.5","memory_mb":512,"storage_gb":10,
+            "monthly_cents":335,"stopped_monthly_cents":40,
+            "monthly":"$3.35/mo · billed hourly","stopped":"$0.40 while stopped"}"#;
         let server = serve(&[
             ("/api/v1/apps/wordpress", 200, body),
-            ("/api/v1/apps/1/versions", 200, versions),
+            ("/api/v1/apps/1/versions", 200, &versions),
+            ("/api/v1/app-versions/v2/quote", 200, quote),
         ]);
         let row = apps_show(base(&server), token(), "wordpress".into())
             .await
             .unwrap();
         assert_eq!(row["id"], "1");
         assert_eq!(row["name"], "WordPress");
-        assert_eq!(row["versions"][0]["id"], "v1");
-        assert_eq!(row["versions"][0]["monthly_cents"], 500);
+        assert_eq!(row["versions"][0]["id"], "v2");
+        assert_eq!(row["versions"][0]["monthly_cents"], 335);
         let head = server.head(0).to_lowercase();
         assert!(
             head.starts_with("get /api/v1/apps/wordpress"),
@@ -977,6 +1637,59 @@ mod tests {
             versions_head.starts_with("get /api/v1/apps/1/versions"),
             "head: {versions_head}"
         );
+
+        let version = &row["version"];
+        assert_eq!(version["id"], "v2");
+        assert_eq!(version["default_cpu_cores"], "0.5");
+        assert_eq!(version["default_memory_mb"], 512);
+        assert_eq!(version["default_storage_gb"], 10);
+        assert_eq!(
+            version["configurable_env_vars"]["WP_SITE_URL"]["default"],
+            "https://example.test"
+        );
+        assert_eq!(
+            version["first_run"]["pattern"],
+            "first_registered_user_admin"
+        );
+        assert_eq!(version["first_run"]["env"]["INSTALL_LOCK"], "true");
+        assert_eq!(version["backing_services"][0]["url_env"], "DATABASE_URL");
+        assert_eq!(version["oidc_wiring"]["issuer_env"], "OIDC_ISSUER");
+        assert_eq!(
+            version["oidc_wiring"]["client_secret_env"],
+            "OIDC_CLIENT_SECRET"
+        );
+
+        // The quote is the PLATFORM's cents, shipped as-is.
+        assert_eq!(version["pricing"]["monthly_cents"], 335);
+        assert_eq!(version["pricing"]["stopped_monthly_cents"], 40);
+        assert_eq!(version["pricing"]["monthly"], "$3.35/mo · billed hourly");
+
+        // No always-shipped values ride (default_env_vars is the
+        // operator-owned half), and the three reads are the sequence.
+        assert!(version.get("default_env_vars").is_none());
+        assert_eq!(server.head_count(), 3);
+    }
+
+    #[tokio::test]
+    async fn apps_show_without_a_version_answers_a_null_manual() {
+        let body = &envelope(json!({"data": {
+            "type": "app", "id": "1", "attributes": {"name": "New", "slug": "new"}
+        }}));
+        let server = serve(&[
+            ("/api/v1/apps/new", 200, body),
+            (
+                "/api/v1/apps/1/versions",
+                200,
+                &envelope(json!({"data": []})),
+            ),
+        ]);
+
+        let row = apps_show(base(&server), token(), "new".into())
+            .await
+            .unwrap();
+        assert_eq!(row["version"], serde_json::Value::Null);
+        // Two reads — no quote for a sizeless version.
+        assert_eq!(server.head_count(), 2);
     }
 
     #[tokio::test]
@@ -1017,7 +1730,7 @@ mod tests {
             {"type": "instance", "id": "i1", "attributes": {"name": "web", "status": "running"}}
         ]}));
         let list = serve(&[("/api/v1/instances", 200, list_body)]);
-        let wrapped = instances_list(base(&list), token()).await.unwrap();
+        let wrapped = instances_list(base(&list), token(), None).await.unwrap();
         assert_eq!(wrapped["instances"][0]["id"], "i1");
         assert_eq!(wrapped["instances"][0]["status"], "running");
 
@@ -1331,11 +2044,22 @@ mod tests {
             storage_gb: None,
             version: None,
             env: None,
+            organization: None,
         }
+    }
+
+    fn orgs_row() -> serde_json::Value {
+        json!({"data": [
+            {"type": "organization", "id": "org1",
+             "attributes": {"slug": "personal", "name": "Personal"}}
+        ]})
     }
 
     fn deploy_responses() -> Vec<String> {
         vec![
+            // #770: the org resolves first — the sole-org fallback
+            // (the provider's rule).
+            respond_envelope("200 OK", orgs_row()),
             respond_envelope("200 OK", json!({"data": app_row("forgejo", "app1")})),
             respond_envelope(
                 "200 OK",
@@ -1359,45 +2083,55 @@ mod tests {
         assert_eq!(row["id"], "i1");
 
         let requests = captured_requests(&server);
-        assert_eq!(requests.len(), 4, "app, versions, create, deploy");
+        assert_eq!(requests.len(), 5, "orgs, app, versions, create, deploy");
         assert!(
-            requests[0].starts_with("get /api/v1/apps/forgejo http/1.1"),
+            requests[0].starts_with("get /api/v1/organizations http/1.1"),
             "req0: {}",
             requests[0]
         );
         assert!(
-            requests[1].starts_with("get /api/v1/apps/app1/versions http/1.1"),
+            requests[1].starts_with("get /api/v1/apps/forgejo http/1.1"),
             "req1: {}",
             requests[1]
         );
         assert!(
-            requests[2].starts_with("post /api/v1/instances http/1.1"),
+            requests[2].starts_with("get /api/v1/apps/app1/versions http/1.1"),
             "req2: {}",
             requests[2]
         );
         assert!(
-            requests[3].starts_with("patch /api/v1/instances/i1/deploy http/1.1"),
+            requests[3].starts_with("post /api/v1/instances http/1.1"),
             "req3: {}",
             requests[3]
         );
+        assert!(
+            requests[4].starts_with("patch /api/v1/instances/i1/deploy http/1.1"),
+            "req4: {}",
+            requests[4]
+        );
         // The create body: the NEWEST version (the wire's own order),
-        // the name (always — the wire requires it), no env_vars and
-        // no unset resource flags.
+        // the name (always — the wire requires it), the resolved sole
+        // org, no env_vars and no unset resource flags.
         assert!(
-            requests[2].contains("\"app_version_id\":\"v2\""),
-            "req2: {}",
-            requests[2]
+            requests[3].contains("\"app_version_id\":\"v2\""),
+            "req3: {}",
+            requests[3]
         );
         assert!(
-            requests[2].contains("\"name\":\"my forgejo\""),
-            "req2: {}",
-            requests[2]
+            requests[3].contains("\"name\":\"my forgejo\""),
+            "req3: {}",
+            requests[3]
         );
-        assert!(!requests[2].contains("env_vars"), "req2: {}", requests[2]);
         assert!(
-            !requests[2].contains("cpu_cores"),
+            requests[3].contains("\"organization_id\":\"org1\""),
+            "req3: {}",
+            requests[3]
+        );
+        assert!(!requests[3].contains("env_vars"), "req3: {}", requests[3]);
+        assert!(
+            !requests[3].contains("cpu_cores"),
             "unset flags stay out: {}",
-            requests[2]
+            requests[3]
         );
     }
 
@@ -1413,7 +2147,7 @@ mod tests {
         instances_deploy(base_of(&server), token(), flags)
             .await
             .unwrap();
-        let create = &captured_requests(&server)[2];
+        let create = &captured_requests(&server)[3];
         assert!(create.contains("\"cpu_cores\":\"1.5\""), "create: {create}");
         assert!(create.contains("\"memory_mb\":1024"), "create: {create}");
         assert!(create.contains("\"storage_gb\":5"), "create: {create}");
@@ -1437,7 +2171,7 @@ mod tests {
         instances_deploy(base_of(&server), token(), flags)
             .await
             .unwrap();
-        let create = &captured_requests(&server)[2];
+        let create = &captured_requests(&server)[3];
         assert!(
             create.contains("\"env_vars\":{\"api_key\":\"sekrit\",\"tz\":\"utc\"}"),
             "create: {create}"
@@ -1446,9 +2180,9 @@ mod tests {
         // so pin the RAW capture too.
         let raw = server.requests.lock().unwrap();
         assert!(
-            raw[2].contains("\"env_vars\":{\"API_KEY\":\"sekrit\",\"TZ\":\"UTC\"}"),
+            raw[3].contains("\"env_vars\":{\"API_KEY\":\"sekrit\",\"TZ\":\"UTC\"}"),
             "raw create: {}",
-            raw[2]
+            raw[3]
         );
     }
 
@@ -1526,7 +2260,7 @@ mod tests {
         instances_deploy(base_of(&server), token(), flags)
             .await
             .unwrap();
-        let create = &captured_requests(&server)[2];
+        let create = &captured_requests(&server)[3];
         assert!(
             create.contains("\"app_version_id\":\"v1\""),
             "create: {create}"
@@ -1534,17 +2268,66 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn deploy_carries_the_named_organization_and_refuses_ambiguity() {
+        // Explicit slug: the create body names that org.
+        let server = script({
+            let mut responses = deploy_responses();
+            // Swap the sole-org answer for two orgs.
+            responses[0] = respond_envelope(
+                "200 OK",
+                json!({"data": [
+                    {"type": "organization", "id": "01JORG1",
+                     "attributes": {"slug": "personal", "name": "Personal"}},
+                    {"type": "organization", "id": "01JORG2",
+                     "attributes": {"slug": "acme", "name": "Acme"}}
+                ]}),
+            );
+            responses
+        });
+        let flags = DeployWire {
+            organization: Some("acme".into()),
+            ..deploy_wire()
+        };
+        instances_deploy(base_of(&server), token(), flags)
+            .await
+            .unwrap();
+        let create = &captured_requests(&server)[3];
+        assert!(
+            create.contains("\"organization_id\":\"01jorg2\""),
+            "create: {create}"
+        );
+
+        // Two orgs, no name: refuse before any app read.
+        let server = script(vec![respond_envelope(
+            "200 OK",
+            json!({"data": [
+                {"type": "organization", "id": "01JORG1",
+                 "attributes": {"slug": "personal", "name": "Personal"}},
+                {"type": "organization", "id": "01JORG2",
+                 "attributes": {"slug": "acme", "name": "Acme"}}
+            ]}),
+        )]);
+        let err = instances_deploy(base_of(&server), token(), deploy_wire())
+            .await
+            .unwrap_err();
+        assert!(err.contains("multiple organizations"), "err: {err}");
+        assert_eq!(captured_requests(&server).len(), 1);
+    }
+
+    #[tokio::test]
     async fn deploy_refusals_surface_their_own_words() {
-        // Unknown app: the CLI's friendly 404 line, nothing else sent.
-        let server = script(vec![not_found()]);
+        // Unknown app: the CLI's friendly 404 line, nothing else sent
+        // past the org resolve.
+        let server = script(vec![respond_envelope("200 OK", orgs_row()), not_found()]);
         let err = instances_deploy(base_of(&server), token(), deploy_wire())
             .await
             .unwrap_err();
         assert_eq!(err, "no such app (or it's not yours)");
-        assert_eq!(captured_requests(&server).len(), 1);
+        assert_eq!(captured_requests(&server).len(), 2);
 
         // No published versions.
         let server = script(vec![
+            respond_envelope("200 OK", orgs_row()),
             respond_envelope("200 OK", json!({"data": app_row("forgejo", "app1")})),
             respond_envelope("200 OK", json!({"data": []})),
         ]);
@@ -1555,6 +2338,7 @@ mod tests {
 
         // A foreign version id: the refusal lists the app's own.
         let server = script(vec![
+            respond_envelope("200 OK", orgs_row()),
             respond_envelope("200 OK", json!({"data": app_row("forgejo", "app1")})),
             respond_envelope("200 OK", json!({"data": [version_row("v2", "1.2")]})),
         ]);
@@ -1579,6 +2363,7 @@ mod tests {
     async fn deploy_funded_gate_403_surfaces_verbatim() {
         // The money posture: agents hit the same gate as the UI.
         let server = script(vec![
+            respond_envelope("200 OK", orgs_row()),
             respond_envelope("200 OK", json!({"data": app_row("forgejo", "app1")})),
             respond_envelope("200 OK", json!({"data": [version_row("v2", "1.2")]})),
             respond(
@@ -2108,6 +2893,29 @@ mod tests {
             topup_url("http://127.0.0.1:4000/"),
             "http://127.0.0.1:4000/billing/topup"
         );
+    }
+
+    #[test]
+    fn funding_url_is_org_scoped_and_needs_a_slug() {
+        let org = OrganizationRow {
+            id: "01JORG2".into(),
+            slug: Some("acme".into()),
+            name: None,
+        };
+        assert_eq!(
+            funding_url("https://fluxvale.com", &org).as_deref(),
+            Some("https://fluxvale.com/organizations/acme/billing/topup")
+        );
+        assert_eq!(
+            funding_url("http://127.0.0.1:4000/", &org).as_deref(),
+            Some("http://127.0.0.1:4000/organizations/acme/billing/topup")
+        );
+        let slugless = OrganizationRow {
+            id: "01JORG3".into(),
+            slug: None,
+            name: Some("No slug".into()),
+        };
+        assert_eq!(funding_url("https://fluxvale.com", &slugless), None);
     }
 
     #[test]

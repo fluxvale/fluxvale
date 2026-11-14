@@ -14,8 +14,8 @@
 /// scope, not instead of it.
 pub(crate) fn required_scope(tool: &str) -> Option<&'static str> {
     match tool {
-        "whoami" | "topup" => None,
-        "apps_list" | "apps_show" => Some("catalog:read"),
+        "whoami" | "topup" | "organizations_create" => None,
+        "apps_list" | "apps_show" | "pricing_quote" => Some("catalog:read"),
         "instances_list" | "instances_status" => Some("instances:read"),
         // The scaffold reads instances, backups, gateways, and domains;
         // its primary scope is the instance read. Callers need the
@@ -28,7 +28,13 @@ pub(crate) fn required_scope(tool: &str) -> Option<&'static str> {
         | "instances_destroy" => Some("instances:write"),
         "backups_status" => Some("backups:read"),
         "backups_configure" | "backups_run" | "backups_restore" => Some("backups:write"),
-        "wallet_balance" | "wallet_runway" | "wallet_ledger" => Some("wallet:read"),
+        // The onboarding read composes identity + orgs + this domain's
+        // wallet/runway + an instances count: visible on its primary
+        // (wallet) scope; the route scopes are the enforcement for the
+        // instances leg (the catalog's documented multi-domain rule).
+        "wallet_balance" | "wallet_runway" | "wallet_ledger" | "onboarding_status" => {
+            Some("wallet:read")
+        }
         // Deny-by-default: a name outside the catalog is never visible.
         _ => Some(""),
     }
@@ -71,7 +77,7 @@ mod tests {
     use super::*;
 
     /// The catalog, in tools/list order (rmcp's list_all sorts by name).
-    const CATALOG: [&str; 19] = [
+    const CATALOG: [&str; 22] = [
         "apps_list",
         "apps_show",
         "backups_configure",
@@ -85,6 +91,9 @@ mod tests {
         "instances_start",
         "instances_status",
         "instances_stop",
+        "onboarding_status",
+        "organizations_create",
+        "pricing_quote",
         "terraform_import_bundle",
         "topup",
         "wallet_balance",
@@ -106,7 +115,7 @@ mod tests {
     }
 
     #[test]
-    fn a_full_scope_token_sees_all_nineteen_tools() {
+    fn a_full_scope_token_sees_all_twenty_two_tools() {
         assert_eq!(
             visible(&[
                 "catalog:read",
@@ -117,7 +126,7 @@ mod tests {
                 "wallet:read"
             ])
             .len(),
-            19
+            22
         );
     }
 
@@ -125,7 +134,14 @@ mod tests {
     fn a_catalog_only_token_sees_the_apps_pair_and_the_scopeless_pair() {
         assert_eq!(
             visible(&["catalog:read"]),
-            ["apps_list", "apps_show", "topup", "whoami"]
+            [
+                "apps_list",
+                "apps_show",
+                "organizations_create",
+                "pricing_quote",
+                "topup",
+                "whoami"
+            ]
         );
     }
 
@@ -137,6 +153,7 @@ mod tests {
             [
                 "instances_list",
                 "instances_status",
+                "organizations_create",
                 "terraform_import_bundle",
                 "topup",
                 "whoami"
@@ -159,6 +176,7 @@ mod tests {
                 "instances_start",
                 "instances_status",
                 "instances_stop",
+                "organizations_create",
                 "terraform_import_bundle",
                 "topup",
                 "whoami"
@@ -172,18 +190,21 @@ mod tests {
     }
 
     #[test]
-    fn a_token_with_no_scopes_still_gets_the_scopeless_pair() {
+    fn a_token_with_no_scopes_still_gets_the_scopeless_trio() {
         // The protocol stays; tools/list just omits what it can't call.
         // /me renders a zero-scope PAT's list as [], never an omission.
-        assert_eq!(visible(&[]), ["topup", "whoami"]);
-        assert_eq!(visible(&["gateways:read"]), ["topup", "whoami"]);
+        assert_eq!(visible(&[]), ["organizations_create", "topup", "whoami"]);
+        assert_eq!(
+            visible(&["gateways:read"]),
+            ["organizations_create", "topup", "whoami"]
+        );
     }
 
     #[test]
     fn the_backups_and_wallet_families_gate_on_their_domains() {
         assert_eq!(
             visible(&["backups:read"]),
-            ["backups_status", "topup", "whoami"]
+            ["backups_status", "organizations_create", "topup", "whoami"]
         );
         // backups:write implies backups:read (the status tool rides along).
         assert_eq!(
@@ -193,6 +214,7 @@ mod tests {
                 "backups_restore",
                 "backups_run",
                 "backups_status",
+                "organizations_create",
                 "topup",
                 "whoami"
             ]
@@ -200,6 +222,8 @@ mod tests {
         assert_eq!(
             visible(&["wallet:read"]),
             [
+                "onboarding_status",
+                "organizations_create",
                 "topup",
                 "wallet_balance",
                 "wallet_ledger",
@@ -213,6 +237,7 @@ mod tests {
     fn required_scope_names_the_catalog_rule() {
         assert_eq!(required_scope("whoami"), None);
         assert_eq!(required_scope("topup"), None);
+        assert_eq!(required_scope("organizations_create"), None);
         assert_eq!(required_scope("apps_list"), Some("catalog:read"));
         assert_eq!(required_scope("instances_deploy"), Some("instances:write"));
         assert_eq!(required_scope("instances_destroy"), Some("instances:write"));
@@ -223,6 +248,8 @@ mod tests {
             required_scope("terraform_import_bundle"),
             Some("instances:read")
         );
+        assert_eq!(required_scope("onboarding_status"), Some("wallet:read"));
+        assert_eq!(required_scope("pricing_quote"), Some("catalog:read"));
     }
 
     #[test]

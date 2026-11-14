@@ -20,8 +20,20 @@ defmodule FluxVale.Pricing.Size do
     otp_app: :flux_vale,
     domain: FluxVale.Pricing,
     data_layer: AshPostgres.DataLayer,
-    extensions: [AshPaperTrail.Resource],
+    extensions: [AshJsonApi.Resource, AshPaperTrail.Resource],
     authorizers: [Ash.Policy.Authorizer]
+
+  # #770: the quote route — the public calculator's arithmetic over
+  # the wire, so an agent quotes the same cent the page and the ledger
+  # would charge. Reads stay the calculator's public posture.
+  json_api do
+    type("pricing")
+
+    routes do
+      # :any — pricing is public data (the /pricing page is anonymous).
+      route(:get, "pricing/quote", :quote)
+    end
+  end
 
   postgres do
     table("pricing_sizes")
@@ -77,6 +89,14 @@ defmodule FluxVale.Pricing.Size do
 
     policy FluxVale.Checks.ActorIsPlatformAdmin do
       description("Platform admins manage prices (ADR-0027, ADR-0030)")
+      authorize_if(always())
+    end
+
+    # #770: the quote is the calculator's public arithmetic over the
+    # same curve — pricing is public data, exactly like the size rows
+    # the public catalog reads.
+    policy action(:quote) do
+      description("Public pricing quote — the same public posture as the size reads (#164)")
       authorize_if(always())
     end
   end
@@ -145,6 +165,57 @@ defmodule FluxVale.Pricing.Size do
       get?(true)
       argument(:slug, :string, allow_nil?: false)
       filter(expr(slug == ^arg(:slug)))
+    end
+
+    # #770: the truthful quote. One arithmetic seam — the calculator's
+    # own `Pricing.price_allocation/1` — so a quoted cent is a charged
+    # cent by construction. The bounds mirror the Instance allocation
+    # floors/ceilings; anything outside them is a refusal, never a
+    # priced guess. `monthly`/`stopped` carry the display labels the
+    # public pricing page uses (the monthly-EQUIVALENT rule, #206).
+    action :quote, :map do
+      description("Price an allocation — the curve behind every rate.")
+
+      argument(:cpu_cores, :decimal,
+        allow_nil?: false,
+        public?: true,
+        constraints: [greater_than: 0, max: 64]
+      )
+
+      argument(:memory_mb, :integer,
+        allow_nil?: false,
+        public?: true,
+        constraints: [min: 1, max: 65_536]
+      )
+
+      argument(:storage_gb, :integer,
+        allow_nil?: false,
+        public?: true,
+        constraints: [min: 0, max: 10_240]
+      )
+
+      run(fn input, _context ->
+        %{cpu_cores: cpu_cores, memory_mb: memory_mb, storage_gb: storage_gb} =
+          input.arguments
+
+        rates =
+          FluxVale.Pricing.price_allocation(%{
+            cpu_cores: cpu_cores,
+            memory_mb: memory_mb,
+            storage_gb: storage_gb
+          })
+
+        {:ok,
+         %{
+           cpu_cores: cpu_cores,
+           memory_mb: memory_mb,
+           storage_gb: storage_gb,
+           monthly_cents: rates.monthly_cents,
+           stopped_monthly_cents: rates.stopped_monthly_cents,
+           monthly: FluxVale.Pricing.format_monthly_rate(rates.monthly_cents),
+           stopped: FluxVale.Pricing.format_usd(rates.stopped_monthly_cents) <> " while stopped"
+         }}
+      end)
     end
   end
 

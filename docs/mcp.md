@@ -137,7 +137,7 @@ panel is the fallback.
 
 ## The tool catalog
 
-Nineteen tools at the current surface. Scope-filtered per token: a
+Twenty-two tools at the current surface. Scope-filtered per token: a
 tool the token's scopes don't cover never appears in `tools/list`
 (and a direct call still refuses — the platform's own 403s are the
 enforcement). The scope column is the FULL set the tool needs — a
@@ -149,11 +149,14 @@ the enforcement, so mint the union):
 | Tool | What it answers | Scope | Gated |
 | --- | --- | --- | --- |
 | `whoami` | The identity the token carries: user id, email, platform role, username, organizations (id/slug/name) | any | — |
+| `onboarding_status` | Account verified, organizations, the chosen org's wallet balance and runway, instance count, next step (`choose_org`/`fund`/`deploy`/`connect_domain`), and the chosen org's `funding_url` (its own top-up page) | `wallet:read` + `instances:read` (visibility on the wallet half) | — |
+| `organizations_create` | Create a team org (name + slug; reserved slugs refuse), you as owner — scopeless like the org list; the actor policy and the 10-org cap are the gate ([ADR-0042](adr/00042-user-created-organizations.md)) | any | — |
 | `apps_list` | The deployable app catalog, one entry per app | `catalog:read` | — |
-| `apps_show` | One catalog app by its URL slug, plus its versions with the default allocation and `monthly_cents` | `catalog:read` | — |
-| `instances_list` | Your instances, one entry each | `instances:read` | — |
+| `apps_show` | One catalog app by its URL slug: its versions (default allocation, `monthly_cents`) and the agent manual — the newest version's env contract, first-run contract, backing services, OIDC wiring names, default allocation + server-computed default price | `catalog:read` | — |
+| `pricing_quote` | A truthful quote for a custom allocation: `cpu`, `memory_mb`, `storage_gb` in, monthly/stopped cents out — the ledger's curve, computed by the platform. A deploy at the app's recommended size bills the manual's default quote instead | `catalog:read` | — |
+| `instances_list` | Your instances, one entry each; an optional `organization` narrows to that org | `instances:read` | — |
 | `instances_status` | One instance's full detail by id (including its public `url`) — or, with no id, the verbose list | `instances:read` | — |
-| `instances_deploy` | Deploy an app: resolve the slug, pick the version, create the instance with an optional `env` map (defaults carry the version's allocation and `url`), enqueue the deploy | `catalog:read` + `instances:write` (reads the app + versions before it writes the instance) | — |
+| `instances_deploy` | Deploy an app: resolve the slug, pick the version, resolve the org (named, or sole-org fallback), create the instance with an optional `env` map, enqueue the deploy | `catalog:read` + `instances:write` (reads the app + versions + orgs before it writes the instance) | — |
 | `instances_configure` | Merge env vars on a live instance: `set` adds/replaces, `remove` deletes (values are write-only) | `instances:write` | — |
 | `instances_stop` | Scale to zero — the pause (storage keeps accruing) | `instances:write` | — |
 | `instances_start` | Start a stopped/sleeping instance back up | `instances:write` | — |
@@ -176,6 +179,30 @@ rename, or removal updates this file in the same PR** that changes
 the surface. The server's behavioral detail (elicitation, sealing,
 scope filtering) lives in the `apps/mcp` README; entries here name
 the surface change and the PR.
+
+### 2026-11-13 — the agent first-run spine (#770)
+
+- `apps_show` returns the app manual: the newest version's
+  `configurable_env_vars` (names and catalog defaults only),
+  `first_run`, `backing_services`, the default allocation, the OIDC
+  wiring env names, and the default-size monthly/stopped price (the
+  recommended Size row plus the storage axis — `Pricing.version_rates/1`,
+  not a client formula).
+- New `pricing_quote` (custom allocations, priced by
+  `FluxVale.Pricing` server-side; a deploy at the recommended size
+  bills the manual's default quote instead), `onboarding_status`
+  (composed from existing reads — no new state — including the chosen
+  org's `funding_url`), and `organizations_create` (the
+  reserved-slug and org-cap rules are the server's; shipped scopeless
+  like the org list, per [ADR-0042](adr/00042-user-created-organizations.md)
+  Am. 1).
+- `instances_list` takes an optional `organization`; `instances_deploy`
+  takes one too, with the provider's sole-org fallback (several
+  memberships without a name refuse, listing them).
+- Platform: `POST /api/v1/organizations`,
+  `GET /api/v1/app-versions/:id/quote`, `GET /api/v1/pricing/quote`,
+  and `GET /api/v1/organizations/:organization_id/instances` join the
+  machine API.
 
 ### 2026-11-13 — Terraform promotion
 

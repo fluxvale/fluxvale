@@ -3830,6 +3830,8 @@ pub struct AppVersionFilter {
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub published_at: ::std::option::Option<AppVersionFilterPublishedAt>,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub recommended_size: ::std::option::Option<PricingFilter>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub recommended_size_id: ::std::option::Option<AppVersionFilterRecommendedSizeId>,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub release_notes: ::std::option::Option<AppVersionFilterReleaseNotes>,
@@ -4504,6 +4506,8 @@ pub struct AppVersionFilterVersion {
 pub struct AppVersionRelationships {
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub app: ::std::option::Option<AppVersionRelationshipsApp>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub recommended_size: ::std::option::Option<AppVersionRelationshipsRecommendedSize>,
 }
 ///`AppVersionRelationshipsApp`
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
@@ -4515,6 +4519,22 @@ pub struct AppVersionRelationshipsApp {
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct AppVersionRelationshipsAppData {
+    pub id: ::std::string::String,
+    #[serde(default, skip_serializing_if = "::serde_json::Map::is_empty")]
+    pub meta: ::serde_json::Map<::std::string::String, ::serde_json::Value>,
+    #[serde(rename = "type")]
+    pub type_: ::std::string::String,
+}
+///`AppVersionRelationshipsRecommendedSize`
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
+pub struct AppVersionRelationshipsRecommendedSize {
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub data: ::std::option::Option<AppVersionRelationshipsRecommendedSizeData>,
+}
+///An identifier for recommended_size
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct AppVersionRelationshipsRecommendedSizeData {
     pub id: ::std::string::String,
     #[serde(default, skip_serializing_if = "::serde_json::Map::is_empty")]
     pub meta: ::serde_json::Map<::std::string::String, ::serde_json::Value>,
@@ -12327,6 +12347,211 @@ pub struct PocketIdWiringType {
     ///Field included by default.
     pub wired_at: ::serde_json::Value,
 }
+///A "Resource object" representing a pricing
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct Pricing {
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub attributes: ::std::option::Option<PricingAttributes>,
+    pub id: ::std::string::String,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub relationships: ::std::option::Option<PricingRelationships>,
+    #[serde(rename = "type")]
+    pub type_: ::std::string::String,
+}
+///An attributes object for a pricing
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct PricingAttributes {
+    ///Field included by default.
+    pub cpu_cores: ::std::string::String,
+    ///Field included by default.
+    pub memory_mb: i64,
+    ///Field included by default.
+    pub monthly_cents: i64,
+    ///Field included by default.
+    pub slug: ::std::string::String,
+}
+///Filters the query to results matching the given filter object
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
+#[serde(deny_unknown_fields)]
+pub struct PricingFilter {
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub and: ::std::option::Option<::std::vec::Vec<PricingFilter>>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub cpu_cores: ::std::option::Option<PricingFilterCpuCores>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub id: ::std::option::Option<PricingFilterId>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub memory_mb: ::std::option::Option<PricingFilterMemoryMb>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub monthly_cents: ::std::option::Option<PricingFilterMonthlyCents>,
+    #[serde(default)]
+    pub not: ::std::boxed::Box<::std::option::Option<PricingFilter>>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub or: ::std::option::Option<::std::vec::Vec<PricingFilter>>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub slug: ::std::option::Option<PricingFilterSlug>,
+}
+///`PricingFilterCpuCores`
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
+#[serde(deny_unknown_fields)]
+pub struct PricingFilterCpuCores {
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub eq: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub greater_than: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub greater_than_or_equal: ::std::option::Option<::std::string::String>,
+    #[serde(
+        rename = "in",
+        default,
+        skip_serializing_if = "::std::vec::Vec::is_empty"
+    )]
+    pub in_: ::std::vec::Vec<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub is_distinct_from: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub is_nil: ::std::option::Option<bool>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub is_not_distinct_from: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub less_than: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub less_than_or_equal: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub not_eq: ::std::option::Option<::std::string::String>,
+}
+///`PricingFilterId`
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
+#[serde(deny_unknown_fields)]
+pub struct PricingFilterId {
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub eq: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub greater_than: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub greater_than_or_equal: ::std::option::Option<::std::string::String>,
+    #[serde(
+        rename = "in",
+        default,
+        skip_serializing_if = "::std::vec::Vec::is_empty"
+    )]
+    pub in_: ::std::vec::Vec<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub is_distinct_from: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub is_nil: ::std::option::Option<bool>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub is_not_distinct_from: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub less_than: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub less_than_or_equal: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub not_eq: ::std::option::Option<::std::string::String>,
+}
+///`PricingFilterMemoryMb`
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
+#[serde(deny_unknown_fields)]
+pub struct PricingFilterMemoryMb {
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub eq: ::std::option::Option<i64>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub greater_than: ::std::option::Option<i64>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub greater_than_or_equal: ::std::option::Option<i64>,
+    #[serde(
+        rename = "in",
+        default,
+        skip_serializing_if = "::std::vec::Vec::is_empty"
+    )]
+    pub in_: ::std::vec::Vec<i64>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub is_distinct_from: ::std::option::Option<i64>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub is_nil: ::std::option::Option<bool>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub is_not_distinct_from: ::std::option::Option<i64>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub less_than: ::std::option::Option<i64>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub less_than_or_equal: ::std::option::Option<i64>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub not_eq: ::std::option::Option<i64>,
+}
+///`PricingFilterMonthlyCents`
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
+#[serde(deny_unknown_fields)]
+pub struct PricingFilterMonthlyCents {
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub eq: ::std::option::Option<i64>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub greater_than: ::std::option::Option<i64>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub greater_than_or_equal: ::std::option::Option<i64>,
+    #[serde(
+        rename = "in",
+        default,
+        skip_serializing_if = "::std::vec::Vec::is_empty"
+    )]
+    pub in_: ::std::vec::Vec<i64>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub is_distinct_from: ::std::option::Option<i64>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub is_nil: ::std::option::Option<bool>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub is_not_distinct_from: ::std::option::Option<i64>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub less_than: ::std::option::Option<i64>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub less_than_or_equal: ::std::option::Option<i64>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub not_eq: ::std::option::Option<i64>,
+}
+///`PricingFilterSlug`
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
+#[serde(deny_unknown_fields)]
+pub struct PricingFilterSlug {
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub contains: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub eq: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub greater_than: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub greater_than_or_equal: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub ilike: ::std::option::Option<::std::string::String>,
+    #[serde(
+        rename = "in",
+        default,
+        skip_serializing_if = "::std::vec::Vec::is_empty"
+    )]
+    pub in_: ::std::vec::Vec<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub is_distinct_from: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub is_nil: ::std::option::Option<bool>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub is_not_distinct_from: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub less_than: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub less_than_or_equal: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub like: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub not_eq: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub string_ends_with: ::std::option::Option<::std::string::String>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub string_starts_with: ::std::option::Option<::std::string::String>,
+}
+///A relationships object for a pricing
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
+#[serde(deny_unknown_fields)]
+pub struct PricingRelationships {}
 ///A "Resource object" representing a storage_request
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
 #[serde(deny_unknown_fields)]

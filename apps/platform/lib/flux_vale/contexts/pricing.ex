@@ -14,7 +14,7 @@ defmodule FluxVale.Pricing do
 
   use Ash.Domain,
     otp_app: :flux_vale,
-    extensions: [AshAdmin.Domain, AshPaperTrail.Domain]
+    extensions: [AshAdmin.Domain, AshJsonApi.Domain, AshPaperTrail.Domain]
 
   alias FluxVale.Pricing.Operations
 

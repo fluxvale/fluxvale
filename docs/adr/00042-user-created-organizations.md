@@ -139,3 +139,14 @@ board is the experiment, and it decides.
 **Resolves**: #408 (the umbrella; its six Nov 4 rulings are restated
 above). The deferred agent tools and the parked social layer carry
 their triggers in [open-questions.md](../open-questions.md).
+
+## Amendment 1 (2026-11-13): agent-facing org creation shipped scopeless — Accepted
+
+#770 shipped the first agent-facing org verb — `POST /api/v1/organizations`
+and the MCP `organizations_create`, both `:any`, the same
+identity-adjacent posture as `GET /organizations`. The deferral above
+named "an API scope plus" the tools; the scope half is dropped
+deliberately: the actor's own policy is the gate (`actor_present()`,
+`ActorBelowOrgCreateCap`'s 10-org cap, reserved slugs, PaperTrail), and
+a zero-scope token can create only orgs it owns, with no credits and
+no destroy verb. `list_members` stays deferred.

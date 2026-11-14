@@ -119,6 +119,19 @@ defmodule FluxVale.Infrastructure.Instance do
     :url
   ]
 
+  # The collection surface's key set — one list, two routes (the
+  # actor-wide read and #770's org-scoped read).
+  @list_fields [
+    :id,
+    :name,
+    :slug,
+    :namespace,
+    :status,
+    :exposure,
+    :always_on,
+    :deployed_at
+  ]
+
   json_api do
     type("instance")
 
@@ -135,16 +148,17 @@ defmodule FluxVale.Infrastructure.Instance do
       # instances:read
       index(:list_for_actor,
         route: "/instances",
-        default_fields: [
-          :id,
-          :name,
-          :slug,
-          :namespace,
-          :status,
-          :exposure,
-          :always_on,
-          :deployed_at
-        ]
+        default_fields: @list_fields
+      )
+
+      # instances:read — #770: the org-scoped collection, so an agent
+      # can list one organization's instances (and count them for the
+      # onboarding read) without paging the actor's whole set. The
+      # read policy scopes through the org membership; a non-member
+      # org answers the policy's empty set, never a leak.
+      index(:list_for_organization,
+        route: "/organizations/:organization_id/instances",
+        default_fields: @list_fields
       )
 
       # instances:read

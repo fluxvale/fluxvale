@@ -65,6 +65,66 @@ defmodule FluxValeWeb.Api.CatalogRouteTest do
     end
   end
 
+  describe "GET /api/v1/app-versions/:id/quote (#770)" do
+    test "returns the recommended size's rates — the manual's default price", %{
+      conn: conn,
+      version: version,
+      pat: pat
+    } do
+      conn =
+        conn
+        |> auth(pat)
+        |> get("/api/v1/app-versions/#{version.id}/quote")
+
+      assert body = json_response(conn, 200)
+      assert body["version_id"] == version.id
+      # The fixture's size carries 100¢ compute; storage 0 prices the
+      # stopped arm at 0.
+      assert body["monthly_cents"] == 100
+      assert body["stopped_monthly_cents"] == 0
+      assert body["monthly"] == "$1.00/mo · billed hourly"
+      assert body["stopped"] == "$0.00 while stopped"
+      assert body["cpu_cores"] == "0.5"
+      assert body["memory_mb"] == 256
+      assert body["storage_gb"] == 0
+    end
+
+    test "an unknown version id is a 404", %{conn: conn, pat: pat} do
+      conn =
+        conn
+        |> auth(pat)
+        |> get("/api/v1/app-versions/#{Ash.UUIDv7.generate()}/quote")
+
+      assert %{"errors" => [%{"status" => "404"}]} = json_response(conn, 404)
+    end
+
+    test "a version with no recommended size refuses loudly", %{
+      conn: conn,
+      version: version,
+      pat: pat
+    } do
+      # Ash.Seed.seed! — the sanctioned escape for a state no action
+      # can produce (every action-created version names a size; the
+      # unpriced shape is pre-#125 drift).
+      unpriced =
+        Ash.Seed.seed!(FluxVale.Catalog.AppVersion, %{
+          app_id: version.app_id,
+          version: "9.9.9",
+          sort_key: "999999999999999999999999",
+          image: "registry.example.com/unpriced:9.9.9",
+          port: 3000
+        })
+
+      conn =
+        conn
+        |> auth(pat)
+        |> get("/api/v1/app-versions/#{unpriced.id}/quote")
+
+      assert %{"errors" => [error]} = json_response(conn, 400)
+      assert error["detail"] =~ "no recommended size"
+    end
+  end
+
   # #719: icon_url is absolute on the wire — the screenshot precedent
   # at the API edge. The stored and SSR reads keep the relative path so
   # icons stay same-origin (#718).

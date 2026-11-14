@@ -18,6 +18,7 @@ defmodule FluxVale.Catalog.AppVersion do
 
   # #700: the sort-key seam — the grammar pattern and the create change
   # live in the child module; aliased so both read short below.
+  alias Ash.Error.Changes.InvalidArgument
   alias FluxVale.Catalog.AppVersion.SetSortKey
 
   # #360 (ADR-0019 §1): the version family's wire contract — the detail
@@ -77,6 +78,12 @@ defmodule FluxVale.Catalog.AppVersion do
           :monthly_cents
         ]
       )
+
+      # catalog:read — #770: the version's default-size rates (the
+      # recommended Size row's compute rate plus the storage axis at the
+      # version's own default), the manual's truthful monthly/stopped
+      # figure. The price is computed server-side, never in a client.
+      route(:get, "app-versions/:id/quote", :default_quote)
     end
   end
 
@@ -104,6 +111,16 @@ defmodule FluxVale.Catalog.AppVersion do
 
     policy FluxVale.Checks.ActorIsPlatformAdmin do
       description("Platform admins manage catalog app versions (ADR-0027, ADR-0030)")
+      authorize_if(always())
+    end
+
+    # #770: the default-ramp quote is public catalog arithmetic — the
+    # same public posture as the version reads.
+    policy action(:default_quote) do
+      description(
+        "Public default-size quote — the same public posture as the version reads (#164)"
+      )
+
       authorize_if(always())
     end
   end
@@ -440,6 +457,50 @@ defmodule FluxVale.Catalog.AppVersion do
       # surface that reads versions orders on sort_key (SetSortKey
       # owns the grammar and the encoding).
       prepare(build(sort: [sort_key: :desc]))
+    end
+
+    # #770: the default-size rates over the wire — the version's
+    # recommended Size row plus the storage axis at its own default
+    # (`Pricing.version_rates/1`), the same figure settlement charges
+    # a default-size instance. A version with no recommended size is
+    # the unpriced drift shape: a loud refusal, never a guessed price.
+    action :default_quote, :map do
+      description("The version's default-size monthly and stopped rates.")
+
+      argument(:id, :uuid, allow_nil?: false, public?: true)
+
+      run(fn input, context ->
+        with {:ok, version} <-
+               get_by_id(input.arguments.id,
+                 actor: context.actor,
+                 authorize?: context.authorize?
+               ),
+             {:ok, version} <-
+               Ash.load(version, :recommended_size,
+                 actor: context.actor,
+                 authorize?: context.authorize?
+               ) do
+          case FluxVale.Pricing.version_rates(version) do
+            nil ->
+              {:error,
+               InvalidArgument.exception(message: "the version carries no recommended size")}
+
+            rates ->
+              {:ok,
+               %{
+                 version_id: version.id,
+                 cpu_cores: version.default_cpu_cores,
+                 memory_mb: version.default_memory_mb,
+                 storage_gb: version.default_storage_gb,
+                 monthly_cents: rates.monthly_cents,
+                 stopped_monthly_cents: rates.stopped_monthly_cents,
+                 monthly: FluxVale.Pricing.format_monthly_rate(rates.monthly_cents),
+                 stopped:
+                   FluxVale.Pricing.format_usd(rates.stopped_monthly_cents) <> " while stopped"
+               }}
+          end
+        end
+      end)
     end
   end
 

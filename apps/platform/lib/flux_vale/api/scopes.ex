@@ -78,9 +78,16 @@ defmodule FluxVale.Api.Scopes do
     # memberships), so the route takes no domain scope. Any live token
     # may learn which orgs it belongs to.
     {{"GET", ["organizations"]}, :any},
+    # #770: org creation is identity-adjacent like the list — the
+    # action's own policy (actor present, below the org cap) and the
+    # reserved-slug validation are the gate, not a domain scope.
+    {{"POST", ["organizations"]}, :any},
     # Instances.
     {{"GET", ["instances"]}, "instances:read"},
     {{"POST", ["instances"]}, "instances:write"},
+    # #770: the org-scoped collection the agent's onboarding read and
+    # scoped list ride (member-fenced by the read policy).
+    {{"GET", ["organizations", :_, "instances"]}, "instances:read"},
     # #731 T2: the slug lookup (slug is unique only per cluster; the
     # optional organization_id query arg narrows it).
     {{"GET", ["instances", "by-slug", :_]}, "instances:read"},
@@ -143,7 +150,11 @@ defmodule FluxVale.Api.Scopes do
     {{"GET", ["apps"]}, "catalog:read"},
     {{"GET", ["apps", :_]}, "catalog:read"},
     {{"GET", ["apps", :_, "versions"]}, "catalog:read"},
-    {{"GET", ["app-versions", :_]}, "catalog:read"}
+    {{"GET", ["app-versions", :_, "quote"]}, "catalog:read"},
+    {{"GET", ["app-versions", :_]}, "catalog:read"},
+    # Public pricing data (#770) — the quote is the /pricing
+    # calculator's arithmetic; any live token may ask.
+    {{"GET", ["pricing", "quote"]}, :any}
   ]
 
   @doc """

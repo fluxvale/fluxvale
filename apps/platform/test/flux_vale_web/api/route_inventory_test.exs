@@ -17,9 +17,13 @@ defmodule FluxValeWeb.Api.RouteInventoryTest do
     {:get, "/me"},
     # The actor's own orgs (#362 T6a) — scopeless like /me.
     {:get, "/organizations"},
+    # #770: agent org creation — the actor path (#408), any live token.
+    {:post, "/organizations"},
     # instances:read / instances:write
     {:get, "/instances"},
     {:post, "/instances"},
+    # #770: the org-scoped collection (the agent's scoped list).
+    {:get, "/organizations/:organization_id/instances"},
     {:get, "/instances/:id"},
     # #731 T2: the slug lookup (an extra segment — cannot collide with
     # /instances/:id).
@@ -77,7 +81,11 @@ defmodule FluxValeWeb.Api.RouteInventoryTest do
     {:get, "/apps"},
     {:get, "/apps/:slug"},
     {:get, "/apps/:app_id/versions"},
-    {:get, "/app-versions/:id"}
+    {:get, "/app-versions/:id"},
+    # #770: the default-size rates + the public custom-allocation
+    # quote — the calculator's arithmetic.
+    {:get, "/app-versions/:id/quote"},
+    {:get, "/pricing/quote"}
   ]
 
   # {resource, action} pairs that may NEVER grow a route: the
