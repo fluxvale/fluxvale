@@ -22,10 +22,10 @@ defmodule FluxVale.PromEx.Plugins.Business do
     alert's numerator and denominator.
 
   Cardinality is a closed ceiling, seeded at 0 from boot
-  (PromEx.SeedBusinessCounters): 42 legal instance pairs
+  (PromEx.SeedBusinessCounters): 51 legal instance pairs
   (instance_transition_pairs/0) + 20 gateway pairs
   (gateway_state_pairs/0) + 6 backup outcomes
-  (backup_outcome_pairs/0) = 68 steady-state series. Seeding because
+  (backup_outcome_pairs/0) = 77 steady-state series. Seeding because
   increase() never counts a series' first increment — Prometheus
   anchors on the first scrape and assumes no preceding zero, so a
   series that materializes on its first real event loses that event;
@@ -64,7 +64,7 @@ defmodule FluxVale.PromEx.Plugins.Business do
   @doc """
   Every legal instance (from, to) pair — StatusTransition's table
   plus the any→:error / any→:deleting catch-all arms, from ≠ to:
-  42 pairs. Derived, never restated — the validator stays the one
+  51 pairs. Derived, never restated — the validator stays the one
   writer of the machine.
   """
   @spec instance_transition_pairs() :: [{atom(), atom()}]

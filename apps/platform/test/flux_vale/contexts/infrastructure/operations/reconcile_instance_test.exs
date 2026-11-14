@@ -8,11 +8,19 @@ defmodule FluxVale.Infrastructure.Operations.ReconcileInstanceTest do
   alias FluxVale.Clients.K8s.Error
   alias FluxVale.Clients.K8s.Resources.Deployment
   alias FluxVale.Clients.K8s.Resources.Namespace
+  alias FluxVale.Clients.K8s.Resources.Pod
   alias FluxVale.Identity.User
   alias FluxVale.Infrastructure.Instance
   alias FluxVale.Infrastructure.Operations.InstanceK8s
   alias FluxVale.Infrastructure.Operations.ReconcileInstance
   alias FluxVale.TestSupport.InstanceFixtures
+
+  setup do
+    # The scheduling probe is only consulted for a not-ready workload;
+    # tests that care override this with a pod list.
+    stub(Pod, :list_by_labels, fn _kc, _ns, _labels -> {:ok, []} end)
+    :ok
+  end
 
   defp user do
     User.create!("reconciler-#{System.unique_integer()}@fluxvale.com", %{}, authorize?: false)
@@ -31,7 +39,9 @@ defmodule FluxVale.Infrastructure.Operations.ReconcileInstanceTest do
       case status do
         :deploying -> [:deploying]
         :starting -> [:deploying, :starting]
+        :no_capacity -> [:deploying, :starting, :no_capacity]
         :running -> [:deploying, :starting, :running]
+        :error -> [:deploying, :starting, :running, :error]
         :stopped -> [:deploying, :starting, :running, :stopped]
       end
 
@@ -59,6 +69,44 @@ defmodule FluxVale.Infrastructure.Operations.ReconcileInstanceTest do
     Map.merge(%{"type" => type, "status" => status}, extra_map)
   end
 
+  defp pod(conditions, created_at \\ DateTime.utc_now()) do
+    %{
+      "metadata" => %{"creationTimestamp" => DateTime.to_iso8601(created_at)},
+      "status" => %{"phase" => "Pending", "conditions" => conditions}
+    }
+  end
+
+  defp deployment_status(overrides) do
+    Map.merge(
+      %{
+        replicas: 1,
+        actual_replicas: 0,
+        updated: 0,
+        available: 0,
+        ready: 0,
+        generation: 1,
+        observed_generation: 1,
+        conditions: []
+      },
+      overrides
+    )
+  end
+
+  defp unschedulable_pod do
+    pod([
+      %{
+        "type" => "PodScheduled",
+        "status" => "False",
+        "reason" => "Unschedulable",
+        "message" => "0/3 nodes are available: 3 Insufficient cpu."
+      }
+    ])
+  end
+
+  defp scheduled_pod do
+    pod([%{"type" => "PodScheduled", "status" => "True"}])
+  end
+
   describe "call/1 — promotion" do
     test ":starting with readyReplicas >= replicas promotes to :running and sets anchors" do
       stub_kubeconfig()
@@ -66,7 +114,7 @@ defmodule FluxVale.Infrastructure.Operations.ReconcileInstanceTest do
       ns = "fluxvale-app-#{instance.id}"
 
       expect(Deployment, :status, fn _kc, ^ns, "app" ->
-        {:ok, %{replicas: 1, ready: 1, conditions: []}}
+        {:ok, deployment_status(%{actual_replicas: 1, updated: 1, ready: 1})}
       end)
 
       assert {:ok, running} = ReconcileInstance.call(instance)
@@ -82,7 +130,7 @@ defmodule FluxVale.Infrastructure.Operations.ReconcileInstanceTest do
       # running_since untouched from the update_status writes — assert via
       # the unchanged state, not timestamps.
       expect(Deployment, :status, fn _kc, _ns, _n ->
-        {:ok, %{replicas: 1, ready: 1, conditions: []}}
+        {:ok, deployment_status(%{actual_replicas: 1, updated: 1, ready: 1})}
       end)
 
       assert {:ok, returned} = ReconcileInstance.call(instance)
@@ -95,11 +143,24 @@ defmodule FluxVale.Infrastructure.Operations.ReconcileInstanceTest do
       instance = instance!(:starting)
 
       expect(Deployment, :status, fn _kc, _ns, _n ->
-        {:ok, %{replicas: 1, ready: 0, conditions: []}}
+        {:ok, deployment_status(%{})}
       end)
 
       assert {:ok, returned} = ReconcileInstance.call(instance)
       assert returned.status == :starting
+    end
+
+    test "an externally scaled-to-zero Deployment is a no-op" do
+      stub_kubeconfig()
+      instance = instance!(:running)
+
+      expect(Deployment, :status, fn _kc, _ns, _n ->
+        {:ok, deployment_status(%{replicas: 0})}
+      end)
+
+      assert {:ok, returned} = ReconcileInstance.call(instance)
+      assert returned.status == :running
+      assert returned.updated_at == instance.updated_at
     end
   end
 
@@ -132,10 +193,14 @@ defmodule FluxVale.Infrastructure.Operations.ReconcileInstanceTest do
       stub_kubeconfig()
       instance = instance!(:running)
 
+      # The old pod serves 1/1, but the current revision has no replica
+      # (updated: 0): the deadline is a real stalled rollout, not a
+      # leftover condition on a rolled-out spec.
       expect(Deployment, :status, fn _kc, _ns, _n ->
         {:ok,
          %{
            replicas: 1,
+           updated: 0,
            ready: 1,
            conditions: [
              conditions("Progressing", "False", %{reason: "ProgressDeadlineExceeded"})
@@ -281,6 +346,437 @@ defmodule FluxVale.Infrastructure.Operations.ReconcileInstanceTest do
       assert {:ok, errored} = ReconcileInstance.call(instance)
       assert errored.status == :error
       assert errored.failure_reason == :missing
+    end
+  end
+
+  describe "call/1 — rollout tolerance (#776)" do
+    test "a fresh ReplicaFailure during a running roll stays :running" do
+      stub_kubeconfig()
+      instance = instance!(:running)
+
+      expect(Deployment, :status, fn _kc, _ns, _n ->
+        {:ok,
+         %{
+           replicas: 1,
+           ready: 0,
+           conditions: [
+             conditions("Progressing", "True", reason: "ReplicaSetUpdated"),
+             conditions("ReplicaFailure", "True",
+               reason: "FailedCreate",
+               message: "pods \"app-1\" is forbidden: exceeded quota: app-quota",
+               lastTransitionTime: DateTime.to_iso8601(DateTime.utc_now())
+             )
+           ]
+         }}
+      end)
+
+      assert {:ok, returned} = ReconcileInstance.call(instance)
+      assert returned.status == :running
+      assert returned.updated_at == instance.updated_at
+    end
+
+    test "a fresh ReplicaFailure during a start stays :starting" do
+      stub_kubeconfig()
+      instance = instance!(:starting)
+
+      expect(Deployment, :status, fn _kc, _ns, _n ->
+        {:ok,
+         %{
+           replicas: 1,
+           ready: 0,
+           conditions: [
+             conditions("ReplicaFailure", "True",
+               reason: "FailedCreate",
+               message: "pods \"app-1\" is forbidden: exceeded quota: app-quota",
+               lastTransitionTime: DateTime.to_iso8601(DateTime.utc_now())
+             )
+           ]
+         }}
+      end)
+
+      assert {:ok, returned} = ReconcileInstance.call(instance)
+      assert returned.status == :starting
+    end
+
+    test "a ready workload outranks a leftover deadlined condition" do
+      stub_kubeconfig()
+      instance = instance!(:running)
+
+      expect(Deployment, :status, fn _kc, _ns, _n ->
+        {:ok,
+         deployment_status(%{
+           actual_replicas: 1,
+           updated: 1,
+           ready: 1,
+           conditions: [
+             conditions("Progressing", "False", reason: "ProgressDeadlineExceeded"),
+             conditions("ReplicaFailure", "True",
+               reason: "FailedCreate",
+               message: "exceeded quota",
+               lastTransitionTime: DateTime.to_iso8601(DateTime.utc_now())
+             )
+           ]
+         })}
+      end)
+
+      assert {:ok, returned} = ReconcileInstance.call(instance)
+      assert returned.status == :running
+      assert returned.updated_at == instance.updated_at
+    end
+
+    test "a ready old pod does not mask a stalled current revision" do
+      stub_kubeconfig()
+      instance = instance!(:running)
+
+      # The old ReplicaSet serves 1/1, but the current spec has no ready
+      # replica: a real FailedCreate (not a handoff) must still error.
+      expect(Deployment, :status, fn _kc, _ns, _n ->
+        {:ok,
+         deployment_status(%{
+           actual_replicas: 1,
+           updated: 0,
+           ready: 1,
+           conditions: [conditions("Progressing", "False", reason: "ProgressDeadlineExceeded")]
+         })}
+      end)
+
+      assert {:ok, errored} = ReconcileInstance.call(instance)
+      assert errored.status == :error
+      assert errored.failure_reason == :rollout_failed
+    end
+
+    test "a ready :starting row promotes despite a stale ReplicaFailure" do
+      stub_kubeconfig()
+      instance = instance!(:starting)
+
+      stale = DateTime.add(DateTime.utc_now(), -301, :second)
+
+      expect(Deployment, :status, fn _kc, _ns, _n ->
+        {:ok,
+         deployment_status(%{
+           actual_replicas: 1,
+           updated: 1,
+           ready: 1,
+           conditions: [
+             conditions("ReplicaFailure", "True",
+               reason: "FailedCreate",
+               message: "exceeded quota",
+               lastTransitionTime: DateTime.to_iso8601(stale)
+             )
+           ]
+         })}
+      end)
+
+      assert {:ok, running} = ReconcileInstance.call(instance)
+      assert running.status == :running
+    end
+
+    test "a ReplicaFailure older than the stale bound lands :error with its message" do
+      stub_kubeconfig()
+      instance = instance!(:running)
+
+      stale = DateTime.add(DateTime.utc_now(), -301, :second)
+
+      expect(Deployment, :status, fn _kc, _ns, _n ->
+        {:ok,
+         %{
+           replicas: 1,
+           ready: 0,
+           conditions: [
+             conditions("ReplicaFailure", "True",
+               reason: "FailedCreate",
+               message: "pods \"app-1\" is forbidden: exceeded quota: app-quota",
+               lastTransitionTime: DateTime.to_iso8601(stale)
+             )
+           ]
+         }}
+      end)
+
+      assert {:ok, errored} = ReconcileInstance.call(instance)
+      assert errored.status == :error
+      assert errored.failure_reason == :rollout_failed
+      assert errored.status_message =~ "FailedCreate"
+    end
+
+    test "an unparseable failure timestamp is terminal (cannot prove it fresh)" do
+      stub_kubeconfig()
+      instance = instance!(:starting)
+
+      expect(Deployment, :status, fn _kc, _ns, _n ->
+        {:ok,
+         %{
+           replicas: 1,
+           ready: 0,
+           conditions: [
+             conditions("ReplicaFailure", "True",
+               reason: "FailedCreate",
+               message: "bad spec",
+               lastTransitionTime: "not-a-time"
+             )
+           ]
+         }}
+      end)
+
+      assert {:ok, errored} = ReconcileInstance.call(instance)
+      assert errored.status == :error
+      assert errored.failure_reason == :rollout_failed
+    end
+
+    test "a pod read failure never flips a progressing rollout" do
+      stub_kubeconfig()
+      instance = instance!(:running)
+
+      expect(Deployment, :status, fn _kc, _ns, _n ->
+        {:ok, deployment_status(%{})}
+      end)
+
+      expect(Pod, :list_by_labels, fn _kc, _ns, _labels ->
+        {:error, Error.connection_error("pod list failed")}
+      end)
+
+      assert {:ok, returned} = ReconcileInstance.call(instance)
+      assert returned.status == :running
+    end
+  end
+
+  describe "call/1 — no capacity (#776)" do
+    test ":starting with an unschedulable pod lands :no_capacity with the condition reason" do
+      stub_kubeconfig()
+      instance = instance!(:starting)
+
+      expect(Deployment, :status, fn _kc, _ns, _n ->
+        {:ok, deployment_status(%{})}
+      end)
+
+      expect(Pod, :list_by_labels, fn _kc, _ns, _labels -> {:ok, [unschedulable_pod()]} end)
+
+      assert {:ok, waiting} = ReconcileInstance.call(instance)
+      assert waiting.status == :no_capacity
+      assert waiting.status_message =~ "Insufficient cpu"
+      assert is_nil(waiting.failure_reason)
+    end
+
+    test ":running with an unschedulable replacement lands :no_capacity" do
+      stub_kubeconfig()
+      instance = instance!(:running)
+
+      expect(Deployment, :status, fn _kc, _ns, _n ->
+        {:ok, deployment_status(%{})}
+      end)
+
+      expect(Pod, :list_by_labels, fn _kc, _ns, _labels -> {:ok, [unschedulable_pod()]} end)
+
+      assert {:ok, waiting} = ReconcileInstance.call(instance)
+      assert waiting.status == :no_capacity
+    end
+
+    test "a ready Deployment promotes :no_capacity to :running" do
+      stub_kubeconfig()
+      instance = instance!(:no_capacity)
+
+      expect(Deployment, :status, fn _kc, _ns, _n ->
+        {:ok, deployment_status(%{actual_replicas: 1, updated: 1, ready: 1})}
+      end)
+
+      assert {:ok, running} = ReconcileInstance.call(instance)
+      assert running.status == :running
+      assert running.running_since
+    end
+
+    test "a schedulable pod returns :no_capacity to :starting" do
+      stub_kubeconfig()
+      instance = instance!(:no_capacity)
+
+      expect(Deployment, :status, fn _kc, _ns, _n ->
+        {:ok, deployment_status(%{})}
+      end)
+
+      expect(Pod, :list_by_labels, fn _kc, _ns, _labels -> {:ok, [scheduled_pod()]} end)
+
+      assert {:ok, starting} = ReconcileInstance.call(instance)
+      assert starting.status == :starting
+    end
+
+    test "a still-unschedulable :no_capacity row is a no-op" do
+      stub_kubeconfig()
+      instance = instance!(:no_capacity)
+
+      expect(Deployment, :status, fn _kc, _ns, _n ->
+        {:ok, deployment_status(%{})}
+      end)
+
+      expect(Pod, :list_by_labels, fn _kc, _ns, _labels -> {:ok, [unschedulable_pod()]} end)
+
+      assert {:ok, returned} = ReconcileInstance.call(instance)
+      assert returned.status == :no_capacity
+      assert returned.updated_at == instance.updated_at
+    end
+
+    test "a pod read failure keeps :no_capacity" do
+      stub_kubeconfig()
+      instance = instance!(:no_capacity)
+
+      expect(Deployment, :status, fn _kc, _ns, _n ->
+        {:ok, deployment_status(%{})}
+      end)
+
+      expect(Pod, :list_by_labels, fn _kc, _ns, _labels ->
+        {:error, Error.connection_error("pod list failed")}
+      end)
+
+      assert {:ok, returned} = ReconcileInstance.call(instance)
+      assert returned.status == :no_capacity
+    end
+
+    test "a scaled-to-zero Deployment is left alone" do
+      stub_kubeconfig()
+      instance = instance!(:no_capacity)
+
+      expect(Deployment, :status, fn _kc, _ns, _n ->
+        {:ok, %{replicas: 0, ready: 0, conditions: []}}
+      end)
+
+      assert {:ok, returned} = ReconcileInstance.call(instance)
+      assert returned.status == :no_capacity
+    end
+
+    test "a transient Deployment read failure keeps :no_capacity" do
+      stub_kubeconfig()
+      instance = instance!(:no_capacity)
+
+      expect(Deployment, :status, fn _kc, _ns, _n ->
+        {:error, Error.connection_error("api server restarting")}
+      end)
+
+      assert {:ok, returned} = ReconcileInstance.call(instance)
+      assert returned.status == :no_capacity
+    end
+
+    test "a vanished Deployment goes through the lost/missing decision" do
+      stub_kubeconfig()
+      instance = instance!(:no_capacity)
+
+      expect(Deployment, :status, fn _kc, _ns, _n ->
+        {:error, Error.from_response({:ok, %{status: 404, body: %{}}})}
+      end)
+
+      stub(Namespace, :exists?, fn _kc, _ns -> {:ok, true} end)
+
+      assert {:ok, errored} = ReconcileInstance.call(instance)
+      assert errored.status == :error
+      assert errored.failure_reason == :missing
+    end
+  end
+
+  describe "call/1 — stuck error recovery (#776)" do
+    test "a previously failed row whose Deployment is ready lands :running" do
+      stub_kubeconfig()
+      instance = instance!(:error)
+
+      expect(Deployment, :status, fn _kc, _ns, _n ->
+        {:ok, deployment_status(%{actual_replicas: 1, updated: 1, ready: 1})}
+      end)
+
+      assert {:ok, running} = ReconcileInstance.call(instance)
+      assert running.status == :running
+      assert is_nil(running.failure_reason)
+      assert running.running_since
+    end
+
+    test "a failed row with an unschedulable pod lands :no_capacity" do
+      stub_kubeconfig()
+      instance = instance!(:error)
+
+      expect(Deployment, :status, fn _kc, _ns, _n ->
+        {:ok, deployment_status(%{})}
+      end)
+
+      expect(Pod, :list_by_labels, fn _kc, _ns, _labels -> {:ok, [unschedulable_pod()]} end)
+
+      assert {:ok, waiting} = ReconcileInstance.call(instance)
+      assert waiting.status == :no_capacity
+    end
+
+    test "an intent-bearing failure (stop/restore/teardown) stays error" do
+      stub_kubeconfig()
+      instance = instance!(:running)
+
+      {:ok, stopped_failure} =
+        InstanceK8s.update_status(instance, :error, "stop failed", :stop_failed)
+
+      assert {:ok, returned} = ReconcileInstance.call(stopped_failure)
+      assert returned.status == :error
+      assert returned.failure_reason == :stop_failed
+    end
+
+    test "a not-ready, scheduled workload keeps its error" do
+      stub_kubeconfig()
+      instance = instance!(:error)
+
+      expect(Deployment, :status, fn _kc, _ns, _n ->
+        {:ok, deployment_status(%{})}
+      end)
+
+      expect(Pod, :list_by_labels, fn _kc, _ns, _labels -> {:ok, [scheduled_pod()]} end)
+
+      assert {:ok, returned} = ReconcileInstance.call(instance)
+      assert returned.status == :error
+    end
+
+    test "a transient Deployment read failure keeps the error" do
+      stub_kubeconfig()
+      instance = instance!(:error)
+
+      expect(Deployment, :status, fn _kc, _ns, _n ->
+        {:error, Error.connection_error("api server restarting")}
+      end)
+
+      assert {:ok, returned} = ReconcileInstance.call(instance)
+      assert returned.status == :error
+    end
+
+    test "a missing Deployment on an errored row keeps its error (never-applied shape)" do
+      stub_kubeconfig()
+      instance = instance!(:error)
+
+      expect(Deployment, :status, fn _kc, _ns, _n ->
+        {:error, Error.from_response({:ok, %{status: 404, body: %{}}})}
+      end)
+
+      assert {:ok, returned} = ReconcileInstance.call(instance)
+      assert returned.status == :error
+    end
+
+    test "a scaled-to-zero Deployment is left alone" do
+      stub_kubeconfig()
+      instance = instance!(:error)
+
+      expect(Deployment, :status, fn _kc, _ns, _n ->
+        {:ok, %{replicas: 0, ready: 0, conditions: []}}
+      end)
+
+      assert {:ok, returned} = ReconcileInstance.call(instance)
+      assert returned.status == :error
+    end
+
+    test "an errored row with no namespace is left alone" do
+      version = InstanceFixtures.app_version!()
+
+      instance =
+        Ash.Seed.seed!(Instance, %{
+          name: "Never deployed",
+          slug: "never-deployed-error-0001",
+          image: "example.com/app:1",
+          port: 3000,
+          healthcheck_path: "/",
+          status: :error,
+          failure_reason: :rollout_failed,
+          env_vars: %{},
+          app_version_id: version.id
+        })
+
+      assert {:ok, returned} = ReconcileInstance.call(instance)
+      assert returned.status == :error
     end
   end
 

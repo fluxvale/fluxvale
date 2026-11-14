@@ -75,7 +75,7 @@ defmodule FluxVale.Infrastructure.Operations.RestoringStateTest do
   end
 
   describe "the reconciler leaves :restoring alone" do
-    test "its trigger filter admits exactly the deployed/starting/running states" do
+    test "its trigger filter admits the reconciled states" do
       trigger = AshOban.Info.oban_trigger(Instance, :reconcile_status)
       query = Ash.Query.filter(Instance, trigger.where)
       domain = Infrastructure
@@ -90,7 +90,30 @@ defmodule FluxVale.Infrastructure.Operations.RestoringStateTest do
             {:ok, [_match]} <- [Runtime.filter_matches(domain, [row], query.filter)],
             do: status
 
-      assert matched == [:deploying, :starting, :running]
+      assert matched == [:deploying, :starting, :no_capacity, :running, :error]
+    end
+
+    test "the trigger admits only the recoverable error reasons (#776)" do
+      trigger = AshOban.Info.oban_trigger(Instance, :reconcile_status)
+      query = Ash.Query.filter(Instance, trigger.where)
+      domain = Infrastructure
+
+      admitted? = fn reason ->
+        row = %Instance{id: Ash.UUID.generate(), status: :error, failure_reason: reason}
+
+        match?(
+          {:ok, [_match]},
+          Runtime.filter_matches(domain, [row], query.filter)
+        )
+      end
+
+      for reason <- [nil, :stuck, :missing, :rollout_failed, :start_failed] do
+        assert admitted?.(reason), "expected #{inspect(reason)} to be admitted"
+      end
+
+      for reason <- [:deploy_failed, :stop_failed, :restore_failed, :teardown_failed] do
+        refute admitted?.(reason), "expected #{inspect(reason)} to stay out"
+      end
     end
 
     test "a direct reconcile call on a :restoring row is a no-op" do

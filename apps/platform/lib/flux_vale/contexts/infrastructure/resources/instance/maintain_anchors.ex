@@ -13,7 +13,8 @@ defmodule FluxVale.Infrastructure.Instance.MaintainAnchors do
     just-woken instance can't be re-swept on a stale marker. The
     unbilled carry is untouched: whatever a previous stop closed stays
     pending for the next settle.
-  - Leaving `:running` (→ stopped | sleeping | error | deleting): the
+  - Leaving `:running` (→ stopped | sleeping | no_capacity | error |
+    deleting): the
     interval's unbilled time — from the later of `running_since` and the
     storage cursor (the last committed settle) to now — folds into
     `unbilled_running_usec` (accumulating any already-pending time), and

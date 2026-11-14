@@ -27,6 +27,7 @@ defmodule FluxValeWeb.InstanceStatus do
     pending: "Submitted",
     deploying: "Provisioning",
     starting: "Starting",
+    no_capacity: "No capacity",
     running: "Running",
     sleeping: "Sleeping",
     restoring: "Restoring",
@@ -40,6 +41,8 @@ defmodule FluxValeWeb.InstanceStatus do
     pending: "We've got your request. Setup will begin shortly.",
     deploying: "Setting up your app.",
     starting: "Starting it up.",
+    no_capacity:
+      "There's no room on our machines right now. Your app is waiting and will start automatically when space frees up.",
     running: "Your app is up and running.",
     sleeping:
       "Your app is asleep after a stretch without visitors. It wakes automatically the next time someone opens it (a few seconds), and costs only storage while it rests.",

@@ -21,4 +21,14 @@ defmodule FluxVale.Infrastructure.Types.InstanceFailureReason do
       :restore_failed,
       :teardown_failed
     ]
+
+  # The unintended failures a healthy workload may clear (#776) — the
+  # reconciler's recovery gate and its trigger's queue filter read this
+  # one list, so the two cannot drift. `nil` (legacy rows) is added by
+  # the reconciler separately: SQL `IN` does not match NULL.
+  @recoverable [:stuck, :missing, :rollout_failed, :start_failed]
+
+  @doc "The failure reasons eligible for stale-error recovery (#776)."
+  @spec recoverable() :: [atom()]
+  def recoverable, do: @recoverable
 end

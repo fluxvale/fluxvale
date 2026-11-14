@@ -181,7 +181,7 @@ tofu state pull | grep -c 'the-secret-value'
 # 0
 ```
 
-The platform rolls a running app after an env change. If the app's quota cannot fit a second pod during that rollout, stop it (`running = false`), apply the bump, then start it again (`running = true`); otherwise the rollout can mark the instance `error`.
+The platform rolls a running app after an env change. The rollout takes the old pod down before the new one starts — one pod at a time, within the instance's existing quota — so expect a short restart and no stop/start.
 
 Write-only inputs need Terraform 1.12+ or OpenTofu 1.13+ and provider 0.4.0+. Existing configurations need no change, and older CLIs can keep using `env_vars` with state encryption at rest. The provider's [Secrets in Terraform guide](https://github.com/fluxvale/terraform-provider-fluxvale/blob/main/docs/guides/secrets.md) has the full ladder, the unencrypted-state migration, and the OpenTofu AWS KMS, GCP KMS, Azure Key Vault, and OpenBao key variants.
 

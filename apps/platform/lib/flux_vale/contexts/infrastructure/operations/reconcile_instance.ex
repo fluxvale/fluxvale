@@ -7,9 +7,23 @@ defmodule FluxVale.Infrastructure.Operations.ReconcileInstance do
   - `:deploying` stuck past the stale timeout (deploy job died
     mid-flight) → `:error`; a fresh `:deploying` is the deploy job's
     state — not fought over
-  - `:starting` + readyReplicas ≥ replicas → `:running`
+  - `:starting`/`:no_capacity`/`:error` whose CURRENT revision is
+    replicated and ready → `:running` (the `:running` case is a no-op);
+    readiness outranks leftover failed-rollout conditions
+  - `:starting`/`:running`/`:error`/`:no_capacity` + an unschedulable
+    pod (`PodScheduled=False` / `Unschedulable`) → `:no_capacity`, with
+    the pod's condition reason in `status_message` — capacity is not a
+    crash
   - `:starting`/`:running` + failed rollout conditions
-    (`ReplicaFailure`, `ProgressDeadlineExceeded`) → `:error`
+    (`ReplicaFailure`, `ProgressDeadlineExceeded`) on a not-yet-ready
+    current revision → `:error`; a fresh `ReplicaFailure` is retried
+    (the ReplicaSet controller recreates a rejected pod, and a
+    terminating pod holds the quota until it goes) and only a failure
+    older than the deploy-stale bound is terminal
+  - `:error` rows whose failure is unintended (stuck/missing/rollout/
+    start) and whose current revision is now ready → `:running`; the
+    intent-bearing failures (`:stop_failed`, `:restore_failed`,
+    `:teardown_failed`) keep their error
   - `:starting`/`:running` whose Deployment vanished (404) or became
     unreadable as **403** (the per-namespace RoleBinding dies with the
     namespace, so a deleted namespace answers Deployment reads with
@@ -30,6 +44,7 @@ defmodule FluxVale.Infrastructure.Operations.ReconcileInstance do
   alias FluxVale.Clients.K8s.Error
   alias FluxVale.Clients.K8s.Resources.Deployment
   alias FluxVale.Clients.K8s.Resources.Namespace
+  alias FluxVale.Clients.K8s.Resources.Pod
   alias FluxVale.Infrastructure.Instance
   alias FluxVale.Infrastructure.Operations.InstanceK8s
 
@@ -42,6 +57,20 @@ defmodule FluxVale.Infrastructure.Operations.ReconcileInstance do
                                   300
                                 )
 
+  # The app Deployment's pod labels; the instance namespace holds only
+  # the app's pods (the gateway lives in its own namespace).
+  @app_labels %{"app.kubernetes.io/name" => "app"}
+
+  # A stuck `:error` row is not a terminal verdict: if the workload is
+  # healthy now, the row was the stale half of an old failure. Only
+  # unintended failures are recoverable — a failed stop/restore/teardown
+  # carries the owner's (or the teardown's) intent and must stay error.
+  # `nil` joins here (legacy rows); the trigger adds it explicitly
+  # because SQL `IN` does not match NULL.
+  @recoverable_error_reasons [
+    nil | FluxVale.Infrastructure.Types.InstanceFailureReason.recoverable()
+  ]
+
   @doc """
   Reconciles one Instance. Returns `{:ok, instance}` — reconcile outcomes
   are status writes, not job failures (v1 contract, kept).
@@ -51,7 +80,8 @@ defmodule FluxVale.Infrastructure.Operations.ReconcileInstance do
   alongside `instance.deploy`.
   """
   @spec call(Instance.t()) :: {:ok, Instance.t()}
-  def call(%{status: status} = instance) when status in [:deploying, :starting, :running] do
+  def call(%{status: status} = instance)
+      when status in [:deploying, :starting, :running, :no_capacity, :error] do
     OpenTelemetry.Tracer.with_span "instance.reconcile", reconcile_span_attrs(instance, status) do
       reconcile(instance)
     end
@@ -76,10 +106,35 @@ defmodule FluxVale.Infrastructure.Operations.ReconcileInstance do
     end
   end
 
+  # A never-deployed row has no Deployment to read; the row's own
+  # failure stands.
+  defp reconcile(%{status: :error, failure_reason: reason, namespace: nil} = instance)
+       when reason in @recoverable_error_reasons,
+       do: {:ok, instance}
+
+  # The stuck-error recovery: the row outlived its failure, the workload
+  # is healthy. Only unintended failures recover — see the module attr.
+  defp reconcile(%{status: :error, failure_reason: reason} = instance)
+       when reason in @recoverable_error_reasons do
+    with_kubeconfig(instance, &recover_errored/2)
+  end
+
+  # An intent-bearing error (stop/restore/teardown) is not the
+  # reconciler's to clear.
+  defp reconcile(%{status: :error} = instance), do: {:ok, instance}
+
+  defp reconcile(%{status: :no_capacity} = instance) do
+    with_kubeconfig(instance, &recover_no_capacity/2)
+  end
+
   defp reconcile(%{status: status} = instance) when status in [:starting, :running] do
+    with_kubeconfig(instance, &mirror_deployment_status/2)
+  end
+
+  defp with_kubeconfig(instance, fun) do
     case InstanceK8s.kubeconfig_for(instance) do
       {:ok, kubeconfig} ->
-        mirror_deployment_status(kubeconfig, instance)
+        fun.(kubeconfig, instance)
 
       # Cluster/kubeconfig resolution failure — don't flip on config
       # errors, but never silently (#196's visibility rule).
@@ -95,22 +150,85 @@ defmodule FluxVale.Infrastructure.Operations.ReconcileInstance do
   defp mirror_deployment_status(kubeconfig, instance) do
     case Deployment.status(kubeconfig, instance.namespace, "app") do
       {:ok, deployment_status} ->
-        transition_for(instance, deployment_status)
+        transition_for(kubeconfig, instance, deployment_status)
 
       {:error, %Error{reason: reason}} when reason in [:not_found, :forbidden] ->
         vanished_deployment_outcome(kubeconfig, instance, reason)
 
       {:error, error} ->
-        # Transient K8s API read failure — don't flip status on a failed
-        # read. Logged, never silent: a detector that fails quietly is
-        # indistinguishable from one that affirmed health (#196's
-        # 90-minute blind spot).
-        Logger.warning(
-          "Instance #{instance.id}: reconcile read failed (#{error.message}); leaving #{instance.status}"
-        )
-
-        {:ok, instance}
+        log_read_failure(instance, error)
     end
+  end
+
+  # A never-applied Deployment on an errored row is a failed deploy, not
+  # a loss; the sweep owns namespace loss. A *deployed* no_capacity row
+  # whose Deployment vanished is the #196 shape and goes through the
+  # same lost/missing decision as starting/running.
+  defp recover_errored(kubeconfig, instance) do
+    case Deployment.status(kubeconfig, instance.namespace, "app") do
+      {:ok, %{replicas: desired} = status} when desired > 0 ->
+        recover_if_ready(kubeconfig, instance, status)
+
+      {:ok, _scaled_to_zero} ->
+        {:ok, instance}
+
+      {:error, %Error{reason: reason}} when reason in [:not_found, :forbidden] ->
+        {:ok, instance}
+
+      {:error, error} ->
+        log_read_failure(instance, error)
+    end
+  end
+
+  defp recover_no_capacity(kubeconfig, instance) do
+    case Deployment.status(kubeconfig, instance.namespace, "app") do
+      {:ok, %{replicas: desired} = status} when desired > 0 ->
+        waiting_outcome(kubeconfig, instance, status)
+
+      {:ok, _scaled_to_zero} ->
+        {:ok, instance}
+
+      {:error, %Error{reason: reason}} when reason in [:not_found, :forbidden] ->
+        vanished_deployment_outcome(kubeconfig, instance, reason)
+
+      {:error, error} ->
+        log_read_failure(instance, error)
+    end
+  end
+
+  defp waiting_outcome(kubeconfig, instance, status) do
+    if current_revision_ready?(status) do
+      promote_running(instance)
+    else
+      case scheduling_state(kubeconfig, instance) do
+        {:unschedulable, reason} -> mark_no_capacity(instance, reason)
+        :scheduled_or_absent -> back_to_starting(instance)
+        {:error, _error} -> {:ok, instance}
+      end
+    end
+  end
+
+  defp recover_if_ready(kubeconfig, instance, status) do
+    if current_revision_ready?(status) do
+      promote_running(instance)
+    else
+      case scheduling_state(kubeconfig, instance) do
+        {:unschedulable, reason} -> mark_no_capacity(instance, reason)
+        _scheduled_or_unreadable -> {:ok, instance}
+      end
+    end
+  end
+
+  defp log_read_failure(instance, error) do
+    # Transient K8s API read failure — don't flip status on a failed
+    # read. Logged, never silent: a detector that fails quietly is
+    # indistinguishable from one that affirmed health (#196's
+    # 90-minute blind spot).
+    Logger.warning(
+      "Instance #{instance.id}: reconcile read failed (#{error.message}); leaving #{instance.status}"
+    )
+
+    {:ok, instance}
   end
 
   # A vanished or forbidden Deployment read means one of three things
@@ -168,28 +286,116 @@ defmodule FluxVale.Infrastructure.Operations.ReconcileInstance do
     DateTime.diff(DateTime.utc_now(), deployed_at, :second) > @deploy_stale_timeout_seconds
   end
 
-  defp transition_for(instance, %{replicas: desired, ready: ready, conditions: conditions}) do
+  # An externally scaled-to-zero Deployment has nothing to judge (the
+  # platform did not scale it — v1 stance, kept).
+  defp transition_for(_kubeconfig, instance, %{replicas: 0}), do: {:ok, instance}
+
+  defp transition_for(kubeconfig, instance, %{conditions: conditions} = status) do
     cond do
+      current_revision_ready?(status) ->
+        promote_running(instance)
+
+      other = unschedulable_pod(kubeconfig, instance) ->
+        mark_no_capacity(instance, other)
+
       failed_rollout?(conditions) ->
-        message = rollout_failure_message(conditions)
+        fail_rollout(instance, conditions)
 
-        Logger.warning(
-          "Instance #{instance.id}: failed rollout condition detected; marking :error (#{message})"
-        )
-
-        flip_to_error(instance, message, :rollout_failed)
-
-      desired > 0 and ready >= desired ->
-        if instance.status == :starting do
-          InstanceK8s.update_status(instance, :running, nil)
-        else
-          {:ok, instance}
-        end
+      fresh_replica_failure?(conditions) ->
+        log_held_rollout(instance, conditions)
+        {:ok, instance}
 
       true ->
         # Still progressing, or externally scaled to zero — no autonomous
         # decision (v1 stance, kept).
         {:ok, instance}
+    end
+  end
+
+  # The CURRENT revision is replicated and ready — the spec that is
+  # serving now. Conditions left over from an earlier failed revision do
+  # not outrank it; the updated-replicas check keeps a stalled rollout
+  # honest, because ready old pods alone are not a rolled-out spec
+  # (#776). Scaled-to-zero is handled by the caller's desired > 0 guard.
+  defp current_revision_ready?(%{replicas: desired, ready: ready} = status) when desired > 0 do
+    ready >= desired and Map.get(status, :updated, 0) >= desired
+  end
+
+  # Defensive: every caller passes desired > 0 (transition_for's zero
+  # clause and the recovery guards).
+  # coveralls-ignore-next-line
+  defp current_revision_ready?(_status), do: false
+
+  defp fail_rollout(instance, conditions) do
+    message = rollout_failure_message(conditions)
+
+    Logger.warning(
+      "Instance #{instance.id}: failed rollout condition detected; marking :error (#{message})"
+    )
+
+    flip_to_error(instance, message, :rollout_failed)
+  end
+
+  defp promote_running(%{status: :running} = instance), do: {:ok, instance}
+
+  defp promote_running(instance) do
+    Logger.info("Instance #{instance.id}: workload is ready; promoting to :running")
+
+    InstanceK8s.update_status(instance, :running, nil)
+  end
+
+  defp back_to_starting(%{status: :no_capacity} = instance) do
+    Logger.info("Instance #{instance.id}: pod is schedulable again; returning to :starting")
+
+    InstanceK8s.update_status(instance, :starting, "Starting; awaiting readiness")
+  end
+
+  defp mark_no_capacity(%{status: :no_capacity} = instance, _reason), do: {:ok, instance}
+
+  defp mark_no_capacity(instance, reason) do
+    Logger.warning("Instance #{instance.id}: pod unschedulable (#{reason}); marking :no_capacity")
+
+    InstanceK8s.update_status(instance, :no_capacity, "Waiting for capacity — #{reason}")
+  end
+
+  # The Deployment is not ready; look at the newest non-terminating app
+  # pod. A scheduler rejection is capacity, not a crash — and a read
+  # failure must not be mistaken for either.
+  defp unschedulable_pod(kubeconfig, instance) do
+    case scheduling_state(kubeconfig, instance) do
+      {:unschedulable, reason} -> reason
+      _scheduled_absent_or_unreadable -> nil
+    end
+  end
+
+  defp scheduling_state(kubeconfig, instance) do
+    case Pod.list_by_labels(kubeconfig, instance.namespace, @app_labels) do
+      {:ok, pods} ->
+        pod = newest_pod(pods)
+        pod_scheduling_state(pod)
+
+      {:error, error} ->
+        Logger.warning(
+          "Instance #{instance.id}: pod read failed (#{error.message}); leaving #{instance.status}"
+        )
+
+        {:error, error}
+    end
+  end
+
+  defp newest_pod(pods) do
+    pods
+    |> Enum.reject(&Pod.terminating?/1)
+    |> Enum.sort_by(&Pod.started_at/1, {:desc, DateTime})
+    |> List.first()
+  end
+
+  defp pod_scheduling_state(nil), do: :scheduled_or_absent
+
+  defp pod_scheduling_state(pod) do
+    case Pod.unschedulable_reason(pod) do
+      nil -> :scheduled_or_absent
+      reason -> {:unschedulable, reason}
     end
   end
 
@@ -205,9 +411,13 @@ defmodule FluxVale.Infrastructure.Operations.ReconcileInstance do
     Enum.any?(conditions, &failure_condition?/1)
   end
 
-  # A True ReplicaFailure or a ProgressDeadlineExceeded Progressing
-  # condition both signal a failed rollout (crash-loop, image pull, ...).
-  defp failure_condition?(%{"type" => "ReplicaFailure", "status" => "True"}), do: true
+  # ReplicaFailure alone is not terminal: the ReplicaSet controller
+  # recreates a pod admission rejected, and a terminating pod holds the
+  # quota until it goes (the maxSurge:0 handoff). It becomes terminal
+  # only after the deploy-stale bound; ProgressDeadlineExceeded is
+  # Kubernetes' own terminal signal.
+  defp failure_condition?(%{"type" => "ReplicaFailure", "status" => "True"} = condition),
+    do: stale_condition?(condition)
 
   defp failure_condition?(%{
          "type" => "Progressing",
@@ -217,6 +427,37 @@ defmodule FluxVale.Infrastructure.Operations.ReconcileInstance do
        do: true
 
   defp failure_condition?(_condition), do: false
+
+  defp fresh_replica_failure?(conditions) do
+    Enum.any?(conditions, fn
+      %{"type" => "ReplicaFailure", "status" => "True"} = condition ->
+        not stale_condition?(condition)
+
+      _condition ->
+        false
+    end)
+  end
+
+  defp stale_condition?(%{"lastTransitionTime" => timestamp}) do
+    case DateTime.from_iso8601(timestamp) do
+      {:ok, at, _offset} ->
+        DateTime.diff(DateTime.utc_now(), at, :second) > @deploy_stale_timeout_seconds
+
+      # Defensive: K8s always emits an RFC3339 stamp. An unreadable one
+      # cannot prove the failure is fresh, so it stays terminal.
+      {:error, _reason} ->
+        true
+    end
+  end
+
+  defp stale_condition?(_condition), do: true
+
+  defp log_held_rollout(instance, conditions) do
+    Logger.warning(
+      "Instance #{instance.id}: ReplicaFailure while the rollout is progressing; " <>
+        "holding #{instance.status} (#{condition_message(conditions, "ReplicaFailure") || "unknown"})"
+    )
+  end
 
   defp rollout_failure_message(conditions) do
     cond do

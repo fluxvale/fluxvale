@@ -24,6 +24,7 @@ defmodule FluxVale.Infrastructure.Operations.InstanceSpansTest do
   alias FluxVale.Clients.K8s.Resources.Namespace
   alias FluxVale.Clients.K8s.Resources.NetworkPolicy
   alias FluxVale.Clients.K8s.Resources.PersistentVolumeClaim
+  alias FluxVale.Clients.K8s.Resources.Pod
   alias FluxVale.Clients.K8s.Resources.ResourceQuota
   alias FluxVale.Clients.K8s.Resources.RoleBinding
   alias FluxVale.Clients.K8s.Resources.Secret
@@ -127,7 +128,7 @@ defmodule FluxVale.Infrastructure.Operations.InstanceSpansTest do
       stub_kubeconfig()
 
       stub(Deployment, :status, fn _kc, _ns, _name ->
-        {:ok, %{replicas: 1, ready: 1, conditions: []}}
+        {:ok, %{replicas: 1, updated: 1, ready: 1, conditions: []}}
       end)
 
       instance = creating!()
@@ -166,6 +167,7 @@ defmodule FluxVale.Infrastructure.Operations.InstanceSpansTest do
 
   defp stub_kubeconfig do
     stub(K8s, :kubeconfig, fn nil -> {:ok, %{}} end)
+    stub(Pod, :list_by_labels, fn _kc, _ns, _labels -> {:ok, []} end)
   end
 
   # Every operand the deploy applies — shapes are asserted by

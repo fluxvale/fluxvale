@@ -88,8 +88,10 @@ defmodule FluxVale.Infrastructure.Operations.SweepStrandedInstances do
   # below the reconciler's trigger, so this sweep is its loss detector.
   # :restoring (#222) joins too: the reconciler never reads it, so a
   # namespace an outside actor deletes mid-restore would otherwise stay
-  # :restoring forever with its storage accruing.
-  @stranded_statuses [:running, :stopped, :sleeping, :error, :restoring]
+  # :restoring forever with its storage accruing. :no_capacity (#776)
+  # is a deployed waiting state with the same storage anchor; the
+  # reconciler normally catches the loss, this is the backstop.
+  @stranded_statuses [:running, :stopped, :sleeping, :error, :restoring, :no_capacity]
 
   @lost_message "Namespace gone from cluster; marked lost (#196)"
 

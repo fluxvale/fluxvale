@@ -511,6 +511,7 @@ defmodule FluxValeWeb.AdminLive.Health do
     :pending,
     :deploying,
     :starting,
+    :no_capacity,
     :running,
     :restoring,
     :sleeping,

@@ -74,6 +74,15 @@ defmodule FluxVale.Clients.K8s.Resources.DeploymentTest do
       assert container(manifest)["startupProbe"]["failureThreshold"] == 18
     end
 
+    test "a single replica rolls without a surge pod (#776)" do
+      manifest = Deployment.build_manifest("ns", "app", base_spec())
+
+      assert get_in(manifest, ["spec", "strategy"]) == %{
+               "type" => "RollingUpdate",
+               "rollingUpdate" => %{"maxSurge" => 0, "maxUnavailable" => 1}
+             }
+    end
+
     test "labels and selector agree for rollout matching" do
       manifest = Deployment.build_manifest("ns", "app", base_spec())
 
@@ -568,6 +577,12 @@ defmodule FluxVale.Clients.K8s.Resources.DeploymentTest do
       expect(Kubereq, :apply, fn _req, manifest, _fm ->
         assert manifest["metadata"]["managedFields"] == nil
         assert manifest["spec"]["replicas"] == 3
+
+        assert manifest["spec"]["strategy"] == %{
+                 "type" => "RollingUpdate",
+                 "rollingUpdate" => %{"maxSurge" => 0, "maxUnavailable" => 1}
+               }
+
         {:ok, %{status: 200, body: manifest}}
       end)
 
@@ -601,6 +616,27 @@ defmodule FluxVale.Clients.K8s.Resources.DeploymentTest do
 
         annotations = get_in(manifest, ["spec", "template", "metadata", "annotations"])
         assert Map.has_key?(annotations, "fluxvale.io/restartedAt")
+
+        {:ok, %{status: 200, body: manifest}}
+      end)
+
+      assert {:ok, _body} = Deployment.restart(%{}, "fluxvale-app-1", "forgejo")
+    end
+
+    test "normalizes a pre-#776 Deployment's persisted 25% surge strategy" do
+      fetched =
+        put_in(fetched_deployment(), ["spec", "strategy"], %{
+          "type" => "RollingUpdate",
+          "rollingUpdate" => %{"maxSurge" => "25%", "maxUnavailable" => "25%"}
+        })
+
+      expect(Kubereq, :get, fn _req, _ns, _name -> {:ok, %{status: 200, body: fetched}} end)
+
+      expect(Kubereq, :apply, fn _req, manifest, _fm ->
+        assert manifest["spec"]["strategy"] == %{
+                 "type" => "RollingUpdate",
+                 "rollingUpdate" => %{"maxSurge" => 0, "maxUnavailable" => 1}
+               }
 
         {:ok, %{status: 200, body: manifest}}
       end)

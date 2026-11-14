@@ -1,6 +1,6 @@
 defmodule FluxVale.PromEx.SeedBusinessCountersTest do
   @moduledoc """
-  The boot zero-seed: with no real event fired, all 68 closed-enum
+  The boot zero-seed: with no real event fired, all 77 closed-enum
   combos exist in the scrape at 0 — so increase() anchors on a zero
   sample and the first real event counts (the fleet occupancy rules'
   contract; a series' first increment is otherwise invisible).
@@ -15,7 +15,7 @@ defmodule FluxVale.PromEx.SeedBusinessCountersTest do
 
   @zeroed ~r/^flux_vale_(instance_status_transition|gateway_state_change|backup_run)_total\{.*\} 0$/
 
-  test "the boot child seeds all 68 combos at zero and exits cleanly" do
+  test "the boot child seeds all 77 combos at zero and exits cleanly" do
     start_supervised!(FluxVale.PromEx)
 
     seeder = start_supervised!(SeedBusinessCounters)
@@ -35,7 +35,7 @@ defmodule FluxVale.PromEx.SeedBusinessCountersTest do
     # The ceiling, exactly: no more (a spurious combo would be a
     # permanent phantom series), no fewer (a missing one is the
     # deploy-blind edge this seeder exists to fix).
-    assert length(zeroed_lines) == 68
+    assert length(zeroed_lines) == 77
 
     # Every combo by name — count alone could hide a dupe/miss pair.
     # The instance family carries from/to only (the fleet drops

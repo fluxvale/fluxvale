@@ -4697,6 +4697,8 @@ pub enum BackupRunAttributesRestoredFrom {
     Deploying,
     #[serde(rename = "starting")]
     Starting,
+    #[serde(rename = "no_capacity")]
+    NoCapacity,
     #[serde(rename = "running")]
     Running,
     #[serde(rename = "sleeping")]
@@ -4718,6 +4720,7 @@ impl ::std::fmt::Display for BackupRunAttributesRestoredFrom {
             Self::Pending => f.write_str("pending"),
             Self::Deploying => f.write_str("deploying"),
             Self::Starting => f.write_str("starting"),
+            Self::NoCapacity => f.write_str("no_capacity"),
             Self::Running => f.write_str("running"),
             Self::Sleeping => f.write_str("sleeping"),
             Self::Restoring => f.write_str("restoring"),
@@ -4735,6 +4738,7 @@ impl ::std::str::FromStr for BackupRunAttributesRestoredFrom {
             "pending" => Ok(Self::Pending),
             "deploying" => Ok(Self::Deploying),
             "starting" => Ok(Self::Starting),
+            "no_capacity" => Ok(Self::NoCapacity),
             "running" => Ok(Self::Running),
             "sleeping" => Ok(Self::Sleeping),
             "restoring" => Ok(Self::Restoring),
@@ -5642,6 +5646,8 @@ pub enum BackupRunFilterRestoredFromEq {
     Deploying,
     #[serde(rename = "starting")]
     Starting,
+    #[serde(rename = "no_capacity")]
+    NoCapacity,
     #[serde(rename = "running")]
     Running,
     #[serde(rename = "sleeping")]
@@ -5663,6 +5669,7 @@ impl ::std::fmt::Display for BackupRunFilterRestoredFromEq {
             Self::Pending => f.write_str("pending"),
             Self::Deploying => f.write_str("deploying"),
             Self::Starting => f.write_str("starting"),
+            Self::NoCapacity => f.write_str("no_capacity"),
             Self::Running => f.write_str("running"),
             Self::Sleeping => f.write_str("sleeping"),
             Self::Restoring => f.write_str("restoring"),
@@ -5680,6 +5687,7 @@ impl ::std::str::FromStr for BackupRunFilterRestoredFromEq {
             "pending" => Ok(Self::Pending),
             "deploying" => Ok(Self::Deploying),
             "starting" => Ok(Self::Starting),
+            "no_capacity" => Ok(Self::NoCapacity),
             "running" => Ok(Self::Running),
             "sleeping" => Ok(Self::Sleeping),
             "restoring" => Ok(Self::Restoring),
@@ -5725,6 +5733,8 @@ pub enum BackupRunFilterRestoredFromGreaterThan {
     Deploying,
     #[serde(rename = "starting")]
     Starting,
+    #[serde(rename = "no_capacity")]
+    NoCapacity,
     #[serde(rename = "running")]
     Running,
     #[serde(rename = "sleeping")]
@@ -5746,6 +5756,7 @@ impl ::std::fmt::Display for BackupRunFilterRestoredFromGreaterThan {
             Self::Pending => f.write_str("pending"),
             Self::Deploying => f.write_str("deploying"),
             Self::Starting => f.write_str("starting"),
+            Self::NoCapacity => f.write_str("no_capacity"),
             Self::Running => f.write_str("running"),
             Self::Sleeping => f.write_str("sleeping"),
             Self::Restoring => f.write_str("restoring"),
@@ -5763,6 +5774,7 @@ impl ::std::str::FromStr for BackupRunFilterRestoredFromGreaterThan {
             "pending" => Ok(Self::Pending),
             "deploying" => Ok(Self::Deploying),
             "starting" => Ok(Self::Starting),
+            "no_capacity" => Ok(Self::NoCapacity),
             "running" => Ok(Self::Running),
             "sleeping" => Ok(Self::Sleeping),
             "restoring" => Ok(Self::Restoring),
@@ -5808,6 +5820,8 @@ pub enum BackupRunFilterRestoredFromGreaterThanOrEqual {
     Deploying,
     #[serde(rename = "starting")]
     Starting,
+    #[serde(rename = "no_capacity")]
+    NoCapacity,
     #[serde(rename = "running")]
     Running,
     #[serde(rename = "sleeping")]
@@ -5829,6 +5843,7 @@ impl ::std::fmt::Display for BackupRunFilterRestoredFromGreaterThanOrEqual {
             Self::Pending => f.write_str("pending"),
             Self::Deploying => f.write_str("deploying"),
             Self::Starting => f.write_str("starting"),
+            Self::NoCapacity => f.write_str("no_capacity"),
             Self::Running => f.write_str("running"),
             Self::Sleeping => f.write_str("sleeping"),
             Self::Restoring => f.write_str("restoring"),
@@ -5846,6 +5861,7 @@ impl ::std::str::FromStr for BackupRunFilterRestoredFromGreaterThanOrEqual {
             "pending" => Ok(Self::Pending),
             "deploying" => Ok(Self::Deploying),
             "starting" => Ok(Self::Starting),
+            "no_capacity" => Ok(Self::NoCapacity),
             "running" => Ok(Self::Running),
             "sleeping" => Ok(Self::Sleeping),
             "restoring" => Ok(Self::Restoring),
@@ -5893,6 +5909,8 @@ pub enum BackupRunFilterRestoredFromInItem {
     Deploying,
     #[serde(rename = "starting")]
     Starting,
+    #[serde(rename = "no_capacity")]
+    NoCapacity,
     #[serde(rename = "running")]
     Running,
     #[serde(rename = "sleeping")]
@@ -5914,6 +5932,7 @@ impl ::std::fmt::Display for BackupRunFilterRestoredFromInItem {
             Self::Pending => f.write_str("pending"),
             Self::Deploying => f.write_str("deploying"),
             Self::Starting => f.write_str("starting"),
+            Self::NoCapacity => f.write_str("no_capacity"),
             Self::Running => f.write_str("running"),
             Self::Sleeping => f.write_str("sleeping"),
             Self::Restoring => f.write_str("restoring"),
@@ -5931,6 +5950,7 @@ impl ::std::str::FromStr for BackupRunFilterRestoredFromInItem {
             "pending" => Ok(Self::Pending),
             "deploying" => Ok(Self::Deploying),
             "starting" => Ok(Self::Starting),
+            "no_capacity" => Ok(Self::NoCapacity),
             "running" => Ok(Self::Running),
             "sleeping" => Ok(Self::Sleeping),
             "restoring" => Ok(Self::Restoring),
@@ -5976,6 +5996,8 @@ pub enum BackupRunFilterRestoredFromIsDistinctFrom {
     Deploying,
     #[serde(rename = "starting")]
     Starting,
+    #[serde(rename = "no_capacity")]
+    NoCapacity,
     #[serde(rename = "running")]
     Running,
     #[serde(rename = "sleeping")]
@@ -5997,6 +6019,7 @@ impl ::std::fmt::Display for BackupRunFilterRestoredFromIsDistinctFrom {
             Self::Pending => f.write_str("pending"),
             Self::Deploying => f.write_str("deploying"),
             Self::Starting => f.write_str("starting"),
+            Self::NoCapacity => f.write_str("no_capacity"),
             Self::Running => f.write_str("running"),
             Self::Sleeping => f.write_str("sleeping"),
             Self::Restoring => f.write_str("restoring"),
@@ -6014,6 +6037,7 @@ impl ::std::str::FromStr for BackupRunFilterRestoredFromIsDistinctFrom {
             "pending" => Ok(Self::Pending),
             "deploying" => Ok(Self::Deploying),
             "starting" => Ok(Self::Starting),
+            "no_capacity" => Ok(Self::NoCapacity),
             "running" => Ok(Self::Running),
             "sleeping" => Ok(Self::Sleeping),
             "restoring" => Ok(Self::Restoring),
@@ -6059,6 +6083,8 @@ pub enum BackupRunFilterRestoredFromIsNotDistinctFrom {
     Deploying,
     #[serde(rename = "starting")]
     Starting,
+    #[serde(rename = "no_capacity")]
+    NoCapacity,
     #[serde(rename = "running")]
     Running,
     #[serde(rename = "sleeping")]
@@ -6080,6 +6106,7 @@ impl ::std::fmt::Display for BackupRunFilterRestoredFromIsNotDistinctFrom {
             Self::Pending => f.write_str("pending"),
             Self::Deploying => f.write_str("deploying"),
             Self::Starting => f.write_str("starting"),
+            Self::NoCapacity => f.write_str("no_capacity"),
             Self::Running => f.write_str("running"),
             Self::Sleeping => f.write_str("sleeping"),
             Self::Restoring => f.write_str("restoring"),
@@ -6097,6 +6124,7 @@ impl ::std::str::FromStr for BackupRunFilterRestoredFromIsNotDistinctFrom {
             "pending" => Ok(Self::Pending),
             "deploying" => Ok(Self::Deploying),
             "starting" => Ok(Self::Starting),
+            "no_capacity" => Ok(Self::NoCapacity),
             "running" => Ok(Self::Running),
             "sleeping" => Ok(Self::Sleeping),
             "restoring" => Ok(Self::Restoring),
@@ -6144,6 +6172,8 @@ pub enum BackupRunFilterRestoredFromLessThan {
     Deploying,
     #[serde(rename = "starting")]
     Starting,
+    #[serde(rename = "no_capacity")]
+    NoCapacity,
     #[serde(rename = "running")]
     Running,
     #[serde(rename = "sleeping")]
@@ -6165,6 +6195,7 @@ impl ::std::fmt::Display for BackupRunFilterRestoredFromLessThan {
             Self::Pending => f.write_str("pending"),
             Self::Deploying => f.write_str("deploying"),
             Self::Starting => f.write_str("starting"),
+            Self::NoCapacity => f.write_str("no_capacity"),
             Self::Running => f.write_str("running"),
             Self::Sleeping => f.write_str("sleeping"),
             Self::Restoring => f.write_str("restoring"),
@@ -6182,6 +6213,7 @@ impl ::std::str::FromStr for BackupRunFilterRestoredFromLessThan {
             "pending" => Ok(Self::Pending),
             "deploying" => Ok(Self::Deploying),
             "starting" => Ok(Self::Starting),
+            "no_capacity" => Ok(Self::NoCapacity),
             "running" => Ok(Self::Running),
             "sleeping" => Ok(Self::Sleeping),
             "restoring" => Ok(Self::Restoring),
@@ -6227,6 +6259,8 @@ pub enum BackupRunFilterRestoredFromLessThanOrEqual {
     Deploying,
     #[serde(rename = "starting")]
     Starting,
+    #[serde(rename = "no_capacity")]
+    NoCapacity,
     #[serde(rename = "running")]
     Running,
     #[serde(rename = "sleeping")]
@@ -6248,6 +6282,7 @@ impl ::std::fmt::Display for BackupRunFilterRestoredFromLessThanOrEqual {
             Self::Pending => f.write_str("pending"),
             Self::Deploying => f.write_str("deploying"),
             Self::Starting => f.write_str("starting"),
+            Self::NoCapacity => f.write_str("no_capacity"),
             Self::Running => f.write_str("running"),
             Self::Sleeping => f.write_str("sleeping"),
             Self::Restoring => f.write_str("restoring"),
@@ -6265,6 +6300,7 @@ impl ::std::str::FromStr for BackupRunFilterRestoredFromLessThanOrEqual {
             "pending" => Ok(Self::Pending),
             "deploying" => Ok(Self::Deploying),
             "starting" => Ok(Self::Starting),
+            "no_capacity" => Ok(Self::NoCapacity),
             "running" => Ok(Self::Running),
             "sleeping" => Ok(Self::Sleeping),
             "restoring" => Ok(Self::Restoring),
@@ -6310,6 +6346,8 @@ pub enum BackupRunFilterRestoredFromNotEq {
     Deploying,
     #[serde(rename = "starting")]
     Starting,
+    #[serde(rename = "no_capacity")]
+    NoCapacity,
     #[serde(rename = "running")]
     Running,
     #[serde(rename = "sleeping")]
@@ -6331,6 +6369,7 @@ impl ::std::fmt::Display for BackupRunFilterRestoredFromNotEq {
             Self::Pending => f.write_str("pending"),
             Self::Deploying => f.write_str("deploying"),
             Self::Starting => f.write_str("starting"),
+            Self::NoCapacity => f.write_str("no_capacity"),
             Self::Running => f.write_str("running"),
             Self::Sleeping => f.write_str("sleeping"),
             Self::Restoring => f.write_str("restoring"),
@@ -6348,6 +6387,7 @@ impl ::std::str::FromStr for BackupRunFilterRestoredFromNotEq {
             "pending" => Ok(Self::Pending),
             "deploying" => Ok(Self::Deploying),
             "starting" => Ok(Self::Starting),
+            "no_capacity" => Ok(Self::NoCapacity),
             "running" => Ok(Self::Running),
             "sleeping" => Ok(Self::Sleeping),
             "restoring" => Ok(Self::Restoring),
@@ -7136,6 +7176,8 @@ pub enum BackupRunTypeRestoredFrom {
     Deploying,
     #[serde(rename = "starting")]
     Starting,
+    #[serde(rename = "no_capacity")]
+    NoCapacity,
     #[serde(rename = "running")]
     Running,
     #[serde(rename = "sleeping")]
@@ -7157,6 +7199,7 @@ impl ::std::fmt::Display for BackupRunTypeRestoredFrom {
             Self::Pending => f.write_str("pending"),
             Self::Deploying => f.write_str("deploying"),
             Self::Starting => f.write_str("starting"),
+            Self::NoCapacity => f.write_str("no_capacity"),
             Self::Running => f.write_str("running"),
             Self::Sleeping => f.write_str("sleeping"),
             Self::Restoring => f.write_str("restoring"),
@@ -7174,6 +7217,7 @@ impl ::std::str::FromStr for BackupRunTypeRestoredFrom {
             "pending" => Ok(Self::Pending),
             "deploying" => Ok(Self::Deploying),
             "starting" => Ok(Self::Starting),
+            "no_capacity" => Ok(Self::NoCapacity),
             "running" => Ok(Self::Running),
             "sleeping" => Ok(Self::Sleeping),
             "restoring" => Ok(Self::Restoring),
@@ -7804,6 +7848,8 @@ pub enum InstanceAttributesStatus {
     Deploying,
     #[serde(rename = "starting")]
     Starting,
+    #[serde(rename = "no_capacity")]
+    NoCapacity,
     #[serde(rename = "running")]
     Running,
     #[serde(rename = "sleeping")]
@@ -7825,6 +7871,7 @@ impl ::std::fmt::Display for InstanceAttributesStatus {
             Self::Pending => f.write_str("pending"),
             Self::Deploying => f.write_str("deploying"),
             Self::Starting => f.write_str("starting"),
+            Self::NoCapacity => f.write_str("no_capacity"),
             Self::Running => f.write_str("running"),
             Self::Sleeping => f.write_str("sleeping"),
             Self::Restoring => f.write_str("restoring"),
@@ -7842,6 +7889,7 @@ impl ::std::str::FromStr for InstanceAttributesStatus {
             "pending" => Ok(Self::Pending),
             "deploying" => Ok(Self::Deploying),
             "starting" => Ok(Self::Starting),
+            "no_capacity" => Ok(Self::NoCapacity),
             "running" => Ok(Self::Running),
             "sleeping" => Ok(Self::Sleeping),
             "restoring" => Ok(Self::Restoring),
@@ -8942,6 +8990,8 @@ pub enum InstanceFilterStatusEq {
     Deploying,
     #[serde(rename = "starting")]
     Starting,
+    #[serde(rename = "no_capacity")]
+    NoCapacity,
     #[serde(rename = "running")]
     Running,
     #[serde(rename = "sleeping")]
@@ -8963,6 +9013,7 @@ impl ::std::fmt::Display for InstanceFilterStatusEq {
             Self::Pending => f.write_str("pending"),
             Self::Deploying => f.write_str("deploying"),
             Self::Starting => f.write_str("starting"),
+            Self::NoCapacity => f.write_str("no_capacity"),
             Self::Running => f.write_str("running"),
             Self::Sleeping => f.write_str("sleeping"),
             Self::Restoring => f.write_str("restoring"),
@@ -8980,6 +9031,7 @@ impl ::std::str::FromStr for InstanceFilterStatusEq {
             "pending" => Ok(Self::Pending),
             "deploying" => Ok(Self::Deploying),
             "starting" => Ok(Self::Starting),
+            "no_capacity" => Ok(Self::NoCapacity),
             "running" => Ok(Self::Running),
             "sleeping" => Ok(Self::Sleeping),
             "restoring" => Ok(Self::Restoring),
@@ -9025,6 +9077,8 @@ pub enum InstanceFilterStatusGreaterThan {
     Deploying,
     #[serde(rename = "starting")]
     Starting,
+    #[serde(rename = "no_capacity")]
+    NoCapacity,
     #[serde(rename = "running")]
     Running,
     #[serde(rename = "sleeping")]
@@ -9046,6 +9100,7 @@ impl ::std::fmt::Display for InstanceFilterStatusGreaterThan {
             Self::Pending => f.write_str("pending"),
             Self::Deploying => f.write_str("deploying"),
             Self::Starting => f.write_str("starting"),
+            Self::NoCapacity => f.write_str("no_capacity"),
             Self::Running => f.write_str("running"),
             Self::Sleeping => f.write_str("sleeping"),
             Self::Restoring => f.write_str("restoring"),
@@ -9063,6 +9118,7 @@ impl ::std::str::FromStr for InstanceFilterStatusGreaterThan {
             "pending" => Ok(Self::Pending),
             "deploying" => Ok(Self::Deploying),
             "starting" => Ok(Self::Starting),
+            "no_capacity" => Ok(Self::NoCapacity),
             "running" => Ok(Self::Running),
             "sleeping" => Ok(Self::Sleeping),
             "restoring" => Ok(Self::Restoring),
@@ -9108,6 +9164,8 @@ pub enum InstanceFilterStatusGreaterThanOrEqual {
     Deploying,
     #[serde(rename = "starting")]
     Starting,
+    #[serde(rename = "no_capacity")]
+    NoCapacity,
     #[serde(rename = "running")]
     Running,
     #[serde(rename = "sleeping")]
@@ -9129,6 +9187,7 @@ impl ::std::fmt::Display for InstanceFilterStatusGreaterThanOrEqual {
             Self::Pending => f.write_str("pending"),
             Self::Deploying => f.write_str("deploying"),
             Self::Starting => f.write_str("starting"),
+            Self::NoCapacity => f.write_str("no_capacity"),
             Self::Running => f.write_str("running"),
             Self::Sleeping => f.write_str("sleeping"),
             Self::Restoring => f.write_str("restoring"),
@@ -9146,6 +9205,7 @@ impl ::std::str::FromStr for InstanceFilterStatusGreaterThanOrEqual {
             "pending" => Ok(Self::Pending),
             "deploying" => Ok(Self::Deploying),
             "starting" => Ok(Self::Starting),
+            "no_capacity" => Ok(Self::NoCapacity),
             "running" => Ok(Self::Running),
             "sleeping" => Ok(Self::Sleeping),
             "restoring" => Ok(Self::Restoring),
@@ -9191,6 +9251,8 @@ pub enum InstanceFilterStatusInItem {
     Deploying,
     #[serde(rename = "starting")]
     Starting,
+    #[serde(rename = "no_capacity")]
+    NoCapacity,
     #[serde(rename = "running")]
     Running,
     #[serde(rename = "sleeping")]
@@ -9212,6 +9274,7 @@ impl ::std::fmt::Display for InstanceFilterStatusInItem {
             Self::Pending => f.write_str("pending"),
             Self::Deploying => f.write_str("deploying"),
             Self::Starting => f.write_str("starting"),
+            Self::NoCapacity => f.write_str("no_capacity"),
             Self::Running => f.write_str("running"),
             Self::Sleeping => f.write_str("sleeping"),
             Self::Restoring => f.write_str("restoring"),
@@ -9229,6 +9292,7 @@ impl ::std::str::FromStr for InstanceFilterStatusInItem {
             "pending" => Ok(Self::Pending),
             "deploying" => Ok(Self::Deploying),
             "starting" => Ok(Self::Starting),
+            "no_capacity" => Ok(Self::NoCapacity),
             "running" => Ok(Self::Running),
             "sleeping" => Ok(Self::Sleeping),
             "restoring" => Ok(Self::Restoring),
@@ -9274,6 +9338,8 @@ pub enum InstanceFilterStatusIsDistinctFrom {
     Deploying,
     #[serde(rename = "starting")]
     Starting,
+    #[serde(rename = "no_capacity")]
+    NoCapacity,
     #[serde(rename = "running")]
     Running,
     #[serde(rename = "sleeping")]
@@ -9295,6 +9361,7 @@ impl ::std::fmt::Display for InstanceFilterStatusIsDistinctFrom {
             Self::Pending => f.write_str("pending"),
             Self::Deploying => f.write_str("deploying"),
             Self::Starting => f.write_str("starting"),
+            Self::NoCapacity => f.write_str("no_capacity"),
             Self::Running => f.write_str("running"),
             Self::Sleeping => f.write_str("sleeping"),
             Self::Restoring => f.write_str("restoring"),
@@ -9312,6 +9379,7 @@ impl ::std::str::FromStr for InstanceFilterStatusIsDistinctFrom {
             "pending" => Ok(Self::Pending),
             "deploying" => Ok(Self::Deploying),
             "starting" => Ok(Self::Starting),
+            "no_capacity" => Ok(Self::NoCapacity),
             "running" => Ok(Self::Running),
             "sleeping" => Ok(Self::Sleeping),
             "restoring" => Ok(Self::Restoring),
@@ -9357,6 +9425,8 @@ pub enum InstanceFilterStatusIsNotDistinctFrom {
     Deploying,
     #[serde(rename = "starting")]
     Starting,
+    #[serde(rename = "no_capacity")]
+    NoCapacity,
     #[serde(rename = "running")]
     Running,
     #[serde(rename = "sleeping")]
@@ -9378,6 +9448,7 @@ impl ::std::fmt::Display for InstanceFilterStatusIsNotDistinctFrom {
             Self::Pending => f.write_str("pending"),
             Self::Deploying => f.write_str("deploying"),
             Self::Starting => f.write_str("starting"),
+            Self::NoCapacity => f.write_str("no_capacity"),
             Self::Running => f.write_str("running"),
             Self::Sleeping => f.write_str("sleeping"),
             Self::Restoring => f.write_str("restoring"),
@@ -9395,6 +9466,7 @@ impl ::std::str::FromStr for InstanceFilterStatusIsNotDistinctFrom {
             "pending" => Ok(Self::Pending),
             "deploying" => Ok(Self::Deploying),
             "starting" => Ok(Self::Starting),
+            "no_capacity" => Ok(Self::NoCapacity),
             "running" => Ok(Self::Running),
             "sleeping" => Ok(Self::Sleeping),
             "restoring" => Ok(Self::Restoring),
@@ -9440,6 +9512,8 @@ pub enum InstanceFilterStatusLessThan {
     Deploying,
     #[serde(rename = "starting")]
     Starting,
+    #[serde(rename = "no_capacity")]
+    NoCapacity,
     #[serde(rename = "running")]
     Running,
     #[serde(rename = "sleeping")]
@@ -9461,6 +9535,7 @@ impl ::std::fmt::Display for InstanceFilterStatusLessThan {
             Self::Pending => f.write_str("pending"),
             Self::Deploying => f.write_str("deploying"),
             Self::Starting => f.write_str("starting"),
+            Self::NoCapacity => f.write_str("no_capacity"),
             Self::Running => f.write_str("running"),
             Self::Sleeping => f.write_str("sleeping"),
             Self::Restoring => f.write_str("restoring"),
@@ -9478,6 +9553,7 @@ impl ::std::str::FromStr for InstanceFilterStatusLessThan {
             "pending" => Ok(Self::Pending),
             "deploying" => Ok(Self::Deploying),
             "starting" => Ok(Self::Starting),
+            "no_capacity" => Ok(Self::NoCapacity),
             "running" => Ok(Self::Running),
             "sleeping" => Ok(Self::Sleeping),
             "restoring" => Ok(Self::Restoring),
@@ -9523,6 +9599,8 @@ pub enum InstanceFilterStatusLessThanOrEqual {
     Deploying,
     #[serde(rename = "starting")]
     Starting,
+    #[serde(rename = "no_capacity")]
+    NoCapacity,
     #[serde(rename = "running")]
     Running,
     #[serde(rename = "sleeping")]
@@ -9544,6 +9622,7 @@ impl ::std::fmt::Display for InstanceFilterStatusLessThanOrEqual {
             Self::Pending => f.write_str("pending"),
             Self::Deploying => f.write_str("deploying"),
             Self::Starting => f.write_str("starting"),
+            Self::NoCapacity => f.write_str("no_capacity"),
             Self::Running => f.write_str("running"),
             Self::Sleeping => f.write_str("sleeping"),
             Self::Restoring => f.write_str("restoring"),
@@ -9561,6 +9640,7 @@ impl ::std::str::FromStr for InstanceFilterStatusLessThanOrEqual {
             "pending" => Ok(Self::Pending),
             "deploying" => Ok(Self::Deploying),
             "starting" => Ok(Self::Starting),
+            "no_capacity" => Ok(Self::NoCapacity),
             "running" => Ok(Self::Running),
             "sleeping" => Ok(Self::Sleeping),
             "restoring" => Ok(Self::Restoring),
@@ -9606,6 +9686,8 @@ pub enum InstanceFilterStatusNotEq {
     Deploying,
     #[serde(rename = "starting")]
     Starting,
+    #[serde(rename = "no_capacity")]
+    NoCapacity,
     #[serde(rename = "running")]
     Running,
     #[serde(rename = "sleeping")]
@@ -9627,6 +9709,7 @@ impl ::std::fmt::Display for InstanceFilterStatusNotEq {
             Self::Pending => f.write_str("pending"),
             Self::Deploying => f.write_str("deploying"),
             Self::Starting => f.write_str("starting"),
+            Self::NoCapacity => f.write_str("no_capacity"),
             Self::Running => f.write_str("running"),
             Self::Sleeping => f.write_str("sleeping"),
             Self::Restoring => f.write_str("restoring"),
@@ -9644,6 +9727,7 @@ impl ::std::str::FromStr for InstanceFilterStatusNotEq {
             "pending" => Ok(Self::Pending),
             "deploying" => Ok(Self::Deploying),
             "starting" => Ok(Self::Starting),
+            "no_capacity" => Ok(Self::NoCapacity),
             "running" => Ok(Self::Running),
             "sleeping" => Ok(Self::Sleeping),
             "restoring" => Ok(Self::Restoring),
@@ -10133,6 +10217,8 @@ pub enum InstanceTypeStatus {
     Deploying,
     #[serde(rename = "starting")]
     Starting,
+    #[serde(rename = "no_capacity")]
+    NoCapacity,
     #[serde(rename = "running")]
     Running,
     #[serde(rename = "sleeping")]
@@ -10154,6 +10240,7 @@ impl ::std::fmt::Display for InstanceTypeStatus {
             Self::Pending => f.write_str("pending"),
             Self::Deploying => f.write_str("deploying"),
             Self::Starting => f.write_str("starting"),
+            Self::NoCapacity => f.write_str("no_capacity"),
             Self::Running => f.write_str("running"),
             Self::Sleeping => f.write_str("sleeping"),
             Self::Restoring => f.write_str("restoring"),
@@ -10171,6 +10258,7 @@ impl ::std::str::FromStr for InstanceTypeStatus {
             "pending" => Ok(Self::Pending),
             "deploying" => Ok(Self::Deploying),
             "starting" => Ok(Self::Starting),
+            "no_capacity" => Ok(Self::NoCapacity),
             "running" => Ok(Self::Running),
             "sleeping" => Ok(Self::Sleeping),
             "restoring" => Ok(Self::Restoring),

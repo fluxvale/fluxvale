@@ -1168,6 +1168,9 @@ defmodule FluxValeWeb.CoreComponents do
         :pending -> {"border-line bg-panel-raised text-ink-muted", "static"}
         :deploying -> {"border-line-warning bg-warning-muted text-warning", "pulse"}
         :starting -> {"border-line-warning bg-warning-muted text-warning", "pulse"}
+        # #776: waiting for a scheduler slot — a warning, not a failure;
+        # static because nothing is moving until capacity frees.
+        :no_capacity -> {"border-line-warning bg-warning-muted text-warning", "static"}
         :running -> {"border-line-success bg-success-muted text-success", "static"}
         # #203: asleep, not stopped — brand amber, a resting state the
         # next visitor reverses (distinct from stopped's neutral gray).

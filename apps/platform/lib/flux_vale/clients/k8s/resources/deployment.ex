@@ -124,6 +124,15 @@ defmodule FluxVale.Clients.K8s.Resources.Deployment do
   @default_replicas 1
   @default_probe_path "/"
 
+  # #776: the instance namespace's quota is sized for exactly one pod
+  # (ResourceQuota's requests/limits == this Deployment's), so the API's
+  # default 25% surge can never be admitted. No surge pod: the old pod
+  # goes down before the new one starts, within the pod it already has.
+  @rollout_strategy %{
+    "type" => "RollingUpdate",
+    "rollingUpdate" => %{"maxSurge" => 0, "maxUnavailable" => 1}
+  }
+
   @doc """
   Creates (server-side-applies) a Deployment from a simplified spec.
   """
@@ -281,7 +290,7 @@ defmodule FluxVale.Clients.K8s.Resources.Deployment do
         # managedFields must go — Kubernetes rejects them in apply operations
         updated =
           deployment
-          |> strip_managed_fields()
+          |> prepare_for_apply()
           |> put_in(["spec", "replicas"], replicas)
 
         req = create_req(kubeconfig)
@@ -321,7 +330,7 @@ defmodule FluxVale.Clients.K8s.Resources.Deployment do
 
         updated =
           deployment
-          |> strip_managed_fields()
+          |> prepare_for_apply()
           |> ensure_app_env_from(Keyword.get(opts, :ensure_env_from))
           |> update_in(["spec", "template", "metadata", "annotations"], fn
             nil -> %{"fluxvale.io/restartedAt" => restart_at}
@@ -347,7 +356,7 @@ defmodule FluxVale.Clients.K8s.Resources.Deployment do
       {:ok, deployment} ->
         updated =
           deployment
-          |> strip_managed_fields()
+          |> prepare_for_apply()
           |> ensure_app_env_from("app-env")
 
         apply_updated(
@@ -542,6 +551,7 @@ defmodule FluxVale.Clients.K8s.Resources.Deployment do
       },
       "spec" => %{
         "replicas" => Map.get(spec, :replicas, @default_replicas),
+        "strategy" => @rollout_strategy,
         "selector" => %{"matchLabels" => %{"app.kubernetes.io/name" => name}},
         "template" => %{
           "metadata" => %{
@@ -772,10 +782,22 @@ defmodule FluxVale.Clients.K8s.Resources.Deployment do
     }
   end
 
-  # Strips server-managed fields before apply — K8s rejects managedFields.
-  @spec strip_managed_fields(map()) :: map()
-  defp strip_managed_fields(resource) when is_map(resource) do
-    Map.update(resource, "metadata", %{}, fn meta -> Map.delete(meta, "managedFields") end)
+  # Prepares a fetched Deployment for SSA: drops server-managed fields
+  # (K8s rejects managedFields in apply) and forces the one-pod rollout
+  # strategy. The API persists its default 25%/25% on Deployments created
+  # before #776, so re-applying a fetched object verbatim would keep the
+  # surge that the quota cannot admit. Every GET→apply path goes through
+  # here — scale (stop/start), restart (env/SSO), ensure_env_from.
+  @spec prepare_for_apply(map()) :: map()
+  defp prepare_for_apply(resource) when is_map(resource) do
+    metadata = Map.get(resource, "metadata", %{})
+    stripped_metadata = Map.delete(metadata, "managedFields")
+    spec = Map.get(resource, "spec", %{})
+    strategy_spec = Map.put(spec, "strategy", @rollout_strategy)
+
+    resource
+    |> Map.put("metadata", stripped_metadata)
+    |> Map.put("spec", strategy_spec)
   end
 
   defp create_req(kubeconfig) do

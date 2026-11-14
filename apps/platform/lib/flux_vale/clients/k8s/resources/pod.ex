@@ -61,6 +61,43 @@ defmodule FluxVale.Clients.K8s.Resources.Pod do
   end
 
   @doc """
+  The `PodScheduled=False` / `Unschedulable` condition as
+  `"Unschedulable: <message>"`, else nil. A scheduled pod (image pull,
+  crash-loop) returns nil — that is a different failure.
+
+  The message is the scheduler's own placement detail (nodes tried,
+  Insufficient cpu/memory, ...); the instance status keeps it in
+  `status_message`, admin-only.
+  """
+  @spec unschedulable_reason(map()) :: String.t() | nil
+  def unschedulable_reason(pod) do
+    conditions =
+      pod
+      |> get_in(["status", "conditions"])
+      |> List.wrap()
+
+    condition =
+      Enum.find(
+        conditions,
+        &match?(
+          %{"type" => "PodScheduled", "status" => "False", "reason" => "Unschedulable"},
+          &1
+        )
+      )
+
+    case condition do
+      %{"message" => message} when is_binary(message) and message != "" ->
+        "Unschedulable: #{message}"
+
+      %{} ->
+        "Unschedulable"
+
+      nil ->
+        nil
+    end
+  end
+
+  @doc """
   The pod's `creationTimestamp` as a DateTime — the newest-survivor
   ordering key. Unparseable sorts oldest so a broken clock never wins.
   """
