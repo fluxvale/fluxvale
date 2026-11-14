@@ -17,17 +17,17 @@ There is no manual install step. The `required_providers` block under Configure 
 
 Offline and air-gapped machines cannot reach the registry. For those, mirror a release archive locally and point the tool at it:
 
-1. Download the zip for your platform from the [releases page](https://github.com/fluxvale/terraform-provider-fluxvale/releases) — adjust the file names below to the platform and version you took — together with the versioned checksums `terraform-provider-fluxvale_0.3.0_SHA256SUMS`. Verify the archive:
+1. Download the zip for your platform from the [releases page](https://github.com/fluxvale/terraform-provider-fluxvale/releases) — adjust the file names below to the platform and version you took — together with the versioned checksums `terraform-provider-fluxvale_0.4.0_SHA256SUMS`. Verify the archive:
 
    ```sh
-   grep terraform-provider-fluxvale_0.3.0_linux_amd64.zip terraform-provider-fluxvale_0.3.0_SHA256SUMS | sha256sum -c -   # macOS: shasum -a 256 -c -
+   grep terraform-provider-fluxvale_0.4.0_linux_amd64.zip terraform-provider-fluxvale_0.4.0_SHA256SUMS | sha256sum -c -   # macOS: shasum -a 256 -c -
    ```
 
 2. Create the mirror tree and place the zip:
 
    ```sh
    mkdir -p ~/.tfplugins-mirror/registry.terraform.io/fluxvale/fluxvale
-   cp terraform-provider-fluxvale_0.3.0_linux_amd64.zip ~/.tfplugins-mirror/registry.terraform.io/fluxvale/fluxvale/
+   cp terraform-provider-fluxvale_0.4.0_linux_amd64.zip ~/.tfplugins-mirror/registry.terraform.io/fluxvale/fluxvale/
    ```
 
 3. Point the tool at the mirror in `~/.terraformrc` for Terraform or `~/.tofurc` for OpenTofu, with the absolute path to your mirror:
@@ -51,7 +51,7 @@ terraform {
   required_providers {
     fluxvale = {
       source  = "registry.terraform.io/fluxvale/fluxvale"
-      version = "~> 0.3" # released line; the secrets section names the 0.4.0+ constraint
+      version = "~> 0.4" # write-only secret_env_vars needs 0.4.0+
     }
   }
 }
@@ -119,7 +119,7 @@ Deployer-owned keys — the OIDC recipe, backing service URLs, and the instance 
 
 ### Secrets never enter state
 
-`sensitive` only hides a value in the console; the plaintext still lands in state and plan files. For values that must never be written there, use the write-only `secret_env_vars` map with its rotation integer. The attributes need provider 0.4.0+ (the release containing #764, pending) and Terraform 1.12+ or OpenTofu 1.13+; pin `version = "~> 0.4"` once that release is published. The encryption block below is OpenTofu-only; Terraform users should keep backend encryption at rest.
+`sensitive` only hides a value in the console; the plaintext still lands in state and plan files. For values that must never be written there, use the write-only `secret_env_vars` map with its rotation integer. The attributes need provider 0.4.0+ and Terraform 1.12+ or OpenTofu 1.13+. The encryption block below is OpenTofu-only; Terraform users should keep backend encryption at rest.
 
 Mark the input `ephemeral = true` as well as `sensitive = true`: Terraform then keeps the variable value out of the saved plan too. Applying a saved plan requires supplying the variable again (`TF_VAR_smtp_password=…`), because an ephemeral value is never stored.
 
@@ -182,7 +182,7 @@ tofu state pull | grep -c 'the-secret-value'
 
 The platform rolls a running app after an env change. If the app's quota cannot fit a second pod during that rollout, stop it (`running = false`), apply the bump, then start it again (`running = true`); otherwise the rollout can mark the instance `error`.
 
-Write-only inputs need Terraform 1.12+ or OpenTofu 1.13+ and provider 0.4.0+ (pending release). Existing configurations need no change, and older CLIs can keep using `env_vars` with state encryption at rest. The provider's [Secrets in Terraform guide](https://github.com/fluxvale/terraform-provider-fluxvale/blob/main/docs/guides/secrets.md) has the full ladder, the unencrypted-state migration, and the OpenTofu AWS KMS, GCP KMS, Azure Key Vault, and OpenBao key variants.
+Write-only inputs need Terraform 1.12+ or OpenTofu 1.13+ and provider 0.4.0+. Existing configurations need no change, and older CLIs can keep using `env_vars` with state encryption at rest. The provider's [Secrets in Terraform guide](https://github.com/fluxvale/terraform-provider-fluxvale/blob/main/docs/guides/secrets.md) has the full ladder, the unencrypted-state migration, and the OpenTofu AWS KMS, GCP KMS, Azure Key Vault, and OpenBao key variants.
 
 ### Read an existing instance
 
@@ -226,7 +226,7 @@ tofu apply
 `--out` defaults to the current directory, and the command refuses to overwrite an existing file. It writes three files:
 
 - `versions.tf` — the registry source, the provider block, and a commented state-encryption block pointing at the OpenTofu state-encryption guide.
-- `imports.tf` — one `import` block per live instance, backup setting, access gateway, and custom domain, plus commented blocks for PocketID SSO wirings (provider 0.3.0 cannot import them yet). Addresses come from slugs or names, with a numeric suffix when two sanitize to the same label. Import ids follow each resource's own shape: the instance id for instances, the instance id for backups and SSO, the org id or slug for the gateway, and the access-domain id for a domain.
+- `imports.tf` — one `import` block per live instance, backup setting, access gateway, and custom domain, plus commented blocks for PocketID SSO wirings (the provider does not implement `import` for them yet). Addresses come from slugs or names, with a numeric suffix when two sanitize to the same label. Import ids follow each resource's own shape: the instance id for instances, the instance id for backups and SSO, the org id or slug for the gateway, and the access-domain id for a domain.
 - `README.md` — the three commands above plus the caveats below.
 
 No resource bodies are rendered. `-generate-config-out` is the official, provider-schema-aware writer; hand-rendered HCL would rot as the schema moves.
@@ -235,10 +235,10 @@ The MCP tool `terraform_import_bundle` returns the same three files (path and co
 
 ### Caveats
 
-- **Write-only values are never readable back.** `generated.tf` cannot carry `env_vars` or a backup's `secret_access_key`. Re-add `env_vars` in your Terraform config from your own records after adoption — the provider writes them in place; set the backup secret in the panel. The encrypted-env path in [ADR-0053](https://github.com/fluxvale/fluxvale/blob/main/docs/adr/00053-terraform-secret-env.md) is design-only and not in provider 0.3.0.
+- **Write-only values are never readable back.** `generated.tf` cannot carry `env_vars` or a backup's `secret_access_key`. Re-add `env_vars` in your Terraform config from your own records after adoption — the provider writes them in place; set the backup secret in the panel. The `enc:v1:` marker path in [ADR-0053](https://github.com/fluxvale/fluxvale/blob/main/docs/adr/00053-terraform-secret-env.md) is design-only; the write-only `secret_env_vars` input is available from 0.4.0.
 - **Generated config may need small edits before a clean plan.** `app`/`app_version` on an imported instance have no wire echo, the gateway's `instances` set is config-authoritative and starts null, and `rotate_secret_on` is config-only posture. Fill in what you want Terraform to manage, then re-plan.
 - **Only user-owned domains are exported.** The org's system-minted `platform` access domain is skipped; `fluxvale_custom_domain` manages `custom` rows.
-- **PocketID SSO import is a provider gap.** Provider 0.3.0 does not implement `import` for `fluxvale_pocket_id_sso`. The scaffold comments those blocks out, with the instance id as the import id; uncomment them once the provider release you use supports import. Live `deleting` and `lost` instances are skipped for the same reason — there is no remote object to adopt.
+- **PocketID SSO import is a provider gap.** The provider does not implement `import` for `fluxvale_pocket_id_sso` yet. The scaffold comments those blocks out, with the instance id as the import id; uncomment them once the provider release you use supports import. Live `deleting` and `lost` instances are skipped for the same reason — there is no remote object to adopt.
 - **Gateway attachments are not discoverable.** The API has no attachment list, so `instances` stays null after import. Add the set by hand if Terraform should own it.
 
 ## Compatibility
@@ -247,4 +247,4 @@ The provider follows the platform's API, and 0.x may still adjust computed field
 
 From 0.3.0, `env_vars` updates in place; it is write-only on the wire — never echoed — but a normal Terraform attribute, not a Terraform write-only attribute. Plaintext values still live in state.
 
-`secret_env_vars`, `secret_env_vars_version`, and the computed `secret_env_vars_keys` are additive: existing configurations need no change. The new attributes require Terraform 1.12+ or OpenTofu 1.13+ and provider 0.4.0+ (pending release); on an older CLI, leave them out and use `env_vars` plus state encryption at rest.
+`secret_env_vars`, `secret_env_vars_version`, and the computed `secret_env_vars_keys` are additive: existing configurations need no change. The new attributes require Terraform 1.12+ or OpenTofu 1.13+ and provider 0.4.0+; on an older CLI, leave them out and use `env_vars` plus state encryption at rest.
