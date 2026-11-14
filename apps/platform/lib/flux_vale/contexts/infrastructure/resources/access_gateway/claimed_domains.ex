@@ -19,7 +19,7 @@ defmodule FluxVale.Infrastructure.AccessGateway.ClaimedDomains do
   def calculate(records, _opts, _context) do
     Enum.map(records, fn gateway ->
       case gateway.dns_claims do
-        %{} = claims ->
+        %{} = claims when not is_struct(claims) ->
           claims
           |> Map.keys()
           |> Enum.sort()

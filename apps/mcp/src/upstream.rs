@@ -1372,7 +1372,14 @@ pub(crate) async fn instances_resize(
         let client = ApiClient::new(&base, token);
 
         let before = read_instance(&client, &id)?;
-        if let Some(refusal) = allocation_precheck(&before, cpu.as_deref(), memory_mb, storage_gb) {
+        // The platform's ResizeGuard checks the state first. Only a
+        // row that can actually enter the sequence gets the local
+        // no-op/shrink pre-check; a sleeping/pending row gets the
+        // server's actionable state refusal instead.
+        if matches!(before["status"].as_str(), Some("running" | "stopped"))
+            && let Some(refusal) =
+                allocation_precheck(&before, cpu.as_deref(), memory_mb, storage_gb)
+        {
             return Err(refusal);
         }
         let previous_allocation = allocation_of(&before);
@@ -1727,9 +1734,11 @@ fn allocation_of(row: &Value) -> Value {
 /// The two refusals the platform's ResizeGuard decides entirely from
 /// the row the tool already read — a no-op allocation and a storage
 /// shrink. Refusing here keeps a doomed resize from stopping a serving
-/// instance first; the wording is the platform's, so the caller sees
-/// the same line either way. Anything the row cannot answer (a missing
-/// dimension, a non-numeric current cpu) is left to the server.
+/// instance first; the line mirrors the platform's `400 Invalid: …`
+/// shape, and the caller sees the same detail either way. Anything the
+/// row cannot answer (a missing dimension, a non-numeric current cpu)
+/// is left to the server. Callers gate this on the resize-able states,
+/// because the platform checks state first.
 fn allocation_precheck(
     before: &Value,
     cpu: Option<&str>,
@@ -1759,12 +1768,12 @@ fn allocation_precheck(
     };
 
     if cpu_same && memory_same && storage_same {
-        return Some("400 InvalidArgument: allocation is unchanged".to_string());
+        return Some("400 Invalid: allocation is unchanged".to_string());
     }
 
     match (storage_gb, before["storage_gb"].as_i64()) {
         (Some(requested), Some(current)) if requested < current => Some(format!(
-            "400 InvalidArgument: storage can never shrink (from {current} GB to {requested} GB)"
+            "400 Invalid: storage can never shrink (from {current} GB to {requested} GB)"
         )),
         _ => None,
     }
@@ -4101,7 +4110,7 @@ mod tests {
             "i1",
             json!({"stop": "failed", "resize": "pending", "start": "pending"}),
             &mut last_row,
-            "400 InvalidArgument: cannot stop instance in stopped state".to_string(),
+            "400 Invalid: cannot stop instance in stopped state".to_string(),
             json!({}),
             false,
         );
@@ -4296,7 +4305,7 @@ mod tests {
             respond_envelope("200 OK", json!({"data": instance_row("i1", "running")})),
             respond(
                 "400 Bad Request",
-                r#"{"errors":[{"status":"400","title":"InvalidArgument","detail":"cannot stop instance in stopped state (must be running)"}]}"#,
+                r#"{"errors":[{"status":"400","title":"Invalid","detail":"cannot stop instance in stopped state (must be running)"}]}"#,
             ),
             respond_envelope("200 OK", json!({"data": instance_row("i1", "stopped")})),
             respond_envelope("200 OK", json!({"data": instance_row("i1", "stopped")})),
@@ -4365,15 +4374,15 @@ mod tests {
         let row = json!({"cpu_cores": "0.5", "memory_mb": 512, "storage_gb": 10});
         assert_eq!(
             allocation_precheck(&row, None, Some(512), None).unwrap(),
-            "400 InvalidArgument: allocation is unchanged"
+            "400 Invalid: allocation is unchanged"
         );
         assert_eq!(
             allocation_precheck(&row, Some("0.50"), None, None).unwrap(),
-            "400 InvalidArgument: allocation is unchanged"
+            "400 Invalid: allocation is unchanged"
         );
         assert_eq!(
             allocation_precheck(&row, None, None, Some(5)).unwrap(),
-            "400 InvalidArgument: storage can never shrink (from 10 GB to 5 GB)"
+            "400 Invalid: storage can never shrink (from 10 GB to 5 GB)"
         );
         // A real change and an unknowable current dimension pass
         // through to the server.

@@ -185,8 +185,8 @@ pub(crate) struct CustomDomainParams {
     /// `list` (the default), `create`, `verify`, or `delete`.
     pub action: Option<upstream::CustomDomainAction>,
     /// The organization's id or slug (from `whoami`) — used by `list`
-    /// and `create` only; verify/delete act by id. Omit only for a
-    /// sole membership.
+    /// and `create` only; verify/delete act by id and ignore it. Omit
+    /// only for a sole membership on the actions that use it.
     pub organization: Option<String>,
     /// The domain row's id — required for `verify` and `delete`.
     pub id: Option<String>,
@@ -2709,7 +2709,7 @@ mod tests {
             (
                 "PATCH /api/v1/instances/i1/resize",
                 400,
-                r#"{"errors":[{"status":"400","title":"InvalidArgument",
+                r#"{"errors":[{"status":"400","title":"Invalid",
                     "detail":"cannot resize instance in sleeping state (must be stopped)"}]}"#
                     .to_string(),
             ),
@@ -2727,7 +2727,7 @@ mod tests {
         assert_eq!(structured["steps"]["start"], "not_attempted");
         assert_eq!(
             structured["error"],
-            "400 InvalidArgument: cannot resize instance in sleeping state (must be stopped)"
+            "400 Invalid: cannot resize instance in sleeping state (must be stopped)"
         );
         assert_eq!(structured["instance"]["status"], "sleeping");
         // No start attempt on a row that never reached stopped.
@@ -2735,6 +2735,37 @@ mod tests {
             (0..server.head_count())
                 .map(|n| server.head(n).to_lowercase())
                 .all(|head| !head.starts_with("patch /api/v1/instances/i1/start"))
+        );
+    }
+
+    #[tokio::test]
+    async fn a_sleeping_state_refusal_wins_over_the_local_no_op_check() {
+        // The request is a no-op allocation, but the platform checks
+        // state first — the sleeping line is the actionable one.
+        let sleeping = json!({"data": {"type": "instance", "id": "i1",
+            "attributes": {"id": "i1", "status": "sleeping",
+                           "cpu_cores": "0.5", "memory_mb": 512, "storage_gb": 10}}})
+        .to_string();
+        let server = testapi::serve(&[
+            ("GET /api/v1/instances/i1", 200, sleeping),
+            (
+                "PATCH /api/v1/instances/i1/resize",
+                400,
+                r#"{"errors":[{"status":"400","title":"Invalid",
+                    "detail":"cannot resize instance in sleeping state (must be stopped)"}]}"#
+                    .to_string(),
+            ),
+        ]);
+        let (_, body) = tools_call(
+            &app(&server),
+            PAT_FULL,
+            "instances_resize",
+            json!({"id": "i1", "memory_mb": 512}),
+        )
+        .await;
+        assert_eq!(
+            result(&body)["structuredContent"]["error"],
+            "400 Invalid: cannot resize instance in sleeping state (must be stopped)"
         );
     }
 
@@ -2747,7 +2778,7 @@ mod tests {
             (
                 "PATCH /api/v1/instances/i1/resize",
                 400,
-                r#"{"errors":[{"status":"400","title":"InvalidArgument",
+                r#"{"errors":[{"status":"400","title":"Invalid",
                     "detail":"storage can't be expanded on this cluster yet"}]}"#
                     .to_string(),
             ),
@@ -2770,7 +2801,7 @@ mod tests {
         assert_eq!(structured["steps"]["start"], "done");
         assert_eq!(
             structured["error"],
-            "400 InvalidArgument: storage can't be expanded on this cluster yet"
+            "400 Invalid: storage can't be expanded on this cluster yet"
         );
         assert!(
             (0..server.head_count())
@@ -2792,7 +2823,7 @@ mod tests {
         assert_eq!(result(&body)["isError"], true);
         assert_eq!(
             result(&body)["content"][0]["text"],
-            "400 InvalidArgument: allocation is unchanged"
+            "400 Invalid: allocation is unchanged"
         );
         // Only the pre-flight read rode; nothing was stopped.
         assert_eq!(server.head_count(), 1);
@@ -2811,7 +2842,7 @@ mod tests {
         assert_eq!(result(&body)["isError"], true);
         assert_eq!(
             result(&body)["content"][0]["text"],
-            "400 InvalidArgument: storage can never shrink (from 10 GB to 5 GB)"
+            "400 Invalid: storage can never shrink (from 10 GB to 5 GB)"
         );
         assert!(
             (0..server.head_count())
@@ -2827,7 +2858,7 @@ mod tests {
             (
                 "PATCH /api/v1/instances/i1/resize",
                 400,
-                r#"{"errors":[{"status":"400","title":"InvalidArgument",
+                r#"{"errors":[{"status":"400","title":"Invalid",
                     "detail":"storage can't be expanded on this cluster yet"}]}"#
                     .to_string(),
             ),
@@ -2861,7 +2892,7 @@ mod tests {
             (
                 "PATCH /api/v1/instances/i1/resize",
                 400,
-                r#"{"errors":[{"status":"400","title":"InvalidArgument",
+                r#"{"errors":[{"status":"400","title":"Invalid",
                     "detail":"storage can't be expanded on this cluster yet"}]}"#
                     .to_string(),
             ),
