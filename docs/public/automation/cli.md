@@ -25,6 +25,22 @@ fluxvale auth login
 
 The CLI prints a device code and opens the browser at the approval page. Approve there and the CLI stores a personal access token in your OS keychain. `fluxvale auth status` shows where the token lives, and `fluxvale whoami` proves it works.
 
+## Use the stored token
+
+`fluxvale auth exec -- <command>` runs a command with the stored token in its process tree's environment as `FLUXVALE_PAT`, and nowhere else. It is the bridge to tools that take a token from the environment, like Terraform:
+
+```sh
+fluxvale auth exec -- tofu plan
+```
+
+For CI or a container, mint a scoped, short-lived token instead. It prints once to stdout, so you can pipe it into a secret store:
+
+```sh
+fluxvale auth token --scopes instances:read --ttl 1h
+```
+
+The [Terraform credentials guide](/docs/automation/terraform-credentials) covers scopes, rotation, and revocation.
+
 ## The everyday commands
 
 Browse and inspect:

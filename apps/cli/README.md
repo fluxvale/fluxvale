@@ -49,7 +49,7 @@ fluxvale auth login     # prints a code, opens the approval page
                         # the token lands in your OS keychain — done
 ```
 
-The token never appears on screen; `fluxvale auth logout` removes it.
+The sign-in token never appears on screen; `fluxvale auth logout` removes it. A minted CI token is the exception by design: `fluxvale auth token` prints it once to stdout.
 
 ## Commands
 
@@ -58,6 +58,8 @@ The token never appears on screen; `fluxvale auth logout` removes it.
 | `fluxvale auth login` | Sign in — the device flow (approve in the browser) |
 | `fluxvale auth logout` | Remove the stored token |
 | `fluxvale auth status` | Show who you're signed in as, and where the token lives |
+| `fluxvale auth exec -- <command>` | Run a command with the stored token in its environment (`FLUXVALE_PAT`) |
+| `fluxvale auth token --scopes <list> --ttl <duration>` | Mint a scoped, short-lived token for CI (printed once) |
 | `fluxvale whoami` | Show the signed-in user |
 | `fluxvale apps list` / `apps show <slug>` | Browse the app catalog |
 | `fluxvale instances list` | List your instances |

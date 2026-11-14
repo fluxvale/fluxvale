@@ -11,6 +11,7 @@ use crate::terraform;
 use crate::token::TokenStore;
 use crate::writes::{self, ConfigureBackup, DeployFlags};
 use clap::{Parser, Subcommand, ValueEnum};
+use std::ffi::OsString;
 use std::path::PathBuf;
 
 /// The FluxVale command line.
@@ -105,6 +106,27 @@ pub enum AuthCommand {
     Logout,
     /// Show who you are signed in as
     Status,
+    /// Run a command with the stored token in its environment only
+    /// (`FLUXVALE_PAT`) — e.g. `fluxvale auth exec -- tofu apply`
+    Exec {
+        /// The command and its arguments, after `--`
+        #[arg(last = true, required = true, num_args = 1.., value_name = "COMMAND")]
+        command: Vec<OsString>,
+    },
+    /// Mint a scoped, short-lived token for CI or a container — printed
+    /// once to stdout; the CLI never writes it to disk
+    Token {
+        /// Comma-separated scopes (required; the server refuses any you
+        /// do not already hold)
+        #[arg(long, value_name = "SCOPE,SCOPE")]
+        scopes: String,
+        /// Lifetime: one integer plus s, m, h, or d (e.g. 30m, 12h, 7d)
+        #[arg(long, value_name = "DURATION")]
+        ttl: String,
+        /// A name for the token row (default: "fluxvale auth token")
+        #[arg(long, value_name = "NAME")]
+        name: Option<String>,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -367,6 +389,34 @@ pub fn run(cli: &Cli) -> anyhow::Result<()> {
                 let (client, location) = reads::read_client(&config)?;
                 print(reads::whoami(&client, location, cli.output))
             }
+            AuthCommand::Exec { command } => {
+                let store = TokenStore::at(TokenStore::default_dir()?);
+                let host = config::host_from_base_url(&config.base_url);
+                let status =
+                    auth::exec(|| Ok(store.load(&host)?.map(|(token, _)| token)), command)?;
+                // Pass the child's status through untouched: a wrapper
+                // must not dress a failed tofu plan as a CLI error.
+                match auth::exit_code(status) {
+                    None => Ok(()),
+                    Some(code) => std::process::exit(code),
+                }
+            }
+            AuthCommand::Token { scopes, ttl, name } => {
+                let caller = reads::stored_token(&config)?;
+                let scopes = auth::parse_scopes(Some(scopes.as_str()))?;
+                let ttl_seconds = auth::parse_ttl(ttl)?;
+                let minted = auth::mint(
+                    &config.base_url,
+                    caller,
+                    name.as_deref(),
+                    &scopes,
+                    ttl_seconds,
+                )?;
+                // stdout carries the secret and nothing else, so the
+                // caller can pipe it straight into a secret store.
+                eprintln!("{}", auth::mint_summary(&minted));
+                print(Ok(minted.token.expose().to_string()))
+            }
         },
         Command::Whoami => {
             let (client, location) = reads::read_client(&config)?;
@@ -605,6 +655,60 @@ mod tests {
                 command: AuthCommand::Status
             }
         ));
+        // The exec hand-off: only values after `--`, hyphens intact.
+        match parse(&["auth", "exec", "--", "tofu", "plan", "-var", "x=1"]).command {
+            Command::Auth {
+                command: AuthCommand::Exec { command },
+            } => assert_eq!(
+                command,
+                vec![
+                    OsString::from("tofu"),
+                    OsString::from("plan"),
+                    OsString::from("-var"),
+                    OsString::from("x=1")
+                ]
+            ),
+            other => panic!("wrong: {other:?}"),
+        }
+        assert!(
+            Cli::try_parse_from(["fluxvale", "auth", "exec"]).is_err(),
+            "exec needs a command"
+        );
+        assert!(
+            Cli::try_parse_from(["fluxvale", "auth", "exec", "--"]).is_err(),
+            "the -- separator alone is not a command"
+        );
+        // The mint flags: --scopes and --ttl are required; --name is not.
+        match parse(&[
+            "auth",
+            "token",
+            "--scopes",
+            "instances:read,backups:read",
+            "--ttl",
+            "1h",
+            "--name",
+            "ci",
+        ])
+        .command
+        {
+            Command::Auth {
+                command: AuthCommand::Token { scopes, ttl, name },
+            } => {
+                assert_eq!(scopes, "instances:read,backups:read");
+                assert_eq!(ttl, "1h");
+                assert_eq!(name.as_deref(), Some("ci"));
+            }
+            other => panic!("wrong: {other:?}"),
+        }
+        assert!(
+            Cli::try_parse_from(["fluxvale", "auth", "token", "--ttl", "1h"]).is_err(),
+            "--scopes is required"
+        );
+        assert!(
+            Cli::try_parse_from(["fluxvale", "auth", "token", "--scopes", "instances:read"])
+                .is_err(),
+            "--ttl is required"
+        );
         assert!(matches!(parse(&["whoami"]).command, Command::Whoami));
         assert!(matches!(
             parse(&["apps", "list"]).command,
@@ -978,6 +1082,149 @@ mod tests {
             parse(&["topup"]).command,
             Command::Topup { open: false }
         ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn run_exec_and_token_dispatch_through_the_stored_token() {
+        use crate::token::{FileTokenStore, Token};
+        use std::ffi::OsString;
+
+        let (base_url, server) = serve_once(
+            "201 Created",
+            r#"{"id":"01JTOKEN","name":"ci","access_token":"fvpat_minted",
+                "token_type":"Bearer","scope":"instances:read",
+                "expires_at":"2026-11-13T23:30:00Z"}"#,
+        );
+        let dir = temp_dir();
+        let _xdg = XdgGuard::install(&dir);
+        let config = Config {
+            base_url: base_url.clone(),
+            ..Config::default()
+        };
+        config
+            .save(&dir.join("fluxvale").join("config.toml"))
+            .unwrap();
+        let host = config::host_from_base_url(&base_url);
+        FileTokenStore::at(dir.join("fluxvale"))
+            .set(&host, &Token::new("fvpat_run"))
+            .unwrap();
+
+        let out = dir.join("pat.txt");
+        let script = format!("printf '%s' \"$FLUXVALE_PAT\" > '{}'", out.display());
+        let exec = Cli {
+            config: None,
+            output: Output::Table,
+            command: Command::Auth {
+                command: AuthCommand::Exec {
+                    command: vec![
+                        OsString::from("sh"),
+                        OsString::from("-c"),
+                        OsString::from(script),
+                    ],
+                },
+            },
+        };
+
+        run(&exec).unwrap();
+        assert_eq!(std::fs::read_to_string(out).unwrap(), "fvpat_run");
+
+        let (_client, location) = reads::read_client(&config).unwrap();
+        assert_eq!(location, crate::token::TokenLocation::FallbackFile);
+
+        let token = Cli {
+            config: None,
+            output: Output::Table,
+            command: Command::Auth {
+                command: AuthCommand::Token {
+                    scopes: "instances:read".to_string(),
+                    ttl: "1h".to_string(),
+                    name: None,
+                },
+            },
+        };
+
+        run(&token).unwrap();
+
+        let request = server.join().unwrap().to_lowercase();
+        assert!(request.starts_with("post /api/v1/tokens"), "{request}");
+        assert!(
+            request.contains("authorization: bearer fvpat_run"),
+            "{request}"
+        );
+    }
+
+    /// One request, one canned response; returns the base URL and the
+    /// captured request head.
+    #[cfg(unix)]
+    fn serve_once(status_line: &str, body: &str) -> (String, std::thread::JoinHandle<String>) {
+        use std::io::{Read as _, Write as _};
+        use std::net::TcpListener;
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let response = format!(
+            "HTTP/1.1 {status_line}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            body.len()
+        );
+        let handle = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut head = String::new();
+            let mut buf = [0u8; 4096];
+            while !head.contains("\r\n\r\n") {
+                let read = stream.read(&mut buf).unwrap();
+                if read == 0 {
+                    break;
+                }
+                head.push_str(&String::from_utf8_lossy(&buf[..read]));
+            }
+            let _ = stream.write_all(response.as_bytes());
+            let _ = stream.flush();
+            head
+        });
+        (format!("http://{addr}"), handle)
+    }
+
+    /// Sets XDG_CONFIG_HOME for one test and restores it on drop. The
+    /// suite is parallel but no other test reads the platform config
+    /// dir; this test is the one that drives the real dispatch.
+    #[cfg(unix)]
+    struct XdgGuard(Option<std::ffi::OsString>);
+
+    #[cfg(unix)]
+    impl XdgGuard {
+        fn install(dir: &std::path::Path) -> Self {
+            let previous = std::env::var_os("XDG_CONFIG_HOME");
+            // SAFETY: the guard serializes the only writer in this
+            // suite; no other test reads this variable.
+            unsafe { std::env::set_var("XDG_CONFIG_HOME", dir) };
+            XdgGuard(previous)
+        }
+    }
+
+    #[cfg(unix)]
+    impl Drop for XdgGuard {
+        fn drop(&mut self) {
+            match self.0.take() {
+                // SAFETY: restoring the value this guard replaced.
+                Some(previous) => unsafe { std::env::set_var("XDG_CONFIG_HOME", previous) },
+                None => unsafe { std::env::remove_var("XDG_CONFIG_HOME") },
+            }
+        }
+    }
+
+    #[cfg(unix)]
+    fn temp_dir() -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "fluxvale-cli-dispatch-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
     }
 
     #[test]

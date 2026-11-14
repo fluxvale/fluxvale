@@ -4,7 +4,8 @@
 //! [`types`] (generated); response parsing stays loose here
 //! ([`jsonapi`]). The RFC 8628 device flow — plain JSON,
 //! unauthenticated by design — lives in [`device`]; the redacted
-//! token value type in [`token`]. Shared by the CLI and the MCP
+//! token value type in [`token`]; the authenticated scoped-token mint
+//! (`auth token`, #772) in [`tokens`]. Shared by the CLI and the MCP
 //! server (#484).
 
 pub mod device;
@@ -12,12 +13,14 @@ pub mod error;
 pub mod jsonapi;
 pub mod terraform;
 pub mod token;
+pub mod tokens;
 pub mod types;
 
 pub use device::{DeviceClient, Minted, Poll, poll_loop};
 pub use error::ApiError;
 pub use jsonapi::{Document, Resource};
 pub use token::Token;
+pub use tokens::{MintRequest, MintedToken, TokenClient};
 
 use serde_json::Value;
 use std::time::Duration;

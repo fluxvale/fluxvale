@@ -11,15 +11,29 @@ use crate::token::{TokenLocation, TokenStore};
 use fluxvale_api::{ApiClient, ApiError, Document, Resource};
 use serde_json::{Value, json};
 
+/// The stored credential for this environment (OS keychain, 0600-file
+/// fallback) — the one token every authenticated command rides.
+pub fn stored_token(config: &Config) -> anyhow::Result<crate::token::Token> {
+    Ok(stored_token_in(config, TokenStore::default_dir()?)?.0)
+}
+
 /// The client for a read command: token from the store (OS keychain,
 /// 0600-file fallback), its location along for `whoami`'s line.
 pub fn read_client(config: &Config) -> anyhow::Result<(ApiClient, TokenLocation)> {
-    let store = TokenStore::at(TokenStore::default_dir()?);
-    let host = config::host_from_base_url(&config.base_url);
-    let Some((token, location)) = store.load(&host)? else {
-        anyhow::bail!("Not signed in. Run `fluxvale auth login` to sign in.")
-    };
+    let (token, location) = stored_token_in(config, TokenStore::default_dir()?)?;
     Ok((ApiClient::new(&config.base_url, token), location))
+}
+
+fn stored_token_in(
+    config: &Config,
+    config_dir: std::path::PathBuf,
+) -> anyhow::Result<(crate::token::Token, TokenLocation)> {
+    let store = TokenStore::at(config_dir);
+    let host = config::host_from_base_url(&config.base_url);
+    match store.load(&host)? {
+        Some(answer) => Ok(answer),
+        None => anyhow::bail!("Not signed in. Run `fluxvale auth login` to sign in."),
+    }
 }
 
 /// The JSON:API resource-level `id` hoisted into the attrs map, so
@@ -1578,5 +1592,40 @@ mod tests {
             err.to_string(),
             "403 Forbidden: token lacks the instances:read scope"
         );
+    }
+
+    #[test]
+    fn the_stored_token_comes_from_the_fallback_file_and_absence_is_loud() {
+        use crate::token::{FileTokenStore, Token};
+
+        let config = Config {
+            base_url: "https://example.test".to_string(),
+            ..Config::default()
+        };
+        let host = config::host_from_base_url(&config.base_url);
+        let dir = temp_dir();
+        FileTokenStore::at(dir.clone())
+            .set(&host, &Token::new("fvpat_stored"))
+            .unwrap();
+
+        let (token, location) = stored_token_in(&config, dir).unwrap();
+        assert_eq!(token, Token::new("fvpat_stored"));
+        assert_eq!(location, TokenLocation::FallbackFile);
+
+        let err = stored_token_in(&config, temp_dir()).unwrap_err();
+        assert!(err.to_string().contains("Not signed in"), "err: {err}");
+    }
+
+    fn temp_dir() -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "fluxvale-cli-reads-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
     }
 }

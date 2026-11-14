@@ -59,13 +59,14 @@ terraform {
 provider "fluxvale" {}
 ```
 
-The provider needs a personal access token. Export it as an environment variable:
+The provider reads a personal access token from `FLUXVALE_PAT`. For local work, sign in once and let the CLI inject it for a single command — the token stays in your keychain (or the 0600 fallback file) and out of your shell:
 
 ```sh
-export FLUXVALE_PAT=fvpat_your_token
+fluxvale auth login
+fluxvale auth exec -- tofu plan
 ```
 
-The token attribute exists on the provider block too, but the environment variable keeps the secret out of your `.tf` files. Without a working token, `terraform plan` fails immediately.
+For CI or a container, mint a scoped, short-lived token and store it in the pipeline's secret store: see [Terraform credentials](/docs/automation/terraform-credentials). The token attribute exists on the provider block too, but the environment variable keeps the secret out of your `.tf` files. Without a working token, `terraform plan` fails immediately.
 
 ## The resources
 

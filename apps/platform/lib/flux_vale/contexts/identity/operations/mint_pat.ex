@@ -7,11 +7,16 @@ defmodule FluxVale.Identity.Operations.MintPat do
   stored; the row carries its SHA-256 hash alone. The create policy
   is the gate: a user mints for themselves, a platform admin for
   anyone (the developer settings page consumes this later).
+
+  A derived mint (provenance carries `minted_parent_id`, #772) is
+  additionally bounded by the resource's per-user live-token cap:
+  overflow returns `{:error, :too_many_live_tokens}`.
   """
 
   alias FluxVale.Api
   alias FluxVale.Api.Scopes
   alias FluxVale.Identity.PersonalAccessToken
+  alias FluxVale.Identity.PersonalAccessToken.EnforceDerivedTokenCap
 
   require Logger
 
@@ -89,11 +94,21 @@ defmodule FluxVale.Identity.Operations.MintPat do
 
           {:ok, %{token: raw, pat: pat}}
 
+        # The derived-token cap (#772) is a domain refusal, not a
+        # system failure: classify it so the caller can answer with
+        # the cap's own status, and pass every other create error
+        # through unchanged.
+        {:error, %Ash.Error.Invalid{errors: errors}} = refusal ->
+          classify_refusal(refusal, EnforceDerivedTokenCap.refusal?(errors))
+
         {:error, error} ->
           {:error, error}
       end
     end
   end
+
+  defp classify_refusal(_refusal, true), do: {:error, :too_many_live_tokens}
+  defp classify_refusal(refusal, false), do: refusal
 
   # The override may shorten, never lengthen: the one-year bound is
   # the worst case the resource's moduledoc promises (the compromise

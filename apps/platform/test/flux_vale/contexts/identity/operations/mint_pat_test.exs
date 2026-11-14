@@ -11,6 +11,7 @@ defmodule FluxVale.Identity.Operations.MintPatTest do
 
   alias FluxVale.Identity
   alias FluxVale.Identity.PersonalAccessToken
+  alias FluxVale.Identity.PersonalAccessToken.EnforceDerivedTokenCap
   alias FluxVale.Identity.User
 
   defp admin!(email \\ "mint-admin@fluxvale.com") do
@@ -182,6 +183,44 @@ defmodule FluxVale.Identity.Operations.MintPatTest do
                })
 
       assert [] = PersonalAccessToken.list_for_user!(member.id, authorize?: false)
+    end
+  end
+
+  describe "the derived-token cap (#772)" do
+    test "the next live minted token is refused" do
+      member = member!("cap-mint@fluxvale.com")
+
+      {:ok, %{pat: root}} =
+        Identity.mint_pat(member, %{user_id: member.id, name: "root", scopes: []})
+
+      for n <- 1..EnforceDerivedTokenCap.max_live_derived_tokens() do
+        assert {:ok, _minted} =
+                 Identity.mint_pat(member, %{
+                   user_id: member.id,
+                   name: "derived #{n}",
+                   scopes: [],
+                   metadata: %{"minted_parent_id" => root.id}
+                 })
+      end
+
+      assert {:error, :too_many_live_tokens} =
+               Identity.mint_pat(member, %{
+                 user_id: member.id,
+                 name: "overflow",
+                 scopes: [],
+                 metadata: %{"minted_parent_id" => root.id}
+               })
+    end
+
+    test "a non-cap invalid create passes the error through" do
+      member = member!("invalid-mint@fluxvale.com")
+
+      assert {:error, %Ash.Error.Invalid{}} =
+               Identity.mint_pat(member, %{
+                 user_id: member.id,
+                 name: String.duplicate("a", 101),
+                 scopes: []
+               })
     end
   end
 

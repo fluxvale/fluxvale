@@ -46,6 +46,11 @@ defmodule FluxValeWeb.Plugs.Authenticate do
   # last_used_at granularity — coarser stamps buy nothing (nothing
   # displays finer than "recently") and the write is per-request.
   @last_used_granularity_seconds 60
+  # A derivation chain longer than this is not a real CLI flow; the
+  # cap bounds the per-request ancestor reads (and any forged cycle).
+  # Eight LINKS (nine tokens) are allowed: the walk spends one step
+  # per edge and still inspects the root at zero.
+  @max_parent_depth 8
 
   @doc false
   @spec init(keyword) :: keyword
@@ -106,8 +111,11 @@ defmodule FluxValeWeb.Plugs.Authenticate do
       {:ok, token} when is_nil(token.revoked_at) ->
         # The prefix is a claim, not the proof: a refresh token
         # presented as an access token must not authenticate, and a
-        # PAT prefix on an OAuth row is a mismatch too.
-        if token.kind == expected_kind do
+        # PAT prefix on an OAuth row is a mismatch too. A minted PAT
+        # child (#772) also rides its parent's liveness: revoking the
+        # credential that minted it severs the whole chain on the next
+        # presentation, not only when the child's own TTL ends.
+        if token.kind == expected_kind and lineage_live?(token) do
           resolve_user(conn, token)
         else
           conn
@@ -115,6 +123,42 @@ defmodule FluxValeWeb.Plugs.Authenticate do
 
       _revoked_or_missing ->
         conn
+    end
+  end
+
+  # Walk the derivation chain (`minted_parent_id`) to the root. A
+  # revoked or expired ancestor refuses every child below it. Tokens
+  # minted by the panel or the device flow carry no parent and pass
+  # on their own row alone. The chain cannot cycle: a parent row is
+  # created before the child that names it.
+  defp lineage_live?(pat), do: lineage_live?(pat, @max_parent_depth)
+
+  # Budget exhausted: only a root passes. A token that still names a
+  # parent here would need a ninth ancestor read, so the chain fails
+  # closed instead of trusting an unread link.
+  defp lineage_live?(pat, 0), do: is_nil(parent_id(pat))
+
+  defp lineage_live?(pat, depth) do
+    case parent_id(pat) do
+      nil ->
+        true
+
+      parent_id ->
+        case PersonalAccessToken.get(parent_id, authorize?: false) do
+          {:ok, parent} when is_nil(parent.revoked_at) ->
+            DateTime.after?(parent.expires_at, DateTime.utc_now()) and
+              lineage_live?(parent, depth - 1)
+
+          _missing_or_revoked ->
+            false
+        end
+    end
+  end
+
+  defp parent_id(pat) do
+    case pat.metadata do
+      %{"minted_parent_id" => parent_id} when is_binary(parent_id) -> parent_id
+      _root -> nil
     end
   end
 
