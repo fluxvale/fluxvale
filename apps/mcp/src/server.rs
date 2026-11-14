@@ -2359,6 +2359,14 @@ mod tests {
         .to_string()
     }
 
+    fn quote_resized_doc() -> String {
+        json!({"cpu_cores": "2", "memory_mb": 2048, "storage_gb": 10,
+               "monthly_cents": 900, "stopped_monthly_cents": 40,
+               "monthly": "$9.00/mo · billed hourly",
+               "stopped": "$0.40 while stopped"})
+        .to_string()
+    }
+
     fn deploy_upstream() -> CannedApi {
         let created = json!({"data": {"type": "instance", "id": "i2",
             "attributes": {"id": "i2", "name": "new", "slug": "new-a1", "status": "pending"}}});
@@ -2661,7 +2669,7 @@ mod tests {
             (
                 "GET /api/v1/pricing/quote?cpu_cores=2&memory_mb=2048&storage_gb=10",
                 200,
-                quote_doc(),
+                quote_resized_doc(),
             ),
             (
                 "PATCH /api/v1/instances/i1/start",
@@ -2680,7 +2688,7 @@ mod tests {
         assert_eq!(structured["ok"], true);
         assert_eq!(structured["steps"]["stop"], "skipped");
         assert_eq!(structured["new_allocation"]["memory_mb"], 2048);
-        assert_eq!(structured["price"]["monthly_cents"], 335);
+        assert_eq!(structured["price"]["monthly_cents"], 900);
         assert!(
             (0..server.head_count())
                 .map(|n| server.head(n).to_lowercase())
@@ -3584,7 +3592,7 @@ mod tests {
             (
                 "GET /api/v1/pricing/quote?cpu_cores=2&memory_mb=2048&storage_gb=10",
                 200,
-                quote_doc(),
+                quote_resized_doc(),
             ),
             ("PATCH /api/v1/instances/i1/start", 200, start_error),
         ]);

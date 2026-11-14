@@ -637,8 +637,8 @@ fn read_gateway(client: &ApiClient, org_id: &str) -> Result<Option<Value>, Strin
     }
 }
 
-/// Both pairing verbs re-read the gateway AND the instance, so a 404
-/// cannot say which side missed — the line stays honest about that.
+/// The platform's attach/detach 404 can be the gateway or the
+/// instance, so the friendly line names both rather than guessing.
 fn friendly_pairing_404(err: ApiError) -> String {
     match err {
         ApiError::NotFound => "no such gateway or instance (or it's not yours)".to_string(),
@@ -1305,15 +1305,36 @@ pub(crate) async fn instances_lifecycle(
 /// The lifecycle PATCH over an existing client (the resize's
 /// stop/start limbs share it).
 fn lifecycle(client: &ApiClient, id: &str, verb: &str) -> Result<Value, String> {
+    lifecycle_maybe(client, id, verb).map_err(|(_, message)| message)
+}
+
+/// The lifecycle PATCH with the "may have landed" bit kept: a 5xx or
+/// transport failure can follow a committed scale, while a 4xx guard
+/// proves nothing changed. The stop leg uses it to decide whether a
+/// row observed stopped is ours to restart.
+fn lifecycle_maybe(client: &ApiClient, id: &str, verb: &str) -> Result<Value, (bool, String)> {
     let body = json!({"data": {"type": "instance", "id": id, "attributes": {}}});
-    let document = client
-        .send(
-            "PATCH",
-            &format!("/instances/{id}/{verb}"),
-            Some(body.to_string()),
-        )
-        .map_err(|err| friendly_404(err, "instance"))?;
-    one_resource(document, "instance").map(|resource| with_id(&resource))
+    match client.send(
+        "PATCH",
+        &format!("/instances/{id}/{verb}"),
+        Some(body.to_string()),
+    ) {
+        Ok(document) => match one_resource(document, "instance") {
+            Ok(resource) => Ok(with_id(&resource)),
+            // A 200 whose body we cannot read: the write may have
+            // committed, so the stop's row must be re-read before
+            // anything restarts it.
+            Err(message) => Err((true, message)),
+        },
+        Err(err) => {
+            let may_have_landed = match &err {
+                ApiError::Transport(_) => true,
+                ApiError::Api(message) => message.starts_with('5') || message.starts_with("HTTP 5"),
+                _ => false,
+            };
+            Err((may_have_landed, friendly_404(err, "instance")))
+        }
+    }
 }
 
 /// `instances_resize` — the stopped-first sequence (ADR-0043): a
@@ -1353,7 +1374,7 @@ pub(crate) async fn instances_resize(
         let mut stopped_by_us = false;
 
         if before["status"] == "running" {
-            match lifecycle(&client, &id, "stop") {
+            match lifecycle_maybe(&client, &id, "stop") {
                 Ok(row) if row["status"] == "stopped" => {
                     steps["stop"] = json!("done");
                     last_row = row;
@@ -1371,9 +1392,10 @@ pub(crate) async fn instances_resize(
                             row["status"].as_str().unwrap_or("an unknown state")
                         ),
                         previous_allocation,
+                        true,
                     ));
                 }
-                Err(message) => {
+                Err((may_have_landed, message)) => {
                     return Ok(stop_failed(
                         &client,
                         &id,
@@ -1381,6 +1403,7 @@ pub(crate) async fn instances_resize(
                         &mut last_row,
                         message,
                         previous_allocation,
+                        may_have_landed,
                     ));
                 }
             }
@@ -1513,12 +1536,12 @@ an allocation at the app version's recommended size bills that size's live rate 
 /// a silent success.
 const START_LANDED_ERROR: &str = "start landed error — the instance needs attention";
 
-/// A stop-leg failure: no resize runs. If the stop nevertheless landed
-/// (the error was a transport/5xx after the scale-to-zero), this call
-/// did stop the instance — restart it and report both outcomes. A row
-/// the stop did not land leaves `start` not attempted. Every wire is
-/// terminal on this response (`resize`/`start` are `not_attempted`,
-/// never `pending`).
+/// A stop-leg failure: no resize runs. A 5xx/transport error can follow
+/// a committed scale, so when the error may have landed and the row is
+/// now stopped, this call did stop it — restart and report both
+/// outcomes. A definite 4xx refusal (or a row that is not stopped)
+/// leaves `start` not attempted. Every wire is terminal on this
+/// response (`resize`/`start` are `not_attempted`, never `pending`).
 fn stop_failed(
     client: &ApiClient,
     id: &str,
@@ -1526,11 +1549,12 @@ fn stop_failed(
     last_row: &mut Value,
     error: String,
     previous_allocation: Value,
+    may_have_landed: bool,
 ) -> Value {
     let before = read_instance(client, id).unwrap_or_else(|_| last_row.clone());
     steps["resize"] = json!("not_attempted");
 
-    let (start_error, started, error) = if before["status"] == "stopped" {
+    let (start_error, started, error) = if may_have_landed && before["status"] == "stopped" {
         steps["stop"] = json!("done");
         match lifecycle(client, id, "start") {
             Ok(row) if row["status"] == "error" => {
@@ -3938,6 +3962,7 @@ mod tests {
             &mut last_row,
             "stop timed out".to_string(),
             json!({"cpu_cores": "0.5"}),
+            true,
         );
         assert_eq!(value["ok"], false);
         assert_eq!(value["step"], "stop");
@@ -3970,6 +3995,7 @@ mod tests {
             &mut last_row,
             "stop refused".to_string(),
             json!({}),
+            false,
         );
         assert_eq!(value["steps"]["stop"], "failed");
         assert_eq!(value["steps"]["resize"], "not_attempted");
@@ -3979,6 +4005,100 @@ mod tests {
             (0..server.head_count())
                 .map(|n| server.head(n).to_lowercase())
                 .all(|head| !head.starts_with("patch /api/v1/instances/i1/start"))
+        );
+    }
+
+    #[test]
+    fn stop_failed_does_not_restart_a_row_a_refusal_did_not_stop() {
+        // The row is stopped, but a definite 4xx proves our call did
+        // not do it — starting it would undo someone else's pause.
+        let stopped = instance_status_doc("stopped");
+        let server = serve(&[("/api/v1/instances/i1", 200, &stopped)]);
+        let client = ApiClient::new(&base(&server), token());
+        let mut last_row = json!({"status": "stopped"});
+        let value = stop_failed(
+            &client,
+            "i1",
+            json!({"stop": "failed", "resize": "pending", "start": "pending"}),
+            &mut last_row,
+            "400 InvalidArgument: cannot stop instance in stopped state".to_string(),
+            json!({}),
+            false,
+        );
+        assert_eq!(value["steps"]["stop"], "failed");
+        assert_eq!(value["steps"]["start"], "not_attempted");
+        assert_eq!(value["started"], false);
+        assert_eq!(value["start_error"], Value::Null);
+        assert!(
+            (0..server.head_count())
+                .map(|n| server.head(n).to_lowercase())
+                .all(|head| !head.starts_with("patch /api/v1/instances/i1/start"))
+        );
+    }
+
+    #[test]
+    fn stop_failed_reports_a_restart_that_lands_error() {
+        let stopped = instance_status_doc("stopped");
+        let erred = instance_status_doc("error");
+        let server = serve(&[
+            ("/api/v1/instances/i1", 200, &stopped),
+            ("PATCH /api/v1/instances/i1/start", 200, &erred),
+        ]);
+        let client = ApiClient::new(&base(&server), token());
+        let mut last_row = json!({"status": "running"});
+        let value = stop_failed(
+            &client,
+            "i1",
+            json!({"stop": "failed", "resize": "pending", "start": "pending"}),
+            &mut last_row,
+            "stop timed out".to_string(),
+            json!({}),
+            true,
+        );
+        assert_eq!(value["steps"]["start"], "failed");
+        assert_eq!(value["started"], false);
+        assert_eq!(value["start_error"], START_LANDED_ERROR);
+        assert!(
+            value["error"]
+                .as_str()
+                .unwrap()
+                .contains("restart landed error"),
+            "error: {}",
+            value["error"]
+        );
+    }
+
+    #[test]
+    fn stop_failed_reports_a_restart_refusal() {
+        let stopped = instance_status_doc("stopped");
+        let server = serve(&[
+            ("/api/v1/instances/i1", 200, &stopped),
+            (
+                "PATCH /api/v1/instances/i1/start",
+                403,
+                r#"{"errors":[{"status":"403","detail":"token is missing the required scope instances:write"}]}"#,
+            ),
+        ]);
+        let client = ApiClient::new(&base(&server), token());
+        let mut last_row = json!({"status": "running"});
+        let value = stop_failed(
+            &client,
+            "i1",
+            json!({"stop": "failed", "resize": "pending", "start": "pending"}),
+            &mut last_row,
+            "stop timed out".to_string(),
+            json!({}),
+            true,
+        );
+        assert_eq!(value["steps"]["start"], "failed");
+        assert_eq!(value["started"], false);
+        assert!(
+            value["start_error"]
+                .as_str()
+                .unwrap()
+                .contains("instances:write"),
+            "start_error: {}",
+            value["start_error"]
         );
     }
 
