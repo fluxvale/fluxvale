@@ -2,7 +2,7 @@ defmodule FluxVale.PromEx.Plugins.BusinessTest do
   @moduledoc """
   The fleet counter contract: three counters, the NARROWER fleet label
   sets (no app, no reason — the LiveDashboard tags deliberately
-  dropped), the closed-enum derivations behind the 77-series ceiling,
+  dropped), the closed-enum derivations behind the 78-series ceiling,
   and an end-to-end scrape proving the events land as
   `flux_vale_*_total` series (the names the fleet allowlist and the
   alert rules query; nothing may rename them silently).
@@ -52,11 +52,11 @@ defmodule FluxVale.PromEx.Plugins.BusinessTest do
     assert Enum.all?(counters, &match?(%Telemetry.Metrics.Sum{}, &1))
   end
 
-  describe "the closed-enum derivations — the 77-series ceiling" do
-    test "instance: the 51 legal pairs (validator table + catch-alls, from ≠ to)" do
+  describe "the closed-enum derivations — the 78-series ceiling" do
+    test "instance: the 52 legal pairs (validator table + catch-alls, from ≠ to)" do
       pairs = Business.instance_transition_pairs()
 
-      assert length(pairs) == 51
+      assert length(pairs) == 52
 
       # Table edges (spot): the deploy funnel, the wake lane, the
       # re-deploy exit, error recovery.
@@ -68,8 +68,10 @@ defmodule FluxVale.PromEx.Plugins.BusinessTest do
       assert {:lost, :deploying} in pairs
       # #776: capacity waiting and stale-failure recovery.
       assert {:running, :no_capacity} in pairs
+      assert {:no_capacity, :stopped} in pairs
       assert {:no_capacity, :starting} in pairs
       assert {:no_capacity, :running} in pairs
+      assert {:no_capacity, :deleting} in pairs
       assert {:error, :running} in pairs
 
       # Catch-all arms: any → error / any → deleting, including

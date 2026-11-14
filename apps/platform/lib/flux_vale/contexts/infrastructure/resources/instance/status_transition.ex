@@ -89,7 +89,7 @@ defmodule FluxVale.Infrastructure.Instance.StatusTransition do
 
   @doc """
   The transition table — one writer (this validator). Read by
-  FluxVale.PromEx.Plugins.Business to derive the fleet's 51-pair
+  FluxVale.PromEx.Plugins.Business to derive the fleet's 52-pair
   ceiling; the catch-all arms (any → :error / any → :deleting) are
   validate/2 arms, not map entries, so the derivation adds them.
   """

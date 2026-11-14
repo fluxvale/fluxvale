@@ -674,8 +674,11 @@ defmodule FluxVale.Infrastructure.Operations.ReconcileInstanceTest do
       instance = instance!(:starting)
 
       terminating =
-        unschedulable_pod()
-        |> put_in(["metadata", "deletionTimestamp"], DateTime.to_iso8601(DateTime.utc_now()))
+        put_in(
+          unschedulable_pod(),
+          ["metadata", "deletionTimestamp"],
+          DateTime.to_iso8601(DateTime.utc_now())
+        )
 
       expect(Deployment, :status, fn _kc, _ns, _n -> {:ok, deployment_status(%{})} end)
       expect(Pod, :list_by_labels, fn _kc, _ns, _labels -> {:ok, [terminating]} end)

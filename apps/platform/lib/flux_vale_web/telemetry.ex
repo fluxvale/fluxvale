@@ -87,7 +87,7 @@ defmodule FluxValeWeb.Telemetry do
       # (Plugins.Wake / Plugins.Business) with deliberately narrower
       # labels. In-memory, resets per deploy — accepted. Buckets are
       # shared with the PromEx plugin (ONE list — Wake.buckets/0).
-      # The fleet families' 68 closed-enum combos are seeded at 0
+      # The fleet families' 78 closed-enum combos are seeded at 0
       # from boot (PromEx.SeedBusinessCounters — increase() never
       # counts a series' first increment). These dashboard rows are
       # untouched by the seed: LiveDashboard listens per mounted
@@ -124,7 +124,7 @@ defmodule FluxValeWeb.Telemetry do
       # :update_status funnel plus the :deploy flip and the two Oban
       # error handlers) — reason is the deploy-failure triage lens;
       # labels are closed enums, cardinality ceilinged by the state
-      # machine: 42 legal from/to pairs (Plugins.Business derives
+      # machine: 52 legal from/to pairs (Plugins.Business derives
       # them from the validator), reason nil everywhere but the
       # error edges.
       counter("flux_vale_instance_status_transition_count",

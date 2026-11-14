@@ -277,7 +277,7 @@ defmodule FluxVale.Clients.K8s.Resources.Deployment do
   end
 
   @doc "Scales a deployment to the given replica count."
-  @spec scale(Kubereq.Kubeconfig.t(), String.t(), String.t(), integer()) ::
+  @spec scale(Kubereq.Kubeconfig.t(), String.t(), String.t(), integer(), keyword()) ::
           {:ok, map()} | {:error, Error.t()}
   # v1-ported: get → strip managedFields → force-apply. The force flag makes
   # manager "fluxvale" claim every field of the fetched object, and the
