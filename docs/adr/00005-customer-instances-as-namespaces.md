@@ -120,17 +120,20 @@ no longer needs a stop/start.
 
 Reconcile treats `ReplicaFailure` as retryable while it is fresh (the
 ReplicaSet controller retries a rejected pod create, and a terminating pod
-holds the quota until it is gone). A failure flips the instance to `:error`
-only after it outlives the deploy-stale bound (300s) or Kubernetes reports
-`Progressing: False` / `ProgressDeadlineExceeded`; a fresh failure leaves
-the instance in `:starting`/`:running`.
+holds the quota until it is gone). A scheduled workload flips to `:error`
+only after the failure outlives the deploy-stale bound (300s) or
+Kubernetes reports `Progressing: False` / `ProgressDeadlineExceeded`; a
+fresh failure leaves the instance in `:starting`/`:running`.
 
 The state machine also gains **`no_capacity`** — a scheduler rejection
 (`PodScheduled=False` / `Unschedulable`) is a waiting state, not a crash,
 and the pod condition's reason rides in `status_message`. It enters from
 `:starting`/`:running`/`:error` and returns through the start lane, or
-straight to `:running` once ready. Relatedly, `:error` is no longer
-sticky: a row whose unintended failure (deploy/start/rollout/stuck/
-missing) is contradicted by a healthy workload recovers to `:running`.
-Intent-bearing failures (`:stop_failed`, `:restore_failed`,
-`:teardown_failed`) keep their error.
+straight to `:running` once ready. Capacity wins over the rollout
+deadline: an unplaced pod stays `:no_capacity` rather than becoming a
+`:error` that reads as a crashed app; the owner can stop it (→
+`:stopped`) and resize down. Relatedly, `:error` is no longer sticky: a
+row whose unintended failure (rollout/start/stuck/missing — not
+`deploy_failed`, which retries through `:deploy`) is contradicted by a
+healthy current revision recovers to `:running`. Intent-bearing failures
+(`:stop_failed`, `:restore_failed`, `:teardown_failed`) keep their error.

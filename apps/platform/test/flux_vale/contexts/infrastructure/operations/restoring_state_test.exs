@@ -58,6 +58,33 @@ defmodule FluxVale.Infrastructure.Operations.RestoringStateTest do
     Instance.get_by_id!(instance.id, authorize?: false)
   end
 
+  # A deployed row landed in :error through the funnel — the shape the
+  # reconcile trigger's failure-reason gate has to filter in SQL.
+  defp errored_instance!(reason) do
+    version = InstanceFixtures.app_version!()
+
+    instance =
+      Instance.create!(
+        %{
+          name: "Errored #{System.unique_integer()}",
+          app_version_id: version.id,
+          env_vars: %{}
+        },
+        actor: user()
+      )
+
+    running =
+      instance
+      |> InstanceFixtures.pin!(
+        namespace: "fluxvale-app-#{instance.id}",
+        deployed_at: DateTime.utc_now()
+      )
+      |> InstanceFixtures.walk_to!(:running)
+
+    {:ok, errored} = InstanceK8s.update_status(running, :error, "boom", reason)
+    errored
+  end
+
   describe "the enums (text-stored, code-only)" do
     test ":restoring is an Instance status" do
       assert :restoring in InstanceStatus.values()
@@ -114,6 +141,29 @@ defmodule FluxVale.Infrastructure.Operations.RestoringStateTest do
       for reason <- [:deploy_failed, :stop_failed, :restore_failed, :teardown_failed] do
         refute admitted?.(reason), "expected #{inspect(reason)} to stay out"
       end
+    end
+
+    test "the trigger filter's SQL form queues recoverable errors, not intent-bearing ones" do
+      # One cluster for all three rows — the create resolves the single
+      # cluster row (more than one is ADR-0006's refused shape).
+      InstanceFixtures.local_cluster!()
+      trigger = AshOban.Info.oban_trigger(Instance, :reconcile_status)
+
+      recoverable = errored_instance!(:rollout_failed)
+      legacy = errored_instance!(nil)
+      intent_bearing = errored_instance!(:stop_failed)
+
+      query =
+        Instance
+        |> Ash.Query.filter(trigger.where)
+        |> Ash.Query.sort(:id)
+
+      {:ok, rows} = Ash.read(query, authorize?: false)
+      ids = Enum.map(rows, & &1.id)
+
+      assert recoverable.id in ids
+      assert legacy.id in ids
+      refute intent_bearing.id in ids
     end
 
     test "a direct reconcile call on a :restoring row is a no-op" do

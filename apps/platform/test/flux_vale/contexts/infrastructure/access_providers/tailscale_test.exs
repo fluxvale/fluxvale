@@ -58,7 +58,11 @@ defmodule FluxVale.Infrastructure.AccessProviders.TailscaleTest do
       {:ok, %{}}
     end)
 
-    stub(Deployment, :restart, fn _kc, _ns, _name -> {:ok, %{}} end)
+    stub(Deployment, :restart, fn _kc, _ns, _name, opts ->
+      assert opts[:strategy] == %{"type" => "Recreate"}
+      {:ok, %{}}
+    end)
+
     stub(Deployment, :status, fn _kc, _ns, _name -> {:ok, %{ready: 1, replicas: 1}} end)
     # No provision stub: this file tests the REAL implementation against
     # the stubbed K8s clients above, so building a gateway row exercises
@@ -361,7 +365,7 @@ defmodule FluxVale.Infrastructure.AccessProviders.TailscaleTest do
       # A restart is a get→apply asserting the fetched replica count, so
       # it would resurrect a pod the ladder scaled to 0 — and the
       # observer refuses to override a suspension, so it would serve free.
-      reject(Deployment, :restart, 3)
+      reject(Deployment, :restart, 4)
 
       assert :ok = Tailscale.update_credential(gateway, "tskey-new")
 
@@ -833,8 +837,9 @@ defmodule FluxVale.Infrastructure.AccessProviders.TailscaleTest do
     test "writes the Secret and restarts the pod", %{org: org} do
       gateway = gateway_row!(org)
 
-      expect(Deployment, :restart, fn _kc, _ns, deployment ->
+      expect(Deployment, :restart, fn _kc, _ns, deployment, opts ->
         assert deployment == name("gateway", gateway)
+        assert opts[:strategy] == %{"type" => "Recreate"}
         {:ok, %{}}
       end)
 
@@ -847,7 +852,7 @@ defmodule FluxVale.Infrastructure.AccessProviders.TailscaleTest do
     test "a restart failure surfaces", %{org: org} do
       gateway = gateway_row!(org)
 
-      expect(Deployment, :restart, fn _kc, _ns, _n ->
+      expect(Deployment, :restart, fn _kc, _ns, _n, _opts ->
         {:error, Error.from_response({:ok, %{status: 500, body: %{}}})}
       end)
 
@@ -869,7 +874,7 @@ defmodule FluxVale.Infrastructure.AccessProviders.TailscaleTest do
         {:ok, %{}}
       end)
 
-      reject(Deployment, :restart, 3)
+      reject(Deployment, :restart, 4)
 
       assert :ok = Tailscale.update_credential(gateway, "tskey-new")
 
@@ -893,7 +898,7 @@ defmodule FluxVale.Infrastructure.AccessProviders.TailscaleTest do
       {:ok, _route} = Tailscale.attach_instance(gateway, instance)
 
       stub(Deployment, :apply_manifest, fn _kc, _manifest -> {:ok, %{}} end)
-      reject(Deployment, :restart, 3)
+      reject(Deployment, :restart, 4)
 
       {:ok, _repasted} =
         AccessGateway.update_credential(
@@ -922,15 +927,17 @@ defmodule FluxVale.Infrastructure.AccessProviders.TailscaleTest do
     test "scales to zero and to one", %{org: org} do
       gateway = gateway_row!(org)
 
-      expect(Deployment, :scale, fn _kc, _ns, deployment, 0 ->
+      expect(Deployment, :scale, fn _kc, _ns, deployment, 0, opts ->
         assert deployment == name("gateway", gateway)
+        assert opts[:strategy] == %{"type" => "Recreate"}
         {:ok, %{}}
       end)
 
       assert :ok = Tailscale.scale_gateway(gateway, 0)
 
-      expect(Deployment, :scale, fn _kc, _ns, deployment, 1 ->
+      expect(Deployment, :scale, fn _kc, _ns, deployment, 1, opts ->
         assert deployment == name("gateway", gateway)
+        assert opts[:strategy] == %{"type" => "Recreate"}
         {:ok, %{}}
       end)
 
@@ -940,7 +947,7 @@ defmodule FluxVale.Infrastructure.AccessProviders.TailscaleTest do
     test "a scale failure surfaces", %{org: org} do
       gateway = gateway_row!(org)
 
-      expect(Deployment, :scale, fn _kc, _ns, _n, _r ->
+      expect(Deployment, :scale, fn _kc, _ns, _n, _r, _opts ->
         {:error, Error.from_response({:ok, %{status: 500, body: %{}}})}
       end)
 

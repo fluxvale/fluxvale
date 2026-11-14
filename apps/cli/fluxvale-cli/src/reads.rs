@@ -332,7 +332,7 @@ pub fn status_line(status: &str) -> String {
         "deploying" => "Provisioning — setting up your app.",
         "starting" => "Starting it up.",
         "no_capacity" => {
-            "No capacity — there's no room on our machines right now; your app starts automatically when space frees up."
+            "No capacity — we can't start your app on our machines right now; it starts automatically when it can."
         }
         "running" => "Running — your app is up.",
         "sleeping" => {

@@ -166,7 +166,7 @@ defmodule FluxValeWeb.InstanceLive.Show do
                   stops now; the panel opens when the row lands :stopped
                   (open_resize_on_stop). --%>
                   <p
-                    :if={@instance.status == :running}
+                    :if={@instance.status in [:running, :no_capacity]}
                     class="text-xs text-ink-subtle"
                     data-testid="stop-to-resize-note"
                   >
@@ -1088,7 +1088,7 @@ defmodule FluxValeWeb.InstanceLive.Show do
     </.button>
 
     <.button
-      :if={@instance.status == :running}
+      :if={@instance.status in [:running, :no_capacity]}
       variant="ghost"
       size="sm"
       phx-click="stop"
@@ -1098,9 +1098,9 @@ defmodule FluxValeWeb.InstanceLive.Show do
     </.button>
 
     <%!-- #493: the resize entry — stopped opens the panel directly;
-    running must stop first (the guided stop→resize start). No entry
-    from the states that can't reach :stopped cleanly — wake or deploy
-    first, plain and honest. --%>
+    running (or #776's no_capacity) must stop first (the guided
+    stop→resize start). No entry from the states that can't reach
+    :stopped cleanly — wake or deploy first, plain and honest. --%>
     <.button
       :if={@instance.status == :stopped and not @panel_open}
       variant="ghost"
@@ -1112,7 +1112,7 @@ defmodule FluxValeWeb.InstanceLive.Show do
     </.button>
 
     <.button
-      :if={@instance.status == :running}
+      :if={@instance.status in [:running, :no_capacity]}
       variant="ghost"
       size="sm"
       phx-click="stop-to-resize"

@@ -19,7 +19,11 @@ defmodule FluxVale.Infrastructure.Operations.ReconcileInstance do
     current revision → `:error`; a fresh `ReplicaFailure` is retried
     (the ReplicaSet controller recreates a rejected pod, and a
     terminating pod holds the quota until it goes) and only a failure
-    older than the deploy-stale bound is terminal
+    older than the deploy-stale bound is terminal. An unschedulable pod
+    is reported as `:no_capacity` FIRST: capacity/placement is not a
+    failed rollout, so the deadline and the 300s bound do not turn it
+    into `:error` — the row waits for the scheduler (or the owner's
+    stop) instead
   - `:error` rows whose failure is unintended (stuck/missing/rollout/
     start) and whose current revision is now ready → `:running`; the
     intent-bearing failures (`:stop_failed`, `:restore_failed`,

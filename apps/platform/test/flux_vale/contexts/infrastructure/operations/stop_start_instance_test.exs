@@ -25,7 +25,13 @@ defmodule FluxVale.Infrastructure.Operations.StopStartInstanceTest do
     instance =
       Instance.create!(%{name: "App", app_version_id: version.id, env_vars: %{}}, actor: user())
 
-    chain = [:deploying, :starting, :running] ++ if status == :stopped, do: [:stopped], else: []
+    chain =
+      case status do
+        :stopped -> [:deploying, :starting, :running, :stopped]
+        :no_capacity -> [:deploying, :starting, :running, :no_capacity]
+        _ready -> [:deploying, :starting, :running]
+      end
+
     reached = reach!(instance, chain)
 
     InstanceFixtures.pin!(reached,
@@ -57,6 +63,21 @@ defmodule FluxVale.Infrastructure.Operations.StopStartInstanceTest do
       assert stopped.status == :stopped
       assert stopped.running_since == nil
       assert stopped.unbilled_running_usec >= 0
+      assert stopped.storage_metering_since
+    end
+
+    # #776: a capacity wait must not be a one-way door — stop, resize
+    # down, start again.
+    test "stops a scheduler-waiting :no_capacity instance" do
+      stub_kubeconfig()
+      instance = instance!(:no_capacity)
+      ns = "fluxvale-app-#{instance.id}"
+
+      expect(Deployment, :scale, fn _kc, ^ns, "app", 0 -> {:ok, %{}} end)
+
+      assert {:ok, stopped} = StopInstance.call(instance)
+      assert stopped.status == :stopped
+      assert stopped.running_since == nil
       assert stopped.storage_metering_since
     end
 

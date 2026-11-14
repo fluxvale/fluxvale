@@ -22003,6 +22003,7 @@
                                   "pending",
                                   "deploying",
                                   "starting",
+                                  "no_capacity",
                                   "running",
                                   "sleeping",
                                   "restoring",

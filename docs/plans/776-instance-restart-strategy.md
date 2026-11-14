@@ -1,7 +1,8 @@
 # Plan: instance updates that roll inside the one-pod quota (#776)
 
-**Status**: Implemented — Terence's GO 2026-11-14, option **A** (D1 settled).
-Implemented in `~/Work/FluxVale/fv776-restart`, branch
+**Status**: Implemented (Slices 1–3) — Terence's GO 2026-11-14, option
+**A** (D1 settled). Slice 4 (provider repo) and Slice 5 (staging proof)
+remain open. Implemented in `~/Work/FluxVale/fv776-restart`, branch
 `fix/instance-restart-strategy`.
 **Scope**: platform repo only. No ops-repo writes (`jobs/fluxvale/` is the PA's).
 The provider repo (`terraform-provider-fluxvale`) docs/acceptance follow-up is
@@ -15,9 +16,10 @@ Slices 2 and 3 below.
 
 ## Verified root cause
 
-- `apps/platform/lib/flux_vale/clients/k8s/resources/deployment.ex` builds
-  `spec` without `strategy` (lines 543–555), so the API applies
-  `RollingUpdate` with `maxSurge: 25%` / `maxUnavailable: 25%`.
+- `apps/platform/lib/flux_vale/clients/k8s/resources/deployment.ex` built
+  `spec` without `strategy` (pre-#776 code, line anchors as of
+  `b6f1bcde`: lines 543–555), so the API applied `RollingUpdate` with
+  `maxSurge: 25%` / `maxUnavailable: 25%`.
 - `apps/platform/lib/flux_vale/clients/k8s/resources/resource_quota.ex`
   (lines 131–139) hard-caps `requests.cpu/memory` and `limits.cpu/memory`
   at exactly one pod's size.
@@ -286,12 +288,14 @@ defp stale_condition?(_condition), do: true
 
 `transition_for/3` order (as implemented):
 
-1. `desired > 0 and ready >= desired` → promote `:starting` to
-   `:running`, no-op for `:running`. Readiness wins over leftover
-   conditions: a deadlined `Progressing`/stale `ReplicaFailure` can
-   outlive the failed revision while the serving pod answers.
+1. `desired > 0 and current_revision_ready?` (`ready >= desired` **and**
+   `updated >= desired`) → promote `:starting` to `:running`, no-op for
+   `:running`. Readiness wins over leftover conditions, but only for the
+   CURRENT revision: a ready old pod must not mask a stalled new spec.
 2. An unschedulable newest pod → `:no_capacity` with the condition
-   reason.
+   reason. This arm precedes `failed_rollout?`, so
+   `ProgressDeadlineExceeded` and the 300s bound do not turn a scheduler
+   rejection into `:error`.
 3. `failed_rollout?` (stale `ReplicaFailure` or
    `ProgressDeadlineExceeded`) → `:error` (`:rollout_failed`).
 4. A fresh `ReplicaFailure` present → log and return `{:ok, instance}`
@@ -299,10 +303,11 @@ defp stale_condition?(_condition), do: true
 5. Otherwise no-op.
 
 `:error` also joins the reconciled statuses. A recoverable (unintended)
-failure whose Deployment is ready promotes to `:running`; an
+failure whose current revision is ready promotes to `:running`; an
 unschedulable pod lands `:no_capacity`; intent-bearing failures stay
 error. `:no_capacity` reconciles the same way: ready → `:running`,
-schedulable again → `:starting`, still unschedulable → no-op.
+schedulable again → `:starting`, still unschedulable → no-op, owner stop
+→ `:stopped`.
 
 **Status transitions**
 
@@ -312,21 +317,26 @@ schedulable again → `:starting`, still unschedulable → no-op.
 | `:starting` | fresh `ReplicaFailure` | stays `:starting` (no write) |
 | `:running` / `:starting` | `ReplicaFailure` >300s or bad timestamp | `:error`, `failure_reason: :rollout_failed` |
 | `:running` / `:starting` | `Progressing: False` + `ProgressDeadlineExceeded`, not ready | `:error`, `:rollout_failed` |
-| any of the four | `ready >= replicas`, `desired > 0` | `:running` (readiness outranks conditions) |
+| any reconciled state | `ready >= replicas`, `updated >= replicas`, `desired > 0` | `:running` (the current revision outranks leftover conditions) |
 | `:starting` / `:running` | newest pod `PodScheduled=False` / `Unschedulable` | `:no_capacity`, reason in `status_message` |
-| `:error` (recoverable reason) | Deployment ready | `:running` |
+| `:starting` / `:running` | unschedulable **and** `ProgressDeadlineExceeded` / >300s | stays `:no_capacity` (capacity wins over the rollout deadline) |
+| `:error` (recoverable reason) | current revision ready | `:running` |
 | `:error` (recoverable reason) | pod unschedulable | `:no_capacity` |
 | `:error` (`:stop_failed`/`:restore_failed`/`:teardown_failed`) | any | stays `:error` |
-| `:no_capacity` | Deployment ready | `:running` |
+| `:no_capacity` | current revision ready | `:running` |
 | `:no_capacity` | pod scheduled, not ready | `:starting` |
 | `:no_capacity` | still unschedulable | no-op |
+| `:no_capacity` | owner stops | `:stopped` |
 | `:deploying` | `deployed_at` >300s | `:error`, `failure_reason: :stuck` (unchanged) |
 
 Why this is safe: the local proof shows the handoff condition clears in
 about a second; a real bad spec (invalid image/spec) keeps the
 `ReplicaFailure` condition until the pod is ever created, so it crosses
 300s and errors. A real crash-loop still reaches the existing
-`ProgressDeadlineExceeded` arm.
+`ProgressDeadlineExceeded` arm. A scheduler rejection stays
+`:no_capacity` — the deadline is not evidence of a crash when no pod has
+been placed yet — and the owner can stop it (→ `:stopped`) to resize
+down.
 
 **Tests**
 
@@ -404,10 +414,11 @@ the env roll. The "instance card" is the provider's registry resource page
 
 ```sh
 cd /home/terence/Work/FluxVale/fv776-restart
-rg -n 'quota cannot fit a second pod|stop it \(`running = false`\)' docs apps
+rg -n 'quota cannot fit a second pod|stop it \(`running = false`\)' docs apps \
+  -g '!docs/plans/776-instance-restart-strategy.md'
 ```
 
-Expected: no output.
+Expected: no output (the plan itself quotes the workaround it retires).
 
 ## Slice 4 — provider repo follow-up
 

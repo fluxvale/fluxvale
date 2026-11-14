@@ -166,6 +166,22 @@ defmodule FluxVale.Infrastructure.Operations.SweepStrandedInstancesTest do
       assert is_nil(restoring_lost.storage_metering_since)
     end
 
+    # #776: a deployed waiting state carries the same storage anchor; the
+    # reconciler normally catches the loss, this is the backstop.
+    test "a :no_capacity row on a dead namespace is marked :lost too" do
+      waiting = deployed_instance!(:no_capacity)
+
+      stub(Namespace, :exists?, fn _kc, _ns -> {:ok, false} end)
+
+      assert {:ok, summary} = SweepStrandedInstances.call()
+
+      assert summary.lost_ids == [waiting.id]
+
+      assert {:ok, waiting_lost} = Instance.get_by_id(waiting.id, authorize?: false)
+      assert waiting_lost.status == :lost
+      assert is_nil(waiting_lost.storage_metering_since)
+    end
+
     test ":running and ran-then-errored rows on a dead namespace are marked :lost too" do
       running = deployed_instance!(:running)
       errored = deployed_instance!(:error)

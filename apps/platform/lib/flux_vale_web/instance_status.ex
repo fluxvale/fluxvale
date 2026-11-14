@@ -42,7 +42,7 @@ defmodule FluxValeWeb.InstanceStatus do
     deploying: "Setting up your app.",
     starting: "Starting it up.",
     no_capacity:
-      "There's no room on our machines right now. Your app is waiting and will start automatically when space frees up.",
+      "We can't start your app on our machines right now. It's waiting and will start automatically when it can.",
     running: "Your app is up and running.",
     sleeping:
       "Your app is asleep after a stretch without visitors. It wakes automatically the next time someone opens it (a few seconds), and costs only storage while it rests.",

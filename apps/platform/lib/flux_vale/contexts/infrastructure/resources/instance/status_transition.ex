@@ -19,8 +19,9 @@ defmodule FluxVale.Infrastructure.Instance.StatusTransition do
   - error → deploying, starting, running, no_capacity, restoring, lost
     (#776: a stale failure whose workload is healthy recovers to
     `:running`; an unschedulable pod reads as `:no_capacity`)
-  - no_capacity → starting, running, error, lost (#776: capacity is a
-    waiting state; the pod schedules → `:starting`, ready → `:running`,
+  - no_capacity → stopped, starting, running, error, lost (#776:
+    capacity is a waiting state; the owner may stop it (the exit to
+    resize down), the pod schedules → `:starting`, ready → `:running`,
     a real failure → `:error`, a vanished namespace → `:lost`)
   - lost → deploying (the re-deploy path; teardown rides `:deleting`
     from anywhere)
@@ -71,10 +72,10 @@ defmodule FluxVale.Infrastructure.Instance.StatusTransition do
     # crash. The reconciler's failure_reason gate keeps intent-bearing
     # errors (stop/restore/teardown) out of both.
     error: [:deploying, :starting, :running, :no_capacity, :restoring, :lost],
-    # #776: waiting for the scheduler. A scheduled pod returns to the
-    # start lane; ready lands :running; a real failure/capacity loss
-    # exits through :error/:lost.
-    no_capacity: [:starting, :running, :error, :lost],
+    # #776: waiting for the scheduler. The owner can stop it (then resize
+    # down), a scheduled pod returns to the start lane, ready lands
+    # :running; a real failure/capacity loss exits through :error/:lost.
+    no_capacity: [:stopped, :starting, :running, :error, :lost],
     # Entered from any state (async teardown); its only exit on retry
     # exhaustion is :error (mark_teardown_error). A successful teardown
     # hard-deletes the row instead of transitioning.
@@ -88,7 +89,7 @@ defmodule FluxVale.Infrastructure.Instance.StatusTransition do
 
   @doc """
   The transition table — one writer (this validator). Read by
-  FluxVale.PromEx.Plugins.Business to derive the fleet's 42-pair
+  FluxVale.PromEx.Plugins.Business to derive the fleet's 51-pair
   ceiling; the catch-all arms (any → :error / any → :deleting) are
   validate/2 arms, not map entries, so the derivation adds them.
   """

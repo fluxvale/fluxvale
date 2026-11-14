@@ -640,6 +640,50 @@ defmodule FluxVale.Infrastructure.Operations.ReconcileInstanceTest do
       assert returned.status == :no_capacity
     end
 
+    test "the newest non-terminating pod wins the scheduling probe" do
+      stub_kubeconfig()
+      instance = instance!(:starting)
+
+      older_unschedulable =
+        pod(
+          [
+            %{
+              "type" => "PodScheduled",
+              "status" => "False",
+              "reason" => "Unschedulable",
+              "message" => "0/3 nodes are available: 3 Insufficient cpu."
+            }
+          ],
+          DateTime.add(DateTime.utc_now(), -600, :second)
+        )
+
+      newer_scheduled = scheduled_pod()
+
+      expect(Deployment, :status, fn _kc, _ns, _n -> {:ok, deployment_status(%{})} end)
+
+      expect(Pod, :list_by_labels, fn _kc, _ns, _labels ->
+        {:ok, [older_unschedulable, newer_scheduled]}
+      end)
+
+      assert {:ok, returned} = ReconcileInstance.call(instance)
+      assert returned.status == :starting
+    end
+
+    test "a terminating unschedulable pod is ignored" do
+      stub_kubeconfig()
+      instance = instance!(:starting)
+
+      terminating =
+        unschedulable_pod()
+        |> put_in(["metadata", "deletionTimestamp"], DateTime.to_iso8601(DateTime.utc_now()))
+
+      expect(Deployment, :status, fn _kc, _ns, _n -> {:ok, deployment_status(%{})} end)
+      expect(Pod, :list_by_labels, fn _kc, _ns, _labels -> {:ok, [terminating]} end)
+
+      assert {:ok, returned} = ReconcileInstance.call(instance)
+      assert returned.status == :starting
+    end
+
     test "a transient Deployment read failure keeps :no_capacity" do
       stub_kubeconfig()
       instance = instance!(:no_capacity)

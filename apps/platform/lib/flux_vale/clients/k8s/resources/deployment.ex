@@ -284,13 +284,14 @@ defmodule FluxVale.Clients.K8s.Resources.Deployment do
   # get→apply window is last-write-wins — tolerable inside instance
   # namespaces, where fluxvale is the only writer (stop/start, #73). A
   # targeted patch on spec.replicas is the future refinement.
-  def scale(kubeconfig, namespace, name, replicas) when is_integer(replicas) and replicas >= 0 do
+  def scale(kubeconfig, namespace, name, replicas, opts \\ [])
+      when is_integer(replicas) and replicas >= 0 do
     case get(kubeconfig, namespace, name) do
       {:ok, deployment} ->
         # managedFields must go — Kubernetes rejects them in apply operations
         updated =
           deployment
-          |> prepare_for_apply()
+          |> prepare_for_apply(Keyword.get(opts, :strategy, @rollout_strategy))
           |> put_in(["spec", "replicas"], replicas)
 
         req = create_req(kubeconfig)
@@ -330,7 +331,7 @@ defmodule FluxVale.Clients.K8s.Resources.Deployment do
 
         updated =
           deployment
-          |> prepare_for_apply()
+          |> prepare_for_apply(Keyword.get(opts, :strategy, @rollout_strategy))
           |> ensure_app_env_from(Keyword.get(opts, :ensure_env_from))
           |> update_in(["spec", "template", "metadata", "annotations"], fn
             nil -> %{"fluxvale.io/restartedAt" => restart_at}
@@ -356,7 +357,7 @@ defmodule FluxVale.Clients.K8s.Resources.Deployment do
       {:ok, deployment} ->
         updated =
           deployment
-          |> prepare_for_apply()
+          |> prepare_for_apply(@rollout_strategy)
           |> ensure_app_env_from("app-env")
 
         apply_updated(
@@ -783,17 +784,18 @@ defmodule FluxVale.Clients.K8s.Resources.Deployment do
   end
 
   # Prepares a fetched Deployment for SSA: drops server-managed fields
-  # (K8s rejects managedFields in apply) and forces the one-pod rollout
-  # strategy. The API persists its default 25%/25% on Deployments created
-  # before #776, so re-applying a fetched object verbatim would keep the
-  # surge that the quota cannot admit. Every GET→apply path goes through
-  # here — scale (stop/start), restart (env/SSO), ensure_env_from.
-  @spec prepare_for_apply(map()) :: map()
-  defp prepare_for_apply(resource) when is_map(resource) do
+  # (K8s rejects managedFields in apply) and applies the caller's rollout
+  # strategy. The default is the app's one-pod strategy: the API persists
+  # its own 25%/25% on Deployments created before #776, so re-applying a
+  # fetched object verbatim would keep the surge the instance quota cannot
+  # admit. The access gateway passes `Recreate` (its RWO state PVC cannot
+  # double-mount) — the module is shared, the strategy is not.
+  @spec prepare_for_apply(map(), map()) :: map()
+  defp prepare_for_apply(resource, strategy) when is_map(resource) do
     metadata = Map.get(resource, "metadata", %{})
     stripped_metadata = Map.delete(metadata, "managedFields")
     spec = Map.get(resource, "spec", %{})
-    strategy_spec = Map.put(spec, "strategy", @rollout_strategy)
+    strategy_spec = Map.put(spec, "strategy", strategy)
 
     resource
     |> Map.put("metadata", stripped_metadata)

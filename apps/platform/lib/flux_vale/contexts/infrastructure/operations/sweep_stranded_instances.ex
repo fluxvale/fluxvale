@@ -12,7 +12,7 @@ defmodule FluxVale.Infrastructure.Operations.SweepStrandedInstances do
     the same machinery a user retry drives. `:not_found`-tolerant
     deletes make a race with a straggler job harmless.
   - **Namespace gone, row alive** (#196) — accruing rows (`:running`/
-    `:stopped`/`:sleeping`/`:restoring`/`:error` with
+    `:stopped`/`:sleeping`/`:restoring`/`:no_capacity`/`:error` with
     `storage_metering_since` set) whose
     namespace 404s flip to `:lost`: metering parks atomically with the
     flip (MaintainAnchors), the row surfaces with re-deploy/teardown
@@ -46,7 +46,9 @@ defmodule FluxVale.Infrastructure.Operations.SweepStrandedInstances do
   reconciler's (it detects an externally-deleted namespace within a
   minute, `:lost` since #196; `:deploying` converges on its own
   stale-deploy timeout); this sweep is the backstop that also covers
-  `:stopped`/`:error` rows the reconciler never reads. The #124 ladder
+  `:stopped`, plus the `:error`/`:no_capacity` rows the reconciler can
+  leave behind (never-ran rows accrue nothing; intent-bearing errors
+  are not the reconciler's to clear). The #124 ladder
   keeps the only time-based destroy authority — this sweep is
   condition-based only, so races with the ladder converge (a live
   teardown job is a skip; a lost one gets re-driven to the same

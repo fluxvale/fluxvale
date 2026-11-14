@@ -590,6 +590,22 @@ defmodule FluxVale.Clients.K8s.Resources.DeploymentTest do
                Deployment.scale(%{}, "fluxvale-app-1", "forgejo", 3)
     end
 
+    test "honors a caller's strategy — the access gateway's Recreate" do
+      expect(Kubereq, :get, fn _req, _ns, _name ->
+        {:ok, %{status: 200, body: fetched_deployment()}}
+      end)
+
+      expect(Kubereq, :apply, fn _req, manifest, _fm ->
+        assert manifest["spec"]["strategy"] == %{"type" => "Recreate"}
+        {:ok, %{status: 200, body: manifest}}
+      end)
+
+      assert {:ok, _body} =
+               Deployment.scale(%{}, "fluxvale-access", "gateway-x", 0,
+                 strategy: %{"type" => "Recreate"}
+               )
+    end
+
     test "a failed get propagates without applying" do
       expect(Kubereq, :get, fn _req, _ns, _name -> {:ok, %{status: 404, body: %{}}} end)
 
@@ -642,6 +658,22 @@ defmodule FluxVale.Clients.K8s.Resources.DeploymentTest do
       end)
 
       assert {:ok, _body} = Deployment.restart(%{}, "fluxvale-app-1", "forgejo")
+    end
+
+    test "honors a caller's strategy — the access gateway's Recreate" do
+      expect(Kubereq, :get, fn _req, _ns, _name ->
+        {:ok, %{status: 200, body: fetched_deployment()}}
+      end)
+
+      expect(Kubereq, :apply, fn _req, manifest, _fm ->
+        assert manifest["spec"]["strategy"] == %{"type" => "Recreate"}
+        {:ok, %{status: 200, body: manifest}}
+      end)
+
+      assert {:ok, _body} =
+               Deployment.restart(%{}, "fluxvale-access", "gateway-x",
+                 strategy: %{"type" => "Recreate"}
+               )
     end
 
     test "merges into existing annotations without dropping them" do

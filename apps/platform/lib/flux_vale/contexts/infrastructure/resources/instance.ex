@@ -989,14 +989,14 @@ defmodule FluxVale.Infrastructure.Instance do
       change(fn changeset, _context ->
         instance = changeset.data
 
-        if instance.status == :running do
+        if instance.status in [:running, :no_capacity] do
           Ash.Changeset.after_action(changeset, fn _changeset, instance ->
             StopInstance.call(instance)
           end)
         else
           Ash.Changeset.add_error(
             changeset,
-            "cannot stop instance in #{instance.status} state (must be running)"
+            "cannot stop instance in #{instance.status} state (must be running or waiting for capacity)"
           )
         end
       end)

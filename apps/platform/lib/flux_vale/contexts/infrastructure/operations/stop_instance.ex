@@ -1,8 +1,10 @@
 defmodule FluxVale.Infrastructure.Operations.StopInstance do
   @moduledoc """
-  Stops a `:running` Instance by scaling its Deployment to 0 replicas —
-  scale-to-zero is the product's pause (ADR-0005: stopped keeps the PVC,
-  storage keeps accruing on the anchor, compute doesn't).
+  Stops a `:running` (or scheduler-waiting `:no_capacity`) Instance by
+  scaling its Deployment to 0 replicas — scale-to-zero is the product's
+  pause (ADR-0005: stopped keeps the PVC, storage keeps accruing on the
+  anchor, compute doesn't). `:no_capacity` is the owner's exit from a
+  capacity wait: stop, resize down, start again (#776).
 
   On K8s failure the Instance flips to `:error` with the reason (v1
   contract: the caller sees the row, status carries the outcome).
@@ -17,7 +19,7 @@ defmodule FluxVale.Infrastructure.Operations.StopInstance do
   way — the `status` attribute carries the outcome.
   """
   @spec call(Instance.t()) :: {:ok, Instance.t()}
-  def call(%{status: :running} = instance) do
+  def call(%{status: status} = instance) when status in [:running, :no_capacity] do
     with {:ok, kubeconfig} <- InstanceK8s.kubeconfig_for(instance),
          {:ok, _deployment} <- Deployment.scale(kubeconfig, instance.namespace, "app", 0) do
       InstanceK8s.update_status(instance, :stopped, nil)

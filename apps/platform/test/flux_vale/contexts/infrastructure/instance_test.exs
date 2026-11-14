@@ -1231,6 +1231,10 @@ defmodule FluxVale.Infrastructure.InstanceTest do
       assert waiting_again.unbilled_running_usec >= 0
       assert waiting_again.storage_metering_since == running.storage_metering_since
 
+      # The owner's exit: stop, resize down, start again.
+      stopped = status!(waiting_again, :stopped)
+      assert stopped.status == :stopped
+
       # Capacity loss is not a dead end: the failure/lost exits stay open.
       {:ok, errored} = InstanceK8s.update_status(waiting_again, :error, "boom", :rollout_failed)
       assert errored.status == :error

@@ -110,7 +110,7 @@ defmodule FluxValeWeb.InstanceStatusTest do
 
       message = InstanceStatus.message(waiting)
 
-      assert message =~ "no room"
+      assert message =~ "can't start"
       assert message =~ "automatically"
       refute message =~ "went wrong"
       refute_k8s_terms(message)
