@@ -394,7 +394,7 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.ClaimTest do
                Tailscale.gateway_status(gateway)
 
       assert message == Tailscale.token_drift_message(:forbidden)
-      assert message =~ "devices:routes"
+      assert message =~ "owner or admin"
       refute message == Tailscale.token_drift_message(:unauthorized)
     end
 

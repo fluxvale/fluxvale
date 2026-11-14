@@ -183,7 +183,7 @@ defmodule FluxVale.Infrastructure.Operations.ClaimAccessDomainTest do
     row = AccessGateway.get_by_id!(gateway.id, authorize?: false)
     assert row.state == :needs_attention
     assert row.status_message == Tailscale.token_drift_message(:forbidden)
-    assert row.status_message =~ "devices:routes"
+    assert row.status_message =~ "owner or admin"
   end
 
   test "a stale claims write retries once against the committed map (P2-3)", %{

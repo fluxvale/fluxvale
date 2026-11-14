@@ -132,6 +132,7 @@ defmodule FluxVale.Api.Scopes do
     {{"GET", ["organizations", :_, "access-gateway"]}, "gateways:read"},
     {{"POST", ["access-gateways"]}, "gateways:write"},
     {{"PATCH", ["access-gateways", :_, "resume"]}, "gateways:write"},
+    {{"PATCH", ["access-gateways", :_, "api-token"]}, "gateways:write"},
     {{"POST", ["access-gateways", :_, "attachments"]}, "gateways:write"},
     {{"DELETE", ["access-gateways", :_, "attachments", :_]}, "gateways:write"},
     # Access domains (#482, ADR-0040): custom domains serve the

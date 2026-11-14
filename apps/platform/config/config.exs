@@ -384,7 +384,7 @@ config :flux_vale, FluxValeWeb.Gettext, default_locale: "en"
 # logs event params at debug level, and the key is write-only — no path
 # may echo it back (ADR-0039 §4), debug logs included (dev-only exposure;
 # prod logs at :info).
-config :phoenix, :filter_parameters, ["password", "auth_key"]
+config :phoenix, :filter_parameters, ["password", "auth_key", "api_token"]
 
 # Configure the mailer
 #

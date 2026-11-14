@@ -254,6 +254,50 @@ defmodule FluxValeWeb.OrganizationLive.Access do
     {:noreply, assign(socket, repaste_open?: not socket.assigns.repaste_open?)}
   end
 
+  # #760: the API token is a paste-only secret — the auth-key posture,
+  # one field, no reveal, no read-back. The submit runs the gateway's
+  # :set_api_token action, which also claims the org's verified domains.
+  # The empty state (no gateway) has no token form; a stale or crafted
+  # event must be a no-op, never a crash whose report could carry the
+  # payload (the remove family's posture).
+  def handle_event("validate-token", _params, %{assigns: %{token_form: nil}} = socket),
+    do: {:noreply, socket}
+
+  def handle_event("save-token", _params, %{assigns: %{token_form: nil}} = socket),
+    do: {:noreply, socket}
+
+  def handle_event("validate-token", %{"gateway" => params}, socket) do
+    # A validate round-trip is a read-back (ADR-0039 §4): the errored
+    # form is used only for its messages, and the assigned form is
+    # rebuilt from the row, so neither the params nor the changeset ever
+    # holds the typed token (a crash dump would otherwise carry it). The
+    # DOM keeps the focused input's text; LiveView patches nothing.
+    errored = AshPhoenix.Form.validate(socket.assigns.token_form, params)
+    fresh = fresh_token_form(socket)
+
+    {:noreply, assign(socket, token_form: %{fresh | errors: AshPhoenix.Form.errors(errored)})}
+  end
+
+  def handle_event("save-token", %{"gateway" => params}, socket) do
+    case AshPhoenix.Form.submit(socket.assigns.token_form, params: params) do
+      {:ok, gateway} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, "Token saved.")
+         |> assign(gateway: gateway)
+         |> assign_forms()}
+
+      {:error, form} ->
+        # Field-less failures (and the write's own message) surface as a
+        # flash; the form rebuilds from the row with only its errors, so
+        # the submitted token never echoes back (ADR-0039 §4).
+        {:noreply,
+         socket
+         |> put_flash(:error, "Couldn't save the access token. Try again.")
+         |> rebuild_token_form_with_errors(form)}
+    end
+  end
+
   # The empty state is a normal state of this panel (the teardown can
   # delete the row out from under any card), so every event in the
   # remove family is a no-op there — a nil gateway has nothing to arm,
@@ -538,6 +582,7 @@ defmodule FluxValeWeb.OrganizationLive.Access do
                 <.gateway_card
                   gateway={@gateway}
                   form={@form}
+                  token_form={@token_form}
                   row_funded?={@row_funded?}
                   row_paid?={@row_paid?}
                   billing_path={@billing_path}
@@ -729,6 +774,7 @@ defmodule FluxValeWeb.OrganizationLive.Access do
 
   attr(:gateway, AccessGateway, required: true)
   attr(:form, :any, required: true)
+  attr(:token_form, :any, required: true)
   attr(:row_funded?, :boolean, required: true)
   attr(:row_paid?, :boolean, required: true)
   attr(:billing_path, :string, required: true)
@@ -783,6 +829,7 @@ defmodule FluxValeWeb.OrganizationLive.Access do
         <.gateway_actions
           gateway={@gateway}
           form={@form}
+          token_form={@token_form}
           row_funded?={@row_funded?}
           row_paid?={@row_paid?}
           billing_path={@billing_path}
@@ -796,6 +843,7 @@ defmodule FluxValeWeb.OrganizationLive.Access do
 
   attr(:gateway, AccessGateway, required: true)
   attr(:form, :any, required: true)
+  attr(:token_form, :any, required: true)
   attr(:row_funded?, :boolean, required: true)
   attr(:row_paid?, :boolean, required: true)
   attr(:billing_path, :string, required: true)
@@ -818,6 +866,7 @@ defmodule FluxValeWeb.OrganizationLive.Access do
             submit_label="Save key"
           />
         <% @gateway.state == :active -> %>
+          <.token_panel form={@token_form} token_set_at={@gateway.token_set_at} />
           <.repaste_panel
             form={@form}
             open?={@repaste_open?}
@@ -832,6 +881,7 @@ defmodule FluxValeWeb.OrganizationLive.Access do
               removed from your Tailscale admin console. Paste a fresh key to reconnect.
             </p>
           </.callout>
+          <.token_panel form={@token_form} token_set_at={@gateway.token_set_at} />
           <.repaste_panel
             form={@form}
             open?={@repaste_open?}
@@ -861,6 +911,65 @@ defmodule FluxValeWeb.OrganizationLive.Access do
             Retry removal
           </.button>
       <% end %>
+    </div>
+    """
+  end
+
+  attr(:form, :any, required: true)
+  attr(:token_set_at, :any, required: true)
+
+  # The token card (#760): the one field ADR-0040 Am. 3 asks for, pasted
+  # once and rotated before the 90-day expiry. It is a Tailscale API
+  # access token (`tskey-api-`), which carries the creating account's
+  # permissions — scopes belong to trust credentials, a different
+  # credential type this single-field intake does not take. The copy
+  # says plainly that saving claims already-verified domains.
+  defp token_panel(assigns) do
+    ~H"""
+    <div class="border-t border-line pt-4" data-testid="access-api-token">
+      <div>
+        <h3 class="text-sm font-medium text-ink">Tailscale API token</h3>
+        <p class="mt-1 text-xs text-ink-muted">
+          Needed to claim your domains on your tailnet. Create an API access token in your
+          Tailscale admin console under <span class="font-mono">Keys → API access tokens</span>.
+          It carries the permissions of the account that created it, so use an owner or
+          admin account.
+        </p>
+        <p class="mt-1 text-xs text-ink-muted">
+          It is stored write-only and never shown again. Saving claims the domains you have
+          already verified.
+        </p>
+        <p
+          :if={@token_set_at}
+          class="mt-1 text-xs text-ink-subtle"
+          data-testid="access-api-token-age"
+        >
+          Token set {Calendar.strftime(@token_set_at, "%b %d, %Y")}. Tailscale API keys
+          expire within 90 days — paste a fresh one before then.
+        </p>
+      </div>
+
+      <.form
+        for={@form}
+        id="access-api-token-form"
+        phx-change="validate-token"
+        phx-submit="save-token"
+        class="space-y-3"
+      >
+        <.input
+          field={@form[:api_token]}
+          type="password"
+          label="API token"
+          placeholder="tskey-api-…"
+          required
+          data-testid="access-api-token-input"
+        />
+        <div class="flex justify-end">
+          <.button type="submit" size="sm" data-testid="access-api-token-save">
+            Save token
+          </.button>
+        </div>
+      </.form>
     </div>
     """
   end
@@ -1154,20 +1263,28 @@ defmodule FluxValeWeb.OrganizationLive.Access do
   defp assign_forms(socket) do
     user = socket.assigns.current_user
 
-    form =
-      case socket.assigns.gateway do
-        nil ->
+    case socket.assigns.gateway do
+      nil ->
+        form =
           AccessGateway
           |> AshPhoenix.Form.for_create(:create, actor: user, as: "gateway")
           |> to_form()
 
-        gateway ->
+        assign(socket, form: form, token_form: nil)
+
+      gateway ->
+        form =
           gateway
           |> AshPhoenix.Form.for_update(:update_credential, actor: user, as: "gateway")
           |> to_form()
-      end
 
-    assign(socket, form: form)
+        token_form =
+          gateway
+          |> AshPhoenix.Form.for_update(:set_api_token, actor: user, as: "gateway")
+          |> to_form()
+
+        assign(socket, form: form, token_form: token_form)
+    end
   end
 
   # The create form gets the panel-owned inputs merged in; the re-paste
@@ -1200,11 +1317,34 @@ defmodule FluxValeWeb.OrganizationLive.Access do
   # targets the changeset's ARGUMENT — that is what AshPhoenix's
   # input_value reads first, not the params maps.
   defp clear_key_display(%Phoenix.HTML.Form{source: %AshPhoenix.Form{} = ash_form} = form) do
-    %{form | source: strip_key_argument(ash_form)}
+    %{
+      form
+      | source: strip_secret(ash_form, :auth_key),
+        params: Map.delete(form.params, "auth_key")
+    }
   end
 
-  defp strip_key_argument(ash_form) do
-    %{ash_form | source: Ash.Changeset.set_argument(ash_form.source, :auth_key, "")}
+  # The form rebuilt on every token event: it carries no params and no
+  # arguments, so the secret cannot survive in the socket state.
+  defp fresh_token_form(socket) do
+    socket.assigns.gateway
+    |> AshPhoenix.Form.for_update(:set_api_token,
+      actor: socket.assigns.current_user,
+      as: "gateway"
+    )
+    |> to_form()
+  end
+
+  # Both maps hold the submitted value after a validate round-trip (the
+  # Ash form's params and the Phoenix form's): the socket state — and so
+  # any crash report's status — must not carry a secret. `force_` because
+  # the changeset is already validated by then (Ash's own warning).
+  defp strip_secret(ash_form, argument) do
+    %{
+      ash_form
+      | source: Ash.Changeset.force_set_argument(ash_form.source, argument, ""),
+        params: Map.delete(ash_form.params, Atom.to_string(argument))
+    }
   end
 
   # A failed submit rediscovers the form from the row — which has no
@@ -1218,6 +1358,16 @@ defmodule FluxValeWeb.OrganizationLive.Access do
       errors = AshPhoenix.Form.errors(errored_form)
 
       assign(socket, form: %{socket.assigns.form | errors: errors})
+    end)
+  end
+
+  defp rebuild_token_form_with_errors(socket, errored_form) do
+    socket
+    |> assign_forms()
+    |> then(fn socket ->
+      errors = AshPhoenix.Form.errors(errored_form)
+
+      assign(socket, token_form: %{socket.assigns.token_form | errors: errors})
     end)
   end
 

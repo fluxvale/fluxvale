@@ -65,6 +65,7 @@ defmodule FluxValeWeb.Api.RouteInventoryTest do
     {:get, "/organizations/:organization_id/access-gateway"},
     {:post, "/access-gateways"},
     {:patch, "/access-gateways/:id/resume"},
+    {:patch, "/access-gateways/:id/api-token"},
     {:post, "/access-gateways/:gateway_id/attachments"},
     {:delete, "/access-gateways/:gateway_id/attachments/:instance_id"},
     # gateways:read / gateways:write — the access domains (#482)
