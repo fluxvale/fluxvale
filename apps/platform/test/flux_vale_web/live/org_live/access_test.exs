@@ -449,6 +449,61 @@ defmodule FluxValeWeb.OrganizationLive.AccessTest do
       refute_k8s_terms(render(view))
     end
 
+    test "the API token card is one write-only field, and saving stamps the age line", %{
+      conn: conn,
+      org: org
+    } do
+      gateway = AccessFixtures.gateway!(org)
+
+      stub(Tailscale, :write_api_credential, fn _gw, token ->
+        assert token == "tskey-api-PANEL-secret"
+        {:ok, %{api_token_secret_ref: "api-credential-abc"}}
+      end)
+
+      {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/settings/access")
+
+      assert has_element?(view, "[data-testid='access-api-token']")
+      assert has_element?(view, "[data-testid='access-api-token-input']")
+      assert has_element?(view, "[data-testid='access-api-token-save']", "Save token")
+      refute has_element?(view, "[data-testid='access-api-token-age']")
+
+      view
+      |> form("#access-api-token-form", gateway: %{api_token: "tskey-api-PANEL-secret"})
+      |> render_submit()
+
+      assert has_element?(view, "#flash-info", "Token saved.")
+      assert has_element?(view, "[data-testid='access-api-token-age']")
+
+      # ADR-0039 §4: the paste never re-renders — not in the form, not
+      # in the flash, not in any attribute.
+      refute render(view) =~ "tskey-api-PANEL-secret"
+
+      stored = AccessGateway.get_by_id!(gateway.id, authorize?: false)
+      assert stored.api_token_secret_ref == "api-credential-abc"
+      assert %DateTime{} = stored.token_set_at
+
+      refute_k8s_terms(render(view))
+    end
+
+    test "a failed token write keeps the form and never echoes the token", %{
+      conn: conn,
+      org: org
+    } do
+      AccessFixtures.gateway!(org)
+
+      stub(Tailscale, :write_api_credential, fn _gw, _token -> {:error, :cluster_oops} end)
+
+      {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/settings/access")
+
+      view
+      |> form("#access-api-token-form", gateway: %{api_token: "tskey-api-SECRET-marker"})
+      |> render_submit()
+
+      assert has_element?(view, "#flash-error", "Couldn't save the access token")
+      assert has_element?(view, "#access-api-token-form")
+      refute render(view) =~ "tskey-api-SECRET-marker"
+    end
+
     test ":provisioning — the honest copy and the reconnect affordance", %{conn: conn, org: org} do
       AccessFixtures.gateway!(org, state: :provisioning)
 

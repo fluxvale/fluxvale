@@ -11838,6 +11838,284 @@
         ]
       }
     },
+    "/api/v1/access-gateways/{id}/api-token": {
+      "patch": {
+        "callbacks": {},
+        "deprecated": false,
+        "description": "The owner pastes the four-scope Tailscale API token: the provider\nwrites the Secret, the row keeps the ref and the rotation stamp,\nand the org's verified custom domains are claimed on the tailnet.\nThe token is never readable back (ADR-0040 §5, Am. 3).\n",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "style": "form"
+          },
+          {
+            "description": "Relationship paths to include in the response",
+            "explode": false,
+            "in": "query",
+            "name": "include",
+            "required": false,
+            "schema": {
+              "pattern": "^()(,())*$",
+              "type": "string"
+            },
+            "style": "form"
+          },
+          {
+            "description": "Limits the response fields to only those listed for each type",
+            "in": "query",
+            "name": "fields",
+            "required": false,
+            "schema": {
+              "additionalProperties": true,
+              "example": {
+                "access_gateway": "id,hostname,tailnet_domain,provider,state,status_message,monthly_cents,provisioned_at,organization_id"
+              },
+              "properties": {
+                "access_gateway": {
+                  "description": "Comma separated field names for access_gateway",
+                  "example": "id,hostname,tailnet_domain,provider,state,status_message,monthly_cents,provisioned_at,organization_id",
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "style": "deepObject"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/vnd.api+json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "data": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "attributes": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "api_token": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "api_token"
+                        ],
+                        "type": "object"
+                      },
+                      "id": {
+                        "type": "string"
+                      },
+                      "relationships": {
+                        "additionalProperties": false,
+                        "properties": {},
+                        "type": "object"
+                      },
+                      "type": {
+                        "enum": [
+                          "access_gateway"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "id"
+                    ],
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "data"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "description": "Request body for the /access-gateways/:id/api-token operation on access_gateway resource",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/vnd.api+json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "additionalProperties": false,
+                      "description": "A \"Resource object\" representing a access_gateway",
+                      "properties": {
+                        "attributes": {
+                          "additionalProperties": false,
+                          "description": "An attributes object for a access_gateway",
+                          "properties": {
+                            "api_token_set": {
+                              "anyOf": [
+                                {
+                                  "nullable": true,
+                                  "type": "boolean"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ],
+                              "description": "Field included by default."
+                            },
+                            "claimed_domains": {
+                              "anyOf": [
+                                {
+                                  "items": {
+                                    "type": "string"
+                                  },
+                                  "nullable": true,
+                                  "type": "array"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ],
+                              "description": "Field included by default."
+                            },
+                            "hostname": {
+                              "description": "Field included by default.",
+                              "type": "string"
+                            },
+                            "monthly_cents": {
+                              "description": "Field included by default.",
+                              "type": "integer"
+                            },
+                            "organization_id": {
+                              "description": "Field included by default.",
+                              "format": "uuid",
+                              "type": "string"
+                            },
+                            "provider": {
+                              "enum": [
+                                "tailscale"
+                              ],
+                              "type": "string"
+                            },
+                            "provisioned_at": {
+                              "anyOf": [
+                                {},
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "state": {
+                              "description": "Field included by default.",
+                              "enum": [
+                                "provisioning",
+                                "active",
+                                "needs_attention",
+                                "suspended",
+                                "destroying"
+                              ],
+                              "type": "string"
+                            },
+                            "status_message": {
+                              "anyOf": [
+                                {
+                                  "nullable": true,
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ],
+                              "description": "Field included by default."
+                            },
+                            "tailnet_domain": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "hostname",
+                            "tailnet_domain",
+                            "provider",
+                            "state",
+                            "monthly_cents",
+                            "organization_id"
+                          ],
+                          "type": "object"
+                        },
+                        "id": {
+                          "type": "string"
+                        },
+                        "relationships": {
+                          "additionalProperties": false,
+                          "description": "A relationships object for a access_gateway",
+                          "properties": {
+                            "organization": {
+                              "properties": {
+                                "data": {
+                                  "additionalProperties": false,
+                                  "description": "An identifier for organization",
+                                  "nullable": true,
+                                  "properties": {
+                                    "id": {
+                                      "type": "string"
+                                    },
+                                    "meta": {
+                                      "additionalProperties": true,
+                                      "type": "object"
+                                    },
+                                    "type": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "type",
+                                    "id"
+                                  ],
+                                  "type": "object"
+                                }
+                              }
+                            }
+                          },
+                          "type": "object"
+                        },
+                        "type": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "id"
+                      ],
+                      "type": "object"
+                    },
+                    "included": {
+                      "items": {
+                        "oneOf": []
+                      },
+                      "type": "array",
+                      "uniqueItems": true
+                    },
+                    "meta": {
+                      "additionalProperties": true,
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/errors"
+          }
+        },
+        "tags": [
+          "access_gateway"
+        ]
+      }
+    },
     "/api/v1/access-gateways/{id}/resume": {
       "patch": {
         "callbacks": {},

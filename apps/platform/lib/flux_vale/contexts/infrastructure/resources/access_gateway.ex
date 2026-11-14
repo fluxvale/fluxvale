@@ -113,6 +113,23 @@ defmodule FluxVale.Infrastructure.AccessGateway do
         ]
       )
 
+      # gateways:write — the token intake (#760). The token rides the
+      # body as an argument and never comes back; the row answers with
+      # the claim state it can now serve.
+      patch(:set_api_token,
+        route: "/access-gateways/:id/api-token",
+        default_fields: [
+          :id,
+          :organization_id,
+          :hostname,
+          :state,
+          :status_message,
+          :monthly_cents,
+          :api_token_set,
+          :claimed_domains
+        ]
+      )
+
       # gateways:write — the pairing verbs (the panel's attach/detach).
       route(:post, "access-gateways/:gateway_id/attachments", :attach_instance)
       route(:delete, "access-gateways/:gateway_id/attachments/:instance_id", :detach_instance)
@@ -284,6 +301,14 @@ defmodule FluxVale.Infrastructure.AccessGateway do
       authorize_if(relates_to_actor_via([:organization, :members]))
     end
 
+    # #760: the four-scope token is the crown (ADR-0040 §12) — the
+    # owner's to paste, never a member's, never readable back.
+    policy action(:set_api_token) do
+      description("The org owner pastes the Tailscale API token (write-only, ADR-0040 §5)")
+      forbid_unless(FluxVale.Checks.ActorIsOrganizationOwner)
+      authorize_if(FluxVale.Checks.ActorIsOrganizationOwner)
+    end
+
     policy action(:resume) do
       description(
         "Resuming after suspension spends money — membership AND a funded wallet (#124) AND a paid-once wallet"
@@ -354,6 +379,7 @@ defmodule FluxVale.Infrastructure.AccessGateway do
     publish(:suspend, ["access_gateways", :organization_id])
     publish(:resume, ["access_gateways", :organization_id])
     publish(:update_credential, ["access_gateways", :organization_id])
+    publish(:set_api_token, ["access_gateways", :organization_id])
     publish(:mark_provision_error, ["access_gateways", :organization_id])
     publish(:mark_teardown_error, ["access_gateways", :organization_id])
     # The teardown's hard delete is the one state change that never
@@ -601,6 +627,25 @@ defmodule FluxVale.Infrastructure.AccessGateway do
 
       change(FluxVale.Infrastructure.AccessGateway.RepasteCredential)
       change(StateMarkers)
+    end
+
+    # #760: the API-token intake — the one token ADR-0040 Am. 3 asks
+    # for. Write-only (sensitive argument, never an attribute), owner
+    # only (policy above; the change re-fences the authorize?-free
+    # seam), and the save claims this org's already-verified domains.
+    update :set_api_token do
+      description("""
+      The owner pastes the four-scope Tailscale API token: the provider
+      writes the Secret, the row keeps the ref and the rotation stamp,
+      and the org's verified custom domains are claimed on the tailnet.
+      The token is never readable back (ADR-0040 §5, Am. 3).
+      """)
+
+      require_atomic?(false)
+      accept([])
+      argument(:api_token, :string, allow_nil?: false, sensitive?: true)
+
+      change(FluxVale.Infrastructure.AccessGateway.SetApiToken)
     end
 
     # Observable-state write: the platform's read of the cluster, and
@@ -898,6 +943,7 @@ defmodule FluxVale.Infrastructure.AccessGateway do
     define(:update_claims)
     define(:suspend)
     define(:resume)
+    define(:set_api_token)
     define(:delete, args: [:id])
     define(:perform_provision)
     define(:perform_settle)
