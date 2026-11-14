@@ -193,7 +193,8 @@ the surface change and the PR.
   (USD, monthly, billed hourly). A resize failure restarts the
   instance only when this call stopped it, reports both the failure
   and the final state, and answers `isError` with `ok: false`; an
-  already-stopped row stays as it was.
+  already-stopped row stays as it was. A no-op allocation or a
+  storage shrink is refused before anything is stopped.
 - New `gateway` over the org's one access gateway: `status`,
   `attach`, `detach`; attach returns the pairing row, detach the
   result, and both carry the re-read status, with any status-read

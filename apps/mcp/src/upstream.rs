@@ -1328,8 +1328,12 @@ fn lifecycle_maybe(client: &ApiClient, id: &str, verb: &str) -> Result<Value, (b
         },
         Err(err) => {
             let may_have_landed = match &err {
+                // The platform's error documents carry their status;
+                // a 4xx proves the guard refused before any scale. A
+                // 5xx, a statusless body, or a transport failure may
+                // follow a committed stop.
                 ApiError::Transport(_) => true,
-                ApiError::Api(message) => message.starts_with('5') || message.starts_with("HTTP 5"),
+                ApiError::Api(message) => !message.starts_with('4'),
                 _ => false,
             };
             Err((may_have_landed, friendly_404(err, "instance")))
@@ -1368,6 +1372,9 @@ pub(crate) async fn instances_resize(
         let client = ApiClient::new(&base, token);
 
         let before = read_instance(&client, &id)?;
+        if let Some(refusal) = allocation_precheck(&before, cpu.as_deref(), memory_mb, storage_gb) {
+            return Err(refusal);
+        }
         let previous_allocation = allocation_of(&before);
         let mut steps = json!({"stop": "skipped", "resize": "pending", "start": "pending"});
         let mut last_row = before.clone();
@@ -1458,9 +1465,12 @@ pub(crate) async fn instances_resize(
         last_row = resized.clone();
 
         let new_allocation = allocation_of(&resized);
+        // Start before quoting: the instance comes back first, and a
+        // slow pricing endpoint must not extend a stopped window.
+        let start = lifecycle(&client, &id, "start");
         let price = price_for(&client, &new_allocation);
 
-        match lifecycle(&client, &id, "start") {
+        match start {
             Ok(row) if row["status"] == "error" => {
                 // A 200 whose landed state is :error is a failed start
                 // (the action reports the row, not the cluster outcome).
@@ -1487,22 +1497,31 @@ pub(crate) async fn instances_resize(
                 last_row = row;
             }
             Err(message) => {
-                steps["start"] = json!("failed");
-                let final_row = read_instance(&client, &id).unwrap_or(last_row);
-                return Ok(json!({
-                    "ok": false,
-                    "step": "start",
-                    "steps": steps,
-                    "error": message,
-                    "start_error": message,
-                    "instance": final_row,
-                    "previous_allocation": previous_allocation,
-                    "new_allocation": new_allocation,
-                    "price": price,
-                    "price_currency": "USD",
-                    "price_period": "monthly · billed hourly",
-                    "price_basis": PRICE_BASIS,
-                }));
+                // A start that failed after the scale may have landed
+                // anyway (5xx/timeout): a row already starting/running
+                // is the outcome the sequence wanted.
+                let after = read_instance(&client, &id).unwrap_or_else(|_| last_row.clone());
+                if matches!(after["status"].as_str(), Some("starting" | "running")) {
+                    steps["start"] = json!("skipped");
+                    last_row = after;
+                } else {
+                    steps["start"] = json!("failed");
+                    let final_row = read_instance(&client, &id).unwrap_or(last_row);
+                    return Ok(json!({
+                        "ok": false,
+                        "step": "start",
+                        "steps": steps,
+                        "error": message,
+                        "start_error": message,
+                        "instance": final_row,
+                        "previous_allocation": previous_allocation,
+                        "new_allocation": new_allocation,
+                        "price": price,
+                        "price_currency": "USD",
+                        "price_period": "monthly · billed hourly",
+                        "price_basis": PRICE_BASIS,
+                    }));
+                }
             }
         }
 
@@ -1514,6 +1533,7 @@ pub(crate) async fn instances_resize(
             "steps": steps,
             "error": Value::Null,
             "start_error": Value::Null,
+            "started": true,
             "instance": final_row,
             "previous_allocation": previous_allocation,
             "new_allocation": new_allocation,
@@ -1576,12 +1596,26 @@ fn stop_failed(
                 )
             }
             Err(message) => {
-                steps["start"] = json!("failed");
-                (
-                    json!(message),
-                    false,
-                    format!("{error}; the restart failed"),
-                )
+                // A restart that failed after the scale may have
+                // landed anyway (5xx/timeout): a row already
+                // starting/running is up, not a failure.
+                let after = read_instance(client, id).unwrap_or_else(|_| last_row.clone());
+                if matches!(after["status"].as_str(), Some("starting" | "running")) {
+                    steps["start"] = json!("skipped");
+                    *last_row = after;
+                    (
+                        Value::Null,
+                        true,
+                        format!("{error}; the instance is running"),
+                    )
+                } else {
+                    steps["start"] = json!("failed");
+                    (
+                        json!(message),
+                        false,
+                        format!("{error}; the restart failed"),
+                    )
+                }
             }
         }
     } else {
@@ -1688,6 +1722,52 @@ fn allocation_of(row: &Value) -> Value {
         "memory_mb": row.get("memory_mb").cloned().unwrap_or(Value::Null),
         "storage_gb": row.get("storage_gb").cloned().unwrap_or(Value::Null),
     })
+}
+
+/// The two refusals the platform's ResizeGuard decides entirely from
+/// the row the tool already read — a no-op allocation and a storage
+/// shrink. Refusing here keeps a doomed resize from stopping a serving
+/// instance first; the wording is the platform's, so the caller sees
+/// the same line either way. Anything the row cannot answer (a missing
+/// dimension, a non-numeric current cpu) is left to the server.
+fn allocation_precheck(
+    before: &Value,
+    cpu: Option<&str>,
+    memory_mb: Option<i64>,
+    storage_gb: Option<i64>,
+) -> Option<String> {
+    let cpu_same = match cpu {
+        None => true,
+        Some(requested) => {
+            let current = before["cpu_cores"].as_str();
+            match (
+                current.and_then(|value| value.parse::<f64>().ok()),
+                requested.parse::<f64>().ok(),
+            ) {
+                (Some(current), Some(requested)) => current == requested,
+                _ => false,
+            }
+        }
+    };
+    let memory_same = match memory_mb {
+        None => true,
+        Some(requested) => before["memory_mb"].as_i64() == Some(requested),
+    };
+    let storage_same = match storage_gb {
+        None => true,
+        Some(requested) => before["storage_gb"].as_i64() == Some(requested),
+    };
+
+    if cpu_same && memory_same && storage_same {
+        return Some("400 InvalidArgument: allocation is unchanged".to_string());
+    }
+
+    match (storage_gb, before["storage_gb"].as_i64()) {
+        (Some(requested), Some(current)) if requested < current => Some(format!(
+            "400 InvalidArgument: storage can never shrink (from {current} GB to {requested} GB)"
+        )),
+        _ => None,
+    }
 }
 
 /// The platform's quote for an allocation. Best-effort: the resize
@@ -4168,6 +4248,138 @@ mod tests {
                 .map(|n| server.head(n).to_lowercase())
                 .any(|head| head.starts_with("patch /api/v1/instances/i1/start"))
         );
+    }
+
+    #[tokio::test]
+    async fn a_stop_5xx_restarts_the_row_it_may_have_stopped() {
+        let server = script(vec![
+            respond_envelope("200 OK", json!({"data": instance_row("i1", "running")})),
+            respond(
+                "500 Internal Server Error",
+                r#"{"errors":[{"status":"500","title":"SomethingWentWrong","detail":"boom"}]}"#,
+            ),
+            respond_envelope("200 OK", json!({"data": instance_row("i1", "stopped")})),
+            respond_envelope("200 OK", json!({"data": instance_row("i1", "starting")})),
+            respond_envelope("200 OK", json!({"data": instance_row("i1", "starting")})),
+        ]);
+        let value = instances_resize(
+            base_of(&server),
+            token(),
+            "i1".into(),
+            None,
+            Some(2048),
+            None,
+        )
+        .await
+        .unwrap();
+        assert_eq!(value["ok"], false);
+        assert_eq!(value["step"], "stop");
+        assert_eq!(value["steps"]["stop"], "done");
+        assert_eq!(value["steps"]["resize"], "not_attempted");
+        assert_eq!(value["steps"]["start"], "done");
+        assert_eq!(value["started"], true);
+        assert!(
+            value["error"].as_str().unwrap().contains("restarted"),
+            "error: {}",
+            value["error"]
+        );
+        assert!(
+            captured_requests(&server)
+                .iter()
+                .any(|request| request.starts_with("patch /api/v1/instances/i1/start"))
+        );
+    }
+
+    #[tokio::test]
+    async fn a_stop_4xx_does_not_restart_a_row_it_did_not_stop() {
+        let server = script(vec![
+            respond_envelope("200 OK", json!({"data": instance_row("i1", "running")})),
+            respond(
+                "400 Bad Request",
+                r#"{"errors":[{"status":"400","title":"InvalidArgument","detail":"cannot stop instance in stopped state (must be running)"}]}"#,
+            ),
+            respond_envelope("200 OK", json!({"data": instance_row("i1", "stopped")})),
+            respond_envelope("200 OK", json!({"data": instance_row("i1", "stopped")})),
+        ]);
+        let value = instances_resize(
+            base_of(&server),
+            token(),
+            "i1".into(),
+            None,
+            Some(2048),
+            None,
+        )
+        .await
+        .unwrap();
+        assert_eq!(value["ok"], false);
+        assert_eq!(value["steps"]["stop"], "failed");
+        assert_eq!(value["steps"]["start"], "not_attempted");
+        assert_eq!(value["started"], false);
+        assert!(!value["error"].as_str().unwrap().contains("restarted"));
+        assert!(
+            captured_requests(&server)
+                .iter()
+                .all(|request| !request.starts_with("patch /api/v1/instances/i1/start"))
+        );
+    }
+
+    #[tokio::test]
+    async fn a_start_5xx_that_landed_is_not_reported_as_a_failure() {
+        let resized = json!({"data": {"type": "instance", "id": "i1",
+            "attributes": {"id": "i1", "status": "stopped", "cpu_cores": "2",
+                           "memory_mb": 2048, "storage_gb": 10}}});
+        let quote = json!({"cpu_cores": "2", "memory_mb": 2048, "storage_gb": 10,
+                           "monthly_cents": 900, "stopped_monthly_cents": 40,
+                           "monthly": "$9.00/mo", "stopped": "$0.40 while stopped"});
+        let server = script(vec![
+            respond_envelope("200 OK", json!({"data": instance_row("i1", "running")})),
+            respond_envelope("200 OK", json!({"data": instance_row("i1", "stopped")})),
+            respond_envelope("200 OK", resized),
+            respond(
+                "500 Internal Server Error",
+                r#"{"errors":[{"status":"500","title":"SomethingWentWrong","detail":"start boom"}]}"#,
+            ),
+            respond_envelope("200 OK", quote),
+            respond_envelope("200 OK", json!({"data": instance_row("i1", "starting")})),
+            respond_envelope("200 OK", json!({"data": instance_row("i1", "starting")})),
+        ]);
+        let value = instances_resize(
+            base_of(&server),
+            token(),
+            "i1".into(),
+            Some("2".into()),
+            Some(2048),
+            None,
+        )
+        .await
+        .unwrap();
+        assert_eq!(value["ok"], true);
+        assert_eq!(value["steps"]["start"], "skipped");
+        assert_eq!(value["started"], true);
+        assert_eq!(value["error"], Value::Null);
+        assert_eq!(value["price"]["monthly_cents"], 900);
+    }
+
+    #[test]
+    fn allocation_precheck_matches_the_platforms_refusals() {
+        let row = json!({"cpu_cores": "0.5", "memory_mb": 512, "storage_gb": 10});
+        assert_eq!(
+            allocation_precheck(&row, None, Some(512), None).unwrap(),
+            "400 InvalidArgument: allocation is unchanged"
+        );
+        assert_eq!(
+            allocation_precheck(&row, Some("0.50"), None, None).unwrap(),
+            "400 InvalidArgument: allocation is unchanged"
+        );
+        assert_eq!(
+            allocation_precheck(&row, None, None, Some(5)).unwrap(),
+            "400 InvalidArgument: storage can never shrink (from 10 GB to 5 GB)"
+        );
+        // A real change and an unknowable current dimension pass
+        // through to the server.
+        assert!(allocation_precheck(&row, None, Some(2048), None).is_none());
+        assert!(allocation_precheck(&row, Some("2"), None, None).is_none());
+        assert!(allocation_precheck(&json!({}), None, Some(512), None).is_none());
     }
 
     #[test]

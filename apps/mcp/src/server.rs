@@ -184,7 +184,8 @@ pub(crate) struct GatewayParams {
 pub(crate) struct CustomDomainParams {
     /// `list` (the default), `create`, `verify`, or `delete`.
     pub action: Option<upstream::CustomDomainAction>,
-    /// The organization's id or slug (from `whoami`). Omit only for a
+    /// The organization's id or slug (from `whoami`) — used by `list`
+    /// and `create` only; verify/delete act by id. Omit only for a
     /// sole membership.
     pub organization: Option<String>,
     /// The domain row's id — required for `verify` and `delete`.
@@ -723,8 +724,9 @@ billed hourly). A resize failure restarts the instance only when this \
 call stopped it and reports both the failure and the final state \
 (isError true, `ok: false`, `step`, `steps`); an already-stopped row \
 stays exactly as it was. Never a silently stranded instance this call \
-stopped. Only running/stopped rows resize; wake a sleeping row with \
-`instances_start` and wait for it to reach running first.",
+stopped. Only running/stopped rows resize; a no-op allocation or a \
+storage shrink is refused before anything is stopped, and a sleeping \
+row must be woken with `instances_start` (wait for running) first.",
         annotations(destructive_hint = false)
     )]
     async fn instances_resize(
@@ -2648,11 +2650,11 @@ mod tests {
             "{heads:?}"
         );
         assert!(
-            heads[3].starts_with("get /api/v1/pricing/quote"),
+            heads[3].starts_with("patch /api/v1/instances/i1/start"),
             "{heads:?}"
         );
         assert!(
-            heads[4].starts_with("patch /api/v1/instances/i1/start"),
+            heads[4].starts_with("get /api/v1/pricing/quote"),
             "{heads:?}"
         );
     }
@@ -2746,7 +2748,7 @@ mod tests {
                 "PATCH /api/v1/instances/i1/resize",
                 400,
                 r#"{"errors":[{"status":"400","title":"InvalidArgument",
-                    "detail":"storage can never shrink (from 10 GB to 5 GB)"}]}"#
+                    "detail":"storage can't be expanded on this cluster yet"}]}"#
                     .to_string(),
             ),
             (
@@ -2759,7 +2761,7 @@ mod tests {
             &app(&server),
             PAT_FULL,
             "instances_resize",
-            json!({"id": "i1", "storage_gb": 5}),
+            json!({"id": "i1", "storage_gb": 20}),
         )
         .await;
         let structured = &result(&body)["structuredContent"];
@@ -2768,12 +2770,53 @@ mod tests {
         assert_eq!(structured["steps"]["start"], "done");
         assert_eq!(
             structured["error"],
-            "400 InvalidArgument: storage can never shrink (from 10 GB to 5 GB)"
+            "400 InvalidArgument: storage can't be expanded on this cluster yet"
         );
         assert!(
             (0..server.head_count())
                 .map(|n| server.head(n).to_lowercase())
                 .any(|head| head.starts_with("patch /api/v1/instances/i1/start"))
+        );
+    }
+
+    #[tokio::test]
+    async fn a_no_op_resize_is_refused_before_the_stop() {
+        let server = testapi::serve(&[("GET /api/v1/instances/i1", 200, resize_running_doc())]);
+        let (_, body) = tools_call(
+            &app(&server),
+            PAT_FULL,
+            "instances_resize",
+            json!({"id": "i1", "memory_mb": 512}),
+        )
+        .await;
+        assert_eq!(result(&body)["isError"], true);
+        assert_eq!(
+            result(&body)["content"][0]["text"],
+            "400 InvalidArgument: allocation is unchanged"
+        );
+        // Only the pre-flight read rode; nothing was stopped.
+        assert_eq!(server.head_count(), 1);
+    }
+
+    #[tokio::test]
+    async fn a_storage_shrink_is_refused_before_the_stop() {
+        let server = testapi::serve(&[("GET /api/v1/instances/i1", 200, resize_running_doc())]);
+        let (_, body) = tools_call(
+            &app(&server),
+            PAT_FULL,
+            "instances_resize",
+            json!({"id": "i1", "storage_gb": 5}),
+        )
+        .await;
+        assert_eq!(result(&body)["isError"], true);
+        assert_eq!(
+            result(&body)["content"][0]["text"],
+            "400 InvalidArgument: storage can never shrink (from 10 GB to 5 GB)"
+        );
+        assert!(
+            (0..server.head_count())
+                .map(|n| server.head(n).to_lowercase())
+                .all(|head| !head.starts_with("patch /api/v1/instances/i1/stop"))
         );
     }
 
@@ -2785,7 +2828,7 @@ mod tests {
                 "PATCH /api/v1/instances/i1/resize",
                 400,
                 r#"{"errors":[{"status":"400","title":"InvalidArgument",
-                    "detail":"storage can never shrink (from 10 GB to 5 GB)"}]}"#
+                    "detail":"storage can't be expanded on this cluster yet"}]}"#
                     .to_string(),
             ),
         ]);
@@ -2793,7 +2836,7 @@ mod tests {
             &app(&server),
             PAT_FULL,
             "instances_resize",
-            json!({"id": "i1", "storage_gb": 5}),
+            json!({"id": "i1", "storage_gb": 20}),
         )
         .await;
         let structured = &result(&body)["structuredContent"];
@@ -2819,7 +2862,7 @@ mod tests {
                 "PATCH /api/v1/instances/i1/resize",
                 400,
                 r#"{"errors":[{"status":"400","title":"InvalidArgument",
-                    "detail":"storage can never shrink (from 10 GB to 5 GB)"}]}"#
+                    "detail":"storage can't be expanded on this cluster yet"}]}"#
                     .to_string(),
             ),
             ("PATCH /api/v1/instances/i1/start", 200, start_error),
@@ -2828,7 +2871,7 @@ mod tests {
             &app(&server),
             PAT_FULL,
             "instances_resize",
-            json!({"id": "i1", "storage_gb": 5}),
+            json!({"id": "i1", "storage_gb": 20}),
         )
         .await;
         let structured = &result(&body)["structuredContent"];
@@ -3873,7 +3916,10 @@ mod tests {
             "stopped": "$0.40 while stopped"})
         .to_string();
         let server = testapi::serve(&[
-            ("GET /api/v1/instances/i1", 200, resize_running_doc()),
+            // The row is already stopped, so the start is the only
+            // transition and the canned GET can keep answering the
+            // stopped row for the post-failure re-read.
+            ("GET /api/v1/instances/i1", 200, resize_stopped_doc()),
             ("PATCH /api/v1/instances/i1/stop", 200, resize_stopped_doc()),
             (
                 "PATCH /api/v1/instances/i1/resize",
