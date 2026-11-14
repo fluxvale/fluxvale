@@ -74,6 +74,15 @@ defmodule FluxVale.Checks.CallOutsideMachineApi do
     :ok
   end
 
+  @doc """
+  The change-side predicate: this call rides the machine API's process
+  mark. Same boundary `match?/3` refuses on, reachable without a policy
+  subject — the PAT plug sets it before the action (and its change)
+  runs, so a resource change can honour the blanket's D3 refusal.
+  """
+  @spec machine_api?() :: boolean()
+  def machine_api?, do: process_marked?()
+
   @impl Ash.Policy.SimpleCheck
   def match?(_actor, context, _opts) do
     not machine_api?(context)

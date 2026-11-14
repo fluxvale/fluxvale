@@ -38,6 +38,18 @@ no-reservations behavior — the documented asymmetry (#430). Revisit
 when org slugs become shareable — the invite flow is the surface that
 would share them, and they are not shareable today.
 
+**The #754 operator exception (Nov 14, 2026).** A **platform admin**
+may mint a brand-reserved slug through the actor-create flow — the
+company org is an operator act, and the reservation fences actor
+brand-surface claims, not the operator. The exception is console-only:
+it does not ride the machine API
+([ADR-0047](00047-platform-admin-authority.md) D3 — an admin PAT still
+gets the reserved refusal from `POST /api/v1/organizations`). Route
+sentinels stay refused for every actor — `new` is the literal creation
+page's address, so an org there could never render its home. Rename
+keeps its no-reservations behavior and the JIT signup path still
+bypasses the list, both unchanged.
+
 The creation page is **de-socialized** — the owner's Nov 5 ruling
 after dogfooding (#456): one name input, the `/organizations/<slug>`
 address derives live on every keystroke, no manual slug field in v1,

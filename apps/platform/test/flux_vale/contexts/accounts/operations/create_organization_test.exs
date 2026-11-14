@@ -6,7 +6,7 @@ defmodule FluxVale.Accounts.Operations.CreateOrganizationTest do
   per-user; the org is the abuse boundary) — with the slug discipline
   (taken/reserved/39-cap/format) and the name cap binding this path at
   creation. The reservation is an actor fence: platform admins may
-  mint reserved slugs (#754).
+  mint brand-reserved slugs (#754); route sentinels stay refused.
   """
 
   use FluxVale.DataCase, async: true
@@ -164,6 +164,23 @@ defmodule FluxVale.Accounts.Operations.CreateOrganizationTest do
       assert {:ok, fresh} = Organization.get_by_slug("fluxvale", authorize?: false)
       assert fresh.id == org.id
       assert hd(memberships(org)).user_id == admin.id
+    end
+
+    test "a platform admin still cannot create the route sentinel 'new'" do
+      admin = AccountsFixtures.platform_admin!()
+
+      assert {:error, %Ash.Error.Invalid{errors: errors}} =
+               Accounts.create_organization(admin, %{name: "New", slug: "new"})
+
+      assert Enum.any?(
+               errors,
+               &match?(
+                 %Ash.Error.Changes.InvalidAttribute{field: :slug, message: "is reserved"},
+                 &1
+               )
+             )
+
+      assert {:error, _not_found} = Organization.get_by_slug("new", authorize?: false)
     end
 
     test "a 40-char slug fails the creation cap; 39 passes" do

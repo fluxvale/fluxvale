@@ -25,6 +25,7 @@ defmodule FluxValeWeb.OrganizationLive.New do
 
   alias FluxVale.Accounts.Organization
   alias FluxVale.Checks.ActorBelowOrgCreateCap
+  alias FluxVale.Identity.User
 
   # The actor path's slug cap (create_with_owner's string_length) — the
   # derivation truncates to it so a derived address never sets the user
@@ -56,18 +57,24 @@ defmodule FluxValeWeb.OrganizationLive.New do
 
   @impl Phoenix.LiveView
   def handle_event("save", %{"organization" => params}, socket) do
-    params = Map.put(params, "slug", slug_suggestion(params["name"]))
-    form = AshPhoenix.Form.validate(socket.assigns.form, params)
+    # Re-resolve the actor per event (ADR-0047 D4): this page is not in an
+    # admin live_session, so a demoted admin's open tab would otherwise
+    # keep the mount-time role and mint a reserved slug.
+    actor = fresh_actor(socket.assigns.current_user)
 
-    case AshPhoenix.Form.submit(form, params: form.params) do
+    params = Map.put(params, "slug", slug_suggestion(params["name"]))
+    form = build_form(actor)
+    validated_form = AshPhoenix.Form.validate(form, params)
+
+    case AshPhoenix.Form.submit(validated_form, params: validated_form.params) do
       {:ok, org} ->
         # Flash-free: nothing failed, and the org home's empty state is
         # the welcome.
         {:noreply, push_navigate(socket, to: ~p"/organizations/#{org.slug}")}
 
-      {:error, form} ->
+      {:error, error_form} ->
         socket =
-          if field_free?(form) and cap_refused?(socket.assigns.current_user) do
+          if field_free?(error_form) and not is_nil(actor) and cap_refused?(actor) do
             # The cap refusal rides no field (Forbidden.Policy implements
             # no AshPhoenix.FormData.Error), so field-scoped errors take
             # precedence — the flash must not misdiagnose an at-cap
@@ -87,10 +94,10 @@ defmodule FluxValeWeb.OrganizationLive.New do
           else
             # The name's own problems render field-scoped; a refused
             # address renders as the one plain line under the preview.
-            assign(socket, address_refused?: address_refused?(form, params["slug"]))
+            assign(socket, address_refused?: address_refused?(error_form, params["slug"]))
           end
 
-        {:noreply, assign(socket, :form, form)}
+        {:noreply, assign(socket, :form, error_form)}
     end
   end
 
@@ -138,6 +145,24 @@ defmodule FluxValeWeb.OrganizationLive.New do
   end
 
   defp slug_suggestion(_other), do: ""
+
+  # The database truth for the save event's actor re-resolve — not an
+  # actor-authorized read: the session gate already authenticated the
+  # id, and a deleted account yields nil so the action fails closed.
+  defp fresh_actor(%{id: id}) do
+    case Ash.get(User, id, authorize?: false) do
+      {:ok, user} ->
+        user
+
+      # coveralls-ignore-start - a deleted account mid-tab: no action
+      # deletes users, and the policy refuses the nil actor if the row
+      # ever vanishes.
+      {:error, _not_found} ->
+        nil
+
+        # coveralls-ignore-stop
+    end
+  end
 
   defp build_form(user) do
     Organization

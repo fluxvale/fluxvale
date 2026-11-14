@@ -16,6 +16,7 @@ defmodule FluxValeWeb.OrganizationLive.NewTest do
   alias FluxVale.Accounts.Membership
   alias FluxVale.Accounts.Organization
   alias FluxVale.TestSupport.AccountsFixtures
+  alias FluxVale.TestSupport.AdminDemotion
   alias FluxVale.TestSupport.SessionHelpers
 
   require Ash.Query
@@ -204,6 +205,40 @@ defmodule FluxValeWeb.OrganizationLive.NewTest do
       |> Ash.read_one!(authorize?: false)
 
     assert member.role == :owner
+  end
+
+  test "a platform admin creates a brand-reserved slug through the panel", %{conn: conn} do
+    admin = AccountsFixtures.platform_admin!()
+    conn = SessionHelpers.sign_in(conn, admin)
+    {:ok, view, _html} = live(conn, ~p"/organizations/new")
+
+    view
+    |> form("#org-new-form", organization: %{name: "FluxVale"})
+    |> render_submit()
+
+    assert_redirect(view, ~p"/organizations/fluxvale")
+    assert {:ok, org} = Organization.get_by_slug("fluxvale", authorize?: false)
+    assert org.slug == "fluxvale"
+  end
+
+  test "a demoted admin's stale tab cannot mint a reserved slug", %{conn: conn} do
+    admin = AccountsFixtures.platform_admin!()
+    conn = SessionHelpers.sign_in(conn, admin)
+    {:ok, view, _html} = live(conn, ~p"/organizations/new")
+
+    :ok = AdminDemotion.demote!(admin)
+
+    view
+    |> form("#org-new-form", organization: %{name: "FluxVale"})
+    |> render_submit()
+
+    assert has_element?(
+             view,
+             "[data-testid='address-refused']",
+             "That address won't work. Try a different name."
+           )
+
+    assert {:error, _not_found} = Organization.get_by_slug("fluxvale", authorize?: false)
   end
 
   describe "a refused address reads as adjust-the-name" do

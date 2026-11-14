@@ -57,6 +57,26 @@ defmodule FluxVale.Accounts.OrganizationTest do
                |> Ash.Changeset.for_create(:create_with_owner, %{name: "Nope", slug: "map-actor"})
                |> Ash.create(actor: %{id: Ash.UUID.generate()})
     end
+
+    test "a nil actor cannot create a reserved slug — the system shape fails closed" do
+      assert {:error, %Invalid{errors: errors}} =
+               Organization
+               |> Ash.Changeset.for_create(:create_with_owner, %{
+                 name: "Docs",
+                 slug: "docs"
+               })
+               |> Ash.create(authorize?: false)
+
+      assert Enum.any?(
+               errors,
+               &match?(
+                 %Ash.Error.Changes.InvalidAttribute{field: :slug, message: "is reserved"},
+                 &1
+               )
+             )
+
+      assert {:error, _not_found} = Organization.get_by_slug("docs", authorize?: false)
+    end
   end
 
   describe "reads" do
