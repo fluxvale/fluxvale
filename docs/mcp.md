@@ -164,7 +164,7 @@ the enforcement, so mint the union):
 | `instances_destroy` | Destroy an instance and all its data | `instances:write` | confirm-gated |
 | `gateway` | The org's access gateway: `status`, `attach`, `detach`; attach returns the pairing row, detach the result, both with the re-read status (`status_error` if that read failed) | `gateways:read` + `gateways:write` for attach/detach | — |
 | `custom_domain` | Register, verify (re-read), list, remove a custom domain; every row carries `live`, `healthy`, and a `reason_code` (`platform`/`pending`/`failed`/`needs_attention`/`suspended`/`no_gateway`/`no_api_token`/`unclaimed`/`claimed`/`gateway_not_serving`/`removed`/`unknown`) | `gateways:read` + `gateways:write` for create/delete | — |
-| `sso` | Wire an instance to the org's Pocket ID (`connect`) and read the wiring back (`status`); identifiers only, never the minted secret; a failed read-back rides as `status_error` beside the committed row | `instances:read` + `instances:write` for connect | — |
+| `sso` | Wire an instance to the org's Pocket ID (`connect`) and read the wiring back (`status`); identifiers only, never the minted secret; a non-404 read-back failure rides as `status_error` beside the committed row (a 404 is an invisible row, not an error) | `instances:read` + `instances:write` for connect | — |
 | `backups_status` | An instance's backup settings + latest run | `instances:read` + `backups:read` (the instance read gates first — the runs list alone can't name a foreign id) | — |
 | `backups_configure` | Save the backup destination (identifiers only) | `backups:write` | — |
 | `backups_run` | Run a backup now | `backups:write` | — |
@@ -214,7 +214,8 @@ the surface change and the PR.
   (after proving the instance is visible); `connect` mints the Pocket
   ID OIDC client, wires the env, and reads the durable row back. A
   failed read-back rides as `status_error` beside the committed
-  connect row — a retry would re-mint. Identifier fields only — the
+  connect row (a 404 is an invisible row, not an error) — a retry
+  would re-mint. Identifier fields only — the
   minted client secret never rides the API or this tool.
 - Platform: the gateway read gains `api_token_set` (the token stamp
   or the stored ref — a pre-stamp token still proves itself) and

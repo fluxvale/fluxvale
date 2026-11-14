@@ -1,6 +1,7 @@
 //! The FluxVale MCP server — slice W2a of #484 (rmcp streamable HTTP
 //! over the shared `/api/v1` client, the read tools) plus W2b's write
-//! surface: deploy through destroy, the destructive pair
+//! surface: deploy through destroy, resize, the access gateway, custom
+//! domains, and Pocket ID sign-in wiring, the destructive pair
 //! elicitation-gated, and the /me `meta.scopes` filter. The container
 //! image + k3d exposure are W3a; the fleet-repo deploy is W3b.
 //!

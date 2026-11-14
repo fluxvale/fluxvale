@@ -1,10 +1,12 @@
-//! The upstream calls: the tools' `/api/v1` verbs, mirroring the CLI's
-//! reads.rs/writes.rs exactly (same routes, same params, same bodies,
-//! the same flat `id`-hoisted row shape). Errors surface VERBATIM —
-//! the crate preserves the JSON:API detail and neither layer rewrites
-//! it; the one local addition is the CLI's friendly 404 for a missing
-//! single thing. Calls run on the blocking pool (the client crate is
-//! ureq).
+//! The upstream calls: the tools' `/api/v1` verbs. The deploy/lifecycle/
+//! backup/wallet/topup calls mirror the CLI's reads.rs/writes.rs
+//! (same routes, same params, same bodies, the same flat `id`-hoisted
+//! row shape); the #771 parity tools (resize, gateway, custom domains,
+//! Pocket ID wiring) ride the same `fluxvale-api` client and the same
+//! wire shapes. Errors surface VERBATIM — the crate preserves the
+//! JSON:API detail and neither layer rewrites it; the one local
+//! addition is the CLI's friendly 404 for a missing single thing.
+//! Calls run on the blocking pool (the client crate is ureq).
 
 use fluxvale_api::{ApiClient, ApiError, Document, Resource, Token};
 use serde_json::{Value, json};
@@ -1358,32 +1360,27 @@ pub(crate) async fn instances_resize(
                     stopped_by_us = true;
                 }
                 Ok(row) => {
-                    steps["stop"] = json!("failed");
-                    let final_row = read_instance(&client, &id).unwrap_or(row);
-                    return Ok(pause_response(
-                        "stop",
+                    last_row = row.clone();
+                    return Ok(stop_failed(
+                        &client,
+                        &id,
                         steps,
+                        &mut last_row,
                         format!(
                             "stop landed {} — the resize did not run",
-                            final_row["status"].as_str().unwrap_or("an unknown state")
+                            row["status"].as_str().unwrap_or("an unknown state")
                         ),
-                        final_row,
                         previous_allocation,
-                        Value::Null,
-                        Value::Null,
                     ));
                 }
                 Err(message) => {
-                    steps["stop"] = json!("failed");
-                    let final_row = read_instance(&client, &id).unwrap_or(last_row);
-                    return Ok(pause_response(
-                        "stop",
+                    return Ok(stop_failed(
+                        &client,
+                        &id,
                         steps,
+                        &mut last_row,
                         message,
-                        final_row,
                         previous_allocation,
-                        Value::Null,
-                        Value::Null,
                     ));
                 }
             }
@@ -1516,26 +1513,71 @@ an allocation at the app version's recommended size bills that size's live rate 
 /// a silent success.
 const START_LANDED_ERROR: &str = "start landed error — the instance needs attention";
 
-/// A stop-leg failure: no resize, no start attempt (the row never
-/// reached the stopped state the resize needs).
-fn pause_response(
-    step: &str,
-    steps: Value,
+/// A stop-leg failure: no resize runs. If the stop nevertheless landed
+/// (the error was a transport/5xx after the scale-to-zero), this call
+/// did stop the instance — restart it and report both outcomes. A row
+/// the stop did not land leaves `start` not attempted. Every wire is
+/// terminal on this response (`resize`/`start` are `not_attempted`,
+/// never `pending`).
+fn stop_failed(
+    client: &ApiClient,
+    id: &str,
+    mut steps: Value,
+    last_row: &mut Value,
     error: String,
-    instance: Value,
     previous_allocation: Value,
-    new_allocation: Value,
-    price: Value,
 ) -> Value {
+    let before = read_instance(client, id).unwrap_or_else(|_| last_row.clone());
+    steps["resize"] = json!("not_attempted");
+
+    let (start_error, started, error) = if before["status"] == "stopped" {
+        steps["stop"] = json!("done");
+        match lifecycle(client, id, "start") {
+            Ok(row) if row["status"] == "error" => {
+                steps["start"] = json!("failed");
+                *last_row = row;
+                (
+                    json!(START_LANDED_ERROR),
+                    false,
+                    format!("{error}; the restart landed error"),
+                )
+            }
+            Ok(row) => {
+                steps["start"] = json!("done");
+                *last_row = row;
+                (
+                    Value::Null,
+                    true,
+                    format!("{error}; the instance was restarted"),
+                )
+            }
+            Err(message) => {
+                steps["start"] = json!("failed");
+                (
+                    json!(message),
+                    false,
+                    format!("{error}; the restart failed"),
+                )
+            }
+        }
+    } else {
+        steps["stop"] = json!("failed");
+        steps["start"] = json!("not_attempted");
+        (Value::Null, false, error)
+    };
+
+    let final_row = read_instance(client, id).unwrap_or_else(|_| last_row.clone());
     json!({
         "ok": false,
-        "step": step,
+        "step": "stop",
         "steps": steps,
         "error": error,
-        "instance": instance,
+        "start_error": start_error,
+        "started": started,
+        "instance": final_row,
         "previous_allocation": previous_allocation,
-        "new_allocation": new_allocation,
-        "price": price,
+        "new_allocation": Value::Null,
+        "price": Value::Null,
         "price_currency": "USD",
         "price_period": "monthly · billed hourly",
         "price_basis": PRICE_BASIS,
@@ -1546,7 +1588,8 @@ fn pause_response(
 /// the start and report both outcomes plus the actual state. A row
 /// this call never stopped (a sleeping/pending refusal, or a row that
 /// was already stopped) is left exactly as it was — waking it would be
-/// an unasked-for change.
+/// an unasked-for change. A racing start wins: a row already
+/// starting/running is reported as such, never started again.
 fn resize_failed(
     client: &ApiClient,
     id: &str,
@@ -1556,7 +1599,10 @@ fn resize_failed(
     previous_allocation: Value,
     stopped_by_us: bool,
 ) -> Value {
-    let (start_error, started) = if stopped_by_us {
+    let (start_error, started) = if !stopped_by_us {
+        steps["start"] = json!("not_attempted");
+        (Value::Null, false)
+    } else {
         match lifecycle(client, id, "start") {
             Ok(row) if row["status"] == "error" => {
                 steps["start"] = json!("failed");
@@ -1569,13 +1615,21 @@ fn resize_failed(
                 (Value::Null, true)
             }
             Err(message) => {
-                steps["start"] = json!("failed");
-                (json!(message), false)
+                // A concurrent start can make ours 400 on the
+                // platform's state guard; a row already
+                // starting/running is the outcome the sequence
+                // wanted, not a failure.
+                let after = read_instance(client, id).unwrap_or_else(|_| last_row.clone());
+                if matches!(after["status"].as_str(), Some("starting" | "running")) {
+                    steps["start"] = json!("skipped");
+                    *last_row = after;
+                    (Value::Null, true)
+                } else {
+                    steps["start"] = json!("failed");
+                    (json!(message), false)
+                }
             }
         }
-    } else {
-        steps["start"] = json!("not_attempted");
-        (Value::Null, false)
     };
     let final_row = read_instance(client, id).unwrap_or_else(|_| last_row.clone());
     json!({
@@ -3858,6 +3912,141 @@ mod tests {
         assert_eq!(
             one_resource(many, "user").unwrap_err(),
             "the API returned 2 user resources, expected one"
+        );
+    }
+
+    fn instance_status_doc(status: &str) -> String {
+        json!({"data": {"type": "instance", "id": "i1",
+            "attributes": {"id": "i1", "status": status}}})
+        .to_string()
+    }
+
+    #[test]
+    fn stop_failed_restarts_a_row_the_stop_left_stopped() {
+        let stopped = instance_status_doc("stopped");
+        let starting = instance_status_doc("starting");
+        let server = serve(&[
+            ("/api/v1/instances/i1", 200, &stopped),
+            ("PATCH /api/v1/instances/i1/start", 200, &starting),
+        ]);
+        let client = ApiClient::new(&base(&server), token());
+        let mut last_row = json!({"status": "running"});
+        let value = stop_failed(
+            &client,
+            "i1",
+            json!({"stop": "failed", "resize": "pending", "start": "pending"}),
+            &mut last_row,
+            "stop timed out".to_string(),
+            json!({"cpu_cores": "0.5"}),
+        );
+        assert_eq!(value["ok"], false);
+        assert_eq!(value["step"], "stop");
+        assert_eq!(value["steps"]["stop"], "done");
+        assert_eq!(value["steps"]["resize"], "not_attempted");
+        assert_eq!(value["steps"]["start"], "done");
+        assert_eq!(value["started"], true);
+        assert!(
+            value["error"].as_str().unwrap().contains("restarted"),
+            "error: {}",
+            value["error"]
+        );
+        assert!(
+            (0..server.head_count())
+                .map(|n| server.head(n).to_lowercase())
+                .any(|head| head.starts_with("patch /api/v1/instances/i1/start"))
+        );
+    }
+
+    #[test]
+    fn stop_failed_leaves_a_running_row_alone() {
+        let running = instance_status_doc("running");
+        let server = serve(&[("/api/v1/instances/i1", 200, &running)]);
+        let client = ApiClient::new(&base(&server), token());
+        let mut last_row = json!({"status": "running"});
+        let value = stop_failed(
+            &client,
+            "i1",
+            json!({"stop": "failed", "resize": "pending", "start": "pending"}),
+            &mut last_row,
+            "stop refused".to_string(),
+            json!({}),
+        );
+        assert_eq!(value["steps"]["stop"], "failed");
+        assert_eq!(value["steps"]["resize"], "not_attempted");
+        assert_eq!(value["steps"]["start"], "not_attempted");
+        assert_eq!(value["started"], false);
+        assert!(
+            (0..server.head_count())
+                .map(|n| server.head(n).to_lowercase())
+                .all(|head| !head.starts_with("patch /api/v1/instances/i1/start"))
+        );
+    }
+
+    #[test]
+    fn resize_failed_reports_a_start_refusal_when_the_row_stays_stopped() {
+        let stopped = instance_status_doc("stopped");
+        let server = serve(&[
+            ("/api/v1/instances/i1", 200, &stopped),
+            (
+                "PATCH /api/v1/instances/i1/start",
+                403,
+                r#"{"errors":[{"status":"403","detail":"token is missing the required scope instances:write"}]}"#,
+            ),
+        ]);
+        let client = ApiClient::new(&base(&server), token());
+        let mut steps = json!({"stop": "done", "resize": "failed", "start": "pending"});
+        let mut last_row = json!({"status": "stopped"});
+        let value = resize_failed(
+            &client,
+            "i1",
+            &mut steps,
+            &mut last_row,
+            "resize refused".to_string(),
+            json!({}),
+            true,
+        );
+        assert_eq!(value["steps"]["start"], "failed");
+        assert_eq!(value["started"], false);
+        assert!(
+            value["start_error"]
+                .as_str()
+                .unwrap()
+                .contains("instances:write"),
+            "start_error: {}",
+            value["start_error"]
+        );
+    }
+
+    #[test]
+    fn resize_failed_treats_a_racing_start_refusal_as_done() {
+        let starting = instance_status_doc("starting");
+        let server = serve(&[
+            ("/api/v1/instances/i1", 200, &starting),
+            (
+                "PATCH /api/v1/instances/i1/start",
+                400,
+                r#"{"errors":[{"detail":"cannot start instance in starting state"}]}"#,
+            ),
+        ]);
+        let client = ApiClient::new(&base(&server), token());
+        let mut steps = json!({"stop": "done", "resize": "failed", "start": "pending"});
+        let mut last_row = json!({"status": "stopped"});
+        let value = resize_failed(
+            &client,
+            "i1",
+            &mut steps,
+            &mut last_row,
+            "resize failed".to_string(),
+            json!({}),
+            true,
+        );
+        assert_eq!(value["steps"]["start"], "skipped");
+        assert_eq!(value["started"], true);
+        assert_eq!(value["start_error"], Value::Null);
+        assert!(
+            (0..server.head_count())
+                .map(|n| server.head(n).to_lowercase())
+                .any(|head| head.starts_with("patch /api/v1/instances/i1/start"))
         );
     }
 

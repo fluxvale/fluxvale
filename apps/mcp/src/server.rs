@@ -1,9 +1,10 @@
 //! The MCP surface: the [`FluxValeMcp`] handler — the read tools and
-//! the write tools (deploy through destroy, the destructive pair
-//! elicitation-gated), the initialize gate (GET /me, protocol-refuse
-//! a dead token), and the scope-filtered tools/list (/me's
-//! `meta.scopes`, one upstream read). Descriptions are agent-facing
-//! copy in the retiring Elixir server's register.
+//! the write tools (deploy through destroy, resize, the access
+//! gateway, custom domains, and Pocket ID sign-in wiring; the
+//! destructive pair elicitation-gated), the initialize gate (GET /me,
+//! protocol-refuse a dead token), and the scope-filtered tools/list
+//! (/me's `meta.scopes`, one upstream read). Descriptions are
+//! agent-facing copy in the retiring Elixir server's register.
 
 use rmcp::{
     ErrorData, RoleServer, ServerHandler,
@@ -575,8 +576,9 @@ only for list/create. Reads need `gateways:read`; create/delete need \
 default) or `connect`. Connect takes `instance_id` and the org's \
 Pocket ID instance id (`pocket_id_instance_id`) and mints the OIDC \
 client + env wiring, then reads the durable wiring row back. The \
-committed connect row is the answer even when the read-back fails — the \
-failure rides as `status_error` beside it, and a retry would re-mint. \
+committed connect row is the answer even when the read-back fails — a \
+non-404 failure rides as `status_error` beside it (a 404 is an invisible \
+row, not an error), and a retry would re-mint. \
 Status answers `wired: false` for an unwired instance after proving the \
 instance is visible. Identifier fields only — client id, secret id, \
 timestamps. The minted client secret lives in the instance's env and is \
@@ -721,8 +723,8 @@ billed hourly). A resize failure restarts the instance only when this \
 call stopped it and reports both the failure and the final state \
 (isError true, `ok: false`, `step`, `steps`); an already-stopped row \
 stays exactly as it was. Never a silently stranded instance this call \
-stopped. Only running/stopped rows resize; wake a sleeping row to \
-running with `instances_start` first.",
+stopped. Only running/stopped rows resize; wake a sleeping row with \
+`instances_start` and wait for it to reach running first.",
         annotations(destructive_hint = false)
     )]
     async fn instances_resize(
@@ -2657,7 +2659,7 @@ mod tests {
                 resize_resized_doc(),
             ),
             (
-                "GET /api/v1/pricing/quote?cpu_cores=0.5&memory_mb=512&storage_gb=10",
+                "GET /api/v1/pricing/quote?cpu_cores=2&memory_mb=2048&storage_gb=10",
                 200,
                 quote_doc(),
             ),
@@ -2677,6 +2679,8 @@ mod tests {
         let structured = &result(&body)["structuredContent"];
         assert_eq!(structured["ok"], true);
         assert_eq!(structured["steps"]["stop"], "skipped");
+        assert_eq!(structured["new_allocation"]["memory_mb"], 2048);
+        assert_eq!(structured["price"]["monthly_cents"], 335);
         assert!(
             (0..server.head_count())
                 .map(|n| server.head(n).to_lowercase())
@@ -2889,6 +2893,47 @@ mod tests {
             structured["price"]["error"],
             "invalid cpu cores in the resize response: 2&x"
         );
+    }
+
+    #[tokio::test]
+    async fn a_resize_answering_many_resources_restarts_and_refuses() {
+        let many = json!({"data": [
+            {"type": "instance", "id": "i1", "attributes": {"id": "i1", "status": "stopped"}},
+            {"type": "instance", "id": "i2", "attributes": {"id": "i2", "status": "stopped"}}
+        ]})
+        .to_string();
+        let server = testapi::serve(&[
+            ("GET /api/v1/instances/i1", 200, resize_running_doc()),
+            ("PATCH /api/v1/instances/i1/stop", 200, resize_stopped_doc()),
+            ("PATCH /api/v1/instances/i1/resize", 200, many),
+            (
+                "PATCH /api/v1/instances/i1/start",
+                200,
+                resize_starting_doc(),
+            ),
+        ]);
+        let (_, body) = tools_call(
+            &app(&server),
+            PAT_FULL,
+            "instances_resize",
+            json!({"id": "i1", "memory_mb": 2048}),
+        )
+        .await;
+        let structured = &result(&body)["structuredContent"];
+        assert_eq!(result(&body)["isError"], true);
+        assert_eq!(structured["ok"], false);
+        assert_eq!(structured["step"], "resize");
+        assert_eq!(structured["steps"]["start"], "done");
+        assert!(
+            structured["error"]
+                .as_str()
+                .unwrap()
+                .contains("2 instance resources"),
+            "error: {}",
+            structured["error"]
+        );
+        assert_eq!(structured["new_allocation"], Value::Null);
+        assert_eq!(structured["price"], Value::Null);
     }
 
     fn gateway_doc() -> String {
@@ -3349,6 +3394,81 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_verified_domain_under_a_gateway_outage_is_unknown_not_live() {
+        let domain = json!({"data": {"type": "access_domain", "id": "d1",
+            "attributes": {"id": "d1", "domain": "apps.fluxvale.com",
+                           "kind": "custom", "state": "verified",
+                           "organization_id": "01JORG1"}}})
+        .to_string();
+        let server = testapi::serve(&[
+            ("/api/v1/access-domains/d1", 200, domain),
+            (
+                "/api/v1/organizations/01JORG1/access-gateway",
+                500,
+                r#"{"errors":[{"detail":"gateway read exploded"}]}"#.to_string(),
+            ),
+        ]);
+        let (_, body) = tools_call(
+            &app(&server),
+            PAT_FULL,
+            "custom_domain",
+            json!({"action": "verify", "id": "d1"}),
+        )
+        .await;
+        let structured = &result(&body)["structuredContent"];
+        assert_eq!(structured["live"], false);
+        assert_eq!(structured["serving"]["reason_code"], "unknown");
+        assert!(
+            structured["serving_error"]
+                .as_str()
+                .unwrap()
+                .contains("gateway read exploded"),
+            "serving_error: {}",
+            structured["serving_error"]
+        );
+    }
+
+    #[tokio::test]
+    async fn a_domain_list_survives_a_gateway_outage_with_every_row() {
+        let server = testapi::serve(&[
+            ("/api/v1/organizations", 200, orgs_doc()),
+            (
+                "/api/v1/organizations/01JORG1/access-domains",
+                200,
+                domains_doc(),
+            ),
+            (
+                "/api/v1/organizations/01JORG1/access-gateway",
+                500,
+                r#"{"errors":[{"detail":"gateway read exploded"}]}"#.to_string(),
+            ),
+        ]);
+        let (_, body) = tools_call(&app(&server), PAT_FULL, "custom_domain", json!({})).await;
+        let structured = &result(&body)["structuredContent"];
+        assert_eq!(structured["domains"].as_array().unwrap().len(), 3);
+        assert!(
+            structured["serving_error"]
+                .as_str()
+                .unwrap()
+                .contains("gateway read exploded"),
+            "serving_error: {}",
+            structured["serving_error"]
+        );
+        assert_eq!(
+            structured["domains"][0]["serving"]["reason_code"],
+            "unknown"
+        );
+        assert_eq!(
+            structured["domains"][1]["serving"]["reason_code"],
+            "unknown"
+        );
+        assert_eq!(
+            structured["domains"][2]["serving"]["reason_code"],
+            "pending"
+        );
+    }
+
+    #[tokio::test]
     async fn a_domain_row_without_an_organization_is_refused() {
         let domain = json!({"data": {"type": "access_domain", "id": "d1",
             "attributes": {"id": "d1", "domain": "apps.example.com",
@@ -3629,14 +3749,21 @@ mod tests {
         )
         .await;
         let structured = &result(&body)["structuredContent"];
+        assert_eq!(result(&body)["isError"], true);
         assert_eq!(structured["ok"], false);
+        assert_eq!(structured["step"], "resize");
         assert_eq!(
             structured["error"],
             "403 Forbidden: token is missing the required scope instances:write"
         );
-        assert_eq!(
-            structured["start_error"],
-            "403 Forbidden: token is missing the required scope instances:write"
+        // The restart was attempted. The canned GET always answers the
+        // same row, so the race guard sees "running" here; the
+        // start-refusal's own surfacing is unit-tested below against a
+        // row that stays stopped.
+        assert!(
+            (0..server.head_count())
+                .map(|n| server.head(n).to_lowercase())
+                .any(|head| head.starts_with("patch /api/v1/instances/i1/start"))
         );
     }
 
@@ -3944,9 +4071,61 @@ mod tests {
                     "pocket_id_instance_id": "p1"}),
         )
         .await;
+        let structured = &result(&body)["structuredContent"];
+        assert_eq!(structured["wiring"]["pocket_id_secret_id"], "sec-1");
+        assert_eq!(structured["status_error"], Value::Null);
+    }
+
+    #[tokio::test]
+    async fn sso_connect_keeps_the_committed_row_when_the_read_back_is_empty() {
+        let wiring = json!({"id": "w1", "instance_id": "i1",
+            "pocket_id_instance_id": "p1", "pocket_id_client_id": "pid-1",
+            "pocket_id_secret_id": "sec-1", "wired_at": "2026-11-14T00:00:00Z"})
+        .to_string();
+        let server = testapi::serve(&[
+            ("POST /api/v1/instances/i1/connect-pocketid", 201, wiring),
+            (
+                "GET /api/v1/instances/i1/pocket-id-wiring",
+                200,
+                r#"{"data":[]}"#.to_string(),
+            ),
+        ]);
+        let (_, body) = tools_call(
+            &app(&server),
+            PAT_FULL,
+            "sso",
+            json!({"action": "connect", "instance_id": "i1",
+                    "pocket_id_instance_id": "p1"}),
+        )
+        .await;
+        let structured = &result(&body)["structuredContent"];
+        assert_eq!(structured["wiring"]["pocket_id_secret_id"], "sec-1");
         assert_eq!(
-            result(&body)["structuredContent"]["wiring"]["pocket_id_secret_id"],
-            "sec-1"
+            structured["status_error"],
+            "the API returned no pocket id wiring"
+        );
+    }
+
+    #[tokio::test]
+    async fn sso_status_surfaces_a_wiring_read_failure_verbatim() {
+        let server = testapi::serve(&[
+            ("GET /api/v1/instances/i1", 200, instance_doc()),
+            (
+                "GET /api/v1/instances/i1/pocket-id-wiring",
+                500,
+                r#"{"errors":[{"detail":"wiring read exploded"}]}"#.to_string(),
+            ),
+        ]);
+        let (_, body) =
+            tools_call(&app(&server), PAT_FULL, "sso", json!({"instance_id": "i1"})).await;
+        assert_eq!(result(&body)["isError"], true);
+        assert!(
+            result(&body)["content"][0]["text"]
+                .as_str()
+                .unwrap()
+                .contains("wiring read exploded"),
+            "text: {}",
+            result(&body)["content"][0]["text"]
         );
     }
 
@@ -3982,6 +4161,39 @@ mod tests {
                 .contains("read back exploded"),
             "status_error: {}",
             structured["status_error"]
+        );
+    }
+
+    #[tokio::test]
+    async fn gateway_attach_surfaces_a_non_404_verbatim() {
+        let server = testapi::serve(&[
+            ("/api/v1/organizations", 200, orgs_doc()),
+            (
+                "/api/v1/organizations/01JORG1/access-gateway",
+                200,
+                gateway_doc(),
+            ),
+            (
+                "POST /api/v1/access-gateways/g1/attachments",
+                500,
+                r#"{"errors":[{"detail":"pairing exploded"}]}"#.to_string(),
+            ),
+        ]);
+        let (_, body) = tools_call(
+            &app(&server),
+            PAT_FULL,
+            "gateway",
+            json!({"action": "attach", "instance_id": "i1"}),
+        )
+        .await;
+        assert_eq!(result(&body)["isError"], true);
+        assert!(
+            result(&body)["content"][0]["text"]
+                .as_str()
+                .unwrap()
+                .contains("pairing exploded"),
+            "text: {}",
+            result(&body)["content"][0]["text"]
         );
     }
 

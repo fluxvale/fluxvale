@@ -30,7 +30,7 @@ container image, CI publish, and the k3d exposure
 | `instances_destroy` | `instances:write` — **confirm-gated** | Destroy an instance and all its data, after a yes/no confirmation. |
 | `gateway` | `gateways:read` (+ `gateways:write` for attach/detach) | The org's access gateway: `status`, `attach`, `detach`; attach returns the pairing row, detach the result, both with the re-read status (`status_error` if that read failed). |
 | `custom_domain` | `gateways:read` (+ `gateways:write` for create/delete) | Register, verify (re-read), list, remove a custom domain; every row carries `live`, `healthy`, and a `reason_code` (`platform`/guard states/claim-path states). A status outage rides as `serving_error`. |
-| `sso` | `instances:read` (+ `instances:write` for connect) | Wire an instance to the org's Pocket ID and read the wiring back; identifiers only, never the minted secret; a failed read-back rides as `status_error` beside the committed row. |
+| `sso` | `instances:read` (+ `instances:write` for connect) | Wire an instance to the org's Pocket ID and read the wiring back; identifiers only, never the minted secret; a non-404 read-back failure rides as `status_error` beside the committed row. |
 | `backups_status` | `backups:read` | An instance's backup settings + latest run. |
 | `backups_configure` | `backups:write` | Save the backup destination (identifiers only — see below). |
 | `backups_run` | `backups:write` | Run a backup now. |
