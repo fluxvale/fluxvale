@@ -570,6 +570,25 @@ defmodule FluxVale.Infrastructure.Operations.ReconcileInstanceTest do
       assert waiting.status == :no_capacity
     end
 
+    test "an unschedulable pod outranks a deadlined Progressing condition" do
+      stub_kubeconfig()
+      instance = instance!(:starting)
+
+      expect(Deployment, :status, fn _kc, _ns, _n ->
+        {:ok,
+         deployment_status(%{
+           conditions: [conditions("Progressing", "False", reason: "ProgressDeadlineExceeded")]
+         })}
+      end)
+
+      expect(Pod, :list_by_labels, fn _kc, _ns, _labels -> {:ok, [unschedulable_pod()]} end)
+
+      assert {:ok, waiting} = ReconcileInstance.call(instance)
+      assert waiting.status == :no_capacity
+      assert waiting.status_message =~ "Insufficient cpu"
+      assert is_nil(waiting.failure_reason)
+    end
+
     test "a ready Deployment promotes :no_capacity to :running" do
       stub_kubeconfig()
       instance = instance!(:no_capacity)

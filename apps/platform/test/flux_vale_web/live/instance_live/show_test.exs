@@ -483,6 +483,7 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
 
     assert has_element?(view, "[data-testid=status-badge]", "No capacity")
     assert has_element?(view, "[data-testid='status-message']", "can't start")
+    assert has_element?(view, "[data-testid=stop-button]")
     assert html =~ "hero-clock"
     refute has_element?(view, "[data-testid=status-badge]", "Failed")
     refute_k8s_terms(html)
