@@ -163,7 +163,7 @@ the enforcement, so mint the union):
 | `instances_resize` | Stopped-first re-allocation: stop (when running), resize, start; previous/new allocation and the platform's price quote in the response | `instances:write` | — |
 | `instances_destroy` | Destroy an instance and all its data | `instances:write` | confirm-gated |
 | `gateway` | The org's access gateway: `status`, `attach`, `detach`; pairing answers include the re-read status | `gateways:read` + `gateways:write` for attach/detach | — |
-| `custom_domain` | Register, verify (re-read), list, remove a custom domain; every row carries `live` and a claim-path `reason_code` (`no_gateway`/`no_api_token`/`pending`/`unclaimed`/`claimed`) | `gateways:read` + `gateways:write` for create/delete | — |
+| `custom_domain` | Register, verify (re-read), list, remove a custom domain; every row carries `live` and a `reason_code` (`platform`/`pending`/`failed`/`needs_attention`/`suspended`/`no_gateway`/`no_api_token`/`unclaimed`/`claimed`) | `gateways:read` + `gateways:write` for create/delete | — |
 | `sso` | Wire an instance to the org's Pocket ID (`connect`) and read the wiring back (`status`); identifier fields only, never the minted secret | `instances:read` + `instances:write` for connect | — |
 | `backups_status` | An instance's backup settings + latest run | `instances:read` + `backups:read` (the instance read gates first — the runs list alone can't name a foreign id) | — |
 | `backups_configure` | Save the backup destination (identifiers only) | `backups:write` | — |
@@ -191,17 +191,20 @@ the surface change and the PR.
   response states the step reached, the instance's actual state, the
   previous/new allocation, and the platform's `/pricing/quote` figure
   (USD, monthly, billed hourly). A resize or start failure still
-  attempts the start when the row was stopped and reports both the
-  failure and the final state.
+  attempts the start when the row was stopped, reports both the
+  failure and the final state, and answers `isError` with `ok: false`.
 - New `gateway` over the org's one access gateway: `status`,
   `attach`, `detach`; pairing answers carry the pairing row and the
-  re-read status.
+  re-read status, with any status-read failure beside the committed
+  pairing rather than replacing it.
 - New `custom_domain`: `list`, `create`, `verify`, `delete`. Every
   row carries `live` plus a machine-readable `serving.reason_code`.
-  A verified domain is reported live only when the gateway's readable
-  claim state includes it; otherwise the code is `no_gateway`,
-  `no_api_token`, `unclaimed`, or a guard state (`pending`, `failed`,
-  `needs_attention`, `suspended`). `verify` re-reads after the pass.
+  The platform row is `platform` (fleet-served); a custom domain is
+  live only when the gateway's readable claim state includes it,
+  otherwise `no_gateway`, `no_api_token`, `unclaimed`, or a guard
+  state (`pending`, `failed`, `needs_attention`, `suspended`).
+  `verify` re-reads the row's state; issuance is the only verifier and
+  this action triggers nothing.
 - New `sso`: `status` answers `wired: false` for an unwired instance;
   `connect` mints the Pocket ID OIDC client, wires the env, and reads
   the durable row back. Identifier fields only — the minted client

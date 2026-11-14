@@ -523,12 +523,16 @@ pub(crate) async fn gateway(
 ) -> Result<Value, String> {
     on_blocking_string(move || {
         // The action's own required argument fails before any read.
-        if action != GatewayAction::Status {
-            let instance_id = instance_id
-                .as_deref()
-                .ok_or_else(|| "instance_id is required for attach and detach".to_string())?;
-            safe_segment("instance id", instance_id)?;
-        }
+        let instance_id = match action {
+            GatewayAction::Status => None,
+            GatewayAction::Attach | GatewayAction::Detach => {
+                let instance_id = instance_id
+                    .as_deref()
+                    .ok_or_else(|| "instance_id is required for attach and detach".to_string())?;
+                safe_segment("instance id", instance_id)?;
+                Some(instance_id.to_string())
+            }
+        };
 
         let client = ApiClient::new(&base, token);
         let org = resolve_organization(&client, organization.as_deref())?;
@@ -546,63 +550,78 @@ pub(crate) async fn gateway(
                     "message": message,
                 }))
             }
-            GatewayAction::Attach | GatewayAction::Detach => {
-                let instance_id = instance_id.ok_or_else(|| {
-                    "instance_id is required for attach and detach".to_string()
-                })?;
-                safe_segment("instance id", &instance_id)?;
-                let gateway = read_gateway(&client, &org.id)?.ok_or_else(|| {
-                    format!(
-                        "no access gateway for {} — enable one in the panel's Access tab",
-                        org.label()
+            GatewayAction::Attach => {
+                let instance_id = instance_id.expect("validated for attach/detach");
+                let gateway_id = org_gateway_id(&client, &org)?;
+                let body = json!({"data": {"instance_id": instance_id}});
+                let attachment = client
+                    .send_json(
+                        "POST",
+                        &format!("/access-gateways/{gateway_id}/attachments"),
+                        Some(body.to_string()),
                     )
-                })?;
-                let gateway_id = gateway["id"]
-                    .as_str()
-                    .ok_or_else(|| "the gateway row carries no id".to_string())?;
-                safe_segment("gateway id", gateway_id)?;
-
-                match action {
-                    GatewayAction::Attach => {
-                        let body = json!({"data": {"instance_id": instance_id}});
-                        let attachment = client
-                            .send_json(
-                                "POST",
-                                &format!("/access-gateways/{gateway_id}/attachments"),
-                                Some(body.to_string()),
-                            )
-                            .map_err(friendly_pairing_404)?;
-                        let status = read_gateway(&client, &org.id)?.unwrap_or(gateway);
-                        Ok(json!({
-                            "organization": org_row,
-                            "gateway": status,
-                            "attachment": attachment,
-                        }))
-                    }
-                    GatewayAction::Detach => {
-                        let answer = client
-                            .send_json(
-                                "DELETE",
-                                &format!(
-                                    "/access-gateways/{gateway_id}/attachments/{instance_id}"
-                                ),
-                                None,
-                            )
-                            .map_err(friendly_pairing_404)?;
-                        let status = read_gateway(&client, &org.id)?.unwrap_or(gateway);
-                        Ok(json!({
-                            "organization": org_row,
-                            "gateway": status,
-                            "detached": true,
-                            "result": answer,
-                        }))
-                    }
-                    GatewayAction::Status => unreachable!("matched above"),
-                }
+                    .map_err(friendly_pairing_404)?;
+                let (status, status_error) = gateway_after_pairing(&client, &org.id);
+                Ok(json!({
+                    "organization": org_row,
+                    "gateway": status,
+                    "status_error": status_error,
+                    "attachment": attachment,
+                }))
+            }
+            GatewayAction::Detach => {
+                let instance_id = instance_id.expect("validated for attach/detach");
+                let gateway_id = org_gateway_id(&client, &org)?;
+                let answer = client
+                    .send_json(
+                        "DELETE",
+                        &format!("/access-gateways/{gateway_id}/attachments/{instance_id}"),
+                        None,
+                    )
+                    .map_err(friendly_pairing_404)?;
+                let (status, status_error) = gateway_after_pairing(&client, &org.id);
+                Ok(json!({
+                    "organization": org_row,
+                    "gateway": status,
+                    "status_error": status_error,
+                    "detached": true,
+                    "result": answer,
+                }))
             }
         }
     })
     .await
+}
+
+/// The org's gateway row and its id; the "no gateway" refusal names
+/// the org so a multi-org caller knows which one to enable.
+fn org_gateway_id(client: &ApiClient, org: &OrganizationRow) -> Result<String, String> {
+    let gateway = read_gateway(client, &org.id)?.ok_or_else(|| {
+        format!(
+            "no access gateway for {} — enable one in the panel's Access tab",
+            org.label()
+        )
+    })?;
+    let gateway_id = gateway["id"]
+        .as_str()
+        .ok_or_else(|| "the gateway row carries no id".to_string())?
+        .to_string();
+    safe_segment("gateway id", &gateway_id)?;
+    Ok(gateway_id)
+}
+
+/// The pairing's re-read, split so a committed attach/detach is never
+/// hidden behind a status-read failure: the pairing row is the answer,
+/// and any read failure rides beside it.
+fn gateway_after_pairing(client: &ApiClient, org_id: &str) -> (Value, Value) {
+    match read_gateway(client, org_id) {
+        Ok(Some(gateway)) => (gateway, Value::Null),
+        Ok(None) => (
+            Value::Null,
+            json!("the gateway status read answered not found after the pairing"),
+        ),
+        Err(message) => (Value::Null, json!(message)),
+    }
 }
 
 /// The org's gateway row, or `None` for the honest 404 absence.
@@ -640,28 +659,12 @@ pub(crate) async fn custom_domain(
     domain: Option<String>,
 ) -> Result<Value, String> {
     on_blocking_string(move || {
-        // The action's own required argument fails before any read.
-        match action {
-            CustomDomainAction::Create => {
-                domain
-                    .as_deref()
-                    .ok_or_else(|| "domain is required for create".to_string())?;
-            }
-            CustomDomainAction::Verify | CustomDomainAction::Delete => {
-                let id = id
-                    .as_deref()
-                    .ok_or_else(|| "id is required for verify and delete".to_string())?;
-                safe_segment("domain id", id)?;
-            }
-            CustomDomainAction::List => {}
-        }
-
         let client = ApiClient::new(&base, token);
-        let org = resolve_organization(&client, organization.as_deref())?;
-        let org_row = json!({"id": &org.id, "slug": &org.slug, "name": &org.name});
 
         match action {
             CustomDomainAction::List => {
+                let org = resolve_organization(&client, organization.as_deref())?;
+                let org_row = json!({"id": &org.id, "slug": &org.slug, "name": &org.name});
                 let document = client
                     .get(&format!("/organizations/{}/access-domains", org.id))
                     .map_err(message)?;
@@ -675,6 +678,7 @@ pub(crate) async fn custom_domain(
             }
             CustomDomainAction::Create => {
                 let domain = domain.ok_or_else(|| "domain is required for create".to_string())?;
+                let org = resolve_organization(&client, organization.as_deref())?;
                 let body = json!({"data": {"type": "access_domain", "attributes": {
                     "domain": domain,
                     "organization_id": org.id,
@@ -687,17 +691,27 @@ pub(crate) async fn custom_domain(
                 Ok(annotate_domain(with_id(&resource), gateway.as_ref()))
             }
             CustomDomainAction::Verify => {
-                let id = id.ok_or_else(|| "id is required for verify".to_string())?;
+                let id = id.ok_or_else(|| "id is required for verify and delete".to_string())?;
                 safe_segment("domain id", &id)?;
                 let document = client
                     .get(&format!("/access-domains/{id}"))
                     .map_err(|err| friendly_404(err, "domain"))?;
                 let resource = one_resource(document, "access domain")?;
-                let gateway = read_gateway(&client, &org.id)?;
+                // The row names its org; the gateway is that org's,
+                // never the caller-named one (a multi-org caller can
+                // pass any own org, but the domain's claim lives in
+                // its owner org).
+                let org_id = resource
+                    .attributes
+                    .get("organization_id")
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| "the domain row carries no organization_id".to_string())?;
+                safe_segment("organization id", org_id)?;
+                let gateway = read_gateway(&client, org_id)?;
                 Ok(annotate_domain(with_id(&resource), gateway.as_ref()))
             }
             CustomDomainAction::Delete => {
-                let id = id.ok_or_else(|| "id is required for delete".to_string())?;
+                let id = id.ok_or_else(|| "id is required for verify and delete".to_string())?;
                 safe_segment("domain id", &id)?;
                 let row = client
                     .send_json("DELETE", &format!("/access-domains/{id}"), None)
@@ -718,6 +732,15 @@ fn domain_state(row: &Value) -> &str {
 }
 
 fn domain_reason(row: &Value, gateway: Option<&Value>) -> (&'static str, &'static str) {
+    // The platform row is fleet-served (the wildcard already covers
+    // it); it is never claimed and has no issuance to wait on.
+    if row.get("kind").and_then(Value::as_str) == Some("platform") {
+        return (
+            "platform",
+            "the platform domain is served by the fleet wildcard; instance addresses use it directly",
+        );
+    }
+
     match domain_state(row) {
         "pending" => (
             "pending",
@@ -733,6 +756,13 @@ fn domain_reason(row: &Value, gateway: Option<&Value>) -> (&'static str, &'stati
         ),
         "suspended" => ("suspended", "the domain is parked and serves nothing"),
         "verified" => match gateway {
+            // A claim in the map is proof the token worked; check it
+            // before the derived token stamp, which can lag a manual
+            // claim (the column is nullable and not backfilled).
+            Some(gateway) if claimed(gateway, row) => (
+                "claimed",
+                "the gateway has claimed the domain; hostnames under it serve from private attached instances",
+            ),
             None => (
                 "no_gateway",
                 "the certificate is issued, but the organization has no access gateway to claim the domain",
@@ -740,10 +770,6 @@ fn domain_reason(row: &Value, gateway: Option<&Value>) -> (&'static str, &'stati
             Some(gateway) if gateway["api_token_set"].as_bool() == Some(false) => (
                 "no_api_token",
                 "the certificate is issued, but the gateway holds no Tailscale API token, so the domain cannot be claimed",
-            ),
-            Some(gateway) if claimed(gateway, row) => (
-                "claimed",
-                "the gateway has claimed the domain; hostnames under it serve from private attached instances",
             ),
             Some(_) => (
                 "unclaimed",
@@ -766,7 +792,7 @@ fn claimed(gateway: &Value, row: &Value) -> bool {
 fn annotate_domain(mut row: Value, gateway: Option<&Value>) -> Value {
     let (reason_code, reason) = domain_reason(&row, gateway);
     let verified = domain_state(&row) == "verified";
-    let live = reason_code == "claimed";
+    let live = matches!(reason_code, "claimed" | "platform");
     if let Value::Object(map) = &mut row {
         map.insert("verified".to_string(), json!(verified));
         map.insert("live".to_string(), json!(live));
@@ -815,6 +841,13 @@ pub(crate) async fn sso(
 
         match action {
             SsoAction::Status => {
+                // The wiring read is member-scoped and a missing row
+                // means unwired — but a foreign/mistyped instance also
+                // 404s there. Prove the instance first so `wired:false`
+                // only ever describes an instance the caller can see.
+                client
+                    .get(&format!("/instances/{instance_id}"))
+                    .map_err(|err| friendly_404(err, "instance"))?;
                 match client.get(&format!("/instances/{instance_id}/pocket-id-wiring")) {
                     Ok(document) => {
                         let resource = one_resource(document, "pocket id wiring")?;
@@ -833,9 +866,7 @@ pub(crate) async fn sso(
                 }
             }
             SsoAction::Connect => {
-                let pocket_id_instance_id = pocket_id_instance_id
-                    .ok_or_else(|| "pocket_id_instance_id is required for connect".to_string())?;
-                safe_segment("pocket id instance id", &pocket_id_instance_id)?;
+                let pocket_id_instance_id = pocket_id_instance_id.expect("validated for connect");
                 let body = json!({"data": {"pocket_id_instance_id": pocket_id_instance_id}});
                 let connected = client
                     .send_json(
@@ -1317,6 +1348,27 @@ pub(crate) async fn instances_resize(
         let price = price_for(&client, &new_allocation);
 
         match lifecycle(&client, &id, "start") {
+            Ok(row) if row["status"] == "error" => {
+                // A 200 whose landed state is :error is a failed start
+                // (the action reports the row, not the cluster outcome).
+                steps["start"] = json!("failed");
+                last_row = row;
+                let final_row = read_instance(&client, &id).unwrap_or(last_row);
+                return Ok(json!({
+                    "ok": false,
+                    "step": "start",
+                    "steps": steps,
+                    "error": START_LANDED_ERROR,
+                    "start_error": START_LANDED_ERROR,
+                    "instance": final_row,
+                    "previous_allocation": previous_allocation,
+                    "new_allocation": new_allocation,
+                    "price": price,
+                    "price_currency": "USD",
+                    "price_period": "monthly · billed hourly",
+                    "price_basis": PRICE_BASIS,
+                }));
+            }
             Ok(row) => {
                 steps["start"] = json!("done");
                 last_row = row;
@@ -1366,6 +1418,11 @@ pub(crate) async fn instances_resize(
 const PRICE_BASIS: &str = "the platform's formula quote for this allocation; \
 an allocation at the app version's recommended size bills that size's live rate instead";
 
+/// A start call that answered 200 but landed `:error` (the action
+/// reports the row, not the cluster outcome) — a failed start, never
+/// a silent success.
+const START_LANDED_ERROR: &str = "start landed error — the instance needs attention";
+
 /// A stop-leg failure: no resize, no start attempt (the row never
 /// reached the stopped state the resize needs).
 fn pause_response(
@@ -1407,6 +1464,11 @@ fn resize_failed(
 ) -> Value {
     let (start_error, started) = if last_row["status"] == "stopped" {
         match lifecycle(client, id, "start") {
+            Ok(row) if row["status"] == "error" => {
+                steps["start"] = json!("failed");
+                *last_row = row;
+                (json!(START_LANDED_ERROR), false)
+            }
             Ok(row) => {
                 steps["start"] = json!("done");
                 *last_row = row;

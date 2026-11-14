@@ -29,7 +29,7 @@ container image, CI publish, and the k3d exposure
 | `instances_resize` | `instances:write` | Stopped-first re-allocation: stop when running, resize, start; previous/new allocation plus the platform's price quote. A partial failure reports the step and the actual state. |
 | `instances_destroy` | `instances:write` — **confirm-gated** | Destroy an instance and all its data, after a yes/no confirmation. |
 | `gateway` | `gateways:read` (+ `gateways:write` for attach/detach) | The org's access gateway: `status`, `attach`, `detach`; pairing answers include the re-read status. |
-| `custom_domain` | `gateways:read` (+ `gateways:write` for create/delete) | Register, verify (re-read), list, remove a custom domain; every row carries `live` and a claim-path `reason_code`. |
+| `custom_domain` | `gateways:read` (+ `gateways:write` for create/delete) | Register, verify (re-read), list, remove a custom domain; every row carries `live` and a `reason_code` (`platform`/guard states/claim-path states). |
 | `sso` | `instances:read` (+ `instances:write` for connect) | Wire an instance to the org's Pocket ID and read the wiring back; identifiers only, never the minted secret. |
 | `backups_status` | `backups:read` | An instance's backup settings + latest run. |
 | `backups_configure` | `backups:write` | Save the backup destination (identifiers only — see below). |
