@@ -1,7 +1,10 @@
 # ADR-0053: Secret env values — Terraform carries a locked box, never the secret
 
 **Status**: Accepted for design; implementation deferred until T1–T3 (owner go Nov 12, 2026, #731 — the plan is
-[plans/731-terraform-integrations.md](../plans/731-terraform-integrations.md))
+[plans/731-terraform-integrations.md](../plans/731-terraform-integrations.md)).
+**Amended 2026-11-13 by #764**: the provider implements Terraform 1.12+ / OpenTofu 1.13+ write-only inputs
+(`secret_env_vars` + version + computed key list) as the recommended modern path, pending the 0.4.0 release;
+the `enc:v1:` marker stays the portable fallback design and its build remains deferred.
 **Date**: 2026-11-12
 
 **Context**: Terraform is a first-class deploy surface, and app
@@ -144,6 +147,12 @@ runtime Secret — that is the trust boundary, stated plainly.
   and does nothing for the git-config surface. A good **future
   additive** input for users who want zero ciphertext in state;
   not the primary model.
+
+  **Superseded by the #764 amendment below** (2026-11-13): the floor is
+  now verified (Terraform 1.12+, OpenTofu 1.13+), the version integer
+  answers the diff objection, and the computed key list answers removal.
+  The marker remains the portable fallback design;
+  `secret_env_vars` is the stronger modern input.
 - **Secret references (`op://`, `sops://`, `ssm://`) resolved at
   deploy.** Neither plaintext nor ciphertext in Terraform — the
   cleanest artifact story — but the platform would need egress to
@@ -186,3 +195,28 @@ runtime Secret — that is the trust boundary, stated plainly.
   fields the CLI and docs tell users to encrypt.
 - No migration, no new table, no new scope. One config secret, one
   CLI command, one resolver at the deploy seam.
+
+## Amendment — #764 (2026-11-13)
+
+Terraform 1.12+ and OpenTofu 1.13+ support write-only attributes, so
+the provider implements `secret_env_vars` (map, write-only, sensitive)
+pending the 0.4.0 release,
+`secret_env_vars_version` (the rotation integer), and the computed
+sorted `secret_env_vars_keys` list. The three objections in the rejected
+alternative are answered in the provider:
+
+- **No plan diff:** the version integer is required with the map, must
+  be positive, and is the only rotation signal; changing it re-sends the
+  full secret set.
+- **Removal protocol:** the computed key list records what the resource
+  manages; drop-key-plus-bump removes exactly the dropped keys, and a
+  key-set change without a bump is refused.
+- **Version floor:** the attributes are additive; existing configs keep
+  the old floor, and only users of the new inputs need Terraform 1.12+
+  or OpenTofu 1.13+.
+
+The marker decision above is unchanged in intent and still unbuilt
+(T4-S2/T4-S3 remain deferred). It is the portable fallback for older
+Terraform and GitOps flows, not the default. This amendment supersedes
+the "rejected" framing of the first bullet for current guidance; the
+historical text stays for the decision record.

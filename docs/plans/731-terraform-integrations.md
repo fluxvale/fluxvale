@@ -34,7 +34,9 @@ secret.
   alternatives, each with its revisit trigger).
 - **No Terraform write-only/ephemeral `env_vars` mode** in this lane
   (ADR-0053 explains why: it cannot diff on its own and needs
-  Terraform 1.11+).
+  Terraform 1.11+). **Amended by #764:** the write-only provider input
+  is now in scope (`secret_env_vars` + version + computed key list);
+  the marker build (T4-S2/T4-S3) stays deferred.
 - **No generic `fluxvale_instance_integration` resource** (T5 — the
   design note below says why it waits).
 - **No CLI `env` verbs.** The CLI ships only `secrets encrypt` (the
@@ -457,6 +459,10 @@ TFPROVIDER_E2E=1 mise x -- go test ./internal/provider -run TestRealTofuSmoke -c
 PR: `feat(provider): fluxvale_pocket_id_sso resource (#731)`.
 
 ### T4-S1 — the secrets ADR (this gate)
+
+**Amended by #764 (2026-11-13):** the provider ships write-only
+`secret_env_vars` with a version integer and a computed key list; the
+marker slices below remain deferred. The ADR carries the amendment.
 
 The deliverable is
 [ADR-0053](../adr/00053-terraform-secret-env.md): the model, the
