@@ -7,8 +7,6 @@ defmodule FluxVale.OAuth.Operations.RevokeConnection do
   Idempotent: an already-severed family still answers `{:ok, count}`.
   """
 
-  alias FluxVale.OAuth.Operations.RevokeFamily
-
   @doc """
   Revokes `family_id` for `actor`. Returns `{:ok, count}` or an Ash
   policy/read error.
@@ -17,6 +15,6 @@ defmodule FluxVale.OAuth.Operations.RevokeConnection do
   def call(actor, family_id, opts \\ []) do
     opts = Keyword.put(opts, :actor, actor)
 
-    RevokeFamily.call(actor.id, family_id, opts)
+    FluxVale.OAuth.revoke_family(actor.id, family_id, opts)
   end
 end

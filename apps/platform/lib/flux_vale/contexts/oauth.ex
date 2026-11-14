@@ -29,10 +29,6 @@ defmodule FluxVale.OAuth do
     to: FluxVale.OAuth.Operations.RegisterClient,
     as: :call
 
-  defdelegate client_cap_reached?(),
-    to: FluxVale.OAuth.Operations.RegisterClient,
-    as: :cap_reached?
-
   defdelegate client_cap_window_seconds(),
     to: FluxVale.OAuth.Operations.RegisterClient,
     as: :cap_window_seconds
@@ -55,6 +51,16 @@ defmodule FluxVale.OAuth do
 
   defdelegate refresh_token(params),
     to: FluxVale.OAuth.Operations.RefreshToken,
+    as: :call
+
+  # The token-pair mint and family sever stay behind the domain seam:
+  # sibling operations call these delegates, never the operation modules.
+  defdelegate mint_tokens(params),
+    to: FluxVale.OAuth.Operations.MintTokens,
+    as: :call
+
+  defdelegate revoke_family(user_id, family_id, opts \\ []),
+    to: FluxVale.OAuth.Operations.RevokeFamily,
     as: :call
 
   # RFC 7009 + the settings page's Disconnect.

@@ -11,7 +11,6 @@ defmodule FluxVale.OAuth.Operations.IssueAuthorizationCode do
 
   alias FluxVale.Identity.PersonalAccessToken
   alias FluxVale.OAuth.AuthorizationCode
-  alias FluxVale.OAuth.Operations.RecordAuditEvent
 
   @ttl_seconds 60
 
@@ -50,7 +49,7 @@ defmodule FluxVale.OAuth.Operations.IssueAuthorizationCode do
           "code_id" => record.id
         }
 
-        RecordAuditEvent.call(%{
+        FluxVale.OAuth.record_audit_event(%{
           kind: :authorize_approved,
           oauth_client_id: client.id,
           actor_id: user.id,
@@ -58,7 +57,7 @@ defmodule FluxVale.OAuth.Operations.IssueAuthorizationCode do
           metadata: metadata
         })
 
-        RecordAuditEvent.call(%{
+        FluxVale.OAuth.record_audit_event(%{
           kind: :code_issued,
           oauth_client_id: client.id,
           actor_id: user.id,

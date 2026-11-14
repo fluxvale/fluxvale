@@ -12,6 +12,7 @@ defmodule FluxVale.OAuth.Operations.RegisterClient do
   alias FluxVale.Api.Scopes
   alias FluxVale.OAuth.Client
   alias FluxVale.OAuth.Client.RedirectUris
+  alias FluxVale.Repo
 
   @allowed_grant_types ["authorization_code", "refresh_token"]
   @allowed_response_types ["code"]
@@ -27,13 +28,10 @@ defmodule FluxVale.OAuth.Operations.RegisterClient do
   @spec cap_window_seconds() :: pos_integer()
   def cap_window_seconds, do: config(:cap_window_seconds, @cap_window_seconds)
 
-  @doc """
-  Has the global registration cap been reached in the current window?
-  The per-IP limiter is the primary gate; this bounds a distributed
-  flood that rotates addresses.
-  """
-  @spec cap_reached?() :: boolean()
-  def cap_reached? do
+  # The per-IP limiter is the primary gate; this bounds a distributed
+  # flood that rotates addresses. Called inside the registration
+  # transaction (and its advisory lock), so the insert cannot race it.
+  defp cap_reached? do
     since = DateTime.add(DateTime.utc_now(), -cap_window_seconds(), :second)
     query = Ash.Query.for_read(Client, :created_since, %{since: since})
     {:ok, count} = Ash.count(query, authorize?: false)
@@ -60,33 +58,73 @@ defmodule FluxVale.OAuth.Operations.RegisterClient do
          {:ok, response_types} <- response_types(params),
          :ok <- token_endpoint_auth_method(params),
          :ok <- validate_scope(param(params, :scope)) do
-      client_id = "fvoc_" <> random()
-
-      attrs = %{
-        client_id: client_id,
-        client_name: client_name(param(params, :client_name)),
-        redirect_uris: redirect_uris,
-        grant_types: grant_types,
-        response_types: response_types,
-        token_endpoint_auth_method: "none"
-      }
-
-      changeset = Ash.Changeset.for_create(Client, :register, attrs, opts)
-
-      case Ash.create(changeset) do
-        {:ok, client} ->
-          FluxVale.OAuth.record_audit_event(%{
-            kind: :client_registered,
-            oauth_client_id: client.id,
-            metadata: %{"redirect_uris" => redirect_uris}
-          })
-
-          {:ok, client}
-
-        {:error, error} ->
-          {:error, error}
-      end
+      register(redirect_uris, grant_types, response_types, params, opts)
     end
+  end
+
+  # The count and the insert share one transaction and one advisory
+  # lock: two requests at cap - 1 cannot both read cap - 1 and both
+  # insert. The controller's early check stays a cheap 429, not the
+  # boundary.
+  defp register(redirect_uris, grant_types, response_types, params, opts) do
+    attrs = %{
+      client_id: "fvoc_" <> random(),
+      client_name: client_name(param(params, :client_name)),
+      redirect_uris: redirect_uris,
+      grant_types: grant_types,
+      response_types: response_types,
+      token_endpoint_auth_method: "none"
+    }
+
+    result = Repo.transaction(fn -> register_in_transaction(attrs, opts) end)
+
+    case result do
+      {:ok, client} ->
+        FluxVale.OAuth.record_audit_event(%{
+          kind: :client_registered,
+          oauth_client_id: client.id,
+          metadata: %{"redirect_uris" => redirect_uris}
+        })
+
+        {:ok, client}
+
+      {:error, :client_cap_reached} ->
+        {:error, :client_cap_reached}
+
+      {:error, {:client_create_failed, error}} ->
+        {:error, error}
+
+      # coveralls-ignore-start - a transaction rollback is a DB outage
+      # on an already-validated registration.
+      {:error, error} ->
+        {:error, error}
+        # coveralls-ignore-stop
+    end
+  end
+
+  defp register_in_transaction(attrs, opts) do
+    lock_cap()
+
+    if cap_reached?() do
+      Repo.rollback(:client_cap_reached)
+    else
+      create_client(attrs, opts)
+    end
+  end
+
+  defp create_client(attrs, opts) do
+    changeset = Ash.Changeset.for_create(Client, :register, attrs, opts)
+
+    case Ash.create(changeset) do
+      {:ok, client} -> client
+      {:error, error} -> Repo.rollback({:client_create_failed, error})
+    end
+  end
+
+  defp lock_cap do
+    Repo.query!(
+      "SELECT pg_advisory_xact_lock(hashtext('fluxvale_oauth_client_registration_cap'))"
+    )
   end
 
   defp redirect_uris(params) do
@@ -115,9 +153,12 @@ defmodule FluxVale.OAuth.Operations.RegisterClient do
       nil ->
         {:ok, @allowed_grant_types}
 
-      types when is_list(types) ->
+      types when is_list(types) and types != [] ->
         if Enum.all?(types, &(&1 in @allowed_grant_types)) do
-          {:ok, Enum.uniq(types)}
+          # Both grants are always issued (offline_access is a no-op),
+          # so store the full supported set instead of a restriction the
+          # token endpoint would ignore.
+          {:ok, @allowed_grant_types}
         else
           {:error, {:invalid_client_metadata, "unsupported grant type"}}
         end

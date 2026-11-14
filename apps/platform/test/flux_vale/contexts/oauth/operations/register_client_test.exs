@@ -174,6 +174,18 @@ defmodule FluxVale.OAuth.Operations.RegisterClientTest do
       assert {:error, {:invalid_client_metadata, _message}} = OAuth.register_client("nope")
     end
 
+    test "a requested grant subset is normalized to the supported pair" do
+      assert {:ok, client} =
+               OAuth.register_client(%{
+                 "redirect_uris" => ["https://client.example/cb"],
+                 "grant_types" => ["authorization_code"]
+               })
+
+      # Both grants are always issued; storing the requested subset
+      # would advertise a restriction the token endpoint ignores.
+      assert client.grant_types == ["authorization_code", "refresh_token"]
+    end
+
     test "an empty redirect list is refused" do
       assert {:error, {:invalid_client_metadata, "redirect_uris must be a non-empty array"}} =
                OAuth.register_client(%{"redirect_uris" => []})

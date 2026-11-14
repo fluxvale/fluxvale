@@ -17,7 +17,7 @@ defmodule FluxVale.OAuth.Operations.PruneAuditEvents do
     cutoff = DateTime.add(DateTime.utc_now(), -@retention_seconds, :second)
     query = Ash.Query.for_read(AuditEvent, :stale, %{cutoff: cutoff})
 
-    {:ok, count} = Ash.count(query, authorize?: false)
+    {:ok, count} = Ash.count(query, Keyword.take(opts, [:actor, :authorize?]))
 
     result =
       Ash.bulk_destroy(query, :expunge_stale, %{}, Keyword.put(opts, :return_records?, false))

@@ -123,7 +123,7 @@ Against a local platform (the repo-root stack):
 ```sh
 export FLUXVALE_API_BASE_URL=http://127.0.0.1:4000
 cargo run --manifest-path apps/mcp/Cargo.toml
-# -> MCP path  http://127.0.0.1:4600/mcp
+# -> MCP path  http://localhost:4600/mcp
 # -> health    http://127.0.0.1:4600/health  (no auth; probes)
 ```
 
@@ -135,7 +135,7 @@ support can still send the PAT as the bearer token:
 {
   "mcpServers": {
     "fluxvale": {
-      "url": "http://127.0.0.1:4600/mcp",
+      "url": "http://localhost:4600/mcp",
       "headers": { "Authorization": "Bearer fvpat_…" }
     }
   }

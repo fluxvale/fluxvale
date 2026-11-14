@@ -15,10 +15,8 @@ defmodule FluxValeWeb.OAuth.RegistrationController do
 
   @spec create(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def create(conn, _params) do
-    with :ok <- rate_limit(conn),
-         :ok <- client_cap() do
-      register(conn)
-    else
+    case rate_limit(conn) do
+      :ok -> register(conn)
       {:error, retry_after} -> rate_limited(conn, retry_after)
     end
   end
@@ -45,6 +43,10 @@ defmodule FluxValeWeb.OAuth.RegistrationController do
       {:error, {:invalid_client_metadata, detail}} ->
         error(conn, 400, "invalid_client_metadata", detail)
 
+      {:error, :client_cap_reached} ->
+        # The operation's atomic cap won the race the early check lost.
+        rate_limited(conn, OAuth.client_cap_window_seconds())
+
       {:error, {kind, scope}} when kind in [:invalid_scope, :duplicate_scope] ->
         error(conn, 400, "invalid_client_metadata", "scope #{inspect(scope)} is not supported")
 
@@ -58,10 +60,6 @@ defmodule FluxValeWeb.OAuth.RegistrationController do
       :ok -> :ok
       {:error, retry_after} -> {:error, retry_after}
     end
-  end
-
-  defp client_cap do
-    if OAuth.client_cap_reached?(), do: {:error, OAuth.client_cap_window_seconds()}, else: :ok
   end
 
   # The with-else arm for both gates: 429 with the retry window.

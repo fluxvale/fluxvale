@@ -193,6 +193,13 @@ defmodule FluxVale.OAuth.Operations.ValidateAuthorizeRequestTest do
 
     assert {:error, %{error: :invalid_scope, redirect?: true}} =
              OAuth.validate_authorize_request(malformed)
+
+    # Nested brackets decode to a list of maps; interpolating one would
+    # raise Protocol.UndefinedError instead of answering invalid_scope.
+    nested = Map.put(base, "scope", [%{"nested" => "value"}])
+
+    assert {:error, %{error: :invalid_scope, redirect?: true}} =
+             OAuth.validate_authorize_request(nested)
   end
 
   test "a non-URI resource and a non-string state are refused", %{client: client} do

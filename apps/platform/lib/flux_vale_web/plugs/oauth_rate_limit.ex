@@ -36,6 +36,7 @@ defmodule FluxValeWeb.Plugs.OAuthRateLimit do
   alias FluxValeWeb.Plugs.GoogleRateLimit
 
   @table __MODULE__.Windows
+  @sweep_key {:sweep, :last}
   @default_max_rows 100_000
 
   @default_buckets %{
@@ -117,6 +118,21 @@ defmodule FluxValeWeb.Plugs.OAuthRateLimit do
 
   defp maybe_sweep_full_table(cap) do
     if :ets.info(@table, :size) > cap do
+      throttle_sweep()
+    end
+  end
+
+  # At most one traversal per longest window: while recent keys keep the
+  # table over the cap, replaying the sweep on every request would turn
+  # each counter bump into an O(table) scan. `select_replace` claims the
+  # next sweep window atomically; the timestamp row is a 2-tuple, so
+  # sweep_expired/0's 3-tuple match spec leaves it alone.
+  defp throttle_sweep do
+    now = System.system_time(:second)
+    cutoff = now - max_window_seconds()
+    claim = [{{@sweep_key, :"$1"}, [{:<, :"$1", cutoff}], [{{@sweep_key, now}}]}]
+
+    if :ets.insert_new(@table, {@sweep_key, now}) or :ets.select_replace(@table, claim) == 1 do
       sweep_expired()
     end
   end

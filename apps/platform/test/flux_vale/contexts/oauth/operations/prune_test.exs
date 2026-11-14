@@ -20,7 +20,7 @@ defmodule FluxVale.OAuth.Operations.PruneTest do
     user: user
   } do
     old = seed_code(client, user, DateTime.add(DateTime.utc_now(), -2 * 24 * 60 * 60, :second))
-    fresh = seed_code(client, user, DateTime.add(DateTime.utc_now(), 30, :second))
+    fresh = issue_code!(client, user).record
 
     assert {:ok, 1} = OAuth.prune_codes(authorize?: false)
 
@@ -33,13 +33,16 @@ defmodule FluxVale.OAuth.Operations.PruneTest do
 
   test "prune_audit_events deletes only rows past the retention horizon" do
     old = seed_audit(DateTime.add(DateTime.utc_now(), -91 * 24 * 60 * 60, :second))
-    fresh = seed_audit(DateTime.utc_now())
+
+    :ok = OAuth.record_audit_event(%{kind: :client_registered, metadata: %{}})
 
     assert {:ok, 1} = OAuth.prune_audit_events(authorize?: false)
 
     ids = audit_ids()
     refute old.id in ids
-    assert fresh.id in ids
+    # The setup client and the action-written row are inside the
+    # horizon and survive.
+    assert length(ids) >= 2
   end
 
   test "the janitor jobs delegate to the prune ops", %{client: client, user: user} do
@@ -50,6 +53,8 @@ defmodule FluxVale.OAuth.Operations.PruneTest do
     assert {:ok, 1} = PruneOAuthAuditEvents.perform(%Oban.Job{})
   end
 
+  # Backdated expiry is an action-impossible state: the issue action
+  # always mints a 60-second code, so the sweep's horizon needs a seed.
   defp seed_code(client, user, expires_at) do
     Ash.Seed.seed!(AuthorizationCode, %{
       code_hash: Base.encode16(:crypto.strong_rand_bytes(32)),
@@ -73,6 +78,7 @@ defmodule FluxVale.OAuth.Operations.PruneTest do
     |> Enum.map(& &1.id)
   end
 
+  # Backdated created_at is action-impossible: record/1 stamps now.
   defp seed_audit(created_at) do
     Ash.Seed.seed!(AuditEvent, %{
       kind: :client_registered,

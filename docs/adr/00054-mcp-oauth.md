@@ -24,8 +24,9 @@ working. OAuth is additive, not a migration.
    `bearer_methods_supported: ["header"]`. A request without a usable
    bearer gets `401` with
    `WWW-Authenticate: Bearer resource_metadata="…", scope="…"`; a
-   dead or revoked token adds `error="invalid_token"`. The platform
-   serves RFC 8414 metadata at
+   dead or revoked token adds `error="invalid_token"`. Browser MCP
+   clients get CORS preflight answered before bearer auth, with the
+   challenge header exposed. The platform serves RFC 8414 metadata at
    `/.well-known/oauth-authorization-server`: issuer, endpoints,
    `S256`, public clients, the scope catalog plus `offline_access`.
 
@@ -35,7 +36,11 @@ working. OAuth is additive, not a migration.
    Redirect URIs are HTTPS anywhere, HTTP on loopback only, or one of
    the known desktop custom schemes; fragments and userinfo are
    refused. The registration endpoint is unauthenticated by design,
-   so it is per-IP rate-limited and capped globally per window.
+   so it is per-IP rate-limited and capped globally per window. The
+   requested grant set is validated then normalized to the two
+   supported grants — both are always issued, so no restriction is
+   stored that the token endpoint would ignore. The cap count and the
+   insert share one transaction and advisory lock.
 
 3. **Authorization code + mandatory PKCE (`S256`).** No implicit flow,
    no plain verifier. Redirect URIs match exactly against the

@@ -183,6 +183,38 @@ defmodule FluxVale.RuntimeConfigTest do
     end
   end
 
+  describe "MCP_RESOURCE_URLS (#766)" do
+    test "an empty override is unset, so the staging default survives" do
+      env =
+        Map.merge(@prod_env, %{
+          "PHX_HOST" => "staging.fluxvale.com",
+          "MCP_RESOURCE_URLS" => ""
+        })
+
+      with_env(env, fn ->
+        assert read!(:prod)[:flux_vale][:mcp_oauth][:resource_urls] == [
+                 "https://mcp-staging.fluxvale.com/mcp"
+               ]
+      end)
+    end
+
+    test "a non-empty override is split and trimmed" do
+      with_env(
+        Map.put(
+          @prod_env,
+          "MCP_RESOURCE_URLS",
+          " https://mcp.example/mcp , https://alt.example/mcp "
+        ),
+        fn ->
+          assert read!(:prod)[:flux_vale][:mcp_oauth][:resource_urls] == [
+                   "https://mcp.example/mcp",
+                   "https://alt.example/mcp"
+                 ]
+        end
+      )
+    end
+  end
+
   describe "MCP handoff (#765)" do
     test "is inert in test — a stray MCP_* export never flips the fixtures" do
       with_env(

@@ -140,12 +140,18 @@ defmodule FluxVale.OAuth.Operations.ValidateAuthorizeRequest do
   end
 
   defp scopes(scope) when is_list(scope) do
-    case Scopes.validate_oauth(scope) do
-      :ok ->
-        {:ok, Scopes.strip_oauth(scope)}
+    # Nested query brackets decode to a list of maps; only binaries can
+    # reach the catalog check (interpolating a map would raise).
+    if Enum.all?(scope, &is_binary/1) do
+      case Scopes.validate_oauth(scope) do
+        :ok ->
+          {:ok, Scopes.strip_oauth(scope)}
 
-      {:error, {_kind, invalid}} ->
-        {:error, error(:invalid_scope, "scope #{invalid} is not supported", true, nil, nil)}
+        {:error, {_kind, invalid}} ->
+          {:error, error(:invalid_scope, "scope #{invalid} is not supported", true, nil, nil)}
+      end
+    else
+      {:error, error(:invalid_scope, "scope must be a space-delimited string", true, nil, nil)}
     end
   end
 

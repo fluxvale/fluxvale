@@ -14,10 +14,8 @@ defmodule FluxVale.OAuth.Operations.RefreshToken do
   alias FluxVale.Api.Scopes
   alias FluxVale.Identity.PersonalAccessToken
   alias FluxVale.OAuth.Client
-  alias FluxVale.OAuth.Operations.MintTokens
-  alias FluxVale.OAuth.Operations.RecordAuditEvent
-  alias FluxVale.OAuth.Operations.RevokeFamily
   alias FluxVale.OAuth.Resources
+  alias FluxVale.Repo
 
   @doc """
   Returns `{:ok, token_response}` or `{:error, {error, description}}`.
@@ -48,66 +46,96 @@ defmodule FluxVale.OAuth.Operations.RefreshToken do
   defp rotate(token, client, params) do
     with {:ok, resource} <- resource(token, param(params, :resource)),
          {:ok, scopes} <- scopes(token, param(params, :scope)) do
-      case PersonalAccessToken.revoke_if_live(token, authorize?: false) do
-        {:ok, _revoked} ->
-          mint(token, client, resource, scopes)
-
-        # coveralls-ignore-start - two refreshes racing one token: the
-        # loser's UPDATE sees revoked_at set; not sequentially stageable.
-        {:error, _stale} ->
-          reuse(token, "refresh token has already been rotated")
-          # coveralls-ignore-stop
-      end
+      transaction = Repo.transaction(fn -> consume_and_mint(token, client, resource, scopes) end)
+      rotate_result(transaction, token, client, resource, scopes)
     end
   end
 
-  defp mint(token, client, resource, scopes) do
-    family_id = token.token_family_id
+  defp rotate_result({:ok, minted}, token, client, resource, scopes),
+    do: refreshed(token, client, minted, resource, scopes)
 
-    case MintTokens.call(%{
-           client: client,
-           user_id: token.user_id,
-           scopes: scopes,
-           resource: resource,
-           family_id: family_id,
-           grant_type: "refresh_token"
-         }) do
-      {:ok, minted} ->
-        RecordAuditEvent.call(%{
-          kind: :token_refreshed,
-          oauth_client_id: client.id,
-          actor_id: token.user_id,
-          token_family_id: family_id,
-          resource: resource,
-          metadata: %{"scopes" => scopes}
-        })
+  # coveralls-ignore-start - two refreshes racing one token: the
+  # loser's rollback is not sequentially stageable.
+  defp rotate_result({:error, :stale}, token, _client, _resource, _scopes),
+    do: reuse(token, "refresh token has already been rotated")
 
-        Client.touch_last_used(client, authorize?: false)
+  # coveralls-ignore-stop
 
-        {:ok,
-         %{
-           access_token: minted.access_token,
-           token_type: "Bearer",
-           expires_in: minted.expires_in,
-           refresh_token: minted.refresh_token,
-           scope: Enum.join(scopes, " ")
-         }}
+  defp rotate_result({:error, :connection_revoked}, _token, _client, _resource, _scopes),
+    do: {:error, {:invalid_grant, "the connection has been revoked"}}
 
-      {:error, :connection_revoked} ->
-        {:error, {:invalid_grant, "the connection has been revoked"}}
+  # coveralls-ignore-start - a mint failure rolls the consumption back,
+  # so the client retries the same refresh token safely.
+  defp rotate_result({:error, _mint_failed}, _token, _client, _resource, _scopes),
+    do: {:error, {:server_error, "could not issue the token pair"}}
 
-      # coveralls-ignore-start - DB outage mid-mint; the token endpoint
-      # answers server_error and the client retries.
-      {:error, _error} ->
-        {:error, {:server_error, "could not issue the token pair"}}
+  # coveralls-ignore-stop
+
+  # Consumption and the fresh pair commit together: a transient mint
+  # failure rolls the refresh row back to live, so a retry does not trip
+  # reuse detection and force a new consent.
+  defp consume_and_mint(token, client, resource, scopes) do
+    case PersonalAccessToken.revoke_if_live(token, authorize?: false) do
+      {:ok, _revoked} ->
+        mint_into_family(token, client, resource, scopes)
+
+      # coveralls-ignore-start - two refreshes racing one token: the
+      # loser's UPDATE sees revoked_at set; not sequentially stageable.
+      {:error, _stale} ->
+        Repo.rollback(:stale)
         # coveralls-ignore-stop
     end
   end
 
-  defp reuse(token, description) do
-    RevokeFamily.call(token.user_id, token.token_family_id, authorize?: false)
+  defp mint_into_family(token, client, resource, scopes) do
+    case FluxVale.OAuth.mint_tokens(%{
+           client: client,
+           user_id: token.user_id,
+           scopes: scopes,
+           resource: resource,
+           family_id: token.token_family_id,
+           grant_type: "refresh_token"
+         }) do
+      {:ok, minted} ->
+        minted
 
-    RecordAuditEvent.call(%{
+      {:error, :connection_revoked} ->
+        Repo.rollback(:connection_revoked)
+
+      # coveralls-ignore-start - DB outage mid-mint; the transaction
+      # rolls the consumption back.
+      {:error, _error} ->
+        Repo.rollback(:mint_failed)
+        # coveralls-ignore-stop
+    end
+  end
+
+  defp refreshed(token, client, minted, resource, scopes) do
+    FluxVale.OAuth.record_audit_event(%{
+      kind: :token_refreshed,
+      oauth_client_id: client.id,
+      actor_id: token.user_id,
+      token_family_id: token.token_family_id,
+      resource: resource,
+      metadata: %{"scopes" => scopes}
+    })
+
+    Client.touch_last_used(client, authorize?: false)
+
+    {:ok,
+     %{
+       access_token: minted.access_token,
+       token_type: "Bearer",
+       expires_in: minted.expires_in,
+       refresh_token: minted.refresh_token,
+       scope: Enum.join(scopes, " ")
+     }}
+  end
+
+  defp reuse(token, description) do
+    FluxVale.OAuth.revoke_family(token.user_id, token.token_family_id, authorize?: false)
+
+    FluxVale.OAuth.record_audit_event(%{
       kind: :refresh_reuse,
       oauth_client_id: token.oauth_client_id,
       actor_id: token.user_id,

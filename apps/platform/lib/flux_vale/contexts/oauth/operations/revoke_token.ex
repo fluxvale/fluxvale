@@ -11,8 +11,6 @@ defmodule FluxVale.OAuth.Operations.RevokeToken do
   alias FluxVale.Identity
   alias FluxVale.Identity.PersonalAccessToken
   alias FluxVale.OAuth.Client
-  alias FluxVale.OAuth.Operations.RecordAuditEvent
-  alias FluxVale.OAuth.Operations.RevokeFamily
 
   @doc """
   Returns `:ok` or `{:error, :invalid_request}` when `client_id`/`token`
@@ -49,13 +47,13 @@ defmodule FluxVale.OAuth.Operations.RevokeToken do
   end
 
   defp revoke(%PersonalAccessToken{token_family_id: family_id} = token) do
-    RevokeFamily.call(token.user_id, family_id, authorize?: false)
+    FluxVale.OAuth.revoke_family(token.user_id, family_id, authorize?: false)
     audit(token)
     :ok
   end
 
   defp audit(token) do
-    RecordAuditEvent.call(%{
+    FluxVale.OAuth.record_audit_event(%{
       kind: :token_revoked,
       oauth_client_id: token.oauth_client_id,
       actor_id: token.user_id,

@@ -150,6 +150,13 @@ defmodule FluxVale.OAuth.Operations.RefreshTokenTest do
                "refresh_token" => tokens.refresh_token,
                "client_id" => client.client_id
              })
+
+    # The failed mint rolled the consumption back: the row is still
+    # live, so the tombstone — not reuse detection — is the refusal.
+    assert %{revoked_at: nil} =
+             PersonalAccessToken.get!(refresh_row(user, tokens.refresh_token).id,
+               authorize?: false
+             )
   end
 
   test "a mismatched resource is invalid_target", %{client: client, user: user} do

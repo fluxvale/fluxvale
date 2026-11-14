@@ -26,7 +26,7 @@ defmodule FluxVale.OAuth.Operations.RevokeFamily do
     actor = Keyword.get(opts, :actor)
 
     actor_opts = Keyword.put(opts, :actor, actor)
-    read_opts = Keyword.put_new(actor_opts, :authorize?, not is_nil(actor))
+    read_opts = Keyword.put_new(actor_opts, :authorize?, true)
     revoke_opts = Keyword.delete(opts, :actor)
 
     case Repo.transaction(fn -> sever(user_id, family_id, actor, read_opts, revoke_opts) end) do
@@ -49,12 +49,31 @@ defmodule FluxVale.OAuth.Operations.RevokeFamily do
     lock_family(family_id)
 
     case PersonalAccessToken.list_oauth_family(user_id, family_id, read_opts) do
+      # A stranger's family id resolves to no owner-scoped rows: no rows
+      # to revoke, and no tombstone naming a family this actor does not
+      # own (the tombstone would otherwise poison the owner's refresh).
+      {:ok, []} ->
+        0
+
       {:ok, rows} ->
-        Enum.each(rows, fn row -> Identity.revoke_pat(actor, row, revoke_opts) end)
+        Enum.each(rows, fn row -> revoke_row(actor, row, revoke_opts) end)
         record_tombstone(user_id, family_id, length(rows))
         length(rows)
 
       # coveralls-ignore-start - a read failure is a DB outage mid-sever.
+      {:error, reason} ->
+        Repo.rollback(reason)
+        # coveralls-ignore-stop
+    end
+  end
+
+  defp revoke_row(actor, row, revoke_opts) do
+    case Identity.revoke_pat(actor, row, revoke_opts) do
+      {:ok, _revoked} ->
+        :ok
+
+      # coveralls-ignore-start - a row update failure is a DB outage
+      # mid-sever; roll the whole family back.
       {:error, reason} ->
         Repo.rollback(reason)
         # coveralls-ignore-stop

@@ -21,6 +21,15 @@ defmodule FluxValeWeb.Plugs.OAuthRateLimitTest do
   defp restore(nil), do: Application.delete_env(:flux_vale, OAuthRateLimit)
   defp restore(value), do: Application.put_env(:flux_vale, OAuthRateLimit, value)
 
+  defp sweep_key do
+    @table
+    |> :ets.tab2list()
+    |> Enum.find_value(fn
+      {{:sweep, :last} = key, _stamp} -> key
+      _other -> nil
+    end)
+  end
+
   test "window_start/2 floors to the window boundary" do
     assert OAuthRateLimit.window_start(179, 60) == 120
     assert OAuthRateLimit.window_start(120, 60) == 120
@@ -115,6 +124,17 @@ defmodule FluxValeWeb.Plugs.OAuthRateLimitTest do
         live_conn = conn([], live)
         assert :ok = OAuthRateLimit.allow?(live_conn, :register)
         refute :ets.member(@table, {:register, stale, 0})
+
+        # The next over-cap request is inside the sweep window: it must
+        # not re-scan. Age the throttle stamp to the boundary and the
+        # claim replaces it once, then sweeps again.
+        sweep_key = sweep_key()
+        :ets.insert(@table, {sweep_key, 0})
+
+        octet_one = unique_octet()
+        octet_two = unique_octet()
+        next_conn = conn([], {10, 236, octet_one, octet_two})
+        assert :ok = OAuthRateLimit.allow?(next_conn, :register)
       end
     )
   end

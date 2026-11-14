@@ -25,6 +25,7 @@ use rmcp::transport::streamable_http_server::{
 };
 use serde_json::json;
 use std::sync::Arc;
+use tower_http::cors::{Any, CorsLayer};
 
 /// Env-only config: MCP_PORT, FLUXVALE_API_BASE_URL, MCP_ALLOWED_HOSTS
 /// (the W3a DNS-rebinding knob), and the #766 discovery overrides
@@ -209,6 +210,17 @@ pub(crate) fn build_router_with(
                 auth::require_bearer,
             ));
 
+    // Browser MCP clients send an unauthenticated OPTIONS preflight and
+    // need the 401 challenge readable: the cors layer wraps the bearer
+    // middleware (answering preflight itself), and exposes
+    // WWW-Authenticate on real responses. Bearer tokens are explicit
+    // headers, not cookies, so permissive origins are the MCP posture.
+    let cors = CorsLayer::new()
+        .allow_origin(Any)
+        .allow_methods(Any)
+        .allow_headers(Any)
+        .expose_headers([axum::http::header::WWW_AUTHENTICATE]);
+
     Router::new()
         .route("/health", get(health))
         .route(
@@ -221,6 +233,7 @@ pub(crate) fn build_router_with(
         )
         .merge(mcp_router)
         .with_state(auth::MetadataState::new(public_url, authorization_server))
+        .layer(cors)
 }
 
 /// RFC 9728 protected-resource metadata (#766): the resource identifier,
@@ -595,6 +608,73 @@ mod tests {
                 json!(["https://app.fluxvale.lvh.me"])
             );
         }
+    }
+
+    #[tokio::test]
+    async fn browser_preflight_is_answered_without_a_bearer() {
+        use axum::body::Body;
+        use axum::http::{Method, Request, header};
+        use tower::ServiceExt;
+
+        let app = build_router("http://127.0.0.1:1", &[]);
+
+        for path in ["/mcp", "/.well-known/oauth-protected-resource"] {
+            let request = Request::builder()
+                .method(Method::OPTIONS)
+                .uri(path)
+                .header(header::ORIGIN, "https://app.example")
+                .header(header::ACCESS_CONTROL_REQUEST_METHOD, "POST")
+                .body(Body::empty())
+                .unwrap();
+
+            let response = app.clone().oneshot(request).await.unwrap();
+
+            assert!(response.status().is_success(), "path {path}");
+            assert_eq!(
+                response
+                    .headers()
+                    .get(header::ACCESS_CONTROL_ALLOW_ORIGIN)
+                    .and_then(|value| value.to_str().ok()),
+                Some("*"),
+                "path {path}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn the_401_challenge_is_readable_by_browser_clients() {
+        use axum::body::Body;
+        use axum::http::{Method, Request, StatusCode, header};
+        use tower::ServiceExt;
+
+        let app = build_router("http://127.0.0.1:1", &[]);
+        let request = Request::builder()
+            .method(Method::POST)
+            .uri("/mcp")
+            .header(header::ORIGIN, "https://app.example")
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from("{}"))
+            .unwrap();
+
+        let response = app.oneshot(request).await.unwrap();
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        assert_eq!(
+            response
+                .headers()
+                .get(header::ACCESS_CONTROL_ALLOW_ORIGIN)
+                .and_then(|value| value.to_str().ok()),
+            Some("*")
+        );
+
+        let exposed = response
+            .headers()
+            .get(header::ACCESS_CONTROL_EXPOSE_HEADERS)
+            .and_then(|value| value.to_str().ok())
+            .unwrap_or_default()
+            .to_ascii_lowercase();
+
+        assert!(exposed.contains("www-authenticate"), "exposed: {exposed}");
     }
 
     /// The plumbing proof: the env knob must reach the SERVED guard, not

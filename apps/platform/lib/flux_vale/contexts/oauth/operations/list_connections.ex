@@ -23,9 +23,9 @@ defmodule FluxVale.OAuth.Operations.ListConnections do
 
       connections =
         rows
-        |> Enum.reject(&(&1.revoked_at || not DateTime.after?(&1.expires_at, now)))
         |> Enum.group_by(& &1.token_family_id)
-        |> Enum.map(&connection/1)
+        |> Enum.map(fn {family_id, family_rows} -> connection(family_id, family_rows, now) end)
+        |> Enum.reject(&is_nil/1)
         |> attach_client_names()
         |> sort_newest_first()
 
@@ -33,32 +33,43 @@ defmodule FluxVale.OAuth.Operations.ListConnections do
     end
   end
 
-  defp connection({family_id, rows}) do
-    latest = Enum.max_by(rows, & &1.created_at, DateTime)
-    created_at = Enum.min_by(rows, & &1.created_at, DateTime).created_at
+  defp connection(family_id, rows, now) do
+    case Enum.filter(rows, &live?(&1, now)) do
+      [] ->
+        nil
 
-    stamps =
-      rows
-      |> Enum.map(& &1.last_used_at)
-      |> Enum.reject(&is_nil/1)
+      live ->
+        # Current token attributes come from the live half; created_at
+        # and last_used_at span the family's whole history, so a
+        # rotation does not reset the connection's age or usage stamp.
+        latest = Enum.max_by(live, & &1.created_at, DateTime)
+        created_at = Enum.min_by(rows, & &1.created_at, DateTime).created_at
 
-    last_used_at =
-      case stamps do
-        [] -> nil
-        present -> Enum.max(present, DateTime)
-      end
+        stamps =
+          rows
+          |> Enum.map(& &1.last_used_at)
+          |> Enum.reject(&is_nil/1)
 
-    %{
-      family_id: family_id,
-      oauth_client_id: latest.oauth_client_id,
-      client_name: "MCP client",
-      scopes: latest.scopes,
-      resource: latest.resource,
-      created_at: created_at,
-      last_used_at: last_used_at,
-      token_count: length(rows)
-    }
+        last_used_at =
+          case stamps do
+            [] -> nil
+            present -> Enum.max(present, DateTime)
+          end
+
+        %{
+          family_id: family_id,
+          oauth_client_id: latest.oauth_client_id,
+          client_name: "MCP client",
+          scopes: latest.scopes,
+          resource: latest.resource,
+          created_at: created_at,
+          last_used_at: last_used_at,
+          token_count: length(live)
+        }
+    end
   end
+
+  defp live?(row, now), do: is_nil(row.revoked_at) and DateTime.after?(row.expires_at, now)
 
   defp attach_client_names(connections) do
     connections

@@ -12,9 +12,6 @@ defmodule FluxVale.OAuth.Operations.ExchangeCode do
   alias FluxVale.Identity.PersonalAccessToken
   alias FluxVale.OAuth.AuthorizationCode
   alias FluxVale.OAuth.Client
-  alias FluxVale.OAuth.Operations.MintTokens
-  alias FluxVale.OAuth.Operations.RecordAuditEvent
-  alias FluxVale.OAuth.Operations.RevokeFamily
   alias FluxVale.OAuth.PKCE
   alias FluxVale.OAuth.Resources
 
@@ -69,7 +66,7 @@ defmodule FluxVale.OAuth.Operations.ExchangeCode do
   end
 
   defp mint(code, client, family_id, resource) do
-    case MintTokens.call(%{
+    case FluxVale.OAuth.mint_tokens(%{
            client: client,
            user_id: code.user_id,
            scopes: code.scopes,
@@ -78,7 +75,7 @@ defmodule FluxVale.OAuth.Operations.ExchangeCode do
            grant_type: "authorization_code"
          }) do
       {:ok, minted} ->
-        RecordAuditEvent.call(%{
+        FluxVale.OAuth.record_audit_event(%{
           kind: :token_issued,
           oauth_client_id: client.id,
           actor_id: code.user_id,
@@ -127,10 +124,10 @@ defmodule FluxVale.OAuth.Operations.ExchangeCode do
 
   defp reuse(code, description) do
     if code.token_family_id do
-      RevokeFamily.call(code.user_id, code.token_family_id, authorize?: false)
+      FluxVale.OAuth.revoke_family(code.user_id, code.token_family_id, authorize?: false)
     end
 
-    RecordAuditEvent.call(%{
+    FluxVale.OAuth.record_audit_event(%{
       kind: :code_reuse,
       oauth_client_id: code.client_id,
       actor_id: code.user_id,

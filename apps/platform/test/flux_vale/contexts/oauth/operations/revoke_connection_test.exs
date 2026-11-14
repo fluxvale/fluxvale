@@ -38,6 +38,10 @@ defmodule FluxVale.OAuth.Operations.RevokeConnectionTest do
     assert {:ok, 0} = OAuth.revoke_connection(stranger, family_id)
     token_rows = rows(user)
     assert Enum.all?(token_rows, &is_nil(&1.revoked_at))
+
+    # The owner's refresh must survive the stranger's attempt: no
+    # tombstone may name a family the actor owns no rows in.
+    assert [] = tombstones(family_id)
   end
 
   test "the connection read carries the latest last-used stamp", %{client: client, user: user} do
@@ -71,7 +75,62 @@ defmodule FluxVale.OAuth.Operations.RevokeConnectionTest do
   end
 
   test "an unknown family is an idempotent zero", %{user: user} do
-    assert {:ok, 0} = OAuth.revoke_connection(user, Ash.UUIDv7.generate())
+    family_id = Ash.UUIDv7.generate()
+
+    assert {:ok, 0} = OAuth.revoke_connection(user, family_id)
+    assert [] = tombstones(family_id)
+  end
+
+  test "a rotated family keeps its original age and last-used stamp", %{
+    client: client,
+    user: user
+  } do
+    # Expired/backdated rows are states actions cannot produce — the
+    # rotation-history read is exactly the assertion.
+    now = DateTime.utc_now()
+    created = DateTime.add(now, -3600, :second)
+    old_created = DateTime.truncate(created, :second)
+    used = DateTime.add(now, -1800, :second)
+    old_used = DateTime.truncate(used, :second)
+    family_id = Ash.UUIDv7.generate()
+
+    Ash.Seed.seed!(PersonalAccessToken, %{
+      name: "OAuth: original access",
+      token_hash: PersonalAccessToken.token_hash("fvoat_history_old_#{user.id}"),
+      scopes: ["instances:read"],
+      expires_at: DateTime.add(now, -60, :second),
+      last_used_at: old_used,
+      created_at: old_created,
+      user_id: user.id,
+      kind: :oauth_access,
+      oauth_client_id: client.id,
+      resource: resource(),
+      token_family_id: family_id
+    })
+
+    Ash.Seed.seed!(PersonalAccessToken, %{
+      name: "OAuth: rotated access",
+      token_hash: PersonalAccessToken.token_hash("fvoat_history_new_#{user.id}"),
+      scopes: ["instances:read"],
+      expires_at: DateTime.add(now, 3600, :second),
+      created_at: DateTime.add(now, -10, :second),
+      user_id: user.id,
+      kind: :oauth_access,
+      oauth_client_id: client.id,
+      resource: resource(),
+      token_family_id: family_id
+    })
+
+    assert {:ok, [connection]} = OAuth.list_connections(user)
+    assert DateTime.to_unix(connection.created_at) == DateTime.to_unix(old_created)
+    assert DateTime.to_unix(connection.last_used_at) == DateTime.to_unix(old_used)
+    assert connection.token_count == 1
+  end
+
+  defp tombstones(family_id) do
+    AuditEvent
+    |> Ash.Query.for_read(:for_family, %{token_family_id: family_id})
+    |> Ash.read!(authorize?: false)
   end
 
   defp rows(user), do: PersonalAccessToken.list_oauth_tokens!(user.id, authorize?: false)
