@@ -45,6 +45,7 @@ defmodule FluxValeWeb.OrganizationLive.Access do
   alias FluxVale.Checks.ActorOrgHasPaid
   alias FluxVale.Checks.ActorOrgWalletFunded
   alias FluxVale.Infrastructure
+  alias FluxVale.Infrastructure.AccessDomain
   alias FluxVale.Infrastructure.AccessGateway
   alias FluxVale.Infrastructure.AccessRoute
   alias FluxVale.Infrastructure.Instance
@@ -174,6 +175,7 @@ defmodule FluxValeWeb.OrganizationLive.Access do
     |> stream_configure(:attachable, dom_id: &"access-attach-#{&1.id}")
     |> refresh_wallet_gates()
     |> assign_forms()
+    |> assign_domains()
     |> refresh_pairing()
   end
 
@@ -281,11 +283,16 @@ defmodule FluxValeWeb.OrganizationLive.Access do
   def handle_event("save-token", %{"gateway" => params}, socket) do
     case AshPhoenix.Form.submit(socket.assigns.token_form, params: params) do
       {:ok, gateway} ->
+        # The claim sweep ran inside the action's after_transaction; a
+        # fresh read is what carries the landed claims into the panel.
+        fresh = fetch_gateway(socket.assigns.org, socket.assigns.current_user)
+
         {:noreply,
          socket
          |> put_flash(:info, "Token saved.")
-         |> assign(gateway: gateway)
-         |> assign_forms()}
+         |> assign(gateway: fresh || gateway)
+         |> assign_forms()
+         |> assign_domains()}
 
       {:error, form} ->
         # Field-less failures (and the write's own message) surface as a
@@ -492,6 +499,7 @@ defmodule FluxValeWeb.OrganizationLive.Access do
       socket
       |> assign(:gateway, gateway)
       |> refresh_wallet_gates()
+      |> assign_domains()
       |> maybe_rebuild_panel(gateway, previous)
 
     {:noreply, socket}
@@ -589,6 +597,8 @@ defmodule FluxValeWeb.OrganizationLive.Access do
                   repaste_open?={@repaste_open?}
                   remove_armed?={@remove_armed?}
                 />
+
+                <.domains_card :if={@domains != []} domains={@domains} />
 
                 <%!-- §4.1's pairing sections — only while the operation would
                   accept an attach; every other state gets one honest line
@@ -912,6 +922,85 @@ defmodule FluxValeWeb.OrganizationLive.Access do
           </.button>
       <% end %>
     </div>
+    """
+  end
+
+  # #756: the claim state's member-visible half. Claims are a separate
+  # truth from issuance (the admin page's own stance), so each row
+  # carries both — and a verified-but-unclaimed domain names the fix.
+  defp assign_domains(socket) do
+    %{org: org, gateway: gateway, current_user: user} = socket.assigns
+
+    claimed = claimed_names(gateway)
+
+    rows =
+      org.id
+      |> AccessDomain.list_for_org!(actor: user)
+      |> Enum.filter(&(&1.kind == :custom))
+      |> Enum.sort_by(& &1.domain)
+      |> Enum.map(fn domain ->
+        %{
+          domain: domain.domain,
+          state: domain.state,
+          claimed?: domain.domain in claimed
+        }
+      end)
+
+    assign(socket, domains: rows)
+  end
+
+  defp claimed_names(nil), do: []
+
+  defp claimed_names(%{dns_claims: claims}) when is_map(claims) and not is_struct(claims),
+    do: Map.keys(claims)
+
+  defp claimed_names(_gateway), do: []
+
+  defp domain_claim_label(%{claimed?: true}), do: "Claimed on your tailnet"
+  defp domain_claim_label(%{state: :verified}), do: "Verified — not claimed yet"
+  defp domain_claim_label(%{state: :pending}), do: "Verifying…"
+  defp domain_claim_label(%{state: :failed}), do: "Verification failed"
+  defp domain_claim_label(_domain), do: "Not claimed yet"
+
+  attr(:domains, :list, required: true)
+
+  defp domains_card(assigns) do
+    ~H"""
+    <.card id="access-domains-card" class="card space-y-3" data-testid="access-domains">
+      <div>
+        <h3 class="text-sm font-medium text-ink">Domains</h3>
+        <p class="mt-1 text-xs text-ink-muted">
+          Custom domains your organization verified. A domain resolves on your tailnet once
+          the gateway claims it — the API token above is what claims.
+        </p>
+      </div>
+
+      <ul class="divide-y divide-line text-sm">
+        <li
+          :for={domain <- @domains}
+          class="flex items-center justify-between gap-3 py-2"
+          data-testid="access-domain-row"
+        >
+          <span class="min-w-0 truncate font-mono text-xs" data-testid="access-domain-name">
+            {domain.domain}
+          </span>
+          <span
+            :if={domain.claimed?}
+            class="text-xs text-ink-muted"
+            data-testid="access-domain-claim"
+          >
+            {domain_claim_label(domain)}
+          </span>
+          <span
+            :if={not domain.claimed?}
+            class="text-xs text-ink-subtle"
+            data-testid="access-domain-unclaimed"
+          >
+            {domain_claim_label(domain)}
+          </span>
+        </li>
+      </ul>
+    </.card>
     """
   end
 

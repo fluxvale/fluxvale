@@ -7,7 +7,7 @@ defmodule FluxVale.Infrastructure.Operations.AttachInstanceTest do
   # whose limbs never landed claims a pairing nothing can reach). The
   # provider is stubbed; the assertion surface is the access applies.
 
-  use FluxVale.DataCase, async: true
+  use FluxVale.DataCase, async: false
   use Mimic
 
   import ExUnit.CaptureLog
@@ -18,6 +18,8 @@ defmodule FluxVale.Infrastructure.Operations.AttachInstanceTest do
   alias FluxVale.Clients.K8s.Resources.Middleware
   alias FluxVale.Clients.K8s.Resources.NetworkPolicy
   alias FluxVale.Clients.K8s.Resources.Service
+  alias FluxVale.Infrastructure.AccessDomain
+  alias FluxVale.Infrastructure.AccessGateway
   alias FluxVale.Infrastructure.AccessProviders.Tailscale
   alias FluxVale.Infrastructure.AccessRoute
   alias FluxVale.Infrastructure.Operations.AttachInstance
@@ -30,6 +32,12 @@ defmodule FluxVale.Infrastructure.Operations.AttachInstanceTest do
   setup do
     InstanceFixtures.local_cluster!()
     stub(K8s, :kubeconfig, fn _ref -> {:ok, %{}} end)
+
+    stub(Tailscale, :claim_domain, fn _gw, _name, _ip -> {:error, :no_api_token} end)
+
+    previous = Application.get_env(:flux_vale, :access_dns)
+    Application.put_env(:flux_vale, :access_dns, resolver_ip: "10.43.0.20")
+    on_exit(fn -> Application.put_env(:flux_vale, :access_dns, previous) end)
 
     # The gateway create runs the provider's provision leg.
     stub(Tailscale, :provision_gateway, fn _gateway, _key ->
@@ -70,6 +78,55 @@ defmodule FluxVale.Infrastructure.Operations.AttachInstanceTest do
 
   defp not_found do
     {:error, Error.from_response({:ok, %{status: 404, body: %{}}})}
+  end
+
+  test "a successful attach claims the org's verified domains", %{org: org, owner: owner} do
+    gateway = AccessFixtures.gateway!(org)
+    instance = AccessFixtures.private_instance!(org, owner)
+
+    domain =
+      Ash.Seed.seed!(AccessDomain, %{
+        domain: "apps.customer.com",
+        kind: :custom,
+        state: :verified,
+        organization_id: org.id,
+        cert_secret_ref: "cert-secret"
+      })
+
+    stub(Tailscale, :claim_domain, fn gw, name, _resolver_ip ->
+      assert gw.id == gateway.id
+      assert name == "apps.customer.com"
+      {:ok, %{device_id: "device-1", route: "10.43.0.20/32"}}
+    end)
+
+    assert {:ok, _route} = AttachInstance.call(gateway, instance)
+
+    row = AccessGateway.get_by_id!(gateway.id, authorize?: false)
+    assert row.dns_claims[domain.domain]["ip"] == "10.43.0.20"
+  end
+
+  test "a failed attach claims nothing (the pairing unwinds first)", %{
+    org: org,
+    owner: owner
+  } do
+    gateway = AccessFixtures.gateway!(org)
+    instance = AccessFixtures.private_instance!(org, owner)
+
+    Ash.Seed.seed!(AccessDomain, %{
+      domain: "apps.customer.com",
+      kind: :custom,
+      state: :verified,
+      organization_id: org.id,
+      cert_secret_ref: "cert-secret"
+    })
+
+    stub(Tailscale, :claim_domain, fn _gw, _name, _ip ->
+      flunk("a failed attach has no pairing to resolve")
+    end)
+
+    stub(Ingress, :create, fn _kc, _ns, _n, _spec -> not_found() end)
+
+    assert {:error, _reason} = AttachInstance.call(gateway, instance)
   end
 
   test "a :running instance's attach mints the serving arm and the widened policy", %{

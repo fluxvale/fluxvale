@@ -6,7 +6,7 @@ defmodule FluxVale.Infrastructure.Operations.VerifyAccessDomainsTest do
   # the deadline fails a stalled :pending, and observed states self-heal
   # (:verified ⇄ :needs_attention) — the gateway-observer stance.
 
-  use FluxVale.DataCase, async: true
+  use FluxVale.DataCase, async: false
   use Mimic
 
   alias FluxVale.Clients.K8s
@@ -16,9 +16,11 @@ defmodule FluxVale.Infrastructure.Operations.VerifyAccessDomainsTest do
   alias FluxVale.Clients.K8s.Resources.Service
   alias FluxVale.Infrastructure
   alias FluxVale.Infrastructure.AccessDomain
+  alias FluxVale.Infrastructure.AccessGateway
   alias FluxVale.Infrastructure.AccessProviders.Tailscale
   alias FluxVale.Infrastructure.AccessRoute
   alias FluxVale.Infrastructure.InstanceHostname
+  alias FluxVale.Infrastructure.Operations.ClaimUnclaimedDomains
   alias FluxVale.Infrastructure.Operations.RenderAccessDNS
   alias FluxVale.TestSupport.AccessFixtures
   alias FluxVale.TestSupport.BillingFixtures
@@ -29,6 +31,18 @@ defmodule FluxVale.Infrastructure.Operations.VerifyAccessDomainsTest do
   setup do
     stub(K8s, :kubeconfig, fn -> {:ok, %{}} end)
     stub(Kubereq, :attach, fn req, _opts -> req end)
+
+    stub(Tailscale, :provision_gateway, fn _gateway, _key ->
+      {:ok, %{credential_secret_ref: "credential-stub"}}
+    end)
+
+    # The promotion claim's provider limb: no token in these fixtures, so
+    # the sweep stands down (the claim suites stub the success arm).
+    stub(Tailscale, :claim_domain, fn _gw, _name, _ip -> {:error, :no_api_token} end)
+
+    previous = Application.get_env(:flux_vale, :access_dns)
+    Application.put_env(:flux_vale, :access_dns, resolver_ip: "10.43.0.20")
+    on_exit(fn -> Application.put_env(:flux_vale, :access_dns, previous) end)
 
     # The S4 hook: the pass ends with the resolver-view re-render
     # (best-effort). Default success; expect-ed where a test cares.
@@ -61,6 +75,40 @@ defmodule FluxVale.Infrastructure.Operations.VerifyAccessDomainsTest do
       row = get_row!(domain.id)
       assert row.state == :verified
       assert row.cert_secret_ref == "access-domain-tls"
+    end
+
+    test "promotion claims the domain it verified", %{org: org, owner: owner} do
+      gateway = AccessFixtures.gateway!(org)
+      domain = register!(owner)
+
+      expect(Kubereq, :get, fn _req, _ns, _name ->
+        {:ok, %{status: 200, body: cert_body("True")}}
+      end)
+
+      stub(Tailscale, :claim_domain, fn gw, name, resolver_ip ->
+        assert gw.id == gateway.id
+        assert name == "apps.customer.com"
+        assert resolver_ip == "10.43.0.20"
+        {:ok, %{device_id: "device-1", route: "10.43.0.20/32"}}
+      end)
+
+      assert {:ok, %{verified: 1}} = Infrastructure.verify_access_domains()
+
+      row = AccessGateway.get_by_id!(gateway.id, authorize?: false)
+      assert row.dns_claims[domain.domain]["ip"] == "10.43.0.20"
+    end
+
+    test "a promotion with no gateway stays verified and claims nothing", %{owner: owner} do
+      domain = register!(owner)
+
+      expect(Kubereq, :get, fn _req, _ns, _name ->
+        {:ok, %{status: 200, body: cert_body("True")}}
+      end)
+
+      stub(Tailscale, :claim_domain, fn _gw, _name, _ip -> flunk("no gateway, no claim") end)
+
+      assert {:ok, %{verified: 1}} = Infrastructure.verify_access_domains()
+      assert get_row!(domain.id).state == :verified
     end
 
     test "Ready != True inside the window leaves the row :pending", %{owner: owner} do

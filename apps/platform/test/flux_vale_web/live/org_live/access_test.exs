@@ -19,6 +19,7 @@ defmodule FluxValeWeb.OrganizationLive.AccessTest do
   alias FluxVale.Billing
   alias FluxVale.Clients.K8s
   alias FluxVale.Infrastructure
+  alias FluxVale.Infrastructure.AccessDomain
   alias FluxVale.Infrastructure.AccessGateway
   alias FluxVale.Infrastructure.AccessProviders.Tailscale
   alias FluxVale.Infrastructure.AccessRoute
@@ -516,6 +517,71 @@ defmodule FluxValeWeb.OrganizationLive.AccessTest do
 
       assert render_click(view, "save-token", %{"gateway" => %{"api_token" => "tskey-api-x"}}) =~
                "Private access"
+    end
+
+    test "the domains card shows claimed and unclaimed honestly", %{conn: conn, org: org} do
+      gateway = AccessFixtures.gateway!(org)
+
+      Ash.Seed.seed!(AccessDomain, %{
+        domain: "apps.customer.com",
+        kind: :custom,
+        state: :verified,
+        organization_id: org.id,
+        cert_secret_ref: "cert-secret"
+      })
+
+      Ash.Seed.seed!(AccessDomain, %{
+        domain: "files.customer.com",
+        kind: :custom,
+        state: :verified,
+        organization_id: org.id,
+        cert_secret_ref: "cert-secret"
+      })
+
+      Ash.Seed.seed!(AccessDomain, %{
+        domain: "pending.customer.com",
+        kind: :custom,
+        state: :pending,
+        organization_id: org.id
+      })
+
+      Ash.Seed.seed!(AccessDomain, %{
+        domain: "failed.customer.com",
+        kind: :custom,
+        state: :failed,
+        organization_id: org.id
+      })
+
+      Ash.Seed.seed!(AccessDomain, %{
+        domain: "attention.customer.com",
+        kind: :custom,
+        state: :needs_attention,
+        organization_id: org.id
+      })
+
+      AccessGateway.update_claims!(
+        gateway,
+        %{dns_claims: %{"apps.customer.com" => %{"ip" => "10.43.0.20"}}},
+        authorize?: false
+      )
+
+      {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/settings/access")
+
+      assert has_element?(view, "[data-testid='access-domains']")
+      assert has_element?(view, "[data-testid='access-domain-claim']", "Claimed on your tailnet")
+
+      assert has_element?(
+               view,
+               "[data-testid='access-domain-unclaimed']",
+               "Verified — not claimed yet"
+             )
+
+      assert has_element?(view, "[data-testid='access-domain-unclaimed']", "Verifying…")
+      assert has_element?(view, "[data-testid='access-domain-unclaimed']", "Verification failed")
+      assert has_element?(view, "[data-testid='access-domain-unclaimed']", "Not claimed yet")
+      assert has_element?(view, "[data-testid='access-domain-row']", "apps.customer.com")
+      assert has_element?(view, "[data-testid='access-domain-row']", "files.customer.com")
+      assert has_element?(view, "[data-testid='access-domain-row']", "pending.customer.com")
     end
 
     test "a failed token write keeps the form and never echoes the token", %{

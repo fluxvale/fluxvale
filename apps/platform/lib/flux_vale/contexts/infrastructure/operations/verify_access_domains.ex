@@ -56,9 +56,11 @@ defmodule FluxVale.Infrastructure.Operations.VerifyAccessDomains do
   alias FluxVale.Clients.K8s.Error
   alias FluxVale.Clients.K8s.Resources.Certificate
   alias FluxVale.Infrastructure.AccessDomain
+  alias FluxVale.Infrastructure.AccessGateway
   alias FluxVale.Infrastructure.AccessRoute
   alias FluxVale.Infrastructure.Instance
   alias FluxVale.Infrastructure.InstanceHostname
+  alias FluxVale.Infrastructure.Operations.ClaimUnclaimedDomains
   alias FluxVale.Infrastructure.Operations.EdgeRoutes
   alias FluxVale.Infrastructure.Operations.RenderAccessDNS
 
@@ -239,6 +241,7 @@ defmodule FluxVale.Infrastructure.Operations.VerifyAccessDomains do
             # attached private instances' hostnames must start
             # ANSWERING now, not at the next unrelated flip.
             mint_domain_arms(updated, kubeconfig)
+            claim_promoted(updated)
             :verified
 
           # coveralls-ignore-start - defensive: a lost write race or DB
@@ -416,6 +419,23 @@ defmodule FluxVale.Infrastructure.Operations.VerifyAccessDomains do
           []
       end
     end)
+  end
+
+  # Promotion is the once-per-domain claim event (#756): the token is
+  # either already stored (the common order) or the domain stays
+  # unclaimed until the owner pastes one — the sweep is event-driven,
+  # never a tick loop. The pass renders once at the end, so the sweep
+  # does not.
+  defp claim_promoted(domain) do
+    case AccessGateway.get_for_organization(domain.organization_id, authorize?: false) do
+      {:ok, gateway} ->
+        _summary = ClaimUnclaimedDomains.call(gateway, domains: [domain], render?: false)
+        :ok
+
+      {:error, _no_gateway} ->
+        Logger.info("Access domain #{domain.domain}: verified without a gateway — unclaimed")
+        :ok
+    end
   end
 
   defp mint_domain_arms(domain, kubeconfig) do
