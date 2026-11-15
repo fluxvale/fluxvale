@@ -21,19 +21,35 @@ defmodule FluxValeWeb.PageControllerTest do
     html = html_response(conn, 200)
     body = landing_body(html)
 
-    assert html =~ ~r/<h1[^>]*>\s*Managed cloud platform for open source applications/
-    assert html =~ "FluxVale, managed cloud platform for open source applications"
+    assert html =~ ~r/<h1[^>]*>\s*Open source apps, running in minutes\./
+    assert html =~ "FluxVale, deploy open source apps from the dashboard or an agent"
     assert html =~ ~s(href="/catalog")
     assert html =~ ~s(href="/sign-in")
+    assert html =~ ~s(href="/docs/agents")
     # The sign-in redirect target is this page — its flash must render here.
     assert html =~ ~s(id="flash-group")
 
+    assert body =~ ~r/>\s*Agents\s*<\/a>/
     assert body =~ ">Apps</a>"
     assert body =~ ~r/>Sign in/
     assert body =~ "How it works"
+    assert body =~ "Two ways to a running app"
+    assert body =~ "Do it yourself"
     assert body =~ "Pick an app"
-    assert body =~ "No YAML"
-    assert body =~ "We run it"
+    assert body =~ "Deploy"
+    assert body =~ "FluxVale runs it"
+    assert body =~ "Or ask your agent"
+    assert body =~ "Ask for the app"
+    assert body =~ "The agent deploys"
+    assert body =~ "Ways in"
+    assert body =~ "Dashboard"
+    assert body =~ "MCP server"
+    assert body =~ "https://mcp.fluxvale.com/mcp"
+    assert body =~ "Terraform provider"
+    assert body =~ "FluxVale CLI"
+    assert body =~ "Get started"
+    assert body =~ "Have an agent? Set it up"
+    assert body =~ "Browse the catalog"
     assert body =~ "Simple pricing"
     assert body =~ "a welcome credit"
     assert body =~ "© #{Date.utc_today().year} FluxVale"
@@ -42,8 +58,10 @@ defmodule FluxValeWeb.PageControllerTest do
     refute body =~ "Phoenix Framework"
     refute body =~ "Peace of mind from prototype to production"
 
-    assert conn.assigns[:page_title] =~ "managed cloud platform for open source applications"
-    assert conn.assigns[:page_description] =~ "deploy"
+    assert conn.assigns[:page_title] =~ "deploy open source apps from the dashboard or an agent"
+
+    assert conn.assigns[:page_description] =~
+             "Pick an open source app from the catalog and deploy it in minutes. Or hand it to your agent from Claude Code, Cursor, VS Code, or any MCP client. FluxVale keeps it running."
   end
 
   # fv332 D5: the landing's own footer (foot-links, distinct from the
@@ -91,29 +109,34 @@ defmodule FluxValeWeb.PageControllerTest do
     assert chrome_html =~ ~s(aria-label="FluxVale")
   end
 
-  # The hero panel is the real product: FluxVale chrome (the address
-  # bar names the product origin) around a captured app page — the
-  # dummy-instance mock (ghostboard/wiki/forum) is gone for good, so
-  # its names must never render again. The float chip states the
-  # capture's honesty in mono text.
-  test "GET / renders the hero panel with its float chip", %{conn: conn} do
+  # The hero panel is an HTML dashboard preview, not a bitmap: FluxVale
+  # chrome around a tidy signed-in dashboard with real catalog apps,
+  # status pills, the deploy action, and a wallet chip. The mock is
+  # aria-hidden; the float chip and the sr-only line carry the honesty.
+  test "GET / renders the hero dashboard mock with its float chip", %{conn: conn} do
     conn = get(conn, ~p"/")
     html = html_response(conn, 200)
 
     assert html =~ ~s(class="path">fluxvale.com</span>)
-    # The full attribute runs pin src to theme slot: the light file
-    # rides block dark:hidden, the dark one hidden dark:block — a
-    # swapped pair (light theme rendering the dark capture) fails here.
-    assert html =~
-             ~s(src="/images/landing/hero-app-page-light.png" width="1040" height="605" alt="" class="block dark:hidden")
+    assert html =~ ~s(data-testid="hero-mock")
+    assert html =~ "Dashboard"
+    assert html =~ "Deploy app"
+    assert html =~ "Wallet"
+    assert html =~ "Forgejo"
+    assert html =~ "Umami"
+    assert html =~ "Kavita"
+    assert html =~ "forgejo.fluxvale.app"
+    assert html =~ "umami.fluxvale.app"
+    assert html =~ "kavita.fluxvale.app"
+    assert html =~ "Running"
+    assert html =~ "Sleeping"
 
-    assert html =~
-             ~s(src="/images/landing/hero-app-page-dark.png" width="1040" height="605" alt="" class="hidden dark:block")
+    assert html =~ "dashboard preview"
+    # The mock's spoken equivalent (the panel itself is aria-hidden).
+    assert html =~ "A preview of the dashboard with several apps running, not a screenshot."
 
-    assert html =~ "real apps · real prices"
-    # The capture's spoken equivalent (the panel itself is aria-hidden).
-    assert html =~ "A screenshot of the app catalog as it runs on fluxvale.com."
-
+    refute html =~ "hero-app-page-light.png"
+    refute html =~ "hero-app-page-dark.png"
     refute html =~ "app.fluxvale.app"
     refute html =~ "ghostboard"
     refute html =~ "Update to v3.0 ready"
@@ -149,7 +172,7 @@ defmodule FluxValeWeb.PageControllerTest do
     assert html =~ ~s(data-testid="dashboard-balance")
     assert html =~ ~s(data-testid="dashboard-runway")
     # The landing hero is gone; the signed-in chrome carries the user menu.
-    refute html =~ ~r/<h1[^>]*>\s*Managed cloud platform for open source applications/
+    refute html =~ ~r/<h1[^>]*>\s*Open source apps, running in minutes\./
     assert html =~ to_string(AccountsFixtures.primary_address!(user))
     assert html =~ ~s(data-testid="user-menu")
     assert conn.assigns[:page_title] == "FluxVale Dashboard"
@@ -159,7 +182,7 @@ defmodule FluxValeWeb.PageControllerTest do
     conn = get(conn, ~p"/about")
     html = html_response(conn, 200)
 
-    assert html =~ ~r/<h1[^>]*>\s*Managed cloud platform for open source applications/
+    assert html =~ ~r/<h1[^>]*>\s*Open source apps, running in minutes\./
     assert html =~ ~s(rel="canonical" href="https://fluxvale.com/")
   end
 
@@ -180,7 +203,7 @@ defmodule FluxValeWeb.PageControllerTest do
     conn = get(session_conn, ~p"/about")
     html = html_response(conn, 200)
 
-    assert html =~ ~r/<h1[^>]*>\s*Managed cloud platform for open source applications/
+    assert html =~ ~r/<h1[^>]*>\s*Open source apps, running in minutes\./
     assert html =~ ~s(data-testid="user-menu")
     assert html =~ to_string(AccountsFixtures.primary_address!(user))
     # The signed-in landing points inward, not at sign-in.
