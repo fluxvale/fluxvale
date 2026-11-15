@@ -9,9 +9,10 @@ permalink once / becomes the dashboard. (#551 retired the menu's About row:
 nothing links /about now, the route stays public.)
 Copy lives in gettext — the msgid is the source of truth; the wording is
 reviewed at merge (#164). Not extracted: standalone proper nouns
-(FluxVale, Forgejo, Kavita) and the hero panel's decorative chrome —
-the address-bar path and the aria-hidden capture pair, never read
-aloud, stay literal.
+(FluxVale, Forgejo, Umami, Kavita) and the hero dashboard mock's
+decorative chrome — the address-bar path, the dashboard labels, app
+names, hostnames, and statuses stay literal because the mock is
+aria-hidden and the sr-only line describes it.
 /catalog hrefs can move to ~p now that the route registers (router.ex)
 — left literal here pending that slice's cleanup.
 The Offset grammar (#277): four-layer offset hero (sunken circle wash, product
@@ -92,11 +93,10 @@ layout's flex contract while scoping the landing styles. --%>
     <%!-- Hero: four calm layers — the sunken circle wash (z0, parallax
     slowest), the product panel (z1, offset right+down), the float
     chip (z1.5, below-left of the hero box), the display headline (z2).
-    The panel is the real product: an anon capture of a catalog app
-    page (Vikunja's), re-captured through apps/e2e/capture.mjs when
-    the surface or its prices change — never a mockup, never dummy apps. The
-    image pair is decorative (aria-hidden); the float chip states the
-    capture's honesty in visible mono text. The overlap exists only
+    The panel is the product a visitor lands on: an HTML/CSS dashboard
+    preview built from dashboard_live.ex, with real catalog apps and
+    status pills. It is decorative and aria-hidden; the float chip says
+    it is a preview, not a screenshot. The overlap exists only
     >=900px (landing.css). --%>
     <section class="hero">
       <div class="wrap">
@@ -135,45 +135,88 @@ layout's flex contract while scoping the landing styles. --%>
 
           <div class="hero-panel rise d2">
             <div class="px-panel">
-              <%!-- The panel window: FluxVale's own chrome around the
-              real capture. The bar's path names the product origin the
-              shot was taken from — fluxvale.com, the deployed app. --%>
+              <%!-- The panel window: FluxVale's own chrome around an HTML
+              dashboard preview. The mock is decorative and theme-aware;
+              the sr-only line under the panel describes it. --%>
               <div class="panel" aria-hidden="true">
                 <div class="panel-bar">
                   <span class="dots"><i></i><i></i><i></i></span>
                   <span class="path">fluxvale.com</span>
                   <span>&nbsp;</span>
                 </div>
-                <div class="shot">
-                  <%!-- `block` rides the utility layer with the dark:
-                  pair — a display rule in .shot img below would outrank
-                  .hidden and stack both themes at once. --%>
-                  <img
-                    src={~p"/images/landing/hero-app-page-light.png"}
-                    width="1040"
-                    height="605"
-                    alt=""
-                    class="block dark:hidden"
-                  />
-                  <img
-                    src={~p"/images/landing/hero-app-page-dark.png"}
-                    width="1040"
-                    height="605"
-                    alt=""
-                    class="hidden dark:block"
-                  />
+                <div class="mock" data-testid="hero-mock">
+                  <div class="mock-head">
+                    <div class="mock-heading">
+                      <p class="mock-title">Dashboard</p>
+                      <p class="mock-sub">Your apps at a glance.</p>
+                    </div>
+                    <div class="mock-actions">
+                      <span class="mock-wallet"><span class="dot"></span>Wallet</span>
+                      <span class="mock-deploy">Deploy app</span>
+                    </div>
+                  </div>
+                  <p class="mock-label">Apps</p>
+                  <div class="mock-list">
+                    <div class="mock-row">
+                      <img
+                        src={~p"/images/catalog/forgejo/icon.svg"}
+                        width="26"
+                        height="26"
+                        alt=""
+                        class="mock-icon"
+                      />
+                      <div class="mock-app">
+                        <p class="mock-name">Forgejo</p>
+                        <p class="mock-host">forgejo.fluxvale.app</p>
+                      </div>
+                      <span class="mock-status is-running">
+                        <span class="dot"></span>Running
+                      </span>
+                    </div>
+                    <div class="mock-row">
+                      <img
+                        src={~p"/images/catalog/umami/icon.png"}
+                        width="26"
+                        height="26"
+                        alt=""
+                        class="mock-icon"
+                      />
+                      <div class="mock-app">
+                        <p class="mock-name">Umami</p>
+                        <p class="mock-host">umami.fluxvale.app</p>
+                      </div>
+                      <span class="mock-status is-running">
+                        <span class="dot"></span>Running
+                      </span>
+                    </div>
+                    <div class="mock-row">
+                      <img
+                        src={~p"/images/catalog/kavita/icon.svg"}
+                        width="26"
+                        height="26"
+                        alt=""
+                        class="mock-icon"
+                      />
+                      <div class="mock-app">
+                        <p class="mock-name">Kavita</p>
+                        <p class="mock-host">kavita.fluxvale.app</p>
+                      </div>
+                      <span class="mock-status is-sleeping">Sleeping</span>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
             <%!-- Outside .px-panel on purpose: its parallax transform
             would trap the chip on the panel (see landing.css). The
-            sr-only line gives the aria-hidden capture a spoken
-            equivalent — written so it survives re-captures (no app
-            name, no price to drift). --%>
+            sr-only line gives the aria-hidden mock a spoken equivalent:
+            it is a preview, not a screenshot. --%>
             <div class="float-chip drop d5">
-              <span class="dot"></span>{gettext("real apps · real prices")}
+              <span class="dot"></span>{gettext("dashboard preview")}
               <span class="sr-only">
-                {gettext("A screenshot of an app page as it runs on fluxvale.com.")}
+                {gettext(
+                  "A preview of the dashboard with several apps running, not a screenshot."
+                )}
               </span>
             </div>
           </div>

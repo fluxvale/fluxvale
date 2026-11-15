@@ -13,6 +13,16 @@ test("landing page renders hero and CTAs", async ({ page }) => {
   await expect(h1).toBeVisible();
   await expect(h1).toHaveText(/Open source apps, running in minutes\./);
 
+  // The hero panel is an HTML dashboard preview, not a bitmap. It is
+  // aria-hidden decoration; the sr-only line carries the honesty.
+  const mock = page.getByTestId("hero-mock");
+  await expect(mock).toBeVisible();
+  await expect(mock).toContainText("Forgejo");
+  await expect(mock).toContainText("Umami");
+  await expect(mock).toContainText("Kavita");
+  await expect(mock).toContainText("Sleeping");
+  await expect(page.locator('img[src*="hero-app-page"]')).toHaveCount(0);
+
   // The primary CTA is the human sign-up path, not the agent guide.
   await expect(
     page.getByRole("link", { name: "Get started" }).first(),

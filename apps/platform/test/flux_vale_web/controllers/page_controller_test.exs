@@ -109,29 +109,34 @@ defmodule FluxValeWeb.PageControllerTest do
     assert chrome_html =~ ~s(aria-label="FluxVale")
   end
 
-  # The hero panel is the real product: FluxVale chrome (the address
-  # bar names the product origin) around a captured app page — the
-  # dummy-instance mock (ghostboard/wiki/forum) is gone for good, so
-  # its names must never render again. The float chip states the
-  # capture's honesty in mono text.
-  test "GET / renders the hero panel with its float chip", %{conn: conn} do
+  # The hero panel is an HTML dashboard preview, not a bitmap: FluxVale
+  # chrome around a tidy signed-in dashboard with real catalog apps,
+  # status pills, the deploy action, and a wallet chip. The mock is
+  # aria-hidden; the float chip and the sr-only line carry the honesty.
+  test "GET / renders the hero dashboard mock with its float chip", %{conn: conn} do
     conn = get(conn, ~p"/")
     html = html_response(conn, 200)
 
     assert html =~ ~s(class="path">fluxvale.com</span>)
-    # The full attribute runs pin src to theme slot: the light file
-    # rides block dark:hidden, the dark one hidden dark:block — a
-    # swapped pair (light theme rendering the dark capture) fails here.
-    assert html =~
-             ~s(src="/images/landing/hero-app-page-light.png" width="1040" height="605" alt="" class="block dark:hidden")
+    assert html =~ ~s(data-testid="hero-mock")
+    assert html =~ "Dashboard"
+    assert html =~ "Deploy app"
+    assert html =~ "Wallet"
+    assert html =~ "Forgejo"
+    assert html =~ "Umami"
+    assert html =~ "Kavita"
+    assert html =~ "forgejo.fluxvale.app"
+    assert html =~ "umami.fluxvale.app"
+    assert html =~ "kavita.fluxvale.app"
+    assert html =~ "Running"
+    assert html =~ "Sleeping"
 
-    assert html =~
-             ~s(src="/images/landing/hero-app-page-dark.png" width="1040" height="605" alt="" class="hidden dark:block")
+    assert html =~ "dashboard preview"
+    # The mock's spoken equivalent (the panel itself is aria-hidden).
+    assert html =~ "A preview of the dashboard with several apps running, not a screenshot."
 
-    assert html =~ "real apps · real prices"
-    # The capture's spoken equivalent (the panel itself is aria-hidden).
-    assert html =~ "A screenshot of an app page as it runs on fluxvale.com."
-
+    refute html =~ "hero-app-page-light.png"
+    refute html =~ "hero-app-page-dark.png"
     refute html =~ "app.fluxvale.app"
     refute html =~ "ghostboard"
     refute html =~ "Update to v3.0 ready"

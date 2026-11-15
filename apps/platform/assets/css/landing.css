@@ -221,21 +221,165 @@ body:has(.landing) {
   border: 1px solid var(--line);
 }
 
-/* The real-product capture fills the panel under the bar. The capture
- * pair (light + dark) is re-taken through apps/e2e/capture.mjs per
- * theme — a CSS filter can't fake the app's own dark surfaces, so two
- * files ride and the dark: pair flips with the theme, same as the
- * header's mark pair. The 36px bottom keeps the float chip's straddle
- * on panel canvas, not on the shot. */
-.landing .shot {
-  padding: 10px 10px 36px;
+/* The HTML dashboard preview: a tidy simplification of the signed-in
+ * dashboard (title, deploy action, wallet chip, app rows with status
+ * pills). Decorative, aria-hidden, theme-aware. The 34px bottom keeps
+ * the float chip's straddle on panel canvas, not on the mock. */
+.landing .mock {
+  padding: 18px 18px 34px;
+  background: var(--canvas);
+  border-radius: 0 0 var(--radius-panel) var(--radius-panel);
 }
 
-.landing .shot img {
-  width: 100%;
-  height: auto;
+.landing .mock-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.landing .mock-title {
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+}
+
+.landing .mock-sub {
+  margin-top: 2px;
+  font-size: 11.5px;
+  color: var(--ink-subtle);
+}
+
+.landing .mock-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.landing .mock-wallet {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  border-radius: var(--radius-pill);
+  padding: 5px 10px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-muted);
+}
+
+.landing .mock-wallet .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--link);
+}
+
+.landing .mock-deploy {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--primary);
+  background: var(--primary);
+  color: var(--on-primary);
+  border-radius: var(--radius-control);
+  padding: 6px 10px;
+  font-size: 11.5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.landing .mock-label {
+  margin-top: 16px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--ink-subtle);
+}
+
+.landing .mock-list {
+  margin-top: 8px;
+  display: grid;
+  gap: 7px;
+}
+
+.landing .mock-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  border-radius: var(--radius-control);
+  padding: 8px 10px;
+}
+
+.landing .mock-icon {
+  width: 26px;
+  height: 26px;
+  padding: 3px;
   border: 1px solid var(--line);
   border-radius: var(--radius-control);
+  background: var(--panel-raised);
+  object-fit: contain;
+}
+
+.landing .mock-app {
+  min-width: 0;
+}
+
+.landing .mock-name {
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.2;
+  color: var(--ink);
+}
+
+.landing .mock-host {
+  margin-top: 1px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--ink-subtle);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.landing .mock-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+  border: 1px solid;
+  border-radius: var(--radius-pill);
+  padding: 2px 8px;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.landing .mock-status .dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.landing .mock-status.is-running {
+  border-color: var(--border-success);
+  background: var(--success-muted);
+  color: var(--success);
+}
+
+.landing .mock-status.is-sleeping {
+  border-color: var(--line);
+  background: var(--primary-muted);
+  color: var(--link);
 }
 
 .landing .chip {
