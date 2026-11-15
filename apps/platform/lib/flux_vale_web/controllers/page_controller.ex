@@ -41,12 +41,12 @@ defmodule FluxValeWeb.PageController do
     |> assign(:canonical_path, "/")
     |> assign(
       :page_title,
-      gettext("FluxVale, your agent deploys open source apps")
+      gettext("FluxVale, deploy open source apps from the dashboard or an agent")
     )
     |> assign(
       :page_description,
       gettext(
-        "Tell your agent what you need. It picks an open source app from the catalog, deploys it, and FluxVale keeps it running."
+        "Pick an open source app from the catalog and deploy it in minutes. Or hand it to your agent from Claude Code, Cursor, VS Code, or any MCP client. FluxVale keeps it running."
       )
     )
     |> assign(:price_floor_cents, price_floor_cents())

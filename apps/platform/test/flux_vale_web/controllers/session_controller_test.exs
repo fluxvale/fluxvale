@@ -354,6 +354,6 @@ defmodule FluxValeWeb.SessionControllerTest do
     page = html_response(landing_conn, 200)
 
     assert page =~ "Signed out."
-    assert page =~ "Your agent deploys. FluxVale runs it."
+    assert page =~ "Open source apps, running in minutes."
   end
 end

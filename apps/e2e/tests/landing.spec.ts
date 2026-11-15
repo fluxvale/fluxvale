@@ -7,19 +7,23 @@ import { expect, test } from "@playwright/test";
 test("landing page renders hero and CTAs", async ({ page }) => {
   await page.goto("/");
   // Landing-specific: the default layout title must not satisfy this.
-  await expect(page).toHaveTitle(/your agent deploys open source apps/);
+  await expect(page).toHaveTitle(/deploy open source apps from the dashboard or an agent/);
 
   const h1 = page.getByRole("heading", { level: 1 });
   await expect(h1).toBeVisible();
-  await expect(h1).toHaveText(/Your agent deploys\. FluxVale runs it\./);
+  await expect(h1).toHaveText(/Open source apps, running in minutes\./);
 
-  // The primary CTA is the agent path. Anonymous visitors land on the
-  // public agent guide; the signed-in landing points at /settings/agents.
+  // The primary CTA is the human sign-up path, not the agent guide.
   await expect(
-    page.getByRole("link", { name: "Set up your agent" }).first(),
+    page.getByRole("link", { name: "Get started" }).first(),
+  ).toHaveAttribute("href", "/sign-in");
+
+  // The agent path is its own link, not the primary button.
+  await expect(
+    page.getByRole("link", { name: "Have an agent? Set it up" }).first(),
   ).toHaveAttribute("href", "/docs/agents");
 
-  // The human fallback stays one click away, but it is not the primary.
+  // The human catalog path stays one click away.
   await expect(
     page.getByRole("link", { name: "Browse the catalog" }).first(),
   ).toHaveAttribute("href", "/catalog");

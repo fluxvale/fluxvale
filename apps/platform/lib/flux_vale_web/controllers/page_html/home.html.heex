@@ -15,7 +15,7 @@ aloud, stay literal.
 /catalog hrefs can move to ~p now that the route registers (router.ex)
 — left literal here pending that slice's cleanup.
 The Offset grammar (#277): four-layer offset hero (sunken circle wash, product
-panel, float chip, display headline), uneven bento steps with the real
+panel, float chip, display headline), two equal lanes with the real
 catalog preview, full-bleed catalog + pricing bands with a straddling
 honesty capsule, load/scroll reveals + hover lifts in landing.css. The
 whole content wraps in .landing.contents — display:contents keeps this
@@ -52,14 +52,14 @@ layout's flex contract while scoping the landing styles. --%>
       <nav aria-label={gettext("Primary")}>
         <ul class="flex items-center gap-2">
           <li class="hidden min-[480px]:block">
+            <.nav_link href="/catalog">{gettext("Apps")}</.nav_link>
+          </li>
+          <li class="hidden min-[480px]:block">
             <.nav_link href={
               if is_nil(@current_user), do: "/docs/agents", else: "/settings/agents"
             }>
               {gettext("Agents")}
             </.nav_link>
-          </li>
-          <li class="hidden min-[480px]:block">
-            <.nav_link href="/catalog">{gettext("Apps")}</.nav_link>
           </li>
           <li class="hidden min-[480px]:block">
             <.nav_link href="/pricing">{gettext("Pricing")}</.nav_link>
@@ -104,38 +104,32 @@ layout's flex contract while scoping the landing styles. --%>
           <div class="hero-circle px-slow" aria-hidden="true"></div>
 
           <div class="hero-copy">
-            <p class="eyebrow rise">{gettext("Built for agents")}</p>
+            <p class="eyebrow rise">{gettext("Managed open source apps")}</p>
             <h1 class="display rise d1">
-              {gettext("Your agent deploys. FluxVale runs it.")}
+              {gettext("Open source apps, running in minutes.")}
             </h1>
             <p class="hero-sub rise d2">
               {gettext(
-                "Tell Claude Code, Cursor, VS Code, or any MCP client what you need. It picks the app from the catalog, deploys it, and hands you the URL. FluxVale keeps it running from there."
+                "Pick one from the catalog, deploy it, and FluxVale keeps it running. Or hand it to your agent. It can do the same from Claude Code, Cursor, VS Code, or any MCP client."
               )}
             </p>
             <div class="hero-ctas rise d3">
-              <.button
-                href={if is_nil(@current_user), do: "/docs/agents", else: "/settings/agents"}
-                class="lift"
-              >
-                {gettext("Set up your agent")}
+              <.button :if={is_nil(@current_user)} href={~p"/sign-in"} class="lift">
+                {gettext("Get started")}
               </.button>
-              <.button
-                :if={is_nil(@current_user)}
-                href="/catalog"
-                variant="ghost"
-                size="lg"
-              >
-                {gettext("Browse the catalog")}
-              </.button>
-              <.button
-                :if={@current_user}
-                href={~p"/"}
-                variant="ghost"
-                size="lg"
-              >
+              <.button :if={@current_user} href={~p"/"} class="lift">
                 {gettext("Your dashboard")}
               </.button>
+              <.button href="/catalog" variant="ghost" size="lg">
+                {gettext("Browse the catalog")}
+              </.button>
+              <a
+                href={if is_nil(@current_user), do: "/docs/agents", else: "/settings/agents"}
+                class="arrowlink hero-agent-link"
+              >
+                {gettext("Have an agent? Set it up")}
+                <span class="arrow" aria-hidden="true">&rarr;</span>
+              </a>
             </div>
           </div>
 
@@ -187,23 +181,52 @@ layout's flex contract while scoping the landing styles. --%>
       </div>
     </section>
 
-    <%!-- How it works: uneven bento — the tall cell carries the real
-    catalog preview (two entries + the catalog link). --%>
+    <%!-- How it works: two equal lanes, human first. The human lane
+    carries the real catalog preview; the agent lane carries the same
+    three steps and its setup link. --%>
     <section aria-labelledby="how-it-works-title" class="steps">
       <div class="wrap">
         <div class="band-head">
           <p class="eyebrow reveal">{gettext("How it works")}</p>
           <h2 id="how-it-works-title" class="display-h2 reveal">
-            {gettext("One conversation to a running app")}
+            {gettext("Two ways to a running app")}
           </h2>
+          <p class="band-sub">
+            {gettext(
+              "Pick an app yourself, or hand it to your agent. FluxVale runs it either way."
+            )}
+          </p>
         </div>
-        <div class="bento">
-          <div class="cell tall reveal">
-            <span class="n">01</span>
-            <h3>{gettext("Ask for the app")}</h3>
-            <p>
-              {gettext("Tell your agent what you need. It picks the app from the catalog.")}
-            </p>
+        <div class="lanes">
+          <div class="lane lane-human reveal">
+            <p class="lane-label">{gettext("Do it yourself")}</p>
+            <ol class="lane-steps">
+              <li class="lane-step">
+                <span class="n">01</span>
+                <h3>{gettext("Pick an app")}</h3>
+                <p>
+                  {gettext(
+                    "Choose from a curated catalog of open source applications, ready to run."
+                  )}
+                </p>
+              </li>
+              <li class="lane-step">
+                <span class="n">02</span>
+                <h3>{gettext("Deploy")}</h3>
+                <p>
+                  {gettext(
+                    "One guided flow from app to live URL. No YAML, no servers to babysit."
+                  )}
+                </p>
+              </li>
+              <li class="lane-step">
+                <span class="n">03</span>
+                <h3>{gettext("FluxVale runs it")}</h3>
+                <p>
+                  {gettext("Updates and monitoring are on us. Your data stays yours.")}
+                </p>
+              </li>
+            </ol>
             <div class="mini">
               <span class="cat">{gettext("Developer Tools")}</span>
               <div class="m">
@@ -230,45 +253,87 @@ layout's flex contract while scoping the landing styles. --%>
               </div>
             </div>
           </div>
-          <div class="cell raised reveal">
-            <span class="n">02</span>
-            <h3>{gettext("The agent deploys")}</h3>
-            <p>
-              {gettext("It deploys the app and hands you the URL.")}
-            </p>
-          </div>
-          <div class="cell raised reveal">
-            <span class="n">03</span>
-            <h3>{gettext("FluxVale runs it")}</h3>
-            <p>
-              {gettext(
-                "Updates, monitoring, backups, and private access are on us. Your data stays yours."
-              )}
-            </p>
+          <div class="lane lane-agent reveal">
+            <p class="lane-label">{gettext("Or ask your agent")}</p>
+            <ol class="lane-steps">
+              <li class="lane-step">
+                <span class="n">01</span>
+                <h3>{gettext("Ask for the app")}</h3>
+                <p>
+                  {gettext("Tell your agent what you need. It picks the app from the catalog.")}
+                </p>
+              </li>
+              <li class="lane-step">
+                <span class="n">02</span>
+                <h3>{gettext("The agent deploys")}</h3>
+                <p>
+                  {gettext("It deploys the app and hands you the URL.")}
+                </p>
+              </li>
+              <li class="lane-step">
+                <span class="n">03</span>
+                <h3>{gettext("FluxVale runs it")}</h3>
+                <p>
+                  {gettext("Same platform. Same updates, backups, and private access.")}
+                </p>
+              </li>
+            </ol>
+            <div class="lane-foot">
+              <span class="clients">
+                {gettext("Claude Code, Cursor, VS Code, or any MCP client.")}
+              </span>
+              <a
+                href={if is_nil(@current_user), do: "/docs/agents", else: "/settings/agents"}
+                class="arrowlink"
+              >
+                {gettext("Set up your agent")}
+                <span class="arrow" aria-hidden="true">&rarr;</span>
+              </a>
+            </div>
           </div>
         </div>
 
-        <%!-- The ways in: the agent is the default, code and terminal are
-        the same API for humans. This closes the how-it-works section
-        instead of standing as a separate automation band. --%>
+        <%!-- Ways in: the dashboard is the human path, the agent is its
+        peer, and Terraform plus the CLI are the code path. --%>
         <div id="ways" class="ways reveal">
           <div class="ways-head">
             <p class="eyebrow">{gettext("Ways in")}</p>
             <p class="ways-lead">
-              {gettext("The agent is the default. Terraform and the CLI use the same API.")}
+              {gettext(
+                "Use the dashboard, or hand it to your agent. Terraform and the CLI are there for code."
+              )}
             </p>
           </div>
-          <div class="ways-grid">
+          <div class="ways-pair">
+            <a
+              href={if is_nil(@current_user), do: "/sign-in", else: "/"}
+              class="way way-dashboard"
+              data-testid="way-dashboard"
+            >
+              <span class="cat">{gettext("For you")}</span>
+              <span class="way-title">{gettext("Dashboard")}</span>
+              <span class="way-body">
+                {gettext(
+                  "Pick an app, deploy it, and manage it from the panel. The wallet, backups, and access live there too."
+                )}
+              </span>
+              <span class="arrowlink">
+                {if is_nil(@current_user),
+                  do: gettext("Get started"),
+                  else: gettext("Open the dashboard")}
+                <span class="arrow" aria-hidden="true">&rarr;</span>
+              </span>
+            </a>
             <a
               href={if is_nil(@current_user), do: "/docs/agents", else: "/settings/agents"}
-              class="way way-lead"
+              class="way way-agent"
               data-testid="way-mcp"
             >
               <span class="cat">{gettext("For your agent")}</span>
               <span class="way-title">{gettext("MCP server")}</span>
               <span class="way-body">
                 {gettext(
-                  "Claude Code, Cursor, VS Code, or any MCP client. OAuth clients connect with the URL and one approval. Clients without OAuth use a scoped token."
+                  "Point Claude Code, Cursor, VS Code, or any MCP client at FluxVale. OAuth clients connect with the URL and one approval. Clients without OAuth use a scoped token."
                 )}
               </span>
               <code class="way-url">https://mcp.fluxvale.com/mcp</code>
@@ -277,30 +342,30 @@ layout's flex contract while scoping the landing styles. --%>
                 <span class="arrow" aria-hidden="true">&rarr;</span>
               </span>
             </a>
-            <div class="ways-side">
-              <a href="/docs/automation/terraform" class="way" data-testid="way-terraform">
-                <span class="way-title">{gettext("Terraform provider")}</span>
-                <span class="way-body">
-                  {gettext(
-                    "Instances, backups, gateways, and custom domains as resources. The provider is on the Terraform and OpenTofu registries."
-                  )}
-                </span>
-                <span class="arrowlink">
-                  {gettext("Provider guide")} <span class="arrow" aria-hidden="true">&rarr;</span>
-                </span>
-              </a>
-              <a href="/docs/automation/cli" class="way" data-testid="way-cli">
-                <span class="way-title">{gettext("FluxVale CLI")}</span>
-                <span class="way-body">
-                  {gettext(
-                    "One self-contained binary. Deploy, back up, check the wallet from the terminal."
-                  )}
-                </span>
-                <span class="arrowlink">
-                  {gettext("CLI guide")} <span class="arrow" aria-hidden="true">&rarr;</span>
-                </span>
-              </a>
-            </div>
+          </div>
+          <div class="ways-code">
+            <a href="/docs/automation/terraform" class="way way-code" data-testid="way-terraform">
+              <span class="way-title">{gettext("Terraform provider")}</span>
+              <span class="way-body">
+                {gettext(
+                  "Instances, backups, gateways, and custom domains as resources. The provider is on the Terraform and OpenTofu registries."
+                )}
+              </span>
+              <span class="arrowlink">
+                {gettext("Provider guide")} <span class="arrow" aria-hidden="true">&rarr;</span>
+              </span>
+            </a>
+            <a href="/docs/automation/cli" class="way way-code" data-testid="way-cli">
+              <span class="way-title">{gettext("FluxVale CLI")}</span>
+              <span class="way-body">
+                {gettext(
+                  "One self-contained binary. Deploy, back up, check the wallet from the terminal."
+                )}
+              </span>
+              <span class="arrowlink">
+                {gettext("CLI guide")} <span class="arrow" aria-hidden="true">&rarr;</span>
+              </span>
+            </a>
           </div>
         </div>
       </div>
@@ -313,11 +378,11 @@ layout's flex contract while scoping the landing styles. --%>
         <div class="band-head reveal">
           <p class="eyebrow">{gettext("App catalog")}</p>
           <h2 id="catalog-title" class="display-h2">
-            {gettext("The catalog your agent chooses from")}
+            {gettext("Pick an app. It's running in minutes.")}
           </h2>
           <p class="band-sub">
             {gettext(
-              "Every app is ready to deploy. Your agent picks one, or you can browse the catalog yourself."
+              "Every app is ready to deploy. Browse the catalog yourself, or let your agent pick."
             )}
           </p>
         </div>
@@ -371,7 +436,7 @@ layout's flex contract while scoping the landing styles. --%>
             table; the controller passes nil then). --%>
             <p class="sub reveal">
               {gettext(
-                "Prices follow the resources an app gets, not the app itself. Your agent can check the wallet and the price before it deploys. New accounts start with a welcome credit. Top up when you're ready."
+                "Prices follow the resources an app gets, not the app itself. Your agent can check the price before it deploys. New accounts start with a welcome credit. Top up when you're ready."
               )}
             </p>
             <p :if={not is_nil(@price_floor_cents)} class="sub reveal">
@@ -423,12 +488,12 @@ layout's flex contract while scoping the landing styles. --%>
         narrowest phones it wraps instead of scrolling. No wrap at any
         width that already fit. --%>
         <ul class="foot-links flex-wrap">
+          <li><a href="/catalog">{gettext("Apps")}</a></li>
           <li>
             <a href={if is_nil(@current_user), do: "/docs/agents", else: "/settings/agents"}>
               {gettext("Agents")}
             </a>
           </li>
-          <li><a href="/catalog">{gettext("Apps")}</a></li>
           <li><a href="/pricing">{gettext("Pricing")}</a></li>
           <li><a href="/blog">{gettext("Blog")}</a></li>
           <li :if={is_nil(@current_user)}>

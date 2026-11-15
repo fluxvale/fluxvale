@@ -284,20 +284,22 @@ body:has(.landing) {
   background: var(--warning);
 }
 
-/* ---- How it works: uneven bento; the tall cell earns its height with
- * the real catalog preview. ---- */
+/* ---- How it works: two equal lanes, human first. The human lane
+ * carries the real catalog preview; the agent lane carries the same
+ * three steps and its setup link. ---- */
 .landing .steps {
   margin-top: clamp(88px, 11vw, 150px);
 }
 
-.landing .bento {
+.landing .lanes {
   display: grid;
+  grid-template-columns: 1fr 1fr;
   gap: 14px;
-  grid-template-columns: 7fr 5fr;
-  grid-template-rows: auto auto;
 }
 
-.landing .cell {
+.landing .lane {
+  display: flex;
+  flex-direction: column;
   border: 1px solid var(--line);
   border-radius: var(--radius-panel);
   padding: clamp(24px, 3vw, 40px);
@@ -308,41 +310,61 @@ body:has(.landing) {
     border-color var(--motion-base) var(--motion-ease-out);
 }
 
-.landing .cell:hover {
+.landing .lane:hover {
   translate: 0 -3px;
   box-shadow: var(--elevation-md);
   border-color: var(--line-strong);
 }
 
-.landing .cell.tall {
-  grid-row: 1 / span 2;
-  display: flex;
-  flex-direction: column;
+.landing .lane-label {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--link);
 }
 
-.landing .cell.raised {
-  background: var(--panel-raised);
+.landing .lane-steps {
+  display: grid;
+  gap: 22px;
+  margin-top: 24px;
+  padding: 0;
+  list-style: none;
 }
 
-.landing .cell .n {
+.landing .lane-step .n {
   font-family: var(--font-mono);
   font-size: 12px;
   color: var(--link);
   display: block;
-  margin-bottom: clamp(20px, 2.4vw, 40px);
+  margin-bottom: 8px;
 }
 
-.landing .cell h3 {
-  font-size: clamp(22px, 2vw, 28px);
+.landing .lane-step h3 {
+  font-size: clamp(20px, 1.8vw, 24px);
   font-weight: 800;
   letter-spacing: -0.02em;
 }
 
-.landing .cell p {
-  margin-top: 10px;
+.landing .lane-step p {
+  margin-top: 8px;
   color: var(--ink-muted);
-  font-size: 15.5px;
-  max-width: 44ch;
+  font-size: 15px;
+  max-width: 40ch;
+}
+
+.landing .lane-foot {
+  margin-top: auto;
+  padding-top: 26px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.landing .lane-foot .clients {
+  font-size: 12.5px;
+  color: var(--ink-subtle);
 }
 
 .landing .mini {
@@ -446,15 +468,17 @@ body:has(.landing) {
   max-width: 52ch;
 }
 
-.landing .ways-grid {
+.landing .ways-pair {
   display: grid;
-  grid-template-columns: 7fr 5fr;
+  grid-template-columns: 1fr 1fr;
   gap: 14px;
 }
 
-.landing .ways-side {
+.landing .ways-code {
   display: grid;
+  grid-template-columns: 1fr 1fr;
   gap: 14px;
+  margin-top: 14px;
 }
 
 .landing .way {
@@ -479,8 +503,16 @@ body:has(.landing) {
   border-color: var(--line-strong);
 }
 
-.landing .way-lead {
-  background: var(--panel-raised);
+.landing .way-code {
+  padding: clamp(18px, 2.2vw, 24px);
+}
+
+.landing .way-code .way-title {
+  font-size: 18px;
+}
+
+.landing .way-code .way-body {
+  font-size: 14px;
 }
 
 .landing .way-title {
@@ -810,7 +842,7 @@ body:has(.landing) {
   }
 
   .landing .panel:hover,
-  .landing .cell:hover,
+  .landing .lane:hover,
   .landing .app-card:hover,
   .landing .way:hover,
   .landing .lift:hover,
@@ -835,7 +867,7 @@ body:has(.landing) {
   }
 
   .landing .panel:hover,
-  .landing .cell:hover,
+  .landing .lane:hover,
   .landing .app-card:hover,
   .landing .way:hover,
   .landing .lift:hover,
@@ -864,13 +896,8 @@ body:has(.landing) {
     translate: -6% 45%;
   }
 
-  .landing .bento {
+  .landing .lanes {
     grid-template-columns: 1fr;
-    grid-template-rows: auto;
-  }
-
-  .landing .cell.tall {
-    grid-row: auto;
   }
 
   .landing .band-head {
@@ -881,7 +908,8 @@ body:has(.landing) {
     grid-template-columns: 1fr;
   }
 
-  .landing .ways-grid {
+  .landing .ways-pair,
+  .landing .ways-code {
     grid-template-columns: 1fr;
   }
 
