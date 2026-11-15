@@ -22,10 +22,7 @@ defmodule FluxValeWeb.AgentLive do
     org = personal_org(socket.assigns)
     ctx = AgentPrompt.context(org && org.name, org && org.slug)
 
-    snippets =
-      Enum.map(AgentPrompt.clients(), fn client ->
-        Map.put(client, :code, AgentPrompt.install(client.install, ctx))
-      end)
+    snippets = AgentPrompt.clients_with_code(ctx)
 
     {:ok,
      socket
