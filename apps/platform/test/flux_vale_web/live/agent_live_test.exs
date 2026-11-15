@@ -77,14 +77,14 @@ defmodule FluxValeWeb.AgentLiveTest do
     assert has_element?(view, "[data-testid='agent-dismiss'][href='/']", "I'll explore myself")
   end
 
-  test "the OAuth mode drops the token sentence and the snippet headers", %{conn: conn} do
+  test "the OAuth mode keeps the PAT fallback and drops the snippet headers", %{conn: conn} do
     previous = Application.get_env(:flux_vale, :mcp_auth_mode)
     on_exit(fn -> Application.put_env(:flux_vale, :mcp_auth_mode, previous) end)
     Application.put_env(:flux_vale, :mcp_auth_mode, :oauth)
 
     {:ok, view, html} = live(conn, ~p"/agent")
 
-    refute html =~ "FLUXVALE_PAT"
+    assert html =~ "FLUXVALE_PAT"
     assert has_element?(view, "[data-testid='agent-snippet-note']", "browser sign-in")
     assert html =~ "claude mcp add --transport http fluxvale"
     refute html =~ "--header"

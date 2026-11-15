@@ -3,9 +3,9 @@ config :flux_vale, token_signing_secret: "fQ9tibmTqr1r2HdqiKrkOofKnY6OQDNK"
 config :bcrypt_elixir, log_rounds: 1
 config :ash, disable_async?: true
 
-# #765: the agent handoff's auth copy is pinned to the shipped PAT
-# shape; a stray MCP_AUTH_MODE in the shell must not flip the suite's
-# snippets (the OAuth-mode tests override it explicitly and restore).
+# #765: the agent handoff's auth copy is pinned to the PAT shape so the
+# PAT fixture stays meaningful; the OAuth cases set the mode explicitly
+# and restore. A stray MCP_AUTH_MODE in the shell must not flip the suite.
 config :flux_vale, mcp_auth_mode: :pat
 
 # Cache-off (#26): every test reads the access_rules table directly —

@@ -29,7 +29,7 @@ defmodule FluxValeWeb.AgentDocsControllerTest do
     refute html =~ "fvpat_"
   end
 
-  test "the OAuth mode swaps the token sentence too", %{conn: conn} do
+  test "the OAuth mode keeps the PAT fallback in the note", %{conn: conn} do
     previous = Application.get_env(:flux_vale, :mcp_auth_mode)
     on_exit(fn -> Application.put_env(:flux_vale, :mcp_auth_mode, previous) end)
     Application.put_env(:flux_vale, :mcp_auth_mode, :oauth)
@@ -37,7 +37,7 @@ defmodule FluxValeWeb.AgentDocsControllerTest do
     conn = get(conn, ~p"/docs/agents")
     html = html_response(conn, 200)
 
-    refute html =~ "FLUXVALE_PAT"
+    assert html =~ "FLUXVALE_PAT"
     assert html =~ "browser sign-in"
     refute html =~ "--header"
   end

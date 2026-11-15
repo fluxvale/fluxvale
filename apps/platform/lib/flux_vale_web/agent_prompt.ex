@@ -32,7 +32,9 @@ defmodule FluxValeWeb.AgentPrompt do
 
   @auth_note_oauth """
   Your client opens a browser sign-in to FluxVale on first connect — no \
-  token to paste.\
+  token to paste. If it does not speak OAuth, mint a scoped token at \
+  %{token_url} with scopes %{scopes}, export it as `FLUXVALE_PAT`, and send \
+  it as `Authorization: Bearer $FLUXVALE_PAT` on the MCP connection.\
   """
 
   @commit_rule "Confirm the spend with me before deploying. Never deploy without an explicit yes."
@@ -127,6 +129,8 @@ defmodule FluxValeWeb.AgentPrompt do
 
       :oauth ->
         @auth_note_oauth
+        |> String.replace("%{token_url}", token_url(ctx))
+        |> String.replace("%{scopes}", scopes())
     end
   end
 
