@@ -35,6 +35,8 @@ pub(crate) const SCOPES_SUPPORTED: &[&str] = &[
     "backups:write",
     "gateways:read",
     "gateways:write",
+    "organizations:read",
+    "organizations:write",
     "wallet:read",
 ];
 

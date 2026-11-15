@@ -12183,6 +12183,18 @@ pub struct OrganizationRelationshipsMembersDataItem {
     #[serde(rename = "type")]
     pub type_: ::std::string::String,
 }
+///`OrganizationType`
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct OrganizationType {
+    ///Field included by default.
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub id: ::std::option::Option<::std::string::String>,
+    ///Field included by default.
+    pub name: ::std::string::String,
+    ///Field included by default.
+    pub slug: ::std::string::String,
+}
 ///A "Resource object" representing a pocket_id_wiring
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
 #[serde(deny_unknown_fields)]

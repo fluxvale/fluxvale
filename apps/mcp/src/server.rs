@@ -1523,7 +1523,7 @@ mod tests {
     // ---- fixture: the upstream's answer per token
 
     /// The full-scope grant list every domain's tools need.
-    const ALL_SCOPES: [&str; 8] = [
+    const ALL_SCOPES: [&str; 10] = [
         "catalog:read",
         "instances:read",
         "instances:write",
@@ -1531,6 +1531,8 @@ mod tests {
         "backups:write",
         "gateways:read",
         "gateways:write",
+        "organizations:read",
+        "organizations:write",
         "wallet:read",
     ];
 
@@ -1867,14 +1869,7 @@ mod tests {
         let server = testapi::serve(&[("/api/v1/me", 200, me_doc(&["catalog:read"]))]);
         assert_eq!(
             listed_tools(&server, PAT_CATALOG).await,
-            [
-                "apps_list",
-                "apps_show",
-                "organizations_create",
-                "pricing_quote",
-                "topup",
-                "whoami"
-            ]
+            ["apps_list", "apps_show", "pricing_quote", "topup", "whoami"]
         );
     }
 
@@ -1899,7 +1894,6 @@ mod tests {
                 "instances_start",
                 "instances_status",
                 "instances_stop",
-                "organizations_create",
                 "sso",
                 "terraform_import_bundle",
                 "topup",
@@ -1916,7 +1910,7 @@ mod tests {
         let server = testapi::serve(&[("/api/v1/me", 200, me_doc(&[]))]);
         assert_eq!(
             listed_tools(&server, "fvpat_no_domains").await,
-            ["organizations_create", "topup", "whoami"]
+            ["topup", "whoami"]
         );
     }
 
@@ -1928,14 +1922,7 @@ mod tests {
         let server = testapi::serve(&[("/api/v1/me", 200, me_doc(&["catalog:read"]))]);
         assert_eq!(
             listed_tools(&server, "fvoat_catalog").await,
-            [
-                "apps_list",
-                "apps_show",
-                "organizations_create",
-                "pricing_quote",
-                "topup",
-                "whoami"
-            ]
+            ["apps_list", "apps_show", "pricing_quote", "topup", "whoami"]
         );
         assert_eq!(server.head_count(), 1);
         assert!(server.head(0).to_lowercase().starts_with("get /api/v1/me"));
@@ -3931,13 +3918,7 @@ mod tests {
         let server = testapi::serve(&[("/api/v1/me", 200, me_doc(&["gateways:read"]))]);
         assert_eq!(
             listed_tools(&server, "fvpat_gateways_read").await,
-            [
-                "custom_domain",
-                "gateway",
-                "organizations_create",
-                "topup",
-                "whoami"
-            ]
+            ["custom_domain", "gateway", "topup", "whoami"]
         );
     }
 

@@ -17,7 +17,7 @@ defmodule FluxVale.TestSupport.ApiPat do
   # families (the paywall suite) — every gate passes, so whatever
   # refuses is a policy.
   @full_scopes Enum.map(
-                 [:instances, :backups, :gateways],
+                 [:instances, :backups, :gateways, :organizations],
                  &["#{&1}:write", "#{&1}:read"]
                )
                |> List.flatten()

@@ -77,14 +77,26 @@ pub fn whoami(
     let me = client.get("/me")?;
     let orgs = match client.get("/organizations") {
         Ok(document) => document,
-        Err(ApiError::NotFound) => Document {
-            data: Some(Value::Array(Vec::new())),
-            meta: None,
-            links: None,
-        },
+        // An older backend without the orgs route: no discovery surface.
+        Err(ApiError::NotFound) => empty_org_document(),
+        // #784: org reads now require organizations:read. A token minted
+        // before the scope existed still proves identity, so `auth
+        // login`'s closing whoami degrades instead of failing sign-in.
+        Err(ApiError::Forbidden(detail)) if detail.contains("organizations:read") => {
+            empty_org_document()
+        }
         Err(err) => return Err(err.into()),
     };
     whoami_rendered(me, orgs, location, output)
+}
+
+/// The no-orgs shape: an empty JSON:API collection.
+fn empty_org_document() -> Document {
+    Document {
+        data: Some(Value::Array(Vec::new())),
+        meta: None,
+        links: None,
+    }
 }
 
 fn whoami_rendered(
@@ -1353,6 +1365,31 @@ mod tests {
         assert!(
             orgs.starts_with("get /api/v1/organizations http/1.1"),
             "request line: {orgs}"
+        );
+    }
+
+    #[test]
+    fn whoami_degrades_a_missing_org_scope_to_no_organizations() {
+        let server = serve_seq(&[
+            envelope(json!({
+                "data": {"type": "user", "id": "01H",
+                         "attributes": {"email": "me@example.com", "platform_role": "user"}}
+            })),
+            respond(
+                "403 Forbidden",
+                r#"{"errors":[{"status":"403","title":"Forbidden","detail":"token is missing the required scope organizations:read"}]}"#,
+            ),
+        ]);
+        let rendered = whoami(
+            &client(&server.base_url),
+            TokenLocation::Keychain,
+            Output::Table,
+        )
+        .unwrap();
+        assert!(rendered.contains("me@example.com"), "rendered: {rendered}");
+        assert!(
+            !rendered.contains("organizations:"),
+            "a scope-refused org list must render no org section: {rendered}"
         );
     }
 

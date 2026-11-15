@@ -39,6 +39,15 @@ Versions follow semver.
 - `instances status` and `instances deploy` show the instance's public
   URL.
 
+### Changed
+
+- `auth login` requests the new `organizations:read` scope by default,
+  so org discovery (`whoami`, wallet and access commands) keeps
+  working. The CLI has no org write verb; include `organizations:write`
+  in the full `--scopes` list when minting a token for Terraform.
+  Tokens minted before the scope existed need a re-mint for org
+  discovery.
+
 ## [0.1.0] - 2026-11-05
 
 ### Added

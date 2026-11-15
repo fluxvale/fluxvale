@@ -8,10 +8,12 @@ defmodule FluxVale.Api.Scopes do
   (ADR-0019 Am. 1); this module is the single place that knows the
   catalog, the implication rule, and the route table.
 
-  Scopes are `<domain>:<access>` strings over five domains. `write`
+  Scopes are `<domain>:<access>` strings over six domains. `write`
   implies `read` for its domain; `wallet` and `catalog` are read-only
   for now (a `write` scope for them is not in the catalog —
-  validation rejects it). There is no admin scope.
+  validation rejects it). There is no admin scope. `organizations`
+  is the billing boundary's scope: a read-only token can inspect an
+  org but never create, rename, or delete one.
 
   The route table maps `{method, path segments}` (under `/api/v1`,
   literals or `:_` wildcards) to the required scope, or `:any` for
@@ -21,8 +23,8 @@ defmodule FluxVale.Api.Scopes do
   route (a dead entry fails).
   """
 
-  @read_domains [:instances, :backups, :gateways, :wallet, :catalog]
-  @write_domains [:instances, :backups, :gateways]
+  @read_domains [:instances, :backups, :gateways, :wallet, :catalog, :organizations]
+  @write_domains [:instances, :backups, :gateways, :organizations]
 
   # The Ash request-context key carrying the calling PAT's scopes from
   # the boundary plug to /me's meta render (#484). ONE owner — the plug
@@ -41,7 +43,7 @@ defmodule FluxVale.Api.Scopes do
   # for refresh tokens). Refresh is always issued here, so the scope is
   # accepted and advertised as a no-op, then stripped before anything
   # is stored or granted. It is deliberately NOT in @all_scopes: PAT
-  # minting keeps its exact five-domain catalog.
+  # minting keeps its exact catalog.
   @oauth_pseudo_scopes ["offline_access"]
   @oauth_scopes @all_scopes ++ @oauth_pseudo_scopes
 
@@ -56,7 +58,9 @@ defmodule FluxVale.Api.Scopes do
     "backups:write" => "Configure backups, run them, and restore your instances",
     "gateways:read" => "See private-access gateways and custom domains",
     "gateways:write" => "Create and manage private-access gateways and custom domains",
-    "wallet:read" => "See your wallet balance, runway, and ledger"
+    "wallet:read" => "See your wallet balance, runway, and ledger",
+    "organizations:read" => "See your organizations",
+    "organizations:write" => "Create, rename, and delete your organizations"
   }
 
   # One entry per {method, pattern} — a pattern is the path segments
@@ -73,15 +77,18 @@ defmodule FluxVale.Api.Scopes do
     # scopes and lifetime — the privilege boundary is relative to the
     # caller, so no fixed route scope describes it.
     {{"POST", ["tokens"]}, :any},
-    # The actor's own orgs (#362 T6a): identity-adjacent like /me —
-    # membership IS the policy (the action filters on the actor's
-    # memberships), so the route takes no domain scope. Any live token
-    # may learn which orgs it belongs to.
-    {{"GET", ["organizations"]}, :any},
-    # #770: org creation is identity-adjacent like the list — the
-    # action's own policy (actor present, below the org cap) and the
-    # reserved-slug validation are the gate, not a domain scope.
-    {{"POST", ["organizations"]}, :any},
+    # The org is the billing boundary (#784): its reads ride the
+    # domain's read scope, its writes the write scope — a read-only
+    # token can inspect an org but never create, rename, or delete
+    # one. Membership stays the policy underneath; the scope is the
+    # boundary gate above it.
+    {{"GET", ["organizations"]}, "organizations:read"},
+    {{"POST", ["organizations"]}, "organizations:write"},
+    # #784: the org resource's detail reads (refresh + import by slug).
+    {{"GET", ["organizations", "by-slug", :_]}, "organizations:read"},
+    {{"GET", ["organizations", :_]}, "organizations:read"},
+    {{"PATCH", ["organizations", :_]}, "organizations:write"},
+    {{"DELETE", ["organizations", :_]}, "organizations:write"},
     # Instances.
     {{"GET", ["instances"]}, "instances:read"},
     {{"POST", ["instances"]}, "instances:write"},
@@ -137,7 +144,7 @@ defmodule FluxVale.Api.Scopes do
     {{"DELETE", ["access-gateways", :_, "attachments", :_]}, "gateways:write"},
     # Access domains (#482, ADR-0040): custom domains serve the
     # private-access edge, so they ride the gateways domain — no new
-    # scope string, the catalog stays five domains.
+    # scope string for them.
     {{"POST", ["access-domains"]}, "gateways:write"},
     {{"GET", ["organizations", :_, "access-domains"]}, "gateways:read"},
     {{"GET", ["access-domains", :_]}, "gateways:read"},
@@ -166,7 +173,7 @@ defmodule FluxVale.Api.Scopes do
 
   @doc """
   Every scope an OAuth authorization request may name (#766): the
-  five-domain catalog plus the `offline_access` no-op.
+  catalog plus the `offline_access` no-op.
   """
   @spec oauth_scopes() :: [String.t()]
   def oauth_scopes, do: @oauth_scopes

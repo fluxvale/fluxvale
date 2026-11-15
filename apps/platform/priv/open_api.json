@@ -8401,6 +8401,36 @@
         },
         "type": "object"
       },
+      "organization-type": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Field included by default."
+          },
+          "name": {
+            "description": "Field included by default.",
+            "type": "string"
+          },
+          "slug": {
+            "description": "Field included by default.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "slug"
+        ],
+        "type": "object"
+      },
       "pocket_id_wiring": {
         "additionalProperties": false,
         "description": "A \"Resource object\" representing a pocket_id_wiring",
@@ -21214,6 +21244,560 @@
         },
         "responses": {
           "201": {
+            "content": {
+              "application/vnd.api+json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "additionalProperties": false,
+                      "description": "A \"Resource object\" representing a organization",
+                      "properties": {
+                        "attributes": {
+                          "additionalProperties": false,
+                          "description": "An attributes object for a organization",
+                          "properties": {
+                            "name": {
+                              "description": "Field included by default.",
+                              "type": "string"
+                            },
+                            "slug": {
+                              "description": "Field included by default.",
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "name",
+                            "slug"
+                          ],
+                          "type": "object"
+                        },
+                        "id": {
+                          "type": "string"
+                        },
+                        "relationships": {
+                          "additionalProperties": false,
+                          "description": "A relationships object for a organization",
+                          "properties": {
+                            "members": {
+                              "properties": {
+                                "data": {
+                                  "description": "Relationship data for members",
+                                  "items": {
+                                    "additionalProperties": false,
+                                    "description": "Resource identifiers for members",
+                                    "properties": {
+                                      "id": {
+                                        "type": "string"
+                                      },
+                                      "meta": {
+                                        "additionalProperties": true,
+                                        "type": "object"
+                                      },
+                                      "type": {
+                                        "type": "string"
+                                      }
+                                    },
+                                    "required": [
+                                      "type",
+                                      "id"
+                                    ],
+                                    "type": "object"
+                                  },
+                                  "type": "array",
+                                  "uniqueItems": true
+                                }
+                              }
+                            }
+                          },
+                          "type": "object"
+                        },
+                        "type": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "id"
+                      ],
+                      "type": "object"
+                    },
+                    "included": {
+                      "items": {
+                        "oneOf": []
+                      },
+                      "type": "array",
+                      "uniqueItems": true
+                    },
+                    "meta": {
+                      "additionalProperties": true,
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/errors"
+          }
+        },
+        "tags": [
+          "organization"
+        ]
+      }
+    },
+    "/api/v1/organizations/by-slug/{slug}": {
+      "get": {
+        "callbacks": {},
+        "deprecated": false,
+        "description": "Get an organization by slug",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "style": "form"
+          },
+          {
+            "description": "Relationship paths to include in the response",
+            "explode": false,
+            "in": "query",
+            "name": "include",
+            "required": false,
+            "schema": {
+              "pattern": "^()(,())*$",
+              "type": "string"
+            },
+            "style": "form"
+          },
+          {
+            "description": "Limits the response fields to only those listed for each type",
+            "in": "query",
+            "name": "fields",
+            "required": false,
+            "schema": {
+              "additionalProperties": true,
+              "example": {
+                "organization": "id,name,slug"
+              },
+              "properties": {
+                "organization": {
+                  "description": "Comma separated field names for organization",
+                  "example": "id,name,slug",
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "style": "deepObject"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/vnd.api+json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "additionalProperties": false,
+                      "description": "A \"Resource object\" representing a organization",
+                      "properties": {
+                        "attributes": {
+                          "additionalProperties": false,
+                          "description": "An attributes object for a organization",
+                          "properties": {
+                            "name": {
+                              "description": "Field included by default.",
+                              "type": "string"
+                            },
+                            "slug": {
+                              "description": "Field included by default.",
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "name",
+                            "slug"
+                          ],
+                          "type": "object"
+                        },
+                        "id": {
+                          "type": "string"
+                        },
+                        "relationships": {
+                          "additionalProperties": false,
+                          "description": "A relationships object for a organization",
+                          "properties": {
+                            "members": {
+                              "properties": {
+                                "data": {
+                                  "description": "Relationship data for members",
+                                  "items": {
+                                    "additionalProperties": false,
+                                    "description": "Resource identifiers for members",
+                                    "properties": {
+                                      "id": {
+                                        "type": "string"
+                                      },
+                                      "meta": {
+                                        "additionalProperties": true,
+                                        "type": "object"
+                                      },
+                                      "type": {
+                                        "type": "string"
+                                      }
+                                    },
+                                    "required": [
+                                      "type",
+                                      "id"
+                                    ],
+                                    "type": "object"
+                                  },
+                                  "type": "array",
+                                  "uniqueItems": true
+                                }
+                              }
+                            }
+                          },
+                          "type": "object"
+                        },
+                        "type": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "id"
+                      ],
+                      "type": "object"
+                    },
+                    "included": {
+                      "items": {
+                        "oneOf": []
+                      },
+                      "type": "array",
+                      "uniqueItems": true
+                    },
+                    "meta": {
+                      "additionalProperties": true,
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/errors"
+          }
+        },
+        "tags": [
+          "organization"
+        ]
+      }
+    },
+    "/api/v1/organizations/{id}": {
+      "delete": {
+        "callbacks": {},
+        "deprecated": false,
+        "description": "Delete an empty organization",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "style": "form"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/vnd.api+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/organization-type"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/errors"
+          }
+        },
+        "tags": [
+          "organization"
+        ]
+      },
+      "get": {
+        "callbacks": {},
+        "deprecated": false,
+        "description": "Get an organization by id",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "style": "form"
+          },
+          {
+            "description": "Relationship paths to include in the response",
+            "explode": false,
+            "in": "query",
+            "name": "include",
+            "required": false,
+            "schema": {
+              "pattern": "^()(,())*$",
+              "type": "string"
+            },
+            "style": "form"
+          },
+          {
+            "description": "Limits the response fields to only those listed for each type",
+            "in": "query",
+            "name": "fields",
+            "required": false,
+            "schema": {
+              "additionalProperties": true,
+              "example": {
+                "organization": "id,name,slug"
+              },
+              "properties": {
+                "organization": {
+                  "description": "Comma separated field names for organization",
+                  "example": "id,name,slug",
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "style": "deepObject"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/vnd.api+json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "additionalProperties": false,
+                      "description": "A \"Resource object\" representing a organization",
+                      "properties": {
+                        "attributes": {
+                          "additionalProperties": false,
+                          "description": "An attributes object for a organization",
+                          "properties": {
+                            "name": {
+                              "description": "Field included by default.",
+                              "type": "string"
+                            },
+                            "slug": {
+                              "description": "Field included by default.",
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "name",
+                            "slug"
+                          ],
+                          "type": "object"
+                        },
+                        "id": {
+                          "type": "string"
+                        },
+                        "relationships": {
+                          "additionalProperties": false,
+                          "description": "A relationships object for a organization",
+                          "properties": {
+                            "members": {
+                              "properties": {
+                                "data": {
+                                  "description": "Relationship data for members",
+                                  "items": {
+                                    "additionalProperties": false,
+                                    "description": "Resource identifiers for members",
+                                    "properties": {
+                                      "id": {
+                                        "type": "string"
+                                      },
+                                      "meta": {
+                                        "additionalProperties": true,
+                                        "type": "object"
+                                      },
+                                      "type": {
+                                        "type": "string"
+                                      }
+                                    },
+                                    "required": [
+                                      "type",
+                                      "id"
+                                    ],
+                                    "type": "object"
+                                  },
+                                  "type": "array",
+                                  "uniqueItems": true
+                                }
+                              }
+                            }
+                          },
+                          "type": "object"
+                        },
+                        "type": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "id"
+                      ],
+                      "type": "object"
+                    },
+                    "included": {
+                      "items": {
+                        "oneOf": []
+                      },
+                      "type": "array",
+                      "uniqueItems": true
+                    },
+                    "meta": {
+                      "additionalProperties": true,
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/errors"
+          }
+        },
+        "tags": [
+          "organization"
+        ]
+      },
+      "patch": {
+        "callbacks": {},
+        "deprecated": false,
+        "description": "/organizations/:id operation on organization resource",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "style": "form"
+          },
+          {
+            "description": "Relationship paths to include in the response",
+            "explode": false,
+            "in": "query",
+            "name": "include",
+            "required": false,
+            "schema": {
+              "pattern": "^()(,())*$",
+              "type": "string"
+            },
+            "style": "form"
+          },
+          {
+            "description": "Limits the response fields to only those listed for each type",
+            "in": "query",
+            "name": "fields",
+            "required": false,
+            "schema": {
+              "additionalProperties": true,
+              "example": {
+                "organization": "id,name,slug"
+              },
+              "properties": {
+                "organization": {
+                  "description": "Comma separated field names for organization",
+                  "example": "id,name,slug",
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "style": "deepObject"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/vnd.api+json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "data": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "attributes": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "name": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "id": {
+                        "type": "string"
+                      },
+                      "relationships": {
+                        "additionalProperties": false,
+                        "properties": {},
+                        "type": "object"
+                      },
+                      "type": {
+                        "enum": [
+                          "organization"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "id"
+                    ],
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "data"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "description": "Request body for the /organizations/:id operation on organization resource",
+          "required": false
+        },
+        "responses": {
+          "200": {
             "content": {
               "application/vnd.api+json": {
                 "schema": {

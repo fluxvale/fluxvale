@@ -1,12 +1,11 @@
 defmodule FluxValeWeb.Api.OrganizationRouteTest do
   @moduledoc false
 
-  # #362 T6a: GET /api/v1/organizations — the actor's own orgs. The CLI
-  # discovery's source: wallet/access commands need an org id, the panel
-  # URL only shows the slug. Scopeless like /me — any live token passes
-  # the boundary gate; the membership filter IS the policy, which is why
-  # the cross-org test rides a full-scope token (a leak must surface as
-  # rows, never hide behind a scope denial).
+  # #362 T6a + #784: the org wire surface. Reads ride
+  # `organizations:read`, writes `organizations:write` — the billing
+  # boundary's scope gate above the membership/ownership policies. The
+  # cross-org tests ride a full-scope token (a leak must surface as a
+  # policy refusal, never hide behind a scope denial).
 
   use FluxValeWeb.ConnCase, async: true
 
@@ -87,19 +86,27 @@ defmodule FluxValeWeb.Api.OrganizationRouteTest do
     refute rows == []
   end
 
-  test "a scopeless token passes — the route is identity-adjacent, :any", %{conn: conn} do
+  test "the org list needs organizations:read — a read-only token passes, a scopeless one does not",
+       %{conn: conn} do
     user = AccountsFixtures.user!()
     personal = AccountsFixtures.personal_org!(user)
-    pat = ApiPat.mint!(user, [])
 
     conn =
       conn
-      |> auth(pat)
+      |> auth(ApiPat.mint!(user, ["organizations:read"]))
       |> get("/api/v1/organizations")
 
     assert %{"data" => rows} = json_response(conn, 200)
     assert [row] = rows
     assert row["id"] == personal.id
+
+    scopeless =
+      build_conn()
+      |> auth(ApiPat.mint!(user, []))
+      |> get("/api/v1/organizations")
+
+    assert %{"errors" => [error]} = json_response(scopeless, 403)
+    assert error["detail"] =~ "organizations:read"
   end
 
   describe "POST /api/v1/organizations (#770)" do
@@ -162,7 +169,7 @@ defmodule FluxValeWeb.Api.OrganizationRouteTest do
       conn: conn
     } do
       admin = AccountsFixtures.platform_admin!()
-      pat = ApiPat.mint!(admin, [])
+      pat = ApiPat.mint!(admin, ["organizations:write"])
 
       conn =
         conn
@@ -217,6 +224,227 @@ defmodule FluxValeWeb.Api.OrganizationRouteTest do
 
       assert %{"errors" => [error]} = json_response(conn, 401)
       assert error["detail"] =~ "personal access token"
+    end
+  end
+
+  describe "GET /api/v1/organizations/:id (#784)" do
+    test "a member reads the org", %{conn: conn} do
+      {user, pat} = ApiPat.member!()
+      org = team_org!(user, "read-#{System.unique_integer([:positive])}")
+
+      conn =
+        conn
+        |> auth(pat)
+        |> get("/api/v1/organizations/#{org.id}")
+
+      assert %{"data" => row} = json_response(conn, 200)
+      assert row["id"] == org.id
+      assert row["attributes"]["slug"] == org.slug
+      assert row["attributes"]["name"] == org.name
+    end
+
+    test "a non-member sees it as not found — the membership policy hides the row", %{conn: conn} do
+      {_user, pat} = ApiPat.member!()
+      owner = AccountsFixtures.user!()
+      org = team_org!(owner, "private-#{System.unique_integer([:positive])}")
+
+      conn =
+        conn
+        |> auth(pat)
+        |> get("/api/v1/organizations/#{org.id}")
+
+      assert %{"errors" => [error]} = json_response(conn, 404)
+      assert error["code"] == "not_found"
+    end
+
+    test "an unknown id is 404", %{conn: conn} do
+      {_user, pat} = ApiPat.member!()
+
+      conn =
+        conn
+        |> auth(pat)
+        |> get("/api/v1/organizations/#{Ash.UUID.generate()}")
+
+      assert %{"errors" => [_error]} = json_response(conn, 404)
+    end
+
+    test "the slug lookup resolves the same row", %{conn: conn} do
+      {user, pat} = ApiPat.member!()
+      org = team_org!(user, "slug-#{System.unique_integer([:positive])}")
+
+      conn =
+        conn
+        |> auth(pat)
+        |> get("/api/v1/organizations/by-slug/#{org.slug}")
+
+      assert %{"data" => row} = json_response(conn, 200)
+      assert row["id"] == org.id
+    end
+  end
+
+  describe "PATCH /api/v1/organizations/:id (#784)" do
+    test "the owner renames in place", %{conn: conn} do
+      {user, pat} = ApiPat.member!()
+      org = team_org!(user, "rename-#{System.unique_integer([:positive])}")
+
+      conn =
+        conn
+        |> auth(pat)
+        |> put_req_header("content-type", "application/vnd.api+json")
+        |> patch("/api/v1/organizations/#{org.id}", %{
+          "data" => %{
+            "type" => "organization",
+            "id" => org.id,
+            "attributes" => %{"name" => "Renamed"}
+          }
+        })
+
+      assert %{"data" => row} = json_response(conn, 200)
+      assert row["attributes"]["name"] == "Renamed"
+      assert {:ok, fresh} = Organization.get_by_id(org.id, authorize?: false)
+      assert fresh.name == "Renamed"
+    end
+
+    test "a slug change is refused — the wire rename is name-only", %{conn: conn} do
+      {user, pat} = ApiPat.member!()
+      org = team_org!(user, "slug-locked-#{System.unique_integer([:positive])}")
+
+      conn =
+        conn
+        |> auth(pat)
+        |> put_req_header("content-type", "application/vnd.api+json")
+        |> patch("/api/v1/organizations/#{org.id}", %{
+          "data" => %{
+            "type" => "organization",
+            "id" => org.id,
+            "attributes" => %{"slug" => "moved"}
+          }
+        })
+
+      assert %{"errors" => [_error]} = json_response(conn, 400)
+      assert {:ok, fresh} = Organization.get_by_id(org.id, authorize?: false)
+      assert fresh.slug == org.slug
+    end
+
+    test "a non-owner member is forbidden", %{conn: conn} do
+      owner = AccountsFixtures.user!()
+      org = team_org!(owner, "member-#{System.unique_integer([:positive])}")
+      {member, pat} = ApiPat.member!()
+
+      Membership.create!(
+        %{organization_id: org.id, user_id: member.id, role: :member},
+        authorize?: false
+      )
+
+      conn =
+        conn
+        |> auth(pat)
+        |> put_req_header("content-type", "application/vnd.api+json")
+        |> patch("/api/v1/organizations/#{org.id}", %{
+          "data" => %{"type" => "organization", "id" => org.id, "attributes" => %{"name" => "X"}}
+        })
+
+      assert %{"errors" => [_error]} = json_response(conn, 403)
+    end
+
+    test "a platform admin's token cannot rename a foreign org — the blanket stops at the machine API",
+         %{conn: conn} do
+      admin = AccountsFixtures.platform_admin!()
+      pat = ApiPat.mint!(admin, ["organizations:write", "organizations:read"])
+      owner = AccountsFixtures.user!()
+      org = team_org!(owner, "foreign-#{System.unique_integer([:positive])}")
+
+      conn =
+        conn
+        |> auth(pat)
+        |> put_req_header("content-type", "application/vnd.api+json")
+        |> patch("/api/v1/organizations/#{org.id}", %{
+          "data" => %{"type" => "organization", "id" => org.id, "attributes" => %{"name" => "X"}}
+        })
+
+      assert %{"errors" => [_error]} = json_response(conn, 404)
+    end
+  end
+
+  describe "DELETE /api/v1/organizations/:id (#784)" do
+    test "the owner deletes an empty org", %{conn: conn} do
+      {user, pat} = ApiPat.member!()
+      org = team_org!(user, "empty-#{System.unique_integer([:positive])}")
+
+      conn =
+        conn
+        |> auth(pat)
+        |> delete("/api/v1/organizations/#{org.id}")
+
+      # The access-domain remove shape: a flat body, no JSON:API envelope.
+      assert body = json_response(conn, 200)
+      assert body["id"] == org.id
+      refute Map.has_key?(body, "data")
+      assert {:error, _gone} = Organization.get_by_id(org.id, authorize?: false)
+    end
+
+    test "a non-owner member is refused with the platform's message", %{conn: conn} do
+      {owner, pat} = ApiPat.member!()
+      org = team_org!(owner, "blocked-#{System.unique_integer([:positive])}")
+      other = AccountsFixtures.user!()
+
+      Membership.create!(
+        %{organization_id: org.id, user_id: other.id, role: :member},
+        authorize?: false
+      )
+
+      conn =
+        conn
+        |> auth(pat)
+        |> delete("/api/v1/organizations/#{org.id}")
+
+      assert %{"errors" => [error]} = json_response(conn, 400)
+      assert error["detail"] =~ "members who are not owners"
+      assert {:ok, _still_there} = Organization.get_by_id(org.id, authorize?: false)
+    end
+
+    test "a wallet-bearing org is retained with the billing message", %{conn: conn} do
+      {user, pat} = ApiPat.member!()
+      org = team_org!(user, "wallet-#{System.unique_integer([:positive])}")
+      {:ok, _wallet} = FluxVale.Billing.ensure_wallet(org)
+
+      conn =
+        conn
+        |> auth(pat)
+        |> delete("/api/v1/organizations/#{org.id}")
+
+      assert %{"errors" => [error]} = json_response(conn, 400)
+      assert error["detail"] =~ "billing history"
+      assert {:ok, _still_there} = Organization.get_by_id(org.id, authorize?: false)
+    end
+
+    test "a read-only token cannot delete the billing boundary", %{conn: conn} do
+      {user, _full_pat} = ApiPat.member!()
+      org = team_org!(user, "readonly-#{System.unique_integer([:positive])}")
+
+      conn =
+        conn
+        |> auth(ApiPat.mint!(user, ["organizations:read"]))
+        |> delete("/api/v1/organizations/#{org.id}")
+
+      assert %{"errors" => [error]} = json_response(conn, 403)
+      assert error["detail"] =~ "organizations:write"
+      assert {:ok, _still_there} = Organization.get_by_id(org.id, authorize?: false)
+    end
+
+    test "a non-member sees it as not found — the membership policy hides the row", %{conn: conn} do
+      {_user, pat} = ApiPat.member!()
+      owner = AccountsFixtures.user!()
+      org = team_org!(owner, "stranger-#{System.unique_integer([:positive])}")
+
+      conn =
+        conn
+        |> auth(pat)
+        |> delete("/api/v1/organizations/#{org.id}")
+
+      assert %{"errors" => [error]} = json_response(conn, 404)
+      assert error["code"] == "not_found"
+      assert {:ok, _still_there} = Organization.get_by_id(org.id, authorize?: false)
     end
   end
 end

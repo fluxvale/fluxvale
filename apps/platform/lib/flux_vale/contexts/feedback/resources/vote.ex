@@ -38,6 +38,9 @@ defmodule FluxVale.Feedback.Vote do
     # no drift).
     references do
       reference(:post, on_delete: :delete)
+      # #784: org teardown clears the vote's attribution — the count is
+      # public board data and the vote is not org-owned content.
+      reference(:organization, on_delete: :nilify)
     end
   end
 

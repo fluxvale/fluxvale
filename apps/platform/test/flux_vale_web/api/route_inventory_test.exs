@@ -15,10 +15,13 @@ defmodule FluxValeWeb.Api.RouteInventoryTest do
   # paths are the assertion.
   @expected [
     {:get, "/me"},
-    # The actor's own orgs (#362 T6a) — scopeless like /me.
+    # The org surface (#362 T6a, #770, #784) — organizations:read/write.
     {:get, "/organizations"},
-    # #770: agent org creation — the actor path (#408), any live token.
     {:post, "/organizations"},
+    {:get, "/organizations/by-slug/:slug"},
+    {:get, "/organizations/:id"},
+    {:patch, "/organizations/:id"},
+    {:delete, "/organizations/:id"},
     # instances:read / instances:write
     {:get, "/instances"},
     {:post, "/instances"},
@@ -122,6 +125,7 @@ defmodule FluxValeWeb.Api.RouteInventoryTest do
     {FluxVale.Infrastructure.AccessDomain, :mint_platform},
     {FluxVale.Infrastructure.AccessDomain, :list_all},
     {FluxVale.Infrastructure.AccessDomain, :remove},
+    {FluxVale.Infrastructure.AccessDomain, :purge},
     {FluxVale.Infrastructure.AccessDomain, :mark_verified},
     {FluxVale.Infrastructure.AccessDomain, :mark_failed},
     {FluxVale.Infrastructure.AccessDomain, :mark_needs_attention},
