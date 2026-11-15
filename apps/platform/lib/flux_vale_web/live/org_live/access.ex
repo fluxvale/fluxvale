@@ -964,7 +964,12 @@ defmodule FluxValeWeb.OrganizationLive.Access do
   defp domain_state_label(%{state: :failed}), do: "Verification failed"
   defp domain_state_label(%{state: :needs_attention}), do: "Certificate needs attention"
   defp domain_state_label(%{state: :suspended}), do: "Suspended"
+
+  # coveralls-ignore-start - a state the panel has no label for yet (a
+  # future enum value): the honest generic beats crashing the card.
   defp domain_state_label(_domain), do: "Not verified"
+
+  # coveralls-ignore-stop
 
   defp domain_claim_label(%{claimed?: true}), do: "Claimed on your tailnet"
   defp domain_claim_label(_domain), do: "Not claimed yet"
