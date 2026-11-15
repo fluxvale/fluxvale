@@ -16,6 +16,9 @@ defmodule FluxVale.Infrastructure.AccessDomain.DnsRecords do
   alias FluxVale.Infrastructure.AccessDomain
 
   @impl Ash.Resource.Calculation
+  def load(_query, _opts, _context), do: [:domain, :kind]
+
+  @impl Ash.Resource.Calculation
   def calculate(records, _opts, _context) do
     Enum.map(records, fn
       %{kind: :platform} -> []

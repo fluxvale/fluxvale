@@ -190,9 +190,11 @@ Write-only inputs need Terraform 1.12+ or OpenTofu 1.13+ and provider 0.4.0+. Ex
 A custom domain needs one DNS record in the private lane: the
 `_acme-challenge` delegation. Get it from the row-free data source,
 create it before registration, then wait for issuance. The graph is
-deliberately data source → record → domain: a computed attribute on
-`fluxvale_custom_domain` cannot be used here, because Terraform does not
-publish it until create returns — and create is waiting for the record.
+deliberately data source → record → domain: `fluxvale_custom_domain` has
+no `dns_records` attribute, because Terraform does not publish a
+resource's computed values until create returns — and create is waiting
+for the record. The platform API keeps its own computed mirror for the
+panel; the provider exposes the pre-registration source only.
 
 ```hcl
 data "cloudflare_zone" "this" {
@@ -225,7 +227,7 @@ There is no host CNAME: the name resolves only through the claiming
 gateway's tailnet. The worked example in the provider's repository,
 [`examples/cloudflare-stack`](https://github.com/fluxvale/terraform-provider-fluxvale/tree/main/examples/cloudflare-stack),
 adds the gateway and its write-only Tailscale API token to the same
-stack, so the claim lands in the same apply.
+stack, ordered after the domain, so the claim lands in the same apply.
 
 ### Claim a verified domain from the same stack
 
@@ -251,9 +253,10 @@ resource "fluxvale_access_gateway" "gateway" {
 }
 ```
 
-The token save claims every verified domain; a later verification or
-attach claims too. Bump `rotate_api_token_on` before the Tailscale key's
-90-day expiry. The attribute uses Terraform's write-only input support:
+The token save attempts to claim every verified domain — read
+`claimed_domains` for the result; a later verification or attach claims
+too. Bump `rotate_api_token_on` before the Tailscale key's 90-day
+expiry. The attribute uses Terraform's write-only input support:
 Terraform 1.12+ or OpenTofu 1.13+ and a provider release containing it;
 older CLIs can leave it out and paste the token in the panel.
 

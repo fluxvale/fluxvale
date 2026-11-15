@@ -47,8 +47,11 @@ defmodule FluxVale.Infrastructure.AccessDomain do
   # The registration grammar, shared by the attribute and the
   # pre-registration delegation preview. Dot-separated DNS labels,
   # alnum + inner hyphens, 1-63 chars each; \z (not $) so a trailing
-  # newline cannot slip through.
+  # newline cannot slip through. The attribute also bounds the whole
+  # name at 251 (the wildcard's "*." leaves room in 253); the preview
+  # applies the same bound so it cannot green-light a dead end.
   @domain_regex ~r/^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+\z/
+  @domain_max_length 251
 
   json_api do
     type("access_domain")
@@ -257,7 +260,7 @@ defmodule FluxVale.Infrastructure.AccessDomain do
         # 251 = RFC 253's 253-octet printable name minus the "*." our
         # wildcard dnsName ("*.#{domain}") adds — the row stores the
         # bare domain, the Certificate carries the star.
-        max_length: 251
+        max_length: @domain_max_length
       )
     end
 
@@ -333,9 +336,11 @@ defmodule FluxVale.Infrastructure.AccessDomain do
       change(FluxVale.Infrastructure.AccessDomain.MintCertificate)
 
       # Normalize before validation: trimmed + downcased, so
-      # "Apps.Customer.COM." -style input lands canonical and the
+      # "Apps.Customer.COM" -style input lands canonical and the
       # unique (organization_id, domain) identity can't be forked by
-      # case. (Validation runs after changes — the v1 pattern.)
+      # case. A trailing dot is not stripped — it fails validation,
+      # the same in the delegation preview. (Validation runs after
+      # changes — the v1 pattern.)
       change(fn changeset, _context ->
         domain = Ash.Changeset.get_attribute(changeset, :domain)
 
@@ -380,14 +385,14 @@ defmodule FluxVale.Infrastructure.AccessDomain do
         domain = String.downcase(trimmed)
 
         cond do
-          not Regex.match?(@domain_regex, domain) ->
+          not Regex.match?(@domain_regex, domain) or String.length(domain) > @domain_max_length ->
             {:error,
              InvalidArgument.exception(
                field: :domain,
                message: "is not a valid domain name"
              )}
 
-          domain == Application.fetch_env!(:flux_vale, :instances_base_domain) ->
+          platform_domain?(domain) ->
             {:error,
              InvalidArgument.exception(
                field: :domain,
@@ -660,6 +665,17 @@ defmodule FluxVale.Infrastructure.AccessDomain do
       secret_name: certificate_name(domain),
       issuer: Keyword.fetch!(config, :issuer)
     }
+  end
+
+  @doc """
+  Whether `domain` is FluxVale's own serving domain — platform-served,
+  never a custom registration or a delegation preview. One predicate,
+  shared by the register change and the preview, so the two doors
+  cannot drift.
+  """
+  @spec platform_domain?(String.t()) :: boolean()
+  def platform_domain?(domain) when is_binary(domain) do
+    domain == Application.fetch_env!(:flux_vale, :instances_base_domain)
   end
 
   # The DNS delegation a custom domain needs before registration

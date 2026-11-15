@@ -64,6 +64,23 @@ defmodule FluxValeWeb.Api.DomainDelegationRouteTest do
     assert error["detail"] =~ "valid domain"
   end
 
+  test "a syntactically valid name over the registration length is refused", %{conn: conn} do
+    {user, _pat} = ApiPat.member!()
+    pat = ApiPat.mint!(user, ["gateways:read"])
+    # Four valid labels, 252 characters — the register attribute's
+    # max_length is 251 (the wildcard's "*." fills the DNS name).
+    long = Enum.map_join([63, 63, 63, 60], ".", &String.duplicate("a", &1))
+    assert String.length(long) == 252
+
+    conn =
+      conn
+      |> auth(pat)
+      |> get("/api/v1/domain-delegations/#{long}")
+
+    assert %{"errors" => [error | _rest]} = json_response(conn, 400)
+    assert error["detail"] =~ "valid domain"
+  end
+
   test "FluxVale's own serving domain is refused — it is platform-served", %{conn: conn} do
     {user, _pat} = ApiPat.member!()
     pat = ApiPat.mint!(user, ["gateways:read"])
