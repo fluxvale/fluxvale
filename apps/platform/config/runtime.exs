@@ -367,7 +367,8 @@ if config_env() != :test do
 end
 
 # #765: the MCP endpoint and auth-copy switch the agent handoff
-# advertises. Test keeps config.exs/test.exs's pins — a stray MCP_*
+# advertises. config.exs defaults the copy to OAuth; MCP_AUTH_MODE
+# overrides it (pat | oauth). Test keeps its own pins — a stray MCP_*
 # in the suite's shell must not flip the fixtures (the OAuth tests
 # override the app env explicitly).
 if config_env() != :test do
