@@ -40,8 +40,18 @@ defmodule FluxVale.Infrastructure.AccessDomain do
   # the provider's register/list/inspect/resume/remove. Public
   # attributes only; cert_secret_ref is an internal k8s object name,
   # not API surface — off every list. organization_id is the org
-  # reference the provider wants on the wire.
-  @domain_fields [:id, :domain, :kind, :state, :organization_id]
+  # reference the provider wants on the wire. dns_records is a
+  # calculation (the delegation set), not a column.
+  @domain_fields [:id, :domain, :kind, :state, :organization_id, :dns_records]
+
+  # The registration grammar, shared by the attribute and the
+  # pre-registration delegation preview. Dot-separated DNS labels,
+  # alnum + inner hyphens, 1-63 chars each; \z (not $) so a trailing
+  # newline cannot slip through. The attribute also bounds the whole
+  # name at 251 (the wildcard's "*." leaves room in 253); the preview
+  # applies the same bound so it cannot green-light a dead end.
+  @domain_regex ~r/^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+\z/
+  @domain_max_length 251
 
   json_api do
     type("access_domain")
@@ -67,6 +77,15 @@ defmodule FluxVale.Infrastructure.AccessDomain do
       # (member-fenced, #408); no argument keeps the personal-org
       # default.
       post(:register, route: "/access-domains", default_fields: @domain_fields)
+
+      # gateways:read — the pre-registration delegation preview: the
+      # `_acme-challenge` CNAME(s) a domain needs BEFORE it is
+      # registered. Read-only and row-free (the domain is the input);
+      # the provider's fluxvale_domain_delegation data source rides it,
+      # so a Terraform stack can create the DNS record before the
+      # domain's create waits for issuance. A distinct path — no
+      # collision with /access-domains/:id.
+      route(:get, "domain-delegations/:domain", :delegation)
 
       # gateways:write — resume's gates are lighter than register's:
       # membership AND a funded wallet (no paid-once gate — resuming is
@@ -181,6 +200,14 @@ defmodule FluxVale.Infrastructure.AccessDomain do
       forbid_if(always())
     end
 
+    # The pre-registration delegation preview is row-free and reveals
+    # only the public CNAME target; any live actor may ask. The route's
+    # gateways:read scope is the token fence.
+    policy action(:delegation) do
+      description("The delegation preview — any live actor (the records are public DNS data)")
+      authorize_if(actor_present())
+    end
+
     # The state funnels are the observer's writes — the platform's read
     # of the cluster, never the owner's opinion of it.
     policy action([:mark_verified, :mark_failed, :mark_needs_attention, :mark_suspended]) do
@@ -229,12 +256,11 @@ defmodule FluxVale.Infrastructure.AccessDomain do
       public?(true)
 
       constraints(
-        match:
-          ~r/^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+\z/,
+        match: @domain_regex,
         # 251 = RFC 253's 253-octet printable name minus the "*." our
         # wildcard dnsName ("*.#{domain}") adds — the row stores the
         # bare domain, the Certificate carries the star.
-        max_length: 251
+        max_length: @domain_max_length
       )
     end
 
@@ -310,9 +336,11 @@ defmodule FluxVale.Infrastructure.AccessDomain do
       change(FluxVale.Infrastructure.AccessDomain.MintCertificate)
 
       # Normalize before validation: trimmed + downcased, so
-      # "Apps.Customer.COM." -style input lands canonical and the
+      # "Apps.Customer.COM" -style input lands canonical and the
       # unique (organization_id, domain) identity can't be forked by
-      # case. (Validation runs after changes — the v1 pattern.)
+      # case. A trailing dot is not stripped — it fails validation,
+      # the same in the delegation preview. (Validation runs after
+      # changes — the v1 pattern.)
       change(fn changeset, _context ->
         domain = Ash.Changeset.get_attribute(changeset, :domain)
 
@@ -332,6 +360,48 @@ defmodule FluxVale.Infrastructure.AccessDomain do
 
       change(fn changeset, _context ->
         Ash.Changeset.force_change_attribute(changeset, :state, :pending)
+      end)
+    end
+
+    # The pre-registration delegation preview (#783): the same
+    # `_acme-challenge` CNAME the Certificate's DNS-01 needs, computed
+    # from the domain alone — no row, no cluster call. The provider's
+    # `fluxvale_domain_delegation` data source calls this before
+    # `register`, which is what keeps the Terraform graph acyclic
+    # (a resource's computed attributes are not published until its
+    # create returns, and create waits for issuance).
+    action :delegation, :map do
+      description("""
+      The DNS delegation records a custom domain needs before
+      registration — one `_acme-challenge` CNAME into the platform's
+      ACME validation namespace. Computed from the domain; no row is
+      created and nothing is registered.
+      """)
+
+      argument(:domain, :string, allow_nil?: false, public?: true)
+
+      run(fn input, _context ->
+        trimmed = String.trim(input.arguments.domain)
+        domain = String.downcase(trimmed)
+
+        cond do
+          not Regex.match?(@domain_regex, domain) or String.length(domain) > @domain_max_length ->
+            {:error,
+             InvalidArgument.exception(
+               field: :domain,
+               message: "is not a valid domain name"
+             )}
+
+          platform_domain?(domain) ->
+            {:error,
+             InvalidArgument.exception(
+               field: :domain,
+               message: "FluxVale's own domain is platform-served and cannot be registered"
+             )}
+
+          true ->
+            {:ok, %{domain: domain, dns_records: delegation_records(domain)}}
+        end
       end)
     end
 
@@ -532,6 +602,26 @@ defmodule FluxVale.Infrastructure.AccessDomain do
     identity(:unique_org_domain, [:organization_id, :domain])
   end
 
+  calculations do
+    # The API/panel view of the delegation set (#783). Derived from the
+    # row's domain with the same function the pre-registration preview
+    # uses; a platform row has no customer delegation (the fleet
+    # wildcard covers it), so it answers [].
+    calculate :dns_records, {:array, :map}, FluxVale.Infrastructure.AccessDomain.DnsRecords do
+      constraints(
+        items: [
+          fields: [
+            name: [type: :string, allow_nil?: false],
+            type: [type: :string, allow_nil?: false],
+            value: [type: :string, allow_nil?: false]
+          ]
+        ]
+      )
+
+      public?(true)
+    end
+  end
+
   # The cert-manager Certificate (and the Secret its wildcard lands in)
   # for this row — the ONE derivation every operation shares:
   # RegisterAccessDomain mints it, VerifyAccessDomains reads it,
@@ -575,6 +665,55 @@ defmodule FluxVale.Infrastructure.AccessDomain do
       secret_name: certificate_name(domain),
       issuer: Keyword.fetch!(config, :issuer)
     }
+  end
+
+  @doc """
+  Whether `domain` is FluxVale's own serving domain — platform-served,
+  never a custom registration or a delegation preview. One predicate,
+  shared by the register change and the preview, so the two doors
+  cannot drift.
+  """
+  @spec platform_domain?(String.t()) :: boolean()
+  def platform_domain?(domain) when is_binary(domain) do
+    domain == Application.fetch_env!(:flux_vale, :instances_base_domain)
+  end
+
+  # The DNS delegation a custom domain needs before registration
+  # (#783, ADR-0040 §6): ONE `_acme-challenge` CNAME into the platform's
+  # ACME validation namespace. The private lane needs no host record —
+  # the name resolves only through the claimed tailnet (RenderAccessDNS).
+  #
+  # The label is deterministic from the canonical domain: the provider's
+  # data source must compute it BEFORE the row exists, so it cannot use
+  # the row id. 128 bits of SHA-256 keeps two customers' challenge TXT
+  # records apart (the canonical domain is platform-wide unique; a
+  # collision needs ~2^64 domains). Treat the scheme as contract: every
+  # customer's CNAME is static, so a change here is a migration, not a
+  # refactor.
+  @doc false
+  @spec delegation_records(String.t()) :: [
+          %{name: String.t(), type: String.t(), value: String.t()}
+        ]
+  def delegation_records(domain) when is_binary(domain) do
+    config = Application.fetch_env!(:flux_vale, :access_domains)
+    zone = Keyword.fetch!(config, :delegation_zone)
+
+    [
+      %{
+        name: "_acme-challenge.#{domain}",
+        type: "CNAME",
+        value: "#{delegation_label(domain)}.#{zone}"
+      }
+    ]
+  end
+
+  @doc false
+  @spec delegation_label(String.t()) :: String.t()
+  def delegation_label(domain) do
+    :sha256
+    |> :crypto.hash(domain)
+    |> Base.encode16(case: :lower)
+    |> binary_part(0, 32)
   end
 
   # --- the API remove verb's helpers (#482 P2) -----------------------

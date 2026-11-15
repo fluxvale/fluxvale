@@ -35,7 +35,7 @@ defmodule FluxVale.Infrastructure.AccessDomain.EnsureRegistrable do
       domain = Ash.Changeset.get_attribute(changeset, :domain)
 
       cond do
-        platform_domain?(domain) ->
+        AccessDomain.platform_domain?(domain) ->
           Ash.Changeset.add_error(
             changeset,
             field: :domain,
@@ -53,10 +53,6 @@ defmodule FluxVale.Infrastructure.AccessDomain.EnsureRegistrable do
           changeset
       end
     end)
-  end
-
-  defp platform_domain?(domain) do
-    domain == Application.fetch_env!(:flux_vale, :instances_base_domain)
   end
 
   # The cross-org uniqueness probe (see the moduledoc for the

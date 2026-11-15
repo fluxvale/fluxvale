@@ -98,7 +98,7 @@ The full resource set:
 - `fluxvale_access_gateway` runs the private-access gateway for your organization.
 - `fluxvale_custom_domain` registers your own domain on the private edge. See the [custom domains guide](/docs/guides/custom-domains) for what verification means.
 - `fluxvale_pocket_id_sso` wires an instance's sign-in to your PocketID instance.
-- Data sources `fluxvale_apps` and `fluxvale_app_versions` read the catalog; `fluxvale_instance` reads one existing instance by id or slug.
+- Data sources `fluxvale_apps` and `fluxvale_app_versions` read the catalog; `fluxvale_instance` reads one existing instance by id or slug; `fluxvale_domain_delegation` returns the DNS records a custom domain needs **before** registration.
 
 The worked example in the provider's repository, under [`examples/personal-stack`](https://github.com/fluxvale/terraform-provider-fluxvale/tree/main/examples/personal-stack), composes the instance, backup, gateway, and domain resources into one stack.
 
@@ -184,6 +184,86 @@ tofu state pull | grep -c 'the-secret-value'
 The platform rolls a running app after an env change. The rollout takes the old pod down before the new one starts — one pod at a time, within the instance's existing quota — so expect a short restart and no stop/start.
 
 Write-only inputs need Terraform 1.12+ or OpenTofu 1.13+ and provider 0.4.0+. Existing configurations need no change, and older CLIs can keep using `env_vars` with state encryption at rest. The provider's [Secrets in Terraform guide](https://github.com/fluxvale/terraform-provider-fluxvale/blob/main/docs/guides/secrets.md) has the full ladder, the unencrypted-state migration, and the OpenTofu AWS KMS, GCP KMS, Azure Key Vault, and OpenBao key variants.
+
+### Wire a Cloudflare domain end to end
+
+A custom domain needs one DNS record in the private lane: the
+`_acme-challenge` delegation. Get it from the row-free data source,
+create it before registration, then wait for issuance. The graph is
+deliberately data source → record → domain: `fluxvale_custom_domain` has
+no `dns_records` attribute, because Terraform does not publish a
+resource's computed values until create returns — and create is waiting
+for the record. The platform API keeps its own computed mirror for the
+panel; the provider exposes the pre-registration source only.
+
+```hcl
+data "cloudflare_zone" "this" {
+  filter = {
+    name = "example.com"
+  }
+}
+
+data "fluxvale_domain_delegation" "apps" {
+  domain = "apps.example.com"
+}
+
+resource "cloudflare_dns_record" "challenge" {
+  zone_id = data.cloudflare_zone.this.zone_id
+  name    = data.fluxvale_domain_delegation.apps.dns_records[0].name
+  type    = data.fluxvale_domain_delegation.apps.dns_records[0].type
+  content = data.fluxvale_domain_delegation.apps.dns_records[0].value
+  proxied = false # mandatory: a proxied CNAME breaks the delegation
+  ttl     = 300
+}
+
+resource "fluxvale_custom_domain" "apps" {
+  domain                = "apps.example.com"
+  wait_for_verification = true
+  depends_on            = [cloudflare_dns_record.challenge]
+}
+```
+
+The platform's cert-manager DNS-01 solver runs
+`dns01.cnameStrategy: Follow`, so it follows the `_acme-challenge`
+CNAME into its validation namespace. `proxied = false` is mandatory: a
+proxied CNAME breaks that follow.
+
+There is no host CNAME: the name resolves only through the claiming
+gateway's tailnet. The worked example in the provider's repository,
+[`examples/cloudflare-stack`](https://github.com/fluxvale/terraform-provider-fluxvale/tree/main/examples/cloudflare-stack),
+adds the gateway and its write-only Tailscale API token to the same
+stack, ordered after the domain, so the claim lands in the same apply.
+
+### Claim a verified domain from the same stack
+
+`fluxvale_access_gateway.api_token` saves the Tailscale API token the
+platform uses to claim verified domains. It is write-only: the value
+never enters state or plan, and the API never echoes it. State keeps
+`token_set_at` (the rotation clock) and `claimed_domains` (the claim
+registry's readable half).
+
+```hcl
+variable "tailscale_api_token" {
+  type      = string
+  sensitive = true
+  ephemeral = true
+}
+
+resource "fluxvale_access_gateway" "gateway" {
+  tailnet_domain      = var.tailnet_domain
+  auth_key            = var.tailscale_auth_key
+  api_token           = var.tailscale_api_token
+  rotate_api_token_on = "2026-11-15" # bump whenever the token changes
+  depends_on          = [fluxvale_custom_domain.apps]
+}
+```
+
+The token save attempts to claim every verified domain — read
+`claimed_domains` for the result; a later verification or attach claims
+too. Bump `rotate_api_token_on` before the Tailscale key's 90-day
+expiry. The attribute uses Terraform's write-only input support:
+Terraform 1.12+ or OpenTofu 1.13+ and a provider release containing it;
+older CLIs can leave it out and paste the token in the panel.
 
 ### Read an existing instance
 

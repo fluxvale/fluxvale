@@ -141,6 +141,9 @@ defmodule FluxVale.Api.Scopes do
     {{"POST", ["access-domains"]}, "gateways:write"},
     {{"GET", ["organizations", :_, "access-domains"]}, "gateways:read"},
     {{"GET", ["access-domains", :_]}, "gateways:read"},
+    # The pre-registration delegation preview (#783) — a gateway-family
+    # read; the path is distinct so /access-domains/:id cannot shadow it.
+    {{"GET", ["domain-delegations", :_]}, "gateways:read"},
     {{"PATCH", ["access-domains", :_, "resume"]}, "gateways:write"},
     {{"DELETE", ["access-domains", :_]}, "gateways:write"},
     # Wallet (read-only in S1).

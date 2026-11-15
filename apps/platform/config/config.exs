@@ -248,7 +248,14 @@ config :flux_vale,
   access_domains: [
     issuer: "letsencrypt-staging",
     certificate_namespace: "fluxvale-access",
-    issuance_deadline_hours: 72
+    issuance_deadline_hours: 72,
+    # The shared ACME validation namespace: the per-domain
+    # `_acme-challenge` CNAME targets `<label>.<delegation_zone>`, and
+    # cert-manager's DNS-01 solver writes the TXT there (the platform's
+    # own `fluxvale.app` Cloudflare zone). A name, not a separate zone —
+    # the solver finds the parent zone. Treat the scheme as contract:
+    # customers' CNAMEs are static.
+    delegation_zone: "acme.fluxvale.app"
   ],
   # Custom domains are free (ADR-0040 Amendment 2): no rate, no accrual,
   # no env override. Registration still needs a paid, topped-up account

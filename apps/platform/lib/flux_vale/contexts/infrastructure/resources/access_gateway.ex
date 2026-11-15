@@ -75,6 +75,7 @@ defmodule FluxVale.Infrastructure.AccessGateway do
           # token intake has landed, and which domain names the
           # tailnet claims hold. The map values stay private.
           :api_token_set,
+          :token_set_at,
           :claimed_domains
         ]
       )
@@ -94,6 +95,7 @@ defmodule FluxVale.Infrastructure.AccessGateway do
           :status_message,
           :monthly_cents,
           :api_token_set,
+          :token_set_at,
           :claimed_domains
         ]
       )
@@ -109,6 +111,7 @@ defmodule FluxVale.Infrastructure.AccessGateway do
           :status_message,
           :monthly_cents,
           :api_token_set,
+          :token_set_at,
           :claimed_domains
         ]
       )
@@ -126,6 +129,7 @@ defmodule FluxVale.Infrastructure.AccessGateway do
           :status_message,
           :monthly_cents,
           :api_token_set,
+          :token_set_at,
           :claimed_domains
         ]
       )
@@ -490,9 +494,12 @@ defmodule FluxVale.Infrastructure.AccessGateway do
 
     # When the API token was last set (P3-12) — §5's rotation story:
     # keys expire ≤90 days by design, so the panel's key-age display
-    # (S5) reads this instead of needing a later migration.
+    # (S5) reads this instead of needing a later migration. Public: the
+    # stamp is not a credential (the token itself never leaves the
+    # Secret), and the provider holds it in state so a Terraform user
+    # can watch the rotation clock. The token value stays write-only.
     attribute :token_set_at, :utc_datetime_usec do
-      public?(false)
+      public?(true)
     end
 
     # The live monthly rate this gateway bills at (cents). A snapshot by
