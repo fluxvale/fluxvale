@@ -21,6 +21,37 @@
             "additionalProperties": false,
             "description": "An attributes object for a access_domain",
             "properties": {
+              "dns_records": {
+                "anyOf": [
+                  {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "name": {
+                          "type": "string"
+                        },
+                        "type": {
+                          "type": "string"
+                        },
+                        "value": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "name",
+                        "type",
+                        "value"
+                      ],
+                      "type": "object"
+                    },
+                    "nullable": true,
+                    "type": "array"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "domain": {
                 "description": "Field included by default.",
                 "type": "string"
@@ -510,6 +541,38 @@
       "access_domain-type": {
         "additionalProperties": false,
         "properties": {
+          "dns_records": {
+            "anyOf": [
+              {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "type": "string"
+                    },
+                    "value": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "type",
+                    "value"
+                  ],
+                  "type": "object"
+                },
+                "nullable": true,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Field included by default."
+          },
           "domain": {
             "description": "Field included by default.",
             "type": "string"
@@ -647,6 +710,15 @@
               "tailnet_domain": {
                 "description": "Field included by default.",
                 "type": "string"
+              },
+              "token_set_at": {
+                "anyOf": [
+                  {},
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Field included by default."
               }
             },
             "required": [
@@ -759,6 +831,9 @@
           },
           "tailnet_domain": {
             "$ref": "#/components/schemas/access_gateway-filter-tailnet_domain"
+          },
+          "token_set_at": {
+            "$ref": "#/components/schemas/access_gateway-filter-token_set_at"
           }
         },
         "type": "deepObject"
@@ -1285,6 +1360,27 @@
           "string_starts_with": {
             "type": "string"
           }
+        },
+        "type": "object"
+      },
+      "access_gateway-filter-token_set_at": {
+        "additionalProperties": false,
+        "properties": {
+          "eq": {},
+          "greater_than": {},
+          "greater_than_or_equal": {},
+          "in": {
+            "items": {},
+            "type": "array"
+          },
+          "is_distinct_from": {},
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {},
+          "less_than": {},
+          "less_than_or_equal": {},
+          "not_eq": {}
         },
         "type": "object"
       },
@@ -10786,6 +10882,38 @@
                           "additionalProperties": false,
                           "description": "An attributes object for a access_domain",
                           "properties": {
+                            "dns_records": {
+                              "anyOf": [
+                                {
+                                  "items": {
+                                    "additionalProperties": false,
+                                    "properties": {
+                                      "name": {
+                                        "type": "string"
+                                      },
+                                      "type": {
+                                        "type": "string"
+                                      },
+                                      "value": {
+                                        "type": "string"
+                                      }
+                                    },
+                                    "required": [
+                                      "name",
+                                      "type",
+                                      "value"
+                                    ],
+                                    "type": "object"
+                                  },
+                                  "nullable": true,
+                                  "type": "array"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ],
+                              "description": "Field included by default."
+                            },
                             "domain": {
                               "description": "Field included by default.",
                               "type": "string"
@@ -11025,6 +11153,38 @@
                           "additionalProperties": false,
                           "description": "An attributes object for a access_domain",
                           "properties": {
+                            "dns_records": {
+                              "anyOf": [
+                                {
+                                  "items": {
+                                    "additionalProperties": false,
+                                    "properties": {
+                                      "name": {
+                                        "type": "string"
+                                      },
+                                      "type": {
+                                        "type": "string"
+                                      },
+                                      "value": {
+                                        "type": "string"
+                                      }
+                                    },
+                                    "required": [
+                                      "name",
+                                      "type",
+                                      "value"
+                                    ],
+                                    "type": "object"
+                                  },
+                                  "nullable": true,
+                                  "type": "array"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ],
+                              "description": "Field included by default."
+                            },
                             "domain": {
                               "description": "Field included by default.",
                               "type": "string"
@@ -11272,6 +11432,38 @@
                           "additionalProperties": false,
                           "description": "An attributes object for a access_domain",
                           "properties": {
+                            "dns_records": {
+                              "anyOf": [
+                                {
+                                  "items": {
+                                    "additionalProperties": false,
+                                    "properties": {
+                                      "name": {
+                                        "type": "string"
+                                      },
+                                      "type": {
+                                        "type": "string"
+                                      },
+                                      "value": {
+                                        "type": "string"
+                                      }
+                                    },
+                                    "required": [
+                                      "name",
+                                      "type",
+                                      "value"
+                                    ],
+                                    "type": "object"
+                                  },
+                                  "nullable": true,
+                                  "type": "array"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ],
+                              "description": "Field included by default."
+                            },
                             "domain": {
                               "description": "Field included by default.",
                               "type": "string"
@@ -11437,12 +11629,12 @@
             "schema": {
               "additionalProperties": true,
               "example": {
-                "access_gateway": "id,hostname,tailnet_domain,provider,state,status_message,monthly_cents,provisioned_at,organization_id"
+                "access_gateway": "id,hostname,tailnet_domain,provider,state,status_message,token_set_at,monthly_cents,provisioned_at,organization_id"
               },
               "properties": {
                 "access_gateway": {
                   "description": "Comma separated field names for access_gateway",
-                  "example": "id,hostname,tailnet_domain,provider,state,status_message,monthly_cents,provisioned_at,organization_id",
+                  "example": "id,hostname,tailnet_domain,provider,state,status_message,token_set_at,monthly_cents,provisioned_at,organization_id",
                   "type": "string"
                 }
               },
@@ -11617,6 +11809,15 @@
                             "tailnet_domain": {
                               "description": "Field included by default.",
                               "type": "string"
+                            },
+                            "token_set_at": {
+                              "anyOf": [
+                                {},
+                                {
+                                  "type": "null"
+                                }
+                              ],
+                              "description": "Field included by default."
                             }
                           },
                           "required": [
@@ -11895,12 +12096,12 @@
             "schema": {
               "additionalProperties": true,
               "example": {
-                "access_gateway": "id,hostname,tailnet_domain,provider,state,status_message,monthly_cents,provisioned_at,organization_id"
+                "access_gateway": "id,hostname,tailnet_domain,provider,state,status_message,token_set_at,monthly_cents,provisioned_at,organization_id"
               },
               "properties": {
                 "access_gateway": {
                   "description": "Comma separated field names for access_gateway",
-                  "example": "id,hostname,tailnet_domain,provider,state,status_message,monthly_cents,provisioned_at,organization_id",
+                  "example": "id,hostname,tailnet_domain,provider,state,status_message,token_set_at,monthly_cents,provisioned_at,organization_id",
                   "type": "string"
                 }
               },
@@ -12054,6 +12255,15 @@
                             },
                             "tailnet_domain": {
                               "type": "string"
+                            },
+                            "token_set_at": {
+                              "anyOf": [
+                                {},
+                                {
+                                  "type": "null"
+                                }
+                              ],
+                              "description": "Field included by default."
                             }
                           },
                           "required": [
@@ -12173,12 +12383,12 @@
             "schema": {
               "additionalProperties": true,
               "example": {
-                "access_gateway": "id,hostname,tailnet_domain,provider,state,status_message,monthly_cents,provisioned_at,organization_id"
+                "access_gateway": "id,hostname,tailnet_domain,provider,state,status_message,token_set_at,monthly_cents,provisioned_at,organization_id"
               },
               "properties": {
                 "access_gateway": {
                   "description": "Comma separated field names for access_gateway",
-                  "example": "id,hostname,tailnet_domain,provider,state,status_message,monthly_cents,provisioned_at,organization_id",
+                  "example": "id,hostname,tailnet_domain,provider,state,status_message,token_set_at,monthly_cents,provisioned_at,organization_id",
                   "type": "string"
                 }
               },
@@ -12325,6 +12535,15 @@
                             },
                             "tailnet_domain": {
                               "type": "string"
+                            },
+                            "token_set_at": {
+                              "anyOf": [
+                                {},
+                                {
+                                  "type": "null"
+                                }
+                              ],
+                              "description": "Field included by default."
                             }
                           },
                           "required": [
@@ -14145,6 +14364,42 @@
         },
         "tags": [
           "backup_setting"
+        ]
+      }
+    },
+    "/api/v1/domain-delegations/{domain}": {
+      "get": {
+        "callbacks": {},
+        "deprecated": false,
+        "description": "The DNS delegation records a custom domain needs before\nregistration — one `_acme-challenge` CNAME into the platform's\nACME validation namespace. Computed from the domain; no row is\ncreated and nothing is registered.\n",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "domain",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "style": "form"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/vnd.api+json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/errors"
+          }
+        },
+        "tags": [
+          "access_domain"
         ]
       }
     },
@@ -21407,6 +21662,38 @@
                             "additionalProperties": false,
                             "description": "An attributes object for a access_domain",
                             "properties": {
+                              "dns_records": {
+                                "anyOf": [
+                                  {
+                                    "items": {
+                                      "additionalProperties": false,
+                                      "properties": {
+                                        "name": {
+                                          "type": "string"
+                                        },
+                                        "type": {
+                                          "type": "string"
+                                        },
+                                        "value": {
+                                          "type": "string"
+                                        }
+                                      },
+                                      "required": [
+                                        "name",
+                                        "type",
+                                        "value"
+                                      ],
+                                      "type": "object"
+                                    },
+                                    "nullable": true,
+                                    "type": "array"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ],
+                                "description": "Field included by default."
+                              },
                               "domain": {
                                 "description": "Field included by default.",
                                 "type": "string"
@@ -21586,12 +21873,12 @@
             "schema": {
               "additionalProperties": true,
               "example": {
-                "access_gateway": "id,hostname,tailnet_domain,provider,state,status_message,monthly_cents,provisioned_at,organization_id"
+                "access_gateway": "id,hostname,tailnet_domain,provider,state,status_message,token_set_at,monthly_cents,provisioned_at,organization_id"
               },
               "properties": {
                 "access_gateway": {
                   "description": "Comma separated field names for access_gateway",
-                  "example": "id,hostname,tailnet_domain,provider,state,status_message,monthly_cents,provisioned_at,organization_id",
+                  "example": "id,hostname,tailnet_domain,provider,state,status_message,token_set_at,monthly_cents,provisioned_at,organization_id",
                   "type": "string"
                 }
               },
@@ -21697,6 +21984,15 @@
                             "tailnet_domain": {
                               "description": "Field included by default.",
                               "type": "string"
+                            },
+                            "token_set_at": {
+                              "anyOf": [
+                                {},
+                                {
+                                  "type": "null"
+                                }
+                              ],
+                              "description": "Field included by default."
                             }
                           },
                           "required": [

@@ -74,6 +74,8 @@ defmodule FluxValeWeb.Api.RouteInventoryTest do
     {:get, "/access-domains/:id"},
     {:patch, "/access-domains/:id/resume"},
     {:delete, "/access-domains/:id"},
+    # #783: the pre-registration delegation preview (row-free).
+    {:get, "/domain-delegations/:domain"},
     # wallet:read
     {:get, "/organizations/:organization_id/wallet"},
     {:get, "/organizations/:organization_id/wallet/runway"},

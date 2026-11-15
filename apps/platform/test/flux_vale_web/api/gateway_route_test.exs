@@ -101,11 +101,14 @@ defmodule FluxValeWeb.Api.GatewayRouteTest do
       assert row["attributes"]["claimed_domains"] == []
 
       # The credential refs and the #613 operator-truth columns are
-      # private by design — never on the wire, whoever the actor.
+      # private by design — never on the wire, whoever the actor. The
+      # rotation stamp is not a credential: the provider holds it in
+      # state to watch key age (#783).
       refute Map.has_key?(row["attributes"], "credential_secret_ref")
       refute Map.has_key?(row["attributes"], "api_token_secret_ref")
       refute Map.has_key?(row["attributes"], "needs_attention_since")
-      refute Map.has_key?(row["attributes"], "token_set_at")
+      assert Map.has_key?(row["attributes"], "token_set_at")
+      assert row["attributes"]["token_set_at"] == nil
       refute Map.has_key?(row["attributes"], "dns_claims")
     end
 
@@ -138,6 +141,7 @@ defmodule FluxValeWeb.Api.GatewayRouteTest do
       assert %{"data" => row} = json_response(conn, 200)
       assert row["attributes"]["api_token_set"] == true
       assert row["attributes"]["claimed_domains"] == ["apps.customer.com"]
+      assert is_binary(row["attributes"]["token_set_at"])
 
       # The claims map itself — its resolver IPs and tailnet data —
       # stays private.

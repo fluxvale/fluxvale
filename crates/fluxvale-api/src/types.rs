@@ -18,6 +18,8 @@ pub struct AccessDomain {
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct AccessDomainAttributes {
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub dns_records: ::std::option::Option<::std::vec::Vec<AccessDomainAttributesDnsRecordsItem>>,
     ///Field included by default.
     pub domain: ::std::string::String,
     ///Field included by default.
@@ -26,6 +28,15 @@ pub struct AccessDomainAttributes {
     pub organization_id: ::std::string::String,
     ///Field included by default.
     pub state: AccessDomainAttributesState,
+}
+///`AccessDomainAttributesDnsRecordsItem`
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct AccessDomainAttributesDnsRecordsItem {
+    pub name: ::std::string::String,
+    #[serde(rename = "type")]
+    pub type_: ::std::string::String,
+    pub value: ::std::string::String,
 }
 ///Field included by default.
 #[derive(
@@ -1395,6 +1406,9 @@ pub struct AccessDomainRelationshipsOrganizationData {
 #[serde(deny_unknown_fields)]
 pub struct AccessDomainType {
     ///Field included by default.
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub dns_records: ::std::option::Option<::std::vec::Vec<AccessDomainTypeDnsRecordsItem>>,
+    ///Field included by default.
     pub domain: ::std::string::String,
     ///Field included by default.
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
@@ -1405,6 +1419,15 @@ pub struct AccessDomainType {
     pub organization_id: ::std::string::String,
     ///Field included by default.
     pub state: AccessDomainTypeState,
+}
+///`AccessDomainTypeDnsRecordsItem`
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct AccessDomainTypeDnsRecordsItem {
+    pub name: ::std::string::String,
+    #[serde(rename = "type")]
+    pub type_: ::std::string::String,
+    pub value: ::std::string::String,
 }
 ///Field included by default.
 #[derive(
@@ -1558,6 +1581,9 @@ pub struct AccessGatewayAttributes {
     pub status_message: ::std::option::Option<::std::string::String>,
     ///Field included by default.
     pub tailnet_domain: ::std::string::String,
+    ///Field included by default.
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub token_set_at: ::std::option::Option<::serde_json::Value>,
 }
 ///Field included by default.
 #[derive(
@@ -1701,6 +1727,8 @@ pub struct AccessGatewayFilter {
     pub status_message: ::std::option::Option<AccessGatewayFilterStatusMessage>,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub tailnet_domain: ::std::option::Option<AccessGatewayFilterTailnetDomain>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub token_set_at: ::std::option::Option<AccessGatewayFilterTokenSetAt>,
 }
 ///`AccessGatewayFilterApiTokenSet`
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
@@ -3015,6 +3043,35 @@ pub struct AccessGatewayFilterTailnetDomain {
     pub string_ends_with: ::std::option::Option<::std::string::String>,
     #[serde(skip_serializing_if = "::std::option::Option::is_none")]
     pub string_starts_with: ::std::option::Option<::std::string::String>,
+}
+///`AccessGatewayFilterTokenSetAt`
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
+#[serde(deny_unknown_fields)]
+pub struct AccessGatewayFilterTokenSetAt {
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub eq: ::std::option::Option<::serde_json::Value>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub greater_than: ::std::option::Option<::serde_json::Value>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub greater_than_or_equal: ::std::option::Option<::serde_json::Value>,
+    #[serde(
+        rename = "in",
+        default,
+        skip_serializing_if = "::std::vec::Vec::is_empty"
+    )]
+    pub in_: ::std::vec::Vec<::serde_json::Value>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub is_distinct_from: ::std::option::Option<::serde_json::Value>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub is_nil: ::std::option::Option<bool>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub is_not_distinct_from: ::std::option::Option<::serde_json::Value>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub less_than: ::std::option::Option<::serde_json::Value>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub less_than_or_equal: ::std::option::Option<::serde_json::Value>,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    pub not_eq: ::std::option::Option<::serde_json::Value>,
 }
 ///A relationships object for a access_gateway
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]

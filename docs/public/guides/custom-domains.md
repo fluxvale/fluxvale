@@ -13,21 +13,67 @@ Custom domains are free of charge. Registering one requires a one-time top-up of
 
 You register a domain such as `apps.example.com`. The platform then proves control of it the honest way, by issuing a wildcard certificate for `*.apps.example.com` through the public ACME DNS-01 challenge. No certificate, no verified domain.
 
-Two DNS records at your provider make this work:
+One DNS record at your provider makes this work:
 
-1. A **CNAME** for the hostname prefix you will use.
-2. A **CNAME for `_acme-challenge`** under the domain, delegating the certificate challenge into a FluxVale zone, so certificates issue and renew without you handing over DNS credentials.
+```
+_acme-challenge.apps.example.com  CNAME  <target>.acme.fluxvale.app
+```
 
-The platform never holds your DNS credentials. You keep full control of the zone.
+The target is per-domain and stable. Get it from the platform API (`GET /api/v1/domain-delegations/apps.example.com`), or from the `fluxvale_domain_delegation` data source in Terraform:
+
+```hcl
+data "fluxvale_domain_delegation" "apps" {
+  domain = "apps.example.com"
+}
+```
+
+The platform writes the ACME TXT record in its own validation zone, so certificates issue and renew without you handing over DNS credentials. The platform's cert-manager DNS-01 solver runs with `cnameStrategy: Follow` under `dns01` — it follows your CNAME into the validation zone; without that setting the challenge would be written in your zone and fail. The platform never holds your DNS credentials; you keep full control of the zone.
+
+No host record is needed in this lane. Your app's name resolves only through your tailnet after the gateway claims the domain; there is no public address to point at a host CNAME. Create the `_acme-challenge` record explicitly: a wildcard CNAME in your zone can synthesize one and break the delegation. A DNSSEC-signed zone must sign the delegation CNAME; if issuance fails, that is the likely cause.
+
+### Cloudflare in Terraform
+
+```hcl
+data "cloudflare_zone" "this" {
+  filter = {
+    name = "example.com"
+  }
+}
+
+data "fluxvale_domain_delegation" "apps" {
+  domain = "apps.example.com"
+}
+
+resource "cloudflare_dns_record" "challenge" {
+  zone_id = data.cloudflare_zone.this.zone_id
+  name    = data.fluxvale_domain_delegation.apps.dns_records[0].name
+  type    = data.fluxvale_domain_delegation.apps.dns_records[0].type
+  content = data.fluxvale_domain_delegation.apps.dns_records[0].value
+  proxied = false # mandatory: a proxied CNAME breaks the delegation
+  ttl     = 300
+}
+
+resource "fluxvale_custom_domain" "apps" {
+  domain                = "apps.example.com"
+  wait_for_verification = true
+  depends_on            = [cloudflare_dns_record.challenge]
+}
+```
+
+Provider v4 of the Cloudflare provider calls the record `cloudflare_record`; the fields are the same.
 
 Verification runs on a regular pass with a cadence of about 15 minutes, so allow time after your records are in place. If issuance does not succeed within its window, about 72 hours, the registration is marked failed and you register the domain again.
 
+## Verification is not resolution
+
+`verified` means the wildcard certificate issued. The name still answers nothing until your organization's gateway claims the domain. Saving the gateway's Tailscale API token claims every verified domain; a later verification or an instance attach claims too. With the provider, set `api_token` on `fluxvale_access_gateway` and the claim happens in the same apply. Off tailnet the name does not resolve.
+
 ## Where the feature is today
 
-Registration is available through the API and the Terraform provider. The [Terraform guide](/docs/automation/terraform) shows a working example with the `fluxvale_custom_domain` resource, including how to wait out verification. If you are setting a domain up today, write to [support@fluxvale.com](mailto:support@fluxvale.com) and we will walk you through the records.
+Registration is available through the API, the Terraform provider, and the panel. The [Terraform guide](/docs/automation/terraform) shows a working example with the `fluxvale_custom_domain` resource, the delegation data source, and the gateway token, including how to wait out verification.
 
 The mint is live. Once a custom domain is verified, add an address on the instance page: **Custom addresses** takes a label such as `git` and mints `git.<your-domain>`. The member API carries the same three verbs, `POST`/`GET /api/v1/instances/:instance_id/hostnames` and `DELETE /api/v1/instance-hostnames/:id`.
 
-A custom address serves only when all three are true: the domain is verified, your organization's gateway has claimed it, and the instance is private and attached to that gateway. Claiming is one paste: in **Settings → Access**, add a Tailscale API access token from your admin console's Keys page. The token carries the permissions of the account that created it, so use an owner or admin account. The token is stored write-only and never shown again, and saving it claims every domain your organization has already verified. A domain that verifies after the token is stored is claimed by the verification pass, and attaching an app claims too. Claiming is best-effort: if the gateway's tailnet node has not joined yet, the claim waits — a gateway becoming ready does not retry it, so save the token again (or attach an app) once the gateway shows Connected. The member API carries the same write: `PATCH /api/v1/access-gateways/:id/api-token`. Tailscale API keys expire within 90 days, so paste a fresh one before then. Until the three conditions hold, the address is recorded and serves nothing yet. The certificate and the DNS records do not change — the wildcard you verified covers every label you mint under it.
+A custom address serves only when all three are true: the domain is verified, your organization's gateway has claimed it, and the instance is private and attached to that gateway. Claiming is one token save: in **Settings → Access**, paste a Tailscale API access token from your admin console's Keys page (or set `api_token` on the Terraform gateway). Mint the token from a tailnet owner or admin account with `dns`, `devices:routes`, and `devices:core:read`; the `auth_keys` scope is not required. The token is stored write-only and never shown again, and saving it claims every domain your organization has already verified. The member API carries the same write: `PATCH /api/v1/access-gateways/:id/api-token`. Tailscale API keys expire within 90 days, so save a fresh one before then (in Terraform, bump `rotate_api_token_on`). Until the three conditions hold, the address is recorded and serves nothing yet. The certificate and the DNS records do not change — the wildcard you verified covers every label you mint under it.
 
-The DNS records you create now are the ones the finished feature will use. No re-registration will be needed.
+Remove the `_acme-challenge` CNAME when you remove the domain. A delegation left behind is a takeover path for that hostname.

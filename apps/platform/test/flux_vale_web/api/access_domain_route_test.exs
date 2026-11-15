@@ -96,12 +96,20 @@ defmodule FluxValeWeb.Api.AccessDomainRouteTest do
       assert row["attributes"]["state"] == "pending"
       assert row["attributes"]["organization_id"] == org.id
 
+      # #783: the delegation set rides the row — one challenge CNAME
+      # into the platform's ACME namespace.
+      assert [%{"name" => challenge, "type" => "CNAME", "value" => target}] =
+               row["attributes"]["dns_records"]
+
+      assert challenge == "_acme-challenge.#{@domain_name}"
+      assert target =~ ~r/^[0-9a-f]{32}\.acme\.fluxvale\.app$/
+
       # The pinned public field set — id rides the document, the rest
       # is the attribute key set exactly.
       attr_keys = Map.keys(row["attributes"])
 
       assert MapSet.new(attr_keys) ==
-               MapSet.new(["domain", "kind", "organization_id", "state"])
+               MapSet.new(["dns_records", "domain", "kind", "organization_id", "state"])
 
       # cert_secret_ref is an internal k8s object name — never API
       # surface.
@@ -301,7 +309,7 @@ defmodule FluxValeWeb.Api.AccessDomainRouteTest do
       one_keys = Map.keys(one["attributes"])
 
       assert MapSet.new(one_keys) ==
-               MapSet.new(["domain", "kind", "organization_id", "state"])
+               MapSet.new(["dns_records", "domain", "kind", "organization_id", "state"])
 
       refute Map.has_key?(one["attributes"], "cert_secret_ref")
     end
