@@ -30,6 +30,7 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
   alias FluxVale.Clients.K8s.SelfAccessReview
 
   alias Decimal
+  alias FluxVale.Accounts.Organization
   alias FluxVale.Catalog.AppVersion
   alias FluxVale.Catalog.AppVersion.SetSortKey
   alias FluxVale.Identity.User
@@ -1858,7 +1859,7 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
         {:ok, %{credential_secret_ref: "credential-stub"}}
       end)
 
-      org = FluxVale.Accounts.Organization.get_by_id!(instance.organization_id, authorize?: false)
+      org = Organization.get_by_id!(instance.organization_id, authorize?: false)
       gateway = AccessFixtures.gateway!(org)
 
       AccessGateway.update_claims!(
