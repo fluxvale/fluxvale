@@ -134,6 +134,14 @@ defmodule FluxValeWeb.AgentPrompt do
   @spec clients() :: [map()]
   def clients, do: @clients
 
+  @doc "The four client cards with each one's rendered install snippet."
+  @spec clients_with_code(t()) :: [map()]
+  def clients_with_code(%__MODULE__{} = ctx) do
+    Enum.map(clients(), fn client ->
+      Map.put(client, :code, install(client.install, ctx))
+    end)
+  end
+
   @doc "The install-snippet sentence — token env var today, browser sign-in after OAuth."
   @spec snippet_note() :: String.t()
   def snippet_note do

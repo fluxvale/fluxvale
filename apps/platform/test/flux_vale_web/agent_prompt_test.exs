@@ -79,6 +79,26 @@ defmodule FluxValeWeb.AgentPromptTest do
     end
   end
 
+  test "the client cards pair each install key with its rendered snippet", %{ctx: ctx} do
+    cards = AgentPrompt.clients_with_code(ctx)
+
+    assert Enum.map(cards, & &1.key) == ["claude-code", "cursor", "vscode", "generic"]
+
+    for card <- cards do
+      assert card.code == AgentPrompt.install(card.install, ctx)
+      refute card.code =~ "fvpat_"
+    end
+
+    # The helper reads the auth switch at call time, not module load.
+    previous = Application.get_env(:flux_vale, :mcp_auth_mode)
+    on_exit(fn -> Application.put_env(:flux_vale, :mcp_auth_mode, previous) end)
+    Application.put_env(:flux_vale, :mcp_auth_mode, :oauth)
+
+    oauth_cards = AgentPrompt.clients_with_code(ctx)
+    headers? = Enum.any?(oauth_cards, &(&1.code =~ "--header"))
+    refute headers?
+  end
+
   test "the snippet sentence follows the same auth switch" do
     assert AgentPrompt.snippet_note() =~ "FLUXVALE_PAT"
 

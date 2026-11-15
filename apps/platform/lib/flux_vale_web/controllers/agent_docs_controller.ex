@@ -20,10 +20,7 @@ defmodule FluxValeWeb.AgentDocsController do
 
     ctx = AgentPrompt.public_context()
 
-    clients =
-      Enum.map(AgentPrompt.clients(), fn client ->
-        Map.put(client, :code, AgentPrompt.install(client.install, ctx))
-      end)
+    clients = AgentPrompt.clients_with_code(ctx)
 
     conn
     |> assign(:page_title, "Set up with your agent · FluxVale Docs")
