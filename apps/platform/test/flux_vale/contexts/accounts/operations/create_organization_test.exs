@@ -5,7 +5,8 @@ defmodule FluxVale.Accounts.Operations.CreateOrganizationTest do
   no personal marker, no wallet, no credits (the signup grant is
   per-user; the org is the abuse boundary) — with the slug discipline
   (taken/reserved/39-cap/format) and the name cap binding this path at
-  creation.
+  creation. The reservation is an actor fence: platform admins may
+  mint brand-reserved slugs (#754); route sentinels stay refused.
   """
 
   use FluxVale.DataCase, async: true
@@ -130,7 +131,7 @@ defmodule FluxVale.Accounts.Operations.CreateOrganizationTest do
              )
     end
 
-    test "reserved slugs fail with 'is reserved'" do
+    test "reserved slugs fail for non-admins with 'is reserved' and write no row" do
       user = AccountsFixtures.user!()
 
       # Middles plus the ends of the list ("www" opens it, "new" closes
@@ -148,7 +149,38 @@ defmodule FluxVale.Accounts.Operations.CreateOrganizationTest do
                    &1
                  )
                )
+
+        assert {:error, _not_found} = Organization.get_by_slug(slug, authorize?: false)
       end
+    end
+
+    test "a platform admin may create a reserved slug (#754)" do
+      admin = AccountsFixtures.platform_admin!()
+
+      assert {:ok, org} =
+               Accounts.create_organization(admin, %{name: "FluxVale", slug: "fluxvale"})
+
+      assert org.slug == "fluxvale"
+      assert {:ok, fresh} = Organization.get_by_slug("fluxvale", authorize?: false)
+      assert fresh.id == org.id
+      assert hd(memberships(org)).user_id == admin.id
+    end
+
+    test "a platform admin still cannot create the route sentinel 'new'" do
+      admin = AccountsFixtures.platform_admin!()
+
+      assert {:error, %Ash.Error.Invalid{errors: errors}} =
+               Accounts.create_organization(admin, %{name: "New", slug: "new"})
+
+      assert Enum.any?(
+               errors,
+               &match?(
+                 %Ash.Error.Changes.InvalidAttribute{field: :slug, message: "is reserved"},
+                 &1
+               )
+             )
+
+      assert {:error, _not_found} = Organization.get_by_slug("new", authorize?: false)
     end
 
     test "a 40-char slug fails the creation cap; 39 passes" do

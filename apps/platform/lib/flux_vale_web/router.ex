@@ -448,7 +448,7 @@ defmodule FluxValeWeb.Router do
       live("/organizations/:slug/billing/topup/return", BillingLive.Topup, :org)
       # #408: org creation — the switcher footer entry's target. The
       # literal beats :slug by definition order; "new" rides the
-      # reservation list so the actor-create path cannot mint an org at
+      # reservation list so non-admin actor-create cannot mint an org at
       # the creation page's own address. Rename and the JIT signup path
       # can still land an org on reserved words (ReservedSlug's
       # moduledoc) — such an org's home serves this page; no redirect.

@@ -158,6 +158,28 @@ defmodule FluxValeWeb.Api.OrganizationRouteTest do
       assert {:error, _reason} = Organization.get_by_slug("docs", authorize?: false)
     end
 
+    test "an admin PAT cannot mint a reserved slug — the blanket stops at the machine API", %{
+      conn: conn
+    } do
+      admin = AccountsFixtures.platform_admin!()
+      pat = ApiPat.mint!(admin, [])
+
+      conn =
+        conn
+        |> auth(pat)
+        |> put_req_header("content-type", "application/vnd.api+json")
+        |> post("/api/v1/organizations", %{
+          "data" => %{
+            "type" => "organization",
+            "attributes" => %{"name" => "FluxVale", "slug" => "fluxvale"}
+          }
+        })
+
+      assert %{"errors" => [error]} = json_response(conn, 400)
+      assert error["detail"] =~ "reserved"
+      assert {:error, _not_found} = Organization.get_by_slug("fluxvale", authorize?: false)
+    end
+
     test "a duplicate slug is refused with the identity's own words", %{conn: conn} do
       {user, pat} = ApiPat.member!()
       personal = AccountsFixtures.personal_org!(user)

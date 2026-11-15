@@ -282,7 +282,11 @@ defmodule FluxVale.Accounts.Organization do
         message: "must be at most 39 characters"
       )
 
-      validate(FluxVale.Accounts.Organization.ReservedSlug)
+      # A change, not a validation: this path accepts a late actor
+      # (for_create before Ash.create), so the gate reads the actor at
+      # run time and exempts platform admins for brand surfaces outside
+      # the machine API (#754; ReservedSlug carries the split).
+      change(FluxVale.Accounts.Organization.ReservedSlug)
 
       # The name cap binds the actor path's initial write; the
       # update-side cap above is the rename flow's.
