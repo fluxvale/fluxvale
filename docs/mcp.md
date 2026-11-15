@@ -251,15 +251,7 @@ the surface change and the PR.
 
 ### 2026-11-13 — Terraform promotion
 
-- `terraform_import_bundle` renders the same three-file scaffold as `fluxvale terraform import`: `versions.tf`, `imports.tf` (one import block per live instance, backup setting, gateway, and custom domain — plus commented PocketID SSO blocks, because provider 0.3.0 cannot import them — with each resource's own import-id shape), and `README.md`. Read-only, no filesystem writes. Pass `api_url` for staging; omit it for production. ([#763](https://github.com/fluxvale/fluxvale/issues/763))
-
-### 2026-11-09 — the initial surface
-
-- The initial surface's seventeen tools: `whoami`, `topup`, the catalog pair, the
-  instances sextet, the backups quartet (destroy/restore
-  confirm-gated), and the wallet trio. ([#484](https://github.com/fluxvale/fluxvale/issues/484) W2a+W2b)
-- The in-app quickstart ships with the surface: `/settings/agents`,
-  linked from the API tokens panel one click from the mint. ([#484](https://github.com/fluxvale/fluxvale/issues/484) W5)
+- `terraform_import_bundle` renders the same three-file scaffold as `fluxvale terraform import`: `versions.tf`, `imports.tf` (one import block per live instance, backup setting, gateway, and custom domain — plus commented PocketID SSO blocks, because the provider does not implement `import` for them yet — with each resource's own import-id shape), and `README.md`. Read-only, no filesystem writes. Pass `api_url` for staging; omit it for production. ([#763](https://github.com/fluxvale/fluxvale/issues/763))
 
 ### 2026-11-13 — the agent first run
 
@@ -269,3 +261,11 @@ the surface change and the PR.
 - The post-registration handoff ships: `/agent` (the generated prompt and
   per-client snippets), `/docs/agents` (the public version), and
   `/llms.txt` (the machine-readable entry point) — all from one fixture. ([#765](https://github.com/fluxvale/fluxvale/issues/765))
+
+### 2026-11-09 — the initial surface
+
+- The initial surface's seventeen tools: `whoami`, `topup`, the catalog pair, the
+  instances sextet, the backups quartet (destroy/restore
+  confirm-gated), and the wallet trio. ([#484](https://github.com/fluxvale/fluxvale/issues/484) W2a+W2b)
+- The in-app quickstart ships with the surface: `/settings/agents`,
+  linked from the API tokens panel one click from the mint. ([#484](https://github.com/fluxvale/fluxvale/issues/484) W5)
