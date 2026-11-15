@@ -22,7 +22,7 @@ defmodule FluxValeWeb.AgentPrompt do
 
   @auth_mode_default :pat
 
-  @scopes "catalog:read, instances:write, wallet:read"
+  @scopes "catalog:read, instances:write, organizations:read, wallet:read"
 
   @auth_note_pat """
   Mint a scoped token at %{token_url} with scopes %{scopes}, export it as \

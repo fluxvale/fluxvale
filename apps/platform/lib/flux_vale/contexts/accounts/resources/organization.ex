@@ -18,8 +18,10 @@ defmodule FluxVale.Accounts.Organization do
   — two orgs may be named alike, the slug cannot.
 
   Deliberately no AshAdmin domain mount (no support flow needs it yet);
-  the JSON:API surface is one identity-adjacent route — the actor's own
-  orgs (GET /api/v1/organizations, #362 T6a) — nothing org-scoped.
+  the JSON:API surface is the org switcher and the org lifecycle
+  (#362 T6a, #770, #784): list, create, read by id or slug, rename the
+  display name, and the empty-org teardown — never an org-internal
+  field.
   """
 
   use Ash.Resource,
@@ -35,33 +37,53 @@ defmodule FluxVale.Accounts.Organization do
     extensions: [AshAdmin.Resource, AshJsonApi.Resource, AshPaperTrail.Resource]
 
   alias FluxVale.Accounts.Membership
+  alias FluxVale.Infrastructure.AccessDomain
 
   require Ash.Query
 
-  # #362 T6a: the one org route — the actor's own orgs for the CLI's
-  # discovery (`wallet balance` needs an org id; the API had none).
-  # Identity-adjacent like /me: the switcher's fields (id, slug, name)
-  # and nothing org-internal.
+  # The org's wire surface (#362 T6a, #770, #784): the switcher's
+  # fields (id, slug, name) and nothing org-internal. Scope is the
+  # billing-boundary gate (`organizations:read`/`:write`, scopes.ex);
+  # membership and ownership stay the policies underneath.
   json_api do
     type("organization")
 
     routes do
+      # organizations:read
       index(:list_for_actor,
         route: "/organizations",
         default_fields: [:id, :slug, :name]
       )
 
-      # #770: the agent's org-creation door — the actor path (#408) on
-      # the machine API, so a fresh account's agent can choose where to
-      # deploy. The action's own policies are the gate (actor present,
-      # below the org cap) and ReservedSlug + the length caps keep the
-      # reservation list honest; the route adds no scope of its own
-      # (identity-adjacent like the list above). Returns the switcher's
-      # key set, never org-internal fields.
+      # organizations:write — the actor path (#408): any signed-in user
+      # below the org cap, the reserved-slug gate, the actor as owner in
+      # the same transaction.
       post(:create_with_owner,
         route: "/organizations",
         default_fields: [:id, :slug, :name]
       )
+
+      # organizations:read — the provider's refresh (by id) and its
+      # import by slug. Declared before the :id route: the extra
+      # segment keeps the two unambiguous.
+      get(:get_by_slug,
+        route: "/organizations/by-slug/:slug",
+        default_fields: [:id, :slug, :name]
+      )
+
+      # organizations:read
+      get(:get_by_id, route: "/organizations/:id", default_fields: [:id, :slug, :name])
+
+      # organizations:write — the wire rename is NAME-ONLY (:update_name;
+      # the panel's :update also moves the slug). Terraform's slug is
+      # therefore create-only by API contract, not a provider invention.
+      patch(:update_name, route: "/organizations/:id", default_fields: [:id, :slug, :name])
+
+      # organizations:write — the empty-org teardown (owner policy +
+      # EmptyOrgGuard). Generic-action route: the flat body matches its
+      # OpenAPI schema (the destroy route's spec is bodiless in
+      # ash_json_api 1.7.1 while the controller sends the row).
+      route(:delete, "organizations/:id", :destroy_via_api)
     end
   end
 
@@ -137,6 +159,21 @@ defmodule FluxVale.Accounts.Organization do
     policy action(:update) do
       description("Owners update their organization (display name and slug)")
       authorize_if(FluxVale.Checks.ActorIsOrganizationOwner)
+    end
+
+    # #784: the machine API's rename is name-only — slug changes stay
+    # the panel's :update flow, so the wire can never release an
+    # address out from under a Terraform-managed org.
+    policy action(:update_name) do
+      description("Owners rename their organization's display name")
+      authorize_if(FluxVale.Checks.ActorIsOrganizationOwner)
+    end
+
+    # #784: the wire DELETE wrapper. Membership-gated here; the inner
+    # :destroy action re-checks ownership and runs EmptyOrgGuard.
+    policy action(:destroy_via_api) do
+      description("Signed-in members reach the teardown; :destroy is the owner gate")
+      authorize_if(actor_present())
     end
   end
 
@@ -223,24 +260,28 @@ defmodule FluxVale.Accounts.Organization do
   actions do
     defaults([:read])
 
-    # Membership rows have no delete cascade and their destroy policy is
-    # system-only, so the default destroy would FK-fail. Empty-org teardown
-    # clears them first (system op — the destroy policy already gated the
-    # caller). Instances and the wallet also FK the org: teardown of THOSE
-    # is #124's design — destroying a non-empty org still fails loudly.
+    # The empty-org teardown (#784): EmptyOrgGuard refuses a personal
+    # org or one that still owns content or billing history, with the
+    # platform's plain words. What survives the guard is deletable:
+    # membership rows (no delete cascade, system-only destroy policy),
+    # membership invites and custody events (DB cascade), and the org's
+    # derived :platform access-domain row (no cluster state; re-minted
+    # on the next instance create). Custom domains were refused above
+    # because their Certificates need the removal operation. Everything
+    # runs in the destroy's transaction — a failure rolls the whole
+    # teardown back.
     destroy :destroy do
       primary?(true)
       require_atomic?(false)
+
+      change(FluxVale.Accounts.Organization.EmptyOrgGuard)
 
       change(fn changeset, _context ->
         org_id = changeset.data.id
 
         Ash.Changeset.before_action(changeset, fn changeset ->
-          Membership
-          |> Ash.Query.for_read(:read, %{})
-          |> Ash.Query.filter(organization_id == ^org_id)
-          |> Ash.read!(authorize?: false)
-          |> Enum.each(&Ash.destroy!(&1, authorize?: false))
+          purge_platform_domains(org_id)
+          clear_memberships(org_id)
 
           changeset
         end)
@@ -345,15 +386,41 @@ defmodule FluxVale.Accounts.Organization do
       # on Organization, and Accounts is not an AshAdmin domain. A future
       # caller needing those shapes must re-check this filter and the
       # caps with it.
-      change(fn changeset, _context ->
-        case Map.get(changeset.data, :slug) do
-          # Dead in practice, kept so a slug-less shape can never add a
-          # nil filter: require_atomic?(false) keeps bulk :atomic
-          # strategies out entirely, and every changeset that does run
-          # (record + streamed bulk) carries the loaded row.
-          # coveralls-ignore-next-line
-          nil -> changeset
-          loaded_slug -> Ash.Changeset.filter(changeset, slug: loaded_slug)
+      change(FluxVale.Accounts.Organization.StaleFormGuard)
+    end
+
+    # The wire's rename (#784): display name only — the panel's :update
+    # keeps the slug arm. The shared stale-form guard keeps the stream
+    # authorization path (see its moduledoc).
+    update :update_name do
+      require_atomic?(false)
+      accept([:name])
+      change(FluxVale.Accounts.Organization.StaleFormGuard)
+    end
+
+    # The wire's teardown (#784): the generic-action wrapper exists so
+    # DELETE's rendered body matches its OpenAPI schema. The authorized
+    # read is the visibility fence (a non-member gets NotFound), and
+    # the inner destroy owns the owner policy and EmptyOrgGuard.
+    action :destroy_via_api, :struct do
+      description("Delete an empty organization")
+      argument(:id, :uuid, allow_nil?: false, public?: true)
+      constraints(instance_of: __MODULE__)
+
+      run(fn input, %{actor: actor, authorize?: authorize?, source_context: context} ->
+        with {:ok, org} <-
+               get_by_id(input.arguments.id,
+                 actor: actor,
+                 authorize?: authorize?,
+                 context: context
+               ),
+             :ok <-
+               Ash.destroy(org,
+                 actor: actor,
+                 authorize?: authorize?,
+                 context: context
+               ) do
+          {:ok, org}
         end
       end)
     end
@@ -413,10 +480,10 @@ defmodule FluxVale.Accounts.Organization do
         # refuses absurd asks without hurting any caller. Deliberately
         # PUBLIC: Ash.ActionInput.for_action only feeds public
         # arguments, and the in-repo callers ride that code interface.
-        # The wire cannot reach this action (the resource's only
-        # JSON:API route is :list_for_actor), so there is nothing to
-        # lock out today — if a route is ever authored for this
-        # action, re-check this argument's exposure first.
+        # No wire route reaches this action (the JSON:API routes are
+        # list/create/read/rename/destroy), so there is nothing to lock
+        # out today — if a route is ever authored for this action,
+        # re-check this argument's exposure first.
         constraints: [min_length: 1, max_length: 200]
       )
 
@@ -489,5 +556,26 @@ defmodule FluxVale.Accounts.Organization do
       where: changing(:name),
       message: "must be at most 100 characters"
     )
+  end
+
+  # The org's derived platform-domain row is the one access-domain kind
+  # deletable here: no Certificate, no cluster state, re-minted by
+  # MintDefaultHostname. Custom rows were refused by the guard because
+  # their removal owns the Certificate teardown. System posture — the
+  # destroy policy already gated the caller.
+  defp purge_platform_domains(org_id) do
+    AccessDomain
+    |> Ash.Query.for_read(:read, %{})
+    |> Ash.Query.filter(organization_id == ^org_id and kind == :platform)
+    |> Ash.read!(authorize?: false)
+    |> Enum.each(&AccessDomain.purge!(&1, authorize?: false))
+  end
+
+  defp clear_memberships(org_id) do
+    Membership
+    |> Ash.Query.for_read(:read, %{})
+    |> Ash.Query.filter(organization_id == ^org_id)
+    |> Ash.read!(authorize?: false)
+    |> Enum.each(&Ash.destroy!(&1, authorize?: false))
   end
 end

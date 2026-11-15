@@ -45,6 +45,14 @@ defmodule FluxVale.Feedback.Post do
     # ADR-0032 §3: no DB-side id default — ids are Ash's job (see User).
     migration_defaults(id: "nil")
 
+    # #784: the post is public board content, not org-owned — org
+    # teardown clears the attribution, never the post. No wallet is
+    # required for an admin or launch-allowlisted writer, so the FK
+    # must not wedge a wallet-less org's delete.
+    references do
+      reference(:organization, on_delete: :nilify)
+    end
+
     custom_indexes do
       # Org-scoped views and queries are the near-term consumers
       # (moderation lists, an org's post pages). The write gate does

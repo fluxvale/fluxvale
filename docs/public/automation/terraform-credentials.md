@@ -35,14 +35,20 @@ Point at another environment with `--config`: the file's `base_url` selects the 
 
 ## CI and containers
 
-A pipeline has no keychain. Mint a scoped, short-lived token on a trusted machine and store it in the pipeline's secret store:
+A pipeline has no keychain. Mint a scoped, short-lived token on a trusted machine and store it in the pipeline's secret store. A mint can only carry scopes the sign-in already holds, and `auth login`'s default set omits `organizations:write`, so sign in first with the full set:
 
 ```sh
+# The sign-in must grant every scope the mint will narrow to.
+fluxvale auth login --scopes instances:read,instances:write,backups:read,backups:write,gateways:read,gateways:write,catalog:read,organizations:read,organizations:write
+
+# Then mint for the pipeline.
 fluxvale auth token \
   --name github-actions-terraform \
-  --scopes instances:read,instances:write,backups:read,backups:write,gateways:read,gateways:write,catalog:read \
+  --scopes instances:read,instances:write,backups:read,backups:write,gateways:read,gateways:write,catalog:read,organizations:read,organizations:write \
   --ttl 7d
 ```
+
+Every org-scoped resource resolves its organization through the org list, so the token needs `organizations:read`; managing the org resource itself needs `organizations:write`. Tokens minted before the organization resource existed lack both — re-mint them when you upgrade to provider v0.5.0 (the release that adds `fluxvale_organization`), or the first org-scoped resource fails with the platform's missing-scope 403.
 
 The command prints the token once to stdout and nothing else, so pipe it straight into the secret store — it never touches disk:
 

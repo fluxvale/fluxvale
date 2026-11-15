@@ -14,7 +14,9 @@
 /// scope, not instead of it.
 pub(crate) fn required_scope(tool: &str) -> Option<&'static str> {
     match tool {
-        "whoami" | "topup" | "organizations_create" => None,
+        "whoami" | "topup" => None,
+        // #784: the org is the billing boundary — creation is a write.
+        "organizations_create" => Some("organizations:write"),
         "apps_list" | "apps_show" | "pricing_quote" => Some("catalog:read"),
         "instances_list" | "instances_status" => Some("instances:read"),
         // The scaffold reads instances, backups, gateways, and domains;
@@ -138,6 +140,8 @@ mod tests {
                 "backups:write",
                 "gateways:read",
                 "gateways:write",
+                "organizations:read",
+                "organizations:write",
                 "wallet:read"
             ])
             .len(),
@@ -149,14 +153,7 @@ mod tests {
     fn a_catalog_only_token_sees_the_apps_pair_and_the_scopeless_pair() {
         assert_eq!(
             visible(&["catalog:read"]),
-            [
-                "apps_list",
-                "apps_show",
-                "organizations_create",
-                "pricing_quote",
-                "topup",
-                "whoami"
-            ]
+            ["apps_list", "apps_show", "pricing_quote", "topup", "whoami"]
         );
     }
 
@@ -168,7 +165,6 @@ mod tests {
             [
                 "instances_list",
                 "instances_status",
-                "organizations_create",
                 "sso",
                 "terraform_import_bundle",
                 "topup",
@@ -193,7 +189,6 @@ mod tests {
                 "instances_start",
                 "instances_status",
                 "instances_stop",
-                "organizations_create",
                 "sso",
                 "terraform_import_bundle",
                 "topup",
@@ -208,23 +203,27 @@ mod tests {
     }
 
     #[test]
-    fn a_token_with_no_scopes_still_gets_the_scopeless_trio() {
+    fn a_token_with_no_scopes_still_gets_the_scopeless_pair() {
         // The protocol stays; tools/list just omits what it can't call.
         // /me renders a zero-scope PAT's list as [], never an omission.
-        assert_eq!(visible(&[]), ["organizations_create", "topup", "whoami"]);
+        assert_eq!(visible(&[]), ["topup", "whoami"]);
+    }
+
+    #[test]
+    fn the_organizations_scope_unlocks_org_creation() {
+        assert_eq!(
+            visible(&["organizations:write"]),
+            ["organizations_create", "topup", "whoami"]
+        );
+        // Read never implies write: a read-only token cannot create.
+        assert_eq!(visible(&["organizations:read"]), ["topup", "whoami"]);
     }
 
     #[test]
     fn the_gateway_domain_family_gates_on_the_gateways_scope() {
         assert_eq!(
             visible(&["gateways:read"]),
-            [
-                "custom_domain",
-                "gateway",
-                "organizations_create",
-                "topup",
-                "whoami"
-            ]
+            ["custom_domain", "gateway", "topup", "whoami"]
         );
         // write implies read for the two tools' read halves.
         assert_eq!(visible(&["gateways:write"]), visible(&["gateways:read"]));
@@ -258,7 +257,7 @@ mod tests {
     fn the_backups_and_wallet_families_gate_on_their_domains() {
         assert_eq!(
             visible(&["backups:read"]),
-            ["backups_status", "organizations_create", "topup", "whoami"]
+            ["backups_status", "topup", "whoami"]
         );
         // backups:write implies backups:read (the status tool rides along).
         assert_eq!(
@@ -268,7 +267,6 @@ mod tests {
                 "backups_restore",
                 "backups_run",
                 "backups_status",
-                "organizations_create",
                 "topup",
                 "whoami"
             ]
@@ -277,7 +275,6 @@ mod tests {
             visible(&["wallet:read"]),
             [
                 "onboarding_status",
-                "organizations_create",
                 "topup",
                 "wallet_balance",
                 "wallet_ledger",
@@ -291,7 +288,10 @@ mod tests {
     fn required_scope_names_the_catalog_rule() {
         assert_eq!(required_scope("whoami"), None);
         assert_eq!(required_scope("topup"), None);
-        assert_eq!(required_scope("organizations_create"), None);
+        assert_eq!(
+            required_scope("organizations_create"),
+            Some("organizations:write")
+        );
         assert_eq!(required_scope("apps_list"), Some("catalog:read"));
         assert_eq!(required_scope("instances_deploy"), Some("instances:write"));
         assert_eq!(required_scope("instances_resize"), Some("instances:write"));

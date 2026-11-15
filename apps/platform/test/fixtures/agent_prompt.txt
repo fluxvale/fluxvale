@@ -4,7 +4,7 @@ FluxVale org: your organization (<your-org-slug>)
 API base: http://localhost:4000
 MCP server: https://mcp.fluxvale.com/mcp
 
-Auth: Mint a scoped token at http://localhost:4000/settings/developer#api-tokens with scopes catalog:read, instances:write, wallet:read, export it as `FLUXVALE_PAT`, and send it as `Authorization: Bearer $FLUXVALE_PAT` on the MCP connection.
+Auth: Mint a scoped token at http://localhost:4000/settings/developer#api-tokens with scopes catalog:read, instances:write, organizations:read, wallet:read, export it as `FLUXVALE_PAT`, and send it as `Authorization: Bearer $FLUXVALE_PAT` on the MCP connection.
 
 You are my FluxVale setup agent. Connect to the MCP server above, then:
 1. Call `whoami`, then `wallet_balance`. If the balance is zero or negative, stop and give me the top-up link: http://localhost:4000/billing/topup. Do not deploy.
