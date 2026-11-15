@@ -223,6 +223,11 @@ resource "fluxvale_custom_domain" "apps" {
 }
 ```
 
+The platform's cert-manager DNS-01 solver runs
+`dns01.cnameStrategy: Follow`, so it follows the `_acme-challenge`
+CNAME into its validation namespace. `proxied = false` is mandatory: a
+proxied CNAME breaks that follow.
+
 There is no host CNAME: the name resolves only through the claiming
 gateway's tailnet. The worked example in the provider's repository,
 [`examples/cloudflare-stack`](https://github.com/fluxvale/terraform-provider-fluxvale/tree/main/examples/cloudflare-stack),
