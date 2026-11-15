@@ -16,7 +16,7 @@ defmodule FluxValeWeb.OAuth.TokenController do
 
   @spec token(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def token(conn, _params) do
-    case rate_limit(conn, :token) do
+    case OAuthRateLimit.allow?(conn, :token) do
       :ok -> grant(conn, conn.body_params)
       {:error, retry_after} -> rate_limited(conn, retry_after)
     end
@@ -45,7 +45,7 @@ defmodule FluxValeWeb.OAuth.TokenController do
 
   @spec revoke(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def revoke(conn, _params) do
-    case rate_limit(conn, :revoke) do
+    case OAuthRateLimit.allow?(conn, :revoke) do
       :ok -> revoke_token(conn, conn.body_params)
       {:error, retry_after} -> rate_limited(conn, retry_after)
     end
@@ -80,13 +80,6 @@ defmodule FluxValeWeb.OAuth.TokenController do
 
   defp token_result({:error, {kind, description}}, conn) do
     oauth_error(conn, kind, description, 400)
-  end
-
-  defp rate_limit(conn, bucket) do
-    case OAuthRateLimit.allow?(conn, bucket) do
-      :ok -> :ok
-      {:error, retry_after} -> {:error, retry_after}
-    end
   end
 
   defp rate_limited(conn, retry_after) do

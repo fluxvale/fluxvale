@@ -29,7 +29,7 @@ defmodule FluxValeWeb.OAuth.AuthorizationController do
 
   @spec authorize(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def authorize(conn, params) do
-    case rate_limit(conn, :authorize) do
+    case OAuthRateLimit.allow?(conn, :authorize) do
       :ok ->
         case OAuth.validate_authorize_request(params) do
           {:ok, request} -> authorize_request(conn, request)
@@ -43,7 +43,7 @@ defmodule FluxValeWeb.OAuth.AuthorizationController do
 
   @spec consent(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def consent(conn, params) do
-    case rate_limit(conn, :authorize) do
+    case OAuthRateLimit.allow?(conn, :authorize) do
       :ok -> decide(conn, params)
       {:error, retry_after} -> throttled(conn, retry_after)
     end
@@ -252,13 +252,6 @@ defmodule FluxValeWeb.OAuth.AuthorizationController do
     case URI.parse(redirect_uri).authority do
       nil -> redirect_uri
       authority -> authority
-    end
-  end
-
-  defp rate_limit(conn, bucket) do
-    case OAuthRateLimit.allow?(conn, bucket) do
-      :ok -> :ok
-      {:error, retry_after} -> {:error, retry_after}
     end
   end
 

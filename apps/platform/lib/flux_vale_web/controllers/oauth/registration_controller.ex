@@ -15,7 +15,7 @@ defmodule FluxValeWeb.OAuth.RegistrationController do
 
   @spec create(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def create(conn, _params) do
-    case rate_limit(conn) do
+    case OAuthRateLimit.allow?(conn, :register) do
       :ok -> register(conn)
       {:error, retry_after} -> rate_limited(conn, retry_after)
     end
@@ -55,14 +55,7 @@ defmodule FluxValeWeb.OAuth.RegistrationController do
     end
   end
 
-  defp rate_limit(conn) do
-    case OAuthRateLimit.allow?(conn, :register) do
-      :ok -> :ok
-      {:error, retry_after} -> {:error, retry_after}
-    end
-  end
-
-  # The with-else arm for both gates: 429 with the retry window.
+  # Both gates' 429: the retry window.
   defp rate_limited(conn, retry_after) do
     conn
     |> put_resp_header("retry-after", Integer.to_string(retry_after))
