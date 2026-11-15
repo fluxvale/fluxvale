@@ -29,13 +29,13 @@ defmodule FluxValeWeb.AgentPromptTest do
     assert prompt =~ AgentPrompt.commit_rule()
   end
 
-  test "the auth sentence is the one swappable PAT shape today", %{ctx: ctx} do
+  test "the auth sentence is the PAT path, with no second OAuth path", %{ctx: ctx} do
     note = AgentPrompt.auth_note(ctx)
 
     assert note =~ "#{ctx.api_base}/settings/developer#api-tokens"
     assert note =~ "FLUXVALE_PAT"
     assert note =~ "Authorization: Bearer $FLUXVALE_PAT"
-    assert note =~ "OAuth ships"
+    refute note =~ "OAuth"
     assert AgentPrompt.bearer_headers?()
     refute note =~ "fvpat_"
   end

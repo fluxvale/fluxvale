@@ -9,10 +9,11 @@ defmodule FluxValeWeb.AgentPrompt do
   cannot fork. The public contexts carry placeholder org values; the
   panel carries the signed-in user's personal org.
 
-  Auth is one swappable setting. `:pat` is today's shape: the prompt
-  names the token mint and the snippets carry a `FLUXVALE_PAT` bearer
-  header. Set `:mcp_auth_mode` to `:oauth` when the MCP OAuth slice
-  lands (#766) — the note and every snippet's header drop together.
+  Auth is one swappable setting. `:pat` renders the token path: the
+  prompt names the token mint and the snippets carry a `FLUXVALE_PAT`
+  bearer header. `:oauth` renders the browser path — the note and every
+  snippet's header drop together. OAuth is live; the switch stays a
+  deployment choice.
   Values are never echoed: the snippets carry only env-var references,
   and no function here receives a minted token.
   """
@@ -26,8 +27,7 @@ defmodule FluxValeWeb.AgentPrompt do
   @auth_note_pat """
   Mint a scoped token at %{token_url} with scopes %{scopes}, export it as \
   `FLUXVALE_PAT`, and send it as `Authorization: Bearer $FLUXVALE_PAT` on the \
-  MCP connection. A client that speaks OAuth will open a browser sign-in \
-  instead once OAuth ships.\
+  MCP connection.\
   """
 
   @auth_note_oauth """
@@ -116,7 +116,7 @@ defmodule FluxValeWeb.AgentPrompt do
   @spec scopes() :: String.t()
   def scopes, do: @scopes
 
-  @doc "The one auth sentence — PAT today, browser sign-in once OAuth ships."
+  @doc "The one auth sentence — the token path under `:pat`, the browser path under `:oauth`."
   @spec auth_note(t()) :: String.t()
   def auth_note(%__MODULE__{} = ctx) do
     case auth_mode() do
@@ -142,7 +142,7 @@ defmodule FluxValeWeb.AgentPrompt do
     end)
   end
 
-  @doc "The install-snippet sentence — token env var today, browser sign-in after OAuth."
+  @doc "The install-snippet sentence — token env var under `:pat`, browser sign-in under `:oauth`."
   @spec snippet_note() :: String.t()
   def snippet_note do
     case auth_mode() do
