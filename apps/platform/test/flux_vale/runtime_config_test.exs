@@ -188,7 +188,8 @@ defmodule FluxVale.RuntimeConfigTest do
       env =
         Map.merge(@prod_env, %{
           "PHX_HOST" => "staging.fluxvale.com",
-          "MCP_RESOURCE_URLS" => ""
+          "MCP_RESOURCE_URLS" => "",
+          "MCP_SERVER_URL" => nil
         })
 
       with_env(env, fn ->
@@ -212,6 +213,54 @@ defmodule FluxVale.RuntimeConfigTest do
                  ]
         end
       )
+    end
+  end
+
+  describe "MCP_SERVER_URL in the allowlist (#795)" do
+    test "the configured endpoint leads the host default" do
+      env =
+        Map.merge(@prod_env, %{
+          "PHX_HOST" => "staging.fluxvale.com",
+          "MCP_SERVER_URL" => "https://mcp.example/mcp",
+          "MCP_RESOURCE_URLS" => nil
+        })
+
+      with_env(env, fn ->
+        assert read!(:prod)[:flux_vale][:mcp_oauth][:resource_urls] == [
+                 "https://mcp.example/mcp",
+                 "https://mcp-staging.fluxvale.com/mcp"
+               ]
+      end)
+    end
+
+    test "an endpoint equal to the host default appears once" do
+      env =
+        Map.merge(@prod_env, %{
+          "PHX_HOST" => "staging.fluxvale.com",
+          "MCP_SERVER_URL" => "https://mcp-staging.fluxvale.com/mcp",
+          "MCP_RESOURCE_URLS" => nil
+        })
+
+      with_env(env, fn ->
+        assert read!(:prod)[:flux_vale][:mcp_oauth][:resource_urls] == [
+                 "https://mcp-staging.fluxvale.com/mcp"
+               ]
+      end)
+    end
+
+    test "an explicit MCP_RESOURCE_URLS wins whole — no union" do
+      env =
+        Map.merge(@prod_env, %{
+          "PHX_HOST" => "staging.fluxvale.com",
+          "MCP_SERVER_URL" => "https://mcp.example/mcp",
+          "MCP_RESOURCE_URLS" => "https://explicit.example/mcp"
+        })
+
+      with_env(env, fn ->
+        assert read!(:prod)[:flux_vale][:mcp_oauth][:resource_urls] == [
+                 "https://explicit.example/mcp"
+               ]
+      end)
     end
   end
 
@@ -260,7 +309,10 @@ defmodule FluxVale.RuntimeConfigTest do
 
     on_exit(fn -> Enum.each(originals, &restore_env/1) end)
 
-    Enum.each(vars, fn {name, value} -> System.put_env(name, value) end)
+    Enum.each(vars, fn
+      {name, nil} -> System.delete_env(name)
+      {name, value} -> System.put_env(name, value)
+    end)
 
     fun.()
   end
