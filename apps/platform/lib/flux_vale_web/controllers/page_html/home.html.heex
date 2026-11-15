@@ -52,6 +52,13 @@ layout's flex contract while scoping the landing styles. --%>
       <nav aria-label={gettext("Primary")}>
         <ul class="flex items-center gap-2">
           <li class="hidden min-[480px]:block">
+            <.nav_link href={
+              if is_nil(@current_user), do: "/docs/agents", else: "/settings/agents"
+            }>
+              {gettext("Agents")}
+            </.nav_link>
+          </li>
+          <li class="hidden min-[480px]:block">
             <.nav_link href="/catalog">{gettext("Apps")}</.nav_link>
           </li>
           <li class="hidden min-[480px]:block">
@@ -97,26 +104,29 @@ layout's flex contract while scoping the landing styles. --%>
           <div class="hero-circle px-slow" aria-hidden="true"></div>
 
           <div class="hero-copy">
-            <p class="eyebrow rise">{gettext("Managed platform")}</p>
+            <p class="eyebrow rise">{gettext("Built for agents")}</p>
             <h1 class="display rise d1">
-              {gettext("Managed cloud platform for open source applications")}
+              {gettext("Your agent deploys. FluxVale runs it.")}
             </h1>
             <p class="hero-sub rise d2">
               {gettext(
-                "Pick an open source app, deploy it in minutes, and FluxVale keeps it running, updates and monitoring included."
+                "Tell Claude Code, Cursor, VS Code, or any MCP client what you need. It picks the app from the catalog, deploys it, and hands you the URL. FluxVale keeps it running from there."
               )}
             </p>
             <div class="hero-ctas rise d3">
-              <.button href="/catalog" class="lift">
-                {gettext("Browse apps")}
+              <.button
+                href={if is_nil(@current_user), do: "/docs/agents", else: "/settings/agents"}
+                class="lift"
+              >
+                {gettext("Set up your agent")}
               </.button>
               <.button
                 :if={is_nil(@current_user)}
-                href={~p"/sign-in"}
+                href="/catalog"
                 variant="ghost"
                 size="lg"
               >
-                {gettext("Sign in")}
+                {gettext("Browse the catalog")}
               </.button>
               <.button
                 :if={@current_user}
@@ -169,7 +179,7 @@ layout's flex contract while scoping the landing styles. --%>
             <div class="float-chip drop d5">
               <span class="dot"></span>{gettext("real apps · real prices")}
               <span class="sr-only">
-                {gettext("A screenshot of the app catalog as it runs on fluxvale.com.")}
+                {gettext("A screenshot of an app page as it runs on fluxvale.com.")}
               </span>
             </div>
           </div>
@@ -184,15 +194,15 @@ layout's flex contract while scoping the landing styles. --%>
         <div class="band-head">
           <p class="eyebrow reveal">{gettext("How it works")}</p>
           <h2 id="how-it-works-title" class="display-h2 reveal">
-            {gettext("Three steps to a running app")}
+            {gettext("One conversation to a running app")}
           </h2>
         </div>
         <div class="bento">
           <div class="cell tall reveal">
             <span class="n">01</span>
-            <h3>{gettext("Pick an app")}</h3>
+            <h3>{gettext("Ask for the app")}</h3>
             <p>
-              {gettext("Choose from a curated catalog of open source applications, ready to run.")}
+              {gettext("Tell your agent what you need. It picks the app from the catalog.")}
             </p>
             <div class="mini">
               <span class="cat">{gettext("Developer Tools")}</span>
@@ -214,24 +224,83 @@ layout's flex contract while scoping the landing styles. --%>
               <div class="foot">
                 <span class="more">{gettext("…and more in the catalog")}</span>
                 <a href="/catalog" class="arrowlink">
-                  {gettext("Browse apps")} <span class="arrow" aria-hidden="true">&rarr;</span>
+                  {gettext("See the catalog")}
+                  <span class="arrow" aria-hidden="true">&rarr;</span>
                 </a>
               </div>
             </div>
           </div>
           <div class="cell raised reveal">
             <span class="n">02</span>
-            <h3>{gettext("Deploy")}</h3>
+            <h3>{gettext("The agent deploys")}</h3>
             <p>
-              {gettext("One guided flow from app to live URL. No YAML, no servers to babysit.")}
+              {gettext("It deploys the app and hands you the URL.")}
             </p>
           </div>
           <div class="cell raised reveal">
             <span class="n">03</span>
-            <h3>{gettext("We run it")}</h3>
+            <h3>{gettext("FluxVale runs it")}</h3>
             <p>
-              {gettext("Updates and monitoring are on us. Your data stays yours.")}
+              {gettext(
+                "Updates, monitoring, backups, and private access are on us. Your data stays yours."
+              )}
             </p>
+          </div>
+        </div>
+
+        <%!-- The ways in: the agent is the default, code and terminal are
+        the same API for humans. This closes the how-it-works section
+        instead of standing as a separate automation band. --%>
+        <div id="ways" class="ways reveal">
+          <div class="ways-head">
+            <p class="eyebrow">{gettext("Ways in")}</p>
+            <p class="ways-lead">
+              {gettext("The agent is the default. Terraform and the CLI use the same API.")}
+            </p>
+          </div>
+          <div class="ways-grid">
+            <a
+              href={if is_nil(@current_user), do: "/docs/agents", else: "/settings/agents"}
+              class="way way-lead"
+              data-testid="way-mcp"
+            >
+              <span class="cat">{gettext("For your agent")}</span>
+              <span class="way-title">{gettext("MCP server")}</span>
+              <span class="way-body">
+                {gettext(
+                  "Claude Code, Cursor, VS Code, or any MCP client. OAuth clients connect with the URL and one approval. Clients without OAuth use a scoped token."
+                )}
+              </span>
+              <code class="way-url">https://mcp.fluxvale.com/mcp</code>
+              <span class="arrowlink">
+                {gettext("Set up your agent")}
+                <span class="arrow" aria-hidden="true">&rarr;</span>
+              </span>
+            </a>
+            <div class="ways-side">
+              <a href="/docs/automation/terraform" class="way" data-testid="way-terraform">
+                <span class="way-title">{gettext("Terraform provider")}</span>
+                <span class="way-body">
+                  {gettext(
+                    "Instances, backups, gateways, and custom domains as resources. The provider is on the Terraform and OpenTofu registries."
+                  )}
+                </span>
+                <span class="arrowlink">
+                  {gettext("Provider guide")} <span class="arrow" aria-hidden="true">&rarr;</span>
+                </span>
+              </a>
+              <a href="/docs/automation/cli" class="way" data-testid="way-cli">
+                <span class="way-title">{gettext("FluxVale CLI")}</span>
+                <span class="way-body">
+                  {gettext(
+                    "One self-contained binary. Deploy, back up, check the wallet from the terminal."
+                  )}
+                </span>
+                <span class="arrowlink">
+                  {gettext("CLI guide")} <span class="arrow" aria-hidden="true">&rarr;</span>
+                </span>
+              </a>
+            </div>
           </div>
         </div>
       </div>
@@ -244,8 +313,13 @@ layout's flex contract while scoping the landing styles. --%>
         <div class="band-head reveal">
           <p class="eyebrow">{gettext("App catalog")}</p>
           <h2 id="catalog-title" class="display-h2">
-            {gettext("One click from browse to a running instance")}
+            {gettext("The catalog your agent chooses from")}
           </h2>
+          <p class="band-sub">
+            {gettext(
+              "Every app is ready to deploy. Your agent picks one, or you can browse the catalog yourself."
+            )}
+          </p>
         </div>
         <div class="catalog-cards">
           <div class="app-card reveal">
@@ -266,9 +340,9 @@ layout's flex contract while scoping the landing styles. --%>
           </div>
         </div>
         <div class="catalog-cta reveal">
-          <.button href="/catalog" class="lift">
-            {gettext("Browse apps")}
-          </.button>
+          <a href="/catalog" class="arrowlink">
+            {gettext("Browse the catalog")} <span class="arrow" aria-hidden="true">&rarr;</span>
+          </a>
         </div>
       </div>
     </section>
@@ -297,7 +371,7 @@ layout's flex contract while scoping the landing styles. --%>
             table; the controller passes nil then). --%>
             <p class="sub reveal">
               {gettext(
-                "Prices follow the resources an app gets, not the app itself. New accounts start with a welcome credit. Top up when you're ready."
+                "Prices follow the resources an app gets, not the app itself. Your agent can check the wallet and the price before it deploys. New accounts start with a welcome credit. Top up when you're ready."
               )}
             </p>
             <p :if={not is_nil(@price_floor_cents)} class="sub reveal">
@@ -349,6 +423,11 @@ layout's flex contract while scoping the landing styles. --%>
         narrowest phones it wraps instead of scrolling. No wrap at any
         width that already fit. --%>
         <ul class="foot-links flex-wrap">
+          <li>
+            <a href={if is_nil(@current_user), do: "/docs/agents", else: "/settings/agents"}>
+              {gettext("Agents")}
+            </a>
+          </li>
           <li><a href="/catalog">{gettext("Apps")}</a></li>
           <li><a href="/pricing">{gettext("Pricing")}</a></li>
           <li><a href="/blog">{gettext("Blog")}</a></li>

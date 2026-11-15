@@ -28,10 +28,10 @@ test("anon-landing: signed-out / shows the marketing landing", async ({
   page,
 }) => {
   await page.goto("/");
-  await expect(page).toHaveTitle(/managed cloud platform for open source applications/);
+  await expect(page).toHaveTitle(/your agent deploys open source apps/);
   await expect(
     page.getByRole("heading", { level: 1 }),
-  ).toHaveText(/Managed cloud platform for open source applications/);
+  ).toHaveText(/Your agent deploys\. FluxVale runs it\./);
   await expect(
     page.getByRole("banner").getByRole("link", { name: /Sign in/ }),
   ).toBeVisible();
@@ -57,10 +57,10 @@ test("authed-dashboard: signed-in / shows the dashboard", async ({
 
   // The landing is still reachable for the session (its permalink).
   await page.goto("/about");
-  await expect(page).toHaveTitle(/managed cloud platform/);
+  await expect(page).toHaveTitle(/your agent deploys open source apps/);
   await expect(
     page.getByRole("heading", { level: 1 }),
-  ).toHaveText(/Managed cloud platform for open source applications/);
+  ).toHaveText(/Your agent deploys\. FluxVale runs it\./);
 });
 
 test("user-menu: signed-in nav shows the user menu, not Sign in", async ({
@@ -123,5 +123,5 @@ test("user-menu: signed-in nav shows the user menu, not Sign in", async ({
   await page.goto("/");
   await expect(
     page.getByRole("heading", { level: 1 }),
-  ).toHaveText(/Managed cloud platform for open source applications/);
+  ).toHaveText(/Your agent deploys\. FluxVale runs it\./);
 });

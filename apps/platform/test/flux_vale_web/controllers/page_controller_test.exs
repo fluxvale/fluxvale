@@ -21,19 +21,26 @@ defmodule FluxValeWeb.PageControllerTest do
     html = html_response(conn, 200)
     body = landing_body(html)
 
-    assert html =~ ~r/<h1[^>]*>\s*Managed cloud platform for open source applications/
-    assert html =~ "FluxVale, managed cloud platform for open source applications"
+    assert html =~ ~r/<h1[^>]*>\s*Your agent deploys\. FluxVale runs it\./
+    assert html =~ "FluxVale, your agent deploys open source apps"
     assert html =~ ~s(href="/catalog")
     assert html =~ ~s(href="/sign-in")
+    assert html =~ ~s(href="/docs/agents")
     # The sign-in redirect target is this page — its flash must render here.
     assert html =~ ~s(id="flash-group")
 
+    assert body =~ ~r/>\s*Agents\s*<\/a>/
     assert body =~ ">Apps</a>"
     assert body =~ ~r/>Sign in/
     assert body =~ "How it works"
-    assert body =~ "Pick an app"
-    assert body =~ "No YAML"
-    assert body =~ "We run it"
+    assert body =~ "Ask for the app"
+    assert body =~ "The agent deploys"
+    assert body =~ "FluxVale runs it"
+    assert body =~ "Ways in"
+    assert body =~ "MCP server"
+    assert body =~ "https://mcp.fluxvale.com/mcp"
+    assert body =~ "Terraform provider"
+    assert body =~ "FluxVale CLI"
     assert body =~ "Simple pricing"
     assert body =~ "a welcome credit"
     assert body =~ "© #{Date.utc_today().year} FluxVale"
@@ -42,8 +49,10 @@ defmodule FluxValeWeb.PageControllerTest do
     refute body =~ "Phoenix Framework"
     refute body =~ "Peace of mind from prototype to production"
 
-    assert conn.assigns[:page_title] =~ "managed cloud platform for open source applications"
-    assert conn.assigns[:page_description] =~ "deploy"
+    assert conn.assigns[:page_title] =~ "your agent deploys open source apps"
+
+    assert conn.assigns[:page_description] =~
+             "Tell your agent what you need. It picks an open source app from the catalog, deploys it, and FluxVale keeps it running."
   end
 
   # fv332 D5: the landing's own footer (foot-links, distinct from the
@@ -112,7 +121,7 @@ defmodule FluxValeWeb.PageControllerTest do
 
     assert html =~ "real apps · real prices"
     # The capture's spoken equivalent (the panel itself is aria-hidden).
-    assert html =~ "A screenshot of the app catalog as it runs on fluxvale.com."
+    assert html =~ "A screenshot of an app page as it runs on fluxvale.com."
 
     refute html =~ "app.fluxvale.app"
     refute html =~ "ghostboard"
@@ -149,7 +158,7 @@ defmodule FluxValeWeb.PageControllerTest do
     assert html =~ ~s(data-testid="dashboard-balance")
     assert html =~ ~s(data-testid="dashboard-runway")
     # The landing hero is gone; the signed-in chrome carries the user menu.
-    refute html =~ ~r/<h1[^>]*>\s*Managed cloud platform for open source applications/
+    refute html =~ ~r/<h1[^>]*>\s*Your agent deploys\. FluxVale runs it\./
     assert html =~ to_string(AccountsFixtures.primary_address!(user))
     assert html =~ ~s(data-testid="user-menu")
     assert conn.assigns[:page_title] == "FluxVale Dashboard"
@@ -159,7 +168,7 @@ defmodule FluxValeWeb.PageControllerTest do
     conn = get(conn, ~p"/about")
     html = html_response(conn, 200)
 
-    assert html =~ ~r/<h1[^>]*>\s*Managed cloud platform for open source applications/
+    assert html =~ ~r/<h1[^>]*>\s*Your agent deploys\. FluxVale runs it\./
     assert html =~ ~s(rel="canonical" href="https://fluxvale.com/")
   end
 
@@ -180,7 +189,7 @@ defmodule FluxValeWeb.PageControllerTest do
     conn = get(session_conn, ~p"/about")
     html = html_response(conn, 200)
 
-    assert html =~ ~r/<h1[^>]*>\s*Managed cloud platform for open source applications/
+    assert html =~ ~r/<h1[^>]*>\s*Your agent deploys\. FluxVale runs it\./
     assert html =~ ~s(data-testid="user-menu")
     assert html =~ to_string(AccountsFixtures.primary_address!(user))
     # The signed-in landing points inward, not at sign-in.

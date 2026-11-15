@@ -73,7 +73,7 @@ defmodule FluxValeWeb.LocaleTest do
       |> get(~p"/")
       |> html_response(200)
 
-    assert body =~ "xx: Managed cloud platform for open source applications"
+    assert body =~ "xx: Your agent deploys. FluxVale runs it."
 
     # The <title> specifically — :page_title also rides og:title /
     # twitter:title, which a bare body =~ would match alone.
@@ -83,7 +83,7 @@ defmodule FluxValeWeb.LocaleTest do
       |> LazyHTML.query("title")
       |> LazyHTML.text()
 
-    assert title =~ "xx: FluxVale, managed cloud platform for open source applications"
+    assert title =~ "xx: FluxVale, your agent deploys open source apps"
     assert body =~ ~s(lang="xx")
   end
 
