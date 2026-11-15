@@ -522,49 +522,17 @@ defmodule FluxValeWeb.OrganizationLive.AccessTest do
     test "the domains card shows claimed and unclaimed honestly", %{conn: conn, org: org} do
       gateway = AccessFixtures.gateway!(org)
 
-      Ash.Seed.seed!(AccessDomain, %{
-        domain: "apps.customer.com",
-        kind: :custom,
-        state: :verified,
-        organization_id: org.id,
-        cert_secret_ref: "cert-secret"
-      })
+      domain_row!(org, "apps.customer.com", :verified)
 
-      Ash.Seed.seed!(AccessDomain, %{
-        domain: "files.customer.com",
-        kind: :custom,
-        state: :verified,
-        organization_id: org.id,
-        cert_secret_ref: "cert-secret"
-      })
+      domain_row!(org, "files.customer.com", :verified)
 
-      Ash.Seed.seed!(AccessDomain, %{
-        domain: "pending.customer.com",
-        kind: :custom,
-        state: :pending,
-        organization_id: org.id
-      })
+      domain_row!(org, "pending.customer.com", :pending)
 
-      Ash.Seed.seed!(AccessDomain, %{
-        domain: "failed.customer.com",
-        kind: :custom,
-        state: :failed,
-        organization_id: org.id
-      })
+      domain_row!(org, "failed.customer.com", :failed)
 
-      Ash.Seed.seed!(AccessDomain, %{
-        domain: "attention.customer.com",
-        kind: :custom,
-        state: :needs_attention,
-        organization_id: org.id
-      })
+      domain_row!(org, "attention.customer.com", :needs_attention)
 
-      Ash.Seed.seed!(AccessDomain, %{
-        domain: "suspended.customer.com",
-        kind: :custom,
-        state: :suspended,
-        organization_id: org.id
-      })
+      domain_row!(org, "suspended.customer.com", :suspended)
 
       AccessGateway.update_claims!(
         gateway,
@@ -591,12 +559,7 @@ defmodule FluxValeWeb.OrganizationLive.AccessTest do
       # A claimed domain whose certificate drifted still says so — the
       # two truths are separate signals.
       claimed_attention =
-        Ash.Seed.seed!(AccessDomain, %{
-          domain: "claimed-attention.customer.com",
-          kind: :custom,
-          state: :needs_attention,
-          organization_id: org.id
-        })
+        domain_row!(org, "claimed-attention.customer.com", :needs_attention)
 
       # The first write bumped the row's version; the claims action is
       # optimistic-locked, so the second write starts from a fresh read.
@@ -1411,13 +1374,7 @@ defmodule FluxValeWeb.OrganizationLive.AccessTest do
       gateway = AccessFixtures.gateway!(org)
       instance = AccessFixtures.private_instance!(org, owner)
 
-      Ash.Seed.seed!(AccessDomain, %{
-        domain: "apps.customer.com",
-        kind: :custom,
-        state: :verified,
-        organization_id: org.id,
-        cert_secret_ref: "cert-secret"
-      })
+      _domain = verified_domain!(org, owner, "apps.customer.com")
 
       expect(Tailscale, :attach_instance, fn %AccessGateway{} = gw, %Instance{} = inst ->
         {:ok,
@@ -1773,8 +1730,49 @@ defmodule FluxValeWeb.OrganizationLive.AccessTest do
   # The gateway lifecycle's provider legs, Mimic-stubbed for every test
   # that mounts the panel with a fixture or submits a form (Mimic stubs
   # are process-independent — the actions run in the LiveView).
+  # Through the actions: the registration contract then the observed
+  # state write, with the provider's issuance limb stubbed.
+  defp verified_domain!(org, owner, name) do
+    stub(K8s, :kubeconfig, fn -> {:ok, %{}} end)
+    stub(Kubereq, :attach, fn req, _opts -> req end)
+
+    expect(Kubereq, :apply, fn _req, manifest, _fm ->
+      {:ok, %{status: 201, body: manifest}}
+    end)
+
+    {:ok, pending} =
+      FluxVale.Infrastructure.register_access_domain(
+        %{domain: name, organization_id: org.id},
+        actor: owner,
+        authorize?: false
+      )
+
+    {:ok, verified} =
+      Ash.update(pending, %{cert_secret_ref: "cert-secret"},
+        action: :mark_verified,
+        authorize?: false
+      )
+
+    assert verified.organization_id == org.id
+    verified
+  end
+
   # The row's own text, so a per-row assertion cannot be satisfied by
   # another row's label.
+  # The Domains card's label matrix renders five states side by side;
+  # each state's own transition is the domain suites' subject, so the
+  # rows are seeded — the documented exception (bulk state coverage for
+  # one render assertion).
+  defp domain_row!(org, name, state) do
+    Ash.Seed.seed!(AccessDomain, %{
+      domain: name,
+      kind: :custom,
+      state: state,
+      organization_id: org.id,
+      cert_secret_ref: if(state == :verified, do: "cert-secret", else: nil)
+    })
+  end
+
   defp row_text(view, domain) do
     view
     |> element("[data-testid='access-domain-row']", domain)

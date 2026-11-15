@@ -85,13 +85,7 @@ defmodule FluxVale.Infrastructure.Operations.AttachInstanceTest do
     instance = AccessFixtures.private_instance!(org, owner)
 
     domain =
-      Ash.Seed.seed!(AccessDomain, %{
-        domain: "apps.customer.com",
-        kind: :custom,
-        state: :verified,
-        organization_id: org.id,
-        cert_secret_ref: "cert-secret"
-      })
+      _domain = verified_domain!(org, owner, "apps.customer.com")
 
     stub(Tailscale, :claim_domain, fn gw, name, _resolver_ip ->
       assert gw.id == gateway.id
@@ -112,13 +106,7 @@ defmodule FluxVale.Infrastructure.Operations.AttachInstanceTest do
     gateway = AccessFixtures.gateway!(org)
     instance = AccessFixtures.private_instance!(org, owner)
 
-    Ash.Seed.seed!(AccessDomain, %{
-      domain: "apps.customer.com",
-      kind: :custom,
-      state: :verified,
-      organization_id: org.id,
-      cert_secret_ref: "cert-secret"
-    })
+    _domain = verified_domain!(org, owner, "apps.customer.com")
 
     # A SUCCEEDING claim double: a mis-ordered sweep would write the
     # claims, so the empty map below is what proves the order (a raise
@@ -399,5 +387,31 @@ defmodule FluxVale.Infrastructure.Operations.AttachInstanceTest do
     org
     |> then(&AccessFixtures.private_instance!(&1, owner))
     |> AccessFixtures.sleep!()
+  end
+
+  # Through the actions (the registration contract, then the observed
+  # state write), not a seed: the attach sweep reads real verified rows.
+  defp verified_domain!(org, owner, name) do
+    stub(K8s, :kubeconfig, fn -> {:ok, %{}} end)
+    stub(Kubereq, :attach, fn req, _opts -> req end)
+
+    expect(Kubereq, :apply, fn _req, manifest, _fm ->
+      {:ok, %{status: 201, body: manifest}}
+    end)
+
+    {:ok, pending} =
+      FluxVale.Infrastructure.register_access_domain(%{domain: name},
+        actor: owner,
+        authorize?: false
+      )
+
+    {:ok, verified} =
+      Ash.update(pending, %{cert_secret_ref: "cert-secret"},
+        action: :mark_verified,
+        authorize?: false
+      )
+
+    assert verified.organization_id == org.id
+    verified
   end
 end

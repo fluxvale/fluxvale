@@ -1852,16 +1852,20 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
 
       assert has_element?(view, "[data-testid='hostname-unclaimed-hint']", domain.domain)
 
-      # Seed the gateway row (the display's subject is the claims map, not
-      # provisioning) and mark the domain claimed.
-      Ash.Seed.seed!(AccessGateway, %{
-        hostname: "fv-abcdef12",
-        state: :active,
-        tailnet_domain: "example.ts.net",
-        monthly_cents: 200,
-        organization_id: instance.organization_id,
-        dns_claims: %{domain.domain => %{"ip" => "10.43.0.20"}}
-      })
+      # Through the actions: the gateway's provision leg is stubbed, and
+      # the claims write is the same action the sweep uses.
+      stub(Tailscale, :provision_gateway, fn _gateway, _key ->
+        {:ok, %{credential_secret_ref: "credential-stub"}}
+      end)
+
+      org = FluxVale.Accounts.Organization.get_by_id!(instance.organization_id, authorize?: false)
+      gateway = AccessFixtures.gateway!(org)
+
+      AccessGateway.update_claims!(
+        gateway,
+        %{dns_claims: %{domain.domain => %{"ip" => "10.43.0.20"}}},
+        authorize?: false
+      )
 
       {:ok, claimed_view, _html} = live(conn, ~p"/instances/#{instance.id}")
       refute has_element?(claimed_view, "[data-testid='hostname-unclaimed-hint']")
