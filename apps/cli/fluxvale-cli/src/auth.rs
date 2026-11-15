@@ -26,6 +26,7 @@ pub const ALL_SCOPES: &[&str] = &[
     "gateways:write",
     "instances:read",
     "instances:write",
+    "organizations:read",
     "wallet:read",
 ];
 
@@ -550,7 +551,12 @@ mod tests {
         let err = parse_scopes(Some(" , ")).unwrap_err();
         assert!(err.to_string().contains("no scopes given"), "err: {err}");
         // Every catalog entry rides the default — nothing forgotten.
-        for scope in ["instances:write", "wallet:read", "catalog:read"] {
+        for scope in [
+            "instances:write",
+            "organizations:read",
+            "wallet:read",
+            "catalog:read",
+        ] {
             assert!(default.iter().any(|s| s == scope), "{scope} missing");
         }
     }

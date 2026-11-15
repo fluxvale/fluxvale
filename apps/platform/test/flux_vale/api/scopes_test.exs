@@ -26,6 +26,8 @@ defmodule FluxVale.Api.ScopesTest do
                "gateways:write",
                "instances:read",
                "instances:write",
+               "organizations:read",
+               "organizations:write",
                "wallet:read"
              ]
 
@@ -102,9 +104,28 @@ defmodule FluxVale.Api.ScopesTest do
     test "scopeless routes answer :any" do
       assert {:ok, :any} = Scopes.required_scope("GET", ["me"])
       assert {:ok, :any} = Scopes.required_scope("GET", ["open_api"])
+      assert {:ok, :any} = Scopes.required_scope("GET", ["pricing", "quote"])
+    end
 
-      # The actor's own orgs (#362 T6a) — membership IS the policy.
-      assert {:ok, :any} = Scopes.required_scope("GET", ["organizations"])
+    test "organization routes ride the organizations domain" do
+      assert {:ok, "organizations:read"} = Scopes.required_scope("GET", ["organizations"])
+      assert {:ok, "organizations:write"} = Scopes.required_scope("POST", ["organizations"])
+
+      assert {:ok, "organizations:read"} =
+               Scopes.required_scope("GET", ["organizations", "by-slug", "acme"])
+
+      assert {:ok, "organizations:read"} =
+               Scopes.required_scope("GET", ["organizations", "org-1"])
+
+      assert {:ok, "organizations:write"} =
+               Scopes.required_scope("PATCH", ["organizations", "org-1"])
+
+      assert {:ok, "organizations:write"} =
+               Scopes.required_scope("DELETE", ["organizations", "org-1"])
+
+      # Write implies read; read never implies write.
+      assert Scopes.grants?(["organizations:write"], "organizations:read")
+      refute Scopes.grants?(["organizations:read"], "organizations:write")
     end
 
     test "instance routes" do

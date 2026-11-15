@@ -229,6 +229,18 @@ defmodule FluxVale.Infrastructure.AccessDomain do
       authorize_if(relates_to_actor_via([:organization, :members]))
     end
 
+    # #784: the org teardown's system purge of the derived :platform
+    # row — no Certificate, no cluster state, re-minted on the next
+    # instance create. :remove keeps its platform refusal for every
+    # actor; this action exists so the teardown never routes around it.
+    policy action(:purge) do
+      description(
+        "System-only: org teardown purges the derived :platform row (authorize?: false)"
+      )
+
+      forbid_if(always())
+    end
+
     # The wire's remove verb (#482 P2): the actor fence is the
     # authorized get_by_id inside the action (the Instance :delete
     # stance) — a non-member's row is 404 before any cluster call.
@@ -537,6 +549,27 @@ defmodule FluxVale.Infrastructure.AccessDomain do
       end)
     end
 
+    # #784: the org teardown's purge of the derived :platform row. The
+    # guard keeps the action narrow — only the platform kind, which
+    # owns no Certificate and no cluster state.
+    destroy :purge do
+      description("System-only: org teardown removes the derived :platform row.")
+
+      require_atomic?(false)
+
+      change(fn changeset, _context ->
+        if changeset.data.kind == :platform do
+          changeset
+        else
+          Ash.Changeset.add_error(
+            changeset,
+            field: :kind,
+            message: "only the platform row is purgeable"
+          )
+        end
+      end)
+    end
+
     # #482 P2: the wire's remove verb — the gateway family's generic-
     # action shape. The authorized get_by_id is the ownership fence
     # (a non-member's row is 404 before any cluster call), then the
@@ -588,6 +621,7 @@ defmodule FluxVale.Infrastructure.AccessDomain do
     define(:mark_suspended)
     define(:resume)
     define(:remove)
+    define(:purge)
     define(:remove_via_api, args: [:id])
   end
 

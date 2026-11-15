@@ -148,34 +148,44 @@ the enforcement, so mint the union):
 
 | Tool | What it answers | Scope | Gated |
 | --- | --- | --- | --- |
-| `whoami` | The identity the token carries: user id, email, platform role, username, organizations (id/slug/name) | any | — |
-| `onboarding_status` | Account verified, organizations, the chosen org's wallet balance and runway, instance count, next step (`choose_org`/`fund`/`deploy`/`connect_domain`), and the chosen org's `funding_url` (its own top-up page) | `wallet:read` + `instances:read` (visibility on the wallet half) | — |
-| `organizations_create` | Create a team org (name + slug; reserved slugs refuse), you as owner — scopeless like the org list; the actor policy and the 10-org cap are the gate ([ADR-0042](adr/00042-user-created-organizations.md)) | any | — |
+| `whoami` | The identity the token carries: user id, email, platform role, username, organizations (id/slug/name) | any (`organizations:read` to list orgs) | — |
+| `onboarding_status` | Account verified, organizations, the chosen org's wallet balance and runway, instance count, next step (`choose_org`/`fund`/`deploy`/`connect_domain`), and the chosen org's `funding_url` (its own top-up page) | `wallet:read` + `instances:read` + `organizations:read` | — |
+| `organizations_create` | Create a team org (name + slug; reserved slugs refuse), you as owner; the actor policy and the 10-org cap are the gate ([ADR-0042](adr/00042-user-created-organizations.md)) | `organizations:write` | — |
 | `apps_list` | The deployable app catalog, one entry per app | `catalog:read` | — |
 | `apps_show` | One catalog app by its URL slug: its versions (default allocation, `monthly_cents`) and the agent manual — the newest version's env contract, first-run contract, backing services, OIDC wiring names, default allocation + server-computed default price | `catalog:read` | — |
 | `pricing_quote` | A truthful quote for a custom allocation: `cpu`, `memory_mb`, `storage_gb` in, monthly/stopped cents out — the ledger's curve, computed by the platform. A deploy at the app's recommended size bills the manual's default quote instead | `catalog:read` | — |
-| `instances_list` | Your instances, one entry each; an optional `organization` narrows to that org | `instances:read` | — |
+| `instances_list` | Your instances, one entry each; an optional `organization` narrows to that org | `instances:read` (+ `organizations:read` when naming an org) | — |
 | `instances_status` | One instance's full detail by id (including its public `url`) — or, with no id, the verbose list | `instances:read` | — |
-| `instances_deploy` | Deploy an app: resolve the slug, pick the version, resolve the org (named, or sole-org fallback), create the instance with an optional `env` map, enqueue the deploy | `catalog:read` + `instances:write` (reads the app + versions + orgs before it writes the instance) | — |
+| `instances_deploy` | Deploy an app: resolve the slug, pick the version, resolve the org (named, or sole-org fallback), create the instance with an optional `env` map, enqueue the deploy | `catalog:read` + `instances:write` + `organizations:read` (reads the app + versions + orgs before it writes the instance) | — |
 | `instances_configure` | Merge env vars on a live instance: `set` adds/replaces, `remove` deletes (values are write-only) | `instances:write` | — |
 | `instances_stop` | Scale to zero — the pause (storage keeps accruing) | `instances:write` | — |
 | `instances_start` | Start a stopped/sleeping instance back up | `instances:write` | — |
 | `instances_resize` | Stopped-first re-allocation: stop (when running), resize, start; previous/new allocation and the platform's price quote in the response | `instances:write` | — |
 | `instances_destroy` | Destroy an instance and all its data | `instances:write` | confirm-gated |
-| `gateway` | The org's access gateway: `status`, `attach`, `detach`; attach returns the pairing row, detach the result, both with the re-read status (`status_error` if that read failed) | `gateways:read` + `gateways:write` for attach/detach | — |
-| `custom_domain` | `list`, `create`, `verify`, `delete` over the org's custom domains; every row carries `live` (serving now), `healthy` (certificate/registration untroubled — `live` says it serves), and a `reason_code` (`platform`/`pending`/`failed`/`needs_attention`/`suspended`/`no_gateway`/`no_api_token`/`unclaimed`/`claimed`/`gateway_not_serving`/`removed`/`unknown`) | `gateways:read` + `gateways:write` for create/delete | — |
+| `gateway` | The org's access gateway: `status`, `attach`, `detach`; attach returns the pairing row, detach the result, both with the re-read status (`status_error` if that read failed) | `gateways:read` + `gateways:write` for attach/detach, `organizations:read` for the org resolve | — |
+| `custom_domain` | `list`, `create`, `verify`, `delete` over the org's custom domains; every row carries `live` (serving now), `healthy` (certificate/registration untroubled — `live` says it serves), and a `reason_code` (`platform`/`pending`/`failed`/`needs_attention`/`suspended`/`no_gateway`/`no_api_token`/`unclaimed`/`claimed`/`gateway_not_serving`/`removed`/`unknown`) | `gateways:read` + `gateways:write` for create/delete, `organizations:read` for the org resolve | — |
 | `sso` | Wire an instance to the org's Pocket ID (`connect`) and read the wiring back (`status`); identifiers only, never the minted secret; a non-404 read-back failure rides as `status_error` beside the committed row (a 404 is an invisible row, not an error) | `instances:read` + `instances:write` for connect | — |
 | `backups_status` | An instance's backup settings + latest run | `instances:read` + `backups:read` (the instance read gates first — the runs list alone can't name a foreign id) | — |
 | `backups_configure` | Save the backup destination (identifiers only) | `backups:write` | — |
 | `backups_run` | Run a backup now | `backups:write` | — |
 | `backups_restore` | Restore a volume from the newest successful backup | `backups:write` | confirm-gated |
-| `terraform_import_bundle` | Render a Terraform import scaffold (versions.tf, imports.tf, README.md) for an org's live instances, backups, gateway, custom domains, and PocketID SSO wirings; returns the file contents, writes nothing | `instances:read` + `backups:read` + `gateways:read` | — |
+| `terraform_import_bundle` | Render a Terraform import scaffold (versions.tf, imports.tf, README.md) for an org's live instances, backups, gateway, custom domains, and PocketID SSO wirings; returns the file contents, writes nothing | `instances:read` + `backups:read` + `gateways:read` + `organizations:read` | — |
 | `wallet_balance` | The org wallet row | `wallet:read` | — |
 | `wallet_runway` | The runway projection (burn rate, hours left) | `wallet:read` | — |
 | `wallet_ledger` | The ledger history, keyset-paginated (`next_cursor`) | `wallet:read` | — |
 | `topup` | The panel's top-up URL — a pointer for the human, no API call | any | — |
 
 ## Tool-surface changelog
+
+### 2026-11-15 — organization scope (#784)
+
+- The organization routes now ride a scope: reads need
+  `organizations:read`, create/rename/delete `organizations:write`.
+  A read-only token can no longer delete the billing boundary.
+  `organizations_create` is no longer scopeless; tools that resolve an
+  org (`onboarding_status`, `instances_deploy`, `gateway`,
+  `custom_domain`, `terraform_import_bundle`, `whoami`'s org list)
+  also need `organizations:read`.
 
 The discipline (mirroring the CLI's —
 [apps/cli/CHANGELOG.md](../apps/cli/CHANGELOG.md)): **any tool add,

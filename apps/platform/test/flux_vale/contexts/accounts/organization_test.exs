@@ -6,11 +6,21 @@ defmodule FluxVale.Accounts.OrganizationTest do
   """
 
   use FluxVale.DataCase, async: true
+  use Mimic
 
   alias Ash.Error.Invalid
   alias FluxVale.Accounts.Membership
   alias FluxVale.Accounts.Organization
+  alias FluxVale.Clients.K8s
+  alias FluxVale.Feedback.Post
+  alias FluxVale.Infrastructure.AccessDomain
+  alias FluxVale.Infrastructure.AccessProviders.Tailscale
+  alias FluxVale.Infrastructure.Instance
+  alias FluxVale.TestSupport.AccessFixtures
   alias FluxVale.TestSupport.AccountsFixtures
+  alias FluxVale.TestSupport.InstanceFixtures
+
+  require Ash.Query
 
   describe "create" do
     test "creation is system-only (JIT provisioning) — no actor-driven squatting" do
@@ -114,12 +124,28 @@ defmodule FluxVale.Accounts.OrganizationTest do
       assert {:error, _gone} = Organization.get_by_id(org.id, authorize?: false)
     end
 
-    test "destroy fails loudly while a wallet exists (billing rows are append-only)" do
+    test "destroy refuses a personal org — the owner's account surface" do
       org = AccountsFixtures.personal_org!(AccountsFixtures.user!())
 
-      # The welcome grant (#122) provisions the wallet; teardown keeping
-      # or clearing billing history is #124's design — the FK must hold.
-      assert_raise Ash.Error.Unknown, fn -> Ash.destroy!(org, authorize?: false) end
+      assert {:error, %Invalid{errors: errors}} = Ash.destroy(org, authorize?: false)
+
+      assert_guard(errors, "personal organization")
+
+      assert {:ok, _still_here} = Organization.get_by_id(org.id, authorize?: false)
+    end
+
+    test "destroy refuses an org with a wallet — billing records are retained" do
+      org =
+        Organization.create!(
+          %{name: "wallet", slug: "wallet-#{System.unique_integer([:positive])}"},
+          authorize?: false
+        )
+
+      {:ok, _wallet} = FluxVale.Billing.ensure_wallet(org)
+
+      assert {:error, %Invalid{errors: errors}} = Ash.destroy(org, authorize?: false)
+
+      assert_guard(errors, "billing history")
 
       assert {:ok, _still_here} = Organization.get_by_id(org.id, authorize?: false)
     end
@@ -177,6 +203,182 @@ defmodule FluxVale.Accounts.OrganizationTest do
       org = owned_org!(owner)
 
       assert {:error, %Ash.Error.Forbidden{}} = Ash.destroy(org)
+    end
+  end
+
+  describe "empty-org guard (#784)" do
+    test "a non-owner member refuses the delete with the platform's words" do
+      owner = AccountsFixtures.user!()
+      org = AccountsFixtures.owned_org!(owner)
+      member = AccountsFixtures.user!()
+
+      Membership.create!(
+        %{organization_id: org.id, user_id: member.id, role: :member},
+        authorize?: false
+      )
+
+      assert {:error, %Invalid{errors: errors}} = Ash.destroy(org, actor: owner)
+
+      assert_guard(errors, "members who are not owners")
+    end
+
+    test "an instance in any state refuses the delete" do
+      owner = AccountsFixtures.user!()
+      org = AccountsFixtures.owned_org!(owner)
+
+      InstanceFixtures.local_cluster!()
+      version = InstanceFixtures.app_version!()
+
+      Instance.create!(
+        %{name: "Guard", app_version_id: version.id, organization_id: org.id},
+        actor: owner,
+        authorize?: false
+      )
+
+      assert {:error, %Invalid{errors: errors}} = Ash.destroy(org, actor: owner)
+
+      assert_guard(errors, "still has 1 instance. Delete it first.")
+    end
+
+    test "the instance arm pluralizes the count" do
+      owner = AccountsFixtures.user!()
+      org = AccountsFixtures.owned_org!(owner)
+
+      InstanceFixtures.local_cluster!()
+      version = InstanceFixtures.app_version!()
+
+      for _instance <- 1..2 do
+        Instance.create!(
+          %{
+            name: "Guard #{System.unique_integer([:positive])}",
+            app_version_id: version.id,
+            organization_id: org.id
+          },
+          actor: owner,
+          authorize?: false
+        )
+      end
+
+      assert {:error, %Invalid{errors: errors}} = Ash.destroy(org, actor: owner)
+
+      assert_guard(errors, "still has 2 instances. Delete them first.")
+    end
+
+    test "the custom-domain arm pluralizes the count" do
+      stub(Kubereq, :attach, fn req, _opts -> req end)
+
+      stub(Kubereq, :apply, fn _req, manifest, _fm ->
+        {:ok, %{status: 201, body: manifest}}
+      end)
+
+      stub(K8s, :kubeconfig, fn -> {:ok, %{}} end)
+      stub(K8s, :kubeconfig, fn _ref -> {:ok, %{}} end)
+
+      owner = AccountsFixtures.user!()
+      org = AccountsFixtures.owned_org!(owner)
+
+      for _domain <- 1..2 do
+        AccessDomain.register!(
+          %{
+            domain: "guard-#{System.unique_integer([:positive])}.customer.test",
+            organization_id: org.id
+          },
+          actor: owner,
+          authorize?: false
+        )
+      end
+
+      assert {:error, %Invalid{errors: errors}} = Ash.destroy(org, actor: owner)
+
+      assert_guard(errors, "still has 2 custom domains. Remove them first.")
+    end
+
+    test "a custom access domain refuses the delete — its Certificate needs the removal operation" do
+      stub(Kubereq, :attach, fn req, _opts -> req end)
+
+      stub(Kubereq, :apply, fn _req, manifest, _fm ->
+        {:ok, %{status: 201, body: manifest}}
+      end)
+
+      stub(K8s, :kubeconfig, fn -> {:ok, %{}} end)
+      stub(K8s, :kubeconfig, fn _ref -> {:ok, %{}} end)
+
+      owner = AccountsFixtures.user!()
+      org = AccountsFixtures.owned_org!(owner)
+
+      domain =
+        AccessDomain.register!(
+          %{
+            domain: "guard-#{System.unique_integer([:positive])}.customer.test",
+            organization_id: org.id
+          },
+          actor: owner,
+          authorize?: false
+        )
+
+      # The teardown's purge is narrow: a custom row owns a Certificate,
+      # so it can never go through it.
+      assert {:error, %Invalid{errors: purge_errors}} =
+               AccessDomain.purge(domain, authorize?: false)
+
+      assert_guard(purge_errors, "only the platform row is purgeable")
+
+      assert {:error, %Invalid{errors: errors}} = Ash.destroy(org, actor: owner)
+
+      assert_guard(errors, "still has 1 custom domain. Remove it first.")
+    end
+
+    test "the private-access gateway refuses the delete" do
+      stub(Tailscale, :provision_gateway, fn _gateway, _key ->
+        {:ok, %{credential_secret_ref: "credential-stub"}}
+      end)
+
+      stub(Tailscale, :scale_gateway, fn _gateway, _replicas -> :ok end)
+      stub(Tailscale, :teardown_gateway, fn _gateway -> :ok end)
+      stub(Tailscale, :update_credential, fn _gateway, _key -> :ok end)
+
+      owner = AccountsFixtures.user!()
+      org = AccountsFixtures.owned_org!(owner)
+      AccessFixtures.gateway!(org)
+
+      assert {:error, %Invalid{errors: errors}} = Ash.destroy(org, actor: owner)
+
+      assert_guard(errors, "private-access gateway")
+    end
+
+    test "the derived platform access-domain row is purged, not a blocker" do
+      owner = AccountsFixtures.user!()
+      org = AccountsFixtures.owned_org!(owner)
+
+      AccessDomain.mint_platform!(
+        %{domain: "instances.test", organization_id: org.id},
+        authorize?: false
+      )
+
+      assert :ok = Ash.destroy(org, actor: owner)
+
+      assert {:error, _gone} = Organization.get_by_id(org.id, authorize?: false)
+
+      assert {:ok, []} =
+               AccessDomain
+               |> Ash.Query.filter(organization_id == ^org.id)
+               |> Ash.read(authorize?: false)
+    end
+
+    test "feedback posts survive the delete with their org attribution nil" do
+      owner = AccountsFixtures.user!()
+      org = AccountsFixtures.owned_org!(owner)
+
+      post =
+        Post.create!(
+          %{title: "Feedback", description: "Guard test", organization_id: org.id},
+          authorize?: false
+        )
+
+      assert :ok = Ash.destroy(org, actor: owner)
+
+      assert {:ok, kept} = Ash.get(Post, post.id, authorize?: false)
+      assert kept.organization_id == nil
     end
   end
 
@@ -441,5 +643,18 @@ defmodule FluxVale.Accounts.OrganizationTest do
       slug: "teardown-#{System.unique_integer([:positive])}"
     })
     |> Ash.create!(actor: owner)
+  end
+
+  defp assert_guard(errors, needle) do
+    found =
+      Enum.any?(errors, fn
+        %Ash.Error.Changes.InvalidAttribute{message: message} ->
+          String.contains?(message, needle)
+
+        _other ->
+          false
+      end)
+
+    assert found, "expected a guard error containing #{inspect(needle)}, got #{inspect(errors)}"
   end
 end

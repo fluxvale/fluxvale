@@ -38,9 +38,9 @@ pub(crate) async fn check_me(base: Arc<str>, token: Token) -> Result<(), ApiErro
 }
 
 /// `whoami` — GET /me, then GET /organizations (#362 T6a): the flat
-/// identity row with the org ids. An older backend without the orgs
-/// route degrades to no organizations — a 404 there is "no discovery
-/// surface", not an error; anything else propagates.
+/// identity row with the org ids. A 404 (older backend) or a 403 naming
+/// the missing `organizations:read` scope degrades to no organizations;
+/// identity does not depend on the org list. Anything else propagates.
 pub(crate) async fn whoami(base: Arc<str>, token: Token) -> Result<Value, String> {
     on_blocking_string(move || {
         let client = ApiClient::new(&base, token);
@@ -59,6 +59,10 @@ pub(crate) async fn whoami(base: Arc<str>, token: Token) -> Result<Value, String
                 })
                 .collect::<Vec<_>>(),
             Err(ApiError::NotFound) => Vec::new(),
+            // #784: org reads now require organizations:read. Identity
+            // still resolves without it, so whoami degrades instead of
+            // failing — the org-resolving tools surface the 403.
+            Err(ApiError::Forbidden(detail)) if detail.contains("organizations:read") => Vec::new(),
             Err(err) => return Err(message(err)),
         };
         let mut row = with_id(&user);
@@ -2318,6 +2322,22 @@ mod tests {
             // A 404 on /organizations alone is "no discovery surface".
         ]);
         let row = whoami(base(&server), token()).await.unwrap();
+        assert_eq!(row["organizations"], json!([]));
+    }
+
+    #[tokio::test]
+    async fn whoami_degrades_a_missing_org_scope_to_no_organizations() {
+        let server = serve(&[
+            ("/api/v1/me", 200, &envelope(me_doc())),
+            (
+                "/api/v1/organizations",
+                403,
+                &envelope(json!({"errors": [{"status": "403", "title": "Forbidden",
+                    "detail": "token is missing the required scope organizations:read"}]})),
+            ),
+        ]);
+        let row = whoami(base(&server), token()).await.unwrap();
+        assert_eq!(row["email"], "me@example.com");
         assert_eq!(row["organizations"], json!([]));
     }
 

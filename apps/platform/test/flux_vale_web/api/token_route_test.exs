@@ -211,8 +211,8 @@ defmodule FluxValeWeb.Api.TokenRouteTest do
            }, "at most 100"},
           {%{"name" => "a" <> <<0>>, "scopes" => [], "ttl_seconds" => 60}, "NUL"},
           {%{"name" => 7, "scopes" => [], "ttl_seconds" => 60}, "name must be a string"},
-          {%{"scopes" => List.duplicate("instances:read", 9), "ttl_seconds" => 60},
-           "at most 8 scopes"}
+          {%{"scopes" => List.duplicate("instances:read", 11), "ttl_seconds" => 60},
+           "at most 10 scopes"}
         ] do
       # A fresh caller per row: the rate limiter keys on the token,
       # and this suite deliberately camps on the refusal paths.

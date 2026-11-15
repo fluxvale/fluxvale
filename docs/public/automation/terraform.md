@@ -70,6 +70,46 @@ For CI or a container, mint a scoped, short-lived token and store it in the pipe
 
 ## The resources
 
+### Create the organization
+
+Every deploy needs an organization — the ownership and billing boundary. `fluxvale_organization` creates a team organization and makes the authenticated user its owner. The resource ships in provider **v0.5.0**; bump the pin above to `~> 0.5` (or `>= 0.5`) to use it — on v0.4 the resource type does not exist:
+
+```hcl
+resource "fluxvale_organization" "team" {
+  name = "Acme"
+  slug = "acme"
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
+resource "fluxvale_instance" "reading" {
+  organization   = fluxvale_organization.team.slug
+  name           = "Reading"
+  app_version_id = data.fluxvale_app_versions.kavita.app_versions[0].id
+  cpu_cores      = 0.5
+  memory_mb      = 512
+  storage_gb     = 20
+}
+```
+
+The `organization` line is the dependency edge: the org exists before the instance, and Terraform destroys the instance before the org. Name the org on each resource rather than in the provider block — a provider-level `organization` that references the resource makes provider configuration depend on a resource, which Terraform cannot destroy cleanly.
+
+Creating an org does not fund it. A team org has no wallet and no welcome credit, so the first deploy still meets the platform's top-up gate. `name` updates in place; `slug` is create-only — changing it plans a replacement, and the provider rejects that plan because a replacement would destroy the org and everything under it. Renaming the slug is the panel's flow; set the config to the current slug (or re-import) after an out-of-band rename.
+
+Deleting an org is allowed only when it is empty: no instances, custom domains, gateway, non-owner members, and no billing history. An org that has ever held a wallet row is retained — deleting it would delete financial records the platform keeps (see the [privacy policy](https://fluxvale.com/policies/privacy)). The row appears on the first visit to the org's home or billing page, a top-up, or a deploy, so even a never-funded org becomes undeletable once a member opens it. The provider surfaces the platform's refusal verbatim. `prevent_destroy` is the recommended posture for any org you care about — the empty-org guard is the only thing standing between a stray `destroy` and the billing boundary.
+
+Reserved brand slugs (`fluxvale`, `docs`, `app`, …) cannot be created through the API, even by a platform admin's token — a token is never an operator act. Create the company org in the panel as a platform admin, then import it:
+
+```sh
+terraform import fluxvale_organization.team fluxvale
+```
+
+A token that is not a member of the org gets the same `404` as a missing id — the platform never reveals a hidden org's existence.
+
+### Deploy an app
+
 `fluxvale_instance` deploys an app. Pick the catalog app by slug, set the allocation, and the provider creates, deploys, and later resizes the instance:
 
 ```hcl
@@ -93,6 +133,7 @@ instead keeps deploys on one release as the catalog grows.
 
 The full resource set:
 
+- `fluxvale_organization` creates a team organization; read, rename, import by slug, and delete an empty org.
 - `fluxvale_instance` deploys an app, with allocation, environment inputs, run state, and exposure.
 - `fluxvale_instance_backups` sends backups to your own S3-compatible bucket.
 - `fluxvale_access_gateway` runs the private-access gateway for your organization.
