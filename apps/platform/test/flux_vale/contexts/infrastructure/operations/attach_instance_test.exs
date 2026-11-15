@@ -7,7 +7,7 @@ defmodule FluxVale.Infrastructure.Operations.AttachInstanceTest do
   # whose limbs never landed claims a pairing nothing can reach). The
   # provider is stubbed; the assertion surface is the access applies.
 
-  use FluxVale.DataCase, async: true
+  use FluxVale.DataCase, async: false
   use Mimic
 
   import ExUnit.CaptureLog
@@ -18,6 +18,8 @@ defmodule FluxVale.Infrastructure.Operations.AttachInstanceTest do
   alias FluxVale.Clients.K8s.Resources.Middleware
   alias FluxVale.Clients.K8s.Resources.NetworkPolicy
   alias FluxVale.Clients.K8s.Resources.Service
+  alias FluxVale.Infrastructure.AccessDomain
+  alias FluxVale.Infrastructure.AccessGateway
   alias FluxVale.Infrastructure.AccessProviders.Tailscale
   alias FluxVale.Infrastructure.AccessRoute
   alias FluxVale.Infrastructure.Operations.AttachInstance
@@ -30,6 +32,12 @@ defmodule FluxVale.Infrastructure.Operations.AttachInstanceTest do
   setup do
     InstanceFixtures.local_cluster!()
     stub(K8s, :kubeconfig, fn _ref -> {:ok, %{}} end)
+
+    stub(Tailscale, :claim_domain, fn _gw, _name, _ip -> {:error, :no_api_token} end)
+
+    previous = Application.get_env(:flux_vale, :access_dns)
+    Application.put_env(:flux_vale, :access_dns, resolver_ip: "10.43.0.20")
+    on_exit(fn -> Application.put_env(:flux_vale, :access_dns, previous) end)
 
     # The gateway create runs the provider's provision leg.
     stub(Tailscale, :provision_gateway, fn _gateway, _key ->
@@ -70,6 +78,49 @@ defmodule FluxVale.Infrastructure.Operations.AttachInstanceTest do
 
   defp not_found do
     {:error, Error.from_response({:ok, %{status: 404, body: %{}}})}
+  end
+
+  test "a successful attach claims the org's verified domains", %{org: org, owner: owner} do
+    gateway = AccessFixtures.gateway!(org)
+    instance = AccessFixtures.private_instance!(org, owner)
+
+    domain =
+      _domain = verified_domain!(org, owner, "apps.customer.com")
+
+    stub(Tailscale, :claim_domain, fn gw, name, _resolver_ip ->
+      assert gw.id == gateway.id
+      assert name == "apps.customer.com"
+      {:ok, %{device_id: "device-1", route: "10.43.0.20/32"}}
+    end)
+
+    assert {:ok, _route} = AttachInstance.call(gateway, instance)
+
+    row = AccessGateway.get_by_id!(gateway.id, authorize?: false)
+    assert row.dns_claims[domain.domain]["ip"] == "10.43.0.20"
+  end
+
+  test "a failed attach claims nothing (the pairing unwinds first)", %{
+    org: org,
+    owner: owner
+  } do
+    gateway = AccessFixtures.gateway!(org)
+    instance = AccessFixtures.private_instance!(org, owner)
+
+    _domain = verified_domain!(org, owner, "apps.customer.com")
+
+    # A SUCCEEDING claim double: a mis-ordered sweep would write the
+    # claims, so the empty map below is what proves the order (a raise
+    # here would be swallowed by the sweep's own rescue).
+    stub(Tailscale, :claim_domain, fn _gw, _name, _ip ->
+      {:ok, %{device_id: "device-1", route: "10.43.0.20/32"}}
+    end)
+
+    stub(Ingress, :create, fn _kc, _ns, _n, _spec -> not_found() end)
+
+    assert {:error, _reason} = AttachInstance.call(gateway, instance)
+
+    row = AccessGateway.get_by_id!(gateway.id, authorize?: false)
+    assert row.dns_claims in [nil, %{}]
   end
 
   test "a :running instance's attach mints the serving arm and the widened policy", %{
@@ -336,5 +387,31 @@ defmodule FluxVale.Infrastructure.Operations.AttachInstanceTest do
     org
     |> then(&AccessFixtures.private_instance!(&1, owner))
     |> AccessFixtures.sleep!()
+  end
+
+  # Through the actions (the registration contract, then the observed
+  # state write), not a seed: the attach sweep reads real verified rows.
+  defp verified_domain!(org, owner, name) do
+    stub(K8s, :kubeconfig, fn -> {:ok, %{}} end)
+    stub(Kubereq, :attach, fn req, _opts -> req end)
+
+    expect(Kubereq, :apply, fn _req, manifest, _fm ->
+      {:ok, %{status: 201, body: manifest}}
+    end)
+
+    {:ok, pending} =
+      FluxVale.Infrastructure.register_access_domain(%{domain: name},
+        actor: owner,
+        authorize?: false
+      )
+
+    {:ok, verified} =
+      Ash.update(pending, %{cert_secret_ref: "cert-secret"},
+        action: :mark_verified,
+        authorize?: false
+      )
+
+    assert verified.organization_id == org.id
+    verified
   end
 end

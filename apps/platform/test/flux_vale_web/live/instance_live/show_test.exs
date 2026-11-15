@@ -30,10 +30,12 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
   alias FluxVale.Clients.K8s.SelfAccessReview
 
   alias Decimal
+  alias FluxVale.Accounts.Organization
   alias FluxVale.Catalog.AppVersion
   alias FluxVale.Catalog.AppVersion.SetSortKey
   alias FluxVale.Identity.User
   alias FluxVale.Infrastructure.AccessDomain
+  alias FluxVale.Infrastructure.AccessGateway
   alias FluxVale.Infrastructure.AccessProviders.Tailscale
   alias FluxVale.Infrastructure.AccessRoute
   alias FluxVale.Infrastructure.Instance
@@ -1836,6 +1838,51 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
       assert has_element?(view, "[data-testid='hostname-empty']")
       assert has_element?(view, "[data-testid='hostname-guide-link']")
       refute has_element?(view, "#hostname-form")
+    end
+
+    test "a verified but unclaimed domain names the fix; claiming clears it", %{
+      conn: conn,
+      user: user,
+      version: version
+    } do
+      instance = create_instance!(version, user)
+      domain = verified_custom_domain!(instance, user)
+      _hostname = custom_hostname!(instance, domain, "git")
+
+      {:ok, view, _html} = live(conn, ~p"/instances/#{instance.id}")
+
+      assert has_element?(view, "[data-testid='hostname-unclaimed-hint']", domain.domain)
+
+      # Through the actions: the gateway's provision leg is stubbed, and
+      # the claims write is the same action the sweep uses.
+      stub(Tailscale, :provision_gateway, fn _gateway, _key ->
+        {:ok, %{credential_secret_ref: "credential-stub"}}
+      end)
+
+      org = Organization.get_by_id!(instance.organization_id, authorize?: false)
+      gateway = AccessFixtures.gateway!(org)
+
+      AccessGateway.update_claims!(
+        gateway,
+        %{dns_claims: %{domain.domain => %{"ip" => "10.43.0.20"}}},
+        authorize?: false
+      )
+
+      {:ok, claimed_view, _html} = live(conn, ~p"/instances/#{instance.id}")
+      refute has_element?(claimed_view, "[data-testid='hostname-unclaimed-hint']")
+    end
+
+    test "an unclaimed domain this instance has no address under is not hinted", %{
+      conn: conn,
+      user: user,
+      version: version
+    } do
+      instance = create_instance!(version, user)
+      _org_wide = verified_custom_domain!(instance, user)
+
+      {:ok, view, _html} = live(conn, ~p"/instances/#{instance.id}")
+
+      refute has_element?(view, "[data-testid='hostname-unclaimed-hint']")
     end
 
     test "lists verified custom domains as options and custom addresses as rows", %{

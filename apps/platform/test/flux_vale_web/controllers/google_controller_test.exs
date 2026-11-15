@@ -45,7 +45,7 @@ defmodule FluxValeWeb.GoogleControllerTest do
     # day-long suite throttle window per-test isolated.
     FeatureFlag.create!("google_sign_in", %{enabled: true}, authorize?: false)
 
-    ip = {10, unique_octet(), unique_octet(), unique_octet()}
+    ip = unique_ip()
     %{provider: provider, ip: ip}
   end
 
@@ -503,5 +503,13 @@ defmodule FluxValeWeb.GoogleControllerTest do
     end
   end
 
-  defp unique_octet, do: rem(System.unique_integer([:positive]), 250)
+  # A suite-unique client IP. The throttle key is {ip, window} in a
+  # table that outlives the test process, so a repeated octet triple
+  # (the old single-octet draw collided after 250 hops) starts a test
+  # with an exhausted bucket. Three octets derived from one unique
+  # integer make the mapping injective for ~15.6M hops.
+  defp unique_ip do
+    n = System.unique_integer([:positive])
+    {10, rem(n, 250) + 1, rem(div(n, 250), 250) + 1, rem(div(n, 62_500), 250) + 1}
+  end
 end

@@ -17,6 +17,10 @@ defmodule FluxVale.Infrastructure.Operations.AttachInstance do
   - the instance belongs to the same org (a cross-org attach is a
     tenant-isolation breach, not a validation error).
 
+  A successful attach also claims the org's verified-but-unclaimed
+  custom domains (#756): the pairing that makes the hostnames deliverable
+  is one of the events that ends an unclaimed domain's wait.
+
   The provider does the cluster work; this module owns the ordering:
   attach (row + serve config + policy) first, then the row's
   confirmation — then the ACCESS EDGE (ADR-0040 §7): the access serving
@@ -38,6 +42,7 @@ defmodule FluxVale.Infrastructure.Operations.AttachInstance do
   alias FluxVale.Infrastructure.AccessProvider
   alias FluxVale.Infrastructure.AccessRoute
   alias FluxVale.Infrastructure.Instance
+  alias FluxVale.Infrastructure.Operations.ClaimUnclaimedDomains
   alias FluxVale.Infrastructure.Operations.EdgeRoutes
   alias FluxVale.Infrastructure.Operations.InstanceK8s
   alias FluxVale.Infrastructure.Operations.RenderAccessDNS
@@ -95,6 +100,7 @@ defmodule FluxVale.Infrastructure.Operations.AttachInstance do
     with {:ok, kubeconfig} <- InstanceK8s.kubeconfig_for(instance),
          :ok <- apply_access_edge(gateway, kubeconfig, instance) do
       reapply_if_status_moved(kubeconfig, gateway, instance)
+      claim_verified_domains(gateway)
       after_commit_render()
       {:ok, route}
     else
@@ -103,6 +109,16 @@ defmodule FluxVale.Infrastructure.Operations.AttachInstance do
           do: {:error, reason},
           else: unwind_failed_attach(instance, route, reason)
     end
+  end
+
+  # The attach event's one-shot claim (#756): a verified domain whose
+  # hostnames now have a pairing becomes resolvable at once. Claims are
+  # external state — a refusal is logged and never fails the attach, and
+  # the event does not repeat on ticks (the next attach or a token
+  # paste converges). The render below covers the new claims.
+  defp claim_verified_domains(gateway) do
+    _summary = ClaimUnclaimedDomains.call(gateway, render?: false)
+    :ok
   end
 
   # The view is derived state (ADR-0040 §4): attach just changed WHICH

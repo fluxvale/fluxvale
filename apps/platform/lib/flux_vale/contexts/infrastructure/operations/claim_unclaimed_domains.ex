@@ -3,8 +3,8 @@ defmodule FluxVale.Infrastructure.Operations.ClaimUnclaimedDomains do
   Claims a gateway's verified-but-unclaimed custom domains (#756) — the
   one implementation behind the three event-driven triggers:
 
-  The token write is the caller today; the verify pass's promotion and
-  the instance attach are the #756 follow-ups that reuse it.
+  Callers (all event-driven): the token save (#760), the verify pass's
+  promotion, and a successful instance attach (#756).
 
   **Event-driven on purpose.** No every-tick retry: a revoked token
   cannot re-hit the tailnet API and re-drift the gateway every 15

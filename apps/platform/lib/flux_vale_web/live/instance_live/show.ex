@@ -525,6 +525,19 @@ defmodule FluxValeWeb.InstanceLive.Show do
                 address is recorded here and serves nothing yet.
               </p>
 
+              <p
+                :if={@hostname_unclaimed_domains != []}
+                class="text-sm text-ink"
+                data-testid="hostname-unclaimed-hint"
+              >
+                {Enum.map_join(@hostname_unclaimed_domains, " and ", & &1.domain)}
+                {if length(@hostname_unclaimed_domains) == 1, do: "is", else: "are"} verified but
+                not claimed on your tailnet yet — an organization owner can paste the Tailscale
+                API token in Settings → Access to claim {if length(@hostname_unclaimed_domains) == 1,
+                  do: "it",
+                  else: "them"}.
+              </p>
+
               <%= if @hostnames == [] and @hostname_domains == [] do %>
                 <div class="space-y-2" data-testid="hostname-empty">
                   <p class="text-sm text-ink-subtle">
@@ -2614,12 +2627,40 @@ defmodule FluxValeWeb.InstanceLive.Show do
     verified = Enum.filter(org_domains, &(&1.kind == :custom and &1.state == :verified))
     domains = Enum.sort_by(verified, & &1.domain)
 
+    gateway =
+      case AccessGateway.get_for_organization(instance.organization_id, actor: user) do
+        {:ok, gateway} -> gateway
+        {:error, _none} -> nil
+      end
+
+    claimed = claimed_domain_names(gateway)
+    minted = MapSet.new(hostnames, & &1.access_domain.domain)
+
+    # Only the domains this instance actually mints under: an org-wide
+    # unclaimed domain would make the hint claim an address this page
+    # does not have.
+    unclaimed =
+      Enum.filter(domains, &(&1.domain in minted and &1.domain not in claimed))
+
     assign(socket,
       hostnames: hostnames,
       hostname_domains: domains,
+      hostname_unclaimed_domains: unclaimed,
       hostname_form: hostname_form(domains)
     )
   end
+
+  # #756: the claim state's honest signal where the member mints. A
+  # verified domain the gateway has not claimed serves nothing, so the
+  # card names the fix instead of implying the address works — and only
+  # for domains this instance has a hostname under.
+  defp claimed_domain_names(nil), do: []
+
+  defp claimed_domain_names(%{dns_claims: claims})
+       when is_map(claims) and not is_struct(claims),
+       do: Map.keys(claims)
+
+  defp claimed_domain_names(_gateway), do: []
 
   defp refresh_hostnames(socket) do
     assign_hostnames(socket, socket.assigns.instance, socket.assigns.current_user)
