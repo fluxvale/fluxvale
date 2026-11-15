@@ -20,7 +20,6 @@ defmodule FluxVale.Infrastructure.Operations.VerifyAccessDomainsTest do
   alias FluxVale.Infrastructure.AccessProviders.Tailscale
   alias FluxVale.Infrastructure.AccessRoute
   alias FluxVale.Infrastructure.InstanceHostname
-  alias FluxVale.Infrastructure.Operations.ClaimUnclaimedDomains
   alias FluxVale.Infrastructure.Operations.RenderAccessDNS
   alias FluxVale.TestSupport.AccessFixtures
   alias FluxVale.TestSupport.BillingFixtures
@@ -105,7 +104,8 @@ defmodule FluxVale.Infrastructure.Operations.VerifyAccessDomainsTest do
         {:ok, %{status: 200, body: cert_body("True")}}
       end)
 
-      stub(Tailscale, :claim_domain, fn _gw, _name, _ip -> flunk("no gateway, no claim") end)
+      assert {:error, _no_gateway} =
+               AccessGateway.get_for_organization(domain.organization_id, authorize?: false)
 
       assert {:ok, %{verified: 1}} = Infrastructure.verify_access_domains()
       assert get_row!(domain.id).state == :verified

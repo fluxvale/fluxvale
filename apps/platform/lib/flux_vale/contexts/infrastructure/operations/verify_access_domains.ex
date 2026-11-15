@@ -25,6 +25,11 @@ defmodule FluxVale.Infrastructure.Operations.VerifyAccessDomains do
     un-flapped until Ready returns. Cert loss self-heals instead of
     sticking forever.
 
+  **Promotion is also the claim event (#756):** the domain it just
+  promoted is claimed on the org's gateway when one exists, so a domain
+  that verifies after the token was stored does not wait for an
+  unrelated trigger.
+
   **The arms follow the domain (ADR-0040 Am. 1 as built):** promotion
   to `:verified` mints the access arms for the domain's attached
   private instances (a fresh domain answers now, not at the next

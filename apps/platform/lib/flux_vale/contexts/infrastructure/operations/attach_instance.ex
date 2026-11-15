@@ -17,6 +17,10 @@ defmodule FluxVale.Infrastructure.Operations.AttachInstance do
   - the instance belongs to the same org (a cross-org attach is a
     tenant-isolation breach, not a validation error).
 
+  A successful attach also claims the org's verified-but-unclaimed
+  custom domains (#756): the pairing that makes the hostnames deliverable
+  is one of the events that ends an unclaimed domain's wait.
+
   The provider does the cluster work; this module owns the ordering:
   attach (row + serve config + policy) first, then the row's
   confirmation — then the ACCESS EDGE (ADR-0040 §7): the access serving

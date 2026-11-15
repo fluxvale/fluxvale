@@ -380,6 +380,10 @@ defmodule FluxVale.Infrastructure.AccessGateway do
     publish(:resume, ["access_gateways", :organization_id])
     publish(:update_credential, ["access_gateways", :organization_id])
     publish(:set_api_token, ["access_gateways", :organization_id])
+    # #756: the claim writes (token save, verify promotion, attach
+    # sweep) all land here — an open panel's Domains card must not wait
+    # for an unrelated state change to tell the truth.
+    publish(:update_claims, ["access_gateways", :organization_id])
     publish(:mark_provision_error, ["access_gateways", :organization_id])
     publish(:mark_teardown_error, ["access_gateways", :organization_id])
     # The teardown's hard delete is the one state change that never

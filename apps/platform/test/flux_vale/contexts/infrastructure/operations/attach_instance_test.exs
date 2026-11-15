@@ -120,13 +120,19 @@ defmodule FluxVale.Infrastructure.Operations.AttachInstanceTest do
       cert_secret_ref: "cert-secret"
     })
 
+    # A SUCCEEDING claim double: a mis-ordered sweep would write the
+    # claims, so the empty map below is what proves the order (a raise
+    # here would be swallowed by the sweep's own rescue).
     stub(Tailscale, :claim_domain, fn _gw, _name, _ip ->
-      flunk("a failed attach has no pairing to resolve")
+      {:ok, %{device_id: "device-1", route: "10.43.0.20/32"}}
     end)
 
     stub(Ingress, :create, fn _kc, _ns, _n, _spec -> not_found() end)
 
     assert {:error, _reason} = AttachInstance.call(gateway, instance)
+
+    row = AccessGateway.get_by_id!(gateway.id, authorize?: false)
+    assert row.dns_claims in [nil, %{}]
   end
 
   test "a :running instance's attach mints the serving arm and the widened policy", %{

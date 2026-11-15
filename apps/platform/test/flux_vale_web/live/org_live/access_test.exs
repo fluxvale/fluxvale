@@ -559,6 +559,13 @@ defmodule FluxValeWeb.OrganizationLive.AccessTest do
         organization_id: org.id
       })
 
+      Ash.Seed.seed!(AccessDomain, %{
+        domain: "suspended.customer.com",
+        kind: :custom,
+        state: :suspended,
+        organization_id: org.id
+      })
+
       AccessGateway.update_claims!(
         gateway,
         %{dns_claims: %{"apps.customer.com" => %{"ip" => "10.43.0.20"}}},
@@ -568,20 +575,44 @@ defmodule FluxValeWeb.OrganizationLive.AccessTest do
       {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/settings/access")
 
       assert has_element?(view, "[data-testid='access-domains']")
-      assert has_element?(view, "[data-testid='access-domain-claim']", "Claimed on your tailnet")
 
-      assert has_element?(
-               view,
-               "[data-testid='access-domain-unclaimed']",
-               "Verified — not claimed yet"
-             )
+      # Row-scoped: a label swap between two rows cannot pass.
+      assert row_text(view, "apps.customer.com") =~ "Claimed on your tailnet"
+      assert row_text(view, "apps.customer.com") =~ "Verified"
 
-      assert has_element?(view, "[data-testid='access-domain-unclaimed']", "Verifying…")
-      assert has_element?(view, "[data-testid='access-domain-unclaimed']", "Verification failed")
-      assert has_element?(view, "[data-testid='access-domain-unclaimed']", "Not claimed yet")
-      assert has_element?(view, "[data-testid='access-domain-row']", "apps.customer.com")
-      assert has_element?(view, "[data-testid='access-domain-row']", "files.customer.com")
-      assert has_element?(view, "[data-testid='access-domain-row']", "pending.customer.com")
+      assert row_text(view, "files.customer.com") =~ "Not claimed yet"
+      assert row_text(view, "files.customer.com") =~ "Verified"
+
+      assert row_text(view, "pending.customer.com") =~ "Verifying…"
+      assert row_text(view, "failed.customer.com") =~ "Verification failed"
+      assert row_text(view, "attention.customer.com") =~ "Certificate needs attention"
+      assert row_text(view, "suspended.customer.com") =~ "Suspended"
+
+      # A claimed domain whose certificate drifted still says so — the
+      # two truths are separate signals.
+      claimed_attention =
+        Ash.Seed.seed!(AccessDomain, %{
+          domain: "claimed-attention.customer.com",
+          kind: :custom,
+          state: :needs_attention,
+          organization_id: org.id
+        })
+
+      # The first write bumped the row's version; the claims action is
+      # optimistic-locked, so the second write starts from a fresh read.
+      fresh = AccessGateway.get_by_id!(gateway.id, authorize?: false)
+
+      AccessGateway.update_claims!(
+        fresh,
+        %{dns_claims: %{claimed_attention.domain => %{"ip" => "10.43.0.20"}}},
+        authorize?: false
+      )
+
+      {:ok, claimed_view, _html} = live(conn, ~p"/organizations/#{org.slug}/settings/access")
+
+      text = row_text(claimed_view, "claimed-attention.customer.com")
+      assert text =~ "Certificate needs attention"
+      assert text =~ "Claimed on your tailnet"
     end
 
     test "a failed token write keeps the form and never echoes the token", %{
@@ -1372,6 +1403,54 @@ defmodule FluxValeWeb.OrganizationLive.AccessTest do
       assert {:ok, _route} = AccessRoute.get_by_instance(instance.id, authorize?: false)
     end
 
+    test "the attach that claims refreshes the Domains card without a remount", %{
+      conn: conn,
+      owner: owner,
+      org: org
+    } do
+      gateway = AccessFixtures.gateway!(org)
+      instance = AccessFixtures.private_instance!(org, owner)
+
+      Ash.Seed.seed!(AccessDomain, %{
+        domain: "apps.customer.com",
+        kind: :custom,
+        state: :verified,
+        organization_id: org.id,
+        cert_secret_ref: "cert-secret"
+      })
+
+      expect(Tailscale, :attach_instance, fn %AccessGateway{} = gw, %Instance{} = inst ->
+        {:ok,
+         AccessRoute.create!(
+           %{gateway_id: gw.id, instance_id: inst.id, route_key: "8443"},
+           authorize?: false
+         )}
+      end)
+
+      # The sweep's real behaviour is its own suite's subject; this
+      # doubles it to prove the panel re-reads the row it wrote.
+      stub(FluxVale.Infrastructure.Operations.ClaimUnclaimedDomains, :call, fn gw, _opts ->
+        AccessGateway.update_claims!(
+          gw,
+          %{dns_claims: %{"apps.customer.com" => %{"ip" => "10.43.0.20"}}},
+          authorize?: false
+        )
+
+        %{claimed: ["apps.customer.com"], failed: []}
+      end)
+
+      {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/settings/access")
+
+      assert row_text(view, "apps.customer.com") =~ "Not claimed yet"
+
+      view
+      |> element("[data-testid='access-attach-button']")
+      |> render_click()
+
+      assert row_text(view, "apps.customer.com") =~ "Claimed on your tailnet"
+      assert gateway.id
+    end
+
     test "attach while the gateway went dark answers wait-for-Connected", %{
       conn: conn,
       owner: owner,
@@ -1694,6 +1773,14 @@ defmodule FluxValeWeb.OrganizationLive.AccessTest do
   # The gateway lifecycle's provider legs, Mimic-stubbed for every test
   # that mounts the panel with a fixture or submits a form (Mimic stubs
   # are process-independent — the actions run in the LiveView).
+  # The row's own text, so a per-row assertion cannot be satisfied by
+  # another row's label.
+  defp row_text(view, domain) do
+    view
+    |> element("[data-testid='access-domain-row']", domain)
+    |> render()
+  end
+
   defp stub_provider do
     stub(Tailscale, :provision_gateway, fn _gateway, _key ->
       {:ok, %{credential_secret_ref: "credential-stub"}}

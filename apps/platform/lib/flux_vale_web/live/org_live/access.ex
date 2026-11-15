@@ -956,10 +956,17 @@ defmodule FluxValeWeb.OrganizationLive.Access do
 
   defp claimed_names(_gateway), do: []
 
+  # Two truths per row (the admin page's stance): the registered state
+  # and the claim are separate, so a claimed domain whose certificate
+  # needs attention still says so.
+  defp domain_state_label(%{state: :verified}), do: "Verified"
+  defp domain_state_label(%{state: :pending}), do: "Verifying…"
+  defp domain_state_label(%{state: :failed}), do: "Verification failed"
+  defp domain_state_label(%{state: :needs_attention}), do: "Certificate needs attention"
+  defp domain_state_label(%{state: :suspended}), do: "Suspended"
+  defp domain_state_label(_domain), do: "Not verified"
+
   defp domain_claim_label(%{claimed?: true}), do: "Claimed on your tailnet"
-  defp domain_claim_label(%{state: :verified}), do: "Verified — not claimed yet"
-  defp domain_claim_label(%{state: :pending}), do: "Verifying…"
-  defp domain_claim_label(%{state: :failed}), do: "Verification failed"
   defp domain_claim_label(_domain), do: "Not claimed yet"
 
   attr(:domains, :list, required: true)
@@ -970,8 +977,9 @@ defmodule FluxValeWeb.OrganizationLive.Access do
       <div>
         <h3 class="text-sm font-medium text-ink">Domains</h3>
         <p class="mt-1 text-xs text-ink-muted">
-          Custom domains your organization verified. A domain resolves on your tailnet once
-          the gateway claims it — the API token above is what claims.
+          Custom domains your organization registered. A verified domain resolves on your
+          tailnet once the gateway claims it — the gateway's API token is what claims, and its
+          card appears while the gateway is active.
         </p>
       </div>
 
@@ -984,19 +992,24 @@ defmodule FluxValeWeb.OrganizationLive.Access do
           <span class="min-w-0 truncate font-mono text-xs" data-testid="access-domain-name">
             {domain.domain}
           </span>
-          <span
-            :if={domain.claimed?}
-            class="text-xs text-ink-muted"
-            data-testid="access-domain-claim"
-          >
-            {domain_claim_label(domain)}
-          </span>
-          <span
-            :if={not domain.claimed?}
-            class="text-xs text-ink-subtle"
-            data-testid="access-domain-unclaimed"
-          >
-            {domain_claim_label(domain)}
+          <span class="flex shrink-0 items-center gap-2">
+            <span class="text-xs text-ink-subtle" data-testid="access-domain-state">
+              {domain_state_label(domain)}
+            </span>
+            <span
+              :if={domain.claimed?}
+              class="text-xs text-ink-muted"
+              data-testid="access-domain-claim"
+            >
+              {domain_claim_label(domain)}
+            </span>
+            <span
+              :if={not domain.claimed?}
+              class="text-xs text-ink-subtle"
+              data-testid="access-domain-unclaimed"
+            >
+              {domain_claim_label(domain)}
+            </span>
           </span>
         </li>
       </ul>
@@ -1529,11 +1542,17 @@ defmodule FluxValeWeb.OrganizationLive.Access do
   defp attach(socket, instance) do
     case Infrastructure.attach_instance(socket.assigns.gateway, instance) do
       {:ok, _route} ->
+        # The attach ran the claim sweep; the fresh row is what carries
+        # the landed claims into the Domains card.
+        fresh = fetch_gateway(socket.assigns.org, socket.assigns.current_user)
+
         {:noreply,
          socket
          |> put_flash(:info, "#{instance.name} attached. Its tailnet address is below.")
          |> assign(attach_error: nil)
-         |> refresh_pairing()}
+         |> assign(:gateway, fresh || socket.assigns.gateway)
+         |> refresh_pairing()
+         |> assign_domains()}
 
       {:error, :gateway_not_active} ->
         {:noreply, assign(socket, attach_error: :gateway_not_active)}

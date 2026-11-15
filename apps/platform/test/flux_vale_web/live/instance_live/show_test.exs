@@ -1846,6 +1846,7 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
     } do
       instance = create_instance!(version, user)
       domain = verified_custom_domain!(instance, user)
+      _hostname = custom_hostname!(instance, domain, "git")
 
       {:ok, view, _html} = live(conn, ~p"/instances/#{instance.id}")
 
@@ -1864,6 +1865,19 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
 
       {:ok, claimed_view, _html} = live(conn, ~p"/instances/#{instance.id}")
       refute has_element?(claimed_view, "[data-testid='hostname-unclaimed-hint']")
+    end
+
+    test "an unclaimed domain this instance has no address under is not hinted", %{
+      conn: conn,
+      user: user,
+      version: version
+    } do
+      instance = create_instance!(version, user)
+      _org_wide = verified_custom_domain!(instance, user)
+
+      {:ok, view, _html} = live(conn, ~p"/instances/#{instance.id}")
+
+      refute has_element?(view, "[data-testid='hostname-unclaimed-hint']")
     end
 
     test "lists verified custom domains as options and custom addresses as rows", %{

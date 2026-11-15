@@ -532,8 +532,10 @@ defmodule FluxValeWeb.InstanceLive.Show do
               >
                 {Enum.map_join(@hostname_unclaimed_domains, " and ", & &1.domain)}
                 {if length(@hostname_unclaimed_domains) == 1, do: "is", else: "are"} verified but
-                not claimed on your tailnet yet — paste your Tailscale API token in
-                Settings → Access and this address starts resolving.
+                not claimed on your tailnet yet — an organization owner can paste the Tailscale
+                API token in Settings → Access to claim {if length(@hostname_unclaimed_domains) == 1,
+                  do: "it",
+                  else: "them"}.
               </p>
 
               <%= if @hostnames == [] and @hostname_domains == [] do %>
@@ -2632,7 +2634,13 @@ defmodule FluxValeWeb.InstanceLive.Show do
       end
 
     claimed = claimed_domain_names(gateway)
-    unclaimed = Enum.reject(domains, &(&1.domain in claimed))
+    minted = MapSet.new(hostnames, & &1.access_domain.domain)
+
+    # Only the domains this instance actually mints under: an org-wide
+    # unclaimed domain would make the hint claim an address this page
+    # does not have.
+    unclaimed =
+      Enum.filter(domains, &(&1.domain in minted and &1.domain not in claimed))
 
     assign(socket,
       hostnames: hostnames,
@@ -2644,7 +2652,8 @@ defmodule FluxValeWeb.InstanceLive.Show do
 
   # #756: the claim state's honest signal where the member mints. A
   # verified domain the gateway has not claimed serves nothing, so the
-  # card names the fix instead of implying the address works.
+  # card names the fix instead of implying the address works — and only
+  # for domains this instance has a hostname under.
   defp claimed_domain_names(nil), do: []
 
   defp claimed_domain_names(%{dns_claims: claims})
