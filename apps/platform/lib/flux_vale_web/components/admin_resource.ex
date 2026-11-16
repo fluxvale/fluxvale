@@ -2,15 +2,16 @@ defmodule FluxValeWeb.AdminResource do
   @moduledoc """
   The generic resource console's type-driven render pieces (#595, the
   plan at docs/plans/595-resource-console.md): one value renderer per
-  attribute shape (the plan's rendering table), the page math the
-  surfaces' shared data table reads, the write affordances (the
-  visible?-gated New link and actions bar — nothing renders when
-  nothing is permitted), and the form-input mapping (attribute shape to
-  `<.input>` type, the plan's input contracts table). The LiveView
-  engine (`FluxValeWeb.AdminLive.Resources`) introspects the resource
-  and hands each attribute's shape and value here — nothing in this
-  module reads a resource, so the registry stays the only surface that
-  knows modules.
+  attribute shape (the plan's rendering table), the page math the audit
+  surface's own pager reads (the shared data table carries its own
+  `page_count/2`), the write affordances (the visible?-gated New link
+  and actions bar — nothing renders when nothing is permitted), and the
+  form-input mapping (attribute shape to `<.input>` type, the plan's
+  input contracts table). The LiveView engine
+  (`FluxValeWeb.AdminLive.Resources`) introspects the resource and
+  hands each attribute's shape and value here — nothing in this module
+  reads a resource, so the registry stays the only surface that knows
+  modules.
 
   Shapes land slice by slice as their resources do (slice 1: Ops).
   Anything unrecognized renders through the fallback — the value's

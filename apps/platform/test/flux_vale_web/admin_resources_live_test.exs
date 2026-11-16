@@ -629,6 +629,31 @@ defmodule FluxValeWeb.AdminResourcesLiveTest do
       refute has_element?(view, "[data-testid='admin-resource-count']")
     end
 
+    test "a crafted patch from another arm lands on the index instead of crashing", %{
+      conn: conn,
+      admin: admin
+    } do
+      flag = flag!(admin)
+
+      {:ok, view, _html} = live(conn, "/admin/resources/ops/feature_flag/#{flag.id}")
+
+      # LiveView assigns :index before handle_params runs, so the
+      # crafted patch carries no :entry and no :table — the arm resolves
+      # the entry from the params and re-assigns its own state.
+      html = render_patch(view, "/admin/resources/ops/feature_flag")
+
+      assert html =~ "admin-resource-header-key"
+      assert has_element?(view, "[data-testid='admin-resource-header-key']")
+
+      # A crafted sort frame on the show arm is a no-op, not a crash:
+      # the table-presence gate answers the catch-all.
+      {:ok, show_view, _html} = live(conn, "/admin/resources/ops/feature_flag/#{flag.id}")
+
+      render_click(show_view, "sort", %{"field" => "key"})
+      refute_patched(show_view)
+      assert has_element?(show_view, "[data-testid='admin-resource-show']")
+    end
+
     test "the note banner carries the registry's note copy", %{conn: conn} do
       {:ok, view, _html} = live(conn, "/admin/resources/ops/access_rule")
 
@@ -722,10 +747,19 @@ defmodule FluxValeWeb.AdminResourcesLiveTest do
     end
 
     test "a crafted 19-digit page never reaches the offset math as a bignum", %{conn: conn} do
-      # The parse caps at the page bound, so the huge page reads as the
-      # bound — past the end, bounced to the real last page, no crash.
+      # The bounce compares the RAW request (only the comparison sees
+      # it), so a page far past the end bounces like any other.
       assert {:error, {:live_redirect, %{to: "/admin/resources/ops/feature_flag?page=2"}}} =
                live(conn, "/admin/resources/ops/feature_flag?page=9999999999999999999")
+    end
+
+    test "a page above the component's own bound still bounces, never reads page one", %{
+      conn: conn
+    } do
+      # parse_params folds >10,000 to page one; the honest bounce
+      # compares the raw request, so the URL is corrected instead.
+      assert {:error, {:live_redirect, %{to: "/admin/resources/ops/feature_flag?page=2"}}} =
+               live(conn, "/admin/resources/ops/feature_flag?page=10001")
     end
 
     test "garbage page params read as page one", %{conn: conn} do
@@ -842,6 +876,25 @@ defmodule FluxValeWeb.AdminResourcesLiveTest do
 
       render_click(view, "size", %{})
       refute_patched(view)
+    end
+
+    test "a bounce and a size click both keep the view's sort and size", %{conn: conn} do
+      # The bounce preserves sort and size and drops only the page.
+      assert {:error,
+              {:live_redirect,
+               %{to: "/admin/resources/ops/feature_flag?sort=key&dir=asc&size=50"}}} =
+               live(conn, "/admin/resources/ops/feature_flag?sort=key&dir=asc&size=50&page=99")
+
+      # A size click keeps the sort.
+      {:ok, view, _html} =
+        live(conn, "/admin/resources/ops/feature_flag?sort=key&dir=asc&page=2")
+
+      view
+      |> element("[data-testid='admin-resource-size-50']")
+      |> render_click()
+
+      assert_patched(view, "/admin/resources/ops/feature_flag?sort=key&dir=asc&size=50")
+      assert has_element?(view, "[data-testid='admin-resource-page-label']", "Page 1 of 1")
     end
   end
 
