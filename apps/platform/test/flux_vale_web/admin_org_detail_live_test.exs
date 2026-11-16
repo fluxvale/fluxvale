@@ -85,6 +85,29 @@ defmodule FluxValeWeb.AdminOrgDetailLiveTest do
     |> String.trim()
   end
 
+  # The domains card's rendered rows, in DOM order: the name testid
+  # carries the row id, the text carries the domain.
+  defp domain_rows(view) do
+    view
+    |> render()
+    |> LazyHTML.from_fragment()
+    |> LazyHTML.query("[data-testid^='admin-orgs-domain-name-']")
+    |> Enum.map(fn node ->
+      testid =
+        node
+        |> LazyHTML.attribute("data-testid")
+        |> Enum.join("")
+        |> String.replace_prefix("admin-orgs-domain-name-", "")
+
+      name =
+        node
+        |> LazyHTML.text()
+        |> String.trim()
+
+      %{id: testid, name: name}
+    end)
+  end
+
   # The org's platform domain, system-minted through the system action
   # (the instance-create path's seam), born :verified.
   defp platform_domain!(org) do
@@ -530,22 +553,141 @@ defmodule FluxValeWeb.AdminOrgDetailLiveTest do
       refute has_element?(view, "[data-testid^='admin-orgs-domain-name-']")
     end
 
-    test "the domains list caps at the latest 100 and says so", %{conn: conn} do
+    test "pages the domains card: 25 a page, an honest count, and real controls", %{conn: conn} do
       {org, _owner} = BillingFixtures.grant_free_org!()
 
       platform = platform_domain!(org)
-
-      for _n <- 1..100 do
-        custom_domain!(org, :pending)
-      end
-
-      newest = custom_domain!(org, :pending)
+      for _n <- 1..26, do: custom_domain!(org, :pending)
 
       {:ok, view, _html} = live(conn, "/admin/orgs/#{org.id}")
 
-      assert has_element?(view, "[data-testid='admin-orgs-domains-capped']", "latest 100")
-      assert has_element?(view, "[data-testid='admin-orgs-domain-name-#{newest.id}']")
-      refute has_element?(view, "[data-testid='admin-orgs-domain-name-#{platform.id}']")
+      # One page of 25 out of the org's 27 rows, counted honestly. The
+      # cap and its copy retired with the pager.
+      rows = domain_rows(view)
+      assert length(rows) == 25
+
+      assert text_of(view, "[data-testid='admin-orgs-domains-count']") ==
+               "Showing 1 to 25 of 27."
+
+      assert text_of(view, "[data-testid='admin-orgs-domains-page-label']") == "Page 1 of 2"
+      assert has_element?(view, "[data-testid='admin-orgs-domains-page-prev'][disabled]")
+      refute has_element?(view, "[data-testid='admin-orgs-domains-page-next'][disabled]")
+      refute has_element?(view, "[data-testid='admin-orgs-domains-capped']")
+
+      # Newest registered first: the platform row (minted before the 26
+      # customs) is the oldest and rides page two.
+      refute Enum.any?(rows, &(&1.id == platform.id))
+
+      view
+      |> element("[data-testid='admin-orgs-domains-page-next']")
+      |> render_click()
+
+      assert length(domain_rows(view)) == 2
+
+      assert text_of(view, "[data-testid='admin-orgs-domains-count']") ==
+               "Showing 26 to 27 of 27."
+
+      assert text_of(view, "[data-testid='admin-orgs-domains-page-label']") == "Page 2 of 2"
+      assert has_element?(view, "[data-testid='admin-orgs-domains-page-next'][disabled]")
+      refute has_element?(view, "[data-testid='admin-orgs-domains-page-prev'][disabled]")
+      assert has_element?(view, "[data-testid='admin-orgs-domain-name-#{platform.id}']")
+
+      # Next past the last page is a guard, not a crash.
+      render_click(view, "domains-page", %{"nav" => "next"})
+      assert text_of(view, "[data-testid='admin-orgs-domains-page-label']") == "Page 2 of 2"
+
+      view
+      |> element("[data-testid='admin-orgs-domains-page-prev']")
+      |> render_click()
+
+      assert length(domain_rows(view)) == 25
+      assert text_of(view, "[data-testid='admin-orgs-domains-page-label']") == "Page 1 of 2"
+    end
+
+    test "the domains size control re-sizes the card and resets the page", %{conn: conn} do
+      {org, _owner} = BillingFixtures.grant_free_org!()
+
+      platform_domain!(org)
+      for _n <- 1..26, do: custom_domain!(org, :pending)
+
+      {:ok, view, _html} = live(conn, "/admin/orgs/#{org.id}")
+
+      view
+      |> element("[data-testid='admin-orgs-domains-size-50']")
+      |> render_click()
+
+      assert length(domain_rows(view)) == 27
+
+      assert text_of(view, "[data-testid='admin-orgs-domains-count']") ==
+               "Showing 1 to 27 of 27."
+
+      assert text_of(view, "[data-testid='admin-orgs-domains-page-label']") == "Page 1 of 1"
+
+      assert has_element?(
+               view,
+               "[data-testid='admin-orgs-domains-size-50'][aria-pressed=true]"
+             )
+
+      assert has_element?(view, "[data-testid='admin-orgs-domains-page-prev'][disabled]")
+      assert has_element?(view, "[data-testid='admin-orgs-domains-page-next'][disabled]")
+    end
+
+    test "sorts the domains card by its columns, ascending then descending", %{conn: conn} do
+      {org, _owner} = BillingFixtures.grant_free_org!()
+
+      platform = platform_domain!(org)
+      customs = for _n <- 1..26, do: custom_domain!(org, :pending)
+      all = [platform | customs]
+
+      smallest = Enum.min_by(all, & &1.domain).domain
+      largest = Enum.max_by(all, & &1.domain).domain
+
+      {:ok, view, _html} = live(conn, "/admin/orgs/#{org.id}")
+
+      # A fresh field sorts ascending; the smallest name leads.
+      view
+      |> element("[data-testid='admin-orgs-domains-sort-domain']")
+      |> render_click()
+
+      assert attribute(view, "admin-orgs-domains-header-domain", "aria-sort") == "ascending"
+
+      [first | _rest] = domain_rows(view)
+      assert first.name == smallest
+
+      # The second click flips the same field to descending.
+      view
+      |> element("[data-testid='admin-orgs-domains-sort-domain']")
+      |> render_click()
+
+      assert attribute(view, "admin-orgs-domains-header-domain", "aria-sort") == "descending"
+
+      [descending_first | _rest] = domain_rows(view)
+      assert descending_first.name == largest
+    end
+
+    test "crafted domain events are no-ops, never crashes", %{conn: conn} do
+      {org, _owner} = BillingFixtures.grant_free_org!()
+
+      platform_domain!(org)
+      for _n <- 1..3, do: custom_domain!(org, :pending)
+
+      {:ok, view, _html} = live(conn, "/admin/orgs/#{org.id}")
+
+      before = domain_rows(view)
+
+      render_click(view, "domains-sort", %{"field" => "nope"})
+      render_click(view, "domains-page", %{"nav" => "sideways"})
+      render_click(view, "domains-page", %{"nav" => "prev"})
+      render_click(view, "domains-size", %{"size" => "999"})
+      render_click(view, "domains-sort", %{})
+      render_click(view, "domains-page", %{})
+      render_click(view, "domains-size", %{})
+
+      assert domain_rows(view) == before
+      assert text_of(view, "[data-testid='admin-orgs-domains-page-label']") == "Page 1 of 1"
+
+      assert text_of(view, "[data-testid='admin-orgs-domains-count']") ==
+               "Showing 1 to 4 of 4."
     end
   end
 
