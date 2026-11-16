@@ -200,11 +200,24 @@ defmodule FluxVale.PromEx.Plugins.BusinessTest do
 
       assert group.group_name == :business_stuck_instances_polling_metrics
       assert group.poll_rate == 60_000
-      assert group.measurements_mfa == {Business, :execute_stuck_instances_metrics, []}
+
+      # detach_on_error: false, pinned through its effect — build wraps
+      # the measurement MFA in the safe runner, which rescues, logs, and
+      # keeps polling. The default raw-MFA path lets telemetry_poller
+      # permanently filter a raising measurement (its collect loop drops
+      # any measurement that raised): one 60s tick during a transient DB
+      # outage would kill the series for the pod's lifetime, and absent
+      # reads 0 under the alert's `or vector(0)` stance — the exact
+      # false-calm this gauge exists to eliminate.
+      assert group.measurements_mfa == {
+               PromEx.MetricTypes.Polling,
+               :safe_polling_runner,
+               [{Business, :execute_stuck_instances_metrics, []}]
+             }
 
       assert [%Telemetry.Metrics.LastValue{} = gauge] = group.metrics
       assert gauge.name == [:flux_vale, :instances, :in_error]
-      assert gauge.event_name == [:flux_vale, :instances, :in_error]
+      assert gauge.event_name == [:flux_vale, :instance, :in_error]
       assert gauge.measurement == :count
 
       # A gauge: no labels (the count is the alert's whole subject) and
@@ -221,17 +234,24 @@ defmodule FluxVale.PromEx.Plugins.BusinessTest do
       version = InstanceFixtures.app_version!()
       InstanceFixtures.local_cluster!()
 
+      # Delta assertions throughout: the gauge counts committed truth,
+      # so pre-existing in-window :error rows from outside this sandbox
+      # (probe debris in the persistent shared DB) would poison absolute
+      # expectations — the deltas cancel any such baseline (#241's
+      # lesson at the count seam, the concurrency tests' stance).
+      before = Business.recent_error_count()
+
       # The counting shape: a fresh stuck row (the funnel's own entry
       # stamp — StatusMarkers set it on the :error write).
       stuck = stuck_instance!(version)
-      assert Business.recent_error_count() == 1
+      assert Business.recent_error_count() == before + 1
 
       # The Oct-23 zombie shape: still :error, but the stamp is outside
       # the window. Counts nothing — a permanent zombie must never page.
       zombie = stuck_instance!(version)
       InstanceFixtures.pin!(zombie, errored_at: DateTime.add(DateTime.utc_now(), -8, :day))
 
-      assert Business.recent_error_count() == 1
+      assert Business.recent_error_count() == before + 1
 
       # The undated shape: NULL errored_at (the pre-backfill rows).
       # NULL fails the window comparison — an unknown entry time must
@@ -239,7 +259,7 @@ defmodule FluxVale.PromEx.Plugins.BusinessTest do
       undated = stuck_instance!(version)
       InstanceFixtures.pin!(undated, errored_at: nil)
 
-      assert Business.recent_error_count() == 1
+      assert Business.recent_error_count() == before + 1
 
       # The non-error shape: a recent stamp on a row that is not (or no
       # longer) in :error — the exit must have cleared it, and if a
@@ -249,28 +269,45 @@ defmodule FluxVale.PromEx.Plugins.BusinessTest do
       running = InstanceFixtures.walk_to!(created, :running)
       InstanceFixtures.pin!(running, errored_at: DateTime.utc_now())
 
-      assert Business.recent_error_count() == 1
+      assert Business.recent_error_count() == before + 1
 
       # The exit itself: leaving :error (the recover edge) drops the
       # row from the gauge.
       {:ok, recovered} = InstanceK8s.update_status(stuck, :running, nil)
 
       assert is_nil(recovered.errored_at)
-      assert Business.recent_error_count() == 0
+      assert Business.recent_error_count() == before
     end
 
     test "the poller's emission lands as the label-free flux_vale_instances_in_error gauge" do
       start_supervised!(FluxVale.PromEx)
 
+      # Quiesce the boot collect before writing any sample: the poller
+      # starts with init_delay 0 (telemetry_poller's default), so its
+      # first collect fires immediately — in the poller process, OUTSIDE
+      # this sandbox, reading committed truth only — and would otherwise
+      # land a stale sample over ours at an arbitrary moment.
+      # :sys.get_state suspends the gen_server only after its mailbox is
+      # drained (the AGENTS' idiom); the boot sample is in, and the next
+      # collect is a full 60s away — this test's own emissions are the
+      # last writers from here on.
+      poller_name = Module.safe_concat([FluxVale.PromEx, Poller, :"60000"])
+      poller = Process.whereis(poller_name)
+      assert poller != nil
+      _state = :sys.get_state(poller)
+
       version = InstanceFixtures.app_version!()
       InstanceFixtures.local_cluster!()
 
-      # Nothing stuck: the gauge materializes at 0 (each poll sample is
-      # the whole truth — no seeding needed, unlike the counters).
+      # Delta baseline, same debris-defense as the scoping test.
+      before = Business.recent_error_count()
+
+      # The gauge materializes at the baseline (each poll sample is the
+      # whole truth — no seeding needed, unlike the counters).
       Business.execute_stuck_instances_metrics()
 
       empty_scrape = PromEx.get_metrics(FluxVale.PromEx)
-      assert gauge_line(empty_scrape) == @gauge_line <> "0"
+      assert gauge_line(empty_scrape) == @gauge_line <> Integer.to_string(before)
 
       # One fresh stuck row (StatusMarkers stamped it on entry)…
       stuck_instance!(version)
@@ -278,7 +315,7 @@ defmodule FluxVale.PromEx.Plugins.BusinessTest do
 
       scrape = PromEx.get_metrics(FluxVale.PromEx)
 
-      assert gauge_line(scrape) == @gauge_line <> "1"
+      assert gauge_line(scrape) == @gauge_line <> Integer.to_string(before + 1)
       # The exporter contract, pinned: a gauge, not a counter.
       assert scrape =~ "# TYPE flux_vale_instances_in_error gauge"
       # Label-free — no braces ever render on the sample line.

@@ -79,7 +79,10 @@ defmodule FluxVale.PromEx.Plugins.Business do
   @instance_event [:flux_vale, :instance, :status_transition]
   @run_event [:flux_vale, :backup, :run]
 
-  @in_error_event [:flux_vale, :instances, :in_error]
+  # Singular segment for the event (the metric family is the plural
+  # rendered name below — the two namespaces stay symmetric with the
+  # other business events).
+  @in_error_event [:flux_vale, :instance, :in_error]
 
   # The stuck-in-error window the gauge counts within (infra #182): an
   # episode that entered :error longer ago than this is a zombie for
@@ -198,7 +201,17 @@ defmodule FluxVale.PromEx.Plugins.Business do
             "Instances currently stuck in :error with an entry stamp inside the recent window — the DB-truth stuck-in-error gauge.",
           measurement: :count
         )
-      ]
+      ],
+      # detach_on_error: false — the poller MFA reads the DB, and the
+      # raw-MFA path (build's default) hands a raising measurement to
+      # telemetry_poller, which permanently filters it from its state
+      # on the first raise (make_measurements_and_filter_misbehaving —
+      # verified in deps): one 60s tick during a CNPG restart would
+      # kill the series for the pod's lifetime, and absent reads 0
+      # under the alert's `or vector(0)` stance. The safe runner logs
+      # and keeps polling, so last_value holds the last good sample
+      # through a transient outage.
+      detach_on_error: false
     )
   end
 
@@ -216,6 +229,8 @@ defmodule FluxVale.PromEx.Plugins.Business do
   both the permanent zombies (stale stamps age out of the window) and
   the undated rows (NULL fails the comparison) — an unknown entry time
   must not page, so the conservative arm is the comparison itself.
+  Strictly greater: an episode stamped at exactly `cutoff` (the 7d
+  boundary) is already outside the window.
   """
   @spec recent_error_count() :: non_neg_integer()
   def recent_error_count do

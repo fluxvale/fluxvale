@@ -71,8 +71,10 @@ defmodule FluxVale.Infrastructure.Instance.StatusMarkersTest do
                     %{from: :starting, to: :error, reason: :rollout_failed}}
 
     # #182: the entering write stamps errored_at — the gauge's recency
-    # clock, one changeset with the counter emission.
-    assert DateTime.diff(errored.errored_at, errored_at_wall, :second) in -1..1
+    # clock, one changeset with the counter emission. The wall is
+    # captured before the write, so the stamp can only be at-or-after
+    # it (a stamp that precedes its own capture is a clock-order bug).
+    assert DateTime.compare(errored.errored_at, errored_at_wall) != :lt
   end
 
   # The reconcile no-op guarantee (#182): a same-status write bumps
