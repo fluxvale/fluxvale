@@ -354,7 +354,7 @@ defmodule FluxVale.Infrastructure.StorageRequest do
 
     read :queue do
       description(
-        "The operator queue: optional status filter and a reason/id search, newest first, paginated at 100 and countable for the badge."
+        "The operator queue: optional status filter, reason/id search, and created-at order, keyset-paginated and countable for the badge."
       )
 
       argument(:status, FluxVale.Infrastructure.Types.StorageRequestStatus,
@@ -364,7 +364,11 @@ defmodule FluxVale.Infrastructure.StorageRequest do
 
       argument(:search, :string, allow_nil?: true, public?: true)
 
-      prepare(build(sort: [created_at: :desc, id: :desc]))
+      # The created-at column's order toggle. Internal to the admin
+      # read (not public): the API surface does not change.
+      argument(:order, :atom, allow_nil?: true, constraints: [one_of: [:newest, :oldest]])
+
+      prepare(&order_queue/2)
       prepare(&filter_queue/2)
 
       # 100 is the moderation/people list's cap; countable gives the
@@ -478,6 +482,18 @@ defmodule FluxVale.Infrastructure.StorageRequest do
     define(:retry_apply)
     define(:mark_applied)
     define(:mark_apply_failed)
+  end
+
+  # The queue's order: the created-at column's toggle, newest first by
+  # default. The id tiebreak rides the same direction, so the keyset's
+  # total order agrees with the printed clock. The `one_of` constraint
+  # rejects a crafted order before a query exists; the fallback arm is
+  # the default (nil) and :newest.
+  defp order_queue(query, _context) do
+    case Ash.Query.get_argument(query, :order) do
+      :oldest -> Ash.Query.sort(query, created_at: :asc, id: :asc)
+      _newest -> Ash.Query.sort(query, created_at: :desc, id: :desc)
+    end
   end
 
   # The queue's runtime filters: an optional status, then a search over

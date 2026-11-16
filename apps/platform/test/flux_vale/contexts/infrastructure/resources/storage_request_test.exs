@@ -4,7 +4,7 @@ defmodule FluxVale.Infrastructure.StorageRequestTest do
   boundary validations and advisory quote, the one-open-request
   invariant, the four-state machine's actions and their gates, the
   policy arms (member org-scoped reads/writes, admin decisions, system
-  marks), and the queue read's filter/search/count.
+  marks), and the queue read's filter/search/order/keyset page.
   """
 
   use FluxVale.DataCase, async: true
@@ -23,6 +23,7 @@ defmodule FluxVale.Infrastructure.StorageRequestTest do
   alias FluxVale.TestSupport.BillingFixtures
   alias FluxVale.TestSupport.InstanceFixtures
   alias FluxVale.TestSupport.StorageRequestFixtures
+  alias FluxValeWeb.Components.AdminDataTable
 
   setup do
     # The capability probe resolves the cluster's kubeconfig before the
@@ -482,6 +483,86 @@ defmodule FluxVale.Infrastructure.StorageRequestTest do
 
       assert {:ok, page} = StorageRequest.queue(%{search: ""}, actor: admin)
       assert page.count == 2
+    end
+
+    test "the queue's order argument toggles the created-at direction" do
+      admin = AccountsFixtures.platform_admin!()
+      user = user!()
+      instance = instance!(user)
+      base = DateTime.add(DateTime.utc_now(), -3_600, :second)
+
+      # Closed rows the create action refuses to produce (one open
+      # request per instance), each a distinct clock so the order is
+      # deterministic: offset 1 is the oldest.
+      ids =
+        for offset <- 1..3 do
+          row =
+            Ash.Seed.seed!(StorageRequest, %{
+              instance_id: instance.id,
+              organization_id: instance.organization_id,
+              requested_gb: 150,
+              current_storage_gb: instance.storage_gb,
+              reason: "Seeded order #{offset}",
+              status: :rejected,
+              requested_by_user_id: user.id,
+              created_at: DateTime.add(base, offset, :second)
+            })
+
+          row.id
+        end
+
+      assert {:ok, page} = StorageRequest.queue(%{order: :oldest}, actor: admin)
+      assert Enum.map(page.results, & &1.id) == ids
+
+      assert {:ok, page} = StorageRequest.queue(%{order: :newest}, actor: admin)
+      assert Enum.map(page.results, & &1.id) == Enum.reverse(ids)
+
+      # No order rides the read's newest-first default.
+      assert {:ok, page} = StorageRequest.queue(%{}, actor: admin)
+      assert Enum.map(page.results, & &1.id) == Enum.reverse(ids)
+    end
+
+    test "the queue pages keyset-style and the table links carry the next cursor" do
+      admin = AccountsFixtures.platform_admin!()
+      user = user!()
+      instance = instance!(user)
+      base = DateTime.add(DateTime.utc_now(), -3_600, :second)
+
+      ids =
+        for offset <- 1..3 do
+          row =
+            Ash.Seed.seed!(StorageRequest, %{
+              instance_id: instance.id,
+              organization_id: instance.organization_id,
+              requested_gb: 150,
+              current_storage_gb: instance.storage_gb,
+              reason: "Seeded page #{offset}",
+              status: :rejected,
+              requested_by_user_id: user.id,
+              created_at: DateTime.add(base, offset, :second)
+            })
+
+          row.id
+        end
+
+      assert {:ok, page} =
+               StorageRequest.queue(%{order: :oldest}, actor: admin, page: [limit: 2])
+
+      assert Enum.map(page.results, & &1.id) == Enum.take(ids, 2)
+      assert page.more?
+
+      # The shared table's link builder reads the page's own cursors:
+      # a next cursor while more rows exist.
+      links = AdminDataTable.keyset_links(page)
+      assert is_binary(links.next)
+
+      assert {:ok, next_page} =
+               StorageRequest.queue(%{order: :oldest},
+                 actor: admin,
+                 page: [limit: 2, after: links.next]
+               )
+
+      assert Enum.map(next_page.results, & &1.id) == [List.last(ids)]
     end
 
     test "a member cannot read the queue" do
