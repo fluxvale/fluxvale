@@ -391,30 +391,6 @@ defmodule FluxValeWeb.Components.AdminResourceTest do
     end
   end
 
-  describe "pagination math" do
-    test "total pages come from the count and the page size, never below one" do
-      assert AdminResource.total_pages(26, 25) == 2
-      assert AdminResource.total_pages(25, 25) == 1
-      assert AdminResource.total_pages(24, 25) == 1
-      assert AdminResource.total_pages(0, 25) == 1
-    end
-
-    test "small totals show every page" do
-      assert AdminResource.page_window(1, 1) == [1]
-      assert AdminResource.page_window(2, 3) == [1, 2, 3]
-      assert AdminResource.page_window(3, 7) == [1, 2, 3, 4, 5, 6, 7]
-    end
-
-    test "large totals keep first, last, and the current window — adjacent pages join without a gap" do
-      assert AdminResource.page_window(1, 8) == [1, 2, 3, :gap, 8]
-      assert AdminResource.page_window(2, 8) == [1, 2, 3, :gap, 8]
-      assert AdminResource.page_window(3, 8) == [1, 2, 3, 4, :gap, 8]
-      assert AdminResource.page_window(4, 9) == [1, :gap, 3, 4, 5, :gap, 9]
-      assert AdminResource.page_window(7, 9) == [1, :gap, 6, 7, 8, 9]
-      assert AdminResource.page_window(9, 9) == [1, :gap, 7, 8, 9]
-    end
-  end
-
   describe "the input mapping (the plan's form contracts table)" do
     test "string, ci_string, and uuid shape to text" do
       key = attr(FeatureFlag, :key)
