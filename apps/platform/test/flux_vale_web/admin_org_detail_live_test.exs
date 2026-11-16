@@ -604,6 +604,38 @@ defmodule FluxValeWeb.AdminOrgDetailLiveTest do
       assert text_of(view, "[data-testid='admin-orgs-domains-page-label']") == "Page 1 of 2"
     end
 
+    test "a page emptied by a concurrent removal re-clamps instead of claiming no domains", %{
+      conn: conn
+    } do
+      {org, _owner} = BillingFixtures.grant_free_org!()
+
+      platform = platform_domain!(org)
+      for _n <- 1..25, do: custom_domain!(org, :pending)
+
+      {:ok, view, _html} = live(conn, "/admin/orgs/#{org.id}")
+
+      # 26 rows: page two holds exactly the platform row (the oldest).
+      assert text_of(view, "[data-testid='admin-orgs-domains-page-label']") == "Page 1 of 2"
+
+      # Another operator's removal lands between the card's reads. The
+      # session state still says two pages, so Next stays offered; the
+      # fresh count on the way re-clamps the card to the one page that
+      # remains — not the empty state.
+      Ash.destroy!(platform, action: :purge, authorize?: false)
+
+      view
+      |> element("[data-testid='admin-orgs-domains-page-next']")
+      |> render_click()
+
+      assert length(domain_rows(view)) == 25
+
+      assert text_of(view, "[data-testid='admin-orgs-domains-count']") ==
+               "Showing 1 to 25 of 25."
+
+      assert text_of(view, "[data-testid='admin-orgs-domains-page-label']") == "Page 1 of 1"
+      refute has_element?(view, "[data-testid='admin-orgs-domains-empty']")
+    end
+
     test "the domains size control re-sizes the card and resets the page", %{conn: conn} do
       {org, _owner} = BillingFixtures.grant_free_org!()
 

@@ -396,24 +396,49 @@ defmodule FluxValeWeb.AdminLive.OrgDetail do
     page_count = AdminDataTable.page_count(total, state.size)
     page = min(state.page, page_count)
 
-    rows =
-      filtered
-      |> apply_domains_sort(state.sort)
-      |> Ash.read!(page: [limit: state.size, offset: (page - 1) * state.size, count: true])
-      |> Map.get(:results)
+    fetched = domains_rows(filtered, state, page)
+    {rows, final_page, final_total} = recover_empty_page(filtered, state, fetched, page, total)
 
-    {rows, %{state | page: page, total: total}}
+    {rows, %{state | page: final_page, total: final_total}}
+  end
+
+  defp domains_rows(filtered, state, page) do
+    filtered
+    |> apply_domains_sort(state.sort)
+    |> Ash.read!(page: [limit: state.size, offset: (page - 1) * state.size, count: true])
+    |> Map.get(:results)
+  end
+
+  # The count and the page read are two statements: another writer can
+  # remove the last row of a non-first page between them, leaving an
+  # empty page while rows remain. Re-count, re-clamp, and read once more
+  # rather than claiming the org has no domains.
+  defp recover_empty_page(filtered, state, rows, page, total) do
+    if rows == [] and page > 1 and total > 0 do
+      # coveralls-ignore-start - the count/read interleaving is a race window
+      recounted = Ash.read!(filtered, page: [limit: 1, offset: 0, count: true])
+      fresh_total = recounted.count || 0
+      fresh_page = min(page, AdminDataTable.page_count(fresh_total, state.size))
+
+      {domains_rows(filtered, state, fresh_page), fresh_page, fresh_total}
+      # coveralls-ignore-stop
+    else
+      {rows, page, total}
+    end
   end
 
   # The domains card's re-read: session state in, one server-driven
   # page out, re-streamed under a reset (the instances table's posture).
+  # The empty state is the honest zero only: a page emptied by the
+  # count/read race keeps its chrome (and Prev) instead of claiming the
+  # org registered nothing.
   defp refresh_domains(socket) do
     admin = socket.assigns.current_user
     state = socket.assigns.domains_table
     {rows, updated} = domains_page(admin, socket.assigns.org.id, state)
 
     socket
-    |> assign(domains_table: updated, domains_empty?: rows == [])
+    |> assign(domains_table: updated, domains_empty?: rows == [] and updated.total == 0)
     |> stream(:domains, rows, reset: true)
   end
 

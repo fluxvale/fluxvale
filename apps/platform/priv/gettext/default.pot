@@ -643,7 +643,7 @@ msgstr ""
 #: lib/flux_vale_web/live/admin_live/gateways.ex:361
 #: lib/flux_vale_web/live/admin_live/health.ex:67
 #: lib/flux_vale_web/live/admin_live/moderation.ex:1177
-#: lib/flux_vale_web/live/admin_live/org_detail.ex:580
+#: lib/flux_vale_web/live/admin_live/org_detail.ex:605
 #: lib/flux_vale_web/live/admin_live/orgs.ex:346
 #: lib/flux_vale_web/live/admin_live/people.ex:609
 #: lib/flux_vale_web/live/admin_live/resources.ex:150
@@ -724,7 +724,7 @@ msgid "A price edit reaches running instances on this size at their next settle,
 msgstr ""
 
 #: lib/flux_vale_web/live/admin_live/catalog.ex:106
-#: lib/flux_vale_web/live/admin_live/org_detail.ex:474
+#: lib/flux_vale_web/live/admin_live/org_detail.ex:499
 #: lib/flux_vale_web/live/admin_live/size_edit.ex:366
 #: lib/flux_vale_web/live/admin_live/sizes.ex:112
 #, elixir-autogen, elixir-format
@@ -737,7 +737,7 @@ msgid "Allocation saved."
 msgstr ""
 
 #: lib/flux_vale_web/live/admin_live/catalog.ex:92
-#: lib/flux_vale_web/live/admin_live/org_detail.ex:472
+#: lib/flux_vale_web/live/admin_live/org_detail.ex:497
 #, elixir-autogen, elixir-format
 msgid "App"
 msgstr ""
@@ -1208,7 +1208,7 @@ msgstr ""
 
 #: lib/flux_vale_web/live/admin_live/gateway_detail.ex:277
 #: lib/flux_vale_web/live/admin_live/gateways.ex:307
-#: lib/flux_vale_web/live/admin_live/org_detail.ex:535
+#: lib/flux_vale_web/live/admin_live/org_detail.ex:560
 #: lib/flux_vale_web/live/admin_live/people.ex:531
 #, elixir-autogen, elixir-format
 msgid "State"
@@ -1954,7 +1954,7 @@ msgid "Slug"
 msgstr ""
 
 #: lib/flux_vale_web/live/admin_live/moderation.ex:1092
-#: lib/flux_vale_web/live/admin_live/org_detail.ex:473
+#: lib/flux_vale_web/live/admin_live/org_detail.ex:498
 #: lib/flux_vale_web/live/admin_live/storage_requests.ex:771
 #, elixir-autogen, elixir-format
 msgid "Status"
@@ -2279,22 +2279,22 @@ msgstr ""
 msgid "Yes, delete this record"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/org_detail.ex:737
+#: lib/flux_vale_web/live/admin_live/org_detail.ex:762
 #, elixir-autogen, elixir-format
 msgid "%{count} other"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/org_detail.ex:721
+#: lib/flux_vale_web/live/admin_live/org_detail.ex:746
 #, elixir-autogen, elixir-format
 msgid "%{count} running"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/org_detail.ex:731
+#: lib/flux_vale_web/live/admin_live/org_detail.ex:756
 #, elixir-autogen, elixir-format
 msgid "%{count} sleeping"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/org_detail.ex:726
+#: lib/flux_vale_web/live/admin_live/org_detail.ex:751
 #, elixir-autogen, elixir-format
 msgid "%{count} stopped"
 msgstr ""
@@ -2349,7 +2349,7 @@ msgstr ""
 msgid "An org appears here once its wallet exists. Personal orgs get theirs at signup. Team orgs get theirs at the first billing touch."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/org_detail.ex:594
+#: lib/flux_vale_web/live/admin_live/org_detail.ex:619
 #, elixir-autogen, elixir-format
 msgid "Back to orgs"
 msgstr ""
@@ -2376,7 +2376,7 @@ msgstr ""
 
 #: lib/flux_vale_web/live/admin_live/gateway_detail.ex:447
 #: lib/flux_vale_web/live/admin_live/gateways.ex:315
-#: lib/flux_vale_web/live/admin_live/org_detail.ex:477
+#: lib/flux_vale_web/live/admin_live/org_detail.ex:502
 #, elixir-autogen, elixir-format
 msgid "Created"
 msgstr ""
@@ -2412,18 +2412,18 @@ msgstr ""
 msgid "Free HTTPS on a fluxvale.app address"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/org_detail.ex:467
+#: lib/flux_vale_web/live/admin_live/org_detail.ex:492
 #: lib/flux_vale_web/live/admin_live/storage_requests.ex:931
 #, elixir-autogen, elixir-format
 msgid "Instance"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/org_detail.ex:675
+#: lib/flux_vale_web/live/admin_live/org_detail.ex:700
 #, elixir-autogen, elixir-format
 msgid "Instances"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/org_detail.ex:666
+#: lib/flux_vale_web/live/admin_live/org_detail.ex:691
 #, elixir-autogen, elixir-format
 msgid "It provisions at the org's first billing touch."
 msgstr ""
@@ -2453,7 +2453,7 @@ msgstr ""
 msgid "Nightly backups to your own S3 bucket"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/org_detail.ex:693
+#: lib/flux_vale_web/live/admin_live/org_detail.ex:718
 #, elixir-autogen, elixir-format
 msgid "No instances yet."
 msgstr ""
@@ -2468,12 +2468,12 @@ msgstr ""
 msgid "No orgs yet."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/org_detail.ex:663
+#: lib/flux_vale_web/live/admin_live/org_detail.ex:688
 #, elixir-autogen, elixir-format
 msgid "No wallet yet."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/org_detail.ex:696
+#: lib/flux_vale_web/live/admin_live/org_detail.ex:721
 #, elixir-autogen, elixir-format
 msgid "Nothing has been deployed from this org."
 msgstr ""
@@ -2483,7 +2483,7 @@ msgstr ""
 msgid "Nuremberg, EU"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/org_detail.ex:629
+#: lib/flux_vale_web/live/admin_live/org_detail.ex:654
 #: lib/flux_vale_web/live/admin_live/orgs.ex:537
 #, elixir-autogen, elixir-format
 msgid "Open wallet"
@@ -2514,7 +2514,7 @@ msgstr ""
 msgid "Sign in with your Pocket ID"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/org_detail.ex:747
+#: lib/flux_vale_web/live/admin_live/org_detail.ex:772
 #, elixir-autogen, elixir-format
 msgid "Sleeping instances wake on the next visit and bill storage only while asleep."
 msgstr ""
@@ -2544,7 +2544,7 @@ msgstr ""
 msgid "That org does not exist."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/org_detail.ex:620
+#: lib/flux_vale_web/live/admin_live/org_detail.ex:645
 #, elixir-autogen, elixir-format
 msgid "The balance and its state. The ledger lives in Wallets and billing."
 msgstr ""
@@ -2559,7 +2559,7 @@ msgstr ""
 msgid "Wakes in"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/org_detail.ex:618
+#: lib/flux_vale_web/live/admin_live/org_detail.ex:643
 #: lib/flux_vale_web/live/admin_live/storage_requests.ex:1001
 #, elixir-autogen, elixir-format
 msgid "Wallet"
@@ -2570,7 +2570,7 @@ msgstr ""
 msgid "Wallet since"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/org_detail.ex:653
+#: lib/flux_vale_web/live/admin_live/org_detail.ex:678
 #, elixir-autogen, elixir-format
 msgid "Wallet since %{date}"
 msgstr ""
@@ -2646,19 +2646,19 @@ msgid "Credential references"
 msgstr ""
 
 #: lib/flux_vale_web/live/admin_live/gateway_detail.ex:249
-#: lib/flux_vale_web/live/admin_live/org_detail.ex:459
+#: lib/flux_vale_web/live/admin_live/org_detail.ex:484
 #, elixir-autogen, elixir-format
 msgid "Custom"
 msgstr ""
 
 #: lib/flux_vale_web/live/admin_live/gateway_detail.ex:271
-#: lib/flux_vale_web/live/admin_live/org_detail.ex:529
+#: lib/flux_vale_web/live/admin_live/org_detail.ex:554
 #, elixir-autogen, elixir-format
 msgid "Domain"
 msgstr ""
 
 #: lib/flux_vale_web/live/admin_live/gateway_detail.ex:534
-#: lib/flux_vale_web/live/admin_live/org_detail.ex:824
+#: lib/flux_vale_web/live/admin_live/org_detail.ex:849
 #, elixir-autogen, elixir-format
 msgid "Domains"
 msgstr ""
@@ -2695,7 +2695,7 @@ msgid "Hostname or org"
 msgstr ""
 
 #: lib/flux_vale_web/live/admin_live/gateway_detail.ex:276
-#: lib/flux_vale_web/live/admin_live/org_detail.ex:534
+#: lib/flux_vale_web/live/admin_live/org_detail.ex:559
 #, elixir-autogen, elixir-format
 msgid "Kind"
 msgstr ""
@@ -2707,7 +2707,7 @@ msgid "Needs attention"
 msgstr ""
 
 #: lib/flux_vale_web/live/admin_live/gateway_detail.ex:550
-#: lib/flux_vale_web/live/admin_live/org_detail.ex:838
+#: lib/flux_vale_web/live/admin_live/org_detail.ex:863
 #, elixir-autogen, elixir-format
 msgid "No domains registered for this org yet."
 msgstr ""
@@ -2724,7 +2724,7 @@ msgid "Not recorded."
 msgstr ""
 
 #: lib/flux_vale_web/live/admin_live/gateway_detail.ex:248
-#: lib/flux_vale_web/live/admin_live/org_detail.ex:458
+#: lib/flux_vale_web/live/admin_live/org_detail.ex:483
 #, elixir-autogen, elixir-format
 msgid "Platform"
 msgstr ""
@@ -2757,7 +2757,7 @@ msgid "Rate"
 msgstr ""
 
 #: lib/flux_vale_web/live/admin_live/gateway_detail.ex:280
-#: lib/flux_vale_web/live/admin_live/org_detail.ex:538
+#: lib/flux_vale_web/live/admin_live/org_detail.ex:563
 #, elixir-autogen, elixir-format
 msgid "Registered"
 msgstr ""
@@ -3509,7 +3509,7 @@ msgstr ""
 msgid "Since %{stamp}"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/org_detail.ex:826
+#: lib/flux_vale_web/live/admin_live/org_detail.ex:851
 #, elixir-autogen, elixir-format
 msgid "The names this org serves its private instances under, including the platform row every instance create mints. Registration lives on the org's own surfaces."
 msgstr ""
@@ -3633,7 +3633,7 @@ msgstr ""
 msgid "Gateway reads are member-scoped, so this list is the gateways of orgs you belong to."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/org_detail.ex:490
+#: lib/flux_vale_web/live/admin_live/org_detail.ex:515
 #, elixir-autogen, elixir-format
 msgid "Newest first. The strip counts the instances on this page only. The instances' own pages live in the product surfaces."
 msgstr ""
@@ -3683,7 +3683,7 @@ msgstr ""
 msgid "Showing %{first} to %{last} of %{total}."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/org_detail.ex:499
+#: lib/flux_vale_web/live/admin_live/org_detail.ex:524
 #, elixir-autogen, elixir-format
 msgid "Sorted by %{label}, %{direction}. The strip counts the instances on this page only."
 msgstr ""
@@ -3693,34 +3693,34 @@ msgstr ""
 msgid "Sorted by %{label}, %{order}."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/org_detail.ex:584
+#: lib/flux_vale_web/live/admin_live/org_detail.ex:609
 #, elixir-autogen, elixir-format
 msgid "The org's wallet state and its instances. Instances render only as far as the read policy admits."
 msgstr ""
 
 #: lib/flux_vale_web/components/admin_data_table.ex:738
-#: lib/flux_vale_web/live/admin_live/org_detail.ex:497
+#: lib/flux_vale_web/live/admin_live/org_detail.ex:522
 #, elixir-autogen, elixir-format
 msgid "ascending"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/org_detail.ex:507
+#: lib/flux_vale_web/live/admin_live/org_detail.ex:532
 #, elixir-autogen, elixir-format
 msgid "created date"
 msgstr ""
 
 #: lib/flux_vale_web/components/admin_data_table.ex:738
-#: lib/flux_vale_web/live/admin_live/org_detail.ex:497
+#: lib/flux_vale_web/live/admin_live/org_detail.ex:522
 #, elixir-autogen, elixir-format
 msgid "descending"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/org_detail.ex:505
+#: lib/flux_vale_web/live/admin_live/org_detail.ex:530
 #, elixir-autogen, elixir-format
 msgid "name"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/org_detail.ex:506
+#: lib/flux_vale_web/live/admin_live/org_detail.ex:531
 #, elixir-autogen, elixir-format
 msgid "status"
 msgstr ""
