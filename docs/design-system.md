@@ -22,8 +22,8 @@ on staging (fleet-routed, internal-only, `STORYBOOK_ENABLED`-gated).
   `bg-primary`, `text-ink-muted`, `border-line` … Dark side is v1's
   slate verbatim; light neutrals warmed to stone to sit with amber.
 - **Type system** (#557) — three voices, all vendored woff2 in
-  `priv/static/fonts/` (licenses in `FONTS.md` there): **Switzer**
-  (variable sans, weights 100-900) is the interface voice.
+  `priv/static/fonts/` (licenses in `FONTS.md` there): **Geist**
+  (variable sans, weights 100-900, SIL OFL) is the interface voice.
   **Instrument Serif** is the display voice via the `--font-display`
   token: marketing display headings only (`.display`, `.display-h2`),
   never small UI sizes. **JetBrains Mono** (variable) is the
