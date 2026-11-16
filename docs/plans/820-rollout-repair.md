@@ -1,6 +1,8 @@
 # Plan: repair wedged rollout_failed instances and bound the no-op cadence (#820)
 
-**Status**: Draft — awaiting Terence's GO. No implementation yet.
+**Status**: GO 2026-11-16 (Terence) — all recommendations taken:
+D1 reconciler converge arm, D3 3600s window + fallback posture, D5a
+unwedge now (S1 first), D5b skip local-k3d e2e. Slices 2–5 flash-pinned.
 **Scope**: platform repo + one staging mutation (the dogfood unwedge,
 our own instance, evidence below). No ops-repo writes. Continues
 [#776](776-instance-restart-strategy.md) Slice 5's deferred recovery.
@@ -50,32 +52,29 @@ Everything below was re-read from primary sources this session; the
 
 ### The repair (D1) — reconciler converges the Deployment strategy
 
-New client function `Deployment.converge_strategy/3`
-(`apps/platform/lib/flux_vale/clients/k8s/resources/deployment.ex`):
-GET the Deployment → if `spec.strategy` already equals
-`@rollout_strategy`, `{:ok, :already_converged}` (no write); else
-`prepare_for_apply` (strip managedFields + force the one-pod strategy
-— the same #781 code path, one module attribute, posture cannot fork)
-and server-side-apply as manager `fluxvale` → `{:ok, :converged}`.
+**Live finding (S1, 2026-11-16 10:05Z)**: a strategy-only SSA does
+unwedge the quota (old pod reaped, strategy `0/1`, gen bumped) — but
+the long-wedged ReplicaSet carries ~16 min of accumulated
+RS-controller create backoff (events 09:13→09:30→09:46→10:03), so the
+replacement pod only appears on the next organic retry. The repair
+must therefore be **restart-shaped**: strategy normalize **plus** the
+`fluxvale.io/restartedAt` annotation bump — exactly what the existing
+#781-tested `Deployment.restart/4` does — so a fresh ReplicaSet with
+no failure history rolls within seconds, inside the freed quota.
 
-The recovery arm in `recover_if_ready/3` learns one move, scoped to
-`failure_reason: :rollout_failed` only:
+Two pieces:
 
-```elixir
-not current_revision_ready?(status) ->
-  case scheduling_state(kubeconfig, instance) do
-    {:unschedulable, reason} -> mark_no_capacity(instance, reason)  # unchanged, wins first
-    _scheduled_or_unreadable -> repair_wedged_rollout(kubeconfig, instance)
-  end
-```
-
-`repair_wedged_rollout/2` calls `converge_strategy/3`; on
-`:converged` it writes nothing this pass (next minute re-reads); on
-`:already_converged` or error it **parks** (below). A strategy-only
-apply does not touch the pod template, so the **pending** revision —
-the one carrying the Nov-13 env — is the revision that finally rolls,
-within the pod the quota already admits. Self-limiting: after one
-converge the strategy matches and the arm never applies again.
+- New client predicate `Deployment.strategy_diverges?/3`
+  (`deployment.ex`): GET the Deployment, compare `spec.strategy`
+  against `@rollout_strategy` (exact-equality; SSA round-trips the
+  integers — pinned by test) → `{:ok, boolean}` | `{:error, e}`.
+- The recovery arm calls it; on divergence it calls the **existing**
+  `Deployment.restart/4` (GET → `prepare_for_apply` forces the one-pod
+  strategy → annotation bump → SSA, manager `fluxvale` — one module
+  attribute, the posture cannot fork) and records
+  `reconcile_repaired_at`. On convergence it parks (below).
+  Idempotent: after one restart the strategy matches, so the arm never
+  restarts again; `restart` itself is #781's tested path.
 
 Why not the alternatives:
 - **Owner-only repair** (deploy retry, which exists and works): every
@@ -105,15 +104,22 @@ pending revision rolls → `updated: 1` → `current_revision_ready?` →
 `:running`. Expect the second roll: the promote path restarts once
 when `env_vars` is non-empty — harmless, it guarantees Secret ≡ row.
 
-### The no-op storm guard (D3) — parking with hourly readmission
+### The no-op storm guard (D3) — grace, then parking with hourly readmission
 
-- New nullable attribute `reconcile_parked_at :utc_datetime_usec`
-  (`public? false`, no API/OpenAPI churn) on Instance; migration via
-  `mix ash.codegen add_instances_reconcile_parked_at`.
-- `park/1` writes it **only when nil or older than the window**
-  (write-once-per-window, not per pass), through a dedicated internal
-  `update :park_reconcile` action mirroring `update_status`'s
-  `authorize?: false` shape. Window: compile-env
+Two nullable timestamps on Instance (`public? false`, no API/OpenAPI
+churn), migration via `mix ash.codegen add_instances_reconcile_parking`:
+
+- `reconcile_repaired_at` — the repair's grace anchor, written by the
+  pass that restarts. A repair gets the deploy-stale bound (300s,
+  `@deploy_stale_timeout_seconds` — house precedent) to converge
+  before parking engages: a restart-shaped roll is ready in ~1–2 min,
+  so the fast cadence holds exactly as long as the roll needs and the
+  promote lands on the next minute's pass.
+- `reconcile_parked_at` — written by a no-progress pass (strategy
+  converged, still not ready, **and** `repaired_at` older than 300s)
+  **only when nil or older than the window** (write-once-per-window),
+  via a dedicated internal `update :park_reconcile` action mirroring
+  `update_status`'s `authorize?: false` shape. Window: compile-env
   `:reconcile_park_window_seconds`, default 3600 (same pattern as
   `@deploy_stale_timeout_seconds`).
 - The trigger `where` (`instance.ex:253–259`) gains:
@@ -125,14 +131,13 @@ when `env_vars` is non-empty — harmless, it guarantees Secret ≡ row.
   confirm `fragment` compiles inside an AshOban trigger `where`
   (precedent: `personal_access_token.ex:386` uses fragment in Ash
   exprs). Fallback if it doesn't: worker-side early-discard at the
-  `call/1` head (fresh marker → return immediately, no K8s calls) —
-  work-free but rows still enqueue; documented residual, decided at
-  the spike.
-- Every status write clears the marker: `update_status` (the one
-  funnel) forces `reconcile_parked_at: nil`, so a re-wedge or any
-  transition resumes the fast cadence. Park fires only when the pass
-  made no progress (`:already_converged` or apply error) — an
-  apply-erroring row parks too, so nothing churns forever.
+  `call/1` head (fresh parking marker → return immediately, no K8s
+  calls) — work-free but rows still enqueue; documented residual,
+  decided at the spike.
+- Every status write clears both markers: `update_status` (the one
+  funnel) forces them nil, so a re-wedge or any transition resumes the
+  fast cadence. An apply-erroring repair parks on the same predicate
+  (the restart did not land, no grace earned) — nothing churns forever.
 - Scope: `rollout_failed` only. `stuck`/`missing`/`start_failed`
   no-ops are rare and recover through the existing gate; `nil`-reason
   legacy rows are not repaired (no known population — staging and
@@ -200,19 +205,27 @@ revision, same convergence.
 `0/1`, `updated=1 ready=1`, pending-RS pod running = the Nov-13 env
 revision live, FailedCreate count frozen) attached to #820 by the PA.
 
-## Slice 2 — client `converge_strategy/3` (worker)
+**S1 result (2026-11-16 10:05–10:2xZ)**: the strategy-only SSA was
+applied live; it freed the quota (old pod reaped at 10:05:04Z) but the
+wedged ReplicaSet's accumulated create-backoff (~16 min between
+retries) delayed the replacement pod to the ~10:20Z organic retry —
+the finding that made the automated repair restart-shaped (D1).
+Transcript below, appended as executed.
+
+## Slice 2 — client `strategy_diverges?/3` (worker)
 
 **Files**: `apps/platform/lib/flux_vale/clients/k8s/resources/deployment.ex`,
 `apps/platform/test/flux_vale/clients/k8s/resources/deployment_test.exs`.
 
-**Change**: `converge_strategy/3` as in D1 (GET → compare →
-prepare_for_apply + SSA). `@doc` names #820 and points at the
-reconciler arm as its only caller.
+**Change**: `strategy_diverges?/3` as in D1 — GET + exact-equality
+compare of `spec.strategy` against `@rollout_strategy`. `@doc` names
+#820 and points at the reconciler arm as its only caller; the repair
+itself is the existing `restart/4` (unchanged).
 
-**Tests**: 25%-strategy fetched → applied manifest carries
-`maxSurge 0 / maxUnavailable 1`, `managedFields` stripped (assert the
-captured apply, like `deployment_test.exs:642–661`); already-converged
-→ no apply call; GET/apply error propagates.
+**Tests**: fetched 25%/25% → `{:ok, true}`; fetched converged
+(integers, the SSA round-trip form) → `{:ok, false}`; GET error
+propagates. No apply happens in this predicate — that's `restart/4`'s
+already-tested job (`deployment_test.exs:642–661`).
 
 **Done when**:
 
@@ -226,10 +239,10 @@ MIX_TEST_PARTITION=820s2 mix test test/flux_vale/clients/k8s/resources/deploymen
 
 ## Slice 3 — parking plumbing (worker; after/parallel with S2)
 
-**Files**: `…/resources/instance.ex` (attribute, `update :park_reconcile`
-action, `update_status` clears the marker, trigger `where` fragment),
-generated migration, `…/operations/instance_k8s.ex` only if the clear
-lives there (prefer a `change set_attribute` on `update_status`),
+**Files**: `…/resources/instance.ex` (both attributes, `update
+:park_reconcile` action, `update_status` clears both markers, trigger
+`where` fragment), generated migration (prefer a `change
+set_attribute` on `update_status` over touching `instance_k8s.ex`),
 `test/flux_vale/contexts/infrastructure/instance_test.exs`,
 `test/flux_vale/contexts/infrastructure/operations/restoring_state_test.exs`
 (the 114–130 exact-admission block gains the parked-exclusion cases),
@@ -242,7 +255,7 @@ restoring_state tests). Fallback decision per D3 recorded in the PR
 body if fragment fails.
 
 **Tests**: parked-fresh row excluded, parked-stale row admitted,
-nil-marker admitted; `update_status` clears the marker;
+nil-marker admitted; `update_status` clears both markers;
 `park_reconcile` writes only when stale (two calls, one write).
 
 **Done when**:
@@ -257,7 +270,7 @@ mix ash.codegen --check
 ## Slice 4 — reconciler repair arm + regression tests + ADR (worker; after S2+S3)
 
 **Files**:
-`…/operations/reconcile_instance.ex` (the D1 arm + `park/1` +
+`…/operations/reconcile_instance.ex` (the D1 arm, grace + `park/1`,
 moduledoc contract line), `reconcile_instance_test.exs`,
 `docs/adr/00005-customer-instances-as-namespaces.md` (Amendment 7),
 `docs/adr/README.md` (index row).
@@ -268,15 +281,18 @@ deliverable):
 1. Wedge repro, two passes: `error`/`rollout_failed` row; Deployment
    status stub `replicas: 1, ready: 1, updated: 0`, generation
    handshake OK, scheduled pod, fetched strategy 25% → pass 1 asserts
-   the apply was captured (strategy 0/1, managedFields stripped) and
-   **no status write**; pass 2 stubs `updated: 1, ready: 1` → promote
-   (env projection + `:running`). This is lines 431–450's entry test
-   and 783–880's recovery tests joined at the waist — the deadlock
-   reproduced, then closed.
-2. Already-converged strategy → no apply, row parked (marker written).
-3. Fresh marker → no write this pass.
-4. Apply error → logged warning, parked.
-5. `stuck`/`missing`/`start_failed` rows: no apply (scope).
+   `restart` applied (strategy 0/1 + annotation bump, managedFields
+   stripped) and **no status write**, `reconcile_repaired_at` set;
+   pass 2 stubs `updated: 1, ready: 1` → promote (env projection +
+   `:running`). This is lines 431–450's entry test and 783–880's
+   recovery tests joined at the waist — the deadlock reproduced, then
+   closed.
+2. Converged strategy, not ready, `repaired_at` fresh (<300s) → no
+   restart, no park — the grace holds the fast cadence for the roll.
+3. Converged strategy, not ready, `repaired_at` stale → parked
+   (marker written, write-once-per-window).
+4. Restart apply error → logged warning, parked (no grace earned).
+5. `stuck`/`missing`/`start_failed` rows: no restart (scope).
 6. Unschedulable pod → `:no_capacity` still wins over repair.
 7. `deploy_failed` not in the reconciled set (existing tests hold).
 
