@@ -20,9 +20,30 @@ defmodule FluxValeWeb.DocsHTML do
   attr(:active_section, :string, default: nil, doc: "the section key to mark active")
   attr(:active_slug, :string, default: nil, doc: "the page slug to mark active")
 
+  attr(:active_agent_docs, :boolean,
+    default: false,
+    doc: "marks the agent guide's fixed entry active"
+  )
+
   def sidebar(assigns) do
     ~H"""
     <nav class="docs-nav" aria-label="Documentation">
+      <%!-- #799: the agent guide is a page, not a content section — a
+      fixed top-level entry above the section map, the index page's
+      placement. --%>
+      <div class="docs-nav-section">
+        <ul class="docs-nav-list">
+          <li>
+            <a
+              href={~p"/docs/agents"}
+              class={["docs-nav-link", @active_agent_docs && "docs-nav-link-active"]}
+              aria-current={if(@active_agent_docs, do: "page")}
+            >
+              Set up with your agent
+            </a>
+          </li>
+        </ul>
+      </div>
       <div :for={{section, pages} <- @sections} class="docs-nav-section">
         <p class="docs-nav-heading">
           <a href={~p"/docs/#{section.key}"} class="docs-nav-section-link">
