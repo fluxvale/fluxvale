@@ -4,7 +4,7 @@ docs reading surface (ADR-0044 §5) — sidebar left, article column
 centered; zero JS, so no copy button here (the panel has one). --%>
 <Layouts.public flash={@flash} current_user={@current_user} return_to={@return_to}>
   <div class="docs docs-with-nav">
-    <FluxValeWeb.DocsHTML.sidebar sections={@sections} />
+    <FluxValeWeb.DocsHTML.sidebar sections={@sections} active_agent_docs={true} />
 
     <article class="docs-main">
       <header class="docs-article-head">
