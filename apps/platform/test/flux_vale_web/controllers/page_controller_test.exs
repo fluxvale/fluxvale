@@ -64,6 +64,26 @@ defmodule FluxValeWeb.PageControllerTest do
              "Pick an open source app from the catalog and deploy it in minutes. Or hand it to your agent from Claude Code, Cursor, VS Code, or any MCP client. FluxVale keeps it running."
   end
 
+  # #797: the navbar's Agents label is the docs root — the docs index
+  # leads with the agent handoff, so setup stays one row away.
+  test "GET / navbar Agents link points at the docs root (#797)", %{conn: conn} do
+    html = html_response(get(conn, ~p"/"), 200)
+
+    links =
+      html
+      |> LazyHTML.from_document()
+      |> LazyHTML.query("nav[aria-label='Primary'] a")
+
+    link =
+      Enum.find(links, fn link ->
+        text = LazyHTML.text(link)
+        String.trim(text) == "Agents"
+      end)
+
+    assert %LazyHTML{} = link
+    assert LazyHTML.attribute(link, "href") == ["/docs"]
+  end
+
   # fv332 D5: the landing's own footer (foot-links, distinct from the
   # chrome footer) carries the legal set — privacy lands beside terms
   # and acceptable use.
