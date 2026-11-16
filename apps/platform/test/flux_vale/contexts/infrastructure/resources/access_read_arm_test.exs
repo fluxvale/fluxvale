@@ -175,5 +175,27 @@ defmodule FluxVale.Infrastructure.AccessReadArmTest do
       assert {:error, %Ash.Error.Forbidden{}} =
                AccessDomain.list_for_org(org_a.id)
     end
+
+    test "list_for_org pages on demand and stays a plain list without page", %{org_a: org_a} do
+      admin = AccountsFixtures.platform_admin!()
+      platform_domain!(org_a)
+      platform_domain!(org_a)
+      platform_domain!(org_a)
+
+      assert {:ok, %Ash.Page.Offset{} = page} =
+               AccessDomain.list_for_org(org_a.id,
+                 actor: admin,
+                 page: [limit: 2, offset: 0, count: true]
+               )
+
+      assert page.count == 3
+      assert length(page.results) == 2
+
+      # The provider's list and these reads pass no page: the plain-list
+      # contract is untouched.
+      assert {:ok, rows} = AccessDomain.list_for_org(org_a.id, actor: admin)
+      assert is_list(rows)
+      assert length(rows) == 3
+    end
   end
 end

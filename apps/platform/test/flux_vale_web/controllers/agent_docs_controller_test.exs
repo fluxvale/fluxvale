@@ -48,5 +48,15 @@ defmodule FluxValeWeb.AgentDocsControllerTest do
 
     assert html =~ ~s(class="docs-nav")
     assert html =~ ~s(href="/docs/automation/mcp")
+
+    # #799: the guide lists itself at the sidebar's top, active.
+    document = LazyHTML.from_document(html)
+    agent_entry = LazyHTML.query(document, ~s(nav.docs-nav a[href="/docs/agents"]))
+    entry_html = LazyHTML.to_html(agent_entry)
+    agent_text = LazyHTML.text(agent_entry)
+
+    assert String.trim(agent_text) == "Set up with your agent"
+    assert entry_html =~ ~s(aria-current="page")
+    assert entry_html =~ "docs-nav-link-active"
   end
 end
