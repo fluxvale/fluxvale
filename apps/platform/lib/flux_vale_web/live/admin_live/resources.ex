@@ -11,9 +11,12 @@ defmodule FluxValeWeb.AdminLive.Resources do
   `authorize?: false` (ADR-0027 Am. 1). No `authorize?: false`
   anywhere on this surface. Reads ride the primary read action; the
   index rides the shared `AdminDataTable` component (#501) with
-  server-driven sort, page, and size in query params, offset
+  server-driven sort, page, size, and search in query params, offset
   pagination (25 to a page by default, count-aware), and newest-first
-  order where the resource carries `created_at`.
+  order where the resource carries `created_at`. The search narrows
+  by the row-label attribute only — an ILIKE inside the same
+  policy-scoped read, never widening it; a resource whose label falls
+  back to `:id` renders no search card and ignores `q`.
 
   Writes: `?action=` selects among the registry's allowed actions of
   the mount's type (default: the primary); a name the registry does
@@ -157,21 +160,25 @@ defmodule FluxValeWeb.AdminLive.Resources do
       end
 
     parsed = AdminDataTable.parse_params(params, sortable: sortable_fields(entry))
-    # This surface has no search: a crafted ?q= never rides the view
-    # state, the announcement, or a URL.
-    state = %{parsed | query: ""}
-    count = read_count(entry.module, socket.assigns.current_user)
+    # The search STATE rides only when the label attribute can carry a
+    # pattern: view_query zeroes a non-searchable entry's crafted ?q, so
+    # the announcement, the empty states, and every URL stay honest. The
+    # READ takes the URL's raw term — apply_search re-guards with
+    # searchable?/1 and ignores a term its entry cannot carry.
+    state = %{parsed | query: view_query(parsed.query, entry)}
+    raw_query = parsed.query
+    count = read_count(entry, raw_query, socket.assigns.current_user)
     total_pages = AdminDataTable.page_count(count, state.size)
 
     if requested_page(params["page"]) > total_pages and count > 0 do
       # A page past the end bounces to the real last page (the People
       # :home bounce idiom) — an honest URL, not a misleadingly empty
-      # table. The bounce carries the view's sort and size.
+      # table. The bounce carries the view's sort, search, and size.
       target = AdminDataTable.url_for(socket.assigns.index_path, %{state | page: total_pages})
 
       {:noreply, push_navigate(socket, to: target)}
     else
-      records = read_page(entry, state, socket.assigns.current_user)
+      records = read_page(entry, raw_query, state, socket.assigns.current_user)
 
       {:noreply,
        socket
@@ -179,7 +186,8 @@ defmodule FluxValeWeb.AdminLive.Resources do
          table: %{state | total: count},
          columns: columns(entry),
          table_columns: table_columns(entry),
-         rows_empty?: records == []
+         rows_empty?: records == [],
+         search_form: to_form(%{"query" => state.query}, as: :search)
        )
        |> stream(:records, records, reset: true)}
     end
@@ -286,9 +294,72 @@ defmodule FluxValeWeb.AdminLive.Resources do
                       <AdminResource.new_button path={@new_path} />
                     </div>
 
-                    <div :if={@rows_empty?} data-testid="admin-resource-empty">
+                    <%!-- The search card (the people surface's shape):
+                    it narrows the list by the row label only — the read
+                    stays policy-scoped, never widened. A non-string
+                    label (the :id fallback) renders no card and the
+                    entry ignores q. --%>
+                    <.card
+                      :if={@searchable}
+                      class="space-y-4"
+                      data-testid="admin-resource-search-card"
+                    >
+                      <div>
+                        <h2 class="text-base font-medium text-ink">{gettext("Find a row")}</h2>
+                        <p class="mt-1 text-sm text-ink-muted">
+                          {gettext(
+                            "Search narrows this list by %{label}. It never reaches past it.",
+                            label: @search_label
+                          )}
+                        </p>
+                      </div>
+                      <.form
+                        for={@search_form}
+                        id="admin-resource-search"
+                        phx-change="search"
+                        phx-submit="search"
+                      >
+                        <.input
+                          field={@search_form[:query]}
+                          type="text"
+                          label={@search_label}
+                          placeholder={gettext("Search by %{label}", label: @search_label)}
+                          phx-debounce="200"
+                          data-testid="admin-resource-search-input"
+                        />
+                      </.form>
+                    </.card>
+
+                    <div
+                      :if={@rows_empty? and @table.query == ""}
+                      data-testid="admin-resource-empty"
+                    >
                       <.empty_state title={gettext("No rows yet.")}>
                         {gettext("This table is empty. Rows appear here as they are created.")}
+                      </.empty_state>
+                    </div>
+
+                    <%!-- The search's honest empty: the term matched
+                    nothing, and the lever hands the view back. A
+                    non-searchable entry never gets here — its state
+                    carries no query. --%>
+                    <div
+                      :if={@rows_empty? and @table.query != ""}
+                      class="rounded-panel border border-line bg-panel px-6 py-8"
+                      data-testid="admin-resource-search-empty"
+                    >
+                      <.empty_state
+                        title={gettext("No row matches that search.")}
+                        class="border-none bg-transparent"
+                      >
+                        <.button
+                          variant="secondary"
+                          size="sm"
+                          phx-click="clear-search"
+                          data-testid="admin-resource-clear-search"
+                        >
+                          {gettext("Clear search")}
+                        </.button>
                       </.empty_state>
                     </div>
 
@@ -446,6 +517,7 @@ defmodule FluxValeWeb.AdminLive.Resources do
   # re-applies it when the entry is new to the process.
   defp assign_index_state(socket, entry) do
     admin = socket.assigns.current_user
+    label_name = label_attr(entry)
 
     assign(socket,
       entry: entry,
@@ -455,6 +527,10 @@ defmodule FluxValeWeb.AdminLive.Resources do
       resource_label: resource_label(entry),
       note: entry.config[:note],
       index_path: index_path(entry),
+      # The search card's gate: only a string-typed label attribute can
+      # carry the ILIKE — anything else renders no card at all.
+      searchable: searchable?(entry),
+      search_label: AdminResource.label(label_name),
       # The create affordance: only when the actor may run at least one
       # allowed create action (nil renders nothing).
       new_path: new_path(entry, admin)
@@ -629,6 +705,34 @@ defmodule FluxValeWeb.AdminLive.Resources do
 
   def handle_event("size", _params, socket), do: {:noreply, socket}
 
+  # The search card's change (and submit): the URL states the view (q
+  # rides the canonical builder), the page resets, and handle_params
+  # owns the re-query. The table's presence gates the frame — another
+  # arm's crafted search answers the catch-all below.
+  def handle_event(
+        "search",
+        %{"search" => %{"query" => query}},
+        %{
+          assigns: %{table: table}
+        } = socket
+      )
+      when is_binary(query) do
+    state = %{table | query: AdminDataTable.cap_query(query), page: 1}
+
+    push_view(socket, state)
+  end
+
+  # A crafted query — not a string, or another arm's frame — is a
+  # quiet no-op, not a crash.
+  def handle_event("search", _params, socket), do: {:noreply, socket}
+
+  # The search-empty state's clear lever: the same view, term gone.
+  def handle_event("clear-search", _params, %{assigns: %{table: table}} = socket) do
+    push_view(socket, %{table | query: "", page: 1})
+  end
+
+  def handle_event("clear-search", _params, socket), do: {:noreply, socket}
+
   # The form's live validation: per-field errors ride AshPhoenix's form
   # data protocol into <.input> as the operator types. Params decode
   # exactly as the save handler decodes them, so valid JSON that
@@ -749,11 +853,13 @@ defmodule FluxValeWeb.AdminLive.Resources do
 
   # The count first, cheaply: one row at offset 0, no loads, count
   # requested — the page math never waits on a page read's rows, and the
-  # page read never pays for a second count.
-  defp read_count(module, actor) do
+  # page read never pays for a second count. The search rides here too,
+  # so the count is the FILTERED total and the page math stays honest.
+  defp read_count(entry, query, actor) do
     page =
-      module
-      |> Ash.Query.for_read(primary_read(module), %{}, actor: actor)
+      entry.module
+      |> Ash.Query.for_read(primary_read(entry.module), %{}, actor: actor)
+      |> apply_search(query, entry)
       |> Ash.read!(page: [limit: 1, offset: 0, count: true])
 
     page.count || 0
@@ -761,18 +867,67 @@ defmodule FluxValeWeb.AdminLive.Resources do
 
   # One server-driven page: the whitelisted sort (newest first by
   # default) and the belongs_to loads the FK seam renders from. The
-  # count is read_count/2's business. The offset derives from the parsed
-  # page and size — a crafted deep page bounces in handle_params before
-  # this runs.
-  defp read_page(entry, state, actor) do
+  # count is read_count/3's business. The search filter runs before the
+  # sort (a filter never cares about order), inside the same
+  # actor-scoped read — the term is the URL's raw value and the guard
+  # is apply_search's own (the state's term is display-honest, not
+  # filter truth). The offset derives from the parsed page and size — a
+  # crafted deep page bounces in handle_params before this runs.
+  defp read_page(entry, query, state, actor) do
     page =
       entry.module
       |> Ash.Query.for_read(primary_read(entry.module), %{}, actor: actor)
+      |> apply_search(query, entry)
       |> sort_page(state.sort, entry.module)
       |> Ash.Query.load(belongs_to_keys(entry.module))
       |> Ash.read!(page: [limit: state.size, offset: (state.page - 1) * state.size])
 
     page.results
+  end
+
+  # The search filter: ILIKE over the row-label attribute, inside the
+  # same actor-scoped query — the read never widens. The term escapes
+  # exactly like billing/people (the backslash first, or it would
+  # double-escape the ones below), so % and _ in the term are literals
+  # (the #603 class). filter_input keeps the filter runtime-shaped (the
+  # filter macro would read a runtime attr/value pair as compile-time
+  # AST); the attribute atom is the resource's own introspection, never
+  # built from input.
+  defp apply_search(query, "", _entry), do: query
+
+  defp apply_search(query, term, entry) do
+    if searchable?(entry) do
+      escaped =
+        term
+        |> String.replace("\\", "\\\\")
+        |> String.replace("%", "\\%")
+        |> String.replace("_", "\\_")
+
+      pattern = "%#{escaped}%"
+      attr = label_attr(entry)
+
+      Ash.Query.filter_input(query, %{attr => %{ilike: pattern}})
+    else
+      # A non-searchable entry (its label fell back to :id) ignores
+      # the term — no pattern can ride a non-string attribute.
+      query
+    end
+  end
+
+  # The search rides only when the label attribute's type can carry an
+  # ILIKE pattern: a string or ci-string. The :id fallback (a uuid) is
+  # not searchable — its entry renders no search card at all.
+  defp searchable?(entry) do
+    attr = Info.attribute(entry.module, label_attr(entry))
+
+    attr && attr.type in [Ash.Type.String, Ash.Type.CiString]
+  end
+
+  # The view's search term: the capped q when the entry is searchable,
+  # else nothing — a crafted term never rides the view state, the
+  # announcement, or a URL of a table it cannot filter.
+  defp view_query(query, entry) do
+    if searchable?(entry), do: query, else: ""
   end
 
   defp sort_page(query, nil, module) do
@@ -1236,12 +1391,12 @@ defmodule FluxValeWeb.AdminLive.Resources do
   defp column_geometry(_col, _index), do: {"minmax(5rem,1fr)", 5}
 
   # The view state the component renders: the parsed params plus the
-  # honest count and the surface's event names. The query is pinned
-  # empty — this surface has no search, so a crafted ?q never makes the
-  # announcement (or a URL) claim a filter.
+  # honest count and the surface's event names. The query rides the
+  # state as parsed (view_query zeroes it for non-searchable entries),
+  # so the announcement claims a filter only when one runs.
   defp table_meta(state) do
     %{
-      query: "",
+      query: state.query,
       page: state.page,
       size: state.size,
       sort: state.sort,

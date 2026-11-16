@@ -914,6 +914,189 @@ defmodule FluxValeWeb.AdminResourcesLiveTest do
     end
   end
 
+  describe "search (q over the row label)" do
+    setup %{admin: admin} do
+      flags = for _i <- 1..26, do: flag!(admin)
+      %{flags: flags}
+    end
+
+    test "the search card names the label attribute it narrows by", %{conn: conn} do
+      {:ok, view, _html} = live(conn, "/admin/resources/ops/feature_flag")
+
+      assert has_element?(view, "[data-testid='admin-resource-search-card']", "Find a row")
+
+      assert has_element?(
+               view,
+               "[data-testid='admin-resource-search-card']",
+               "Search narrows this list by Key. It never reaches past it."
+             )
+
+      assert attribute(view, "admin-resource-search-input", "placeholder") == "Search by Key"
+    end
+
+    test "?q= narrows to the matching row and the count reads the filtered total", %{
+      conn: conn,
+      flags: flags
+    } do
+      target = Enum.at(flags, 7)
+
+      {:ok, view, _html} = live(conn, "/admin/resources/ops/feature_flag?q=#{target.key}")
+
+      assert index_row_count(view) == 1
+      assert has_element?(view, "[data-testid='admin-resource-cell-key-#{target.id}']")
+      assert has_element?(view, "[data-testid='admin-resource-count']", "Showing 1 to 1 of 1.")
+      assert has_element?(view, "[data-testid='admin-resource-page-prev'][disabled]")
+      assert has_element?(view, "[data-testid='admin-resource-page-next'][disabled]")
+
+      assert has_element?(
+               view,
+               "[data-testid='admin-resource-announcement']",
+               "Search: #{target.key}"
+             )
+    end
+
+    test "the search form change patches q, a reload lands on the same view", %{
+      conn: conn,
+      flags: [first | _rest]
+    } do
+      {:ok, view, _html} = live(conn, "/admin/resources/ops/feature_flag")
+
+      render_change(view, "search", %{"search" => %{"query" => first.key}})
+
+      assert_patched(view, "/admin/resources/ops/feature_flag?q=#{first.key}")
+      assert attribute(view, "admin-resource-search-input", "value") == first.key
+      assert index_row_count(view) == 1
+
+      # Reloading the URL lands on the same filtered view, form and all.
+      {:ok, reloaded, _html} = live(conn, "/admin/resources/ops/feature_flag?q=#{first.key}")
+
+      assert attribute(reloaded, "admin-resource-search-input", "value") == first.key
+      assert index_row_count(reloaded) == 1
+    end
+
+    test "sort, page, and size keep q in the patched URL (canonical order)", %{conn: conn} do
+      {:ok, view, _html} = live(conn, "/admin/resources/ops/feature_flag?q=res_flag")
+
+      # Every seeded key carries the prefix: two pages.
+      assert index_row_count(view) == 25
+
+      view
+      |> element("[data-testid='admin-resource-sort-key']")
+      |> render_click()
+
+      assert_patched(view, "/admin/resources/ops/feature_flag?q=res_flag&sort=key&dir=asc")
+
+      view
+      |> element("[data-testid='admin-resource-page-next']")
+      |> render_click()
+
+      assert_patched(view, "/admin/resources/ops/feature_flag?q=res_flag&sort=key&dir=asc&page=2")
+      assert index_row_count(view) == 1
+
+      view
+      |> element("[data-testid='admin-resource-size-50']")
+      |> render_click()
+
+      assert_patched(
+        view,
+        "/admin/resources/ops/feature_flag?q=res_flag&sort=key&dir=asc&size=50"
+      )
+
+      assert index_row_count(view) == 26
+    end
+
+    test "no match renders the search-empty state; the clear lever hands the view back", %{
+      conn: conn
+    } do
+      {:ok, view, _html} = live(conn, "/admin/resources/ops/feature_flag?q=zzz-no-match")
+
+      assert has_element?(
+               view,
+               "[data-testid='admin-resource-search-empty']",
+               "No row matches that search."
+             )
+
+      assert has_element?(view, "[data-testid='admin-resource-clear-search']", "Clear search")
+      refute has_element?(view, "[data-testid='admin-resource-empty']")
+      refute has_element?(view, "[data-testid='admin-resource-table']")
+
+      view
+      |> element("[data-testid='admin-resource-clear-search']")
+      |> render_click()
+
+      assert_patched(view, "/admin/resources/ops/feature_flag")
+      assert has_element?(view, "[data-testid='admin-resource-count']", "Showing 1 to 25 of 26.")
+    end
+
+    test "a bare % and _ are literals: wildcard-shaped terms match on the substring", %{
+      conn: conn
+    } do
+      # No key carries a % sign: an unescaped pattern would have matched
+      # every row (the #603 class).
+      {:ok, view, _html} = live(conn, "/admin/resources/ops/feature_flag?q=%25")
+      assert has_element?(view, "[data-testid='admin-resource-search-empty']")
+
+      # A literal double underscore no key carries; as wildcards the
+      # underscores would have matched any two characters — every row.
+      {:ok, literal, _html} = live(conn, "/admin/resources/ops/feature_flag?q=res_flag__")
+      assert has_element?(literal, "[data-testid='admin-resource-search-empty']")
+    end
+
+    test "a q longer than 200 characters is capped, on the param and the event path", %{
+      conn: conn
+    } do
+      long = String.duplicate("res_flag_x", 30)
+
+      {:ok, view, _html} = live(conn, "/admin/resources/ops/feature_flag?q=#{long}")
+      rendered = attribute(view, "admin-resource-search-input", "value")
+      assert String.length(rendered) == 200
+
+      render_change(view, "search", %{"search" => %{"query" => long}})
+
+      assert_patched(view, "/admin/resources/ops/feature_flag?q=#{String.slice(long, 0, 200)}")
+      assert has_element?(view, "[data-testid='admin-resource-search-empty']")
+    end
+
+    test "a crafted ?q[]= filters nothing and does not crash", %{conn: conn} do
+      {:ok, view, _html} = live(conn, "/admin/resources/ops/feature_flag?q%5B%5D=x")
+
+      assert index_row_count(view) == 25
+      assert attribute(view, "admin-resource-search-input", "value") == ""
+    end
+
+    test "a non-searchable entry renders no search card and q is harmless", %{conn: conn} do
+      # LedgerEntry has no label-ish attribute: the row label is the
+      # :id fallback, and no ILIKE can ride a uuid — the entry ignores
+      # the term and renders its rows.
+      {:ok, view, _html} = live(conn, "/admin/resources/billing/ledger_entry?q=x")
+
+      refute has_element?(view, "[data-testid='admin-resource-search-card']")
+      assert has_element?(view, "[data-testid='admin-resource-index']")
+      assert [_rendered_row | _rest] = wallet_index_ids(view)
+      assert has_element?(view, "[data-testid='admin-resource-count']")
+    end
+
+    test "crafted search and clear frames are quiet no-ops", %{conn: conn, flags: [first | _]} do
+      {:ok, view, _html} = live(conn, "/admin/resources/ops/feature_flag")
+
+      # A query that is not a string, then no search params at all.
+      render_click(view, "search", %{"search" => %{"query" => %{"deep" => "crafted"}}})
+      render_click(view, "search", %{})
+
+      refute_patched(view)
+      assert index_row_count(view) == 25
+
+      # Another arm's frame: the table's presence is the gate.
+      {:ok, show_view, _html} = live(conn, "/admin/resources/ops/feature_flag/#{first.id}")
+
+      render_click(show_view, "search", %{"search" => %{"query" => "x"}})
+      render_click(show_view, "clear-search", %{})
+
+      refute_patched(show_view)
+      assert has_element?(show_view, "[data-testid='admin-resource-show']")
+    end
+  end
+
   describe "the show page" do
     test "renders exactly the public attributes — actor-safe by set equality", %{
       conn: conn,
