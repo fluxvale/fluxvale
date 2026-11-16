@@ -59,6 +59,8 @@ defmodule FluxVale.Infrastructure.Instance.StatusMarkersTest do
     starting = InstanceFixtures.walk_to!(instance, :starting)
     drain_events()
 
+    errored_at_wall = DateTime.utc_now()
+
     {:ok, errored} =
       InstanceK8s.update_status(starting, :error, "rollout failed", :rollout_failed)
 
@@ -67,6 +69,29 @@ defmodule FluxVale.Infrastructure.Instance.StatusMarkersTest do
 
     assert_receive {:telemetry_event, @status_event, %{count: 1},
                     %{from: :starting, to: :error, reason: :rollout_failed}}
+
+    # #182: the entering write stamps errored_at — the gauge's recency
+    # clock, one changeset with the counter emission. The wall is
+    # captured before the write, so the stamp can only be at-or-after
+    # it (a stamp that precedes its own capture is a clock-order bug).
+    assert DateTime.compare(errored.errored_at, errored_at_wall) != :lt
+  end
+
+  # The reconcile no-op guarantee (#182): a same-status write bumps
+  # updated_at but must NOT refresh errored_at — the stamp is the
+  # episode's entry instant, and refreshing it would make a
+  # long-deadlocked row (the #818 memos shape, no-op'd every minute)
+  # look freshly stuck forever.
+  test "a same-status write never refreshes errored_at", %{version: version} do
+    instance = instance!(version)
+    starting = InstanceFixtures.walk_to!(instance, :starting)
+
+    {:ok, errored} = InstanceK8s.update_status(starting, :error, "rollout failed")
+    drain_events()
+
+    {:ok, still} = InstanceK8s.update_status(errored, :error, "still failing")
+
+    assert still.errored_at == errored.errored_at
   end
 
   test "a same-status write (the funnel's message-only no-op) emits nothing", %{
@@ -107,6 +132,10 @@ defmodule FluxVale.Infrastructure.Instance.StatusMarkersTest do
 
     assert errored.status == :error
     assert errored.failure_reason == :deploy_failed
+    # #182: the mount order is pinned — the handler's force-change runs
+    # ahead of StatusMarkers, so the entry stamp lands (an inverted
+    # mount would read :deploying and skip it).
+    assert %DateTime{} = errored.errored_at
 
     assert_receive {:telemetry_event, @status_event, %{count: 1},
                     %{from: :deploying, to: :error, reason: :deploy_failed}}
@@ -133,6 +162,8 @@ defmodule FluxVale.Infrastructure.Instance.StatusMarkersTest do
 
     assert errored.status == :error
     assert errored.failure_reason == :teardown_failed
+    # #182: the entry stamp lands through the handler mount too.
+    assert %DateTime{} = errored.errored_at
 
     assert_receive {:telemetry_event, @status_event, %{count: 1},
                     %{from: :deleting, to: :error, reason: :teardown_failed}}
@@ -163,6 +194,9 @@ defmodule FluxVale.Infrastructure.Instance.StatusMarkersTest do
     {:ok, deploying} = Instance.deploy(errored, authorize?: false)
 
     assert deploying.status == :deploying
+    # #182: the leaving write clears the gauge's clock — an exited
+    # episode is not stuck, whatever its stamp said.
+    assert is_nil(deploying.errored_at)
 
     assert_receive {:telemetry_event, @status_event, %{count: 1},
                     %{from: :error, to: :deploying, reason: nil}}

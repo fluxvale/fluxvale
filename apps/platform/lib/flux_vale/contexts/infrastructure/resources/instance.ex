@@ -628,6 +628,19 @@ defmodule FluxVale.Infrastructure.Instance do
       public?(false)
     end
 
+    # #182: when this episode ENTERED :error — StatusMarkers stamps it on
+    # the entering transition and clears it on the leaving one (one
+    # changeset as the transition counter's emission), so the
+    # stuck-in-error gauge can scope to RECENT errors and permanent
+    # zombies (stale stamps) can never page. Same-status writes never
+    # touch it (the reconcile no-ops that bump updated_at don't refresh
+    # recency). nil off :error; nil also on undated pre-backfill rows —
+    # the gauge's comparison excludes NULL, and an unknown entry time
+    # must not page.
+    attribute :errored_at, :utc_datetime_usec do
+      public?(false)
+    end
+
     # #203 (ADR-0036): the idle clock's bookmark — the last edge traffic
     # this instance saw. Written by the edge beacon (debounced — at most
     # one write per window however hot the traffic) and reset on every
