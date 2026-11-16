@@ -175,6 +175,52 @@ defmodule FluxVale.Infrastructure.Operations.RestoringStateTest do
       refute intent_bearing.id in ids
     end
 
+    test "the trigger filter skips a parked row until the window lapses (#820)" do
+      # One cluster for all three rows — the create resolves the single
+      # cluster row (more than one is ADR-0006's refused shape).
+      InstanceFixtures.local_cluster!()
+      trigger = AshOban.Info.oban_trigger(Instance, :reconcile_status)
+
+      # Fresh parking rides the action — inside the window, out of the queue.
+      fresh_row = errored_instance!(:rollout_failed)
+
+      parked_fresh =
+        fresh_row
+        |> Ash.Changeset.for_update(:park_reconcile, %{}, authorize?: false)
+        |> Ash.update!()
+
+      # A stale marker is a state no action can produce (park_reconcile
+      # stamps now, write-once-per-window) — the sanctioned Ash.Seed
+      # case, the aged-topup posture. FKs copied from an action-built row.
+      donor = errored_instance!(:rollout_failed)
+
+      parked_stale =
+        Ash.Seed.seed!(Instance, %{
+          name: "Parked stale #{System.unique_integer()}",
+          slug: "parked-stale-#{System.unique_integer()}",
+          organization_id: donor.organization_id,
+          cluster_id: donor.cluster_id,
+          app_version_id: donor.app_version_id,
+          status: :error,
+          failure_reason: :rollout_failed,
+          reconcile_parked_at: DateTime.add(DateTime.utc_now(), -7200, :second)
+        })
+
+      unmarked = errored_instance!(:rollout_failed)
+
+      query =
+        Instance
+        |> Ash.Query.filter(trigger.where)
+        |> Ash.Query.sort(:id)
+
+      {:ok, rows} = Ash.read(query, authorize?: false)
+      ids = Enum.map(rows, & &1.id)
+
+      refute parked_fresh.id in ids, "a fresh parking marker must keep the row out"
+      assert parked_stale.id in ids, "a lapsed marker is readmitted"
+      assert unmarked.id in ids, "a row with no marker is admitted"
+    end
+
     test "a direct reconcile call on a :restoring row is a no-op" do
       # Belt and braces beside the trigger filter: the operation's own
       # guard clause skips the state, so even a direct call does nothing.

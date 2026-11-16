@@ -254,7 +254,9 @@ defmodule FluxVale.Infrastructure.Instance do
           expr(
             status in [:deploying, :starting, :running, :no_capacity, :error] and
               (status != :error or is_nil(failure_reason) or
-                 failure_reason in ^@recoverable_error_reasons)
+                 failure_reason in ^@recoverable_error_reasons) and
+              (is_nil(reconcile_parked_at) or
+                 fragment("? < now() - interval '3600 seconds'", reconcile_parked_at))
           )
         )
 
@@ -667,6 +669,19 @@ defmodule FluxVale.Infrastructure.Instance do
       public?(false)
     end
 
+    # #820: reconcile parking trail — `reconcile_repaired_at` anchors the
+    # repair's grace window; `reconcile_parked_at` parks a no-progress
+    # row out of the reconcile queue (readmitted after the window, so
+    # external healing still lands). Both cleared by every `update_status`
+    # write. Internal, like the anchors.
+    attribute :reconcile_repaired_at, :utc_datetime_usec do
+      public?(false)
+    end
+
+    attribute :reconcile_parked_at, :utc_datetime_usec do
+      public?(false)
+    end
+
     # #203 (ADR-0036 Am. 2, #261): the owner's opt-out of scale-to-zero
     # — the idle sweep skips always-on rows. No premium tier (owner
     # decision, Oct 26): always-on instances simply never stop accruing
@@ -943,6 +958,11 @@ defmodule FluxVale.Infrastructure.Instance do
       # pairing.
       accept([:status, :status_message, :failure_reason])
       require_atomic?(false)
+
+      # #820: a status write is progress — clear both parking markers so
+      # a transition or re-wedge resumes the fast cadence.
+      change(set_attribute(:reconcile_repaired_at, nil))
+      change(set_attribute(:reconcile_parked_at, nil))
 
       change(MaintainAnchors)
       change(WakeMarkers)
@@ -1519,6 +1539,34 @@ defmodule FluxVale.Infrastructure.Instance do
       accept([])
 
       change(PerformReconcile)
+    end
+
+    # #820: the repair's grace anchor — stamped by the pass that applied
+    # the restart-shaped repair. No params, system-only: the reconciler
+    # calls it authorize?: false like update_status.
+    update :mark_reconcile_repair do
+      description("System-only: stamp the repair grace anchor (#820, authorize?: false).")
+
+      accept([])
+      require_atomic?(false)
+
+      change(fn changeset, _context ->
+        Ash.Changeset.change_attribute(changeset, :reconcile_repaired_at, DateTime.utc_now())
+      end)
+    end
+
+    # #820: the no-progress parking marker. Write-once-per-window is the
+    # caller's predicate (ReconcileInstance); the trigger `where` skips
+    # rows parked inside the window. Same system-only posture.
+    update :park_reconcile do
+      description("System-only: stamp the reconcile parking marker (#820, authorize?: false).")
+
+      accept([])
+      require_atomic?(false)
+
+      change(fn changeset, _context ->
+        Ash.Changeset.change_attribute(changeset, :reconcile_parked_at, DateTime.utc_now())
+      end)
     end
 
     update :perform_settle do
