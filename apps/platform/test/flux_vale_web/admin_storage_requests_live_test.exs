@@ -18,6 +18,9 @@ defmodule FluxValeWeb.AdminStorageRequestsLiveTest do
   import Ecto.Query, only: [from: 2]
   import Phoenix.LiveViewTest
 
+  # The framework revoke path's own alias (token_test's idiom): the
+  # nested Actions chain would trip credo's strict alias check.
+  alias AshAuthentication.TokenResource.Actions
   alias FluxVale.Clients.K8s
   alias FluxVale.Clients.K8s.Error
   alias FluxVale.Clients.K8s.Resources.PersistentVolumeClaim
@@ -1119,7 +1122,7 @@ defmodule FluxValeWeb.AdminStorageRequestsLiveTest do
       # resolving entirely (the framework revoke path, the
       # generated-tools suite's idiom).
       token = Plug.Conn.get_session(conn, "user_token")
-      :ok = AshAuthentication.TokenResource.Actions.revoke(FluxVale.Identity.Token, token)
+      :ok = Actions.revoke(FluxVale.Identity.Token, token)
 
       render_patch(view, "/admin/storage-requests?status=all")
 
