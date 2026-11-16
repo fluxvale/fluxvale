@@ -3,10 +3,11 @@ defmodule FluxValeWeb.AdminAuditLiveTest do
 
   # The Audit section (#645): the trail's window through the real
   # mount. The list renders the tombstone as recorded (System for nil),
-  # a destroy keeps its row, the filters ride the params honestly, and
-  # the gates answer before any version row is read. The version-read
-  # policy is pinned through the section's own query path — the mixin
-  # decides, never the UI.
+  # a destroy keeps its row, the filters ride the params honestly, the
+  # shared data table's sort/page/size state rides the URL with the
+  # filters alongside, and the gates answer before any version row is
+  # read. The version-read policy is pinned through the section's own
+  # query path — the mixin decides, never the UI.
 
   use FluxValeWeb.ConnCase, async: true
 
@@ -63,6 +64,44 @@ defmodule FluxValeWeb.AdminAuditLiveTest do
     |> LazyHTML.from_fragment()
     |> LazyHTML.text()
     |> String.trim()
+  end
+
+  # The tag view's URL with the actor filter that scopes every count
+  # and row list below to this test's own writes (the shared partition
+  # DB's committed strays).
+  defp scoped_path(admin, extra \\ []) do
+    "/admin/audit?" <>
+      URI.encode_query([{"resource", "tag"}, {"actor", admin.username} | extra])
+  end
+
+  # The surface's filter extras in the table URLs' own order.
+  defp extras(admin) do
+    URI.encode_query([{"resource", "tag"}, {"actor", admin.username}])
+  end
+
+  # The shown rows' ids, in DOM order.
+  defp row_ids(view) do
+    view
+    |> render()
+    |> LazyHTML.from_fragment()
+    |> LazyHTML.query("[data-testid^='admin-audit-row-']")
+    |> Enum.map(fn row ->
+      row
+      |> LazyHTML.attribute("data-testid")
+      |> Enum.join("")
+      |> String.replace_prefix("admin-audit-row-", "")
+    end)
+  end
+
+  # One attribute off one element, the plain way.
+  defp attribute(view, testid, name) do
+    html = render(element(view, "[data-testid='#{testid}']"))
+    document = LazyHTML.from_fragment(html)
+    matches = LazyHTML.query(document, "[data-testid='#{testid}']")
+    first = Enum.at(matches, 0)
+    values = LazyHTML.attribute(first, name) || []
+
+    Enum.join(values, "")
   end
 
   describe "the version list" do
@@ -126,7 +165,7 @@ defmodule FluxValeWeb.AdminAuditLiveTest do
       json = text_of(view, "[data-testid='admin-audit-changes-json-#{version.id}']")
       assert json =~ ~s("key")
 
-      assert text_of(view, "[data-testid='admin-audit-count']") == "1 change"
+      assert text_of(view, "[data-testid='admin-audit-count']") == "Showing 1 to 1 of 1."
     end
 
     test "?resource= selects the audited resource", %{conn: conn, admin: admin} do
@@ -145,7 +184,7 @@ defmodule FluxValeWeb.AdminAuditLiveTest do
       # committed strays from other lanes must not read into it.
       scoped_path = "/admin/audit?resource=tag&source=#{tag.id}"
       {:ok, scoped, _html} = live(conn, scoped_path)
-      assert text_of(scoped, "[data-testid='admin-audit-count']") == "1 change"
+      assert text_of(scoped, "[data-testid='admin-audit-count']") == "Showing 1 to 1 of 1."
     end
 
     test "an unknown ?resource bounces to the default with the honest flash", %{conn: conn} do
@@ -202,7 +241,11 @@ defmodule FluxValeWeb.AdminAuditLiveTest do
       {:ok, view, _html} = live(conn, "/admin/audit?resource=feature_flag")
 
       assert has_element?(view, "[data-testid='admin-audit-empty']", "No history yet.")
-      assert text_of(view, "[data-testid='admin-audit-count']") == "0 changes"
+
+      # The chrome renders only with rows: no empty table, no count.
+      refute has_element?(view, "[data-testid='admin-audit-table']")
+      refute has_element?(view, "[data-testid='admin-audit-count']")
+      refute has_element?(view, "[data-testid='admin-audit-pagination']")
     end
   end
 
@@ -224,7 +267,7 @@ defmodule FluxValeWeb.AdminAuditLiveTest do
 
       assert has_element?(view, "[data-testid='admin-audit-row-#{my_version.id}']")
       refute has_element?(view, "[data-testid='admin-audit-row-#{their_version.id}']")
-      assert text_of(view, "[data-testid='admin-audit-count']") == "1 change"
+      assert text_of(view, "[data-testid='admin-audit-count']") == "Showing 1 to 1 of 1."
 
       assert text_of(view, "[data-testid='admin-audit-filter-actor']") ==
                "Actor: #{admin.username}"
@@ -255,13 +298,12 @@ defmodule FluxValeWeb.AdminAuditLiveTest do
       refute has_element?(view, "[data-testid='admin-audit-row-#{mine_version.id}']")
 
       assert text_of(view, "[data-testid='admin-audit-filter-actor']") == "Actor: System"
-      assert text_of(view, "[data-testid='admin-audit-count']") == "1 change"
+      assert text_of(view, "[data-testid='admin-audit-count']") == "Showing 1 to 1 of 1."
 
       # The filter rides the past-end bounce in its URL spelling — the
-      # literal System param comes back.
-      expected = path <> "&page=1"
-
-      assert {:error, {:live_redirect, %{to: ^expected}}} = live(conn, path <> "&page=9")
+      # literal System param comes back. One row means one page, and
+      # page 1 is the defaults' page: it drops out of the URL.
+      assert {:error, {:live_redirect, %{to: ^path}}} = live(conn, path <> "&page=9")
     end
 
     test "?source= narrows one record's history", %{conn: conn, admin: admin} do
@@ -287,7 +329,7 @@ defmodule FluxValeWeb.AdminAuditLiveTest do
       [other_version] = versions!(FeatureFlag.Version, untouched.id)
       refute has_element?(view, "[data-testid='admin-audit-row-#{other_version.id}']")
 
-      assert text_of(view, "[data-testid='admin-audit-count']") == "2 changes"
+      assert text_of(view, "[data-testid='admin-audit-count']") == "Showing 1 to 2 of 2."
 
       assert text_of(view, "[data-testid='admin-audit-filter-source']") =~
                String.slice(edited.id, 0, 8)
@@ -371,7 +413,7 @@ defmodule FluxValeWeb.AdminAuditLiveTest do
   end
 
   describe "pagination" do
-    test "25 to a page with the count-aware controls, filters riding the links", %{
+    test "25 to a page with the component's count and pager, filters riding the URLs", %{
       conn: conn,
       admin: admin
     } do
@@ -379,33 +421,37 @@ defmodule FluxValeWeb.AdminAuditLiveTest do
         tag!(admin, "audit-page-#{i}-#{@n}")
       end
 
-      # The actor filter scopes every count and row list below to this
-      # test's own writes (the shared partition DB's committed strays).
-      base =
-        "/admin/audit?" <> URI.encode_query(%{"resource" => "tag", "actor" => admin.username})
-
+      base = scoped_path(admin)
       {:ok, view, _html} = live(conn, base)
 
-      assert text_of(view, "[data-testid='admin-audit-count']") == "26 changes"
+      assert text_of(view, "[data-testid='admin-audit-count']") == "Showing 1 to 25 of 26."
       assert has_element?(view, "[data-testid='admin-audit-pagination']")
-      assert has_element?(view, "[data-testid='admin-audit-page-2']")
+      assert has_element?(view, "[data-testid='admin-audit-page-next']")
+      assert has_element?(view, "[data-testid='admin-audit-page-label']", "Page 1 of 2")
+      assert length(row_ids(view)) == 25
 
-      rows =
-        view
-        |> render()
-        |> LazyHTML.from_fragment()
-        |> LazyHTML.query("[data-testid^='admin-audit-row-']")
-        |> Enum.to_list()
+      # Next: the URL states the page, the filters ride along, and the
+      # short last page shows one row.
+      view
+      |> element("[data-testid='admin-audit-page-next']")
+      |> render_click()
 
-      assert length(rows) == 25
+      assert_patched(view, "/admin/audit?page=2&" <> extras(admin))
+      assert length(row_ids(view)) == 1
+      assert text_of(view, "[data-testid='admin-audit-count']") == "Showing 26 to 26 of 26."
+      assert has_element?(view, "[data-testid='admin-audit-page-label']", "Page 2 of 2")
 
-      # Page 2 carries the last row.
-      {:ok, view2, _html} = live(conn, base <> "&page=2")
-      assert length(rows_on(view2)) == 1
+      # A URL states the view: reloading page 2 lands on page 2.
+      {:ok, reloaded, _html} = live(conn, base <> "&page=2")
+      assert length(row_ids(reloaded)) == 1
 
-      # A non-integer page reads as page one (the engine's grammar).
-      {:ok, view3, _html} = live(conn, base <> "&page=nope")
-      assert length(rows_on(view3)) == 25
+      # A crafted page event is a no-op: neither end is crossed.
+      render_click(reloaded, "page", %{"nav" => "next"})
+      refute_patched(reloaded)
+
+      {:ok, first, _html} = live(conn, base)
+      render_click(first, "page", %{"nav" => "prev"})
+      refute_patched(first)
     end
 
     test "a page past the end bounces to the real last page", %{conn: conn, admin: admin} do
@@ -413,20 +459,23 @@ defmodule FluxValeWeb.AdminAuditLiveTest do
         tag!(admin, "audit-bounce-#{i}-#{@n}")
       end
 
-      # The app's own builder emits resource first (the ordered pairs),
-      # so the expected URL spells the same order.
-      base =
-        "/admin/audit?" <> URI.encode_query([{:resource, "tag"}, {:actor, admin.username}])
-
-      expected = base <> "&page=2"
+      expected = "/admin/audit?page=2&" <> extras(admin)
 
       assert {:error, {:live_redirect, %{to: ^expected}}} =
-               live(conn, base <> "&page=99")
+               live(conn, scoped_path(admin, [{"page", "99"}]))
 
-      # A crafted 19-digit page caps at the bound first (the engine's
-      # parse grammar) — past the end, bounced the same way, no crash.
-      assert {:error, {:live_redirect, %{to: ^expected}}} =
-               live(conn, base <> "&page=9999999999999999999")
+      # A crafted 19-digit page falls back to page one at the param
+      # parser (the component's honest floor above its bound) — no
+      # crash, no deep scan, and no bounce to invent.
+      {:ok, view, _html} =
+        live(conn, scoped_path(admin, [{"page", "9999999999999999999"}]))
+
+      assert has_element?(view, "[data-testid='admin-audit-page-label']", "Page 1 of 2")
+      assert length(row_ids(view)) == 25
+
+      # A non-integer page reads as page one (the same grammar).
+      {:ok, worded, _html} = live(conn, scoped_path(admin, [{"page", "nope"}]))
+      assert has_element?(worded, "[data-testid='admin-audit-page-label']", "Page 1 of 2")
     end
 
     test "crafted param shapes read honestly — page lists as page one, actor and source lists refused",
@@ -441,6 +490,7 @@ defmodule FluxValeWeb.AdminAuditLiveTest do
 
       [version] = versions!(FeatureFlag.Version, flag.id)
       assert has_element?(page_view, "[data-testid='admin-audit-row-#{version.id}']")
+      assert has_element?(page_view, "[data-testid='admin-audit-page-label']", "Page 1 of 1")
 
       # A list actor filters nothing: the full history renders.
       {:ok, actor_view, _html} = live(conn, "/admin/audit?resource=feature_flag&actor%5B%5D=x")
@@ -471,14 +521,160 @@ defmodule FluxValeWeb.AdminAuditLiveTest do
 
       assert to == "/admin/audit?resource=feature_flag&page=1"
       assert flash["error"] == "That history link is malformed."
+
+      # Crafted events are no-ops: an event-shaped map with no field,
+      # nav, or size key never moves the view.
+      render_click(page_view, "sort", %{})
+      render_click(page_view, "page", %{"nav" => "sideways"})
+      render_click(page_view, "page", %{})
+      render_click(page_view, "size", %{})
+      refute_patched(page_view)
+
+      assert has_element?(page_view, "[data-testid='admin-audit-page-label']", "Page 1 of 1")
+    end
+  end
+
+  describe "sorting" do
+    test "the default order is newest first and every sortable header reads none", %{
+      conn: conn,
+      admin: admin
+    } do
+      oldest = tag!(admin, "audit-sort-oldest-#{@n}")
+      middle = tag!(admin, "audit-sort-middle-#{@n}")
+      newest = tag!(admin, "audit-sort-newest-#{@n}")
+
+      [oldest_version] = versions!(Tag.Version, oldest.id)
+      [middle_version] = versions!(Tag.Version, middle.id)
+      [newest_version] = versions!(Tag.Version, newest.id)
+
+      {:ok, view, _html} = live(conn, scoped_path(admin))
+
+      assert row_ids(view) == [newest_version.id, middle_version.id, oldest_version.id]
+
+      for key <- ~w(when type action actor) do
+        assert attribute(view, "admin-audit-header-#{key}", "aria-sort") == "none"
+      end
+
+      # The record and changes columns are not sortable: no aria-sort
+      # and no button to click.
+      assert attribute(view, "admin-audit-header-record", "aria-sort") == ""
+      assert attribute(view, "admin-audit-header-changes", "aria-sort") == ""
+      refute has_element?(view, "[data-testid='admin-audit-sort-record']")
+      refute has_element?(view, "[data-testid='admin-audit-sort-changes']")
     end
 
-    defp rows_on(view) do
+    test "clicking When sorts ascending then descending, the filters riding the URL", %{
+      conn: conn,
+      admin: admin
+    } do
+      oldest = tag!(admin, "audit-sort-asc-oldest-#{@n}")
+      middle = tag!(admin, "audit-sort-asc-middle-#{@n}")
+      newest = tag!(admin, "audit-sort-asc-newest-#{@n}")
+
+      [oldest_version] = versions!(Tag.Version, oldest.id)
+      [middle_version] = versions!(Tag.Version, middle.id)
+      [newest_version] = versions!(Tag.Version, newest.id)
+
+      {:ok, view, _html} = live(conn, scoped_path(admin))
+
       view
-      |> render()
-      |> LazyHTML.from_fragment()
-      |> LazyHTML.query("[data-testid^='admin-audit-row-']")
-      |> Enum.to_list()
+      |> element("[data-testid='admin-audit-sort-version_inserted_at']")
+      |> render_click()
+
+      assert_patched(view, "/admin/audit?sort=version_inserted_at&dir=asc&" <> extras(admin))
+      assert attribute(view, "admin-audit-header-when", "aria-sort") == "ascending"
+      assert row_ids(view) == [oldest_version.id, middle_version.id, newest_version.id]
+
+      assert has_element?(
+               view,
+               "[data-testid='admin-audit-announcement']",
+               "Sorted by When, ascending"
+             )
+
+      view
+      |> element("[data-testid='admin-audit-sort-version_inserted_at']")
+      |> render_click()
+
+      assert_patched(view, "/admin/audit?sort=version_inserted_at&dir=desc&" <> extras(admin))
+      assert attribute(view, "admin-audit-header-when", "aria-sort") == "descending"
+      assert row_ids(view) == [newest_version.id, middle_version.id, oldest_version.id]
+    end
+
+    test "a sort survives the next page and the filters ride both", %{conn: conn, admin: admin} do
+      for i <- 1..26 do
+        tag!(admin, "audit-sort-page-#{i}-#{@n}")
+      end
+
+      {:ok, view, _html} = live(conn, scoped_path(admin))
+
+      view
+      |> element("[data-testid='admin-audit-sort-version_inserted_at']")
+      |> render_click()
+
+      assert_patched(view, "/admin/audit?sort=version_inserted_at&dir=asc&" <> extras(admin))
+
+      view
+      |> element("[data-testid='admin-audit-page-next']")
+      |> render_click()
+
+      assert_patched(
+        view,
+        "/admin/audit?sort=version_inserted_at&dir=asc&page=2&" <> extras(admin)
+      )
+
+      assert has_element?(view, "[data-testid='admin-audit-page-label']", "Page 2 of 2")
+      assert attribute(view, "admin-audit-header-when", "aria-sort") == "ascending"
+      assert length(row_ids(view)) == 1
+    end
+
+    test "crafted sort params and events leave the default order", %{conn: conn, admin: admin} do
+      oldest = tag!(admin, "audit-crafted-oldest-#{@n}")
+      newest = tag!(admin, "audit-crafted-newest-#{@n}")
+
+      [oldest_version] = versions!(Tag.Version, oldest.id)
+      [newest_version] = versions!(Tag.Version, newest.id)
+
+      {:ok, view, _html} =
+        live(conn, scoped_path(admin, [{"sort", "nope"}, {"dir", "sideways"}]))
+
+      assert attribute(view, "admin-audit-header-when", "aria-sort") == "none"
+      assert row_ids(view) == [newest_version.id, oldest_version.id]
+
+      # A crafted field leaves the sort as it was: a true no-op.
+      render_click(view, "sort", %{"field" => "nope"})
+      refute_patched(view)
+
+      assert row_ids(view) == [newest_version.id, oldest_version.id]
+    end
+  end
+
+  describe "the size switch" do
+    test "50 folds two pages into one, resets the page, and rides the URL", %{
+      conn: conn,
+      admin: admin
+    } do
+      for i <- 1..26 do
+        tag!(admin, "audit-size-#{i}-#{@n}")
+      end
+
+      {:ok, view, _html} = live(conn, scoped_path(admin, [{"page", "2"}]))
+
+      assert has_element?(view, "[data-testid='admin-audit-page-label']", "Page 2 of 2")
+
+      view
+      |> element("[data-testid='admin-audit-size-50']")
+      |> render_click()
+
+      assert_patched(view, "/admin/audit?size=50&" <> extras(admin))
+      assert text_of(view, "[data-testid='admin-audit-count']") == "Showing 1 to 26 of 26."
+      assert has_element?(view, "[data-testid='admin-audit-page-label']", "Page 1 of 1")
+      assert has_element?(view, "[data-testid='admin-audit-size-50'][aria-pressed='true']")
+
+      # A URL states the view: reloading the size lands on one page.
+      {:ok, reloaded, _html} = live(conn, scoped_path(admin, [{"size", "50"}]))
+
+      assert has_element?(reloaded, "[data-testid='admin-audit-page-label']", "Page 1 of 1")
+      assert length(row_ids(reloaded)) == 26
     end
   end
 
@@ -504,7 +700,12 @@ defmodule FluxValeWeb.AdminAuditLiveTest do
       entry = Enum.find(AdminAudit.entries(), &(&1.key == :feature_flag))
 
       assert_raise Ash.Error.Forbidden, fn ->
-        Audit.read_page(entry, %{actor: nil, source: nil}, 1, member)
+        Audit.read_page(
+          entry,
+          %{actor: nil, source: nil},
+          %{sort: nil, page: 1, size: 25},
+          member
+        )
       end
     end
 
@@ -512,7 +713,13 @@ defmodule FluxValeWeb.AdminAuditLiveTest do
       admin = AccountsFixtures.admin!()
       entry = Enum.find(AdminAudit.entries(), &(&1.key == :feature_flag))
 
-      assert %Ash.Page.Offset{} = Audit.read_page(entry, %{actor: nil, source: nil}, 1, admin)
+      assert %Ash.Page.Offset{} =
+               Audit.read_page(
+                 entry,
+                 %{actor: nil, source: nil},
+                 %{sort: nil, page: 1, size: 25},
+                 admin
+               )
     end
   end
 
@@ -543,7 +750,7 @@ defmodule FluxValeWeb.AdminAuditLiveTest do
         assert has_element?(view, "[data-testid='admin-audit-row-#{version.id}']")
       end
 
-      assert text_of(view, "[data-testid='admin-audit-count']") == "2 changes"
+      assert text_of(view, "[data-testid='admin-audit-count']") == "Showing 1 to 2 of 2."
     end
   end
 end
