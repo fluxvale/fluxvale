@@ -205,12 +205,17 @@ revision, same convergence.
 `0/1`, `updated=1 ready=1`, pending-RS pod running = the Nov-13 env
 revision live, FailedCreate count frozen) attached to #820 by the PA.
 
-**S1 result (2026-11-16 10:05–10:2xZ)**: the strategy-only SSA was
-applied live; it freed the quota (old pod reaped at 10:05:04Z) but the
-wedged ReplicaSet's accumulated create-backoff (~16 min between
-retries) delayed the replacement pod to the ~10:20Z organic retry —
-the finding that made the automated repair restart-shaped (D1).
-Transcript below, appended as executed.
+**S1 result (2026-11-16 10:05–10:22Z, executed)**: strategy-only SSA
+freed the quota (old pod reaped 10:05:04Z) but the wedged ReplicaSet's
+~16-min create-backoff delayed the replacement pod to the 10:20:09Z
+organic retry — the finding that made the automated repair
+restart-shaped (D1). The current staging code then finished unaided:
+`updated=1 ready=1` at 10:20:20Z, promote at 10:21:01Z (env
+re-projection + the expected second roll, its 6-event maxSurge-0
+handoff burst at 10:21:01Z, then silence), row `:running`, app
+serving 200, FailedCreate frozen, reconcile back to the healthy 5/min
+mirror cadence. Full transcript: `/tmp/opencode/820-s1-transcript.md`
+(PA attaches to #820).
 
 ## Slice 2 — client `strategy_diverges?/3` (worker)
 
