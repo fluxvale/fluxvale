@@ -36,9 +36,8 @@ defmodule FluxValeWeb.Plugs.FixedWindow do
     request counts again. Config is read and validated OUTSIDE that
     arm — a malformed limit raises at the boundary, not mid-request.
 
-  Not a Plug. `OAuthRateLimit` is the source today;
-  `GoogleRateLimit` joins it in S4 (#510) — their controllers keep
-  their own refusal shapes.
+  Not a Plug. `GoogleRateLimit` and `OAuthRateLimit` are the sources;
+  their controllers keep their own refusal shapes.
   """
 
   use GenServer
