@@ -130,7 +130,14 @@ defmodule FluxValeWeb.Plugs.OAuthRateLimit do
   defp throttle_sweep do
     now = System.system_time(:second)
     cutoff = now - max_window_seconds()
-    claim = [{{@sweep_key, :"$1"}, [{:<, :"$1", cutoff}], [{{@sweep_key, now}}]}]
+
+    # The replacement row must go through {:const, Row}: the bare tuple
+    # claim key inside `{{@sweep_key, now}}` is a literal in a match-spec
+    # body, which ETS rejects ("not a valid match specification") — and
+    # bump/2's rescue would silently turn every over-cap request into an
+    # uncounted allow. The guard below only replaces a STALE stamp, so a
+    # fresh claim leaves it alone.
+    claim = [{{@sweep_key, :"$1"}, [{:<, :"$1", cutoff}], [{:const, {@sweep_key, now}}]}]
 
     if :ets.insert_new(@table, {@sweep_key, now}) or :ets.select_replace(@table, claim) == 1 do
       sweep_expired()
