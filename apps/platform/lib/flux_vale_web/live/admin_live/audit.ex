@@ -43,9 +43,10 @@ defmodule FluxValeWeb.AdminLive.Audit do
   guessed.
 
   The bespoke numbered pagination retired with the adoption;
-  `AdminResource.page_window/2` and `total_pages/2` stay for the
-  resources console (their one remaining caller) — removing them is
-  deferred to S4.
+  `AdminResource.page_window/2` and `total_pages/2` are left untouched
+  here — #803 already took the resources console's calls, so this PR
+  leaves them defined but uncalled and their removal is S4's remaining
+  piece (one concern per PR).
   """
 
   use FluxValeWeb, :live_view
