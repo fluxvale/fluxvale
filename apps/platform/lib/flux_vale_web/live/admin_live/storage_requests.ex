@@ -1,10 +1,18 @@
 defmodule FluxValeWeb.AdminLive.StorageRequests do
   @moduledoc """
   The operator storage-request queue (#250, ADR-0046 D5/D6): requests
-  above the self-service boundary, newest first, filtered by status and
-  searched over the request's own fields. The section is a purpose-built
-  workflow in the console's Sections (not a generic resource leaf): a
-  decision (durable approve/reject) and its retryable mechanical apply.
+  above the self-service boundary, filtered by status and searched over
+  the request's own fields. The section is a purpose-built workflow in
+  the console's Sections (not a generic resource leaf): a decision
+  (durable approve/reject) and its retryable mechanical apply.
+
+  The queue's view rides query params (#501): the status chips
+  (`?status=`), the search (`?q=`), the created-at order
+  (`?sort=`/`?dir=`), the page size (`?size=`), and the keyset cursors
+  (`?after=`/`?before=`) — a URL states the view, so it is shareable and
+  reloading lands on it. Pagination is keyset over the queue read's own
+  keyset pagination (real next/prev cursors, page sizes 25/50/100); the
+  old 100-row cap and its copy are gone.
 
   Every read rides `StorageRequest :queue` with the platform-admin actor
   and `authorize?: true`. The instance's decision context (status,
@@ -19,6 +27,9 @@ defmodule FluxValeWeb.AdminLive.StorageRequests do
   every admin LiveView inherits (#644's console slice, ADR-0047 D4):
   each event re-resolves the actor from the session and refuses a
   demoted one, so the write handlers below act on the FRESH struct.
+  A client patch calls handle_params past those hooks, so the
+  params-driven read re-resolves too — a demoted session gets the
+  gate's refusal copy, never a queue read.
   The same hook subscribes this process to `storage_requests:queue`,
   so the sidebar badge stays current on every admin page; this surface
   re-reads/re-streams its rows on the same create, decision, and apply
@@ -27,7 +38,9 @@ defmodule FluxValeWeb.AdminLive.StorageRequests do
 
   use FluxValeWeb, :live_view
 
+  alias FluxVale.Checks.ActorIsPlatformAdmin
   alias FluxVale.Checks.ActorOrgWalletFunded
+  alias FluxVale.Identity.User
   alias FluxVale.Infrastructure
   alias FluxVale.Infrastructure.Instance
   alias FluxVale.Infrastructure.Instance.StorageGrowthGuard
@@ -37,74 +50,170 @@ defmodule FluxValeWeb.AdminLive.StorageRequests do
   alias FluxVale.Pricing
   alias FluxValeWeb.AdminComponents
   alias FluxValeWeb.AdminShell
+  alias FluxValeWeb.Components.AdminDataTable
   alias FluxValeWeb.FeedbackHTML
   alias FluxValeWeb.InstanceStatus
+  alias FluxValeWeb.UserAuth
 
   require Ash.Query
 
   @statuses [:requested, :approved, :applied, :rejected]
 
+  # The table's contract (#501): KEYSET mode (the queue read paginates
+  # keyset already). Created-at is the row's one printed clock, so it is
+  # the one sortable column; the cursor binds the sort it was minted
+  # under, so a sort change drops the cursors and restarts at page one.
+  @sortable [:created_at]
+  @sizes AdminDataTable.default_sizes()
+
   @impl Phoenix.LiveView
   def mount(_params, _session, socket) do
     # The chrome assigns (current_user, pending_storage_requests) ride
-    # the AdminChrome on_mount; this mount adds the page's own state.
-    socket =
-      assign(socket,
-        query: "",
-        status: :requested,
-        statuses: @statuses,
-        expanded_id: nil,
-        detail: nil,
-        reject_form: nil,
-        search_form: to_form(%{"query" => ""}, as: :search)
-      )
+    # the AdminChrome on_mount; this mount adds the page's own
+    # non-table state. The queue's view state is handle_params'
+    # business (the URL is the source of truth).
+    {:ok,
+     assign(socket,
+       statuses: @statuses,
+       expanded_id: nil,
+       detail: nil,
+       reject_form: nil
+     )}
+  end
 
-    {:ok, refresh_rows(socket)}
+  # The queue's view state rides the params — and a client patch calls
+  # handle_params DIRECTLY, past the AdminDemotionGate's event/info
+  # hooks. So the params-driven read re-resolves the actor from the
+  # session with the gate's own grammar: a fresh platform admin
+  # proceeds (refresh_rows reads the FRESH struct), a demoted or
+  # unresolvable session gets the gate's byte-for-byte refusal copy
+  # and no read.
+  @impl Phoenix.LiveView
+  def handle_params(params, _uri, socket) do
+    case UserAuth.resolve_user(socket.assigns.admin_session) do
+      %User{} = actor ->
+        if ActorIsPlatformAdmin.platform_admin?(actor) do
+          {:noreply, params_view(socket, actor, params)}
+        else
+          {:noreply, demoted(socket)}
+        end
+
+      # The gate's own reasoning: a session that no longer resolves
+      # (revoked token) gets the demoted actor's refusal.
+      _not_signed_in ->
+        {:noreply, demoted(socket)}
+    end
+  end
+
+  # The queue's view state: status, search, sort, page size, and the
+  # keyset cursors ride query params, parsed with garbage-proof
+  # fallbacks. The default view is status=requested with no search.
+  defp params_view(socket, actor, params) do
+    state =
+      params
+      |> AdminDataTable.parse_params(sortable: @sortable)
+      |> Map.merge(%{showing: 0, next_cursor: nil, prev_cursor: nil})
+
+    socket
+    |> assign(
+      current_user: actor,
+      table: state,
+      status: parse_status_param(params["status"]),
+      search_form: to_form(%{"query" => state.query}, as: :search)
+    )
+    |> refresh_rows()
+  end
+
+  # The AdminDemotionGate's refusal copy, byte-for-byte (one msgid for
+  # the whole console).
+  defp demoted(socket) do
+    put_flash(socket, :error, gettext("Your admin access ended. Sign out and sign back in."))
   end
 
   # -- events ---------------------------------------------------------------
 
+  # The search term rides the URL (?q=), trimmed and capped; the cursors
+  # drop because the window moved. A crafted non-binary query is a
+  # no-op, not a crash.
   @impl Phoenix.LiveView
   def handle_event("search", %{"search" => %{"query" => query}}, socket)
       when is_binary(query) do
-    trimmed = String.trim(query)
+    state = %{
+      socket.assigns.table
+      | query: AdminDataTable.cap_query(query),
+        after: nil,
+        before: nil
+    }
 
-    {:noreply,
-     socket
-     |> assign(
-       query: trimmed,
-       search_form: to_form(%{"query" => trimmed}, as: :search),
-       expanded_id: nil,
-       detail: nil,
-       reject_form: nil
-     )
-     |> refresh_rows()}
+    push_view(close_expansion(socket), state, status_param(socket.assigns.status))
   end
 
-  # A crafted non-string query is a no-op, not a crash.
   def handle_event("search", _params, socket), do: {:noreply, socket}
 
-  # All: the chip clears the status filter. Known statuses narrow to it;
-  # anything else (a crafted value) leaves the filter alone.
-  def handle_event("filter-status", %{"status" => ""}, socket) do
-    {:noreply,
-     socket
-     |> assign(status: nil, expanded_id: nil, detail: nil, reject_form: nil)
-     |> refresh_rows()}
-  end
-
-  def handle_event("filter-status", %{"status" => raw}, socket) do
-    case parse_status(raw) do
-      nil ->
+  # All and the status chips: absent is the default Requested view, All
+  # is ?status=all, a known status is its own name. Empty and "all"
+  # clear the filter; a crafted value leaves the filter alone.
+  def handle_event("filter-status", %{"status" => raw}, socket) when is_binary(raw) do
+    case status_filter(raw) do
+      :crafted ->
         {:noreply, socket}
 
       status ->
-        {:noreply,
-         socket
-         |> assign(status: status, expanded_id: nil, detail: nil, reject_form: nil)
-         |> refresh_rows()}
+        state = %{socket.assigns.table | after: nil, before: nil}
+
+        push_view(close_expansion(socket), state, status_param(status))
     end
   end
+
+  def handle_event("filter-status", _params, socket), do: {:noreply, socket}
+
+  # The created-at header's click-to-toggle. The cursors AND the page
+  # drop: a cursor is only valid under the sort it was minted for, and
+  # the keyset has no page to preserve. A crafted field leaves the view
+  # as it was.
+  def handle_event("sort", %{"field" => raw_field}, socket) do
+    sort = AdminDataTable.toggle_sort(socket.assigns.table.sort, raw_field, @sortable)
+
+    if sort == socket.assigns.table.sort do
+      {:noreply, socket}
+    else
+      state = %{socket.assigns.table | sort: sort, page: 1, after: nil, before: nil}
+
+      push_view(close_expansion(socket), state, status_param(socket.assigns.status))
+    end
+  end
+
+  def handle_event("sort", _params, socket), do: {:noreply, socket}
+
+  # The pager: real keyset cursors, one direction at a time. A nil
+  # cursor (a crafted frame, or the disabled button's stale click) is a
+  # no-op.
+  def handle_event("page", %{"nav" => "next"}, socket) do
+    push_cursor(socket, socket.assigns.table.next_cursor, :forward)
+  end
+
+  def handle_event("page", %{"nav" => "prev"}, socket) do
+    push_cursor(socket, socket.assigns.table.prev_cursor, :backward)
+  end
+
+  def handle_event("page", _params, socket), do: {:noreply, socket}
+
+  # The page-size set: the allowed sizes only; a non-binary frame is a
+  # no-op and a garbage value falls back to the default (25). The
+  # cursors drop with the window size.
+  def handle_event("size", %{"size" => raw}, socket) when is_binary(raw) do
+    state = %{
+      socket.assigns.table
+      | size: AdminDataTable.parse_size(raw),
+        page: 1,
+        after: nil,
+        before: nil
+    }
+
+    push_view(close_expansion(socket), state, status_param(socket.assigns.status))
+  end
+
+  def handle_event("size", _params, socket), do: {:noreply, socket}
 
   # The expansion toggle. The open re-reads the request and its decision
   # context fresh; a row deleted between the list render and the click
@@ -151,6 +260,35 @@ defmodule FluxValeWeb.AdminLive.StorageRequests do
   def handle_event("retry", %{"id" => id}, socket) do
     attempt_retry(socket, socket.assigns.current_user, id)
   end
+
+  # Every table event is a patch: the URL states the view, and
+  # handle_params owns the re-query. replace keeps the browser history
+  # clean — a table view is a state, not a navigation.
+  defp push_view(socket, state, status) do
+    {:noreply,
+     push_patch(socket,
+       to: AdminDataTable.url_for(~p"/admin/storage-requests", state, [{"status", status}]),
+       replace: true
+     )}
+  end
+
+  # The pager's two directions, one cursor at a time; the expansion
+  # closes because the window moved.
+  defp push_cursor(socket, cursor, :forward) when is_binary(cursor) do
+    state = %{socket.assigns.table | after: cursor, before: nil}
+
+    push_view(close_expansion(socket), state, status_param(socket.assigns.status))
+  end
+
+  defp push_cursor(socket, cursor, :backward) when is_binary(cursor) do
+    state = %{socket.assigns.table | before: cursor, after: nil}
+
+    push_view(close_expansion(socket), state, status_param(socket.assigns.status))
+  end
+
+  # A nil cursor: crafted, or the disabled button's stale click. The
+  # honest answer is the same view.
+  defp push_cursor(socket, _nil_cursor, _direction), do: {:noreply, socket}
 
   # -- notifications --------------------------------------------------------
 
@@ -236,23 +374,33 @@ defmodule FluxValeWeb.AdminLive.StorageRequests do
 
   # -- reads ----------------------------------------------------------------
 
-  # The queue read owns the filter, the search, the newest-first sort, and
-  # the 100-row cap (the moderation/people list ruling). One page plus its
-  # countable count; `more?` answers the overflow copy without a second
-  # query.
+  # One keyset window under the current view: the queue read owns the
+  # filter, the search, the order, and the keyset pagination. The
+  # component's meta reads the page's own cursors; `showing` is this
+  # page's row count (keyset mode has no totals).
   defp refresh_rows(socket) do
     admin = socket.assigns.current_user
-    args = queue_args(socket.assigns.status, socket.assigns.query)
+    state = socket.assigns.table
+    args = queue_args(socket.assigns.status, state.query, order_arg(state.sort))
 
-    case StorageRequest.queue(args, actor: admin) do
+    {result, final_state} = read_queue(admin, state, args)
+
+    case result do
       {:ok, page} ->
+        links = AdminDataTable.keyset_links(page)
+
         socket
         |> assign(
+          table:
+            Map.merge(final_state, %{
+              showing: length(page.results),
+              next_cursor: links.next,
+              prev_cursor: links.prev
+            }),
           instances: instance_map(page.results),
           orgs: org_map(admin, page.results),
           requesters: requester_map(admin, page.results),
-          rows_empty?: page.results == [],
-          rows_more?: page.more?
+          rows_empty?: page.results == []
         )
         |> stream(:requests, page.results, reset: true)
 
@@ -262,15 +410,63 @@ defmodule FluxValeWeb.AdminLive.StorageRequests do
         socket
         |> put_flash(:error, gettext("The queue did not load. Try again."))
         |> stream(:requests, [], reset: true)
-        |> assign(rows_empty?: true, rows_more?: false)
+        |> assign(rows_empty?: true)
 
         # coveralls-ignore-stop
     end
   end
 
-  defp queue_args(status, ""), do: %{status: status}
+  # A crafted or stale cursor is not a crash: Ash answers the error and
+  # the honest page under the current filters is the first one, once
+  # (the wallet ledger's posture). A DB-down read lands here too, and
+  # the second failure is the flash above. The same posture covers a
+  # VALID cursor whose window a delete has emptied: an empty page on a
+  # cursor-carried state retries once at page one, so a still-populated
+  # queue never strands the operator on an empty-looking view.
+  defp read_queue(admin, state, args) do
+    case queue_page(admin, state, args) do
+      {:ok, %{results: []}} when state.after != nil or state.before != nil ->
+        clean = %{state | after: nil, before: nil}
 
-  defp queue_args(status, query), do: %{status: status, search: query}
+        {queue_page(admin, clean, args), clean}
+
+      {:ok, page} ->
+        {{:ok, page}, state}
+
+      {:error, _cursor_or_db} ->
+        clean = %{state | after: nil, before: nil}
+
+        {queue_page(admin, clean, args), clean}
+    end
+  end
+
+  defp queue_page(admin, state, args) do
+    StorageRequest.queue(args,
+      actor: admin,
+      page: [limit: state.size] ++ cursor_opts(state)
+    )
+  end
+
+  # One direction at a time: a crafted URL carrying both cursors is not
+  # a keyset window.
+  defp cursor_opts(state) do
+    cond do
+      state.after != nil and state.before == nil -> [after: state.after]
+      state.before != nil and state.after == nil -> [before: state.before]
+      true -> []
+    end
+  end
+
+  # The search term rides only when present; the read's own cast turns
+  # a blank term into nil, so "" needs no special case.
+  defp queue_args(status, "", order), do: %{status: status, order: order}
+  defp queue_args(status, query, order), do: %{status: status, search: query, order: order}
+
+  # The created-at column's order maps onto the read's order argument;
+  # the default (nil) is the read's newest-first order.
+  defp order_arg({:created_at, :asc}), do: :oldest
+  defp order_arg({:created_at, :desc}), do: :newest
+  defp order_arg(_newest_default), do: nil
 
   # The decision context: a scoped system read AFTER the admin gate
   # (the request's own read policy already admitted the operator). Only
@@ -521,11 +717,76 @@ defmodule FluxValeWeb.AdminLive.StorageRequests do
 
   # -- display helpers ------------------------------------------------------
 
-  defp parse_status(raw) when is_binary(raw) do
+  # ?status= absent is the default view (:requested); "all" clears the
+  # filter; a known status narrows to it; anything else falls back to
+  # the default view — the honest answer, never a crash. Query params
+  # are binaries or absent, so no other shape exists.
+  defp parse_status_param(nil), do: :requested
+  defp parse_status_param("all"), do: nil
+  defp parse_status_param(raw), do: parse_status(raw) || :requested
+
+  # The chips' event values: "" and "all" mean the All chip; a known
+  # status narrows; anything else is crafted and leaves the filter
+  # alone.
+  defp status_filter(""), do: nil
+  defp status_filter("all"), do: nil
+
+  defp status_filter(raw) when is_binary(raw) do
+    parse_status(raw) || :crafted
+  end
+
+  # The URL's spelling of a parsed status: the default view is the bare
+  # path, All is "all", the rest are their names.
+  defp status_param(:requested), do: nil
+  defp status_param(nil), do: "all"
+  defp status_param(status), do: Atom.to_string(status)
+
+  # The known statuses only; both call sites guard is_binary, so a
+  # crafted non-binary never reaches here and an unknown name answers
+  # nil (the caller's fallback owns the honest default).
+  defp parse_status(raw) do
     Enum.find(@statuses, fn status -> Atom.to_string(status) == raw end)
   end
 
-  defp parse_status(_other), do: nil
+  # The queue table's column declarations, built per render so the
+  # labels ride the live locale. Tracks and floors are the shared
+  # component's data; the requested stamp is the row's one sortable
+  # clock (the created-at column's honest home).
+  defp columns do
+    [
+      %{key: :request, label: gettext("Request"), track: "minmax(0,1fr)", floor_rem: 10},
+      %{key: :storage, label: gettext("Storage"), track: "7rem"},
+      %{key: :requester, label: gettext("Requester"), track: "minmax(7rem,1fr)", floor_rem: 7},
+      %{key: :rate, label: gettext("Rate"), track: "5rem"},
+      %{key: :status, label: gettext("Status"), track: "6rem"},
+      %{key: :requested, label: gettext("Requested"), track: "6rem", sort: :created_at},
+      %{
+        key: :actions,
+        label: gettext("Actions"),
+        track: "4.5rem",
+        align: :right,
+        sr_only: true
+      }
+    ]
+  end
+
+  # The view state the component renders: the parsed params plus the
+  # current page's cursors and row count, and the surface's event names.
+  defp table_meta(state) do
+    %{
+      query: state.query,
+      page: 1,
+      size: state.size,
+      sort: state.sort,
+      showing: state.showing,
+      next_cursor: state.next_cursor,
+      prev_cursor: state.prev_cursor,
+      sizes: @sizes,
+      sort_event: "sort",
+      page_event: "page",
+      size_event: "size"
+    }
+  end
 
   defp org_label(orgs, organization_id) do
     case Map.fetch(orgs, organization_id) do
@@ -728,24 +989,13 @@ defmodule FluxValeWeb.AdminLive.StorageRequests do
               </div>
 
               <div class="space-y-4" data-testid="admin-storage-requests-list">
-                <%!-- The cap is the queue read's page size (100); the copy
-                is kept literal (a module attribute reads as assigns in
-                HEEx). Move the two together. --%>
-                <p
-                  :if={@rows_more?}
-                  class="text-sm text-ink-muted"
-                  data-testid="admin-storage-requests-more"
-                >
-                  {gettext("Showing the latest 100 requests.")}
-                </p>
-
                 <div
                   :if={@rows_empty?}
                   class="rounded-panel border border-line bg-panel px-6 py-8"
                   data-testid="admin-storage-requests-empty"
                 >
                   <.empty_state
-                    :if={@query == "" and @status == :requested}
+                    :if={@table.query == "" and @status == :requested}
                     title={gettext("No requests waiting.")}
                     class="border-none bg-transparent"
                   >
@@ -753,106 +1003,112 @@ defmodule FluxValeWeb.AdminLive.StorageRequests do
                   </.empty_state>
 
                   <.empty_state
-                    :if={@query != "" or @status != :requested}
+                    :if={@table.query != "" or @status != :requested}
                     title={gettext("No request matches that search or filter.")}
                     class="border-none bg-transparent"
                   />
                 </div>
 
+                <%!-- The queue data table (#501): the shared component owns
+                the chrome, the tracks, the floor, the created-at header,
+                and the keyset pager. The expansion slot carries the
+                failed apply's band and the request's whole decision
+                detail. --%>
                 <div :if={not @rows_empty?} class="rounded-panel border border-line bg-panel text-ink">
-                  <div class={[
-                    "grid-cols-[minmax(0,1fr)_7rem_7rem_5rem_6rem_4.5rem]",
-                    AdminComponents.admin_table_header_class()
-                  ]}>
-                    <div>{gettext("Request")}</div>
-                    <div>{gettext("Storage")}</div>
-                    <div>{gettext("Requester")}</div>
-                    <div>{gettext("Rate")}</div>
-                    <div>{gettext("Status")}</div>
-                    <div class="sr-only">{gettext("Actions")}</div>
-                  </div>
+                  <AdminDataTable.data_table
+                    id="admin-storage-requests"
+                    items={@streams.requests}
+                    columns={columns()}
+                    meta={table_meta(@table)}
+                  >
+                    <:cell :let={request} col={:request}>
+                      <p
+                        class="text-sm font-medium text-ink [overflow-wrap:anywhere]"
+                        data-testid={"admin-storage-requests-instance-#{request.id}"}
+                      >
+                        {instance_label(@instances, request.instance_id)}
+                      </p>
+                      <p
+                        class="mt-0.5 truncate text-xs text-ink-muted"
+                        data-testid={"admin-storage-requests-org-#{request.id}"}
+                      >
+                        {org_label(@orgs, request.organization_id)}
+                      </p>
+                      <p
+                        class="mt-1 text-xs text-ink-muted [overflow-wrap:anywhere]"
+                        data-testid={"admin-storage-requests-reason-#{request.id}"}
+                      >
+                        {request.reason}
+                      </p>
+                    </:cell>
 
-                  <div id="admin-storage-requests-rows" phx-update="stream">
-                    <div
-                      :for={{dom_id, request} <- @streams.requests}
-                      id={dom_id}
-                      class="border-b border-line last:border-0"
-                    >
-                      <div class={[
-                        "grid-cols-[minmax(0,1fr)_7rem_7rem_5rem_6rem_4.5rem]",
-                        AdminComponents.admin_table_row_class()
-                      ]}>
-                        <div class="min-w-0">
-                          <p
-                            class="text-sm font-medium text-ink [overflow-wrap:anywhere]"
-                            data-testid={"admin-storage-requests-instance-#{request.id}"}
-                          >
-                            {instance_label(@instances, request.instance_id)}
-                          </p>
-                          <p
-                            class="mt-0.5 truncate text-xs text-ink-muted"
-                            data-testid={"admin-storage-requests-org-#{request.id}"}
-                          >
-                            {org_label(@orgs, request.organization_id)}
-                          </p>
-                          <p
-                            class="mt-1 text-xs text-ink-muted [overflow-wrap:anywhere]"
-                            data-testid={"admin-storage-requests-reason-#{request.id}"}
-                          >
-                            {request.reason}
-                          </p>
-                        </div>
-                        <div class="text-sm">
-                          <span data-testid={"admin-storage-requests-storage-#{request.id}"}>
-                            {request.current_storage_gb} → {request.requested_gb} GB
-                          </span>
-                          <p class="mt-0.5 text-xs text-ink-muted">
-                            +{request.requested_gb - request.current_storage_gb} GB
-                          </p>
-                        </div>
-                        <div class="min-w-0">
-                          <p
-                            class="truncate text-sm text-ink"
-                            data-testid={"admin-storage-requests-requester-#{request.id}"}
-                          >
-                            {requester_label(@requesters, request.requested_by_user_id)}
-                          </p>
-                          <p class="mt-0.5 text-xs text-ink-muted">
-                            {FeedbackHTML.time_ago(request.created_at)}
-                          </p>
-                        </div>
-                        <div class="text-sm">
-                          <span data-testid={"admin-storage-requests-rate-#{request.id}"}>
-                            {rate_text(request.quoted_monthly_cents)}
-                          </span>
-                        </div>
-                        <div>
-                          <span data-testid={"admin-storage-requests-status-#{request.id}"}>
-                            <.badge tone={status_tone(request.status)} class="px-1.5! text-[11px]!">
-                              {status_label(request.status)}
-                            </.badge>
-                          </span>
-                        </div>
-                        <div>
-                          <div class="flex items-center justify-end">
-                            <.button
-                              size="sm"
-                              variant="secondary"
-                              phx-click="open-request"
-                              phx-value-id={request.id}
-                              phx-disable-with={gettext("Opening...")}
-                              data-testid={"admin-storage-requests-expand-#{request.id}"}
-                            >
-                              <%= if @expanded_id == request.id do %>
-                                {gettext("Close")}
-                              <% else %>
-                                {gettext("Expand")}
-                              <% end %>
-                            </.button>
-                          </div>
-                        </div>
+                    <:cell :let={request} col={:storage}>
+                      <span
+                        class="text-sm"
+                        data-testid={"admin-storage-requests-storage-#{request.id}"}
+                      >
+                        {request.current_storage_gb} → {request.requested_gb} GB
+                      </span>
+                      <p class="mt-0.5 text-xs text-ink-muted">
+                        +{request.requested_gb - request.current_storage_gb} GB
+                      </p>
+                    </:cell>
+
+                    <:cell :let={request} col={:requester}>
+                      <p
+                        class="truncate text-sm text-ink"
+                        data-testid={"admin-storage-requests-requester-#{request.id}"}
+                      >
+                        {requester_label(@requesters, request.requested_by_user_id)}
+                      </p>
+                    </:cell>
+
+                    <:cell :let={request} col={:rate}>
+                      <span
+                        class="text-sm"
+                        data-testid={"admin-storage-requests-rate-#{request.id}"}
+                      >
+                        {rate_text(request.quoted_monthly_cents)}
+                      </span>
+                    </:cell>
+
+                    <:cell :let={request} col={:status}>
+                      <span data-testid={"admin-storage-requests-status-#{request.id}"}>
+                        <.badge tone={status_tone(request.status)} class="px-1.5! text-[11px]!">
+                          {status_label(request.status)}
+                        </.badge>
+                      </span>
+                    </:cell>
+
+                    <:cell :let={request} col={:requested}>
+                      <span
+                        class="whitespace-nowrap text-xs text-ink-muted"
+                        data-testid={"admin-storage-requests-requested-#{request.id}"}
+                      >
+                        {FeedbackHTML.time_ago(request.created_at)}
+                      </span>
+                    </:cell>
+
+                    <:cell :let={request} col={:actions}>
+                      <div class="flex items-center justify-end">
+                        <.button
+                          size="sm"
+                          variant="secondary"
+                          phx-click="open-request"
+                          phx-value-id={request.id}
+                          phx-disable-with={gettext("Opening...")}
+                          data-testid={"admin-storage-requests-expand-#{request.id}"}
+                        >
+                          <%= if @expanded_id == request.id do %>
+                            {gettext("Close")}
+                          <% else %>
+                            {gettext("Expand")}
+                          <% end %>
+                        </.button>
                       </div>
+                    </:cell>
 
+                    <:expansion :let={request}>
                       <%!-- The failed apply's honest detail rides the row:
                       the decision is durable, the mechanical step is not. --%>
                       <div
@@ -879,8 +1135,8 @@ defmodule FluxValeWeb.AdminLive.StorageRequests do
                           reject_form={@reject_form}
                         />
                       </div>
-                    </div>
-                  </div>
+                    </:expansion>
+                  </AdminDataTable.data_table>
                 </div>
               </div>
             </div>

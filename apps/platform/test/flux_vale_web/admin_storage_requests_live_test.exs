@@ -1,7 +1,8 @@
 defmodule FluxValeWeb.AdminStorageRequestsLiveTest do
   @moduledoc """
   The operator storage-request queue (#250, ADR-0046 D5/D6): the live
-  list, the status/search filters and the cap, the approval's online grow,
+  list, the URL-driven status/search filters, the keyset pagination
+  (cursors, sizes, the created-at sort), the approval's online grow,
   the rejection's member-visible feedback, the retry after a failed apply,
   the capability/wallet/stale refusals, the live badge, and the
   demotion-window write gate.
@@ -17,6 +18,9 @@ defmodule FluxValeWeb.AdminStorageRequestsLiveTest do
   import Ecto.Query, only: [from: 2]
   import Phoenix.LiveViewTest
 
+  # The framework revoke path's own alias (token_test's idiom): the
+  # nested Actions chain would trip credo's strict alias check.
+  alias AshAuthentication.TokenResource.Actions
   alias FluxVale.Clients.K8s
   alias FluxVale.Clients.K8s.Error
   alias FluxVale.Clients.K8s.Resources.PersistentVolumeClaim
@@ -32,6 +36,7 @@ defmodule FluxValeWeb.AdminStorageRequestsLiveTest do
   alias FluxVale.TestSupport.SessionHelpers
   alias FluxVale.TestSupport.StorageRequestFixtures
   alias FluxValeWeb.AdminChrome
+  alias FluxValeWeb.Components.AdminDataTable
 
   @n :erlang.unique_integer([:positive])
 
@@ -182,34 +187,56 @@ defmodule FluxValeWeb.AdminStorageRequestsLiveTest do
       assert render(view) =~ "Archive vault"
       assert render(view) =~ "Video exports"
 
-      # The Approved chip has nothing yet.
+      # The Approved chip narrows to nothing yet, and the URL states it.
       render_click(view, "filter-status", %{"status" => "approved"})
+      assert_patched(view, "/admin/storage-requests?status=approved")
       assert has_element?(view, "[data-testid='admin-storage-requests-empty']")
       refute render(view) =~ "Archive vault"
 
-      # All brings both back.
+      # A reload of the patched URL lands on the same view.
+      {:ok, approved_view, _html} = live(conn, "/admin/storage-requests?status=approved")
+      assert has_element?(approved_view, "[data-testid='admin-storage-requests-empty']")
+      refute render(approved_view) =~ "Archive vault"
+
+      # The All chip (and its "all" spelling) restores the unfiltered
+      # list at ?status=all.
       render_click(view, "filter-status", %{"status" => ""})
+      assert_patched(view, "/admin/storage-requests?status=all")
       assert render(view) =~ "Archive vault"
       assert render(view) =~ "Video exports"
 
-      # The search narrows by the reason (case-insensitive).
+      {:ok, all_view, _html} = live(conn, "/admin/storage-requests?status=all")
+      assert render(all_view) =~ "Archive vault"
+      assert render(all_view) =~ "Video exports"
+
+      render_click(view, "filter-status", %{"status" => "all"})
+      assert_patched(view, "/admin/storage-requests?status=all")
+
+      # The search narrows by the reason and rides ?q= (the table's
+      # canonical params ride ahead of the status extra).
       view
       |> element("#admin-storage-requests-search")
       |> render_change(%{"search" => %{"query" => "ARCHIV"}})
 
+      assert_patched(view, "/admin/storage-requests?q=ARCHIV&status=all")
       assert render(view) =~ "Archive vault"
       refute render(view) =~ "Video exports"
 
-      # Clearing the search restores the filtered page.
+      {:ok, reloaded, _html} = live(conn, "/admin/storage-requests?q=ARCHIV&status=all")
+      assert render(reloaded) =~ "Archive vault"
+      refute render(reloaded) =~ "Video exports"
+
+      # Clearing the search removes ?q= from the URL.
       view
       |> element("#admin-storage-requests-search")
       |> render_change(%{"search" => %{"query" => ""}})
 
+      assert_patched(view, "/admin/storage-requests?status=all")
       assert render(view) =~ "Archive vault"
       assert render(view) =~ "Video exports"
 
-      # Requested narrows back to the open rows (both are still open).
-      render_click(view, "filter-status", %{"status" => "requested"})
+      # A crafted status frame is a no-op: the view and its URL stand.
+      render_click(view, "filter-status", %{"status" => "nope"})
       assert render(view) =~ "Archive vault"
       assert render(view) =~ "Video exports"
     end
@@ -225,17 +252,14 @@ defmodule FluxValeWeb.AdminStorageRequestsLiveTest do
       refute has_element?(view, "[data-testid='admin-pending-storage-requests']")
     end
 
-    test "the list caps at 100 and says so", %{conn: conn} do
-      user = user!()
-      cluster!()
-      instance = instance!(version!(), user)
-
-      # Bulk closed history the create action deliberately refuses (one
-      # open request per instance): Ash.Seed for the cap's volume, each
-      # row a distinct clock and a nil advisory quote (the rate's dash).
+    # Bulk closed history the create action deliberately refuses (one
+    # open request per instance): Ash.Seed for the volume, each row a
+    # distinct clock (offset 1 is the oldest), and a nil advisory quote
+    # (the rate's dash).
+    defp seed_rejected!(instance, user, offsets) do
       created = DateTime.add(DateTime.utc_now(), -10_000, :second)
 
-      for offset <- 1..101 do
+      for offset <- offsets do
         Ash.Seed.seed!(StorageRequest, %{
           instance_id: instance.id,
           organization_id: instance.organization_id,
@@ -248,15 +272,214 @@ defmodule FluxValeWeb.AdminStorageRequestsLiveTest do
           created_at: DateTime.add(created, offset, :second)
         })
       end
+    end
 
-      {:ok, view, _html} = live(conn, "/admin/storage-requests")
-      render_click(view, "filter-status", %{"status" => ""})
+    # The keyset cursor the surface's own read mints at a window's
+    # edge, so a patched URL is asserted byte-for-byte against the
+    # URL the view builds with the same public pieces.
+    defp queue_cursor!(admin, args, page) do
+      {:ok, edge} = StorageRequest.queue(args, actor: admin, page: page)
+      List.first(edge.results).__metadata__.keyset
+    end
 
-      assert has_element?(view, "[data-testid='admin-storage-requests-more']")
-      assert render(view) =~ "Showing the latest 100 requests."
+    defp queue_last_cursor!(admin, args, page) do
+      {:ok, edge} = StorageRequest.queue(args, actor: admin, page: page)
+      List.last(edge.results).__metadata__.keyset
+    end
 
-      [first_id | _rest] = requests(view)
-      assert text_of(view, "[data-testid='admin-storage-requests-rate-#{first_id}']") == "—"
+    test "the queue pages keyset-style with real cursors and page sizes", %{
+      conn: conn,
+      admin: admin
+    } do
+      user = user!()
+      cluster!()
+      instance = instance!(version!(), user)
+
+      rows = seed_rejected!(instance, user, 1..26)
+      oldest_id = List.first(rows).id
+
+      {:ok, view, _html} = live(conn, "/admin/storage-requests?status=all")
+
+      # Page one: the 25 newest (offsets 26..2), the honest count, and
+      # one-way navigation.
+      rows_on_page = requests(view)
+      assert length(rows_on_page) == 25
+      refute oldest_id in rows_on_page
+
+      assert text_of(view, "[data-testid='admin-storage-requests-count']") ==
+               "Showing 25 entries."
+
+      assert has_element?(view, "[data-testid='admin-storage-requests-page-next']")
+      assert has_element?(view, "[data-testid='admin-storage-requests-page-prev'][disabled]")
+
+      # The old cap copy is retired.
+      refute has_element?(view, "[data-testid='admin-storage-requests-more']")
+      refute render(view) =~ "Showing the latest 100 requests."
+
+      # Next rides a real cursor in the URL.
+      view
+      |> element("[data-testid='admin-storage-requests-page-next']")
+      |> render_click()
+
+      next_state = %{
+        query: "",
+        sort: nil,
+        page: 1,
+        size: 25,
+        after: queue_last_cursor!(admin, %{status: nil}, limit: 25),
+        before: nil
+      }
+
+      next_url =
+        AdminDataTable.url_for("/admin/storage-requests", next_state, [{"status", "all"}])
+
+      assert_patched(view, next_url)
+
+      # Page two holds only what page one did not: the oldest row.
+      assert requests(view) == [oldest_id]
+
+      assert text_of(view, "[data-testid='admin-storage-requests-count']") ==
+               "Showing 1 entries."
+
+      # Prev mirrors it back to the first window.
+      view
+      |> element("[data-testid='admin-storage-requests-page-prev']")
+      |> render_click()
+
+      prev_state = %{
+        query: "",
+        sort: nil,
+        page: 1,
+        size: 25,
+        after: nil,
+        before: queue_cursor!(admin, %{status: nil}, limit: 25, after: next_state.after)
+      }
+
+      prev_url =
+        AdminDataTable.url_for("/admin/storage-requests", prev_state, [{"status", "all"}])
+
+      assert_patched(view, prev_url)
+
+      assert length(requests(view)) == 25
+      assert has_element?(view, "[data-testid='admin-storage-requests-page-prev'][disabled]")
+
+      # A bigger window rides the size event: the URL states it
+      # (canonical size param ahead of the status extra) and the
+      # cursors dropped.
+      view
+      |> element("[data-testid='admin-storage-requests-size-50']")
+      |> render_click()
+
+      assert_patched(view, "/admin/storage-requests?size=50&status=all")
+
+      assert length(requests(view)) == 26
+
+      assert text_of(view, "[data-testid='admin-storage-requests-count']") ==
+               "Showing 26 entries."
+
+      assert has_element?(view, "[data-testid='admin-storage-requests-page-next'][disabled]")
+
+      # A crafted size falls back to the default 25.
+      {:ok, crafted_size_view, _html} = live(conn, "/admin/storage-requests?status=all&size=999")
+
+      assert length(requests(crafted_size_view)) == 25
+
+      assert text_of(crafted_size_view, "[data-testid='admin-storage-requests-count']") ==
+               "Showing 25 entries."
+    end
+
+    test "crafted params fall back honestly", %{conn: conn} do
+      user = user!()
+      cluster!()
+      instance = instance!(version!(), user)
+      request = StorageRequestFixtures.request!(instance, user)
+
+      # An unknown status reads the default Requested view.
+      {:ok, nope_view, _html} = live(conn, "/admin/storage-requests?status=nope")
+
+      assert has_element?(
+               nope_view,
+               "[data-testid='admin-storage-requests-filter-requested'][aria-pressed='true']"
+             )
+
+      assert has_element?(
+               nope_view,
+               "[data-testid='admin-storage-requests-instance-#{request.id}']"
+             )
+
+      # A real event from that fallback view patches without the status
+      # param: the default view's spelling is the bare path.
+      nope_view
+      |> element("#admin-storage-requests-search")
+      |> render_change(%{"search" => %{"query" => "ARCHIV"}})
+
+      assert_patched(nope_view, "/admin/storage-requests?q=ARCHIV")
+
+      # ?page= is harmless: the keyset ignores it and answers page one.
+      {:ok, paged_view, _html} = live(conn, "/admin/storage-requests?page=abc")
+
+      assert has_element?(
+               paged_view,
+               "[data-testid='admin-storage-requests-instance-#{request.id}']"
+             )
+    end
+
+    test "the created-at sort toggles direction and rides the URL", %{conn: conn} do
+      user = user!()
+      cluster!()
+      instance = instance!(version!(), user)
+
+      rows = seed_rejected!(instance, user, 1..3)
+      oldest_id = List.first(rows).id
+      newest_id = List.last(rows).id
+
+      {:ok, view, _html} = live(conn, "/admin/storage-requests?status=all")
+
+      # The default order is newest first.
+      rendered_default = requests(view)
+      assert List.first(rendered_default) == newest_id
+
+      view
+      |> element("[data-testid='admin-storage-requests-sort-created_at']")
+      |> render_click()
+
+      assert_patched(view, "/admin/storage-requests?sort=created_at&dir=asc&status=all")
+      rendered_asc = requests(view)
+      assert List.first(rendered_asc) == oldest_id
+
+      view
+      |> element("[data-testid='admin-storage-requests-sort-created_at']")
+      |> render_click()
+
+      assert_patched(view, "/admin/storage-requests?sort=created_at&dir=desc&status=all")
+      rendered_desc = requests(view)
+      assert List.first(rendered_desc) == newest_id
+    end
+
+    test "changing the sort drops the cursors and restarts at page one", %{conn: conn} do
+      user = user!()
+      cluster!()
+      instance = instance!(version!(), user)
+
+      seed_rejected!(instance, user, 1..30)
+
+      {:ok, view, _html} = live(conn, "/admin/storage-requests?status=all")
+      assert length(requests(view)) == 25
+
+      view
+      |> element("[data-testid='admin-storage-requests-page-next']")
+      |> render_click()
+
+      assert length(requests(view)) == 5
+
+      view
+      |> element("[data-testid='admin-storage-requests-sort-created_at']")
+      |> render_click()
+
+      # The patched URL carries the new sort and NO cursor: the window
+      # restarted at page one under the new order.
+      assert_patched(view, "/admin/storage-requests?sort=created_at&dir=asc&status=all")
+      assert length(requests(view)) == 25
     end
 
     test "crafted filter/search frames are no-ops", %{conn: conn} do
@@ -269,7 +492,26 @@ defmodule FluxValeWeb.AdminStorageRequestsLiveTest do
 
       render_click(view, "filter-status", %{"status" => 123})
       render_click(view, "search", %{"search" => %{"query" => 123}})
+      render_click(view, "sort", %{"field" => "not-a-field"})
+      render_click(view, "sort", %{})
+      render_click(view, "page", %{"nav" => "sideways"})
+      render_click(view, "size", %{"size" => 123})
       render_click(view, "reject", %{"nope" => "x"})
+
+      assert has_element?(view, "[data-testid='admin-storage-requests']")
+    end
+
+    test "a nil cursor is a no-op, not a crash", %{conn: conn} do
+      user = user!()
+      cluster!()
+      instance = instance!(version!(), user)
+      StorageRequestFixtures.request!(instance, user)
+
+      {:ok, view, _html} = live(conn, "/admin/storage-requests")
+
+      # No next cursor exists on a one-page queue: the frame is honest
+      # about doing nothing.
+      render_click(view, "page", %{"nav" => "next"})
 
       assert has_element?(view, "[data-testid='admin-storage-requests']")
     end
@@ -670,6 +912,77 @@ defmodule FluxValeWeb.AdminStorageRequestsLiveTest do
       assert has_element?(view, "[data-testid='admin-storage-requests']")
     end
 
+    test "a stale cursor is not a crash: page one answers under the current filters", %{
+      conn: conn
+    } do
+      user = user!()
+      cluster!()
+      instance = instance!(version!(), user)
+
+      rows = seed_rejected!(instance, user, 1..2)
+
+      # A cursor Ash refuses (crafted, or one whose window a delete
+      # has emptied): the honest answer is page one under the same
+      # filter, once.
+      {:ok, view, _html} = live(conn, "/admin/storage-requests?status=all&after=not-a-cursor")
+
+      # Page one rides the read's newest-first default.
+      seeded_ids = Enum.map(rows, & &1.id)
+
+      assert requests(view) == Enum.reverse(seeded_ids)
+
+      assert text_of(view, "[data-testid='admin-storage-requests-count']") =~
+               "Showing 2 entries."
+    end
+
+    test "a cursor whose window a delete emptied recovers to page one", %{
+      conn: conn,
+      admin: admin
+    } do
+      user = user!()
+      cluster!()
+      instance = instance!(version!(), user)
+
+      rows = seed_rejected!(instance, user, 1..26)
+      oldest_id = List.first(rows).id
+
+      {:ok, view, _html} = live(conn, "/admin/storage-requests?status=all")
+
+      # Page two holds the one row page one did not.
+      view
+      |> element("[data-testid='admin-storage-requests-page-next']")
+      |> render_click()
+
+      next_state = %{
+        query: "",
+        sort: nil,
+        page: 1,
+        size: 25,
+        after: queue_last_cursor!(admin, %{status: nil}, limit: 25),
+        before: nil
+      }
+
+      next_url =
+        AdminDataTable.url_for("/admin/storage-requests", next_state, [{"status", "all"}])
+
+      assert_patched(view, next_url)
+      assert requests(view) == [oldest_id]
+
+      # The page-two row goes away. The request's lifecycle has no
+      # destroy action (a request is decided, never deleted), so the
+      # precondition rides the data layer (the audit suite's idiom).
+      query = from(r in "storage_requests", where: r.id == ^Ecto.UUID.dump!(oldest_id))
+      {1, nil} = FluxVale.Repo.delete_all(query)
+
+      # Any re-read of the now-empty window: the view recovers to page
+      # one with the 25 remaining rows, not the empty state.
+      render_patch(view, next_url)
+
+      assert length(requests(view)) == 25
+      refute has_element?(view, "[data-testid='admin-storage-requests-empty']")
+      assert has_element?(view, "[data-testid='admin-storage-requests-page-prev'][disabled]")
+    end
+
     test "a decision broadcast moves the badge down", %{conn: conn, admin: admin} do
       user = user!()
       cluster!()
@@ -776,6 +1089,45 @@ defmodule FluxValeWeb.AdminStorageRequestsLiveTest do
       # The next explicit event names the session honestly.
       render_click(view, "filter-status", %{"status" => "requested"})
       assert render(view) =~ "Your admin access ended."
+    end
+
+    test "a mid-session demotion cannot ride a client patch: the params re-read refuses", %{
+      conn: conn,
+      admin: admin
+    } do
+      user = user!()
+      cluster!()
+      instance = instance!(version!(), user)
+
+      # Only closed history, so the mounted (Requested) view has no
+      # rows: a refused patch leaves nothing rendered.
+      seed_rejected!(instance, user, 1..2)
+
+      {:ok, view, _html} = live(conn, "/admin/storage-requests")
+      assert has_element?(view, "[data-testid='admin-storage-requests-empty']")
+
+      # Demote under the live session (the idiom above).
+      query = from(u in "users", where: u.id == ^Ecto.UUID.dump!(admin.id))
+      {1, nil} = FluxVale.Repo.update_all(query, set: [platform_role: "user"])
+
+      # A client patch lands on handle_params past the gate's event
+      # hooks: the params-driven read re-resolves and refuses — the
+      # stale admin never fetches the ?status=all queue.
+      render_patch(view, "/admin/storage-requests?status=all")
+
+      assert render(view) =~ "Your admin access ended."
+      assert requests(view) == []
+
+      # And the resolve-nil arm: a revoked session token stops
+      # resolving entirely (the framework revoke path, the
+      # generated-tools suite's idiom).
+      token = Plug.Conn.get_session(conn, "user_token")
+      :ok = Actions.revoke(FluxVale.Identity.Token, token)
+
+      render_patch(view, "/admin/storage-requests?status=all")
+
+      assert render(view) =~ "Your admin access ended."
+      assert requests(view) == []
     end
   end
 
