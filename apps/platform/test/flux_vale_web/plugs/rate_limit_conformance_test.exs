@@ -17,9 +17,11 @@ defmodule FluxValeWeb.Plugs.RateLimitConformanceTest do
 
   use ExUnit.Case, async: false
 
+  alias FluxVale.TestSupport.FixedWindowTestSource
   alias FluxVale.TestSupport.LegacyGoogleRateLimit
   alias FluxVale.TestSupport.LegacyOAuthRateLimit
   alias FluxVale.TestSupport.RateLimitConformance
+  alias FluxValeWeb.Plugs.FixedWindow
   alias FluxValeWeb.Plugs.GoogleRateLimit
   alias FluxValeWeb.Plugs.OAuthRateLimit
 
@@ -162,11 +164,11 @@ defmodule FluxValeWeb.Plugs.RateLimitConformanceTest do
           assert :ets.member(adapter.table, previous_key)
           refute :ets.member(adapter.table, lapsed_key)
 
-          # -2: both Google copies' floor cutoff keeps it (equal is not
-          # <); the old OAuth now-relative cutoff may drop it. S3's floor
-          # formula makes the unified result deterministic and asserts it
-          # there.
-          if adapter.name in [:legacy_google, :current_google] do
+          # -2: the engine's floor cutoff (window_start - 2w) keeps the
+          # boundary row — equal is not < — on both Google copies and the
+          # live OAuth. The frozen OAuth's now-relative cutoff may still
+          # drop it; that difference is the point of the frozen copy.
+          if adapter.name != :legacy_oauth do
             assert :ets.member(adapter.table, two_windows_key)
           end
         end
@@ -349,6 +351,35 @@ defmodule FluxValeWeb.Plugs.RateLimitConformanceTest do
           end
         end
       end)
+    end
+  end
+
+  describe "the engine" do
+    test "a stopped owner fails open, and a restart serves a fresh table" do
+      source = FixedWindowTestSource
+
+      start_supervised!({FixedWindow, source: source, id: :engine_probe})
+      :sys.get_state(source)
+
+      first = RateLimitConformance.unique_ip()
+      assert :ok = FixedWindow.allow?(source, :probe, first)
+
+      # The table dies with the owner; the next request must not raise —
+      # a throttle must not 500 the sign-in door. The request is allowed
+      # and uncounted; the next owner counts again.
+      :ok = stop_supervised!(:engine_probe)
+      second = RateLimitConformance.unique_ip()
+      assert :ok = FixedWindow.allow?(source, :probe, second)
+      assert :ets.whereis(source.table()) == :undefined
+
+      start_supervised!({FixedWindow, source: source, id: :engine_probe})
+      :sys.get_state(source)
+
+      third = RateLimitConformance.unique_ip()
+      assert :ok = FixedWindow.allow?(source, :probe, third)
+
+      third_key = {:probe, third, window(@window_seconds)}
+      assert :ets.lookup(source.table(), third_key) == [{third_key, 1}]
     end
   end
 

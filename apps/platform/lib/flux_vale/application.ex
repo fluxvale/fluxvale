@@ -66,8 +66,10 @@ defmodule FluxVale.Application do
           # Google sign-in per-IP throttle (#642, plan §3.2 D-abuse) —
           # the fixed-window counters for the two /auth/google hops.
           FluxValeWeb.Plugs.GoogleRateLimit,
-          # #766: the OAuth endpoints' per-IP fixed windows.
-          FluxValeWeb.Plugs.OAuthRateLimit,
+          # #766: the OAuth endpoints' per-IP fixed windows, on the
+          # shared FixedWindow engine since #510 (the owner holds the
+          # OAuthRateLimit.Windows table; the module is the source).
+          {FluxValeWeb.Plugs.FixedWindow, source: FluxValeWeb.Plugs.OAuthRateLimit},
           # Wake-time estimates for the catalog badge (#232) — reads the
           # live scrape, cached; {} while the metrics tree is down.
           FluxVale.Observability.WakeStats,
