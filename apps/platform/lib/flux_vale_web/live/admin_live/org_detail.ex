@@ -12,8 +12,11 @@ defmodule FluxValeWeb.AdminLive.OrgDetail do
   membership probe and its scope note are gone with the widened read.
 
   The instances list is paginated by the shared data table (the
-  latest-100 cap retired into real pagination; offset mode). No
-  writes anywhere on the surface.
+  latest-100 cap retired into real pagination; offset mode). The
+  domains card rides the same component as a detail sub-table: its
+  view state (sort, page, size) lives in session state, because two
+  tables on one page cannot own the same URL params (the moderation
+  tags precedent). No writes anywhere on the surface.
   """
 
   use FluxValeWeb, :live_view
@@ -35,6 +38,13 @@ defmodule FluxValeWeb.AdminLive.OrgDetail do
   @sortable [:name, :status, :created_at]
   @sizes AdminDataTable.default_sizes()
 
+  # The domains table's contract: the card is a detail sub-table, so
+  # its view state rides session state — two tables on one page cannot
+  # own the same sort/page/size URL params (the moderation tags
+  # precedent). Sortable fields are the columns the row prints that the
+  # domain read carries.
+  @domains_sortable [:domain, :kind, :state, :registered_at]
+
   @impl Phoenix.LiveView
   def mount(%{"id" => raw_id}, _session, socket) do
     admin = socket.assigns.current_user
@@ -42,23 +52,22 @@ defmodule FluxValeWeb.AdminLive.OrgDetail do
     with {:ok, org_id} <- cast_uuid(raw_id),
          {:ok, [org]} <- org_lookup(admin, org_id) do
       wallet = wallet_read(admin, org_id)
-      {domains, domains_capped?} = domains_page(admin, org_id)
 
       # Live truth (the dashboard's posture, #74): every status-writing
       # action broadcasts on instances:<id>, and the strip and rows
       # follow the broadcasts instead of aging into a lie. The
       # subscriptions ride the loaded page (handle_params); the id set
-      # keeps a patch from doubling them.
+      # keeps a patch from doubling them. The domains table's view
+      # state is session state (see @domains_sortable).
       {:ok,
        socket
        |> assign(
          org: org,
          wallet: wallet,
          subscribed_ids: MapSet.new(),
-         domains_capped?: domains_capped?,
-         domains_empty?: domains == []
+         domains_table: AdminDataTable.parse_params(%{}, sortable: @domains_sortable)
        )
-       |> stream(:domains, domains)}
+       |> refresh_domains()}
     else
       # A malformed param (the cast) or a lookup that answers nothing:
       # one arm, one answer — back to the list with the flash.
@@ -125,6 +134,63 @@ defmodule FluxValeWeb.AdminLive.OrgDetail do
   end
 
   def handle_event("size", _params, socket), do: {:noreply, socket}
+
+  # The domains table's events ride session state (see @domains_sortable):
+  # the same toggle-and-reset grammar as the instances table, no URL
+  # write. A crafted field leaves the sort as it was: a true no-op.
+  def handle_event("domains-sort", %{"field" => raw_field}, socket) do
+    state = socket.assigns.domains_table
+    sort = AdminDataTable.toggle_sort(state.sort, raw_field, @domains_sortable)
+    resorted = %{state | sort: sort, page: 1}
+
+    if sort == state.sort do
+      {:noreply, socket}
+    else
+      {:noreply, refresh_domains(assign(socket, domains_table: resorted))}
+    end
+  end
+
+  def handle_event("domains-sort", _params, socket), do: {:noreply, socket}
+
+  # The card has no URL round-trip to rescue a bad page, so the handlers
+  # guard the window themselves: prev never goes under one, next never
+  # past the honest page count.
+  def handle_event("domains-page", %{"nav" => "prev"}, socket) do
+    state = socket.assigns.domains_table
+
+    if state.page > 1 do
+      stepped = %{state | page: state.page - 1}
+
+      {:noreply, refresh_domains(assign(socket, domains_table: stepped))}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_event("domains-page", %{"nav" => "next"}, socket) do
+    state = socket.assigns.domains_table
+    total_pages = AdminDataTable.page_count(state.total, state.size)
+
+    if state.page < total_pages do
+      stepped = %{state | page: state.page + 1}
+
+      {:noreply, refresh_domains(assign(socket, domains_table: stepped))}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  # A crafted page event is a no-op.
+  def handle_event("domains-page", _params, socket), do: {:noreply, socket}
+
+  def handle_event("domains-size", %{"size" => raw}, socket) do
+    state = socket.assigns.domains_table
+    size = AdminDataTable.parse_size(raw)
+
+    {:noreply, refresh_domains(assign(socket, domains_table: %{state | size: size, page: 1}))}
+  end
+
+  def handle_event("domains-size", _params, socket), do: {:noreply, socket}
 
   # Every table event is a patch: the URL states the view, and
   # handle_params owns the re-query. replace keeps the browser
@@ -313,19 +379,79 @@ defmodule FluxValeWeb.AdminLive.OrgDetail do
   # blanket bypass): the same `:list_for_org` the gateway detail
   # rides, here on the org's own page — the platform row every
   # instance create mints renders even for orgs that never enabled
-  # private access. Capped at the lane's cap, the instances' shape.
-  @domains_cap 100
+  # private access. Offset mode: one honest count, then one page.
+  defp domains_page(admin, org_id, state) do
+    filtered =
+      Ash.Query.for_read(
+        AccessDomain,
+        :list_for_org,
+        %{organization_id: org_id},
+        actor: admin
+      )
 
-  defp domains_page(admin, org_id) do
-    fetched =
-      AccessDomain
-      |> Ash.Query.for_read(:list_for_org, %{organization_id: org_id}, actor: admin)
-      |> Ash.Query.sort(registered_at: :desc, id: :desc)
-      |> Ash.Query.limit(@domains_cap + 1)
-      |> Ash.read!()
+    # Count first, clamp, then read: a crafted page can never become a
+    # deep offset.
+    counted = Ash.read!(filtered, page: [limit: 1, offset: 0, count: true])
+    total = counted.count || 0
+    page_count = AdminDataTable.page_count(total, state.size)
+    page = min(state.page, page_count)
 
-    capped? = length(fetched) > @domains_cap
-    {Enum.take(fetched, @domains_cap), capped?}
+    fetched = domains_rows(filtered, state, page)
+    {rows, final_page, final_total} = recover_empty_page(filtered, state, fetched, page, total)
+
+    {rows, %{state | page: final_page, total: final_total}}
+  end
+
+  defp domains_rows(filtered, state, page) do
+    filtered
+    |> apply_domains_sort(state.sort)
+    |> Ash.read!(page: [limit: state.size, offset: (page - 1) * state.size])
+    |> Map.get(:results)
+  end
+
+  # The count and the page read are two statements: another writer can
+  # remove the last row of a non-first page between them, leaving an
+  # empty page while rows remain. Re-count, re-clamp, and read once more
+  # rather than claiming the org has no domains.
+  defp recover_empty_page(filtered, state, rows, page, total) do
+    if rows == [] and page > 1 and total > 0 do
+      # coveralls-ignore-start - the count/read interleaving is a race window
+      recounted = Ash.read!(filtered, page: [limit: 1, offset: 0, count: true])
+      fresh_total = recounted.count || 0
+      fresh_page = min(page, AdminDataTable.page_count(fresh_total, state.size))
+
+      {domains_rows(filtered, state, fresh_page), fresh_page, fresh_total}
+      # coveralls-ignore-stop
+    else
+      {rows, page, total}
+    end
+  end
+
+  # The domains card's re-read: session state in, one server-driven
+  # page out, re-streamed under a reset (the instances table's posture).
+  # The empty state is the honest zero only: a page emptied by the
+  # count/read race keeps its chrome (and Prev) instead of claiming the
+  # org registered nothing.
+  defp refresh_domains(socket) do
+    admin = socket.assigns.current_user
+    state = socket.assigns.domains_table
+    {rows, updated} = domains_page(admin, socket.assigns.org.id, state)
+
+    socket
+    |> assign(domains_table: updated, domains_empty?: rows == [] and updated.total == 0)
+    |> stream(:domains, rows, reset: true)
+  end
+
+  # Newest registered first by default; the id tiebreak rides every
+  # sort so a same-second page boundary cannot shuffle rows between
+  # reads.
+  defp apply_domains_sort(query, nil) do
+    Ash.Query.sort(query, registered_at: :desc, id: :desc)
+  end
+
+  # Whitelisted atoms only — the event path never builds a sort term.
+  defp apply_domains_sort(query, {field, dir}) do
+    Ash.Query.sort(query, [{field, dir}, {:id, :desc}])
   end
 
   # The strip's counts read the index of the SHOWN page. "other" is
@@ -416,6 +542,44 @@ defmodule FluxValeWeb.AdminLive.OrgDetail do
       sort_event: "sort",
       page_event: "page",
       size_event: "size"
+    }
+  end
+
+  # The domains card's column declarations: the tracks and the floor the
+  # row prints, one list the template and the floor math share.
+  defp domains_columns do
+    [
+      %{
+        key: :domain,
+        label: gettext("Domain"),
+        track: "minmax(10rem,1.6fr)",
+        sort: :domain,
+        floor_rem: 10
+      },
+      %{key: :kind, label: gettext("Kind"), track: "6.5rem", sort: :kind},
+      %{key: :state, label: gettext("State"), track: "10rem", sort: :state},
+      %{
+        key: :registered,
+        label: gettext("Registered"),
+        track: "6.5rem",
+        sort: :registered_at
+      }
+    ]
+  end
+
+  # The domains table's view state: session state plus the honest count
+  # and the card's own event names (see @domains_sortable).
+  defp domains_meta(state) do
+    %{
+      query: state.query,
+      page: state.page,
+      size: state.size,
+      sort: state.sort,
+      total: state.total,
+      sizes: @sizes,
+      sort_event: "domains-sort",
+      page_event: "domains-page",
+      size_event: "domains-size"
     }
   end
 
@@ -690,14 +854,6 @@ defmodule FluxValeWeb.AdminLive.OrgDetail do
                   </p>
                 </div>
 
-                <p
-                  :if={@domains_capped?}
-                  class="text-sm text-ink-muted"
-                  data-testid="admin-orgs-domains-capped"
-                >
-                  {gettext("Showing the latest 100 domains.")}
-                </p>
-
                 <div
                   :if={@domains_empty?}
                   class="rounded-panel border border-line bg-panel px-4 py-3"
@@ -708,64 +864,54 @@ defmodule FluxValeWeb.AdminLive.OrgDetail do
                   </p>
                 </div>
 
-                <div :if={not @domains_empty?} class="overflow-x-auto">
-                  <div class="min-w-[30rem]">
-                    <%!-- One grid template shared by the header and every
-                    row (kept literal in both spots), so the columns can
-                    never drift. --%>
-                    <div class="grid grid-cols-[minmax(0,1.6fr)_6.5rem_10rem_6.5rem] items-center gap-x-3 border-b border-line px-3 py-3 text-left text-xs font-medium tracking-wide text-ink-muted uppercase">
-                      <div>{gettext("Domain")}</div>
-                      <div>{gettext("Kind")}</div>
-                      <div>{gettext("State")}</div>
-                      <div>{gettext("Registered")}</div>
-                    </div>
+                <%!-- The domains data table (#501): the shared component's
+                chrome, tracks, floor, sort headers, and pagination. The
+                card is a detail sub-table, so its view state rides
+                session state (see @domains_sortable). --%>
+                <AdminDataTable.data_table
+                  :if={not @domains_empty?}
+                  id="admin-orgs-domains"
+                  items={@streams.domains}
+                  columns={domains_columns()}
+                  meta={domains_meta(@domains_table)}
+                >
+                  <:cell :let={domain} col={:domain}>
+                    <p
+                      class="truncate font-mono text-sm text-ink"
+                      data-testid={"admin-orgs-domain-name-#{domain.id}"}
+                    >
+                      {domain.domain}
+                    </p>
+                  </:cell>
 
-                    <div>
-                      <div id="admin-orgs-domains-table" phx-update="stream">
-                        <div
-                          :for={{dom_id, domain} <- @streams.domains}
-                          id={dom_id}
-                          class="grid grid-cols-[minmax(0,1.6fr)_6.5rem_10rem_6.5rem] items-center gap-x-3 border-b border-line px-3 py-3 transition-colors last:border-0 hover:bg-panel-raised/60"
-                        >
-                          <div class="min-w-0">
-                            <p
-                              class="truncate font-mono text-sm text-ink"
-                              data-testid={"admin-orgs-domain-name-#{domain.id}"}
-                            >
-                              {domain.domain}
-                            </p>
-                          </div>
-                          <div>
-                            <span
-                              class="text-sm text-ink-muted"
-                              data-testid={"admin-orgs-domain-kind-#{domain.id}"}
-                            >
-                              {kind_label(domain.kind)}
-                            </span>
-                          </div>
-                          <div>
-                            <span data-testid={"admin-orgs-domain-state-#{domain.id}"}>
-                              <%!-- The house badge size, no overrides — these
-                              pills carry Failed and must not read
-                              dinkier than their neighbors (the review's
-                              scale note). --%>
-                              <AdminComponents.domain_state_badge state={domain.state} />
-                            </span>
-                          </div>
-                          <div>
-                            <span
-                              :if={domain.registered_at}
-                              class="text-sm text-ink-muted"
-                              data-testid={"admin-orgs-domain-registered-#{domain.id}"}
-                            >
-                              {stamp_text(domain.registered_at)}
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
+                  <:cell :let={domain} col={:kind}>
+                    <span
+                      class="text-sm text-ink-muted"
+                      data-testid={"admin-orgs-domain-kind-#{domain.id}"}
+                    >
+                      {kind_label(domain.kind)}
+                    </span>
+                  </:cell>
+
+                  <:cell :let={domain} col={:state}>
+                    <span data-testid={"admin-orgs-domain-state-#{domain.id}"}>
+                      <%!-- The house badge size, no overrides — these
+                      pills carry Failed and must not read dinkier than
+                      their neighbors (the review's scale note). --%>
+                      <AdminComponents.domain_state_badge state={domain.state} />
+                    </span>
+                  </:cell>
+
+                  <:cell :let={domain} col={:registered}>
+                    <span
+                      :if={domain.registered_at}
+                      class="text-sm text-ink-muted"
+                      data-testid={"admin-orgs-domain-registered-#{domain.id}"}
+                    >
+                      {stamp_text(domain.registered_at)}
+                    </span>
+                  </:cell>
+                </AdminDataTable.data_table>
               </div>
             </div>
           </div>
