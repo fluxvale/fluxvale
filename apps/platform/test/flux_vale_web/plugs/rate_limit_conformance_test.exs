@@ -2,10 +2,10 @@ defmodule FluxValeWeb.Plugs.RateLimitConformanceTest do
   @moduledoc false
 
   # #510: the same request sequence through the frozen pre-lane
-  # implementations and the live ones, before any consolidation. This
-  # suite is characterization: it pins what the two fixed-window stores
-  # do today, including the two differences the lane must decide (the
-  # OAuth existing-claim bypass and Google's inline over-cap sweep).
+  # implementations and the live ones. This suite is characterization:
+  # it pins the shared fixed-window semantics, where the frozen and live
+  # OAuth copies now diverge (the S2 claim fix), and the difference S4
+  # decides (Google's inline over-cap sweep vs the claim).
   # async: false — the config cases mutate Application env (the
   # ApiRateLimit config-test posture) and the tables are VM-global.
   #
@@ -209,7 +209,7 @@ defmodule FluxValeWeb.Plugs.RateLimitConformanceTest do
   end
 
   describe "the differences this lane must decide" do
-    test "pre-fix: an existing claim lets a saturated key through (legacy and live)" do
+    test "the claim fix flips the live copy: an existing claim refuses; the frozen one still bypasses" do
       cap_opts = [
         max_rows: 1,
         buckets: %{
@@ -223,10 +223,8 @@ defmodule FluxValeWeb.Plugs.RateLimitConformanceTest do
       with_config(google_opts(), cap_opts, fn ->
         window = window(@window_seconds)
 
-        # S1 pins the pre-fix behavior of BOTH copies; S2 flips the live
-        # half to {:error, _} + counter+1 + this fresh stamp UNCHANGED
-        # (the guard only replaces a stale stamp — that is S2's second
-        # case, staged as 0).
+        # The frozen oracle carries the pre-fix select_replace body, so
+        # the same request story diverges: the bypass vs the refusal.
         for adapter <- [
               RateLimitConformance.legacy_oauth(),
               RateLimitConformance.current_oauth()
@@ -241,13 +239,21 @@ defmodule FluxValeWeb.Plugs.RateLimitConformanceTest do
 
           :ets.insert(adapter.table, {other_key, 1})
           :ets.insert(adapter.table, {target_key, 2})
-          # A FRESH claim: the bad select_replace body raises whether or
-          # not the stamp is stale; any existing row is enough.
+          # A FRESH claim: the pre-fix body raises whether or not the
+          # stamp is stale; the fixed guard leaves a fresh stamp alone.
           :ets.insert(adapter.table, {{:sweep, :last}, now})
 
-          assert :ok = adapter.allow.(conn, :register)
+          result = adapter.allow.(conn, :register)
 
-          assert :ets.lookup(adapter.table, target_key) == [{target_key, 2}]
+          if adapter.name == :legacy_oauth do
+            assert :ok = result
+            assert :ets.lookup(adapter.table, target_key) == [{target_key, 2}]
+          else
+            assert {:error, _retry} = result
+            assert :ets.lookup(adapter.table, target_key) == [{target_key, 3}]
+          end
+
+          # Neither copy touches a fresh stamp.
           assert :ets.lookup(adapter.table, {:sweep, :last}) == [{{:sweep, :last}, now}]
         end
       end)
@@ -293,9 +299,11 @@ defmodule FluxValeWeb.Plugs.RateLimitConformanceTest do
           stale_one_key = adapter.key.(:register, stale_one, window - 3 * @window_seconds)
           :ets.insert(adapter.table, {stale_one_key, 99})
 
-          # Second over-cap request: Google reaps stale_one; OAuth's
-          # fresh claim blocks the scan (and the broken select_replace
-          # turns the request into an uncounted allow).
+          # Second over-cap request: Google reaps stale_one; both OAuth
+          # copies' fresh claim blocks the scan — and the frozen copy's
+          # broken select_replace also turns the request into an
+          # uncounted allow. The live one counts it normally; the cond
+          # below asserts that split.
           second_conn = conn_for(second)
           second_result = adapter.allow.(second_conn, :register)
           assert RateLimitConformance.decision(second_result) == :ok
@@ -312,18 +320,32 @@ defmodule FluxValeWeb.Plugs.RateLimitConformanceTest do
           second_key = adapter.key.(:register, second, window)
           third_key = adapter.key.(:register, third, window)
 
-          if adapter.name in [:legacy_google, :current_google] do
-            refute :ets.member(adapter.table, stale_one_key)
-            refute :ets.member(adapter.table, stale_two_key)
-            refute :ets.member(adapter.table, {:sweep, :last})
-            assert :ets.member(adapter.table, second_key)
-            assert :ets.member(adapter.table, third_key)
-          else
-            assert :ets.member(adapter.table, stale_one_key)
-            assert :ets.member(adapter.table, stale_two_key)
-            assert :ets.member(adapter.table, {:sweep, :last})
-            refute :ets.member(adapter.table, second_key)
-            refute :ets.member(adapter.table, third_key)
+          cond do
+            adapter.name in [:legacy_google, :current_google] ->
+              refute :ets.member(adapter.table, stale_one_key)
+              refute :ets.member(adapter.table, stale_two_key)
+              refute :ets.member(adapter.table, {:sweep, :last})
+              assert :ets.member(adapter.table, second_key)
+              assert :ets.member(adapter.table, third_key)
+
+            adapter.name == :legacy_oauth ->
+              # The pre-fix body: the claim blocks the scan AND the raise
+              # turns each over-cap request into an uncounted allow, so
+              # neither new key ever lands.
+              assert :ets.member(adapter.table, stale_one_key)
+              assert :ets.member(adapter.table, stale_two_key)
+              assert :ets.member(adapter.table, {:sweep, :last})
+              refute :ets.member(adapter.table, second_key)
+              refute :ets.member(adapter.table, third_key)
+
+            true ->
+              # The fixed claim: no re-scan (the stale rows survive),
+              # but the requests count normally.
+              assert :ets.member(adapter.table, stale_one_key)
+              assert :ets.member(adapter.table, stale_two_key)
+              assert :ets.member(adapter.table, {:sweep, :last})
+              assert :ets.member(adapter.table, second_key)
+              assert :ets.member(adapter.table, third_key)
           end
         end
       end)
