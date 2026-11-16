@@ -1671,10 +1671,10 @@ msgstr ""
 msgid "Whole cents only. Enter %{cents} for %{amount}. Nothing was posted."
 msgstr ""
 
-#: lib/flux_vale_web/components/admin_data_table.ex:440
-#: lib/flux_vale_web/components/admin_data_table.ex:503
-#: lib/flux_vale_web/components/admin_data_table.ex:517
-#: lib/flux_vale_web/components/admin_data_table.ex:538
+#: lib/flux_vale_web/components/admin_data_table.ex:466
+#: lib/flux_vale_web/components/admin_data_table.ex:529
+#: lib/flux_vale_web/components/admin_data_table.ex:543
+#: lib/flux_vale_web/components/admin_data_table.ex:564
 #: lib/flux_vale_web/components/core_components.ex:1110
 #, elixir-autogen, elixir-format
 msgid "Working..."
@@ -2124,7 +2124,7 @@ msgstr ""
 msgid "Every row, newest first, 25 to a page. Reads run through the resource policies with your account as the actor."
 msgstr ""
 
-#: lib/flux_vale_web/components/admin_data_table.ex:542
+#: lib/flux_vale_web/components/admin_data_table.ex:568
 #: lib/flux_vale_web/components/admin_resource.ex:429
 #: lib/flux_vale_web/live/admin_live/audit.ex:610
 #, elixir-autogen, elixir-format
@@ -3623,7 +3623,7 @@ msgstr ""
 msgid "Clear search"
 msgstr ""
 
-#: lib/flux_vale_web/components/admin_data_table.ex:734
+#: lib/flux_vale_web/components/admin_data_table.ex:760
 #, elixir-autogen, elixir-format
 msgid "Default order."
 msgstr ""
@@ -3638,47 +3638,47 @@ msgstr ""
 msgid "Newest first. The strip counts the instances on this page only. The instances' own pages live in the product surfaces."
 msgstr ""
 
-#: lib/flux_vale_web/components/admin_data_table.ex:704
+#: lib/flux_vale_web/components/admin_data_table.ex:730
 #, elixir-autogen, elixir-format
 msgid "No entries."
 msgstr ""
 
-#: lib/flux_vale_web/components/admin_data_table.ex:528
+#: lib/flux_vale_web/components/admin_data_table.ex:554
 #, elixir-autogen, elixir-format
 msgid "Page %{page} of %{count}"
 msgstr ""
 
-#: lib/flux_vale_web/components/admin_data_table.ex:763
+#: lib/flux_vale_web/components/admin_data_table.ex:789
 #, elixir-autogen, elixir-format
 msgid "Page %{page} of %{count}."
 msgstr ""
 
-#: lib/flux_vale_web/components/admin_data_table.ex:521
+#: lib/flux_vale_web/components/admin_data_table.ex:547
 #, elixir-autogen, elixir-format
 msgid "Prev"
 msgstr ""
 
-#: lib/flux_vale_web/components/admin_data_table.ex:494
+#: lib/flux_vale_web/components/admin_data_table.ex:520
 #, elixir-autogen, elixir-format
 msgid "Rows per page"
 msgstr ""
 
-#: lib/flux_vale_web/components/admin_data_table.ex:490
+#: lib/flux_vale_web/components/admin_data_table.ex:516
 #, elixir-autogen, elixir-format
 msgid "Rows:"
 msgstr ""
 
-#: lib/flux_vale_web/components/admin_data_table.ex:773
+#: lib/flux_vale_web/components/admin_data_table.ex:799
 #, elixir-autogen, elixir-format
 msgid "Search: %{term}."
 msgstr ""
 
-#: lib/flux_vale_web/components/admin_data_table.ex:719
+#: lib/flux_vale_web/components/admin_data_table.ex:745
 #, elixir-autogen, elixir-format
 msgid "Showing %{count} entries."
 msgstr ""
 
-#: lib/flux_vale_web/components/admin_data_table.ex:712
+#: lib/flux_vale_web/components/admin_data_table.ex:738
 #, elixir-autogen, elixir-format
 msgid "Showing %{first} to %{last} of %{total}."
 msgstr ""
@@ -3688,7 +3688,7 @@ msgstr ""
 msgid "Sorted by %{label}, %{direction}. The strip counts the instances on this page only."
 msgstr ""
 
-#: lib/flux_vale_web/components/admin_data_table.ex:740
+#: lib/flux_vale_web/components/admin_data_table.ex:766
 #, elixir-autogen, elixir-format
 msgid "Sorted by %{label}, %{order}."
 msgstr ""
@@ -3698,7 +3698,7 @@ msgstr ""
 msgid "The org's wallet state and its instances. Instances render only as far as the read policy admits."
 msgstr ""
 
-#: lib/flux_vale_web/components/admin_data_table.ex:738
+#: lib/flux_vale_web/components/admin_data_table.ex:764
 #: lib/flux_vale_web/live/admin_live/org_detail.ex:522
 #, elixir-autogen, elixir-format
 msgid "ascending"
@@ -3709,7 +3709,7 @@ msgstr ""
 msgid "created date"
 msgstr ""
 
-#: lib/flux_vale_web/components/admin_data_table.ex:738
+#: lib/flux_vale_web/components/admin_data_table.ex:764
 #: lib/flux_vale_web/live/admin_live/org_detail.ex:522
 #, elixir-autogen, elixir-format
 msgid "descending"
