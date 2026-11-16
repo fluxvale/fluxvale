@@ -932,6 +932,54 @@ defmodule FluxValeWeb.AdminStorageRequestsLiveTest do
                "Showing 2 entries."
     end
 
+    test "a cursor whose window a delete emptied recovers to page one", %{
+      conn: conn,
+      admin: admin
+    } do
+      user = user!()
+      cluster!()
+      instance = instance!(version!(), user)
+
+      rows = seed_rejected!(instance, user, 1..26)
+      oldest_id = List.first(rows).id
+
+      {:ok, view, _html} = live(conn, "/admin/storage-requests?status=all")
+
+      # Page two holds the one row page one did not.
+      view
+      |> element("[data-testid='admin-storage-requests-page-next']")
+      |> render_click()
+
+      next_state = %{
+        query: "",
+        sort: nil,
+        page: 1,
+        size: 25,
+        after: queue_last_cursor!(admin, %{status: nil}, limit: 25),
+        before: nil
+      }
+
+      next_url =
+        AdminDataTable.url_for("/admin/storage-requests", next_state, [{"status", "all"}])
+
+      assert_patched(view, next_url)
+      assert requests(view) == [oldest_id]
+
+      # The page-two row goes away. The request's lifecycle has no
+      # destroy action (a request is decided, never deleted), so the
+      # precondition rides the data layer (the audit suite's idiom).
+      query = from(r in "storage_requests", where: r.id == ^Ecto.UUID.dump!(oldest_id))
+      {1, nil} = FluxVale.Repo.delete_all(query)
+
+      # Any re-read of the now-empty window: the view recovers to page
+      # one with the 25 remaining rows, not the empty state.
+      render_patch(view, next_url)
+
+      assert length(requests(view)) == 25
+      refute has_element?(view, "[data-testid='admin-storage-requests-empty']")
+      assert has_element?(view, "[data-testid='admin-storage-requests-page-prev'][disabled]")
+    end
+
     test "a decision broadcast moves the badge down", %{conn: conn, admin: admin} do
       user = user!()
       cluster!()
@@ -1038,6 +1086,45 @@ defmodule FluxValeWeb.AdminStorageRequestsLiveTest do
       # The next explicit event names the session honestly.
       render_click(view, "filter-status", %{"status" => "requested"})
       assert render(view) =~ "Your admin access ended."
+    end
+
+    test "a mid-session demotion cannot ride a client patch: the params re-read refuses", %{
+      conn: conn,
+      admin: admin
+    } do
+      user = user!()
+      cluster!()
+      instance = instance!(version!(), user)
+
+      # Only closed history, so the mounted (Requested) view has no
+      # rows: a refused patch leaves nothing rendered.
+      seed_rejected!(instance, user, 1..2)
+
+      {:ok, view, _html} = live(conn, "/admin/storage-requests")
+      assert has_element?(view, "[data-testid='admin-storage-requests-empty']")
+
+      # Demote under the live session (the idiom above).
+      query = from(u in "users", where: u.id == ^Ecto.UUID.dump!(admin.id))
+      {1, nil} = FluxVale.Repo.update_all(query, set: [platform_role: "user"])
+
+      # A client patch lands on handle_params past the gate's event
+      # hooks: the params-driven read re-resolves and refuses — the
+      # stale admin never fetches the ?status=all queue.
+      render_patch(view, "/admin/storage-requests?status=all")
+
+      assert render(view) =~ "Your admin access ended."
+      assert requests(view) == []
+
+      # And the resolve-nil arm: a revoked session token stops
+      # resolving entirely (the framework revoke path, the
+      # generated-tools suite's idiom).
+      token = Plug.Conn.get_session(conn, "user_token")
+      :ok = AshAuthentication.TokenResource.Actions.revoke(FluxVale.Identity.Token, token)
+
+      render_patch(view, "/admin/storage-requests?status=all")
+
+      assert render(view) =~ "Your admin access ended."
+      assert requests(view) == []
     end
   end
 

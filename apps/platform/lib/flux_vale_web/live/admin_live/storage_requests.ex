@@ -27,6 +27,9 @@ defmodule FluxValeWeb.AdminLive.StorageRequests do
   every admin LiveView inherits (#644's console slice, ADR-0047 D4):
   each event re-resolves the actor from the session and refuses a
   demoted one, so the write handlers below act on the FRESH struct.
+  A client patch calls handle_params past those hooks, so the
+  params-driven read re-resolves too — a demoted session gets the
+  gate's refusal copy, never a queue read.
   The same hook subscribes this process to `storage_requests:queue`,
   so the sidebar badge stays current on every admin page; this surface
   re-reads/re-streams its rows on the same create, decision, and apply
@@ -35,7 +38,9 @@ defmodule FluxValeWeb.AdminLive.StorageRequests do
 
   use FluxValeWeb, :live_view
 
+  alias FluxVale.Checks.ActorIsPlatformAdmin
   alias FluxVale.Checks.ActorOrgWalletFunded
+  alias FluxVale.Identity.User
   alias FluxVale.Infrastructure
   alias FluxVale.Infrastructure.Instance
   alias FluxVale.Infrastructure.Instance.StorageGrowthGuard
@@ -48,6 +53,7 @@ defmodule FluxValeWeb.AdminLive.StorageRequests do
   alias FluxValeWeb.Components.AdminDataTable
   alias FluxValeWeb.FeedbackHTML
   alias FluxValeWeb.InstanceStatus
+  alias FluxValeWeb.UserAuth
 
   require Ash.Query
 
@@ -75,24 +81,53 @@ defmodule FluxValeWeb.AdminLive.StorageRequests do
      )}
   end
 
+  # The queue's view state rides the params — and a client patch calls
+  # handle_params DIRECTLY, past the AdminDemotionGate's event/info
+  # hooks. So the params-driven read re-resolves the actor from the
+  # session with the gate's own grammar: a fresh platform admin
+  # proceeds (refresh_rows reads the FRESH struct), a demoted or
+  # unresolvable session gets the gate's byte-for-byte refusal copy
+  # and no read.
+  @impl Phoenix.LiveView
+  def handle_params(params, _uri, socket) do
+    case UserAuth.resolve_user(socket.assigns.admin_session) do
+      %User{} = actor ->
+        if ActorIsPlatformAdmin.platform_admin?(actor) do
+          {:noreply, params_view(socket, actor, params)}
+        else
+          {:noreply, demoted(socket)}
+        end
+
+      # The gate's own reasoning: a session that no longer resolves
+      # (revoked token) gets the demoted actor's refusal.
+      _not_signed_in ->
+        {:noreply, demoted(socket)}
+    end
+  end
+
   # The queue's view state: status, search, sort, page size, and the
   # keyset cursors ride query params, parsed with garbage-proof
   # fallbacks. The default view is status=requested with no search.
-  @impl Phoenix.LiveView
-  def handle_params(params, _uri, socket) do
+  defp params_view(socket, actor, params) do
     state =
       params
       |> AdminDataTable.parse_params(sortable: @sortable)
       |> Map.merge(%{showing: 0, next_cursor: nil, prev_cursor: nil})
 
-    {:noreply,
-     socket
-     |> assign(
-       table: state,
-       status: parse_status_param(params["status"]),
-       search_form: to_form(%{"query" => state.query}, as: :search)
-     )
-     |> refresh_rows()}
+    socket
+    |> assign(
+      current_user: actor,
+      table: state,
+      status: parse_status_param(params["status"]),
+      search_form: to_form(%{"query" => state.query}, as: :search)
+    )
+    |> refresh_rows()
+  end
+
+  # The AdminDemotionGate's refusal copy, byte-for-byte (one msgid for
+  # the whole console).
+  defp demoted(socket) do
+    put_flash(socket, :error, gettext("Your admin access ended. Sign out and sign back in."))
   end
 
   # -- events ---------------------------------------------------------------
@@ -384,9 +419,17 @@ defmodule FluxValeWeb.AdminLive.StorageRequests do
   # A crafted or stale cursor is not a crash: Ash answers the error and
   # the honest page under the current filters is the first one, once
   # (the wallet ledger's posture). A DB-down read lands here too, and
-  # the second failure is the flash above.
+  # the second failure is the flash above. The same posture covers a
+  # VALID cursor whose window a delete has emptied: an empty page on a
+  # cursor-carried state retries once at page one, so a still-populated
+  # queue never strands the operator on an empty-looking view.
   defp read_queue(admin, state, args) do
     case queue_page(admin, state, args) do
+      {:ok, %{results: []}} when state.after != nil or state.before != nil ->
+        clean = %{state | after: nil, before: nil}
+
+        {queue_page(admin, clean, args), clean}
+
       {:ok, page} ->
         {{:ok, page}, state}
 
