@@ -228,6 +228,18 @@
       "references": null,
       "scale": null,
       "size": null,
+      "source": "errored_at",
+      "type": "utc_datetime_usec"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
       "source": "last_used_at",
       "type": "utc_datetime_usec"
     },
@@ -562,7 +574,7 @@
   "custom_indexes": [],
   "custom_statements": [],
   "has_create_action": true,
-  "hash": "9D1F95BC325EEEC9E5EC1B4B359703092DFE91221F2E6425AEA2604FAD7BC7F5",
+  "hash": "2C46AE2598D615656443FD2315C5C57A08D7834314A0B2E2A80244B13745247F",
   "identities": [
     {
       "all_tenants?": false,
