@@ -119,9 +119,11 @@ churn), migration via `mix ash.codegen add_instances_reconcile_parking`:
   converged, still not ready, **and** `repaired_at` older than 300s)
   **only when nil or older than the window** (write-once-per-window),
   via a dedicated internal `update :park_reconcile` action mirroring
-  `update_status`'s `authorize?: false` shape. Window: compile-env
-  `:reconcile_park_window_seconds`, default 3600 (same pattern as
-  `@deploy_stale_timeout_seconds`).
+  `update_status`'s `authorize?: false` shape. Window: **module
+  attribute on the Instance resource, exposed via a public accessor
+  for the reconciler's predicate — one source for the trigger
+  fragment and the write-once check (no config knob; tests seed
+  timestamps directly, nothing overrides the window at runtime)**.
 - The trigger `where` (`instance.ex:253–259`) gains:
   `(is_nil(reconcile_parked_at) or
   fragment("? < now() - interval '3600 seconds'", reconcile_parked_at))`
