@@ -17,17 +17,17 @@ There is no manual install step. The `required_providers` block under Configure 
 
 Offline and air-gapped machines cannot reach the registry. For those, mirror a release archive locally and point the tool at it:
 
-1. Download the zip for your platform from the [releases page](https://github.com/fluxvale/terraform-provider-fluxvale/releases) — adjust the file names below to the platform and version you took — together with the versioned checksums `terraform-provider-fluxvale_0.4.0_SHA256SUMS`. Verify the archive:
+1. Download the zip for your platform from the [releases page](https://github.com/fluxvale/terraform-provider-fluxvale/releases) — adjust the file names below to the platform and version you took — together with the versioned checksums `terraform-provider-fluxvale_0.5.0_SHA256SUMS`. Verify the archive:
 
    ```sh
-   grep terraform-provider-fluxvale_0.4.0_linux_amd64.zip terraform-provider-fluxvale_0.4.0_SHA256SUMS | sha256sum -c -   # macOS: shasum -a 256 -c -
+   grep terraform-provider-fluxvale_0.5.0_linux_amd64.zip terraform-provider-fluxvale_0.5.0_SHA256SUMS | sha256sum -c -   # macOS: shasum -a 256 -c -
    ```
 
 2. Create the mirror tree and place the zip:
 
    ```sh
    mkdir -p ~/.tfplugins-mirror/registry.terraform.io/fluxvale/fluxvale
-   cp terraform-provider-fluxvale_0.4.0_linux_amd64.zip ~/.tfplugins-mirror/registry.terraform.io/fluxvale/fluxvale/
+   cp terraform-provider-fluxvale_0.5.0_linux_amd64.zip ~/.tfplugins-mirror/registry.terraform.io/fluxvale/fluxvale/
    ```
 
 3. Point the tool at the mirror in `~/.terraformrc` for Terraform or `~/.tofurc` for OpenTofu, with the absolute path to your mirror:
@@ -51,7 +51,7 @@ terraform {
   required_providers {
     fluxvale = {
       source  = "registry.terraform.io/fluxvale/fluxvale"
-      version = "~> 0.4" # write-only secret_env_vars needs 0.4.0+
+      version = "~> 0.5" # write-only secret_env_vars needs 0.4.0+
     }
   }
 }

@@ -367,12 +367,19 @@ if config_env() != :test do
 end
 
 # #765: the MCP endpoint and auth-copy switch the agent handoff
-# advertises. Test keeps config.exs/test.exs's pins — a stray MCP_*
+# advertises. config.exs defaults the copy to OAuth; MCP_AUTH_MODE
+# overrides it (pat | oauth). Test keeps its own pins — a stray MCP_*
 # in the suite's shell must not flip the fixtures (the OAuth tests
-# override the app env explicitly).
-if config_env() != :test do
-  mcp_server_url =
-    case System.get_env("MCP_SERVER_URL") do
+# override the app env explicitly). Resolved for every env because the
+# prod allowlist (#795) reads it; test stays nil so a stray export
+# can't fail the suite at boot.
+mcp_server_url_override = System.get_env("MCP_SERVER_URL")
+
+mcp_server_url =
+  if config_env() == :test do
+    nil
+  else
+    case mcp_server_url_override do
       value when value in [nil, ""] ->
         case {config_env(), System.get_env("PLATFORM_ENV")} do
           {:dev, _} -> "https://mcp.fluxvale.lvh.me/mcp"
@@ -390,7 +397,9 @@ if config_env() != :test do
 
         trimmed
     end
+  end
 
+if config_env() != :test do
   config :flux_vale, :mcp_server_url, mcp_server_url
 
   case System.get_env("MCP_AUTH_MODE") do
@@ -726,32 +735,38 @@ if config_env() == :prod do
 
   # #766: the resource-indicator allowlist the OAuth authorization
   # server accepts. Defaults follow the two deployed MCP hosts and the
-  # local k3d host; MCP_RESOURCE_URLS overrides with a comma-separated
-  # list for any other deployment.
-  default_mcp_resource_urls =
+  # local k3d host; a configured MCP_SERVER_URL adds its endpoint as
+  # the primary entry so a deployment that sets only that still accepts
+  # its own resource (#795). MCP_RESOURCE_URLS overrides with a
+  # comma-separated list for any other deployment — no union.
+  host_mcp_resource_url =
     case host do
       "staging." <> _ -> "https://mcp-staging.fluxvale.com/mcp"
       "app.fluxvale.lvh.me" -> "https://mcp.fluxvale.lvh.me/mcp"
       _other -> "https://mcp.fluxvale.com/mcp"
     end
 
-  mcp_resource_urls =
-    case System.get_env("MCP_RESOURCE_URLS") do
-      raw when is_binary(raw) ->
-        case String.trim(raw) do
-          "" -> default_mcp_resource_urls
-          trimmed -> trimmed
-        end
+  default_mcp_resource_urls =
+    case mcp_server_url_override do
+      value when value in [nil, ""] -> [host_mcp_resource_url]
+      _value -> Enum.uniq([mcp_server_url, host_mcp_resource_url])
+    end
 
-      nil ->
-        default_mcp_resource_urls
+  mcp_resource_urls_override =
+    case System.get_env("MCP_RESOURCE_URLS") do
+      raw when is_binary(raw) -> String.trim(raw)
+      nil -> ""
     end
 
   mcp_resource_urls =
-    mcp_resource_urls
-    |> String.split(",", trim: true)
-    |> Enum.map(&String.trim/1)
-    |> Enum.reject(&(&1 == ""))
+    if mcp_resource_urls_override == "" do
+      default_mcp_resource_urls
+    else
+      mcp_resource_urls_override
+      |> String.split(",", trim: true)
+      |> Enum.map(&String.trim/1)
+      |> Enum.reject(&(&1 == ""))
+    end
 
   config :flux_vale, :mcp_oauth, resource_urls: mcp_resource_urls
 

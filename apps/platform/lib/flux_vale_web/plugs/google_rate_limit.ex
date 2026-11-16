@@ -8,9 +8,8 @@ defmodule FluxValeWeb.Plugs.GoogleRateLimit do
 
   Not a pipeline plug: the controller calls `allow?/1` at the top of
   both actions, and the refusal is a browser-shaped redirect with
-  flash (the copy lives in `AuthFlow`) — never a bare 429. Otherwise
-  the ApiRateLimit posture: increment first, then check, so the
-  refused request still counts.
+  flash (the copy lives in `AuthFlow`) — never a bare 429. The
+  increment-first posture: a refused request still counts.
 
   ## The key, and how honest it is (plan §3.2)
 
@@ -31,28 +30,20 @@ defmodule FluxValeWeb.Plugs.GoogleRateLimit do
   only helps while exactly that proxy stands in front. Revisit
   trigger (plan §3.2): the proxy chain changes again.
 
-  ## The store
+  The store is `FixedWindow` (#510, since S4): this module is the
+  source — table name, the one `:google` bucket's window and limit,
+  the row cap — and the engine owns the mechanics. The key is
+  `{:google, client_ip, window}`. Past the row cap, the first
+  over-cap request claims the sweep window and reaps lapsed rows;
+  later over-cap requests inside the claim window do not re-scan
+  (S4's change: rows from lapsed windows may linger up to one longest
+  window — accepted, they can no longer be written, and the per-request
+  O(table) scan they used to cost was a CPU denial vector). A throttle
+  must not 500 the sign-in door.
 
-  A named ETS table owned by a supervised GenServer (the
-  StorageExpansion/Edge.Activity pattern — controllers die with the
-  request; the table must not). Counter writes ride caller-side
-  `:ets.update_counter` on a `{ip, window}` key (atomic,
-  floor-bucketed like ApiRateLimit, no read-first). The owner's jobs:
-  hold the table, sweep expired windows. Because a spoofed header
-  mints a fresh row per distinct value, row creation is bounded by
-  request rate, not by the throttle — `max_rows` is the backstop:
-  past it, the caller sweeps expired rows inline before inserting
-  (rows from lapsed windows only, so a live key is never reaped; a
-  current-window flood may overshoot by one window's worth before the
-  rollover sweeps it — accepted, a row costs tens of bytes).
-
-  `allow?/1` fails OPEN when the table is gone or the owner is mid
-  restart (the `whereis` pass and the write can race the owner's
-  death — ArgumentError is rescued): a throttle must not 500 the
-  sign-in door. Exact per-IP accounting holds while the platform runs
-  a single replica; revisit trigger: platform replicas scale past one
-  — then the window is per-pod and the limit must move to shared
-  storage.
+  Exact per-IP accounting holds while the platform runs a single
+  replica; revisit trigger: platform replicas scale past one — then
+  the window is per-pod and the limit must move to shared storage.
 
   ## Configuration
 
@@ -65,30 +56,47 @@ defmodule FluxValeWeb.Plugs.GoogleRateLimit do
         max_rows: 100_000
   """
 
-  use GenServer
+  @behaviour FluxValeWeb.Plugs.FixedWindow
+
+  alias FluxValeWeb.Plugs.FixedWindow
 
   @table __MODULE__.Windows
+  @bucket :google
   @default_window_seconds 60
   @default_max_requests 10
   @default_max_rows 100_000
 
   @doc false
-  @spec start_link(keyword()) :: GenServer.on_start()
-  def start_link(_opts) do
-    GenServer.start_link(__MODULE__, :ok, name: __MODULE__)
-  end
+  @impl FluxValeWeb.Plugs.FixedWindow
+  @spec table() :: atom()
+  def table, do: @table
+
+  @doc false
+  @impl FluxValeWeb.Plugs.FixedWindow
+  @spec bucket(:google) :: %{window_seconds: pos_integer(), max_requests: pos_integer()}
+  def bucket(@bucket), do: %{window_seconds: window_seconds(), max_requests: max_requests()}
+
+  @doc false
+  @impl FluxValeWeb.Plugs.FixedWindow
+  @spec max_rows() :: pos_integer()
+  def max_rows, do: config!(:max_rows, @default_max_rows)
+
+  @doc false
+  @impl FluxValeWeb.Plugs.FixedWindow
+  @spec max_window_seconds() :: pos_integer()
+  def max_window_seconds, do: window_seconds()
 
   @doc """
   Counts this request against the caller's IP window and answers
-  whether it may proceed. Config is read OUTSIDE the fail-open arm —
-  a malformed limit must raise at the boundary, not silently pass.
+  whether it may proceed. Config is read OUTSIDE the engine's fail-open
+  arm — a malformed limit must raise at the boundary, not silently pass.
   """
   @spec allow?(Plug.Conn.t()) :: boolean()
   def allow?(conn) do
-    window = window_start(System.system_time(:second), window_seconds())
-    limit = max_requests()
-    cap = max_rows()
-    bump(client_ip(conn), window, limit, cap)
+    case FixedWindow.allow?(__MODULE__, @bucket, client_ip(conn)) do
+      :ok -> true
+      {:error, _retry_after} -> false
+    end
   end
 
   @doc """
@@ -114,65 +122,19 @@ defmodule FluxValeWeb.Plugs.GoogleRateLimit do
 
   @doc """
   The floor-bucketed window containing `epoch` — ApiRateLimit's
-  arithmetic verbatim: `div(epoch, window) * window`. Public pure
-  function for its test (the roll test drives it instead of sleeping
-  out a window boundary).
+  arithmetic verbatim. Public pure function for its test (the roll
+  test drives it instead of sleeping out a window boundary).
   """
   @spec window_start(integer(), pos_integer()) :: integer()
-  def window_start(epoch, window_seconds), do: div(epoch, window_seconds) * window_seconds
+  def window_start(epoch, window_seconds), do: FixedWindow.window_start(epoch, window_seconds)
 
   @doc """
-  Deletes rows from windows that can no longer be written (the floor
-  bucketing has moved past them). Public for its test — the table is
-  public, so the test stages stale rows directly; the owner schedules
-  this every window and the cap path calls it inline.
+  Deletes rows from windows that can no longer be written. Public for
+  its test — the engine's owner schedules it every longest window and
+  the cap path calls it under a claim.
   """
   @spec sweep_expired() :: :ok
-  def sweep_expired do
-    window = window_seconds()
-    cutoff = window_start(System.system_time(:second), window) - 2 * window
-    spec = [{{{:"$1", :"$2"}, :_}, [{:<, :"$2", cutoff}], [true]}]
-    :ets.select_delete(@table, spec)
-    :ok
-  end
-
-  # coveralls-ignore-start - the table-gone / owner-dying window (the
-  # supervisor's restart): not sequentially stageable, the owner is
-  # re-spawned before a test can call through. Fail open — a throttle
-  # must not 500 the sign-in door; the next request counts again.
-  defp bump(ip, window, limit, cap) do
-    maybe_sweep_full_table(cap)
-
-    count = :ets.update_counter(@table, {ip, window}, {2, 1}, {{ip, window}, 0})
-    count <= limit
-  rescue
-    ArgumentError -> true
-  end
-
-  # coveralls-ignore-stop
-
-  # Past the row cap, reap the expired before inserting (the spoofed
-  # -key backstop — see the moduledoc's store section).
-  defp maybe_sweep_full_table(cap) do
-    if :ets.info(@table, :size) > cap do
-      sweep_expired()
-    end
-  end
-
-  # The owner's only jobs: hold the table, sweep it per window.
-  @impl GenServer
-  def init(:ok) do
-    table = :ets.new(@table, [:named_table, :set, :public, read_concurrency: true])
-    send(self(), :sweep)
-    {:ok, table}
-  end
-
-  @impl GenServer
-  def handle_info(:sweep, table) do
-    sweep_expired()
-    Process.send_after(self(), :sweep, window_seconds() * 1_000)
-    {:noreply, table}
-  end
+  def sweep_expired, do: FixedWindow.sweep_expired(__MODULE__)
 
   # The rightmost non-empty entry across every X-Forwarded-For value
   # (proxies append): the one untrusted-hop-remaining proxy's append —
@@ -203,8 +165,6 @@ defmodule FluxValeWeb.Plugs.GoogleRateLimit do
   defp window_seconds, do: config!(:window_seconds, @default_window_seconds)
 
   defp max_requests, do: config!(:max_requests, @default_max_requests)
-
-  defp max_rows, do: config!(:max_rows, @default_max_rows)
 
   # ApiRateLimit's config! verbatim: fail at the config boundary, not
   # mid-request — a string limit would silently disable the check, a

@@ -434,6 +434,59 @@ defmodule FluxValeWeb.AdminDataTableLiveTest do
       assert AdminDataTable.url_for(base, cursor_state) == "/admin/people?after=Gctp"
     end
 
+    test "url_for appends a surface's extra filters after the canonical view" do
+      state = %{query: "", page: 1, size: 25}
+
+      assert AdminDataTable.url_for("/admin/audit", state, resource: "tag") ==
+               "/admin/audit?resource=tag"
+
+      sorted = %{query: "", page: 1, size: 25, sort: {:version_inserted_at, :asc}}
+
+      assert AdminDataTable.url_for("/admin/audit", sorted,
+               resource: "tag",
+               actor: "System Ops"
+             ) ==
+               "/admin/audit?sort=version_inserted_at&dir=asc&resource=tag&actor=System+Ops"
+    end
+
+    test "url_for drops absent extras and keeps the bare base when nothing remains" do
+      state = %{query: "", page: 1, size: 25}
+
+      assert AdminDataTable.url_for("/admin/audit", state, []) == "/admin/audit"
+
+      assert AdminDataTable.url_for("/admin/audit", state, source: nil, actor: "") ==
+               "/admin/audit"
+
+      assert AdminDataTable.url_for("/admin/audit", state, resource: "tag", source: nil) ==
+               "/admin/audit?resource=tag"
+    end
+
+    test "url_for stringifies extra keys and values for the query" do
+      state = %{query: "", page: 1, size: 25}
+
+      assert AdminDataTable.url_for("/admin/storage-requests", state,
+               status: :approved,
+               page_size: 50
+             ) == "/admin/storage-requests?status=approved&page_size=50"
+
+      assert AdminDataTable.url_for("/admin/storage-requests", state, [{"status", "approved"}]) ==
+               "/admin/storage-requests?status=approved"
+    end
+
+    test "url_for keeps the table's canonical keys against an extra collision" do
+      state = %{query: "", page: 1, size: 25, sort: {:version_inserted_at, :asc}}
+
+      assert AdminDataTable.url_for("/admin/audit", state,
+               q: "hacked",
+               sort: "hacked",
+               dir: "desc",
+               page: "9",
+               size: "100",
+               after: "later",
+               before: "earlier"
+             ) == "/admin/audit?sort=version_inserted_at&dir=asc"
+    end
+
     test "keyset links answer nils for anything that is not a keyset page" do
       assert AdminDataTable.keyset_links(%{not: :a_page}) == %{next: nil, prev: nil}
     end

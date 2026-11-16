@@ -88,7 +88,17 @@ defmodule FluxValeWeb.Plugs.OAuthRateLimitTest do
   end
 
   test "malformed config fails at the boundary" do
-    for bad <- [[buckets: %{register: [window_seconds: 0, max_requests: 1]}], [max_rows: 0]] do
+    # The third case is the eager one: the request is for :register, but
+    # max_window_seconds validates every bucket, so a malformed :token
+    # fails at the boundary too (the engine reads all config before the
+    # fail-open arm — #510 S3).
+    bad_configs = [
+      [buckets: %{register: [window_seconds: 0, max_requests: 1]}],
+      [max_rows: 0],
+      [buckets: %{token: [window_seconds: 0, max_requests: 1]}]
+    ]
+
+    for bad <- bad_configs do
       with_config(bad, fn ->
         assert_raise ArgumentError, ~r/must be a positive integer/, fn ->
           OAuthRateLimit.allow?(conn(), :register)
@@ -111,10 +121,13 @@ defmodule FluxValeWeb.Plugs.OAuthRateLimitTest do
     assert :ets.member(@table, {:register, ip, window})
   end
 
-  test "the row cap sweeps expired rows inline" do
+  test "the row cap claims and sweeps when no claim exists yet" do
     stale = "10.238.#{unique_octet()}.#{unique_octet()}"
     live = {10, 237, unique_octet(), unique_octet()}
 
+    # This test owns the claim state: a leftover fresh claim from another
+    # test would block the insert_new arm this test exercises.
+    :ets.delete(@table, {:sweep, :last})
     :ets.insert(@table, {{:register, stale, 0}, 99})
     :ets.insert(@table, {{:register, stale <> "-2", 0}, 99})
 
@@ -124,19 +137,85 @@ defmodule FluxValeWeb.Plugs.OAuthRateLimitTest do
         live_conn = conn([], live)
         assert :ok = OAuthRateLimit.allow?(live_conn, :register)
         refute :ets.member(@table, {:register, stale, 0})
+        refute :ets.member(@table, {:register, stale <> "-2", 0})
 
-        # The next over-cap request is inside the sweep window: it must
-        # not re-scan. Age the throttle stamp to the boundary and the
-        # claim replaces it once, then sweeps again.
-        sweep_key = sweep_key()
-        :ets.insert(@table, {sweep_key, 0})
-
-        octet_one = unique_octet()
-        octet_two = unique_octet()
-        next_conn = conn([], {10, 236, octet_one, octet_two})
-        assert :ok = OAuthRateLimit.allow?(next_conn, :register)
+        # The insert_new arm claimed this sweep window on the way in.
+        assert [{{:sweep, :last}, stamp}] = :ets.lookup(@table, sweep_key())
+        assert stamp > 0
       end
     )
+  end
+
+  test "a fresh claim still refuses a saturated key and does not re-scan" do
+    other = "10.235.#{unique_octet()}.#{unique_octet()}"
+    target = "10.234.#{unique_octet()}.#{unique_octet()}"
+    lapsed = "10.233.#{unique_octet()}.#{unique_octet()}"
+    now = System.system_time(:second)
+    window = OAuthRateLimit.window_start(now, 86_400)
+
+    with_config(
+      [max_rows: 1, buckets: %{register: [window_seconds: 86_400, max_requests: 2]}],
+      fn ->
+        # Over cap with live rows, a FRESH claim, a lapsed row the
+        # throttled sweep must not reach, and a key already at its limit.
+        :ets.insert(@table, {{:register, other, window}, 1})
+        :ets.insert(@table, {{:register, target, window}, 2})
+        :ets.insert(@table, {{:register, lapsed, 0}, 99})
+        :ets.insert(@table, {{:sweep, :last}, now})
+
+        target_conn = conn([], ip_tuple(target))
+        assert {:error, retry_after} = OAuthRateLimit.allow?(target_conn, :register)
+        assert retry_after >= 1
+
+        assert :ets.lookup(@table, {:register, target, window}) == [
+                 {{:register, target, window}, 3}
+               ]
+
+        # The guard only replaces a STALE stamp: this one is fresh, so
+        # no sweep ran (the lapsed row survives) and the stamp stands.
+        assert :ets.member(@table, {:register, lapsed, 0})
+        assert :ets.lookup(@table, {:sweep, :last}) == [{{:sweep, :last}, now}]
+      end
+    )
+  end
+
+  test "a stale claim re-arms via select_replace and sweeps" do
+    other = "10.245.#{unique_octet()}.#{unique_octet()}"
+    target = "10.244.#{unique_octet()}.#{unique_octet()}"
+    lapsed = "10.243.#{unique_octet()}.#{unique_octet()}"
+    now = System.system_time(:second)
+    window = OAuthRateLimit.window_start(now, 86_400)
+
+    with_config(
+      [max_rows: 1, buckets: %{register: [window_seconds: 86_400, max_requests: 2]}],
+      fn ->
+        :ets.insert(@table, {{:register, other, window}, 1})
+        :ets.insert(@table, {{:register, target, window}, 2})
+        :ets.insert(@table, {{:register, lapsed, 0}, 99})
+        # Stale: older than the longest window, so the claim is up for
+        # grabs again.
+        :ets.insert(@table, {{:sweep, :last}, 0})
+
+        target_conn = conn([], ip_tuple(target))
+        assert {:error, _retry_after} = OAuthRateLimit.allow?(target_conn, :register)
+
+        assert :ets.lookup(@table, {:register, target, window}) == [
+                 {{:register, target, window}, 3}
+               ]
+
+        # The claim refreshed and the sweep it unlocked ran.
+        assert [{{:sweep, :last}, stamp}] = :ets.lookup(@table, {:sweep, :last})
+        assert stamp >= now
+        refute :ets.member(@table, {:register, lapsed, 0})
+      end
+    )
+  end
+
+  defp ip_tuple(ip) do
+    ip
+    |> String.split(".")
+    |> Enum.map(&String.to_integer/1)
+    |> List.to_tuple()
   end
 
   defp unique_octet, do: rem(System.unique_integer([:positive]), 250)

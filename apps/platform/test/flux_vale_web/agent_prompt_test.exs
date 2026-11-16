@@ -29,13 +29,13 @@ defmodule FluxValeWeb.AgentPromptTest do
     assert prompt =~ AgentPrompt.commit_rule()
   end
 
-  test "the auth sentence is the one swappable PAT shape today", %{ctx: ctx} do
+  test "the auth sentence is the PAT path, with no second OAuth path", %{ctx: ctx} do
     note = AgentPrompt.auth_note(ctx)
 
     assert note =~ "#{ctx.api_base}/settings/developer#api-tokens"
     assert note =~ "FLUXVALE_PAT"
     assert note =~ "Authorization: Bearer $FLUXVALE_PAT"
-    assert note =~ "OAuth ships"
+    refute note =~ "OAuth"
     assert AgentPrompt.bearer_headers?()
     refute note =~ "fvpat_"
   end
@@ -110,14 +110,15 @@ defmodule FluxValeWeb.AgentPromptTest do
     refute AgentPrompt.snippet_note() =~ "FLUXVALE_PAT"
   end
 
-  test "the OAuth mode drops the token note and every snippet's header", %{ctx: ctx} do
+  test "the OAuth mode keeps the PAT fallback and drops every snippet's header", %{ctx: ctx} do
     previous = Application.get_env(:flux_vale, :mcp_auth_mode)
     on_exit(fn -> Application.put_env(:flux_vale, :mcp_auth_mode, previous) end)
     Application.put_env(:flux_vale, :mcp_auth_mode, :oauth)
 
     refute AgentPrompt.bearer_headers?()
     assert AgentPrompt.auth_note(ctx) =~ "browser sign-in"
-    refute AgentPrompt.auth_note(ctx) =~ "FLUXVALE_PAT"
+    assert AgentPrompt.auth_note(ctx) =~ "FLUXVALE_PAT"
+    assert AgentPrompt.auth_note(ctx) =~ "Authorization: Bearer $FLUXVALE_PAT"
 
     claude = AgentPrompt.install(:claude_code, ctx)
     assert claude == "claude mcp add --transport http fluxvale #{ctx.mcp_url}"

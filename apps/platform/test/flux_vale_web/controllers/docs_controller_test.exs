@@ -65,6 +65,16 @@ defmodule FluxValeWeb.DocsControllerTest do
       assert html =~ ~s(aria-label="Documentation")
       assert html =~ ~s(href="/docs/guides/fixture-page")
       assert html =~ ~s(href="/docs/help/fixture-faq")
+
+      # #799: the agent guide is the sidebar's first top-level entry,
+      # above the content-derived sections (the index page's placement).
+      document = LazyHTML.from_document(html)
+      nav_links = LazyHTML.query(document, "nav.docs-nav a")
+      nav_hrefs = LazyHTML.attribute(nav_links, "href")
+
+      assert List.first(nav_hrefs) == "/docs/agents"
+      assert "/docs/guides" in nav_hrefs
+
       refute html =~ ~s(aria-current="page")
     end
 
@@ -88,6 +98,17 @@ defmodule FluxValeWeb.DocsControllerTest do
       assert html =~ ~s(href="/docs/guides">Guides)
       assert html =~ ~s(aria-label="Documentation")
       assert html =~ ~s(aria-current="page")
+
+      # #799: the agent guide rides every docs sidebar; the article's
+      # own link is the active one, not the agent entry.
+      document = LazyHTML.from_document(html)
+      agent_entry = LazyHTML.query(document, ~s(nav.docs-nav a[href="/docs/agents"]))
+      agent_text = LazyHTML.text(agent_entry)
+      entry_html = LazyHTML.to_html(agent_entry)
+
+      assert String.trim(agent_text) == "Set up with your agent"
+      refute entry_html =~ ~s(aria-current)
+      refute entry_html =~ "docs-nav-link-active"
 
       # The body is rendered markdown, not raw source.
       assert html =~ "The <strong>body</strong>."

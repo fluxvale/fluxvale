@@ -42,6 +42,7 @@
   font-size: clamp(34px, 4vw, 56px);
   letter-spacing: -0.01em;
   line-height: 1.05;
+  text-wrap: balance;
 }
 
 /* Layered hero offsets must never pan the page; clipped on html + body
@@ -89,6 +90,12 @@ body:has(.landing) {
 
 .landing .band-head h2 {
   margin-top: 18px;
+}
+
+.landing .band-sub {
+  margin-top: 14px;
+  color: var(--ink-muted);
+  max-width: 46ch;
 }
 
 /* ---- Hero: four calm layers.
@@ -214,21 +221,165 @@ body:has(.landing) {
   border: 1px solid var(--line);
 }
 
-/* The real-product capture fills the panel under the bar. The capture
- * pair (light + dark) is re-taken through apps/e2e/capture.mjs per
- * theme — a CSS filter can't fake the app's own dark surfaces, so two
- * files ride and the dark: pair flips with the theme, same as the
- * header's mark pair. The 36px bottom keeps the float chip's straddle
- * on panel canvas, not on the shot. */
-.landing .shot {
-  padding: 10px 10px 36px;
+/* The HTML dashboard preview: a tidy simplification of the signed-in
+ * dashboard (title, deploy action, wallet chip, app rows with status
+ * pills). Decorative, aria-hidden, theme-aware. The 34px bottom keeps
+ * the float chip's straddle on panel canvas, not on the mock. */
+.landing .mock {
+  padding: 18px 18px 34px;
+  background: var(--canvas);
+  border-radius: 0 0 var(--radius-panel) var(--radius-panel);
 }
 
-.landing .shot img {
-  width: 100%;
-  height: auto;
+.landing .mock-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.landing .mock-title {
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+}
+
+.landing .mock-sub {
+  margin-top: 2px;
+  font-size: 11.5px;
+  color: var(--ink-subtle);
+}
+
+.landing .mock-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.landing .mock-wallet {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  border-radius: var(--radius-pill);
+  padding: 5px 10px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-muted);
+}
+
+.landing .mock-wallet .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--link);
+}
+
+.landing .mock-deploy {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--primary);
+  background: var(--primary);
+  color: var(--on-primary);
+  border-radius: var(--radius-control);
+  padding: 6px 10px;
+  font-size: 11.5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.landing .mock-label {
+  margin-top: 16px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--ink-subtle);
+}
+
+.landing .mock-list {
+  margin-top: 8px;
+  display: grid;
+  gap: 7px;
+}
+
+.landing .mock-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  border-radius: var(--radius-control);
+  padding: 8px 10px;
+}
+
+.landing .mock-icon {
+  width: 26px;
+  height: 26px;
+  padding: 3px;
   border: 1px solid var(--line);
   border-radius: var(--radius-control);
+  background: var(--panel-raised);
+  object-fit: contain;
+}
+
+.landing .mock-app {
+  min-width: 0;
+}
+
+.landing .mock-name {
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.2;
+  color: var(--ink);
+}
+
+.landing .mock-host {
+  margin-top: 1px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--ink-subtle);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.landing .mock-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+  border: 1px solid;
+  border-radius: var(--radius-pill);
+  padding: 2px 8px;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.landing .mock-status .dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.landing .mock-status.is-running {
+  border-color: var(--border-success);
+  background: var(--success-muted);
+  color: var(--success);
+}
+
+.landing .mock-status.is-sleeping {
+  border-color: var(--line);
+  background: var(--primary-muted);
+  color: var(--link);
 }
 
 .landing .chip {
@@ -277,20 +428,22 @@ body:has(.landing) {
   background: var(--warning);
 }
 
-/* ---- How it works: uneven bento; the tall cell earns its height with
- * the real catalog preview. ---- */
+/* ---- How it works: two equal lanes, human first. The human lane
+ * carries the real catalog preview; the agent lane carries the same
+ * three steps and its setup link. ---- */
 .landing .steps {
   margin-top: clamp(88px, 11vw, 150px);
 }
 
-.landing .bento {
+.landing .lanes {
   display: grid;
+  grid-template-columns: 1fr 1fr;
   gap: 14px;
-  grid-template-columns: 7fr 5fr;
-  grid-template-rows: auto auto;
 }
 
-.landing .cell {
+.landing .lane {
+  display: flex;
+  flex-direction: column;
   border: 1px solid var(--line);
   border-radius: var(--radius-panel);
   padding: clamp(24px, 3vw, 40px);
@@ -301,41 +454,61 @@ body:has(.landing) {
     border-color var(--motion-base) var(--motion-ease-out);
 }
 
-.landing .cell:hover {
+.landing .lane:hover {
   translate: 0 -3px;
   box-shadow: var(--elevation-md);
   border-color: var(--line-strong);
 }
 
-.landing .cell.tall {
-  grid-row: 1 / span 2;
-  display: flex;
-  flex-direction: column;
+.landing .lane-label {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--link);
 }
 
-.landing .cell.raised {
-  background: var(--panel-raised);
+.landing .lane-steps {
+  display: grid;
+  gap: 22px;
+  margin-top: 24px;
+  padding: 0;
+  list-style: none;
 }
 
-.landing .cell .n {
+.landing .lane-step .n {
   font-family: var(--font-mono);
   font-size: 12px;
   color: var(--link);
   display: block;
-  margin-bottom: clamp(20px, 2.4vw, 40px);
+  margin-bottom: 8px;
 }
 
-.landing .cell h3 {
-  font-size: clamp(22px, 2vw, 28px);
+.landing .lane-step h3 {
+  font-size: clamp(20px, 1.8vw, 24px);
   font-weight: 800;
   letter-spacing: -0.02em;
 }
 
-.landing .cell p {
-  margin-top: 10px;
+.landing .lane-step p {
+  margin-top: 8px;
   color: var(--ink-muted);
-  font-size: 15.5px;
-  max-width: 44ch;
+  font-size: 15px;
+  max-width: 40ch;
+}
+
+.landing .lane-foot {
+  margin-top: auto;
+  padding-top: 26px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.landing .lane-foot .clients {
+  font-size: 12.5px;
+  color: var(--ink-subtle);
 }
 
 .landing .mini {
@@ -346,6 +519,7 @@ body:has(.landing) {
 }
 
 .landing .mini .cat,
+.landing .way .cat,
 .landing .app-card .cat {
   font-family: var(--font-mono);
   font-size: 10.5px;
@@ -419,6 +593,99 @@ body:has(.landing) {
 
 .landing .arrowlink:hover .arrow {
   transform: translateX(4px);
+}
+
+/* ---- Ways in: the agent path leads, code and terminal follow. This
+ * closes the steps section instead of standing as a separate band. ---- */
+.landing .ways {
+  margin-top: clamp(28px, 4vw, 44px);
+}
+
+.landing .ways-head {
+  margin-bottom: 16px;
+}
+
+.landing .ways-lead {
+  margin-top: 10px;
+  color: var(--ink-muted);
+  font-size: 15px;
+  max-width: 52ch;
+}
+
+.landing .ways-pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+
+.landing .ways-code {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  margin-top: 14px;
+}
+
+.landing .way {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-panel);
+  background: var(--panel);
+  padding: clamp(20px, 2.4vw, 30px);
+  color: inherit;
+  text-decoration: none;
+  transition:
+    translate var(--motion-base) var(--motion-ease-out),
+    box-shadow var(--motion-base) var(--motion-ease-out),
+    border-color var(--motion-base) var(--motion-ease-out);
+}
+
+.landing .way:hover {
+  translate: 0 -3px;
+  box-shadow: var(--elevation-md);
+  border-color: var(--line-strong);
+}
+
+.landing .way-code {
+  padding: clamp(18px, 2.2vw, 24px);
+}
+
+.landing .way-code .way-title {
+  font-size: 18px;
+}
+
+.landing .way-code .way-body {
+  font-size: 14px;
+}
+
+.landing .way-title {
+  font-size: clamp(18px, 1.6vw, 22px);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.landing .way-body {
+  color: var(--ink-muted);
+  font-size: 14.5px;
+  line-height: 1.55;
+}
+
+.landing .way .arrowlink {
+  margin-top: auto;
+  padding-top: 4px;
+}
+
+.landing .way-url {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  color: var(--ink-subtle);
+  background: var(--canvas);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  padding: 8px 10px;
+  overflow-wrap: anywhere;
 }
 
 /* ---- App catalog band: one full-bleed seam, asymmetric card offsets. ---- */
@@ -562,13 +829,15 @@ body:has(.landing) {
   translate: 0 -1px;
 }
 
-/* ---- Footer ---- */
+/* ---- Footer: the brand beside three labeled link columns; the
+ * columns stack under the brand at the landing's one breakpoint
+ * (<=900px), headings staying with their links. ---- */
 .landing .foot-in {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding-block: 26px;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: start;
+  gap: clamp(24px, 4vw, 64px);
+  padding-block: clamp(28px, 3.5vw, 44px);
   font-size: 14px;
   color: var(--ink-subtle);
 }
@@ -579,16 +848,28 @@ body:has(.landing) {
   gap: 10px;
 }
 
-.landing .foot-links {
-  display: flex;
-  gap: 24px;
+.landing .foot-nav {
+  display: grid;
+  grid-template-columns: repeat(3, auto);
+  justify-content: end;
+  gap: clamp(28px, 5vw, 72px);
 }
 
-/* #396: the link row grew (Pricing joined) — row-gap covers the wrap
- * on the narrowest phones. No effect at any width that already fit. */
-.landing .foot-links.flex-wrap {
-  flex-wrap: wrap;
-  row-gap: 8px;
+.landing .foot-heading {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.18em;
+  line-height: 1.4;
+  text-transform: uppercase;
+  color: var(--ink-muted);
+  margin-bottom: 12px;
+}
+
+.landing .foot-links {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
 
 .landing .foot-links a {
@@ -597,6 +878,14 @@ body:has(.landing) {
 
 .landing .foot-links a:hover {
   color: var(--ink);
+}
+
+/* #532 a11y bar: the keyboard ring rides the focus token across the
+ * footer's links — the brand link included, so the whole band shares
+ * one treatment instead of mixing the UA default in. */
+.landing .foot-in a:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
 }
 
 /* ---- Motion: load reveal (rise + chip drop on the delay ladder),
@@ -719,8 +1008,9 @@ body:has(.landing) {
   }
 
   .landing .panel:hover,
-  .landing .cell:hover,
+  .landing .lane:hover,
   .landing .app-card:hover,
+  .landing .way:hover,
   .landing .lift:hover,
   .landing .arrowlink:hover .arrow {
     transform: none !important;
@@ -743,8 +1033,9 @@ body:has(.landing) {
   }
 
   .landing .panel:hover,
-  .landing .cell:hover,
+  .landing .lane:hover,
   .landing .app-card:hover,
+  .landing .way:hover,
   .landing .lift:hover,
   .landing .arrowlink:hover .arrow {
     transform: none !important;
@@ -771,13 +1062,8 @@ body:has(.landing) {
     translate: -6% 45%;
   }
 
-  .landing .bento {
+  .landing .lanes {
     grid-template-columns: 1fr;
-    grid-template-rows: auto;
-  }
-
-  .landing .cell.tall {
-    grid-row: auto;
   }
 
   .landing .band-head {
@@ -788,12 +1074,29 @@ body:has(.landing) {
     grid-template-columns: 1fr;
   }
 
+  .landing .ways-pair,
+  .landing .ways-code {
+    grid-template-columns: 1fr;
+  }
+
   .landing .app-card.offset-down {
     margin-top: 0;
   }
 
   .landing .pricing-in {
     grid-template-columns: 1fr;
+  }
+
+  /* Footer columns stack, each heading staying with its links. */
+  .landing .foot-in {
+    grid-template-columns: 1fr;
+    gap: 28px;
+  }
+
+  .landing .foot-nav {
+    grid-template-columns: 1fr;
+    justify-content: start;
+    gap: 28px;
   }
 
   .landing .capsule-slot {

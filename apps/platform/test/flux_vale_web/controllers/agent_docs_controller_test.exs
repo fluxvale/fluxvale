@@ -29,7 +29,7 @@ defmodule FluxValeWeb.AgentDocsControllerTest do
     refute html =~ "fvpat_"
   end
 
-  test "the OAuth mode swaps the token sentence too", %{conn: conn} do
+  test "the OAuth mode keeps the PAT fallback in the note", %{conn: conn} do
     previous = Application.get_env(:flux_vale, :mcp_auth_mode)
     on_exit(fn -> Application.put_env(:flux_vale, :mcp_auth_mode, previous) end)
     Application.put_env(:flux_vale, :mcp_auth_mode, :oauth)
@@ -37,7 +37,7 @@ defmodule FluxValeWeb.AgentDocsControllerTest do
     conn = get(conn, ~p"/docs/agents")
     html = html_response(conn, 200)
 
-    refute html =~ "FLUXVALE_PAT"
+    assert html =~ "FLUXVALE_PAT"
     assert html =~ "browser sign-in"
     refute html =~ "--header"
   end
@@ -48,5 +48,15 @@ defmodule FluxValeWeb.AgentDocsControllerTest do
 
     assert html =~ ~s(class="docs-nav")
     assert html =~ ~s(href="/docs/automation/mcp")
+
+    # #799: the guide lists itself at the sidebar's top, active.
+    document = LazyHTML.from_document(html)
+    agent_entry = LazyHTML.query(document, ~s(nav.docs-nav a[href="/docs/agents"]))
+    entry_html = LazyHTML.to_html(agent_entry)
+    agent_text = LazyHTML.text(agent_entry)
+
+    assert String.trim(agent_text) == "Set up with your agent"
+    assert entry_html =~ ~s(aria-current="page")
+    assert entry_html =~ "docs-nav-link-active"
   end
 end

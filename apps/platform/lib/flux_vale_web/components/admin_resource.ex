@@ -2,11 +2,12 @@ defmodule FluxValeWeb.AdminResource do
   @moduledoc """
   The generic resource console's type-driven render pieces (#595, the
   plan at docs/plans/595-resource-console.md): one value renderer per
-  attribute shape (the plan's rendering table), the count-aware offset
-  pagination controls, the write affordances (the visible?-gated New
-  link and actions bar — nothing renders when nothing is permitted),
-  and the form-input mapping (attribute shape to `<.input>` type, the
-  plan's input contracts table). The LiveView engine
+  attribute shape (the plan's rendering table), the page math the audit
+  surface's own pager reads (the shared data table carries its own
+  `page_count/2`), the write affordances (the visible?-gated New link
+  and actions bar — nothing renders when nothing is permitted), and the
+  form-input mapping (attribute shape to `<.input>` type, the plan's
+  input contracts table). The LiveView engine
   (`FluxValeWeb.AdminLive.Resources`) introspects the resource and
   hands each attribute's shape and value here — nothing in this module
   reads a resource, so the registry stays the only surface that knows
@@ -325,134 +326,6 @@ defmodule FluxValeWeb.AdminResource do
       navigate={@path}
       class="text-sm text-link underline-offset-2 hover:underline"
       data-testid={"admin-resource-fk-#{@record_id}"}
-    >
-      {@label}
-    </.link>
-    """
-  end
-
-  # -- pagination --------------------------------------------------------
-
-  @doc """
-  Pages in a count-aware run: 1..total, never below one (an empty
-  table is page one, not page zero).
-  """
-  @spec total_pages(integer(), pos_integer()) :: pos_integer()
-  def total_pages(count, limit), do: max(ceil(count / limit), 1)
-
-  @doc """
-  The page-number window: current always visible with a page each
-  side, first and last always visible, `:gap` marking an elided run.
-  At beta scale every page fits — the window only starts eliding past
-  seven pages. The window stays three wide at the edges (a current at
-  the very end shows total-2..total), and pages adjacent to an
-  endpoint join it without a gap.
-  """
-  @spec page_window(pos_integer(), pos_integer()) :: [pos_integer() | :gap]
-  def page_window(_current, total) when total <= 7, do: Enum.to_list(1..total)
-
-  def page_window(current, total) do
-    # Three wide, clamped: at either end the window pads toward the
-    # inside instead of shrinking.
-    first =
-      if current + 1 >= total, do: max(total - 2, 1), else: max(current - 1, 1)
-
-    last =
-      if current - 1 <= 1, do: min(3, total), else: min(current + 1, total)
-
-    window = Enum.to_list(first..last)
-
-    head =
-      case first do
-        1 -> []
-        2 -> [1]
-        _interior -> [1, :gap]
-      end
-
-    tail =
-      cond do
-        last == total -> []
-        last == total - 1 -> [total]
-        true -> [:gap, total]
-      end
-
-    head ++ window ++ tail
-  end
-
-  @doc """
-  Prev/next plus the page-number window, as links to `path?page=N`.
-  Renders nothing at one page — a lone number is not a control.
-  """
-
-  attr(:current, :integer, required: true)
-  attr(:total, :integer, required: true)
-  attr(:path, :string, required: true, doc: "the index path without its query string")
-
-  @spec pagination(map()) :: Phoenix.LiveView.Rendered.t()
-  def pagination(assigns) do
-    ~H"""
-    <nav
-      :if={@total > 1}
-      class="flex flex-wrap items-center gap-1.5"
-      aria-label={gettext("Pagination")}
-      data-testid="admin-resource-pagination"
-    >
-      <.page_link
-        path={@path}
-        number={@current - 1}
-        disabled={@current == 1}
-        label={gettext("Previous")}
-        testid="admin-resource-prev"
-      />
-      <%= for entry <- page_window(@current, @total) do %>
-        <%= if entry == :gap do %>
-          <span class="px-1 text-sm text-ink-subtle" aria-hidden="true">…</span>
-        <% else %>
-          <.link
-            navigate={"#{@path}?page=#{entry}"}
-            aria-current={entry == @current && "page"}
-            class={[
-              "rounded-control px-2 py-1 text-sm transition-colors",
-              entry == @current && "font-medium text-ink",
-              entry != @current && "text-ink-muted hover:bg-panel-raised hover:text-ink"
-            ]}
-            data-testid={"admin-resource-page-#{entry}"}
-          >
-            {entry}
-          </.link>
-        <% end %>
-      <% end %>
-      <.page_link
-        path={@path}
-        number={@current + 1}
-        disabled={@current == @total}
-        label={gettext("Next")}
-        testid="admin-resource-next"
-      />
-    </nav>
-    """
-  end
-
-  attr(:path, :string, required: true)
-  attr(:number, :integer, required: true)
-  attr(:disabled, :boolean, required: true)
-  attr(:label, :string, required: true)
-  attr(:testid, :string, required: true)
-
-  defp page_link(%{disabled: true} = assigns) do
-    ~H"""
-    <span class="rounded-control px-2 py-1 text-sm text-ink-subtle" aria-disabled="true">
-      {@label}
-    </span>
-    """
-  end
-
-  defp page_link(assigns) do
-    ~H"""
-    <.link
-      navigate={"#{@path}?page=#{@number}"}
-      class="rounded-control px-2 py-1 text-sm text-ink-muted transition-colors hover:bg-panel-raised hover:text-ink"
-      data-testid={@testid}
     >
       {@label}
     </.link>

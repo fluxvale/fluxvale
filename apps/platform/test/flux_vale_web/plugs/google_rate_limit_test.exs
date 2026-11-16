@@ -131,14 +131,14 @@ defmodule FluxValeWeb.Plugs.GoogleRateLimitTest do
       window = GoogleRateLimit.window_start(now, 86_400)
 
       # The PAST window was saturated…
-      :ets.insert(@table, {{key, window - 86_400}, 99})
+      :ets.insert(@table, {{:google, key, window - 86_400}, 99})
 
       # …and the current window is fresh: the same IP is admitted
       fresh = conn([], ip)
       assert GoogleRateLimit.allow?(fresh)
 
       # …while a saturated CURRENT window still refuses
-      :ets.insert(@table, {{key, window}, 99})
+      :ets.insert(@table, {{:google, key, window}, 99})
       saturated = conn([], ip)
       refute GoogleRateLimit.allow?(saturated)
     end
@@ -155,7 +155,7 @@ defmodule FluxValeWeb.Plugs.GoogleRateLimitTest do
   end
 
   describe "the row cap (the spoofed-key backstop)" do
-    test "past max_rows the caller sweeps expired rows inline before inserting" do
+    test "past max_rows the first over-cap request claims and sweeps" do
       stale_one = "10.248.#{unique_octet()}.#{unique_octet()}"
       stale_two = "10.246.#{unique_octet()}.#{unique_octet()}"
       live = "10.247.#{unique_octet()}.#{unique_octet()}"
@@ -163,19 +163,65 @@ defmodule FluxValeWeb.Plugs.GoogleRateLimitTest do
       window = GoogleRateLimit.window_start(now, 86_400)
 
       # Two staged stale rows: the cap is EXCEEDED (>) regardless of
-      # whatever rows other tests left behind — order-independent
-      :ets.insert(@table, {{stale_one, 0}, 99})
-      :ets.insert(@table, {{stale_two, 0}, 99})
+      # whatever rows other tests left behind — order-independent. This
+      # test owns the claim state too: a leftover fresh claim from
+      # another test would block the insert_new arm.
+      :ets.delete(@table, {:sweep, :last})
+      :ets.insert(@table, {{:google, stale_one, 0}, 99})
+      :ets.insert(@table, {{:google, stale_two, 0}, 99})
 
       with_config([window_seconds: 86_400, max_requests: 50, max_rows: 1], fn ->
-        # The stale rows exceed the cap of 1: the next allow? sweeps
-        # them inline (rows from lapsed windows only) and counts
-        # normally — the live window's row survives
+        # The stale rows exceed the cap of 1: the next allow? claims the
+        # sweep window and reaps them (rows from lapsed windows only) and
+        # counts normally — the live window's row survives
         from_live = conn([], ip_tuple(live))
         assert GoogleRateLimit.allow?(from_live)
-        refute :ets.member(@table, {stale_one, 0})
-        refute :ets.member(@table, {stale_two, 0})
-        assert :ets.member(@table, {live, window})
+        refute :ets.member(@table, {:google, stale_one, 0})
+        refute :ets.member(@table, {:google, stale_two, 0})
+        assert :ets.member(@table, {:google, live, window})
+      end)
+    end
+
+    test "a fresh claim does not re-scan; a stale claim sweeps again" do
+      over_cap_one = "10.245.#{unique_octet()}.#{unique_octet()}"
+      over_cap_two = "10.244.#{unique_octet()}.#{unique_octet()}"
+      lapsed = "10.243.#{unique_octet()}.#{unique_octet()}"
+      now = System.system_time(:second)
+      window = GoogleRateLimit.window_start(now, 86_400)
+
+      # This test owns the claim state (a leftover claim from another
+      # test would change which arm runs first), and stages LIVE filler
+      # rows so the cap is exceeded on purpose.
+      :ets.delete(@table, {:sweep, :last})
+
+      filler_one = "10.241.#{unique_octet()}.#{unique_octet()}"
+      filler_two = "10.240.#{unique_octet()}.#{unique_octet()}"
+      :ets.insert(@table, {{:google, filler_one, window}, 1})
+      :ets.insert(@table, {{:google, filler_two, window}, 1})
+
+      with_config([window_seconds: 86_400, max_requests: 50, max_rows: 1], fn ->
+        # Over the cap: the first request claims and sweeps.
+        first_conn = conn([], ip_tuple(over_cap_one))
+        assert GoogleRateLimit.allow?(first_conn)
+        assert [{{:sweep, :last}, stamp}] = :ets.lookup(@table, {:sweep, :last})
+        assert stamp > 0
+
+        # A lapsed row staged after the claim SURVIVES the next over-cap
+        # request — no per-request re-scan (S4: the inline sweep retired).
+        :ets.insert(@table, {{:google, lapsed, 0}, 99})
+        second_conn = conn([], ip_tuple(over_cap_two))
+        assert GoogleRateLimit.allow?(second_conn)
+        assert :ets.member(@table, {:google, lapsed, 0})
+
+        # Age the claim to stale: the next over-cap request re-claims
+        # and sweeps the lapsed row away.
+        :ets.insert(@table, {{:sweep, :last}, 0})
+        third = "10.242.#{unique_octet()}.#{unique_octet()}"
+        third_conn = conn([], ip_tuple(third))
+        assert GoogleRateLimit.allow?(third_conn)
+        refute :ets.member(@table, {:google, lapsed, 0})
+        assert [{{:sweep, :last}, refreshed}] = :ets.lookup(@table, {:sweep, :last})
+        assert refreshed >= now
       end)
     end
   end
@@ -186,13 +232,13 @@ defmodule FluxValeWeb.Plugs.GoogleRateLimitTest do
       now = System.system_time(:second)
       window = GoogleRateLimit.window_start(now, 86_400)
 
-      :ets.insert(@table, {{ip, 0}, 99})
-      :ets.insert(@table, {{ip, window}, 1})
+      :ets.insert(@table, {{:google, ip, 0}, 99})
+      :ets.insert(@table, {{:google, ip, window}, 1})
 
       :ok = GoogleRateLimit.sweep_expired()
 
-      refute :ets.member(@table, {ip, 0})
-      assert :ets.member(@table, {ip, window})
+      refute :ets.member(@table, {:google, ip, 0})
+      assert :ets.member(@table, {:google, ip, window})
     end
   end
 
