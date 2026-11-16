@@ -45,6 +45,8 @@ defmodule FluxValeWeb.Components.AdminDataTable do
   # A page param far past the end is clamped by the surface's read;
   # this bound only keeps a crafted offset from being a full scan.
   @max_page 10_000
+  # The table's own view keys: extras may never override them.
+  @canonical_keys ~w(q sort dir page size after before)
 
   # -- the shared grid chrome (#606), now the DataTable's internals --
 
@@ -199,13 +201,37 @@ defmodule FluxValeWeb.Components.AdminDataTable do
   bare path and every other view states itself. A URL states the
   table's view; reloading lands on it. The params ride one fixed
   order, so a view's URL is byte-stable.
+
+  Optional `extra` params carry a surface's own filters (audit's
+  `resource`, storage's `status`) after the table's. They keep the
+  given order; a `nil` or `""` value drops out, atom and integer
+  values stringify, and the table's canonical keys are reserved —
+  the table owns its view, so an extra can never override it.
   """
-  @spec url_for(String.t(), map()) :: String.t()
-  def url_for(base, state) do
-    case view_params(state) do
+  @spec url_for(String.t(), map(), [{String.t() | atom(), String.Chars.t()}]) :: String.t()
+  def url_for(base, state, extra \\ []) do
+    params = view_params(state) ++ extra_params(extra)
+
+    case params do
       [] -> base
-      params -> base <> "?" <> URI.encode_query(params)
+      pairs -> base <> "?" <> URI.encode_query(pairs)
     end
+  end
+
+  # Extras keep the surface's order after the canonical params; an
+  # absent value drops out and values stringify for the query.
+  defp extra_params(extra) do
+    pairs = Enum.map(extra, &extra_pair/1)
+    Enum.reject(pairs, &is_nil/1)
+  end
+
+  defp extra_pair({_key, nil}), do: nil
+  defp extra_pair({_key, ""}), do: nil
+
+  defp extra_pair({key, value}) do
+    name = to_string(key)
+
+    if name in @canonical_keys, do: nil, else: {name, to_string(value)}
   end
 
   # One fixed param order: q, sort, dir, page, size, then the keyset
