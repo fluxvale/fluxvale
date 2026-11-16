@@ -33,13 +33,18 @@ defmodule FluxValeWeb.Plugs.GoogleRateLimit do
   The store is `FixedWindow` (#510, since S4): this module is the
   source — table name, the one `:google` bucket's window and limit,
   the row cap — and the engine owns the mechanics. The key is
-  `{:google, client_ip, window}`. Past the row cap, the first
-  over-cap request claims the sweep window and reaps lapsed rows;
-  later over-cap requests inside the claim window do not re-scan
-  (S4's change: rows from lapsed windows may linger up to one longest
-  window — accepted, they can no longer be written, and the per-request
-  O(table) scan they used to cost was a CPU denial vector). A throttle
-  must not 500 the sign-in door.
+  `{:google, client_ip, window}`. The row cap is a HARD bound (S5):
+  past it, after the claim-gated sweep of lapsed rows, a request whose
+  key has no row is admitted uncounted and inserts nothing, so a
+  spoofed-header flood minting fresh keys cannot grow memory past
+  `max_rows` by more than one concurrent burst's worth of inserts plus
+  the claim row (burst rows are current-window rows; they hold until
+  they lapse and the sweep retires them); a key that already has a row
+  still counts and can refuse. Inside the claim window the sweep does
+  not re-scan (S4's change: rows from lapsed windows may linger up to
+  one longest window — accepted, they can no longer be written, and
+  the per-request O(table) scan they used to cost was a CPU denial
+  vector). A throttle must not 500 the sign-in door.
 
   Exact per-IP accounting holds while the platform runs a single
   replica; revisit trigger: platform replicas scale past one — then
