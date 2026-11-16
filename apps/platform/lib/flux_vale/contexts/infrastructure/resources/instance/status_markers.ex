@@ -40,6 +40,11 @@ defmodule FluxVale.Infrastructure.Instance.StatusMarkers do
   force-change changes run — the force-changes are change-time writes,
   not before_action hooks, so the read sees the new status (pinned by
   tests).
+
+  The same change maintains `errored_at` (#182) — stamped on the :error
+  entry, cleared on the :error exit, force-changed onto this very
+  changeset so the gauge's recency clock and the counter's emission are
+  one write (see stamp_errored_at/3).
   """
 
   use Ash.Resource.Change
@@ -65,7 +70,9 @@ defmodule FluxVale.Infrastructure.Instance.StatusMarkers do
         changeset
 
       true ->
-        Changeset.after_action(changeset, fn _changeset, record ->
+        changeset
+        |> stamp_errored_at(old_status, new_status)
+        |> Changeset.after_action(fn _changeset, record ->
           :telemetry.execute(@status_event, %{count: 1}, %{
             from: old_status,
             to: new_status,
@@ -76,6 +83,22 @@ defmodule FluxVale.Infrastructure.Instance.StatusMarkers do
         end)
     end
   end
+
+  # The stuck-in-error gauge's clock (#182): stamped on the write that
+  # lands :error, cleared on the write that leaves it — the same
+  # changeset that emits the transition counter, so the gauge and the
+  # counter can never disagree about when an error began. Same-status
+  # writes (the reconcile no-ops that bump updated_at) never touch it:
+  # the stamp is the episode's true entry instant, once per episode.
+  defp stamp_errored_at(changeset, _old_status, :error) do
+    Changeset.force_change_attribute(changeset, :errored_at, DateTime.utc_now())
+  end
+
+  defp stamp_errored_at(changeset, :error, _new_status) do
+    Changeset.force_change_attribute(changeset, :errored_at, nil)
+  end
+
+  defp stamp_errored_at(changeset, _old_status, _new_status), do: changeset
 
   @impl Ash.Resource.Change
   # coveralls-ignore-next-line trivial callback — always false (after_action emission)

@@ -5,17 +5,25 @@ defmodule FluxVale.PromEx.Plugins.BusinessTest do
   dropped), the closed-enum derivations behind the 78-series ceiling,
   and an end-to-end scrape proving the events land as
   `flux_vale_*_total` series (the names the fleet allowlist and the
-  alert rules query; nothing may rename them silently).
+  alert rules query; nothing may rename them silently). Plus the #182
+  stuck-in-error gauge: the poller's contract name and shape, the
+  scoping that keeps zombies and undated rows out of the count, and
+  the rendered series.
   """
 
   # async: false — the scrape starts the module-named PromEx tree,
   # which is VM-global (one instance of the named processes).
   use FluxVale.DataCase, async: false
 
+  alias FluxVale.Identity.User
+  alias FluxVale.Infrastructure.Instance
   alias FluxVale.Infrastructure.Instance.StatusTransition
+  alias FluxVale.Infrastructure.Operations.InstanceK8s
   alias FluxVale.PromEx.Plugins.Business
+  alias FluxVale.TestSupport.InstanceFixtures
 
   @series ~r/^flux_vale_(instance_status_transition|gateway_state_change|backup_run)_total\{/
+  @gauge_line "flux_vale_instances_in_error "
 
   test "three counters over the narrower fleet label sets" do
     assert [%PromEx.MetricTypes.Event{metrics: counters}] =
@@ -182,5 +190,126 @@ defmodule FluxVale.PromEx.Plugins.BusinessTest do
     # match a _total glob — exactly the three business families exist.
     refute scrape =~ ~r/^flux_vale_prom_ex_.*_total\b/
     refute scrape =~ ~r/^flux_vale_wake_.*_total\b/
+  end
+
+  describe "the stuck-in-error gauge (infra #182)" do
+    test "one polling group: 60s cadence, the contract name, a label-free last_value" do
+      assert %PromEx.MetricTypes.Polling{} =
+               group =
+               Business.polling_metrics(otp_app: :flux_vale)
+
+      assert group.group_name == :business_stuck_instances_polling_metrics
+      assert group.poll_rate == 60_000
+      assert group.measurements_mfa == {Business, :execute_stuck_instances_metrics, []}
+
+      assert [%Telemetry.Metrics.LastValue{} = gauge] = group.metrics
+      assert gauge.name == [:flux_vale, :instances, :in_error]
+      assert gauge.event_name == [:flux_vale, :instances, :in_error]
+      assert gauge.measurement == :count
+
+      # A gauge: no labels (the count is the alert's whole subject) and
+      # no _total suffix (it is not a counter — the rendered name is
+      # the cross-repo contract).
+      assert gauge.tags == []
+
+      # _total suffix check on the rendered name.
+      rendered = Enum.join(gauge.name, "_")
+      refute String.ends_with?(rendered, "_total")
+    end
+
+    test "recent_error_count scopes to status :error with an in-window stamp" do
+      version = InstanceFixtures.app_version!()
+      InstanceFixtures.local_cluster!()
+
+      # The counting shape: a fresh stuck row (the funnel's own entry
+      # stamp — StatusMarkers set it on the :error write).
+      stuck = stuck_instance!(version)
+      assert Business.recent_error_count() == 1
+
+      # The Oct-23 zombie shape: still :error, but the stamp is outside
+      # the window. Counts nothing — a permanent zombie must never page.
+      zombie = stuck_instance!(version)
+      InstanceFixtures.pin!(zombie, errored_at: DateTime.add(DateTime.utc_now(), -8, :day))
+
+      assert Business.recent_error_count() == 1
+
+      # The undated shape: NULL errored_at (the pre-backfill rows).
+      # NULL fails the window comparison — an unknown entry time must
+      # not page.
+      undated = stuck_instance!(version)
+      InstanceFixtures.pin!(undated, errored_at: nil)
+
+      assert Business.recent_error_count() == 1
+
+      # The non-error shape: a recent stamp on a row that is not (or no
+      # longer) in :error — the exit must have cleared it, and if a
+      # regression ever leaves a stamp behind, the status arm still
+      # keeps it out of the gauge.
+      created = instance!(version)
+      running = InstanceFixtures.walk_to!(created, :running)
+      InstanceFixtures.pin!(running, errored_at: DateTime.utc_now())
+
+      assert Business.recent_error_count() == 1
+
+      # The exit itself: leaving :error (the recover edge) drops the
+      # row from the gauge.
+      {:ok, recovered} = InstanceK8s.update_status(stuck, :running, nil)
+
+      assert is_nil(recovered.errored_at)
+      assert Business.recent_error_count() == 0
+    end
+
+    test "the poller's emission lands as the label-free flux_vale_instances_in_error gauge" do
+      start_supervised!(FluxVale.PromEx)
+
+      version = InstanceFixtures.app_version!()
+      InstanceFixtures.local_cluster!()
+
+      # Nothing stuck: the gauge materializes at 0 (each poll sample is
+      # the whole truth — no seeding needed, unlike the counters).
+      Business.execute_stuck_instances_metrics()
+
+      empty_scrape = PromEx.get_metrics(FluxVale.PromEx)
+      assert gauge_line(empty_scrape) == @gauge_line <> "0"
+
+      # One fresh stuck row (StatusMarkers stamped it on entry)…
+      stuck_instance!(version)
+      Business.execute_stuck_instances_metrics()
+
+      scrape = PromEx.get_metrics(FluxVale.PromEx)
+
+      assert gauge_line(scrape) == @gauge_line <> "1"
+      # The exporter contract, pinned: a gauge, not a counter.
+      assert scrape =~ "# TYPE flux_vale_instances_in_error gauge"
+      # Label-free — no braces ever render on the sample line.
+      refute scrape =~ @gauge_line <> "{"
+    end
+  end
+
+  # A row freshly stuck in :error through the funnel — the entry stamp
+  # is StatusMarkers' own write (the markers suite pins its semantics;
+  # this suite consumes the shape).
+  defp stuck_instance!(version) do
+    created = instance!(version)
+    starting = InstanceFixtures.walk_to!(created, :starting)
+
+    {:ok, errored} =
+      InstanceK8s.update_status(starting, :error, "rollout failed", :rollout_failed)
+
+    errored
+  end
+
+  defp instance!(version) do
+    Instance.create!(
+      %{name: "Stuck #{System.unique_integer()}", app_version_id: version.id, env_vars: %{}},
+      actor: User.create!("stuck-#{System.unique_integer()}@fluxvale.com", %{}, authorize?: false)
+    )
+  end
+
+  # The exact sample line ("name value"), skipping the TYPE comment.
+  defp gauge_line(scrape) do
+    scrape
+    |> String.split("\n", trim: true)
+    |> Enum.find(&String.starts_with?(&1, @gauge_line))
   end
 end
