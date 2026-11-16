@@ -192,7 +192,12 @@ defmodule FluxValeWeb.AdminLive.Audit do
   # The count comes first and cheaply: one row's projection, no loads,
   # so the page math never reads a full page's rows.
   defp load_page(socket, filters, params) do
-    state = AdminDataTable.parse_params(params, sortable: @sortable)
+    parsed = AdminDataTable.parse_params(params, sortable: @sortable)
+
+    # This surface has no search: a crafted ?q= never rides the view
+    # state, the announcement, or a URL.
+    state = %{parsed | query: ""}
+
     admin = socket.assigns.current_user
     entry = socket.assigns.entry
 
@@ -477,7 +482,9 @@ defmodule FluxValeWeb.AdminLive.Audit do
   # honest count and the surface's event names.
   defp table_meta(state) do
     %{
-      query: state.query,
+      # No search here: the pinned empty term keeps the announcement
+      # silent even if a state ever carried a stray one.
+      query: "",
       page: state.page,
       size: state.size,
       sort: state.sort,

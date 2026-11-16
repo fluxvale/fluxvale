@@ -636,7 +636,7 @@ msgstr ""
 msgid "LiveDashboard"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/audit.ex:509
+#: lib/flux_vale_web/live/admin_live/audit.ex:516
 #: lib/flux_vale_web/live/admin_live/billing.ex:359
 #: lib/flux_vale_web/live/admin_live/catalog.ex:52
 #: lib/flux_vale_web/live/admin_live/gateway_detail.ex:320
@@ -1660,7 +1660,7 @@ msgstr ""
 msgid "The waiver is removed. The has-paid gate closes again. Private access and backups lock until the org tops up."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/audit.ex:445
+#: lib/flux_vale_web/live/admin_live/audit.ex:450
 #: lib/flux_vale_web/live/admin_live/wallet_detail.ex:482
 #, elixir-autogen, elixir-format
 msgid "When"
@@ -3505,41 +3505,41 @@ msgid_plural "%{count} changes"
 msgstr[0] ""
 msgstr[1] ""
 
-#: lib/flux_vale_web/live/admin_live/audit.ex:453
+#: lib/flux_vale_web/live/admin_live/audit.ex:458
 #, elixir-autogen, elixir-format
 msgid "Action"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/audit.ex:461
-#: lib/flux_vale_web/live/admin_live/audit.ex:583
+#: lib/flux_vale_web/live/admin_live/audit.ex:466
+#: lib/flux_vale_web/live/admin_live/audit.ex:590
 #, elixir-autogen, elixir-format
 msgid "Actor"
 msgstr ""
 
 #: lib/flux_vale_web/components/admin_shell.ex:272
-#: lib/flux_vale_web/live/admin_live/audit.ex:511
+#: lib/flux_vale_web/live/admin_live/audit.ex:518
 #, elixir-autogen, elixir-format
 msgid "Audit trail"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/audit.ex:468
-#: lib/flux_vale_web/live/admin_live/audit.ex:715
+#: lib/flux_vale_web/live/admin_live/audit.ex:473
+#: lib/flux_vale_web/live/admin_live/audit.ex:722
 #, elixir-autogen, elixir-format
 msgid "Changes"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/audit.ex:620
+#: lib/flux_vale_web/live/admin_live/audit.ex:627
 #, elixir-autogen, elixir-format
 msgid "Changes to this resource appear here the moment they are written."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/audit.ex:597
-#: lib/flux_vale_web/live/admin_live/audit.ex:612
+#: lib/flux_vale_web/live/admin_live/audit.ex:604
+#: lib/flux_vale_web/live/admin_live/audit.ex:619
 #, elixir-autogen, elixir-format
 msgid "Clear filters"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/audit.ex:514
+#: lib/flux_vale_web/live/admin_live/audit.ex:521
 #, elixir-autogen, elixir-format
 msgid "Every recorded change on the business resources, newest first. Each row names the actor, the action, and what moved. Destroyed records keep their history."
 msgstr ""
@@ -3549,29 +3549,29 @@ msgstr ""
 msgid "History"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/audit.ex:619
+#: lib/flux_vale_web/live/admin_live/audit.ex:626
 #, elixir-autogen, elixir-format
 msgid "No history yet."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/audit.ex:602
+#: lib/flux_vale_web/live/admin_live/audit.ex:609
 #, elixir-autogen, elixir-format
 msgid "Nothing matches these filters."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/audit.ex:458
-#: lib/flux_vale_web/live/admin_live/audit.ex:590
+#: lib/flux_vale_web/live/admin_live/audit.ex:463
+#: lib/flux_vale_web/live/admin_live/audit.ex:597
 #, elixir-autogen, elixir-format
 msgid "Record"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/audit.ex:538
+#: lib/flux_vale_web/live/admin_live/audit.ex:545
 #, elixir-autogen, elixir-format
 msgid "Resource"
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/audit.ex:369
 #: lib/flux_vale_web/live/admin_live/audit.ex:374
+#: lib/flux_vale_web/live/admin_live/audit.ex:379
 #: lib/flux_vale_web/live/admin_live/health.ex:540
 #, elixir-autogen, elixir-format
 msgid "System"
@@ -3582,12 +3582,12 @@ msgstr ""
 msgid "That history link is malformed."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/audit.ex:603
+#: lib/flux_vale_web/live/admin_live/audit.ex:610
 #, elixir-autogen, elixir-format
 msgid "The filters name one actor or one record. Clear them to see the full history."
 msgstr ""
 
-#: lib/flux_vale_web/live/admin_live/audit.ex:450
+#: lib/flux_vale_web/live/admin_live/audit.ex:455
 #, elixir-autogen, elixir-format
 msgid "Type"
 msgstr ""

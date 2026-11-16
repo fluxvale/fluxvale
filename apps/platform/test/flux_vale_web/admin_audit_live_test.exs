@@ -532,6 +532,29 @@ defmodule FluxValeWeb.AdminAuditLiveTest do
 
       assert has_element?(page_view, "[data-testid='admin-audit-page-label']", "Page 1 of 1")
     end
+
+    test "a crafted ?q= filters nothing on the no-search surface", %{conn: conn, admin: admin} do
+      mine = tag!(admin, "audit-q-#{@n}")
+
+      {:ok, view, _html} = live(conn, "/admin/audit?resource=tag&q=anything")
+
+      [version] = versions!(Tag.Version, mine.id)
+
+      # The term is inert: the unfiltered history renders (a live
+      # search on "anything" would match nothing and empty the table).
+      assert has_element?(view, "[data-testid='admin-audit-table']")
+      assert has_element?(view, "[data-testid='admin-audit-row-#{version.id}']")
+
+      # The announcement stays silent about a search.
+      refute text_of(view, "[data-testid='admin-audit-announcement']") =~ "Search:"
+
+      # And no table URL persists the term.
+      view
+      |> element("[data-testid='admin-audit-sort-version_inserted_at']")
+      |> render_click()
+
+      assert_patched(view, "/admin/audit?sort=version_inserted_at&dir=asc&resource=tag")
+    end
   end
 
   describe "sorting" do
