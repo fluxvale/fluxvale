@@ -2,15 +2,15 @@ defmodule FluxValeWeb.AdminResource do
   @moduledoc """
   The generic resource console's type-driven render pieces (#595, the
   plan at docs/plans/595-resource-console.md): one value renderer per
-  attribute shape (the plan's rendering table), the count-aware offset
-  pagination controls, the write affordances (the visible?-gated New
-  link and actions bar — nothing renders when nothing is permitted),
-  and the form-input mapping (attribute shape to `<.input>` type, the
-  plan's input contracts table). The LiveView engine
-  (`FluxValeWeb.AdminLive.Resources`) introspects the resource and
-  hands each attribute's shape and value here — nothing in this module
-  reads a resource, so the registry stays the only surface that knows
-  modules.
+  attribute shape (the plan's rendering table), the page math the
+  surfaces' shared data table reads, the write affordances (the
+  visible?-gated New link and actions bar — nothing renders when
+  nothing is permitted), and the form-input mapping (attribute shape to
+  `<.input>` type, the plan's input contracts table). The LiveView
+  engine (`FluxValeWeb.AdminLive.Resources`) introspects the resource
+  and hands each attribute's shape and value here — nothing in this
+  module reads a resource, so the registry stays the only surface that
+  knows modules.
 
   Shapes land slice by slice as their resources do (slice 1: Ops).
   Anything unrecognized renders through the fallback — the value's
@@ -331,7 +331,7 @@ defmodule FluxValeWeb.AdminResource do
     """
   end
 
-  # -- pagination --------------------------------------------------------
+  # -- page math ---------------------------------------------------------
 
   @doc """
   Pages in a count-aware run: 1..total, never below one (an empty
@@ -377,86 +377,6 @@ defmodule FluxValeWeb.AdminResource do
       end
 
     head ++ window ++ tail
-  end
-
-  @doc """
-  Prev/next plus the page-number window, as links to `path?page=N`.
-  Renders nothing at one page — a lone number is not a control.
-  """
-
-  attr(:current, :integer, required: true)
-  attr(:total, :integer, required: true)
-  attr(:path, :string, required: true, doc: "the index path without its query string")
-
-  @spec pagination(map()) :: Phoenix.LiveView.Rendered.t()
-  def pagination(assigns) do
-    ~H"""
-    <nav
-      :if={@total > 1}
-      class="flex flex-wrap items-center gap-1.5"
-      aria-label={gettext("Pagination")}
-      data-testid="admin-resource-pagination"
-    >
-      <.page_link
-        path={@path}
-        number={@current - 1}
-        disabled={@current == 1}
-        label={gettext("Previous")}
-        testid="admin-resource-prev"
-      />
-      <%= for entry <- page_window(@current, @total) do %>
-        <%= if entry == :gap do %>
-          <span class="px-1 text-sm text-ink-subtle" aria-hidden="true">…</span>
-        <% else %>
-          <.link
-            navigate={"#{@path}?page=#{entry}"}
-            aria-current={entry == @current && "page"}
-            class={[
-              "rounded-control px-2 py-1 text-sm transition-colors",
-              entry == @current && "font-medium text-ink",
-              entry != @current && "text-ink-muted hover:bg-panel-raised hover:text-ink"
-            ]}
-            data-testid={"admin-resource-page-#{entry}"}
-          >
-            {entry}
-          </.link>
-        <% end %>
-      <% end %>
-      <.page_link
-        path={@path}
-        number={@current + 1}
-        disabled={@current == @total}
-        label={gettext("Next")}
-        testid="admin-resource-next"
-      />
-    </nav>
-    """
-  end
-
-  attr(:path, :string, required: true)
-  attr(:number, :integer, required: true)
-  attr(:disabled, :boolean, required: true)
-  attr(:label, :string, required: true)
-  attr(:testid, :string, required: true)
-
-  defp page_link(%{disabled: true} = assigns) do
-    ~H"""
-    <span class="rounded-control px-2 py-1 text-sm text-ink-subtle" aria-disabled="true">
-      {@label}
-    </span>
-    """
-  end
-
-  defp page_link(assigns) do
-    ~H"""
-    <.link
-      navigate={"#{@path}?page=#{@number}"}
-      class="rounded-control px-2 py-1 text-sm text-ink-muted transition-colors hover:bg-panel-raised hover:text-ink"
-      data-testid={@testid}
-    >
-      {@label}
-    </.link>
-    """
   end
 
   # -- labels ------------------------------------------------------------

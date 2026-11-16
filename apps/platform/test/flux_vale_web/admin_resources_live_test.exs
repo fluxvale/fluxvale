@@ -303,17 +303,50 @@ defmodule FluxValeWeb.AdminResourcesLiveTest do
     length(Enum.to_list(matches))
   end
 
+  # The data columns' names as a set — the sr-only Actions column is
+  # chrome, not a data column, so it stays out.
   defp column_names(view) do
     view
     |> render()
     |> LazyHTML.from_fragment()
-    |> LazyHTML.query("[data-testid^='admin-resource-col-']")
+    |> LazyHTML.query("[data-testid^='admin-resource-header-']")
     |> Enum.to_list()
     |> Enum.map(fn match ->
       [testid] = LazyHTML.attribute(match, "data-testid")
-      String.replace_prefix(testid, "admin-resource-col-", "")
+      String.replace_prefix(testid, "admin-resource-header-", "")
     end)
+    |> Enum.reject(&(&1 == "actions"))
     |> MapSet.new()
+  end
+
+  # The keys of the shown rows, in render order.
+  defp index_keys(view) do
+    view
+    |> render()
+    |> LazyHTML.from_fragment()
+    |> LazyHTML.query("[data-testid^='admin-resource-cell-key-']")
+    |> Enum.to_list()
+    |> Enum.map(fn match ->
+      text = LazyHTML.text(match)
+      String.trim(text)
+    end)
+  end
+
+  # The top row's key — the order assertions' one-line shape.
+  defp first_index_key(view) do
+    keys = index_keys(view)
+    List.first(keys)
+  end
+
+  # One attribute off one element, the plain way.
+  defp attribute(view, testid, name) do
+    html = render(element(view, "[data-testid='#{testid}']"))
+    document = LazyHTML.from_fragment(html)
+    matches = LazyHTML.query(document, "[data-testid='#{testid}']")
+    first = Enum.at(matches, 0)
+    values = LazyHTML.attribute(first, name) || []
+
+    Enum.join(values, "")
   end
 
   # The tags badge row's labels in render order (the relationship's own
@@ -497,17 +530,22 @@ defmodule FluxValeWeb.AdminResourcesLiveTest do
 
       {:ok, view, _html} = live(conn, "/admin/resources/ops/feature_flag")
 
-      assert has_element?(view, "[data-testid='admin-resource-col-key']", "Key")
-      assert has_element?(view, "[data-testid='admin-resource-col-enabled']", "Enabled")
+      assert has_element?(view, "[data-testid='admin-resource-header-key']", "Key")
+      assert has_element?(view, "[data-testid='admin-resource-header-enabled']", "Enabled")
 
       assert has_element?(
                view,
-               "[data-testid='admin-resource-col-rollout_percentage']",
+               "[data-testid='admin-resource-header-rollout_percentage']",
                "Rollout percentage"
              )
 
-      assert has_element?(view, "[data-testid='admin-resource-col-description']", "Description")
-      assert has_element?(view, "[data-testid='admin-resource-col-created_at']", "Created at")
+      assert has_element?(
+               view,
+               "[data-testid='admin-resource-header-description']",
+               "Description"
+             )
+
+      assert has_element?(view, "[data-testid='admin-resource-header-created_at']", "Created at")
 
       assert text_of(view, "[data-testid='admin-resource-cell-key-#{flag.id}']") == flag.key
       assert text_of(view, "[data-testid='admin-resource-cell-enabled-#{flag.id}']") == "Yes"
@@ -547,17 +585,7 @@ defmodule FluxValeWeb.AdminResourcesLiveTest do
 
       {:ok, view, _html} = live(conn, "/admin/resources/ops/feature_flag")
 
-      html = render(view)
-      document = LazyHTML.from_fragment(html)
-
-      matches = LazyHTML.query(document, "[data-testid^='admin-resource-col-']")
-
-      rendered =
-        for match <- Enum.to_list(matches) do
-          [testid] = LazyHTML.attribute(match, "data-testid")
-          String.replace_prefix(testid, "admin-resource-col-", "")
-        end
-        |> MapSet.new()
+      rendered = column_names(view)
 
       # The actor-safety ceiling for the index (the plan's amended
       # parity criterion 2): curated columns, but every one of them
@@ -590,25 +618,15 @@ defmodule FluxValeWeb.AdminResourcesLiveTest do
 
       {:ok, view, _html} = live(conn, "/admin/resources/ops/feature_flag")
 
-      html = render(view)
-      document = LazyHTML.from_fragment(html)
-      matches = LazyHTML.query(document, "[data-testid^='admin-resource-cell-key-']")
-
-      keys =
-        for match <- Enum.to_list(matches) do
-          text = LazyHTML.text(match)
-          String.trim(text)
-        end
-
-      assert keys == [newest.key, older.key]
+      assert index_keys(view) == [newest.key, older.key]
     end
 
     test "an empty table says so honestly", %{conn: conn} do
       {:ok, view, _html} = live(conn, "/admin/resources/ops/feature_flag")
 
       assert has_element?(view, "[data-testid='admin-resource-empty']", "No rows yet.")
-      assert has_element?(view, "[data-testid='admin-resource-count']", "0 rows")
       refute has_element?(view, "[data-testid='admin-resource-table']")
+      refute has_element?(view, "[data-testid='admin-resource-count']")
     end
 
     test "the note banner carries the registry's note copy", %{conn: conn} do
@@ -641,19 +659,20 @@ defmodule FluxValeWeb.AdminResourcesLiveTest do
     end
   end
 
-  describe "pagination (25 to a page, count-aware)" do
+  describe "pagination (server-driven, the shared table's footer)" do
     setup %{admin: admin} do
       flags = for _i <- 1..26, do: flag!(admin)
       %{flags: flags}
     end
 
-    test "page one shows 25 of 26 with page controls", %{conn: conn} do
+    test "page one shows 25 of 26 with honest controls", %{conn: conn} do
       {:ok, view, _html} = live(conn, "/admin/resources/ops/feature_flag")
 
       assert index_row_count(view) == 25
-      assert has_element?(view, "[data-testid='admin-resource-count']", "26 rows")
-      assert has_element?(view, "a[data-testid='admin-resource-page-2']")
-      assert has_element?(view, "a[data-testid='admin-resource-next']")
+      assert has_element?(view, "[data-testid='admin-resource-count']", "Showing 1 to 25 of 26.")
+      assert has_element?(view, "[data-testid='admin-resource-page-label']", "Page 1 of 2")
+      refute has_element?(view, "[data-testid='admin-resource-page-next'][disabled]")
+      assert has_element?(view, "[data-testid='admin-resource-page-prev'][disabled]")
     end
 
     test "page two shows the straggler — the oldest row", %{conn: conn, flags: flags} do
@@ -663,6 +682,38 @@ defmodule FluxValeWeb.AdminResourcesLiveTest do
 
       assert index_row_count(view) == 1
       assert has_element?(view, "[data-testid='admin-resource-cell-key-#{oldest.id}']")
+      assert has_element?(view, "[data-testid='admin-resource-page-label']", "Page 2 of 2")
+      assert has_element?(view, "[data-testid='admin-resource-page-next'][disabled]")
+    end
+
+    test "next patches to page two and prev patches back", %{conn: conn} do
+      {:ok, view, _html} = live(conn, "/admin/resources/ops/feature_flag")
+
+      view
+      |> element("[data-testid='admin-resource-page-next']")
+      |> render_click()
+
+      assert_patched(view, "/admin/resources/ops/feature_flag?page=2")
+      assert has_element?(view, "[data-testid='admin-resource-page-label']", "Page 2 of 2")
+
+      view
+      |> element("[data-testid='admin-resource-page-prev']")
+      |> render_click()
+
+      assert_patched(view, "/admin/resources/ops/feature_flag")
+      assert has_element?(view, "[data-testid='admin-resource-page-label']", "Page 1 of 2")
+    end
+
+    test "the ends are guarded even for a crafted frame", %{conn: conn} do
+      {:ok, first, _html} = live(conn, "/admin/resources/ops/feature_flag")
+
+      render_click(first, "page", %{"nav" => "prev"})
+      refute_patched(first)
+
+      {:ok, last, _html} = live(conn, "/admin/resources/ops/feature_flag?page=2")
+
+      render_click(last, "page", %{"nav" => "next"})
+      refute_patched(last)
     end
 
     test "a page past the end bounces to the real last page", %{conn: conn} do
@@ -686,6 +737,111 @@ defmodule FluxValeWeb.AdminResourcesLiveTest do
 
       {:ok, list_view, _html} = live(conn, "/admin/resources/ops/feature_flag?page%5B%5D=2")
       assert index_row_count(list_view) == 25
+    end
+
+    test "size 50 folds two pages into one and resets the page", %{conn: conn} do
+      {:ok, sized_view, _html} = live(conn, "/admin/resources/ops/feature_flag?size=50")
+
+      assert index_row_count(sized_view) == 26
+      assert has_element?(sized_view, "[data-testid='admin-resource-page-label']", "Page 1 of 1")
+
+      assert has_element?(
+               sized_view,
+               "[data-testid='admin-resource-size-50'][aria-pressed='true']"
+             )
+
+      {:ok, view, _html} = live(conn, "/admin/resources/ops/feature_flag?page=2")
+
+      view
+      |> element("[data-testid='admin-resource-size-50']")
+      |> render_click()
+
+      assert_patched(view, "/admin/resources/ops/feature_flag?size=50")
+      assert index_row_count(view) == 26
+      assert has_element?(view, "[data-testid='admin-resource-count']", "Showing 1 to 26 of 26.")
+      assert has_element?(view, "[data-testid='admin-resource-page-label']", "Page 1 of 1")
+    end
+  end
+
+  describe "sort (server-driven, the URL states the view)" do
+    setup %{admin: admin} do
+      # Keys chosen so the alphabetical order differs from newest-first
+      # and the page boundary is predictable.
+      for index <- 0..25 do
+        digits = Integer.to_string(index)
+        number = String.pad_leading(digits, 2, "0")
+        flag!(admin, %{key: "sort_probe_#{number}"})
+      end
+
+      :ok
+    end
+
+    test "every header starts unsorted and the default order is newest first", %{conn: conn} do
+      {:ok, view, _html} = live(conn, "/admin/resources/ops/feature_flag")
+
+      for column <- ~w(key enabled rollout_percentage description created_at) do
+        assert attribute(view, "admin-resource-header-#{column}", "aria-sort") == "none"
+      end
+
+      assert first_index_key(view) == "sort_probe_25"
+    end
+
+    test "clicking a header sorts ascending, clicking again descending", %{conn: conn} do
+      {:ok, view, _html} = live(conn, "/admin/resources/ops/feature_flag")
+
+      view
+      |> element("[data-testid='admin-resource-sort-key']")
+      |> render_click()
+
+      assert_patched(view, "/admin/resources/ops/feature_flag?sort=key&dir=asc")
+      assert attribute(view, "admin-resource-header-key", "aria-sort") == "ascending"
+      assert first_index_key(view) == "sort_probe_00"
+
+      view
+      |> element("[data-testid='admin-resource-sort-key']")
+      |> render_click()
+
+      assert_patched(view, "/admin/resources/ops/feature_flag?sort=key&dir=desc")
+      assert attribute(view, "admin-resource-header-key", "aria-sort") == "descending"
+      assert first_index_key(view) == "sort_probe_25"
+    end
+
+    test "a sort survives the page click: sort, dir, then page in the URL", %{conn: conn} do
+      {:ok, view, _html} = live(conn, "/admin/resources/ops/feature_flag?sort=key&dir=asc")
+
+      assert attribute(view, "admin-resource-header-key", "aria-sort") == "ascending"
+
+      view
+      |> element("[data-testid='admin-resource-page-next']")
+      |> render_click()
+
+      assert_patched(view, "/admin/resources/ops/feature_flag?sort=key&dir=asc&page=2")
+      assert index_keys(view) == ["sort_probe_25"]
+    end
+
+    test "a crafted sort renders the default order and a crafted click patches nothing", %{
+      conn: conn
+    } do
+      {:ok, view, _html} = live(conn, "/admin/resources/ops/feature_flag?sort=nope&dir=sideways")
+
+      assert attribute(view, "admin-resource-header-key", "aria-sort") == "none"
+      assert first_index_key(view) == "sort_probe_25"
+
+      render_click(view, "sort", %{"field" => "nope"})
+
+      refute_patched(view)
+      assert first_index_key(view) == "sort_probe_25"
+
+      render_click(view, "page", %{"nav" => "sideways"})
+      refute_patched(view)
+
+      # A sort or size event with no value at all is the same quiet
+      # no-op (the catch-all clauses).
+      render_click(view, "sort", %{})
+      refute_patched(view)
+
+      render_click(view, "size", %{})
+      refute_patched(view)
     end
   end
 
@@ -1738,19 +1894,10 @@ defmodule FluxValeWeb.AdminResourcesLiveTest do
 
       # The configured trim: name, the category link, the created_at
       # pin (the engine's columns contract).
-      html = render(view)
-      document = LazyHTML.from_fragment(html)
+      rendered = column_names(view)
+      expected = MapSet.new(["name", "category_id", "created_at"])
 
-      matches = LazyHTML.query(document, "[data-testid^='admin-resource-col-']")
-
-      rendered =
-        for match <- Enum.to_list(matches) do
-          [testid] = LazyHTML.attribute(match, "data-testid")
-          String.replace_prefix(testid, "admin-resource-col-", "")
-        end
-        |> MapSet.new()
-
-      assert MapSet.equal?(rendered, MapSet.new(["name", "category_id", "created_at"]))
+      assert MapSet.equal?(rendered, expected)
 
       link = render(element(view, "a[data-testid='admin-resource-fk-#{category.id}']"))
       assert link =~ category.name
@@ -1789,25 +1936,13 @@ defmodule FluxValeWeb.AdminResourcesLiveTest do
 
       # The configured trim: exactly version, the app link,
       # published_at, and the created_at pin.
-      html = render(view)
-      document = LazyHTML.from_fragment(html)
+      rendered = column_names(view)
+      expected = MapSet.new(["version", "app_id", "published_at", "created_at"])
 
-      matches = LazyHTML.query(document, "[data-testid^='admin-resource-col-']")
+      assert MapSet.equal?(rendered, expected)
 
-      rendered =
-        for match <- Enum.to_list(matches) do
-          [testid] = LazyHTML.attribute(match, "data-testid")
-          String.replace_prefix(testid, "admin-resource-col-", "")
-        end
-        |> MapSet.new()
-
-      assert MapSet.equal?(
-               rendered,
-               MapSet.new(["version", "app_id", "published_at", "created_at"])
-             )
-
-      refute has_element?(view, "[data-testid='admin-resource-col-image']")
-      refute has_element?(view, "[data-testid='admin-resource-col-port']")
+      refute has_element?(view, "[data-testid='admin-resource-header-image']")
+      refute has_element?(view, "[data-testid='admin-resource-header-port']")
 
       # The FK link cell: the app's name, linked to its show page.
       assert has_element?(view, "a[data-testid='admin-resource-fk-#{app.id}']", app.name)

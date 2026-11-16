@@ -415,42 +415,6 @@ defmodule FluxValeWeb.Components.AdminResourceTest do
     end
   end
 
-  describe "the pagination controls" do
-    test "one page renders no controls — a lone number is not a control" do
-      assert render_component(&AdminResource.pagination/1, current: 1, total: 1, path: "/x") == ""
-    end
-
-    test "prev and next disable at the ends, numbers carry the page" do
-      html =
-        render_component(&AdminResource.pagination/1,
-          current: 1,
-          total: 3,
-          path: "/admin/resources/ops/feature_flag"
-        )
-
-      assert html =~ ~s(aria-disabled="true")
-      assert html =~ ~s(href="/admin/resources/ops/feature_flag?page=2")
-      assert html =~ ~s(href="/admin/resources/ops/feature_flag?page=3")
-    end
-
-    test "the current page carries the page mark and the window elides" do
-      html =
-        render_component(&AdminResource.pagination/1,
-          current: 4,
-          total: 9,
-          path: "/x"
-        )
-
-      current = text_of(html, "[data-testid='admin-resource-page-4']")
-      assert current == "4"
-      assert html =~ ~s(aria-current="page")
-
-      assert html =~ ~s(href="/x?page=1")
-      assert html =~ ~s(href="/x?page=9")
-      assert html =~ "…"
-    end
-  end
-
   describe "the input mapping (the plan's form contracts table)" do
     test "string, ci_string, and uuid shape to text" do
       key = attr(FeatureFlag, :key)
