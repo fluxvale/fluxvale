@@ -6,7 +6,8 @@ defmodule FluxValeWeb.AgentDocsController do
   placeholder — any agent (or human) can be pointed at one stable URL.
 
   Signed-in readers also get a link to the personalized surface, the
-  `/agent` panel (#817).
+  `/agent` panel (#817); on first run the same handoff opens as a
+  modal from the signed-in dashboard's empty state.
 
   A literal route before `/docs/:section`: "agents" is a page, not a
   docs section. The regular docs sidebar rides along for the way back.

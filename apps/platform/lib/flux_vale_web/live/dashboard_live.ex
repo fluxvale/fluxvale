@@ -21,6 +21,11 @@ defmodule FluxValeWeb.DashboardLive do
   only the instances page's tick keeps that copy moving between
   writes — the dashboard's job is the at-a-glance state.
 
+  The fresh-account empty state opens the agent handoff as a modal
+  (#817): the same `FluxValeWeb.AgentPanel` body as `/agent`, computed
+  at open from the personal org, nothing persisted (the dismissal is
+  derived — the button exists exactly while `instance_count == 0`).
+
   #203 coupling is display-level only: statuses flow straight through
   `status_badge`/`InstanceStatus`, so new states land here without
   vocabulary changes. The one status list below (quiet vs. noisy) is a
@@ -36,6 +41,8 @@ defmodule FluxValeWeb.DashboardLive do
   alias FluxVale.Billing.Month
   alias FluxVale.Infrastructure.Instance
   alias FluxVale.Pricing
+  alias FluxValeWeb.AgentPanel
+  alias FluxValeWeb.AgentPrompt
   alias FluxValeWeb.InstanceStatus
 
   # #121's calendar-neutral month, the one settle prorates by — pinned
@@ -78,6 +85,7 @@ defmodule FluxValeWeb.DashboardLive do
       |> stream(:instances, instances)
       |> assign(:instance_count, length(instances))
       |> assign(:wallet, wallet_summary(user))
+      |> assign(:agent_modal, nil)
       |> subscribe(instances)
 
     {:ok, socket}
@@ -203,14 +211,17 @@ defmodule FluxValeWeb.DashboardLive do
               </.link>
             </div>
 
+            <%!-- #817: the handoff affordance is a button now — it opens
+                 the onboarding modal below instead of navigating. --%>
             <.empty_state :if={@instance_count == 0} title="No instances yet">
-              Deploy your first app from the catalog, or <.link
-                navigate={~p"/agent"}
-                class="font-medium text-link transition-colors hover:text-ink"
-                data-testid="dashboard-agent-link"
+              Deploy your first app from the catalog, or <button
+                type="button"
+                class="font-medium text-link outline-offset-2 outline-focus focus-visible:outline-2 transition-colors hover:text-ink"
+                data-testid="dashboard-agent-button"
+                phx-click="show-agent-modal"
               >
                 finish setup with your agent
-              </.link>.
+              </button>.
             </.empty_state>
             <%!-- The fresh-account onboarding nudge (#205): a welcome
             grant on the balance is exactly the "your first deploy is
@@ -287,6 +298,36 @@ defmodule FluxValeWeb.DashboardLive do
             </div>
           </div>
         </section>
+
+        <%!-- The first-run onboarding modal (#817, D2/D3): the same
+        AgentPanel body as /agent, no inner slot — the dismissal card is
+        the page's. Assigns compute in show-agent-modal, at open; the
+        modal is assign-driven (`:if`), nothing persisted. --%>
+        <.modal
+          :if={@agent_modal}
+          id="agent-modal"
+          title="Finish setup with your agent"
+          on_cancel="close-agent-modal"
+          testid="agent-modal"
+          class="max-w-5xl"
+        >
+          <AgentPanel.body
+            prompt={@agent_modal.prompt}
+            snippets={@agent_modal.snippets}
+            snippet_note={@agent_modal.snippet_note}
+            what_it_will_do={@agent_modal.what_it_will_do}
+          />
+
+          <:footer>
+            <.link
+              navigate={~p"/agent"}
+              data-testid="agent-modal-panel-link"
+              class="text-sm font-medium text-link transition-colors hover:text-ink"
+            >
+              Open the full page
+            </.link>
+          </:footer>
+        </.modal>
       </div>
     </Layouts.app>
     """
@@ -329,6 +370,27 @@ defmodule FluxValeWeb.DashboardLive do
         # page exit; the row leaves via stream_delete there.
         {:noreply, socket}
     end
+  end
+
+  @impl Phoenix.LiveView
+  # #817 D2: the org-specific panel data computes LAZILY at open — the
+  # same calls AgentLive.mount makes, from the OrgNav assigns this view
+  # already carries. Derived, never stored (D3): closing drops it all.
+  def handle_event("show-agent-modal", _params, socket) do
+    org = AgentPanel.org_from_assigns(socket.assigns)
+    ctx = AgentPrompt.context(org && org.name, org && org.slug)
+
+    {:noreply,
+     assign(socket, :agent_modal, %{
+       prompt: AgentPrompt.prompt(ctx),
+       snippets: AgentPrompt.clients_with_code(ctx),
+       snippet_note: AgentPrompt.snippet_note(),
+       what_it_will_do: AgentPrompt.what_it_will_do()
+     })}
+  end
+
+  def handle_event("close-agent-modal", _params, socket) do
+    {:noreply, assign(socket, :agent_modal, nil)}
   end
 
   # Display choice, not vocabulary (#179/#203): settled states

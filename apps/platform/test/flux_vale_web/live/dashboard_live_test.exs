@@ -52,8 +52,9 @@ defmodule FluxValeWeb.DashboardLiveTest do
 
     assert html =~ "No instances yet"
 
-    # #765: the empty state points at the agent handoff too.
-    assert has_element?(view, "[data-testid='dashboard-agent-link'][href='/agent']")
+    # #817: the empty state's handoff affordance is a button now — it
+    # opens the onboarding modal instead of navigating.
+    assert has_element?(view, "[data-testid='dashboard-agent-button']")
 
     assert html =~ "Welcome credit ready"
     assert html =~ "in your wallet. Your first deploy is on us."
@@ -61,6 +62,118 @@ defmodule FluxValeWeb.DashboardLiveTest do
     assert has_element?(view, "a[href='/apps']", "Deploy an app")
     assert has_element?(view, "a[href='/billing/topup']", "Top up wallet")
     assert has_element?(view, "a[href='/instances']", "View all")
+  end
+
+  # #817: the button opens the same AgentPanel body /agent renders,
+  # computed at open from the personal org — and omits the dismissal,
+  # which stays the page's tail.
+  test "the fresh-account agent button opens the onboarding modal", %{
+    conn: conn,
+    user: user
+  } do
+    org = AccountsFixtures.personal_org!(user)
+
+    {:ok, view, _html} = dashboard(conn)
+
+    view
+    |> element("[data-testid='dashboard-agent-button']")
+    |> render_click()
+
+    assert has_element?(view, "[data-testid='agent-modal']")
+
+    assert has_element?(
+             view,
+             "[data-testid='agent-modal'] [data-testid='agent-prompt']",
+             org.name
+           )
+
+    assert has_element?(
+             view,
+             "[data-testid='agent-modal'] [data-testid='agent-prompt']",
+             org.slug
+           )
+
+    assert has_element?(
+             view,
+             "[data-testid='agent-modal'] [data-testid='agent-what-it-will-do']"
+           )
+
+    # The full-page link rides the footer…
+    assert has_element?(view, "[data-testid='agent-modal-panel-link'][href='/agent']")
+
+    # …and the dismissal card is /agent's, never the modal's.
+    refute has_element?(view, "[data-testid='agent-modal'] [data-testid='agent-dismiss']")
+  end
+
+  test "the onboarding modal closes on the close button, Escape, and a backdrop click", %{
+    conn: conn
+  } do
+    {:ok, view, _html} = dashboard(conn)
+
+    # The close button…
+    view
+    |> element("[data-testid='dashboard-agent-button']")
+    |> render_click()
+
+    assert has_element?(view, "[data-testid='agent-modal']")
+
+    view
+    |> element("[data-testid='agent-modal-close']")
+    |> render_click()
+
+    refute has_element?(view, "[data-testid='agent-modal']")
+
+    # …Escape — native to the <dialog> now: the browser closes it and the
+    # colocated hook pushes close-agent-modal from the dialog's close
+    # event. LiveViewTest can't drive a browser, so render that same
+    # server event directly…
+    view
+    |> element("[data-testid='dashboard-agent-button']")
+    |> render_click()
+
+    render_click(view, "close-agent-modal")
+
+    refute has_element?(view, "[data-testid='agent-modal']")
+
+    # …and a backdrop click closes — the ONLY click surface that does.
+    # The panel-click arm is structural, not behavioral: LiveViewTest
+    # dispatches only bound events, so an unbound panel body can't be
+    # clicked server-side. The pin is the binding map itself — phx-click
+    # on the backdrop (and the close button, proven above) and NONE on
+    # the root or the panel, so no click inside the panel can reach a
+    # dismissal. A refactor hoisting phx-click onto either level turns
+    # these refutes red instead of silently dismissing on every panel
+    # click.
+    view
+    |> element("[data-testid='dashboard-agent-button']")
+    |> render_click()
+
+    assert has_element?(view, "[data-testid='agent-modal']")
+    assert has_element?(view, "[data-testid='agent-modal-backdrop'][phx-click]")
+    refute has_element?(view, "[data-testid='agent-modal'][phx-click]")
+    refute has_element?(view, "[data-testid='agent-modal-panel'][phx-click]")
+
+    view
+    |> element("[data-testid='agent-modal-backdrop']")
+    |> render_click()
+
+    refute has_element?(view, "[data-testid='agent-modal']")
+  end
+
+  # D3: the button exists exactly while the empty state does — one
+  # instance and both the button and the modal are gone.
+  test "a deployed account shows neither the agent button nor the modal", %{
+    conn: conn,
+    user: user,
+    version: version
+  } do
+    instance = InstanceFixtures.instance!(version, user)
+    InstanceFixtures.walk_to!(instance, :running)
+
+    {:ok, view, _html} = dashboard(conn)
+
+    refute has_element?(view, "[data-testid='dashboard-agent-button']")
+    refute has_element?(view, "[data-testid='agent-modal']")
   end
 
   test "lists the actor's instances — quiet on running, friendly copy on noisy", %{
