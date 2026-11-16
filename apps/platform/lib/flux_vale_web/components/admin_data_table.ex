@@ -276,7 +276,7 @@ defmodule FluxValeWeb.Components.AdminDataTable do
   total, and the shown window ("26 to 50 of 128"). Never fewer than
   one page, so an empty surface still reads as page 1.
   """
-  @spec page_count(pos_integer(), pos_integer()) :: pos_integer()
+  @spec page_count(non_neg_integer(), pos_integer()) :: pos_integer()
   def page_count(total, size) when total > 0 do
     divided = total / size
 

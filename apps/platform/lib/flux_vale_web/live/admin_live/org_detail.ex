@@ -405,7 +405,7 @@ defmodule FluxValeWeb.AdminLive.OrgDetail do
   defp domains_rows(filtered, state, page) do
     filtered
     |> apply_domains_sort(state.sort)
-    |> Ash.read!(page: [limit: state.size, offset: (page - 1) * state.size, count: true])
+    |> Ash.read!(page: [limit: state.size, offset: (page - 1) * state.size])
     |> Map.get(:results)
   end
 
