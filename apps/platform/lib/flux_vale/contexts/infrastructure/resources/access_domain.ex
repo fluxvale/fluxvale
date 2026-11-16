@@ -453,11 +453,15 @@ defmodule FluxVale.Infrastructure.AccessDomain do
 
     # #482 P2: the provider's per-org list — the route path's
     # organization_id feeds the filter, and the read policy's membership
-    # fence keeps another org's rows invisible.
+    # fence keeps another org's rows invisible. Optional offset
+    # pagination (#501): the admin org detail pages the card; every
+    # other caller (the provider's list, the access-read arms) passes
+    # no `page:` and keeps the plain-list contract.
     read :list_for_org do
       description("The org's access domains (the provider's list)")
       argument(:organization_id, :uuid, allow_nil?: false)
       filter(expr(organization_id == ^arg(:organization_id)))
+      pagination(offset?: true, required?: false)
     end
 
     # The state funnels — one per transition, system-only (policies
