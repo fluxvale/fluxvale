@@ -88,7 +88,17 @@ defmodule FluxValeWeb.Plugs.OAuthRateLimitTest do
   end
 
   test "malformed config fails at the boundary" do
-    for bad <- [[buckets: %{register: [window_seconds: 0, max_requests: 1]}], [max_rows: 0]] do
+    # The third case is the eager one: the request is for :register, but
+    # max_window_seconds validates every bucket, so a malformed :token
+    # fails at the boundary too (the engine reads all config before the
+    # fail-open arm — #510 S3).
+    bad_configs = [
+      [buckets: %{register: [window_seconds: 0, max_requests: 1]}],
+      [max_rows: 0],
+      [buckets: %{token: [window_seconds: 0, max_requests: 1]}]
+    ]
+
+    for bad <- bad_configs do
       with_config(bad, fn ->
         assert_raise ArgumentError, ~r/must be a positive integer/, fn ->
           OAuthRateLimit.allow?(conn(), :register)
