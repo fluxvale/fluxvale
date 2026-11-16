@@ -208,7 +208,7 @@ defmodule FluxValeWeb.Components.AdminDataTable do
   values stringify, and the table's canonical keys are reserved —
   the table owns its view, so an extra can never override it.
   """
-  @spec url_for(String.t(), map(), keyword() | [{String.t() | atom(), term()}]) :: String.t()
+  @spec url_for(String.t(), map(), [{String.t() | atom(), String.Chars.t()}]) :: String.t()
   def url_for(base, state, extra \\ []) do
     params = view_params(state) ++ extra_params(extra)
 
