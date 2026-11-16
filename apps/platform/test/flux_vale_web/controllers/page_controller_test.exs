@@ -97,6 +97,52 @@ defmodule FluxValeWeb.PageControllerTest do
     assert html =~ ~s(href="/policies/privacy")
   end
 
+  # #806: the flat run is three labeled columns. The headings are real
+  # h2s in the footer nav, and every link keeps its label and order
+  # within its column.
+  test "GET / footer groups its links into labeled columns", %{conn: conn} do
+    nav =
+      conn
+      |> get(~p"/")
+      |> html_response(200)
+      |> LazyHTML.from_document()
+      |> LazyHTML.query("nav[aria-label='Footer']")
+
+    assert %LazyHTML{} = nav
+
+    headings =
+      nav
+      |> LazyHTML.query("h2")
+      |> Enum.map(fn heading ->
+        heading
+        |> LazyHTML.text()
+        |> String.trim()
+      end)
+
+    assert headings == ["Product", "Resources", "Legal"]
+
+    links =
+      nav
+      |> LazyHTML.query("a")
+      |> Enum.map(fn link ->
+        link
+        |> LazyHTML.text()
+        |> String.trim()
+      end)
+
+    assert links == [
+             "Apps",
+             "Pricing",
+             "Sign in",
+             "Agents",
+             "Guides",
+             "Blog",
+             "Terms",
+             "Acceptable use",
+             "Privacy"
+           ]
+  end
+
   # Brand drop-in (#277): the nav carries the mark pair — the dark render
   # is the hero treatment, flipped by the Tailwind `dark:` variant — and
   # the root layout's head carries the favicon set (SVG pair + PNGs + ICO).
