@@ -4,8 +4,9 @@ defmodule FluxValeWeb.Plugs.RateLimitConformanceTest do
   # #510: the same request sequence through the frozen pre-lane
   # implementations and the live ones. This suite is characterization:
   # it pins the shared fixed-window semantics, where the frozen and live
-  # OAuth copies now diverge (the S2 claim fix), and the difference S4
-  # decides (Google's inline over-cap sweep vs the claim).
+  # OAuth copies diverged (the S2 claim fix), and where the S4 flip
+  # landed (the live Google copy joins the claim; the frozen one still
+  # sweeps inline per over-cap request).
   # async: false — the config cases mutate Application env (the
   # ApiRateLimit config-test posture) and the tables are VM-global.
   #
@@ -33,7 +34,7 @@ defmodule FluxValeWeb.Plugs.RateLimitConformanceTest do
   @window_seconds 86_400
 
   setup do
-    clear_oauth_claim()
+    clear_claim_stamps()
     start_supervised!({LegacyGoogleRateLimit, []})
     start_supervised!({LegacyOAuthRateLimit, []})
     # The owners' initial :sweep must run before a test installs a
@@ -43,7 +44,7 @@ defmodule FluxValeWeb.Plugs.RateLimitConformanceTest do
     :sys.get_state(LegacyOAuthRateLimit)
     :sys.get_state(GoogleRateLimit)
     :sys.get_state(OAuthRateLimit)
-    on_exit(&clear_oauth_claim/0)
+    on_exit(&clear_claim_stamps/0)
     :ok
   end
 
@@ -164,10 +165,11 @@ defmodule FluxValeWeb.Plugs.RateLimitConformanceTest do
           assert :ets.member(adapter.table, previous_key)
           refute :ets.member(adapter.table, lapsed_key)
 
-          # -2: the engine's floor cutoff (window_start - 2w) keeps the
-          # boundary row — equal is not < — on both Google copies and the
-          # live OAuth. The frozen OAuth's now-relative cutoff may still
-          # drop it; that difference is the point of the frozen copy.
+          # -2: every live implementation keeps the boundary row — the
+          # engine's floor cutoff (window_start - 2w; equal is not <),
+          # which the frozen Google copy also used. The frozen OAuth's
+          # now-relative cutoff may still drop it; that difference is
+          # the point of the frozen copy.
           if adapter.name != :legacy_oauth do
             assert :ets.member(adapter.table, two_windows_key)
           end
@@ -292,8 +294,9 @@ defmodule FluxValeWeb.Plugs.RateLimitConformanceTest do
             :ets.insert(adapter.table, {key, 1})
           end
 
-          # First over-cap request: Google sweeps inline (no claim row);
-          # OAuth inserts its claim and sweeps.
+          # First over-cap request: the frozen Google copy sweeps inline
+          # (no claim row); every engine-backed copy — both live
+          # surfaces since S4 — inserts its claim and sweeps.
           first_conn = conn_for(first)
           first_result = adapter.allow.(first_conn, :register)
           assert RateLimitConformance.decision(first_result) == :ok
@@ -301,11 +304,11 @@ defmodule FluxValeWeb.Plugs.RateLimitConformanceTest do
           stale_one_key = adapter.key.(:register, stale_one, window - 3 * @window_seconds)
           :ets.insert(adapter.table, {stale_one_key, 99})
 
-          # Second over-cap request: Google reaps stale_one; both OAuth
-          # copies' fresh claim blocks the scan — and the frozen copy's
-          # broken select_replace also turns the request into an
-          # uncounted allow. The live one counts it normally; the cond
-          # below asserts that split.
+          # Second over-cap request: the frozen Google copy reaps
+          # stale_one; the engine's fresh claim blocks the scan — and
+          # the frozen OAuth copy's broken select_replace also turns
+          # the request into an uncounted allow. The cond below
+          # asserts that split.
           second_conn = conn_for(second)
           second_result = adapter.allow.(second_conn, :register)
           assert RateLimitConformance.decision(second_result) == :ok
@@ -313,8 +316,9 @@ defmodule FluxValeWeb.Plugs.RateLimitConformanceTest do
           stale_two_key = adapter.key.(:register, stale_two, window - 3 * @window_seconds)
           :ets.insert(adapter.table, {stale_two_key, 99})
 
-          # Third over-cap request: Google reaps again (the inline sweep
-          # is per request); OAuth still holds its claim.
+          # Third over-cap request: the frozen Google copy reaps again
+          # (the inline sweep is per request); the engine still holds
+          # its claim.
           third_conn = conn_for(third)
           third_result = adapter.allow.(third_conn, :register)
           assert RateLimitConformance.decision(third_result) == :ok
@@ -323,7 +327,10 @@ defmodule FluxValeWeb.Plugs.RateLimitConformanceTest do
           third_key = adapter.key.(:register, third, window)
 
           cond do
-            adapter.name in [:legacy_google, :current_google] ->
+            adapter.name == :legacy_google ->
+              # The frozen Google copy sweeps inline on EVERY over-cap
+              # request: both lapsed rows reaped, no claim row, and the
+              # new keys land.
               refute :ets.member(adapter.table, stale_one_key)
               refute :ets.member(adapter.table, stale_two_key)
               refute :ets.member(adapter.table, {:sweep, :last})
@@ -331,9 +338,9 @@ defmodule FluxValeWeb.Plugs.RateLimitConformanceTest do
               assert :ets.member(adapter.table, third_key)
 
             adapter.name == :legacy_oauth ->
-              # The pre-fix body: the claim blocks the scan AND the raise
-              # turns each over-cap request into an uncounted allow, so
-              # neither new key ever lands.
+              # The pre-fix OAuth body: the claim blocks the scan AND
+              # the raise turns each over-cap request into an uncounted
+              # allow, so neither new key ever lands.
               assert :ets.member(adapter.table, stale_one_key)
               assert :ets.member(adapter.table, stale_two_key)
               assert :ets.member(adapter.table, {:sweep, :last})
@@ -341,8 +348,9 @@ defmodule FluxValeWeb.Plugs.RateLimitConformanceTest do
               refute :ets.member(adapter.table, third_key)
 
             true ->
-              # The fixed claim: no re-scan (the stale rows survive),
-              # but the requests count normally.
+              # The engine (both live surfaces since S4): no re-scan
+              # inside the claim window — the lapsed rows linger up to
+              # one longest window — but the requests count normally.
               assert :ets.member(adapter.table, stale_one_key)
               assert :ets.member(adapter.table, stale_two_key)
               assert :ets.member(adapter.table, {:sweep, :last})
@@ -428,11 +436,15 @@ defmodule FluxValeWeb.Plugs.RateLimitConformanceTest do
     RateLimitConformance.conn([], remote_ip)
   end
 
-  # The cap scenarios leave the shared OAuth table's sweep stamp fresh;
-  # the plug suite's cap test assumes it starts absent. Restore that
-  # posture around every conformance case (the suite is async: false).
-  defp clear_oauth_claim do
+  # The cap scenarios leave a fresh sweep stamp in BOTH shared tables
+  # (since S4 the Google table carries one too). The plug suites' cap
+  # tests own their claim state and delete-first anyway — clearing both
+  # stamps here keeps that invariant local instead of living in another
+  # file. Runs around every conformance case (the suite is async:
+  # false).
+  defp clear_claim_stamps do
     :ets.delete(OAuthRateLimit.Windows, {:sweep, :last})
+    :ets.delete(GoogleRateLimit.Windows, {:sweep, :last})
     :ok
   end
 

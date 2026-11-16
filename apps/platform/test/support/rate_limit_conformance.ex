@@ -51,7 +51,7 @@ defmodule FluxVale.TestSupport.RateLimitConformance do
       allow: fn conn, _bucket -> GoogleRateLimit.allow?(conn) end,
       sweep: fn -> GoogleRateLimit.sweep_expired() end,
       table: GoogleRateLimit.Windows,
-      key: fn _bucket, ip, window -> {ip, window} end
+      key: fn _bucket, ip, window -> {:google, ip, window} end
     }
   end
 

@@ -64,8 +64,10 @@ defmodule FluxVale.Application do
           # in-memory last-flush markers; DB state survives restarts.
           FluxVale.Edge.Activity,
           # Google sign-in per-IP throttle (#642, plan §3.2 D-abuse) —
-          # the fixed-window counters for the two /auth/google hops.
-          FluxValeWeb.Plugs.GoogleRateLimit,
+          # the fixed-window counters for the two /auth/google hops, on
+          # the shared FixedWindow engine since #510 (the module is the
+          # source; the owner holds GoogleRateLimit.Windows).
+          {FluxValeWeb.Plugs.FixedWindow, source: FluxValeWeb.Plugs.GoogleRateLimit},
           # #766: the OAuth endpoints' per-IP fixed windows, on the
           # shared FixedWindow engine since #510 (the owner holds the
           # OAuthRateLimit.Windows table; the module is the source).
