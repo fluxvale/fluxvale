@@ -9,9 +9,11 @@ defmodule FluxValeWeb.AdminLive.Resources do
   Every read and write runs with the operator as actor and repo-default
   authorization ON — the deliberate contrast with AshAdmin's effective
   `authorize?: false` (ADR-0027 Am. 1). No `authorize?: false`
-  anywhere on this surface. Reads ride the primary read action with
-  offset pagination (25 to a page, count-aware) and newest-first order
-  where the resource carries `created_at`.
+  anywhere on this surface. Reads ride the primary read action; the
+  index rides the shared `AdminDataTable` component (#501) with
+  server-driven sort, page, and size in query params, offset
+  pagination (25 to a page by default, count-aware), and newest-first
+  order where the resource carries `created_at`.
 
   Writes: `?action=` selects among the registry's allowed actions of
   the mount's type (default: the primary); a name the registry does
@@ -48,8 +50,7 @@ defmodule FluxValeWeb.AdminLive.Resources do
   alias FluxValeWeb.AdminConsole
   alias FluxValeWeb.AdminResource
   alias FluxValeWeb.AdminShell
-
-  @page_size 25
+  alias FluxValeWeb.Components.AdminDataTable
 
   # Auto columns: the label-ish attribute plus up to this many public
   # attrs, with created_at pinned last (the plan's columns contract).
@@ -84,12 +85,12 @@ defmodule FluxValeWeb.AdminLive.Resources do
   end
 
   def mount(
-        %{"domain" => domain_segment, "resource" => resource_segment} = params,
-        _session,
+        %{"domain" => domain_segment, "resource" => resource_segment},
+        _params,
         %{assigns: %{live_action: :index}} = socket
       ) do
     case AdminConsole.fetch(domain_segment, resource_segment) do
-      {:ok, entry} -> mount_index(entry, params, socket)
+      {:ok, entry} -> mount_index(entry, socket)
       :error -> bounce_unknown(socket)
     end
   end
@@ -124,6 +125,63 @@ defmodule FluxValeWeb.AdminLive.Resources do
     case AdminConsole.fetch(domain_segment, resource_segment) do
       {:ok, entry} -> mount_edit(entry, id, params, socket)
       :error -> bounce_unknown(socket)
+    end
+  end
+
+  # The URL states the index's view: sort, page, and size ride query
+  # params, parsed with garbage-proof fallbacks, and handle_params owns
+  # the read so every patch re-queries. The entry resolves from the
+  # params, never a mount-time assign: a crafted patch from another arm
+  # lands here with no :entry at all. Every other arm's params are
+  # mount's business alone.
+  @impl Phoenix.LiveView
+  def handle_params(params, _uri, %{assigns: %{live_action: :index}} = socket) do
+    case AdminConsole.fetch(params["domain"], params["resource"]) do
+      {:ok, entry} -> read_index(socket, entry, params)
+      :error -> {:noreply, unknown_redirect(socket)}
+    end
+  end
+
+  def handle_params(_params, _uri, socket), do: {:noreply, socket}
+
+  # The index arm's read, from the params. The entry's static assigns are
+  # (re)set when the entry is new to this process — a crafted patch from
+  # another arm — so the render never reads a mount-time shape that no
+  # longer applies.
+  defp read_index(socket, entry, params) do
+    socket =
+      if socket.assigns[:entry] == entry do
+        socket
+      else
+        assign_index_state(socket, entry)
+      end
+
+    parsed = AdminDataTable.parse_params(params, sortable: sortable_fields(entry))
+    # This surface has no search: a crafted ?q= never rides the view
+    # state, the announcement, or a URL.
+    state = %{parsed | query: ""}
+    count = read_count(entry.module, socket.assigns.current_user)
+    total_pages = AdminDataTable.page_count(count, state.size)
+
+    if requested_page(params["page"]) > total_pages and count > 0 do
+      # A page past the end bounces to the real last page (the People
+      # :home bounce idiom) — an honest URL, not a misleadingly empty
+      # table. The bounce carries the view's sort and size.
+      target = AdminDataTable.url_for(socket.assigns.index_path, %{state | page: total_pages})
+
+      {:noreply, push_navigate(socket, to: target)}
+    else
+      records = read_page(entry, state, socket.assigns.current_user)
+
+      {:noreply,
+       socket
+       |> assign(
+         table: %{state | total: count},
+         columns: columns(entry),
+         table_columns: table_columns(entry),
+         rows_empty?: records == []
+       )
+       |> stream(:records, records, reset: true)}
     end
   end
 
@@ -224,18 +282,8 @@ defmodule FluxValeWeb.AdminLive.Resources do
                       {@note}
                     </.callout>
 
-                    <div class="flex flex-wrap items-center justify-between gap-3">
-                      <div class="flex items-center gap-3">
-                        <p class="text-sm text-ink-muted" data-testid="admin-resource-count">
-                          {ngettext("1 row", "%{count} rows", @count)}
-                        </p>
-                        <AdminResource.new_button path={@new_path} />
-                      </div>
-                      <AdminResource.pagination
-                        current={@page_number}
-                        total={@total_pages}
-                        path={@index_path}
-                      />
+                    <div :if={@new_path} class="flex flex-wrap items-center justify-between gap-3">
+                      <AdminResource.new_button path={@new_path} />
                     </div>
 
                     <div :if={@rows_empty?} data-testid="admin-resource-empty">
@@ -244,67 +292,45 @@ defmodule FluxValeWeb.AdminLive.Resources do
                       </.empty_state>
                     </div>
 
+                    <%!-- The index rides the shared data table (#501): the
+                    component owns the chrome, the tracks, the computed
+                    floor, the sort headers, and the pagination; this
+                    surface keeps its panel wrapper, its typed cells, and
+                    its policy-scoped read. The cells ride slots, so the
+                    per-row testids survive unchanged. --%>
                     <div
                       :if={not @rows_empty?}
-                      class="overflow-x-auto rounded-panel border border-line bg-panel text-ink"
+                      class="rounded-panel border border-line bg-panel text-ink"
                     >
-                      <%!-- The console's table grammar (the .table
-                      component's exact chrome, hand-rolled because the
-                      generic engine needs per-shape cell control). The
-                      floor is measured like the people surface's: the
-                      widest registry row (the flags table — key 10rem,
-                      enabled 5rem, rollout 6rem, description 13rem,
-                      created 7rem, view 4rem ≈ 45rem tracks + padding)
-                      needs 46rem before columns start crowding; below
-                      it the table rides its own overflow-x-auto, never
-                      the page. --%>
-                      <table
-                        class="w-full min-w-[46rem] text-sm"
-                        data-testid="admin-resource-table"
+                      <AdminDataTable.data_table
+                        id="admin-resource"
+                        items={@streams.records}
+                        columns={@table_columns}
+                        meta={table_meta(@table)}
                       >
-                        <thead>
-                          <tr class="border-b border-line text-left text-xs font-medium tracking-wide text-ink-muted uppercase">
-                            <th
-                              :for={col <- @columns}
-                              class="px-4 py-3 font-medium"
-                              data-testid={"admin-resource-col-#{col.name}"}
-                            >
-                              {col.label}
-                            </th>
-                            <th>
-                              <span class="sr-only">{gettext("Actions")}</span>
-                            </th>
-                          </tr>
-                        </thead>
-                        <tbody id="admin-resource-rows" phx-update="stream">
-                          <tr
-                            :for={{dom_id, record} <- @streams.records}
-                            id={dom_id}
-                            class="border-b border-line last:border-0 transition-colors hover:bg-panel-raised/60"
+                        <:cell :let={record} :for={col <- @columns} col={col.name}>
+                          <div
+                            class="min-w-0"
+                            data-testid={"admin-resource-cell-#{col.name}-#{record.id}"}
                           >
-                            <td
-                              :for={col <- @columns}
-                              class="px-4 py-3"
-                              data-testid={"admin-resource-cell-#{col.name}-#{record.id}"}
+                            <.record_cell record={record} column={col} />
+                          </div>
+                        </:cell>
+
+                        <:cell :let={record} col={:actions}>
+                          <div class="flex justify-end">
+                            <.link
+                              navigate={
+                                ~p"/admin/resources/#{@domain_key}/#{@resource_key}/#{record.id}"
+                              }
+                              data-testid={"admin-resource-view-#{record.id}"}
+                              class="text-sm font-medium text-link underline-offset-2 hover:underline"
                             >
-                              <.record_cell record={record} column={col} />
-                            </td>
-                            <td class="w-0 px-4 py-3 font-semibold">
-                              <div class="flex gap-4">
-                                <.link
-                                  navigate={
-                                    ~p"/admin/resources/#{@domain_key}/#{@resource_key}/#{record.id}"
-                                  }
-                                  data-testid={"admin-resource-view-#{record.id}"}
-                                  class="text-sm font-medium text-link underline-offset-2 hover:underline"
-                                >
-                                  {gettext("View")}
-                                </.link>
-                              </div>
-                            </td>
-                          </tr>
-                        </tbody>
-                      </table>
+                              {gettext("View")}
+                            </.link>
+                          </div>
+                        </:cell>
+                      </AdminDataTable.data_table>
                     </div>
                   </div>
                 <% :show -> %>
@@ -410,41 +436,29 @@ defmodule FluxValeWeb.AdminLive.Resources do
 
   # -- mounts -------------------------------------------------------------
 
-  defp mount_index(entry, params, socket) do
+  # The index's static state: the registry entry's identity, copy, and
+  # paths. The table's view state is handle_params' business (the URL is
+  # the source of truth).
+  defp mount_index(entry, socket), do: {:ok, assign_index_state(socket, entry)}
+
+  # Shared by mount and read_index: a crafted patch from another arm
+  # lands on the index with none of this assigned, so handle_params
+  # re-applies it when the entry is new to the process.
+  defp assign_index_state(socket, entry) do
     admin = socket.assigns.current_user
-    page_number = parse_page(params["page"])
-    page = read_page(entry.module, page_number, admin)
-    count = page.count || 0
-    total_pages = AdminResource.total_pages(count, @page_size)
 
-    if page_number > total_pages and count > 0 do
-      # A page past the end bounces to the real last page (the People
-      # :home bounce idiom) — an honest URL, not a misleadingly empty
-      # table.
-      {:ok, push_navigate(socket, to: "#{index_path(entry)}?page=#{total_pages}")}
-    else
-      socket =
-        socket
-        |> assign(
-          domain_key: entry.domain.key,
-          domain_label: entry.domain.label,
-          resource_key: entry.key,
-          resource_label: resource_label(entry),
-          note: entry.config[:note],
-          columns: columns(entry),
-          count: count,
-          page_number: page_number,
-          total_pages: total_pages,
-          rows_empty?: page.results == [],
-          index_path: index_path(entry),
-          # The create affordance: only when the actor may run at
-          # least one allowed create action (nil renders nothing).
-          new_path: new_path(entry, admin)
-        )
-        |> stream(:records, page.results, reset: true)
-
-      {:ok, socket}
-    end
+    assign(socket,
+      entry: entry,
+      domain_key: entry.domain.key,
+      domain_label: entry.domain.label,
+      resource_key: entry.key,
+      resource_label: resource_label(entry),
+      note: entry.config[:note],
+      index_path: index_path(entry),
+      # The create affordance: only when the actor may run at least one
+      # allowed create action (nil renders nothing).
+      new_path: new_path(entry, admin)
+    )
   end
 
   defp mount_show(entry, id, socket) do
@@ -562,6 +576,59 @@ defmodule FluxValeWeb.AdminLive.Resources do
 
   # -- events ---------------------------------------------------------------
 
+  # The header sort: whitelisted fields only, click-to-toggle. A crafted
+  # field leaves the sort as it was — a true no-op, no page reset, no
+  # patch. The table's presence is the gate: only the index arm assigns
+  # it, so a crafted frame from another arm answers the catch-all below
+  # instead of raising on a missing assign.
+  @impl Phoenix.LiveView
+  def handle_event("sort", %{"field" => raw_field}, %{assigns: %{table: table}} = socket) do
+    sortable = sortable_fields(socket.assigns.entry)
+    sort = AdminDataTable.toggle_sort(table.sort, raw_field, sortable)
+
+    if sort == table.sort do
+      {:noreply, socket}
+    else
+      push_view(socket, %{table | sort: sort, page: 1})
+    end
+  end
+
+  # A crafted field is not a crash: the sort stays as it was.
+  def handle_event("sort", _params, socket), do: {:noreply, socket}
+
+  # Prev/next: the ends are guarded here as well as in the disabled
+  # buttons, so a crafted frame cannot page past them.
+  def handle_event("page", %{"nav" => "prev"}, %{assigns: %{table: table}} = socket) do
+    if table.page <= 1 do
+      {:noreply, socket}
+    else
+      push_view(socket, %{table | page: table.page - 1})
+    end
+  end
+
+  def handle_event("page", %{"nav" => "next"}, %{assigns: %{table: table}} = socket) do
+    last = AdminDataTable.page_count(table.total, table.size)
+
+    if table.page >= last do
+      {:noreply, socket}
+    else
+      push_view(socket, %{table | page: table.page + 1})
+    end
+  end
+
+  # A crafted nav is a no-op.
+  def handle_event("page", _params, socket), do: {:noreply, socket}
+
+  # The size switch: the allowed set only, and the page resets with it —
+  # a kept deep page could land past the new end. A crafted size falls
+  # back to the default 25.
+  def handle_event("size", %{"size" => raw}, %{assigns: %{table: table}} = socket) do
+    size = AdminDataTable.parse_size(raw)
+    push_view(socket, %{table | size: size, page: 1})
+  end
+
+  def handle_event("size", _params, socket), do: {:noreply, socket}
+
   # The form's live validation: per-field errors ride AshPhoenix's form
   # data protocol into <.input> as the operator types. Params decode
   # exactly as the save handler decodes them, so valid JSON that
@@ -571,7 +638,6 @@ defmodule FluxValeWeb.AdminLive.Resources do
   # decode), so the field re-renders the text verbatim; text that does
   # not decode stays raw and the composite says "is invalid", which is
   # live validation telling the truth.
-  @impl Phoenix.LiveView
   def handle_event("validate", %{"record" => params}, socket) do
     form =
       AshPhoenix.Form.validate(
@@ -665,16 +731,89 @@ defmodule FluxValeWeb.AdminLive.Resources do
 
   # -- reads ---------------------------------------------------------------
 
-  defp read_page(module, page_number, actor) do
-    offset = (page_number - 1) * @page_size
+  # The requested page for the bounce decision, parsed RAW: parse_params
+  # folds a page past its own 10,000 bound to one, so comparing the raw
+  # request keeps a crafted deep page bouncing instead of quietly
+  # reading page one. Only this comparison sees the value, so no bignum
+  # reaches an offset. Residual: a request in 10,001..total_pages of a
+  # table with more than 10,000 pages still parses to one — that bound
+  # is the component's own ceiling, and no registry read is near it.
+  defp requested_page(raw) when is_binary(raw) do
+    case Integer.parse(raw) do
+      {page, ""} when page >= 1 -> page
+      _not_a_page -> 1
+    end
+  end
 
-    module
-    |> Ash.Query.for_read(primary_read(module), %{}, actor: actor)
-    |> sort_newest_first(module)
-    # The FK links render from the loaded belongs_to (the plan's link
-    # labels); a resource without any loads nothing.
-    |> Ash.Query.load(belongs_to_keys(module))
-    |> Ash.read!(page: [limit: @page_size, offset: offset, count: true])
+  defp requested_page(_raw), do: 1
+
+  # The count first, cheaply: one row at offset 0, no loads, count
+  # requested — the page math never waits on a page read's rows, and the
+  # page read never pays for a second count.
+  defp read_count(module, actor) do
+    page =
+      module
+      |> Ash.Query.for_read(primary_read(module), %{}, actor: actor)
+      |> Ash.read!(page: [limit: 1, offset: 0, count: true])
+
+    page.count || 0
+  end
+
+  # One server-driven page: the whitelisted sort (newest first by
+  # default) and the belongs_to loads the FK seam renders from. The
+  # count is read_count/2's business. The offset derives from the parsed
+  # page and size — a crafted deep page bounces in handle_params before
+  # this runs.
+  defp read_page(entry, state, actor) do
+    page =
+      entry.module
+      |> Ash.Query.for_read(primary_read(entry.module), %{}, actor: actor)
+      |> sort_page(state.sort, entry.module)
+      |> Ash.Query.load(belongs_to_keys(entry.module))
+      |> Ash.read!(page: [limit: state.size, offset: (state.page - 1) * state.size])
+
+    page.results
+  end
+
+  defp sort_page(query, nil, module) do
+    Ash.Query.sort(query, default_order(module))
+  end
+
+  # A sorted read uses the whitelisted field plus the id tiebreak — a
+  # lone :id when that is the field. The whitelist is the surface's own
+  # columns: parse_params never yields a raw param.
+  defp sort_page(query, {field, dir}, module) do
+    order = [{field, dir} | id_tiebreak(module)]
+    Ash.Query.sort(query, Enum.uniq_by(order, &elem(&1, 0)))
+  end
+
+  # The default order stays newest first (the console's row-age
+  # scanning); every sort carries the id tiebreak so a same-second page
+  # boundary cannot shuffle rows between reads.
+  defp default_order(module) do
+    created =
+      if declared_timestamp(module, :created_at) do
+        [{:created_at, :desc}]
+      else
+        # coveralls-ignore-start - every registry resource declares
+        # created_at (the intake sanity passes verify it); no reachable
+        # resource exercises this arm.
+        []
+        # coveralls-ignore-stop
+      end
+
+    created ++ id_tiebreak(module)
+  end
+
+  defp id_tiebreak(module) do
+    if Info.attribute(module, :id) do
+      [{:id, :desc}]
+    else
+      # coveralls-ignore-start - every registry resource declares :id
+      # (uuid_v7_primary_key); no reachable resource exercises this arm.
+      []
+      # coveralls-ignore-stop
+    end
   end
 
   # The belongs_to set the FK-link seam renders from — loaded here, at
@@ -1002,20 +1141,6 @@ defmodule FluxValeWeb.AdminLive.Resources do
     if createable, do: ~p"/admin/resources/#{entry.domain.key}/#{entry.key}/new", else: nil
   end
 
-  # Newest first where the resource declares a created_at timestamp.
-  # The guard keeps the engine total for a future resource without one.
-  defp sort_newest_first(query, module) do
-    if declared_timestamp(module, :created_at) do
-      Ash.Query.sort(query, created_at: :desc)
-    else
-      # coveralls-ignore-start - every registry resource declares
-      # created_at (the intake sanity passes verify it); no reachable
-      # resource exercises this arm.
-      query
-      # coveralls-ignore-stop
-    end
-  end
-
   # -- introspection ---------------------------------------------------------
 
   # The ONLY non-public values this surface ever renders: the framework
@@ -1075,6 +1200,66 @@ defmodule FluxValeWeb.AdminLive.Resources do
   def declared_timestamp_names(module) do
     declared = declared_timestamps(module)
     Enum.map(declared, &Atom.to_string(&1.name))
+  end
+
+  # -- the shared data table's declarations ---------------------------------
+
+  # The sortable whitelist: every column's attribute name — the same
+  # list columns/1 returns. A raw param never becomes a sort term.
+  defp sortable_fields(entry) do
+    declared = columns(entry)
+    Enum.map(declared, & &1.name)
+  end
+
+  # The component's column declarations: the console's columns plus the
+  # sr-only actions column. The first column gets the widest flexible
+  # floor, created_at the stamp's, every other the standard 5rem; the
+  # component computes the table's min-width floor from this list.
+  defp table_columns(entry) do
+    declared =
+      entry
+      |> columns()
+      |> Enum.with_index()
+      |> Enum.map(fn {col, index} -> table_column(col, index) end)
+
+    declared ++ [%{key: :actions, label: gettext("Actions"), track: "4rem", sr_only: true}]
+  end
+
+  defp table_column(col, index) do
+    {track, floor} = column_geometry(col, index)
+
+    %{key: col.name, label: col.label, track: track, floor_rem: floor, sort: col.name}
+  end
+
+  defp column_geometry(%{name: :created_at}, _index), do: {"minmax(7rem,1fr)", 7}
+  defp column_geometry(_col, 0), do: {"minmax(9rem,1.6fr)", 9}
+  defp column_geometry(_col, _index), do: {"minmax(5rem,1fr)", 5}
+
+  # The view state the component renders: the parsed params plus the
+  # honest count and the surface's event names. The query is pinned
+  # empty — this surface has no search, so a crafted ?q never makes the
+  # announcement (or a URL) claim a filter.
+  defp table_meta(state) do
+    %{
+      query: "",
+      page: state.page,
+      size: state.size,
+      sort: state.sort,
+      total: state.total,
+      sizes: AdminDataTable.default_sizes(),
+      sort_event: "sort",
+      page_event: "page",
+      size_event: "size"
+    }
+  end
+
+  # Every table event is a patch: the URL states the view, and
+  # handle_params owns the re-query. replace keeps the browser history
+  # clean — a table view is a state, not a navigation.
+  defp push_view(socket, state) do
+    to = AdminDataTable.url_for(socket.assigns.index_path, state)
+
+    {:noreply, push_patch(socket, to: to, replace: true)}
   end
 
   # -- write-action resolution (the ?action= selector) ------------------------
@@ -1251,8 +1436,9 @@ defmodule FluxValeWeb.AdminLive.Resources do
     if stamp do
       [column(stamp, entry)]
     else
-      # coveralls-ignore-start - same arm as sort_newest_first: no
-      # reachable registry resource lacks a created_at declaration.
+      # coveralls-ignore-start - every registry resource declares
+      # created_at (the intake sanity passes verify it); no reachable
+      # resource exercises this arm.
       []
       # coveralls-ignore-stop
     end
@@ -1369,31 +1555,18 @@ defmodule FluxValeWeb.AdminLive.Resources do
   defp save_flash(:new), do: gettext("The record was created.")
   defp save_flash(:edit), do: gettext("The record was updated.")
 
-  # ?page=N — anything but a positive integer reads as page one, and a
-  # parsed integer is capped before the offset math: a crafted 19-digit
-  # page must not reach arithmetic as a bignum.
-  @page_bound 10_000
-
-  defp parse_page(nil), do: 1
-
-  defp parse_page(raw) when is_binary(raw) do
-    case Integer.parse(raw) do
-      {number, ""} when number >= 1 -> min(number, @page_bound)
-      _not_a_positive_integer -> 1
-    end
-  end
-
-  defp parse_page(_not_a_string), do: 1
-
   # The honest-unknown posture the other admin surfaces use (the
   # size-edit idiom): URL segments that can never exist flash and
   # bounce to the registry's real pages. A raise here would fight the
   # LiveView lifecycle (the initial render has no conn to 404 through).
-  defp bounce_unknown(socket) do
-    {:ok,
-     socket
-     |> put_flash(:error, gettext("That page does not exist here."))
-     |> push_navigate(to: ~p"/admin/resources")}
+  defp bounce_unknown(socket), do: {:ok, unknown_redirect(socket)}
+
+  # The socket half, shared with handle_params' own unknown-segment arm
+  # (a crafted cross-action patch answers :noreply, not mount's :ok).
+  defp unknown_redirect(socket) do
+    socket
+    |> put_flash(:error, gettext("That page does not exist here."))
+    |> push_navigate(to: ~p"/admin/resources")
   end
 
   # -- band copy -----------------------------------------------------------
@@ -1423,7 +1596,7 @@ defmodule FluxValeWeb.AdminLive.Resources do
 
   defp page_intro(%{live_action: :index}) do
     gettext(
-      "Every row, newest first, 25 to a page. Reads run through the resource policies with your account as the actor."
+      "Newest first by default; every column sorts. Reads run through the resource policies with your account as the actor."
     )
   end
 
