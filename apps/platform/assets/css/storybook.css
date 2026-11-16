@@ -1,7 +1,7 @@
 /* FluxVale Storybook bundle (#178).
  *
  * PhoenixStorybook loads THIS file instead of app.css, so it mirrors
- * the app's token directives — ramp, Switzer/Instrument Serif/JetBrains
+ * the app's token directives — ramp, Geist/Instrument Serif/JetBrains
  * Mono faces, semantic vars (Grove,
  * #277), elevation/radius/motion, dark-mode variant, heroicons plugin
  * — exactly; if the bundles diverge the workshop lies. Deliberately NO
@@ -45,7 +45,7 @@
      consumes rounded-panel/control and the motion durations (#277 T2). */
 
   /* Type system (#557): mirrors app.css's three voices. */
-  --font-sans: "Switzer", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: "Geist", ui-sans-serif, system-ui, sans-serif;
   --font-display: "Instrument Serif", Georgia, serif;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
 }
@@ -53,11 +53,11 @@
 /* Type system (#557) — same vendored woff2 set app.css declares
    (priv/static/fonts), so the workshop renders the real system. */
 @font-face {
-  font-family: "Switzer";
+  font-family: "Geist";
   font-style: normal;
   font-weight: 100 900;
   font-display: swap;
-  src: url("/fonts/switzer-latin-wght-normal.woff2") format("woff2");
+  src: url("/fonts/geist-latin-wght-normal.woff2") format("woff2");
 }
 
 @font-face {

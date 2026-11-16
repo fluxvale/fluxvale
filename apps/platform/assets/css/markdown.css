@@ -7,7 +7,7 @@
  * The output carries no classes (mdex renders bare elements), so every
  * element is styled by tag on the semantic tokens and light+dark flip
  * for free. The measure is the design decision: long-form lines read
- * at ~66ch, 17px Switzer at a 1.75 line-height.
+ * at ~66ch, 17px Geist at a 1.75 line-height.
  */
 
 /* ---- Prose body (mdex output, element-level) ---- */
