@@ -332,54 +332,6 @@ defmodule FluxValeWeb.AdminResource do
     """
   end
 
-  # -- page math ---------------------------------------------------------
-
-  @doc """
-  Pages in a count-aware run: 1..total, never below one (an empty
-  table is page one, not page zero).
-  """
-  @spec total_pages(integer(), pos_integer()) :: pos_integer()
-  def total_pages(count, limit), do: max(ceil(count / limit), 1)
-
-  @doc """
-  The page-number window: current always visible with a page each
-  side, first and last always visible, `:gap` marking an elided run.
-  At beta scale every page fits — the window only starts eliding past
-  seven pages. The window stays three wide at the edges (a current at
-  the very end shows total-2..total), and pages adjacent to an
-  endpoint join it without a gap.
-  """
-  @spec page_window(pos_integer(), pos_integer()) :: [pos_integer() | :gap]
-  def page_window(_current, total) when total <= 7, do: Enum.to_list(1..total)
-
-  def page_window(current, total) do
-    # Three wide, clamped: at either end the window pads toward the
-    # inside instead of shrinking.
-    first =
-      if current + 1 >= total, do: max(total - 2, 1), else: max(current - 1, 1)
-
-    last =
-      if current - 1 <= 1, do: min(3, total), else: min(current + 1, total)
-
-    window = Enum.to_list(first..last)
-
-    head =
-      case first do
-        1 -> []
-        2 -> [1]
-        _interior -> [1, :gap]
-      end
-
-    tail =
-      cond do
-        last == total -> []
-        last == total - 1 -> [total]
-        true -> [:gap, total]
-      end
-
-    head ++ window ++ tail
-  end
-
   # -- labels ------------------------------------------------------------
 
   @doc """

@@ -43,10 +43,10 @@ defmodule FluxValeWeb.AdminLive.Audit do
   guessed.
 
   The bespoke numbered pagination retired with the adoption;
-  `AdminResource.page_window/2` and `total_pages/2` are left untouched
-  here — #803 already took the resources console's calls, so this PR
-  leaves them defined but uncalled and their removal is S4's remaining
-  piece (one concern per PR).
+  `AdminResource.page_window/2` and `total_pages/2` went with it —
+  #803 took the resources console's calls and this surface was the
+  last caller, so the helpers are deleted (the #602 consolidation
+  tail closes here, not in S4).
   """
 
   use FluxValeWeb, :live_view
@@ -234,7 +234,9 @@ defmodule FluxValeWeb.AdminLive.Audit do
   @doc """
   The section's version page for one entry: the Version module read
   through its domain with the actor riding the query and authorization
-  ON (repo default), the view state's sort and offset, count included.
+  ON (repo default), the view state's sort and offset. No count rides
+  this read — `count_rows/3` already counted the same scope cheaply,
+  and a discarded second count would double the query's work.
   Public seam: the version-read policy pin drives this exact path with
   a member actor — the Forbidden there is the mixin's answer through
   the section's own query, not a crafted side read.
@@ -244,7 +246,7 @@ defmodule FluxValeWeb.AdminLive.Audit do
     entry
     |> section_query(filters, actor)
     |> apply_sort(state.sort)
-    |> Ash.read!(page: [limit: state.size, offset: (state.page - 1) * state.size, count: true])
+    |> Ash.read!(page: [limit: state.size, offset: (state.page - 1) * state.size])
   end
 
   defp section_query(entry, filters, actor) do
