@@ -654,6 +654,22 @@ defmodule FluxValeWeb.AdminResourcesLiveTest do
       assert has_element?(show_view, "[data-testid='admin-resource-show']")
     end
 
+    test "a crafted patch to an unknown resource bounces to the landing", %{
+      conn: conn,
+      admin: admin
+    } do
+      flag = flag!(admin)
+
+      {:ok, view, _html} = live(conn, "/admin/resources/ops/feature_flag/#{flag.id}")
+
+      # The :index arm resolves the entry from the params, so a crafted
+      # patch naming unknown segments answers the honest bounce. (The
+      # flash rides the redirect reply as its encoded token; the copy is
+      # pinned by the route-resolution tests.)
+      assert {:error, {:live_redirect, %{to: "/admin/resources"}}} =
+               render_patch(view, "/admin/resources/nope/nope")
+    end
+
     test "the note banner carries the registry's note copy", %{conn: conn} do
       {:ok, view, _html} = live(conn, "/admin/resources/ops/access_rule")
 

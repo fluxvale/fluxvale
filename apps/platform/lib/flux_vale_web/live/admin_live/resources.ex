@@ -732,9 +732,12 @@ defmodule FluxValeWeb.AdminLive.Resources do
   # -- reads ---------------------------------------------------------------
 
   # The requested page for the bounce decision, parsed RAW: parse_params
-  # folds a page past its own 10,000 bound to one, but the honest URL
-  # must still bounce rather than quietly read page one. Only this
-  # comparison sees the value, so no bignum reaches an offset.
+  # folds a page past its own 10,000 bound to one, so comparing the raw
+  # request keeps a crafted deep page bouncing instead of quietly
+  # reading page one. Only this comparison sees the value, so no bignum
+  # reaches an offset. Residual: a request in 10,001..total_pages of a
+  # table with more than 10,000 pages still parses to one — that bound
+  # is the component's own ceiling, and no registry read is near it.
   defp requested_page(raw) when is_binary(raw) do
     case Integer.parse(raw) do
       {page, ""} when page >= 1 -> page
