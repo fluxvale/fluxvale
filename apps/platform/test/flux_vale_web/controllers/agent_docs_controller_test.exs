@@ -7,6 +7,7 @@ defmodule FluxValeWeb.AgentDocsControllerTest do
 
   use FluxValeWeb.ConnCase, async: false
 
+  alias FluxVale.TestSupport.SessionHelpers
   alias FluxValeWeb.AgentPrompt
 
   test "serves the generic prompt, the client snippets, and the docs links", %{conn: conn} do
@@ -58,5 +59,29 @@ defmodule FluxValeWeb.AgentDocsControllerTest do
     assert String.trim(agent_text) == "Set up with your agent"
     assert entry_html =~ ~s(aria-current="page")
     assert entry_html =~ "docs-nav-link-active"
+  end
+
+  # #817: the guide connects to the personalized surface. MaybeResolveUser
+  # assigns current_user display-only (#164) — the link is chrome, not a gate.
+  test "signed-in readers get the personalized panel link", %{conn: conn} do
+    {_user, session_conn} = SessionHelpers.user_with_session(conn)
+
+    conn = get(session_conn, ~p"/docs/agents")
+    html = html_response(conn, 200)
+
+    document = LazyHTML.from_document(html)
+    link = LazyHTML.query(document, ~s(a[data-testid="agent-docs-personalized-link"]))
+
+    assert LazyHTML.text(link) == "Open your personalized panel"
+    # attribute/2 lists values across matches — exactly one anchor here.
+    assert LazyHTML.attribute(link, "href") == ["/agent"]
+  end
+
+  test "the anonymous render carries no personalized panel link", %{conn: conn} do
+    conn = get(conn, ~p"/docs/agents")
+    html = html_response(conn, 200)
+
+    refute html =~ ~s(href="/agent")
+    refute html =~ "agent-docs-personalized-link"
   end
 end

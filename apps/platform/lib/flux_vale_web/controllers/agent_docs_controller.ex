@@ -5,6 +5,9 @@ defmodule FluxValeWeb.AgentDocsController do
   `/llms.txt` from `FluxValeWeb.AgentPrompt`, with the org left as a
   placeholder — any agent (or human) can be pointed at one stable URL.
 
+  Signed-in readers also get a link to the personalized surface, the
+  `/agent` panel (#817).
+
   A literal route before `/docs/:section`: "agents" is a page, not a
   docs section. The regular docs sidebar rides along for the way back.
   """

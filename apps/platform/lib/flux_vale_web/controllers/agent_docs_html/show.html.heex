@@ -22,7 +22,10 @@ centered; zero JS, so no copy button here (the panel has one). --%>
       </header>
 
       <div class="docs-body md-body">
-        <h2>The prompt</h2>
+        <p :if={@current_user}>
+          Signed in?
+          <a href={~p"/agent"} data-testid="agent-docs-personalized-link">Open your personalized panel</a>
+        </p><h2>The prompt</h2>
         <p>
           Replace <span class="font-mono">&lt;your-org-slug&gt;</span> with your org if
           your client can't discover it from <span class="font-mono">whoami</span>.
