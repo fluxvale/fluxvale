@@ -65,24 +65,24 @@
      only where a scanned source uses them — core_components now
      consumes rounded-panel/control and the motion durations (#277 T2). */
 
-  /* Type system (#557): three voices. Switzer is the interface sans,
+  /* Type system (#557): three voices. Geist is the interface sans,
      Instrument Serif the display voice (marketing headings only —
      never small UI sizes), JetBrains Mono the code/identifier voice. */
-  --font-sans: "Switzer", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: "Geist", ui-sans-serif, system-ui, sans-serif;
   --font-display: "Instrument Serif", Georgia, serif;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
 /* Type system (#557) — vendored woff2 (priv/static/fonts), no external
-   requests. The Switzer and JetBrains Mono files are variable: one file
+   requests. The Geist and JetBrains Mono files are variable: one file
    covers every weight the system uses, replacing the six static Inter
    faces (400-900). Licenses: priv/static/fonts/FONTS.md. */
 @font-face {
-  font-family: "Switzer";
+  font-family: "Geist";
   font-style: normal;
   font-weight: 100 900;
   font-display: swap;
-  src: url("/fonts/switzer-latin-wght-normal.woff2") format("woff2");
+  src: url("/fonts/geist-latin-wght-normal.woff2") format("woff2");
 }
 
 @font-face {
@@ -405,12 +405,4 @@ html {
 body {
   background-color: var(--canvas);
   color: var(--ink);
-
-  /* Switzer's space advance is ~0.17em (2px at text-xs), which paints
-     at small sizes as a missing space ("Destroyclock", "deletesDec" —
-     the #501 review's vision passes). One em-relative bump restores a
-     legible word gap at every size without touching the type tokens.
-     Type-lane trigger: if #563 amends the Switzer file or ships a
-     different UI face, re-measure and drop this. */
-  word-spacing: 0.1em;
 }
