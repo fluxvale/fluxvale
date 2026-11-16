@@ -2373,6 +2373,7 @@ msgid "Deploy %{name}"
 msgstr ""
 
 #: lib/flux_vale_web/components/catalog_page_components.ex:134
+#: lib/flux_vale_web/controllers/page_html/home.html.heex:59
 #, elixir-autogen, elixir-format
 msgid "Docs"
 msgstr ""
@@ -3969,7 +3970,6 @@ msgstr ""
 msgid "The sidebar groups every live domain here under Resources, collapsed to start. Every domain is live and fully supported."
 msgstr ""
 
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:59
 #: lib/flux_vale_web/controllers/page_html/home.html.heex:533
 #, elixir-autogen, elixir-format
 msgid "Agents"

@@ -29,7 +29,7 @@ defmodule FluxValeWeb.PageControllerTest do
     # The sign-in redirect target is this page — its flash must render here.
     assert html =~ ~s(id="flash-group")
 
-    assert body =~ ~r/>\s*Agents\s*<\/a>/
+    assert body =~ ~r/>\s*Docs\s*<\/a>/
     assert body =~ ">Apps</a>"
     assert body =~ ~r/>Sign in/
     assert body =~ "How it works"
@@ -64,9 +64,9 @@ defmodule FluxValeWeb.PageControllerTest do
              "Pick an open source app from the catalog and deploy it in minutes. Or hand it to your agent from Claude Code, Cursor, VS Code, or any MCP client. FluxVale keeps it running."
   end
 
-  # #797: the navbar's Agents label is the docs root — the docs index
+  # #797: the navbar's Docs label is the docs root — the docs index
   # leads with the agent handoff, so setup stays one row away.
-  test "GET / navbar Agents link points at the docs root (#797)", %{conn: conn} do
+  test "GET / navbar Docs link points at the docs root (#797)", %{conn: conn} do
     html = html_response(get(conn, ~p"/"), 200)
 
     links =
@@ -77,7 +77,7 @@ defmodule FluxValeWeb.PageControllerTest do
     link =
       Enum.find(links, fn link ->
         text = LazyHTML.text(link)
-        String.trim(text) == "Agents"
+        String.trim(text) == "Docs"
       end)
 
     assert %LazyHTML{} = link
