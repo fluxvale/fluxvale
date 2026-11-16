@@ -203,9 +203,10 @@ Fallback if raw SSA surprises: RPC through the staging platform
 normalizes strategy via the live #781 code) — creates one extra
 revision, same convergence.
 
-**Done when**: transcript with before/after (row `:running`, strategy
+**Done when**: before/after evidence captured (row `:running`, strategy
 `0/1`, `updated=1 ready=1`, pending-RS pod running = the Nov-13 env
-revision live, FailedCreate count frozen) attached to #820 by the PA.
+revision live, FailedCreate count frozen), held ops-side (internal —
+not attached to the public issue).
 
 **S1 result (2026-11-16 10:05–10:22Z, executed)**: strategy-only SSA
 freed the quota (old pod reaped 10:05:04Z) but the wedged ReplicaSet's
@@ -216,8 +217,9 @@ restart-shaped (D1). The current staging code then finished unaided:
 re-projection + the expected second roll, its 6-event maxSurge-0
 handoff burst at 10:21:01Z, then silence), row `:running`, app
 serving 200, FailedCreate frozen, reconcile back to the healthy 5/min
-mirror cadence. Full transcript: `/tmp/opencode/820-s1-transcript.md`
-(PA attaches to #820).
+mirror cadence. Raw transcript held ops-side (internal evidence —
+not attached to the public issue); the design-relevant findings are
+recorded here and in ADR-0005 Am. 7.
 
 ## Slice 2 — client `strategy_diverges?/3` (worker)
 
@@ -330,7 +332,8 @@ open, Done on merge.
 
 ## Overall lane Done when
 
-1. Staging memos instance unwedged with transcript evidence (Slice 1).
+1. Staging memos instance unwedged with captured evidence (Slice 1,
+   held ops-side).
 2. The regression test reproducing the wedge class green in CI
    (Slice 4 test 1).
 3. `MIX_TEST_PARTITION=820 mix ci` green; PR merged per the review
