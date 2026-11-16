@@ -880,9 +880,10 @@ body:has(.landing) {
   color: var(--ink);
 }
 
-/* #532 a11y bar: the keyboard ring rides the focus token, not the
- * browser default left over the themed surface. */
-.landing .foot-links a:focus-visible {
+/* #532 a11y bar: the keyboard ring rides the focus token across the
+ * footer's links — the brand link included, so the whole band shares
+ * one treatment instead of mixing the UA default in. */
+.landing .foot-in a:focus-visible {
   outline: 2px solid var(--focus);
   outline-offset: 2px;
 }

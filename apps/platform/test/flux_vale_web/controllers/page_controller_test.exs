@@ -98,8 +98,8 @@ defmodule FluxValeWeb.PageControllerTest do
   end
 
   # #806: the flat run is three labeled columns. The headings are real
-  # h2s in the footer nav, and every link keeps its label and order
-  # within its column.
+  # h2s in the footer nav, and the anonymous render keeps every link's
+  # label and column order (the session variant is pinned below).
   test "GET / footer groups its links into labeled columns", %{conn: conn} do
     nav =
       conn
@@ -141,6 +141,61 @@ defmodule FluxValeWeb.PageControllerTest do
              "Acceptable use",
              "Privacy"
            ]
+  end
+
+  # The footer follows the header's session awareness (#205): the
+  # Product column swaps Sign in for the dashboard, and the Agents link
+  # points at the signed-in agent settings — the only two cells that
+  # move with the session.
+  test "GET /about footer columns turn inward for a signed-in visitor", %{conn: conn} do
+    {_user, session_conn} = SessionHelpers.user_with_session(conn)
+
+    nav =
+      session_conn
+      |> get(~p"/about")
+      |> html_response(200)
+      |> LazyHTML.from_document()
+      |> LazyHTML.query("nav[aria-label='Footer']")
+
+    assert %LazyHTML{} = nav
+
+    links =
+      nav
+      |> LazyHTML.query("a")
+      |> Enum.map(fn link ->
+        link
+        |> LazyHTML.text()
+        |> String.trim()
+      end)
+
+    assert links == [
+             "Apps",
+             "Pricing",
+             "Dashboard",
+             "Agents",
+             "Guides",
+             "Blog",
+             "Terms",
+             "Acceptable use",
+             "Privacy"
+           ]
+
+    nav_text = LazyHTML.text(nav)
+    refute nav_text =~ "Sign in"
+
+    agents =
+      nav
+      |> LazyHTML.query("a")
+      |> Enum.find(fn link ->
+        text =
+          link
+          |> LazyHTML.text()
+          |> String.trim()
+
+        text == "Agents"
+      end)
+
+    assert LazyHTML.attribute(agents, "href") == ["/settings/agents"]
   end
 
   # Brand drop-in (#277): the nav carries the mark pair — the dark render
