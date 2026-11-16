@@ -38,10 +38,10 @@ test("landing page renders hero and CTAs", async ({ page }) => {
     page.getByRole("link", { name: "Browse the catalog" }).first(),
   ).toHaveAttribute("href", "/catalog");
 
-  // The navbar's Agents label is the docs root, not the agent setup page.
+  // The navbar's Docs label is the docs root, not the agent setup page.
   await expect(
     page
       .getByRole("navigation", { name: "Primary" })
-      .getByRole("link", { name: "Agents", exact: true }),
+      .getByRole("link", { name: "Docs", exact: true }),
   ).toHaveAttribute("href", "/docs");
 });
