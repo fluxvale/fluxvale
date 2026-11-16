@@ -29,7 +29,17 @@ defmodule FluxVale.Infrastructure.Operations.ReconcileInstance do
     env (upsert + restart; the row's error-time env writes are
     row-only) then `:running`; the intent-bearing failures
     (`:stop_failed`, `:restore_failed`, `:teardown_failed`) keep their
-    error
+    error. A not-yet-ready `:rollout_failed` row is converged first
+    (#820, ADR-0005 Am. 7): a strategy-divergent Deployment gets the
+    restart-shaped repair (`Deployment.restart/4` — the one-pod
+    strategy + `restartedAt`, so a fresh ReplicaSet rolls inside the
+    freed quota), the repair stamps a grace anchor
+    (`reconcile_repaired_at`) that holds the fast cadence for the roll,
+    and a row that still does not converge parks
+    (`reconcile_parked_at`, write-once per
+    `Instance.reconcile_park_window_seconds/0`) instead of churning a
+    job per minute forever. Readiness promotion is unchanged — the
+    repair only makes the gate reachable
   - `:starting`/`:running` whose Deployment vanished (404) or became
     unreadable as **403** (the per-namespace RoleBinding dies with the
     namespace, so a deleted namespace answers Deployment reads with
@@ -220,7 +230,10 @@ defmodule FluxVale.Infrastructure.Operations.ReconcileInstance do
       not current_revision_ready?(status) ->
         case scheduling_state(kubeconfig, instance) do
           {:unschedulable, reason} -> mark_no_capacity(instance, reason)
-          _scheduled_or_unreadable -> {:ok, instance}
+          :scheduled_or_absent -> repair_wedged_rollout(kubeconfig, instance)
+          # A failed pod read holds the pass (scheduling_state already
+          # logged it) — it must not read as a scheduling verdict.
+          {:error, _error} -> {:ok, instance}
         end
 
       instance.env_vars == %{} ->
@@ -228,6 +241,114 @@ defmodule FluxVale.Infrastructure.Operations.ReconcileInstance do
 
       true ->
         repair_env_and_promote(kubeconfig, instance)
+    end
+  end
+
+  # The #820 wedge: a `:rollout_failed` row whose Deployment still
+  # carries a foreign strategy can never satisfy the readiness gate —
+  # recovery would wait for a condition that cannot happen, one no-op
+  # job per minute forever (the staging finding). So convergence comes
+  # before the gate: divergent strategy → the restart-shaped repair;
+  # already converged → grace while the roll lands, then parking.
+  # Scoped to `:rollout_failed` — the other recoverable reasons are
+  # rare and recover through the gate; they keep the read-only no-op.
+  defp repair_wedged_rollout(kubeconfig, %{failure_reason: :rollout_failed} = instance) do
+    case Deployment.strategy_diverges?(kubeconfig, instance.namespace, "app") do
+      {:ok, true} ->
+        Logger.warning(
+          "Instance #{instance.id}: rollout_failed with a divergent strategy; " <>
+            "applying the restart-shaped repair (#820)"
+        )
+
+        repair_restart(kubeconfig, instance)
+
+      {:ok, false} ->
+        await_roll_or_park(instance)
+
+      {:error, error} ->
+        # A failed strategy READ never parks: the marker would suppress
+        # a pending repair for the whole window. Hold the pass — the
+        # read failure is logged.
+        log_read_failure(instance, error)
+    end
+  end
+
+  defp repair_wedged_rollout(_kubeconfig, instance), do: {:ok, instance}
+
+  # The repair is `Deployment.restart/4` — GET → prepare_for_apply
+  # forces the one-pod strategy → restartedAt bump → SSA, #781's tested
+  # path — so a fresh ReplicaSet without the wedged one's accumulated
+  # create-backoff rolls within seconds of the quota freeing (S1 live
+  # finding). The stamp is the grace anchor, NOT a status write: the
+  # roll now in flight is judged on the next pass. A failed apply earns
+  # no grace — park at the bounded cadence instead of retrying every
+  # minute.
+  defp repair_restart(kubeconfig, instance) do
+    case Deployment.restart(kubeconfig, instance.namespace, "app") do
+      {:ok, _deployment} ->
+        stamp_repair_grace(instance)
+
+      {:error, error} ->
+        Logger.warning(
+          "Instance #{instance.id}: repair restart failed (#{error.message}); parking reconcile"
+        )
+
+        park_reconcile(instance)
+    end
+  end
+
+  # System writes, `authorize?: false` — the trigger context has no
+  # actor and the AshOban bypass does not propagate to nested calls
+  # (InstanceK8s.update_status's stated posture; these two ride the
+  # dedicated #820 actions instead of the status funnel so a marker
+  # never counts as progress).
+  defp stamp_repair_grace(instance) do
+    instance
+    |> Ash.Changeset.for_update(:mark_reconcile_repair, %{}, authorize?: false)
+    |> Ash.update()
+  end
+
+  defp park_reconcile(instance) do
+    instance
+    |> Ash.Changeset.for_update(:park_reconcile, %{}, authorize?: false)
+    |> Ash.update()
+  end
+
+  # The strategy is converged but the revision is not ready: within the
+  # repair grace the roll is in flight — hold at the fast cadence, no
+  # write. Past it (or with no anchor at all — a row that never
+  # repaired), park. Write-once-per-window: a fresh marker is left
+  # alone; the trigger stops enqueueing parked rows and readmits them
+  # when the window lapses, so external healing still promotes.
+  defp await_roll_or_park(instance) do
+    if repair_grace_fresh?(instance) do
+      {:ok, instance}
+    else
+      park_reconcile_once(instance)
+    end
+  end
+
+  defp repair_grace_fresh?(%{reconcile_repaired_at: nil}), do: false
+
+  defp repair_grace_fresh?(%{reconcile_repaired_at: repaired_at}) do
+    DateTime.diff(DateTime.utc_now(), repaired_at, :second) <= @deploy_stale_timeout_seconds
+  end
+
+  defp park_reconcile_once(%{reconcile_parked_at: parked_at} = instance) do
+    parked_fresh? =
+      parked_at != nil and
+        DateTime.diff(DateTime.utc_now(), parked_at, :second) <
+          Instance.reconcile_park_window_seconds()
+
+    if parked_fresh? do
+      {:ok, instance}
+    else
+      Logger.warning(
+        "Instance #{instance.id}: rollout_failed not ready past the repair grace; " <>
+          "parking reconcile for #{Instance.reconcile_park_window_seconds()}s"
+      )
+
+      park_reconcile(instance)
     end
   end
 

@@ -4,6 +4,8 @@ defmodule FluxVale.Infrastructure.Operations.ReconcileInstanceTest do
   use FluxVale.DataCase, async: true
   use Mimic
 
+  import ExUnit.CaptureLog
+
   alias FluxVale.Clients.K8s
   alias FluxVale.Clients.K8s.Error
   alias FluxVale.Clients.K8s.Resources.Deployment
@@ -922,6 +924,291 @@ defmodule FluxVale.Infrastructure.Operations.ReconcileInstanceTest do
 
       assert {:ok, returned} = ReconcileInstance.call(instance)
       assert returned.status == :error
+    end
+  end
+
+  describe "call/1 — wedged rollout repair (#820)" do
+    # The wedge shape through the funnel: an errored row classified
+    # :rollout_failed — the quota class from the staging finding that
+    # started #820. :error → :error is the legal message-only re-write
+    # (StatusTransition's no-op arm).
+    defp rollout_failed!(env_vars \\ %{}) do
+      instance = instance!(:error, env_vars)
+
+      {:ok, errored} =
+        InstanceK8s.update_status(
+          instance,
+          :error,
+          "Deployment failed: FailedCreate: exceeded quota: app-quota",
+          :rollout_failed
+        )
+
+      errored
+    end
+
+    # The grace anchor is system-written (mark_reconcile_repair stamps
+    # now); an arbitrary-age anchor is a state no action can produce —
+    # the sanctioned Ash.Seed case (same posture as the stale
+    # deployed_at test).
+    defp seed_repair_grace!(instance, seconds_ago) do
+      Ash.Seed.update!(instance, %{
+        reconcile_repaired_at: DateTime.add(DateTime.utc_now(), -seconds_ago, :second)
+      })
+    end
+
+    # The lane's core deliverable: the staging wedge, reproduced. The
+    # old pod serves 1/1 but the current revision has no replica
+    # (updated: 0) with the generation handshake OK and the pod
+    # scheduled — capacity is not the blocker, the divergent strategy
+    # is: no pass can ever satisfy the readiness gate until it is
+    # converged.
+    test "a wedged rollout_failed row is repaired on pass 1 and promoted on pass 2" do
+      stub_kubeconfig()
+      instance = rollout_failed!(%{"FOO" => "bar"})
+      ns = "fluxvale-app-#{instance.id}"
+
+      # Pass 1 — the wedge: divergent strategy → restart-shaped repair.
+      expect(Deployment, :status, fn _kc, ^ns, "app" ->
+        {:ok, deployment_status(%{updated: 0, ready: 1})}
+      end)
+
+      expect(Pod, :list_by_labels, fn _kc, ^ns, _labels -> {:ok, [scheduled_pod()]} end)
+
+      expect(Deployment, :strategy_diverges?, fn _kc, ^ns, "app" -> {:ok, true} end)
+
+      expect(Deployment, :restart, fn _kc, ^ns, "app" ->
+        {:ok, %{"metadata" => %{"name" => "app"}}}
+      end)
+
+      assert {:ok, repaired} = ReconcileInstance.call(instance)
+
+      # The repair, not a status write: the row keeps its error — the
+      # roll now in flight is judged on the next pass — with the grace
+      # anchor stamped and no parking marker.
+      assert repaired.status == :error
+      assert repaired.failure_reason == :rollout_failed
+      assert repaired.status_message =~ "exceeded quota"
+      assert %DateTime{} = repaired.reconcile_repaired_at
+      assert repaired.reconcile_parked_at == nil
+
+      # Pass 2 — the roll landed: the converged revision is ready, so
+      # the row projects its saved env and promotes (the recovery
+      # promotion, unchanged by the repair arm).
+      expect(Deployment, :status, fn _kc, ^ns, "app" ->
+        {:ok, deployment_status(%{actual_replicas: 1, updated: 1, ready: 1})}
+      end)
+
+      expect(InstanceEnvSecret, :upsert, fn _kc, ^ns, %{"FOO" => "bar"}, [], false -> :ok end)
+      expect(InstanceEnvSecret, :restart, fn _kc, ^ns -> :ok end)
+
+      assert {:ok, running} = ReconcileInstance.call(repaired)
+      assert running.status == :running
+      assert is_nil(running.failure_reason)
+      assert is_nil(running.reconcile_repaired_at)
+      assert running.env_vars == %{"FOO" => "bar"}
+    end
+
+    test "a converged strategy within the repair grace holds the fast cadence — no restart, no park" do
+      stub_kubeconfig()
+      repaired = rollout_failed!()
+      instance = seed_repair_grace!(repaired, 60)
+      ns = "fluxvale-app-#{instance.id}"
+
+      expect(Deployment, :status, fn _kc, ^ns, "app" ->
+        {:ok, deployment_status(%{updated: 0, ready: 1})}
+      end)
+
+      expect(Deployment, :strategy_diverges?, fn _kc, ^ns, "app" -> {:ok, false} end)
+
+      # A restart now would double-roll; a park would suppress the
+      # promote. Neither may fire during the grace.
+      stub(Deployment, :restart, fn _kc, _ns, _n -> flunk("no restart during the grace") end)
+
+      assert {:ok, held} = ReconcileInstance.call(instance)
+      assert held.status == :error
+      assert held.updated_at == instance.updated_at
+      assert held.reconcile_parked_at == nil
+    end
+
+    test "a converged strategy past the repair grace parks once, write-once" do
+      stub_kubeconfig()
+      repaired = rollout_failed!()
+      instance = seed_repair_grace!(repaired, 400)
+      ns = "fluxvale-app-#{instance.id}"
+
+      expect(Deployment, :status, fn _kc, ^ns, "app" ->
+        {:ok, deployment_status(%{updated: 0, ready: 1})}
+      end)
+
+      expect(Deployment, :strategy_diverges?, fn _kc, ^ns, "app" -> {:ok, false} end)
+
+      expect(Deployment, :status, fn _kc, ^ns, "app" ->
+        {:ok, deployment_status(%{updated: 0, ready: 1})}
+      end)
+
+      expect(Deployment, :strategy_diverges?, fn _kc, ^ns, "app" -> {:ok, false} end)
+
+      # Pass 1 — grace expired: park (the marker that takes the row out
+      # of the trigger queue).
+      assert {:ok, parked} = ReconcileInstance.call(instance)
+      assert %DateTime{} = parked.reconcile_parked_at
+      assert parked.status == :error
+
+      # Pass 2 — the next minute, still converged, still not ready, the
+      # marker fresh: write-once-per-window, nothing more to write.
+      assert {:ok, held} = ReconcileInstance.call(parked)
+      assert held.updated_at == parked.updated_at
+      assert held.reconcile_parked_at == parked.reconcile_parked_at
+    end
+
+    test "a converged strategy with no repair anchor parks (the never-repaired shape)" do
+      stub_kubeconfig()
+      instance = rollout_failed!()
+      ns = "fluxvale-app-#{instance.id}"
+
+      expect(Deployment, :status, fn _kc, ^ns, "app" ->
+        {:ok, deployment_status(%{updated: 0, ready: 1})}
+      end)
+
+      expect(Deployment, :strategy_diverges?, fn _kc, ^ns, "app" -> {:ok, false} end)
+
+      assert {:ok, parked} = ReconcileInstance.call(instance)
+      assert %DateTime{} = parked.reconcile_parked_at
+    end
+
+    test "a failed repair restart earns no grace — logged, parked" do
+      stub_kubeconfig()
+      instance = rollout_failed!()
+      ns = "fluxvale-app-#{instance.id}"
+
+      expect(Deployment, :status, fn _kc, ^ns, "app" ->
+        {:ok, deployment_status(%{updated: 0, ready: 1})}
+      end)
+
+      expect(Deployment, :strategy_diverges?, fn _kc, ^ns, "app" -> {:ok, true} end)
+
+      expect(Deployment, :restart, fn _kc, ^ns, "app" ->
+        {:error, Error.connection_error("apply conflict")}
+      end)
+
+      log =
+        capture_log(fn ->
+          assert {:ok, parked} = ReconcileInstance.call(instance)
+          assert %DateTime{} = parked.reconcile_parked_at
+          assert is_nil(parked.reconcile_repaired_at)
+          assert parked.status == :error
+        end)
+
+      assert log =~ "repair restart failed"
+    end
+
+    test "a failed strategy read never parks — it would suppress a pending repair" do
+      stub_kubeconfig()
+      instance = rollout_failed!()
+      ns = "fluxvale-app-#{instance.id}"
+
+      expect(Deployment, :status, fn _kc, ^ns, "app" ->
+        {:ok, deployment_status(%{updated: 0, ready: 1})}
+      end)
+
+      expect(Deployment, :strategy_diverges?, fn _kc, ^ns, "app" ->
+        {:error, Error.connection_error("deployment get failed")}
+      end)
+
+      stub(Deployment, :restart, fn _kc, _ns, _n -> flunk("no repair off a failed read") end)
+
+      assert {:ok, returned} = ReconcileInstance.call(instance)
+      assert returned.status == :error
+      assert returned.updated_at == instance.updated_at
+      assert returned.reconcile_parked_at == nil
+    end
+
+    test "a failed pod read holds the pass — no repair, no park" do
+      stub_kubeconfig()
+      instance = rollout_failed!()
+      ns = "fluxvale-app-#{instance.id}"
+
+      expect(Deployment, :status, fn _kc, ^ns, "app" ->
+        {:ok, deployment_status(%{updated: 0, ready: 1})}
+      end)
+
+      expect(Pod, :list_by_labels, fn _kc, ^ns, _labels ->
+        {:error, Error.connection_error("pod list failed")}
+      end)
+
+      stub(Deployment, :strategy_diverges?, fn _kc, _ns, _n ->
+        flunk("no repair off an unreadable pod list")
+      end)
+
+      assert {:ok, returned} = ReconcileInstance.call(instance)
+      assert returned.status == :error
+      assert returned.updated_at == instance.updated_at
+      assert returned.reconcile_parked_at == nil
+    end
+
+    test "the other recoverable reasons keep the read-only no-op — no repair calls" do
+      # One instance, three reason flips — instance! mints a cluster per
+      # call and the create refuses a multi-cluster fleet (ADR-0006).
+      stub_kubeconfig()
+      row = instance!(:error)
+      ns = "fluxvale-app-#{row.id}"
+
+      for reason <- [:stuck, :missing, :start_failed] do
+        {:ok, errored} = InstanceK8s.update_status(row, :error, "boom", reason)
+
+        expect(Deployment, :status, fn _kc, ^ns, "app" ->
+          {:ok, deployment_status(%{})}
+        end)
+
+        stub(Deployment, :strategy_diverges?, fn _kc, _ns, _n ->
+          flunk("#{inspect(reason)} is out of the repair's scope")
+        end)
+
+        stub(Deployment, :restart, fn _kc, _ns, _n ->
+          flunk("#{inspect(reason)} is out of the repair's scope")
+        end)
+
+        assert {:ok, returned} = ReconcileInstance.call(errored)
+        assert returned.status == :error
+        assert returned.updated_at == errored.updated_at
+      end
+    end
+
+    test "an unschedulable pod wins over the repair — :no_capacity, no repair calls" do
+      stub_kubeconfig()
+      instance = rollout_failed!()
+      ns = "fluxvale-app-#{instance.id}"
+
+      expect(Deployment, :status, fn _kc, ^ns, "app" ->
+        {:ok, deployment_status(%{updated: 0, ready: 1})}
+      end)
+
+      expect(Pod, :list_by_labels, fn _kc, ^ns, _labels -> {:ok, [unschedulable_pod()]} end)
+
+      stub(Deployment, :strategy_diverges?, fn _kc, _ns, _n ->
+        flunk("capacity outranks the repair")
+      end)
+
+      stub(Deployment, :restart, fn _kc, _ns, _n -> flunk("capacity outranks the repair") end)
+
+      assert {:ok, waiting} = ReconcileInstance.call(instance)
+      assert waiting.status == :no_capacity
+    end
+
+    test "a deploy_failed row is out of the repair entirely (owner-owned)" do
+      stub_kubeconfig()
+      instance = instance!(:error)
+
+      {:ok, errored} =
+        InstanceK8s.update_status(instance, :error, "deploy job failed", :deploy_failed)
+
+      stub(Deployment, :status, fn _kc, _ns, _n ->
+        flunk("deploy_failed never reaches the Deployment read")
+      end)
+
+      assert {:ok, returned} = ReconcileInstance.call(errored)
+      assert returned.status == :error
+      assert returned.failure_reason == :deploy_failed
     end
   end
 
