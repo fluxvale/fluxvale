@@ -231,6 +231,9 @@ defmodule FluxVale.Infrastructure.Instance do
   # read the SAME list — a healthy workload may clear these failures.
   @recoverable_error_reasons InstanceFailureReason.recoverable()
 
+  # #820: the parking window — one number for the trigger fragment and the park predicate.
+  @reconcile_park_window_seconds 3600
+
   oban do
     triggers do
       trigger :deploy do
@@ -250,6 +253,11 @@ defmodule FluxVale.Infrastructure.Instance do
         # #776: :error joins the reconciled set only for the unintended
         # failures the reconciler may clear; intent-bearing failures and
         # deploy_failed (retry owns it) stay out of the queue.
+        # #820: parked rows stay out — parking bounds the cadence, the
+        # window readmits for external healing. Ecto pins fragment's
+        # first arg to a literal string (no attribute/interpolation), so
+        # 3600 repeats here — change together with
+        # @reconcile_park_window_seconds.
         where(
           expr(
             status in [:deploying, :starting, :running, :no_capacity, :error] and
@@ -1923,6 +1931,12 @@ defmodule FluxVale.Infrastructure.Instance do
 
       # coveralls-ignore-stop
   end
+
+  @doc """
+  One source for the trigger fragment and the reconciler park predicate (#820).
+  """
+  @spec reconcile_park_window_seconds() :: pos_integer()
+  def reconcile_park_window_seconds, do: @reconcile_park_window_seconds
 
   calculations do
     # #765: the default public URL the agent handoff reads back. The

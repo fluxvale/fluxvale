@@ -1402,6 +1402,10 @@ defmodule FluxVale.Infrastructure.InstanceTest do
       assert parked.reconcile_repaired_at == nil
     end
 
+    test "the window accessor is the one source" do
+      assert Instance.reconcile_park_window_seconds() == 3600
+    end
+
     test "update_status clears both markers — a re-wedge resumes the fast cadence" do
       parked =
         created!()
