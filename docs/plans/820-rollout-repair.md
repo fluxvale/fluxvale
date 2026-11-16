@@ -146,7 +146,9 @@ churn), migration via `mix ash.codegen add_instances_reconcile_parking`:
   prod both show none; accepted limitation, noted in the ADR).
 
 Net effect per wedged row: from 1 job/min forever to ≤1 job+write per
-hour, with promotion still ≤1 min after the blocker clears.
+hour; promotion lands within a minute of the blocker clearing while a
+row is unparked, and within the hourly readmission once parked
+(ADR Am. 7 states the parked-row bound).
 
 ### deploy_failed zombies (D4) — untouched, by design
 
