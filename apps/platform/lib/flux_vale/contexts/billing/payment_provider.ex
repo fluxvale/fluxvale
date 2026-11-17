@@ -59,14 +59,17 @@ defmodule FluxVale.Billing.PaymentProvider do
   @typedoc """
   The billing-session inputs (#829): open the customer-portal session
   where a buyer saves a payment method. `organization_id` is our org id
-  (the provider-side `external_id`); `email`/`name` are the buyer
-  identity, nil when the org has none; `billing_address` is the
-  evidence the provider taxes against — `country` required, `state`
-  when the country has one.
+  (the provider-side `external_id`); `email` is REQUIRED — Polar's
+  CustomerCreate is oneOf individual (email required) / team (type
+  required), so a nil-email org has no customer to open a session for
+  (S5's caller passes the enabling owner's email); `name` is optional
+  and blank-filtered on the wire; `billing_address` is the evidence
+  the provider taxes against — `country` required, `state` when the
+  country has one.
   """
   @type billing_session_request :: %{
           required(:organization_id) => Ash.UUID.t(),
-          required(:email) => String.t() | nil,
+          required(:email) => String.t(),
           required(:name) => String.t() | nil,
           required(:billing_address) => %{country: String.t(), state: String.t() | nil}
         }

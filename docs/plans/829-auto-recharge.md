@@ -416,7 +416,9 @@ that one mechanical line is the ONLY change it grows.
   the caller's evidence** (Polar requires one on the customer before
   Create Order — it computes tax from it), `POST
   /v1/customer-sessions/` → `{:ok, %{customer_id: id, portal_url:
-  url}}`.
+  url}}`. The request's `email` is REQUIRED (Polar's individual
+  customer requires one; S5's caller passes the enabling owner's
+  email).
 - `list_payment_methods/1` — Polar: `GET
   /v1/customers/{id}/payment-methods` → `{:ok, count, default_ref}`
   (we need existence + default, not the instruments).
@@ -576,7 +578,11 @@ none → `disable_with_reason(:no_method)` + mail. If due →
 `StartAutoRecharge`. On a failed outcome: increment
 `consecutive_failures`; at `failure_strikes` →
 `disable_with_reason(:declines)` + mail with a one-click top-up URL.
-A successful outcome resets the counter AND clears
+One 403 nuance: finalize's `http_403` may be a platform-side
+condition (off-session not enabled OR the account cannot accept
+payments), not a buyer decline — strike counting treats it like any
+failure, but ops telemetry must not misread it. A successful outcome
+resets the counter AND clears
 `no_method_notified_at`. Reminder-arm behavior is unchanged for
 `:reminder` orgs.
 
@@ -628,7 +634,11 @@ read — `GET /v1/organizations/{id}` shows
 `feature_settings.off_session_charges_enabled: true`; transcript
 (flag line, org id, no token) to the PA. (2) mapping evidence — a
 draft order with `amount: <X>` (never finalized), GET it, record
-`subtotal_amount == X`. (3) flip `AUTO_RECHARGE_CHARGE_MODE=true`
+`subtotal_amount == X`. The configured product must be fixed-price,
+free, or unit-based for Create Order — the current FluxVale Credits
+product is pay-what-you-want for checkout, so S6's mapping evidence
+may require a product-config change. (3) flip
+`AUTO_RECHARGE_CHARGE_MODE=true`
 on staging with a sandbox Pro-shaped org → a staging end-to-end
 proof (save method via portal, arm :auto, cross the threshold with
 a compressed `RECHARGE_SWEEP_CRONEXPR`, observe the charge, the

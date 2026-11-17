@@ -64,13 +64,19 @@ defmodule FluxVale.Billing.Providers.Polar do
   ## Customer upsert (the billing-session choice)
 
   `POST /v1/customers/` is not an upsert — an existing `external_id`
-  422s. So `create_billing_session/2` posts the create first and, on
-  any non-2xx, reads the existing customer via
-  `GET /v1/customers/?external_id=<org id>` and PATCHes it only when
-  its stored country/state differs from the caller's evidence (Polar
-  taxes drafts from the stored address, so the evidence is
-  authoritative). Line-level address fields and the method itself are
-  the buyer's — set in the portal, never here.
+  422s. So `create_billing_session/2` posts the create first and falls
+  through to the lookup only on that conflict class (404/422): the
+  documented exact-match read `GET /v1/customers/external/{external_id}`
+  (the list endpoint carries no external_id filter and paginates),
+  adopting the customer and PATCHing it only when its stored
+  country/state differs from the caller's evidence (Polar taxes drafts
+  from the stored address, so the evidence is authoritative; the
+  compare is nil-safe and case-folds the country so a stored "us"
+  cannot patch every session). Any other create failure
+  (401/403/429/5xx) cannot mean "exists" and short-circuits to
+  :api_error — no duplicate request against a 429. Line-level address
+  fields and the method itself are the buyer's — set in the portal,
+  never here.
   """
 
   use FluxVale.Billing.PaymentProvider
@@ -187,7 +193,8 @@ defmodule FluxVale.Billing.Providers.Polar do
   return_url: there is no hosted flow to return from. Currency rides
   the product (the request's `currency` documents the caller's unit);
   `amount` is integer gross cents, the same wire unit as
-  `create_checkout/2`.
+  `create_checkout/2`. The response's money reads `subtotal_amount` —
+  orders carry no top-level `amount`.
   """
   @impl PaymentProvider
   @spec create_draft_charge(PaymentProvider.draft_charge_request(), keyword()) ::
@@ -475,9 +482,9 @@ defmodule FluxVale.Billing.Providers.Polar do
   end
 
   # POST /v1/customers/ is not an upsert (an existing external_id
-  # 422s) — on any non-2xx, read the existing customer and PATCH it
-  # only when the stored address differs ("Customer upsert" in the
-  # moduledoc).
+  # 422s) — on the conflict class (404/422), read the existing
+  # customer and PATCH it only when the stored address differs
+  # ("Customer upsert" in the moduledoc).
   defp upsert_customer(req, request) do
     result = Req.post(req, url: "/v1/customers/", json: customer_body(request))
     upsert_outcome(result, req, request)
@@ -488,9 +495,18 @@ defmodule FluxVale.Billing.Providers.Polar do
     customer_id(body)
   end
 
-  defp upsert_outcome({:ok, %Req.Response{status: status, body: body}}, req, request) do
+  # Only an external-id conflict (422) or absence (404) can mean
+  # "read the existing customer" — a 401/403/429/5xx deterministically
+  # cannot, and a lookup retry on a 429 would double the request rate.
+  defp upsert_outcome({:ok, %Req.Response{status: status, body: body}}, req, request)
+       when status in [404, 422] do
     Logger.warning("Polar customer upsert returned #{status}: #{inspect(body)}")
     adopt_existing_customer(req, request)
+  end
+
+  defp upsert_outcome({:ok, %Req.Response{status: status, body: body}}, _req, _request) do
+    Logger.warning("Polar customer upsert returned #{status}: #{inspect(body)}")
+    {:error, :api_error}
   end
 
   defp upsert_outcome({:error, exception}, _req, _request) do
@@ -499,18 +515,21 @@ defmodule FluxVale.Billing.Providers.Polar do
   end
 
   defp adopt_existing_customer(req, request) do
-    result =
-      Req.get(req, url: "/v1/customers/", params: [{"external_id", request.organization_id}])
-
+    # The documented exact-match read (the list endpoint carries no
+    # external_id filter and paginates) — an id hostile to the path
+    # is percent-encoded like every other item path.
+    encoded = URI.encode(request.organization_id, &URI.char_unreserved?/1)
+    result = Req.get(req, url: "/v1/customers/external/#{encoded}")
     existing_outcome(result, req, request)
   end
 
   defp existing_outcome({:ok, %Req.Response{status: status, body: body}}, req, request)
        when status in 200..299 do
-    customer = find_customer(lookup_items(body), request.organization_id)
-    adopt_customer(req, request, customer)
+    adopt_customer(req, request, body)
   end
 
+  # 404 is the honest "absent"; 422 and every other non-2xx is a
+  # gateway fault on the lookup leg — both answer :api_error.
   defp existing_outcome({:ok, %Req.Response{status: status, body: body}}, _req, _request) do
     Logger.warning("Polar customer lookup returned #{status}: #{inspect(body)}")
     {:error, :api_error}
@@ -521,16 +540,6 @@ defmodule FluxVale.Billing.Providers.Polar do
     {:error, :network_error}
   end
 
-  # {"items": [...]} or a bare array; anything else can hold no
-  # customer — the fallback leg then answers :api_error.
-  defp lookup_items(%{"items" => items}), do: items
-  defp lookup_items(list) when is_list(list), do: list
-  defp lookup_items(_malformed), do: []
-
-  defp find_customer(customers, organization_id) do
-    Enum.find(customers, &(is_map(&1) and &1["external_id"] == organization_id))
-  end
-
   defp adopt_customer(req, request, %{"id" => id} = customer) when is_binary(id) do
     if address_differs?(customer, request) do
       patch_customer(req, request, id)
@@ -539,8 +548,6 @@ defmodule FluxVale.Billing.Providers.Polar do
     end
   end
 
-  defp adopt_customer(_req, _request, nil), do: {:error, :api_error}
-
   defp adopt_customer(_req, _request, _malformed) do
     Logger.error("Polar customer lookup returned a customer without an id")
     {:error, :invalid_response}
@@ -548,13 +555,24 @@ defmodule FluxVale.Billing.Providers.Polar do
 
   # Only country/state are ours to manage — Polar taxes the draft
   # order from the stored address, so a differing stored value is
-  # patched to the caller's evidence.
+  # patched to the caller's evidence. Country compares
+  # case-insensitively; state stays exact.
   defp address_differs?(customer, request) do
     stored = customer["billing_address"] || %{}
-    desired = request.billing_address
 
-    Map.get(stored, "country") != desired.country or Map.get(stored, "state") != desired.state
+    stored_country = upcase_country(Map.get(stored, "country"))
+    desired_country = upcase_country(request.billing_address[:country])
+
+    stored_country != desired_country or
+      Map.get(stored, "state") != request.billing_address[:state]
   end
+
+  # A nil-safe, case-folded compare: a stored "us" against a desired
+  # "US" must not patch every session; a garbage non-binary stored
+  # value differs, and the patch overwrites it.
+  defp upcase_country(nil), do: nil
+  defp upcase_country(country) when is_binary(country), do: String.upcase(country)
+  defp upcase_country(other), do: other
 
   defp patch_customer(req, request, id) do
     encoded = URI.encode(id, &URI.char_unreserved?/1)
@@ -650,11 +668,13 @@ defmodule FluxVale.Billing.Providers.Polar do
   defp method_ref(_malformed), do: nil
 
   # Draft only — NO success_url/return_url (there is no hosted flow
-  # to return from); currency rides the product.
+  # to return from); currency rides the product. OrderCreate takes
+  # the SINGULAR product_id (the checkout body's `products` array is
+  # a different endpoint's shape).
   defp draft_body(request, product_id, customer_id) do
     %{
       "customer_id" => customer_id,
-      "products" => [product_id],
+      "product_id" => product_id,
       "amount" => request.amount_cents,
       "metadata" => %{"topup_id" => request.reference}
     }
@@ -676,7 +696,10 @@ defmodule FluxVale.Billing.Providers.Polar do
   end
 
   defp draft_from_body(%{"id" => id} = body) when is_binary(id) do
-    with {:ok, amount_cents} <- parse_amount(body["amount"]) do
+    # Order responses carry no top-level `amount` — the money rides
+    # subtotal_amount, the same field the webhook maps and S3's gross
+    # guard keys on (contract point 1).
+    with {:ok, amount_cents} <- parse_amount(body["subtotal_amount"]) do
       {:ok, %{order_id: id, amount_cents: amount_cents}}
     end
   end
@@ -732,9 +755,10 @@ defmodule FluxVale.Billing.Providers.Polar do
     {:error, :invalid_response}
   end
 
-  # The finalized order carries the amount when Polar echoes it — a
-  # failed response may carry none.
-  defp amount_or_nil(%{"amount" => amount}) when is_integer(amount), do: amount
+  # The order's money rides subtotal_amount (contract point 1 — the
+  # field the webhook maps and S3's gross guard keys on); a failed
+  # response may carry none.
+  defp amount_or_nil(%{"subtotal_amount" => amount}) when is_integer(amount), do: amount
   defp amount_or_nil(_absent), do: nil
 
   defp failure_reason(status, body) do

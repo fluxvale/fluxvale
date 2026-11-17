@@ -468,17 +468,20 @@ defmodule FluxVale.Billing.Providers.PolarTest do
                Polar.create_billing_session(@session_request, [])
     end
 
-    test "omits blank identity fields and an absent state — Polar 422s nulls" do
+    test "omits a blank name and an absent state — Polar 422s nulls" do
+      # email is contract-required (the typedoc's Polar
+      # individual-customer note); only blank name/state can be
+      # absent on the wire.
       request = %{
         @session_request
-        | email: nil,
-          name: "",
+        | name: "",
           billing_address: %{country: "PH", state: nil}
       }
 
       expect(Req, :post, fn _req, opts ->
         assert opts[:json] == %{
                  "external_id" => @org_id,
+                 "email" => "buyer@example.com",
                  "billing_address" => %{"country" => "PH"}
                }
 
@@ -499,20 +502,15 @@ defmodule FluxVale.Billing.Providers.PolarTest do
       end)
 
       expect(Req, :get, fn _req, opts ->
-        assert opts[:url] == "/v1/customers/"
-        assert opts[:params] == [{"external_id", @org_id}]
+        assert opts[:url] == "/v1/customers/external/#{@org_id}"
 
         {:ok,
          %Req.Response{
            status: 200,
            body: %{
-             "items" => [
-               %{
-                 "id" => "cus_9",
-                 "external_id" => @org_id,
-                 "billing_address" => %{"country" => "US", "state" => "CA"}
-               }
-             ]
+             "id" => "cus_9",
+             "external_id" => @org_id,
+             "billing_address" => %{"country" => "US", "state" => "CA"}
            }
          }}
       end)
@@ -531,18 +529,45 @@ defmodule FluxVale.Billing.Providers.PolarTest do
       assert {:ok, %{customer_id: "cus_9"}} = Polar.create_billing_session(@session_request, [])
     end
 
-    test "a 422 upsert with differing stored evidence patches, then opens the session" do
+    test "a stored country differing only in case does not patch" do
       expect(Req, :post, fn _req, _opts ->
         {:ok, %Req.Response{status: 422, body: %{"detail" => "conflict"}}}
       end)
 
-      # Bare-array list shape, no billing_address stored at all —
-      # both differ from the caller's evidence.
       expect(Req, :get, fn _req, _opts ->
         {:ok,
          %Req.Response{
            status: 200,
-           body: [%{"id" => "cus_9", "external_id" => @org_id}]
+           body: %{
+             "id" => "cus_9",
+             "external_id" => @org_id,
+             "billing_address" => %{"country" => "us", "state" => "CA"}
+           }
+         }}
+      end)
+
+      stub(Req, :patch, fn _req, _opts ->
+        flunk("a case-folded country match must not patch")
+      end)
+
+      expect(Req, :post, fn _req, _opts ->
+        {:ok,
+         %Req.Response{status: 200, body: %{"customer_portal_url" => "https://polar/portal"}}}
+      end)
+
+      assert {:ok, %{customer_id: "cus_9"}} = Polar.create_billing_session(@session_request, [])
+    end
+
+    test "a 422 upsert with no stored address patches, then opens the session" do
+      expect(Req, :post, fn _req, _opts ->
+        {:ok, %Req.Response{status: 422, body: %{"detail" => "conflict"}}}
+      end)
+
+      expect(Req, :get, fn _req, _opts ->
+        {:ok,
+         %Req.Response{
+           status: 200,
+           body: %{"id" => "cus_9", "external_id" => @org_id}
          }}
       end)
 
@@ -571,13 +596,62 @@ defmodule FluxVale.Billing.Providers.PolarTest do
       assert {:ok, %{customer_id: "cus_9"}} = Polar.create_billing_session(@session_request, [])
     end
 
-    test "a 422 upsert without a matching existing customer answers :api_error" do
+    test "a garbage stored country differs and the patch fixes it" do
       expect(Req, :post, fn _req, _opts ->
         {:ok, %Req.Response{status: 422, body: %{"detail" => "conflict"}}}
       end)
 
       expect(Req, :get, fn _req, _opts ->
-        {:ok, %Req.Response{status: 200, body: %{"items" => []}}}
+        {:ok,
+         %Req.Response{
+           status: 200,
+           body: %{
+             "id" => "cus_9",
+             "external_id" => @org_id,
+             "billing_address" => %{"country" => 840}
+           }
+         }}
+      end)
+
+      expect(Req, :patch, fn _req, opts ->
+        assert opts[:url] == "/v1/customers/cus_9"
+        assert opts[:json]["billing_address"] == %{"country" => "US", "state" => "CA"}
+
+        {:ok,
+         %Req.Response{
+           status: 200,
+           body: %{"id" => "cus_9", "billing_address" => %{"country" => "US", "state" => "CA"}}
+         }}
+      end)
+
+      expect(Req, :post, fn _req, _opts ->
+        {:ok,
+         %Req.Response{status: 200, body: %{"customer_portal_url" => "https://polar/portal"}}}
+      end)
+
+      assert {:ok, %{customer_id: "cus_9"}} = Polar.create_billing_session(@session_request, [])
+    end
+
+    test "a 401 upsert short-circuits to :api_error without a lookup" do
+      expect(Req, :post, fn _req, _opts ->
+        {:ok, %Req.Response{status: 401, body: %{"detail" => "bad token"}}}
+      end)
+
+      stub(Req, :get, fn _req, _opts ->
+        flunk("a 401 upsert cannot mean the external_id exists")
+      end)
+
+      assert {:error, :api_error} = Polar.create_billing_session(@session_request, [])
+    end
+
+    test "an absent customer (404 on the lookup) answers :api_error" do
+      expect(Req, :post, fn _req, _opts ->
+        {:ok, %Req.Response{status: 422, body: %{"detail" => "conflict"}}}
+      end)
+
+      expect(Req, :get, fn _req, opts ->
+        assert opts[:url] == "/v1/customers/external/#{@org_id}"
+        {:ok, %Req.Response{status: 404, body: %{"detail" => "not found"}}}
       end)
 
       assert {:error, :api_error} = Polar.create_billing_session(@session_request, [])
@@ -595,29 +669,13 @@ defmodule FluxVale.Billing.Providers.PolarTest do
       assert {:error, :api_error} = Polar.create_billing_session(@session_request, [])
     end
 
-    test "a malformed lookup body holds no customer — :api_error" do
-      expect(Req, :post, fn _req, _opts ->
-        {:ok, %Req.Response{status: 422, body: %{"detail" => "conflict"}}}
-      end)
-
-      expect(Req, :get, fn _req, _opts ->
-        {:ok, %Req.Response{status: 200, body: %{"error" => "not a list"}}}
-      end)
-
-      assert {:error, :api_error} = Polar.create_billing_session(@session_request, [])
-    end
-
     test "a matched customer without a usable id is malformed gateway data" do
       expect(Req, :post, fn _req, _opts ->
         {:ok, %Req.Response{status: 422, body: %{"detail" => "conflict"}}}
       end)
 
       expect(Req, :get, fn _req, _opts ->
-        {:ok,
-         %Req.Response{
-           status: 200,
-           body: %{"items" => [%{"external_id" => @org_id}]}
-         }}
+        {:ok, %Req.Response{status: 200, body: %{"external_id" => @org_id}}}
       end)
 
       assert {:error, :invalid_response} = Polar.create_billing_session(@session_request, [])
@@ -629,11 +687,7 @@ defmodule FluxVale.Billing.Providers.PolarTest do
       end)
 
       expect(Req, :get, fn _req, _opts ->
-        {:ok,
-         %Req.Response{
-           status: 200,
-           body: %{"items" => [%{"id" => "cus_9", "external_id" => @org_id}]}
-         }}
+        {:ok, %Req.Response{status: 200, body: %{"id" => "cus_9", "external_id" => @org_id}}}
       end)
 
       expect(Req, :patch, fn _req, _opts ->
@@ -665,11 +719,7 @@ defmodule FluxVale.Billing.Providers.PolarTest do
       end)
 
       expect(Req, :get, fn _req, _opts ->
-        {:ok,
-         %Req.Response{
-           status: 200,
-           body: %{"items" => [%{"id" => "cus_9", "external_id" => @org_id}]}
-         }}
+        {:ok, %Req.Response{status: 200, body: %{"id" => "cus_9", "external_id" => @org_id}}}
       end)
 
       expect(Req, :patch, fn _req, _opts ->
@@ -683,11 +733,7 @@ defmodule FluxVale.Billing.Providers.PolarTest do
       end)
 
       expect(Req, :get, fn _req, _opts ->
-        {:ok,
-         %Req.Response{
-           status: 200,
-           body: %{"items" => [%{"id" => "cus_9", "external_id" => @org_id}]}
-         }}
+        {:ok, %Req.Response{status: 200, body: %{"id" => "cus_9", "external_id" => @org_id}}}
       end)
 
       expect(Req, :patch, fn _req, _opts ->
@@ -848,17 +894,20 @@ defmodule FluxVale.Billing.Providers.PolarTest do
       expect(Req, :post, fn _req, opts ->
         assert opts[:url] == "/v1/orders/"
 
-        # Exact JSON — the map equality proves no success_url/
-        # return_url ride a draft (there is no hosted flow) and the
-        # amount stays an integer.
+        # Exact JSON — the map equality proves OrderCreate's SINGULAR
+        # product_id (the checkout body's `products` array is another
+        # endpoint's shape), no success_url/return_url on a draft
+        # (there is no hosted flow), and the amount stays an integer.
         assert opts[:json] == %{
                  "customer_id" => "cus_1",
-                 "products" => ["prod_1"],
+                 "product_id" => "prod_1",
                  "amount" => 2500,
                  "metadata" => %{"topup_id" => "topup_9"}
                }
 
-        {:ok, %Req.Response{status: 200, body: %{"id" => "ord_1", "amount" => 2500}}}
+        # Order responses carry no top-level `amount` — the money
+        # rides subtotal_amount (contract point 1).
+        {:ok, %Req.Response{status: 200, body: %{"id" => "ord_1", "subtotal_amount" => 2500}}}
       end)
 
       assert {:ok, %{order_id: "ord_1", amount_cents: 2500}} =
@@ -875,7 +924,7 @@ defmodule FluxVale.Billing.Providers.PolarTest do
 
     test "answers :invalid_response when the body lacks an id" do
       expect(Req, :post, fn _req, _opts ->
-        {:ok, %Req.Response{status: 200, body: %{"amount" => 2500}}}
+        {:ok, %Req.Response{status: 200, body: %{"subtotal_amount" => 2500}}}
       end)
 
       assert {:error, :invalid_response} =
@@ -884,7 +933,7 @@ defmodule FluxVale.Billing.Providers.PolarTest do
 
     test "answers :invalid_response for a non-integer amount" do
       expect(Req, :post, fn _req, _opts ->
-        {:ok, %Req.Response{status: 200, body: %{"id" => "ord_1", "amount" => "2500"}}}
+        {:ok, %Req.Response{status: 200, body: %{"id" => "ord_1", "subtotal_amount" => "2500"}}}
       end)
 
       assert {:error, :invalid_response} =
@@ -917,7 +966,7 @@ defmodule FluxVale.Billing.Providers.PolarTest do
         {:ok,
          %Req.Response{
            status: 200,
-           body: %{"id" => "ord_1", "status" => "paid", "amount" => 2500}
+           body: %{"id" => "ord_1", "status" => "paid", "subtotal_amount" => 2500}
          }}
       end)
 
@@ -942,7 +991,11 @@ defmodule FluxVale.Billing.Providers.PolarTest do
 
     test "a failed finalize that echoes the amount carries it" do
       expect(Req, :post, fn _req, _opts ->
-        {:ok, %Req.Response{status: 402, body: %{"detail" => "SCA required", "amount" => 2500}}}
+        {:ok,
+         %Req.Response{
+           status: 402,
+           body: %{"detail" => "SCA required", "subtotal_amount" => 2500}
+         }}
       end)
 
       assert {:ok, %{amount_cents: 2500, failure_reason: "http_402: SCA required"}} =
@@ -988,7 +1041,7 @@ defmodule FluxVale.Billing.Providers.PolarTest do
         {:ok,
          %Req.Response{
            status: 200,
-           body: %{"id" => "ord_1", "status" => "draft", "amount" => 2500}
+           body: %{"id" => "ord_1", "status" => "draft", "subtotal_amount" => 2500}
          }}
       end)
 
