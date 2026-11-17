@@ -183,6 +183,33 @@ defmodule FluxVale.Mailer do
     |> deliver()
   end
 
+  @doc """
+  #829's auto-recharge reminder (the launch lane): one mail per episode
+  — the sweep's marker owns the once. Plain body, the threshold, the
+  one-click link (the wizard opens with the org's saved amount
+  pre-filled), and the once-a-day cadence. The staged off-session
+  charge lane is NOT shipped: the copy never promises automatic
+  charging — topping up is always the org's own click.
+  """
+  @spec deliver_auto_recharge_reminder(String.t(), integer(), String.t()) ::
+          {:ok, map()} | {:error, term()}
+  def deliver_auto_recharge_reminder(to, threshold_dollars, topup_url) do
+    %Swoosh.Email{}
+    |> Swoosh.Email.to(to)
+    |> Swoosh.Email.from({"FluxVale", "no-reply@fluxvale.com"})
+    |> Swoosh.Email.subject("Your FluxVale balance is below your top-up reminder threshold")
+    |> Swoosh.Email.text_body("""
+    Your FluxVale balance has dipped below your $#{threshold_dollars} reminder threshold.
+
+    Top up in one click — the link below opens the top-up wizard with your saved amount already filled in:
+
+    #{topup_url}
+
+    You'll get this reminder at most once a day while the balance stays below the threshold. FluxVale never charges a payment method on its own — topping up is always your decision.
+    """)
+    |> deliver()
+  end
+
   defp not_completed_copy(:failed) do
     {"Your FluxVale payment didn't go through", "Your top-up didn't go through."}
   end

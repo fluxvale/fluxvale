@@ -523,8 +523,8 @@ defmodule FluxValeWeb.BillingLive.TopupTest do
       |> render_click(%{"code" => code})
     end
 
-    defp to_amount(conn, overrides \\ %{}) do
-      {:ok, view, _html} = live(conn, ~p"/billing/topup")
+    defp to_amount(conn, overrides \\ %{}, url \\ ~p"/billing/topup") do
+      {:ok, view, _html} = live(conn, url)
 
       details =
         Map.merge(
@@ -732,6 +732,81 @@ defmodule FluxValeWeb.BillingLive.TopupTest do
       render_click(view, "back")
 
       assert has_element?(view, "#topup-amount-form")
+    end
+  end
+
+  # The reminder lane's one-click handoff (#829 L2): the sweep's link
+  # carries ?amount=<dollars>; the wizard prefills what the Amount step
+  # shows when the buyer reaches it. Details still comes first.
+  describe "the amount prefill (#829 L2)" do
+    test "?amount prefills the Amount step", %{conn: conn} do
+      view = to_amount(conn, %{}, ~p"/billing/topup?amount=25")
+
+      input = render(element(view, "#topup-amount-form input[name='amount[dollars]']"))
+      assert input =~ "value=\"25\""
+      assert has_element?(view, "[data-testid='topup-summary']")
+      assert render(element(view, "[data-testid='topup-summary']")) =~ "$25.00"
+    end
+
+    test "an amount below the floor leaves the default", %{conn: conn} do
+      view = to_amount(conn, %{}, ~p"/billing/topup?amount=4")
+
+      input = render(element(view, "#topup-amount-form input[name='amount[dollars]']"))
+      assert input =~ "value=\"\""
+      refute has_element?(view, "[data-testid='topup-summary']")
+    end
+
+    test "an amount over the cap and a non-integer leave the default", %{conn: conn} do
+      for url <- [~p"/billing/topup?amount=1001", ~p"/billing/topup?amount=lots"] do
+        view = to_amount(conn, %{}, url)
+
+        input = render(element(view, "#topup-amount-form input[name='amount[dollars]']"))
+        assert input =~ "value=\"\""
+        refute has_element?(view, "[data-testid='topup-summary']")
+      end
+    end
+
+    test "the prefill survives to the payment step without retyping", %{conn: conn} do
+      view = to_amount(conn, %{}, ~p"/billing/topup?amount=25")
+
+      submit = form(view, "#topup-amount-form", amount: %{dollars: "25"})
+      render_submit(submit)
+
+      assert has_element?(view, "#topup-pay")
+      assert render(element(view, "[data-testid='topup-summary']")) =~ "$25.00"
+    end
+
+    test "the personal-org redirect carries the amount through", %{conn: conn, org: org} do
+      case live(conn, "/organizations/#{org.slug}/billing/topup?amount=25") do
+        {:ok, view, _html} ->
+          assert_redirect(view, ~p"/billing/topup?amount=25")
+
+        {:error, {:live_redirect, %{to: to}}} ->
+          assert to == ~p"/billing/topup?amount=25"
+      end
+    end
+
+    test "the personal-org redirect without params stays bare", %{conn: conn, org: org} do
+      case live(conn, "/organizations/#{org.slug}/billing/topup") do
+        {:ok, view, _html} ->
+          assert_redirect(view, ~p"/billing/topup")
+
+        {:error, {:live_redirect, %{to: to}}} ->
+          assert to == ~p"/billing/topup"
+      end
+    end
+
+    test "a real org's wizard prefills from ?amount", %{conn: conn, user: user} do
+      org = AccountsFixtures.owned_org!(user)
+
+      view = to_amount(conn, %{}, "/organizations/#{org.slug}/billing/topup?amount=25")
+
+      assert render(element(view, "#topup-amount-form input[name='amount[dollars]']")) =~
+               "value=\"25\""
+
+      # The org arm's band names THIS org's wallet (the rendered
+      # apostrophe is HTML-escaped, so the match stops before it).
+      assert render(view) =~ "Prepaid balance for #{org.name}"
     end
   end
 

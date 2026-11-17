@@ -111,6 +111,30 @@ defmodule FluxVale.MailerTest do
     end
   end
 
+  describe "deliver_auto_recharge_reminder/3 (#829)" do
+    test "names the threshold, the once-a-day cadence, and carries the one-click link" do
+      url = "https://fluxvale.com/organizations/acme/billing/topup?amount=25"
+
+      {:ok, _delivery} = Mailer.deliver_auto_recharge_reminder("recharge@fluxvale.com", 5, url)
+
+      assert_receive {:email,
+                      %Swoosh.Email{
+                        subject: "Your FluxVale balance is below your top-up reminder threshold",
+                        to: [{_, "recharge@fluxvale.com"}],
+                        text_body: body
+                      }}
+
+      assert body =~ "$5"
+      assert body =~ url
+      assert body =~ "once a day"
+
+      # The staged off-session charge lane is NOT shipped — the copy
+      # never promises automatic charging.
+      refute body =~ "automatically charge"
+      refute body =~ "will charge"
+    end
+  end
+
   describe "deliver_destroy_warning/3 (#124)" do
     test "T-7 names the date and the way out" do
       destroy_on = ~D[2026-11-12]

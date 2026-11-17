@@ -304,6 +304,60 @@ if config_env() != :test do
   end
 end
 
+# #829 L2: the auto-recharge reminder sweep's cadence (the
+# IDLE_SWEEP_CRONEXPR precedent): staging/e2e compress it so a reminder
+# lands inside a test window; deployed envs keep config.exs's hourly
+# default. Same stance as the idle block above: test excluded, invalid
+# values raise at boot (Oban's parser would raise too, but the message
+# wouldn't name the env var).
+if config_env() != :test do
+  case System.get_env("RECHARGE_SWEEP_CRONEXPR") do
+    cron when cron in [nil, ""] ->
+      :ok
+
+    cron ->
+      case Oban.Plugins.Cron.parse(cron) do
+        {:ok, _expression} ->
+          # Reslot ONLY the recharge-sweep entry of the compiled
+          # crontab — Application.get_env reads what config.exs already
+          # set by the time runtime.exs evaluates; rebuilding the list
+          # here would fork the other entries' home. Both entry shapes:
+          # Oban's crontab allows {expr, worker, opts}.
+          oban_config = Application.get_env(:flux_vale, Oban, [])
+          plugins = Keyword.get(oban_config, :plugins, [])
+
+          plugins =
+            Enum.map(plugins, fn
+              {Oban.Plugins.Cron, opts} ->
+                crontab = Keyword.get(opts, :crontab, [])
+
+                crontab =
+                  Enum.map(crontab, fn
+                    {_expr, FluxVale.Workers.RechargeSweep} ->
+                      {cron, FluxVale.Workers.RechargeSweep}
+
+                    {_expr, FluxVale.Workers.RechargeSweep, entry_opts} ->
+                      {cron, FluxVale.Workers.RechargeSweep, entry_opts}
+
+                    entry ->
+                      entry
+                  end)
+
+                {Oban.Plugins.Cron, Keyword.put(opts, :crontab, crontab)}
+
+              plugin ->
+                plugin
+            end)
+
+          config :flux_vale, Oban, plugins: plugins
+
+        {:error, _exception} ->
+          raise ArgumentError,
+                "RECHARGE_SWEEP_CRONEXPR=#{inspect(cron)} is not a valid cron expression"
+      end
+  end
+end
+
 # Env-scoped slug prefix (#155): the deployed envs share the
 # *.fluxvale.app wildcard and slug uniqueness is per cluster only, so a
 # non-prod env prefixes its labels (staging: stg) and can never take a
