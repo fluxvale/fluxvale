@@ -244,6 +244,18 @@ defmodule FluxVale.Billing.AutoRechargeSettingTest do
              )
     end
 
+    test "provisioning cannot carry a mode param (:create accepts only the org — a future widening of :create trips this test)",
+         %{org: org} do
+      # authorize?: false — the provisioning seam's posture (bootstrap).
+      # Ash refuses unknown params loudly, so :mode is rejected today;
+      # if a widening ever adds it to :create's accept list, this
+      # assertion fails and the author must gate :create too.
+      assert {:error, %Ash.Error.Invalid{}} =
+               AutoRechargeSetting.create(%{organization_id: org.id, mode: :auto},
+                 authorize?: false
+               )
+    end
+
     test "the staged caps and buyer evidence are owner-settable (inert data, not gated)", %{
       setting: setting,
       owner: owner
@@ -254,9 +266,8 @@ defmodule FluxVale.Billing.AutoRechargeSettingTest do
                  %{
                    daily_charge_cap: 4,
                    failure_strikes: 5,
-                   billing_country: "DE",
-                   billing_state: "BE",
-                   vat_number: "DE123456789",
+                   billing_country: "US",
+                   billing_state: "CA",
                    customer_type: :business
                  },
                  actor: owner
@@ -271,9 +282,9 @@ defmodule FluxVale.Billing.AutoRechargeSettingTest do
                  authorize?: false
                )
 
-      assert reloaded.billing_country == "DE"
-      assert reloaded.billing_state == "BE"
-      assert reloaded.vat_number == "DE123456789"
+      assert reloaded.billing_country == "US"
+      assert reloaded.billing_state == "CA"
+      assert is_nil(reloaded.vat_number)
       assert reloaded.customer_type == :business
     end
 
@@ -388,15 +399,29 @@ defmodule FluxVale.Billing.AutoRechargeSettingTest do
                )
                |> Ash.update(authorize?: false)
 
+      # The disable lands at the strikes threshold: three consecutive
+      # declines already counted (the system write mirrors the S4
+      # sweep's caller posture).
+      assert {:ok, struck} =
+               armed
+               |> Ash.Changeset.for_update(:record_attempt_outcome, %{
+                 consecutive_failures: 3,
+                 last_attempt_at: DateTime.utc_now()
+               })
+               |> Ash.update(authorize?: false)
+
+      assert struck.consecutive_failures == 3
+
       # authorize?: false — the disable is the strikes/no-method system
       # write (actor-forbidden by policy; mirrors the production caller).
       assert {:ok, disabled} =
-               armed
+               struck
                |> Ash.Changeset.for_update(:disable_with_reason, %{disabled_reason: :declines})
                |> Ash.update(authorize?: false)
 
       assert disabled.mode == :off
       assert disabled.disabled_reason == :declines
+      assert disabled.consecutive_failures == 0
       assert is_nil(disabled.no_method_notified_at)
 
       # The persisted row, not just the returned struct.
@@ -405,6 +430,7 @@ defmodule FluxVale.Billing.AutoRechargeSettingTest do
 
       assert reloaded.mode == :off
       assert reloaded.disabled_reason == :declines
+      assert reloaded.consecutive_failures == 0
     end
   end
 
@@ -532,16 +558,30 @@ defmodule FluxVale.Billing.AutoRechargeSettingTest do
       # The staged evidence attributes carry sensitive?(true) (the
       # Topup posture), so the blanket sensitive_attributes :redact
       # keeps their values out of the trail — every flagged key reads
-      # REDACTED, the non-sensitive dials stay plaintext.
+      # REDACTED, the non-sensitive dials stay plaintext. Two writes,
+      # both truthful to the attribute model (billing_state is a US
+      # state code, nil is country-wide — the Topup comment's shape):
+      # a US business with a state, then a German business country-wide
+      # with its VAT number on file.
       assert {:ok, _set} =
                AutoRechargeSetting.set(
                  setting,
                  %{
                    daily_charge_cap: 3,
-                   billing_country: "DE",
-                   billing_state: "BE",
-                   vat_number: "DE123456789",
+                   billing_country: "US",
+                   billing_state: "CA",
                    customer_type: :business
+                 },
+                 actor: owner
+               )
+
+      assert {:ok, _set} =
+               AutoRechargeSetting.set(
+                 setting,
+                 %{
+                   billing_country: "DE",
+                   billing_state: nil,
+                   vat_number: "DE123456789"
                  },
                  actor: owner
                )
@@ -554,19 +594,25 @@ defmodule FluxVale.Billing.AutoRechargeSettingTest do
         |> Ash.Query.sort(version_inserted_at: :asc)
         |> Ash.read!(authorize?: false)
 
-      [_create_version, set_version] = versions
+      [_create_version, us_version, de_version] = versions
 
-      redacted = ~w(billing_country billing_state vat_number customer_type)
-
-      for key <- redacted do
-        assert set_version.changes[key] == "REDACTED",
+      for key <- ~w(billing_country billing_state customer_type) do
+        assert us_version.changes[key] == "REDACTED",
                "#{key} leaked into changes — the flag is not covering it"
 
-        assert set_version.version_action_inputs[key] == "REDACTED",
+        assert us_version.version_action_inputs[key] == "REDACTED",
                "#{key} leaked into version_action_inputs — the flag is not covering it"
       end
 
-      assert set_version.changes["daily_charge_cap"] == 3
+      assert us_version.changes["daily_charge_cap"] == 3
+
+      for key <- ~w(billing_country billing_state vat_number) do
+        assert de_version.changes[key] == "REDACTED",
+               "#{key} leaked into changes — the flag is not covering it"
+
+        assert de_version.version_action_inputs[key] == "REDACTED",
+               "#{key} leaked into version_action_inputs — the flag is not covering it"
+      end
     end
   end
 

@@ -11,7 +11,8 @@ defmodule FluxVale.Billing.AutoRechargeSetting do
   `:auto` is STAGED: `FluxVale.Billing.auto_recharge_charge_mode?/0`
   (the platform gate, default false) keeps every bit of it inert until
   the Polar Pro upgrade (activation slice S6) — the AutoArmGate
-  validation rejects arming writes, and no other action sets the mode.
+  validation rejects arming writes, and no other action sets the mode
+  to `:auto`.
   Everything else on the row (`daily_charge_cap`, `failure_strikes`,
   the buyer evidence) is inert data the owner may already set.
 
@@ -340,9 +341,11 @@ defmodule FluxVale.Billing.AutoRechargeSetting do
 
     update :record_attempt_outcome do
       description("""
-      System write of the charge lane's strike counter (the S4 sweep):
-      consecutive_failures counts declines toward failure_strikes (a
-      success resets it to 0); last_attempt_at stamps the latest try.
+      System write of the charge lane's strike counter and attempt
+      marker (the S4 sweep): stores consecutive_failures as given
+      (when it counts a decline and when a success resets it to 0 is
+      the caller's contract, not this action's) and last_attempt_at,
+      nil clears.
       """)
 
       accept([:consecutive_failures, :last_attempt_at])
@@ -352,12 +355,15 @@ defmodule FluxVale.Billing.AutoRechargeSetting do
     update :disable_with_reason do
       description("""
       System write of a disarmed lane (decisions D3/F): the reason is
-      recorded, the mode returns to :off, and the no-method notice
-      marker clears (a re-arm starts D3's two-pass cycle fresh).
+      recorded, the mode returns to :off, the strikes counter resets
+      to 0 (the episode ends at disable — a re-arm starts clean), and
+      the no-method notice marker clears (a re-arm starts D3's
+      two-pass cycle fresh).
       """)
 
       accept([:disabled_reason])
       change(set_attribute(:mode, :off))
+      change(set_attribute(:consecutive_failures, 0))
       change(set_attribute(:no_method_notified_at, nil))
       require_atomic?(false)
     end

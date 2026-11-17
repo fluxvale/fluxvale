@@ -321,7 +321,7 @@ config :flux_vale,
   # upgrade, which happens only AFTER launch. Activation (slice S6) is
   # the flip (AUTO_RECHARGE_CHARGE_MODE via runtime.exs) plus the API
   # evidence check. Until then the lane is inert: :auto writes are
-  # rejected and no other action sets the mode.
+  # rejected and no other action sets the mode to :auto.
   auto_recharge: [charge_mode: false]
 
 # Storage beyond the self-service threshold (#250, ADR-0046): the ladder
