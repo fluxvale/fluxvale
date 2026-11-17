@@ -1,12 +1,19 @@
 defmodule FluxVale.Billing.AutoRechargeSetting do
   @moduledoc """
   The org's auto-recharge preference (#829, decision G) — one row per
-  org (`unique_org`), the shared setting both lanes read. At launch,
-  `mode` is `:off | :reminder`: the reminder lane emails the org a
+  org (`unique_org`), the shared setting both lanes read. `mode` is
+  `:off | :reminder | :auto`: the reminder lane emails the org a
   one-click, amount-prefilled top-up link when the wallet dips below
-  `threshold_cents` (the L2 sweep). The staged off-session charge lane
-  joins THIS row in S2 (`:auto`) — arming it is its own explicit owner
-  consent, never implied by a reminder opt-in.
+  `threshold_cents` (the L2 sweep); `:auto` arms the staged off-session
+  charge lane — its own explicit owner consent, never implied by a
+  reminder opt-in.
+
+  `:auto` is STAGED: `FluxVale.Billing.auto_recharge_charge_mode?/0`
+  (the platform gate, default false) keeps every bit of it inert until
+  the Polar Pro upgrade (activation slice S6) — the AutoArmGate
+  validation rejects arming writes, and no other action sets the mode.
+  Everything else on the row (`daily_charge_cap`, `failure_strikes`,
+  the buyer evidence) is inert data the owner may already set.
 
   `amount_cents` clears the wallet top-up floor from app config
   (`FluxVale.Billing.min_topup_cents/0` — the StartTopup gate), so a
@@ -14,8 +21,10 @@ defmodule FluxVale.Billing.AutoRechargeSetting do
 
   Writes are owner-role only (`:set` — recurring spend consent is not
   "money in"; the wizard's any-member stance does not carry, decision
-  C); members read. Row provisioning and the reminder marker
-  (`last_reminded_at`) are system writes (`authorize?: false`).
+  C); members read. Row provisioning, the reminder marker
+  (`last_reminded_at`), and the charge lane's sweep state (attempt
+  outcome, disable, method status) are system writes
+  (`authorize?: false`).
   """
 
   use Ash.Resource,
@@ -26,7 +35,10 @@ defmodule FluxVale.Billing.AutoRechargeSetting do
     extensions: [AshAdmin.Resource, AshPaperTrail.Resource]
 
   alias FluxVale.Billing.AutoRechargeSetting.AmountMeetsTopupFloor
+  alias FluxVale.Billing.AutoRechargeSetting.AutoArmGate
+  alias FluxVale.Billing.Types.AutoRechargeDisabledReason
   alias FluxVale.Billing.Types.AutoRechargeMode
+  alias FluxVale.Billing.Types.PaymentMethodStatus
 
   # The admin posture (#829): read-only — the owner-role write is the
   # billing page's owner form, not an operator's; AshAdmin's
@@ -77,6 +89,30 @@ defmodule FluxVale.Billing.AutoRechargeSetting do
     policy action(:record_reminder) do
       description(
         "System-only: the reminder sweep's marker (authorize?: false; platform admins ride the #644 bypass, ADR-0047 D4)"
+      )
+
+      forbid_if(always())
+    end
+
+    policy action(:record_attempt_outcome) do
+      description(
+        "System-only: the charge sweep's strike counter (authorize?: false; platform admins ride the #644 bypass, ADR-0047 D4)"
+      )
+
+      forbid_if(always())
+    end
+
+    policy action(:disable_with_reason) do
+      description(
+        "System-only: strikes / no-method auto-disable (authorize?: false; platform admins ride the #644 bypass, ADR-0047 D4)"
+      )
+
+      forbid_if(always())
+    end
+
+    policy action(:set_method_status) do
+      description(
+        "System-only: the saved-method state (authorize?: false; platform admins ride the #644 bypass, ADR-0047 D4)"
       )
 
       forbid_if(always())
@@ -160,6 +196,95 @@ defmodule FluxVale.Billing.AutoRechargeSetting do
     attribute :last_reminded_at, :utc_datetime_usec do
       public?(false)
     end
+
+    # ── Staged charge lane (S2) — inert behind the config gate ──
+
+    # The charge dials (decision D2): at most `daily_charge_cap` auto
+    # charges per rolling 24h; `failure_strikes` consecutive declines
+    # auto-disable the lane (decision F).
+    attribute :daily_charge_cap, :integer do
+      allow_nil?(false)
+      default(2)
+      constraints(min: 1, max: 6)
+      public?(true)
+    end
+
+    attribute :failure_strikes, :integer do
+      allow_nil?(false)
+      default(3)
+      constraints(min: 2, max: 5)
+      public?(true)
+    end
+
+    # The sweep's strike counter (decision F): incremented on a
+    # decline, reset on a success. Private system state.
+    attribute :consecutive_failures, :integer do
+      allow_nil?(false)
+      default(0)
+      constraints(min: 0)
+      public?(false)
+    end
+
+    # Why an armed lane was disarmed (decisions D3/F) — nil while the
+    # lane has never been disabled with a reason.
+    attribute :disabled_reason, AutoRechargeDisabledReason do
+      public?(false)
+    end
+
+    # D3's persisted notice marker: set when the no-method notice
+    # fires, still nil on the next pass disables (notice-then-disable);
+    # a disable and a success each clear it.
+    attribute :no_method_notified_at, :utc_datetime_usec do
+      public?(false)
+    end
+
+    # The latest charge attempt (decision F's strike window reads it).
+    attribute :last_attempt_at, :utc_datetime_usec do
+      public?(false)
+    end
+
+    # The provider-side references (decision B — Polar only): the
+    # customer this org maps to, and whether a method is saved on it.
+    # The provider vaults the instrument; we store provider-scoped
+    # references only.
+    attribute :provider_customer_id, :string do
+      public?(false)
+    end
+
+    attribute :payment_method_status, PaymentMethodStatus do
+      allow_nil?(false)
+      default(:none)
+      public?(false)
+    end
+
+    # Buyer evidence for the later charge (decision C): copies from the
+    # org's last completed top-up as the editable default — the RATE
+    # always resolves fresh at charge time (#260, never a copied rate).
+    # sensitive?: the audit trail (#645, ADR-0048) redacts buyer
+    # evidence (the Topup posture) — the version rows carry REDACTED,
+    # never the values.
+    attribute :billing_country, :string do
+      public?(false)
+      sensitive?(true)
+    end
+
+    # US state code; nil is country-wide (everywhere but the US).
+    attribute :billing_state, :string do
+      public?(false)
+      sensitive?(true)
+    end
+
+    attribute :vat_number, :string do
+      public?(false)
+      sensitive?(true)
+    end
+
+    attribute :customer_type, FluxVale.Billing.Types.CustomerType do
+      allow_nil?(false)
+      default(:consumer)
+      public?(false)
+      sensitive?(true)
+    end
   end
 
   relationships do
@@ -179,11 +304,26 @@ defmodule FluxVale.Billing.AutoRechargeSetting do
 
     update :set do
       description("Owner-role write of the preference (the billing page's owner form, L3).")
-      accept([:mode, :threshold_cents, :amount_cents])
+
+      accept([
+        :mode,
+        :threshold_cents,
+        :amount_cents,
+        :daily_charge_cap,
+        :failure_strikes,
+        :billing_country,
+        :billing_state,
+        :vat_number,
+        :customer_type
+      ])
 
       # The floor is app config, not a compile-time int — the
       # constraint DSL cannot carry it (see the validation module).
       validate({AmountMeetsTopupFloor, []})
+
+      # The staged lane's gate (AutoArmGate): a validation, not a
+      # policy — the gate is platform state, not actor identity.
+      validate({AutoArmGate, []})
 
       require_atomic?(false)
     end
@@ -195,6 +335,42 @@ defmodule FluxVale.Billing.AutoRechargeSetting do
       """)
 
       accept([:last_reminded_at])
+      require_atomic?(false)
+    end
+
+    update :record_attempt_outcome do
+      description("""
+      System write of the charge lane's strike counter (the S4 sweep):
+      consecutive_failures counts declines toward failure_strikes (a
+      success resets it to 0); last_attempt_at stamps the latest try.
+      """)
+
+      accept([:consecutive_failures, :last_attempt_at])
+      require_atomic?(false)
+    end
+
+    update :disable_with_reason do
+      description("""
+      System write of a disarmed lane (decisions D3/F): the reason is
+      recorded, the mode returns to :off, and the no-method notice
+      marker clears (a re-arm starts D3's two-pass cycle fresh).
+      """)
+
+      accept([:disabled_reason])
+      change(set_attribute(:mode, :off))
+      change(set_attribute(:no_method_notified_at, nil))
+      require_atomic?(false)
+    end
+
+    update :set_method_status do
+      description("""
+      System write of the saved-method state (the save-method flow's
+      return leg): payment_method_status plus the provider's customer
+      id (decision B — Polar vaults the instrument, we store the
+      reference).
+      """)
+
+      accept([:payment_method_status, :provider_customer_id])
       require_atomic?(false)
     end
 

@@ -527,6 +527,20 @@ case System.get_env("PAYMENTS_PROVIDER") do
     :ok
 end
 
+# The staged auto-recharge charge lane's gate (#829 S2): the env dial
+# for S6's activation flip (staging end-to-end proof, then prod).
+# Whitelist map — only "true"/"false" pass; unset or a typo keeps
+# config.exs's default (never boot-fail, never String.to_atom).
+case System.get_env("AUTO_RECHARGE_CHARGE_MODE") do
+  value when value in ["true", "false"] ->
+    charge_modes = %{"true" => true, "false" => false}
+
+    config :flux_vale, :auto_recharge, charge_mode: Map.fetch!(charge_modes, value)
+
+  _default ->
+    :ok
+end
+
 # Postmark mailer (ADR-0003 Am. 1, #165): POSTMARK_API_KEY moves delivery
 # off the Local adapter (config.exs) onto Postmark's API. nil and "" (the
 # classic empty-Secret shape) both mean unconfigured — a prod release

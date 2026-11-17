@@ -315,7 +315,14 @@ config :flux_vale,
   # clears 41.4% gross (45.4% at $10, rejected for early-stage
   # friction). The wizard, its copy, and the paid-feature prompts all
   # read this one value; StartTopup enforces it server-side.
-  billing: [min_topup_cents: 500]
+  billing: [min_topup_cents: 500],
+  # The staged auto-recharge charge lane's gate (#829 S2, GO decision
+  # D1): false at launch — off-session charging needs the Polar Pro
+  # upgrade, which happens only AFTER launch. Activation (slice S6) is
+  # the flip (AUTO_RECHARGE_CHARGE_MODE via runtime.exs) plus the API
+  # evidence check. Until then the lane is inert: :auto writes are
+  # rejected and no other action sets the mode.
+  auto_recharge: [charge_mode: false]
 
 # Storage beyond the self-service threshold (#250, ADR-0046): the ladder
 # tops out at 100 GB self-service; above it a member requests a target
