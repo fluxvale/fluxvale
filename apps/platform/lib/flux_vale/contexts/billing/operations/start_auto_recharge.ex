@@ -202,9 +202,10 @@ defmodule FluxVale.Billing.Operations.StartAutoRecharge do
   defp record_success(setting) do
     case record_outcome(setting, consecutive_failures: 0, last_attempt_at: DateTime.utc_now()) do
       {:ok, _counted} -> :ok
-      # coveralls-ignore-next-line - defensive: a DB failure after a
-      # COMPLETED charge — the charge stands and the credit lands via
-      # the webhook; the stale counter self-corrects on the next pass.
+      # Defensive: a DB failure after a COMPLETED charge — the charge
+      # stands and the credit lands via the webhook; the stale counter
+      # self-corrects on the next pass.
+      # coveralls-ignore-next-line
       {:error, reason} -> {:error, reason}
     end
   end
@@ -225,8 +226,9 @@ defmodule FluxVale.Billing.Operations.StartAutoRecharge do
              :ok <- count_strike(setting) do
           {:ok, failed, notifications}
         else
-          # coveralls-ignore-next-line - defensive: a DB failure (not
-          # simulatable under the sandbox) — the rollback answers it.
+          # Defensive: a DB failure (not simulatable under the sandbox)
+          # — the rollback answers it.
+          # coveralls-ignore-next-line
           {:error, db_reason} -> FluxVale.Repo.rollback(db_reason)
         end
       end)
@@ -236,7 +238,8 @@ defmodule FluxVale.Billing.Operations.StartAutoRecharge do
         Ash.Notifier.notify(notifications)
         {:ok, :failed, failed, reason}
 
-      # coveralls-ignore-next-line - defensive: the same DB failure class.
+      # Defensive: the same DB failure class.
+      # coveralls-ignore-next-line
       {:error, db_reason} ->
         {:error, db_reason}
     end
@@ -250,8 +253,9 @@ defmodule FluxVale.Billing.Operations.StartAutoRecharge do
            last_attempt_at: DateTime.utc_now()
          ) do
       {:ok, _counted} -> :ok
-      # coveralls-ignore-next-line - defensive: rolls the decline
-      # transaction back — no failed row without its strike.
+      # Defensive: rolls the decline transaction back — no failed row
+      # without its strike.
+      # coveralls-ignore-next-line
       {:error, db_reason} -> FluxVale.Repo.rollback(db_reason)
     end
   end
@@ -262,10 +266,11 @@ defmodule FluxVale.Billing.Operations.StartAutoRecharge do
   defp record_attempt(setting) do
     case record_outcome(setting, last_attempt_at: DateTime.utc_now()) do
       {:ok, _counted} -> :ok
-      # coveralls-ignore-next-line - defensive: a DB failure after an
-      # unknown-outcome charge — the pending row (already committed)
-      # is what reconciliation keys on; the missing marker only
-      # blurs the 24h window until the next pass stamps it.
+      # Defensive: a DB failure after an unknown-outcome charge — the
+      # pending row (already committed) is what reconciliation keys
+      # on; the missing marker only blurs the 24h window until the
+      # next pass stamps it.
+      # coveralls-ignore-next-line
       {:error, reason} -> {:error, reason}
     end
   end

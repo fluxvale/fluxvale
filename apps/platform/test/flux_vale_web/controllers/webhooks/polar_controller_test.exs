@@ -421,10 +421,13 @@ defmodule FluxValeWeb.Webhooks.PolarControllerTest do
   test "an order.paid without a usable checkout id or subtotal acks without crediting" do
     {_topup, wallet} = attached_topup!(500)
 
-    no_checkout =
-      Jason.encode!(%{type: "order.paid", data: %{id: "ord_1", subtotal_amount: 500}})
+    # No checkout id AND no order id: neither arm of the payment
+    # identity can resolve — the :none ack (launch traffic can never
+    # reach the order arm through it, #829 S3).
+    neither_id =
+      Jason.encode!(%{type: "order.paid", data: %{subtotal_amount: 500}})
 
-    conn = deliver(no_checkout)
+    conn = deliver(neither_id)
     assert %{"received" => true} = json_response(conn, 200)
 
     string_subtotal =
