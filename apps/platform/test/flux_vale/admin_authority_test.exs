@@ -49,6 +49,7 @@ defmodule FluxVale.AdminAuthorityTest do
                   FluxVale.Pricing.Size,
                   FluxVale.Pricing.TaxRate,
                   # Billing
+                  FluxVale.Billing.AutoRechargeSetting,
                   FluxVale.Billing.Wallet,
                   FluxVale.Billing.LedgerEntry,
                   FluxVale.Billing.Topup,
@@ -93,6 +94,8 @@ defmodule FluxVale.AdminAuthorityTest do
       "itself the OAuth audit trail — versioning it is a trail of a trail",
     FluxVale.Infrastructure.PocketIdCustodyEvent =>
       "append-only custody history — its own table IS its trail, the InstanceAllocationSnapshot stance",
+    FluxVale.Billing.AutoRechargeSetting.Version =>
+      "generated version resource (ADR-0048): the audit surface itself, never audited or blanket-governed",
     FluxVale.Billing.Wallet.Version =>
       "generated version resource (ADR-0048): the audit surface itself, never audited or blanket-governed",
     FluxVale.Billing.LedgerEntry.Version =>
@@ -254,8 +257,9 @@ defmodule FluxVale.AdminAuthorityTest do
     # by slice): a moved count is a deliberate diff to this line, the
     # same forcing function as the sets themselves. A2-S3's landing
     # state: full 32, exempt 42 (7 machinery + 3 OAuth + 32 version
-    # resources), pending 0 — the business set is fully trailed.
-    test "the partition counts: full 32, exempt 42, pending 0" do
+    # resources), pending 0 — the business set is fully trailed. #829
+    # L1 added the auto-recharge setting: full 33, exempt 43.
+    test "the partition counts: full 33, exempt 43, pending 0" do
       pending =
         @pending
         |> Map.keys()
@@ -263,11 +267,11 @@ defmodule FluxVale.AdminAuthorityTest do
 
       full = MapSet.difference(@business_set, pending)
 
-      assert MapSet.size(full) == 32,
-             "the full set moved to #{MapSet.size(full)} — expected 32: a rollout slice landed, update this count"
+      assert MapSet.size(full) == 33,
+             "the full set moved to #{MapSet.size(full)} — expected 33: a rollout slice landed, update this count"
 
-      assert map_size(@exempt) == 42,
-             "the exempt set moved to #{map_size(@exempt)} — expected 42: 7 machinery rows plus 3 OAuth rows plus 32 generated version resources"
+      assert map_size(@exempt) == 43,
+             "the exempt set moved to #{map_size(@exempt)} — expected 43: 7 machinery rows plus 3 OAuth rows plus 33 generated version resources"
 
       assert MapSet.size(pending) == 0,
              "the pending set moved to #{MapSet.size(pending)} — expected 0: the business set is fully trailed, a new resource joins a set deliberately"
@@ -308,8 +312,8 @@ defmodule FluxVale.AdminAuthorityTest do
     test "every full resource's Version module is registered in its domain" do
       full = full_resources()
 
-      assert length(full) == 32,
-             "the full set moved to #{length(full)} — expected 32: a rollout slice landed, update the phasing counts"
+      assert length(full) == 33,
+             "the full set moved to #{length(full)} — expected 33: a rollout slice landed, update the phasing counts"
 
       for resource <- full do
         domain = domain_of(resource)

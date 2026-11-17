@@ -1,7 +1,7 @@
 defmodule FluxValeWeb.AdminAudit do
   @moduledoc """
   The Audit section's browsable resource list (#645, ADR-0048): one
-  entry per business-set resource — the exact 32 the doctrine gate
+  entry per business-set resource — the exact 33 the doctrine gate
   (test/flux_vale/admin_authority_test.exs) demands bypass AND trail
   on. The gate owns the set's definition and carries the parity seam:
   one test there asserts this module's audited module set equals the
@@ -97,6 +97,11 @@ defmodule FluxValeWeb.AdminAudit do
     %{key: :wallet, module: FluxVale.Billing.Wallet, domain: FluxVale.Billing},
     %{key: :ledger_entry, module: FluxVale.Billing.LedgerEntry, domain: FluxVale.Billing},
     %{key: :topup, module: FluxVale.Billing.Topup, domain: FluxVale.Billing},
+    %{
+      key: :auto_recharge_setting,
+      module: FluxVale.Billing.AutoRechargeSetting,
+      domain: FluxVale.Billing
+    },
     # Feedback
     %{key: :post, module: FluxVale.Feedback.Post, domain: FluxVale.Feedback},
     %{key: :vote, module: FluxVale.Feedback.Vote, domain: FluxVale.Feedback},

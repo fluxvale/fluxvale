@@ -23,16 +23,22 @@ defmodule FluxVale.Billing do
 
   # AshAdmin exposure (#140, ADR-0027 §3 — opt-in, admin policies ride
   # ActorIsPlatformAdmin like every exposed domain): the goodwill
-  # surface only. Wallet (read-only, to find the wallet) and LedgerEntry
-  # (reads + the grant_goodwill create); Topup stays out — buyer
-  # PII, no role in a goodwill grant. /admin mounts in every env behind
-  # the runtime gate (#288); NB AshAdmin's Authorize toggle defaults
-  # OFF, so actions through the mount run authorize?: false — a
-  # trusted-operator action, with the route-level admin gate and the §3
-  # opt-out as the boundary (ADR-0027 Am. 1).
+  # surface — Wallet (read-only, to find the wallet) and LedgerEntry
+  # (reads + the grant_goodwill create) — plus the auto-recharge
+  # setting's read-only at-a-glance table (#829); Topup stays out —
+  # buyer PII, no role in a goodwill grant. /admin mounts in every env
+  # behind the runtime gate (#288); NB AshAdmin's Authorize toggle
+  # defaults OFF, so actions through the mount run authorize?: false —
+  # a trusted-operator action, with the route-level admin gate and the
+  # §3 opt-out as the boundary (ADR-0027 Am. 1).
   admin do
     show?(true)
-    show_resources([FluxVale.Billing.Wallet, FluxVale.Billing.LedgerEntry])
+
+    show_resources([
+      FluxVale.Billing.Wallet,
+      FluxVale.Billing.LedgerEntry,
+      FluxVale.Billing.AutoRechargeSetting
+    ])
   end
 
   # The paper-trail seam (#645, ADR-0048): versioned resources' Version
@@ -46,6 +52,7 @@ defmodule FluxVale.Billing do
   alias FluxVale.Billing.Operations
 
   resources do
+    resource(FluxVale.Billing.AutoRechargeSetting)
     resource(FluxVale.Billing.LedgerEntry)
     resource(FluxVale.Billing.Topup)
     resource(FluxVale.Billing.Wallet)
@@ -112,4 +119,15 @@ defmodule FluxVale.Billing do
   # #364: the local staleness policy — abandoned pending rows expire;
   # money that lands late still credits (CompleteTopup's widened guard).
   defdelegate expire_stale_topups(), to: Operations.ExpireStaleTopups, as: :call
+
+  # The auto-recharge setting (#829): a two-action preference row with
+  # no logic rides the resource's code interface directly — no
+  # operation module; the sweep operation arrives with L2.
+  defdelegate get_auto_recharge_setting(organization_id, opts \\ []),
+    to: FluxVale.Billing.AutoRechargeSetting,
+    as: :get_by_organization
+
+  defdelegate set_auto_recharge_setting(setting, params, opts \\ []),
+    to: FluxVale.Billing.AutoRechargeSetting,
+    as: :set
 end
