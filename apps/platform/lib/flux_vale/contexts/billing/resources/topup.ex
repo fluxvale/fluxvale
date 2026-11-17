@@ -120,6 +120,16 @@ defmodule FluxVale.Billing.Topup do
       public?(true)
     end
 
+    # Which lane created the row (#829, decision A — the attempt IS a
+    # top-up): :manual is the wizard's checkout, :auto the staged
+    # auto-recharge charge. Additive with a default — history reads as
+    # manual, exactly as it was.
+    attribute :origin, FluxVale.Billing.Types.TopupOrigin do
+      allow_nil?(false)
+      default(:manual)
+      public?(true)
+    end
+
     # Set when the gateway checkout is created; the webhook's join key.
     attribute :payment_request_id, :string do
       public?(true)
@@ -217,6 +227,7 @@ defmodule FluxVale.Billing.Topup do
         :organization_id,
         :amount_cents,
         :tax_cents,
+        :origin,
         :buyer_email,
         :buyer_name,
         :billing_country,

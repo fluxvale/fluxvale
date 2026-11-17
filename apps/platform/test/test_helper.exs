@@ -12,6 +12,10 @@ if Mix.env() == :test do
   Mimic.copy(Kubereq)
   Mimic.copy(FluxVale.Identity)
   Mimic.copy(FluxVale.Billing)
+  # The S3 crash-between-writes and attach-failure tests (#829) stub
+  # the Topup resource's own code-interface functions (mark_failed,
+  # attach_checkout) to fault the exact write.
+  Mimic.copy(FluxVale.Billing.Topup)
   # The top-up outcome mail (#377): the mail layer is stubbed where
   # the delivery process isn't the test's own (the LiveView reconcile)
   # or the failure arm is asserted.

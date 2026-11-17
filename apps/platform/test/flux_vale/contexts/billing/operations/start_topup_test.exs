@@ -67,6 +67,9 @@ defmodule FluxVale.Billing.Operations.StartTopupTest do
 
     assert checkout_url == "https://checkout/pr_1"
     assert topup.status == :pending
+    # The wizard lane is the :manual origin (#829: the additive
+    # attribute defaults to it — history untouched).
+    assert topup.origin == :manual
     assert topup.payment_request_id == "pr_1"
     assert topup.amount_cents == 500
     assert topup.billing_country == "DE"

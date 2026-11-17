@@ -25,6 +25,7 @@ defmodule FluxVale.Billing.Operations.CompleteTopupTest do
           organization_id: org.id,
           amount_cents: amount_cents,
           buyer_email: "buyer@example.com",
+          origin: Keyword.get(opts, :origin, :manual),
           billing_country: Keyword.get(opts, :billing_country),
           billing_state: Keyword.get(opts, :billing_state),
           tax_cents: Keyword.get(opts, :tax_cents, 0),
@@ -60,12 +61,13 @@ defmodule FluxVale.Billing.Operations.CompleteTopupTest do
     outcome = outcome(topup)
 
     # ADR-0049 S1b: the webhook path has no actor and the row carries no
-    # user id — the org id is the distinct_id. Provider is the only prop
-    # (the ADR-0049 disclosure covers usage, not billing amounts).
+    # user id — the org id is the distinct_id. Bounded enums only:
+    # provider (the idempotency key's prefix) and the row's origin
+    # (#829) — no billing amounts (the ADR-0049 posture).
     org_id = topup.organization_id
 
     expect(FluxVale.Analytics, :capture, fn "wallet topped up", ^org_id, props ->
-      assert props == %{provider: "hitpay"}
+      assert props == %{provider: "hitpay", origin: :manual}
 
       :ok
     end)
@@ -103,11 +105,38 @@ defmodule FluxVale.Billing.Operations.CompleteTopupTest do
     outcome = outcome(topup, idempotency_key: "pr_1")
 
     # Future-provider drift must not leak the bare reference as a
-    # "provider" — the event rides with no provider prop instead.
+    # "provider" — the event rides with no provider prop, the origin
+    # still aboard.
     org_id = topup.organization_id
 
     expect(FluxVale.Analytics, :capture, fn "wallet topped up", ^org_id, props ->
-      assert props == %{}
+      assert props == %{origin: :manual}
+
+      :ok
+    end)
+
+    assert {:ok, completed} = Billing.complete_topup(outcome)
+    assert completed.status == :completed
+  end
+
+  # #829: the staged lane's rows ride the :auto origin on the event —
+  # which lane bought the credits is fleet-visible; the amounts are not.
+  test "an auto-origin row rides origin: :auto on the event" do
+    topup = topup!(2_500, origin: :auto, payment_request_id: "ord_1")
+
+    # The topup!/2 helper returns the pre-attach struct, so the outcome
+    # pins the order id explicitly (the webhook's shape).
+    outcome =
+      outcome(topup,
+        payment_request_id: "ord_1",
+        idempotency_key: "polar:ord_1",
+        amount_cents: 2_500
+      )
+
+    org_id = topup.organization_id
+
+    expect(FluxVale.Analytics, :capture, fn "wallet topped up", ^org_id, props ->
+      assert props == %{provider: "polar", origin: :auto}
 
       :ok
     end)

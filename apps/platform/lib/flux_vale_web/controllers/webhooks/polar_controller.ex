@@ -26,12 +26,15 @@ defmodule FluxValeWeb.Webhooks.PolarController do
 
   ## Idempotency
 
-  The credit posts with `polar:<checkout_id>` (CompleteTopup): the
-  checkout session id is the payment identity on BOTH the webhook
-  and the reconcile path (contract point 2, #377) — a replayed
-  delivery replays to the same ledger entry, never a double
-  credit; the ±5-minute timestamp window is replay defense number
-  one.
+  The credit posts with `polar:<payment_id>` (CompleteTopup): the
+  payment identity is the checkout session id on checkout-backed
+  orders (#377's contract point 2) and the ORDER id on off-session
+  drafts (#829 — no checkout session ever existed; Polar carries the
+  order id as the payment identity there). Different id spaces — a
+  checkout delivery and an off-session delivery can never collide on
+  the ledger key; a replayed delivery replays to the same ledger
+  entry, never a double credit. The ±5-minute timestamp window is
+  replay defense number one.
   """
 
   use FluxValeWeb, :controller
@@ -100,10 +103,10 @@ defmodule FluxValeWeb.Webhooks.PolarController do
         TopupOutcomeMail.on_completion(result)
 
       :none ->
-        # Order.paid without a usable checkout id or subtotal —
+        # Order.paid without a usable payment id or subtotal —
         # nothing to credit; ack so the delivery stops retrying.
         Logger.warning(
-          "Polar order.paid without usable checkout_id/subtotal_amount: " <>
+          "Polar order.paid without usable checkout/order id and subtotal_amount: " <>
             "#{inspect(payload["data"]["id"])}"
         )
 
@@ -139,26 +142,44 @@ defmodule FluxValeWeb.Webhooks.PolarController do
   # carve-out AND by applied discounts. `total_amount` equals our
   # gross only under tax-inclusive-no-discount; discounts make it
   # diverge, so only the subtotal can meet the guard on every
-  # charge. Contract point 2: the checkout id is the payment
-  # identity everywhere — request id, payment id, idempotency key.
+  # charge. Contract point 2: the payment identity is the checkout
+  # session id when the order has one; an off-session draft order
+  # (#829) never had a checkout, so its own id is the identity —
+  # request id, payment id, idempotency key.
   @spec credit_outcome(map()) :: {:ok, map()} | :none
   defp credit_outcome(data) do
-    checkout_id = data["checkout_id"]
     subtotal = data["subtotal_amount"]
 
-    if is_binary(checkout_id) and checkout_id != "" and is_integer(subtotal) do
-      {:ok, outcome(data, checkout_id, subtotal)}
-    else
-      :none
+    case payment_identity(data) do
+      {:ok, payment_id} when is_integer(subtotal) ->
+        {:ok, outcome(data, payment_id, subtotal)}
+
+      _unusable ->
+        :none
     end
   end
 
-  defp outcome(data, checkout_id, subtotal) do
+  # Checkout-backed orders keep #377's identity; a payload without a
+  # checkout id is an off-session delivery (#829) and keys on the
+  # order id. Different id spaces — the two arms can never collide on
+  # the ledger key.
+  @spec payment_identity(map()) :: {:ok, String.t()} | :none
+  defp payment_identity(data) do
+    checkout_id = data["checkout_id"]
+
+    cond do
+      is_binary(checkout_id) and checkout_id != "" -> {:ok, checkout_id}
+      is_binary(data["id"]) and data["id"] != "" -> {:ok, data["id"]}
+      true -> :none
+    end
+  end
+
+  defp outcome(data, payment_id, subtotal) do
     base = %{
-      payment_request_id: checkout_id,
-      payment_id: checkout_id,
+      payment_request_id: payment_id,
+      payment_id: payment_id,
       amount_cents: subtotal,
-      idempotency_key: Polar.idempotency_key(checkout_id)
+      idempotency_key: Polar.idempotency_key(payment_id)
     }
 
     case get_in(data, ["metadata", "topup_id"]) do

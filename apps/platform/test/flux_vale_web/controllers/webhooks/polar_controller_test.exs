@@ -17,6 +17,7 @@ defmodule FluxValeWeb.Webhooks.PolarControllerTest do
   use Mimic
 
   alias FluxVale.Billing
+  alias FluxVale.Billing.AutoRechargeSetting
   alias FluxVale.Billing.Topup
   alias FluxVale.TestSupport.BillingFixtures
 
@@ -47,6 +48,65 @@ defmodule FluxValeWeb.Webhooks.PolarControllerTest do
     {attached, wallet}
   end
 
+  # An auto lane row (#829): origin :auto, the order id (not a
+  # checkout id) attached as the payment request.
+  defp attached_auto_topup!(order_id, amount_cents) do
+    {org, wallet} = BillingFixtures.funded_wallet!(balance_cents: 0)
+
+    {:ok, topup} =
+      Topup.create(
+        %{organization_id: org.id, amount_cents: amount_cents, origin: :auto},
+        authorize?: false
+      )
+
+    {:ok, attached} =
+      Topup.attach_checkout(topup, %{payment_request_id: order_id}, authorize?: false)
+
+    {attached, wallet}
+  end
+
+  # Arms the staged lane for a REAL StartAutoRecharge charge
+  # (Req-stubbed — no live Polar call): {org, setting}.
+  defp charged_setting! do
+    original_polar = Application.get_env(:flux_vale, :polar)
+    original_provider = Application.get_env(:flux_vale, :payments_provider)
+    original_gate = Application.get_env(:flux_vale, :auto_recharge)
+
+    Application.put_env(:flux_vale, :polar,
+      access_token: "tok",
+      webhook_secret: @secret,
+      server: "sandbox",
+      product_id: "prod_1"
+    )
+
+    Application.put_env(:flux_vale, :payments_provider, FluxVale.Billing.Providers.Polar)
+    Application.put_env(:flux_vale, :auto_recharge, charge_mode: true)
+
+    on_exit(fn ->
+      Application.put_env(:flux_vale, :polar, original_polar)
+      Application.put_env(:flux_vale, :payments_provider, original_provider)
+      Application.put_env(:flux_vale, :auto_recharge, original_gate)
+    end)
+
+    # PH: an unpriced market — the gross IS the net (2500¢, no VAT).
+    {org, owner} = BillingFixtures.grant_free_org!()
+
+    {:ok, bare} = AutoRechargeSetting.create(%{organization_id: org.id}, authorize?: false)
+
+    {:ok, with_evidence} =
+      Billing.set_auto_recharge_setting(bare, %{billing_country: "PH"}, actor: owner)
+
+    {:ok, setting} =
+      with_evidence
+      |> Ash.Changeset.for_update(:set_method_status, %{
+        payment_method_status: :attached,
+        provider_customer_id: "cus_1"
+      })
+      |> Ash.update(authorize?: false)
+
+    {org, setting}
+  end
+
   defp order_paid_payload(subtotal_cents, opts \\ []) do
     # total_amount deliberately differs from the subtotal — they'd
     # match under tax-inclusive-no-discount, but Polar's tax carve-out
@@ -59,6 +119,20 @@ defmodule FluxValeWeb.Webhooks.PolarControllerTest do
       subtotal_amount: subtotal_cents,
       total_amount: subtotal_cents - 50
     }
+
+    data =
+      case Keyword.fetch(opts, :topup_id) do
+        {:ok, topup_id} -> Map.put(base, :metadata, %{topup_id: topup_id})
+        :error -> base
+      end
+
+    Jason.encode!(%{type: "order.paid", data: data})
+  end
+
+  # The off-session delivery (#829): no checkout_id — the order id is
+  # the payment identity, so the payload carries only it.
+  defp draft_order_paid_payload(subtotal_cents, order_id, opts \\ []) do
+    base = %{id: order_id, subtotal_amount: subtotal_cents}
 
     data =
       case Keyword.fetch(opts, :topup_id) do
@@ -107,6 +181,11 @@ defmodule FluxValeWeb.Webhooks.PolarControllerTest do
   defp now_ts do
     seconds = System.os_time(:second)
     Integer.to_string(seconds)
+  end
+
+  defp wallet_of_org(org) do
+    {:ok, wallet} = Billing.ensure_wallet(org)
+    wallet
   end
 
   test "a verified order.paid credits the wallet and acks" do
@@ -225,6 +304,118 @@ defmodule FluxValeWeb.Webhooks.PolarControllerTest do
 
     assert {:ok, 500} = Billing.balance(wallet, authorize?: false)
     assert Topup.get_by_id!(topup.id, authorize?: false).status == :completed
+  end
+
+  # ── The off-session order-id arm (#829 S3) ──
+
+  test "an off-session order.paid resolves by metadata.topup_id, keying the order id space" do
+    {topup, _wallet} = attached_auto_topup!("ord_9", 500)
+    parent = self()
+
+    expect(FluxVale.Billing, :complete_topup, fn outcome ->
+      send(parent, {:outcome, outcome})
+      {:ok, :already_completed}
+    end)
+
+    conn = deliver(draft_order_paid_payload(500, "ord_9", topup_id: topup.id))
+    assert %{"received" => true} = json_response(conn, 200)
+
+    assert_received {:outcome, outcome}
+
+    # No checkout session ever existed on this lane: the ORDER id is
+    # the payment identity — request id, payment id, and the ledger
+    # key, a different id space from a checkout delivery's
+    # `polar:co_…` (the two can never collide).
+    assert outcome == %{
+             payment_request_id: "ord_9",
+             payment_id: "ord_9",
+             amount_cents: 500,
+             idempotency_key: "polar:ord_9",
+             topup_id: topup.id
+           }
+  end
+
+  test "an off-session order.paid without metadata credits by the order id alone" do
+    {topup, wallet} = attached_auto_topup!("ord_9", 500)
+
+    conn = deliver(draft_order_paid_payload(500, "ord_9"))
+    assert %{"received" => true} = json_response(conn, 200)
+
+    assert {:ok, 500} = Billing.balance(wallet, authorize?: false)
+
+    completed = Topup.get_by_id!(topup.id, authorize?: false)
+    assert completed.status == :completed
+    assert completed.payment_id == "ord_9"
+  end
+
+  # The launch-path inertness (plan S3): a checkout order's
+  # payment_request_id is a checkout session id, so an order-id
+  # delivery for a manual row resolves nothing — the arm no-ops on
+  # every launch-path delivery.
+  test "an order-id delivery matching no row acks without crediting" do
+    {_topup, wallet} = attached_topup!(500)
+
+    conn = deliver(draft_order_paid_payload(500, "ord_nobody"))
+    assert %{"received" => true} = json_response(conn, 200)
+
+    assert {:ok, 0} = Billing.balance(wallet, authorize?: false)
+  end
+
+  # The staged lane end to end: StartAutoRecharge (Req-stubbed — no
+  # live Polar call) creates the pending row and finalizes; the
+  # webhook — never the starter — posts the credit, exactly once,
+  # with the origin on the analytics event (still no amounts).
+  test "an auto-recharge attempt's order.paid credits exactly once; the replay acks dry" do
+    {org, setting} = charged_setting!()
+    gross = 2_500
+
+    expect(Req, :post, 1, fn _req, opts ->
+      assert opts[:url] == "/v1/orders/"
+      assert opts[:json]["amount"] == gross
+
+      {:ok, %Req.Response{status: 200, body: %{"id" => "ord_1", "subtotal_amount" => gross}}}
+    end)
+
+    expect(Req, :post, 1, fn _req, opts ->
+      assert opts[:url] == "/v1/orders/ord_1/finalize"
+
+      {:ok,
+       %Req.Response{
+         status: 200,
+         body: %{"id" => "ord_1", "status" => "paid", "subtotal_amount" => gross}
+       }}
+    end)
+
+    assert {:ok, :completed, topup} = Billing.start_auto_recharge(org, setting)
+    assert topup.payment_request_id == "ord_1"
+
+    # The starter never credited.
+    wallet = wallet_of_org(org)
+    assert {:ok, 0} = Billing.balance(wallet, authorize?: false)
+
+    org_id = topup.organization_id
+
+    expect(FluxVale.Analytics, :capture, 1, fn "wallet topped up", ^org_id, props ->
+      assert props == %{provider: "polar", origin: :auto}
+      :ok
+    end)
+
+    first = deliver(draft_order_paid_payload(gross, "ord_1", topup_id: topup.id))
+    assert %{"received" => true} = json_response(first, 200)
+
+    # The credit posts the NET (the gross guard compared 2500 =
+    # 2500 net + 0 VAT — PH's unpriced market).
+    assert {:ok, 2_500} = Billing.balance(wallet, authorize?: false)
+    completed = Topup.get_by_id!(topup.id, authorize?: false)
+    assert completed.status == :completed
+    assert completed.payment_id == "ord_1"
+
+    # The idempotent replay: same ledger key `polar:ord_1`, answers
+    # :already_completed — no second credit, no second event.
+    replay = deliver(draft_order_paid_payload(gross, "ord_1", topup_id: topup.id))
+    assert %{"received" => true} = json_response(replay, 200)
+
+    assert {:ok, 2_500} = Billing.balance(wallet, authorize?: false)
   end
 
   test "an order.paid without a usable checkout id or subtotal acks without crediting" do

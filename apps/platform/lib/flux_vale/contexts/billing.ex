@@ -144,4 +144,11 @@ defmodule FluxVale.Billing do
   defdelegate set_auto_recharge_setting(setting, params, opts \\ []),
     to: FluxVale.Billing.AutoRechargeSetting,
     as: :set
+
+  # The staged charge operation (#829 S3): the sweep (S4) is the only
+  # caller — it owns WalletLock and the fresh balance re-read; this
+  # seam adds neither. Inert until the platform gate flips (S6).
+  defdelegate start_auto_recharge(org, setting, opts \\ []),
+    to: Operations.StartAutoRecharge,
+    as: :call
 end
