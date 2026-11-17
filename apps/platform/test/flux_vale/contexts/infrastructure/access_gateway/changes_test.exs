@@ -1038,6 +1038,24 @@ defmodule FluxVale.Infrastructure.AccessGateway.ChangesTest do
              )
     end
 
+    test "a vanished row refuses like every gone-row seam", %{org: org} do
+      gateway = AccessFixtures.gateway!(org)
+
+      # The system-only hard delete (the teardown trigger's terminal
+      # write) — the row dies through its action, never a raw delete.
+      Ash.destroy!(gateway, action: :destroy_after_teardown, authorize?: false)
+
+      reject(Tailscale, :reconnect_minted, 1)
+
+      assert {:error, %Ash.Error.Invalid{errors: errors}} =
+               AccessGateway.update_credential(gateway, %{}, authorize?: false)
+
+      assert Enum.any?(
+               errors,
+               &(&1.field == :id and &1.message == "this gateway no longer exists")
+             )
+    end
+
     test "a pasted key on a :suspended row keeps the write-only fallback", %{org: org} do
       gateway = AccessFixtures.gateway!(org, state: :suspended)
 
