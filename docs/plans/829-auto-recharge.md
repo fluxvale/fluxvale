@@ -1,9 +1,12 @@
 # Plan: auto-recharge for wallet credits (#829)
 
-**Status**: Decided (pending owner GO + D1 below). No implementation
-until the PA relays it — this document is the worker fan-out spec.
-**Scope**: platform repo only. Polar implementation first; HitPay's is
-the documented dormant-lane follow-up.
+**Status**: GO 2026-11-17 — Terence approved via the PA, with one scope
+revision: **Polar only** (his provider decision: HitPay is out going
+forward, MoR preferred so country-by-country tax compliance is not
+ours). D1/D2/D3 decided below. This document is the worker fan-out
+spec; the HitPay sunset itself is a separate lane (the existing
+adapter module is untouched here).
+**Scope**: platform repo only, Polar lane only.
 
 ## What the code says today (all read, not guessed)
 
@@ -44,7 +47,8 @@ Both providers CAN save a method and charge it off-session. Primary
 sources, read 2026-11-17 (docs.hitpayapp.com, polar.sh/docs, Polar's
 published 2026-10 OpenAPI).
 
-**HitPay** (dormant lane here):
+**HitPay** (excluded from this lane by the owner's decision — recorded
+for the archive; nothing in the slices touches it):
 
 - Save Payment Method API: `POST /v1/recurring-billing` with
   `save_payment_method=true` → hosted page → customer attaches a
@@ -78,7 +82,10 @@ published 2026-10 OpenAPI).
   `draft` + 4xx. Webhook `order.paid` fires like today's checkout
   orders.
 - **Gate**: "The organization must have the `off_session_charges_enabled`
-  feature flag" — a Polar-side org flag we cannot see from this repo.
+  feature flag" — a Polar-side org flag. It is **readable over the
+  API**: `GET /v1/organizations/{id}` → `feature_settings.
+  off_session_charges_enabled` — that read is D1's evidence step
+  (below); the flip itself is the owner's dashboard action.
 
 ### The honest alternative (fallback, still designed here)
 
@@ -96,17 +103,39 @@ the whole feature **only if D1 denies**.
 declines fall through to the existing ladder; same ledger rows as a
 manual top-up; every attempt visible to the user and in ops telemetry.
 
-**Settled here (build on unless the owner objects at GO)**
+**Settled at GO (2026-11-17, via the PA)**
+
+- **Scope — Polar only.** The owner's provider decision: HitPay is out
+  going forward, MoR preferred so country-by-country tax compliance is
+  not ours. Auto-recharge targets Polar exclusively; the HitPay
+  capability above stays in this doc and ADR-0029 Am. 7 as the
+  archived research record. The adapter's provider-agnostic behaviour
+  is unchanged (ADR-0029's architecture stands); HitPay simply grows
+  nothing — and the adapter's sunset is a separate lane, not this one.
+- **D1 — resolved as revised.** Terence flips `off_session_charges_enabled`
+  in the Polar dashboard himself (his account; the PA relays the ask).
+  **Slice 1's first step is the gating evidence**: a read-only
+  production `GET /v1/organizations/{id}` captured with the flag
+  visible (`feature_settings.off_session_charges_enabled: true`).
+  Nothing downstream builds until that transcript exists in the slice
+  PR. If Polar denies the flag: the lane pivots to the reminder-email
+  fallback exactly as costed above — no other invariant changes.
+- **D2 — ratified as recommended**: threshold 500¢, amount 2500¢
+  defaults, 2 auto charges per rolling 24h, 3-strike auto-disable —
+  all user-tunable at the setting layer.
+- **D3 — ratified**: no saved method at sweep time → skip + one notice
+  email; still none on the next pass → disable (`disabled_reason:
+  :no_method`).
+
+**Settled here (build on unless the owner objects)**
 
 - **A — the attempt IS a top-up.** Auto-recharge creates `Topup` rows
   (new `origin: :manual | :auto`, additive) and completes through the
   unchanged `CompleteTopup` seam. No second posting path exists to
   keep honest; the invariant "same ledger rows" holds by construction.
-- **B — Polar first.** Active provider, MoR tax handling, synchronous
-  finalize, redirect-only save-method (portal). HitPay's
-  save-method/charge surface is documented in
-  [ADR-0029](../adr/00029-payments-adapter-selfmor.md) Am. 7 as the
-  dormant-lane follow-up — a module, not a redesign.
+- **B — Polar only** (was "Polar first"; upgraded by the GO revision).
+  Active provider, MoR tax handling, synchronous finalize,
+  redirect-only save-method (portal).
 - **C — consent model**: one `AutoRechargeSetting` per org. Writes are
   **owner-role only** (recurring spend consent ≠ "money in"; the
   wizard's any-member stance does not carry). Enable requires a saved
@@ -128,28 +157,14 @@ manual top-up; every attempt visible to the user and in ops telemetry.
   holds the lock). One POST per attempt, ever: an unknown-outcome
   (timeout) attempt is never re-POSTed — the row stays `:pending`,
   owned by webhooks/`fetch_payment` reconciliation and the 24h stale
-  sweep; this is also the answer to HitPay's undocumented charge
-  idempotency.
+  sweep. (The one-POST rule was also the answer to HitPay's
+  undocumented charge idempotency; it stays as Polar discipline too —
+  the finalize call is the single charge trigger.)
 - **F — failure fall-through**: a decline is a `:failed` Topup
   (existing terminal-once guard), counter +1, disable email at 3. The
   ladder is untouched — it keeps its hourly cadence; a successful
   recharge lifts the balance and the ladder clears itself next pass
   (recovery arm already does this). No new wallet states.
-
-**Open — needs the owner (blocks Slice 3, not Slices 1–2)**
-
-- **D1 — Polar's `off_session_charges_enabled` org flag.** Sandbox
-  evidence is obtainable (Slice 1's tests + a sandbox spike); the
-  production org flag is a Polar dashboard/support question only the
-  owner can close. If Polar declines: ship the reminder-email lane
-  (fallback above) and nothing else changes in this plan's invariants.
-- **D2 — defaults in D** (500¢ / 2500¢ / 2-per-24h / 3-strikes) —
-  ratify or adjust at GO; all four are config-driven at the setting
-  layer.
-- **D3 — disable-on-method-detached**: if Polar reports no payment
-  methods at sweep time, skip + one notice email; after the first
-  skipped-due-to-no-method sweep, disable (keeps the mailbox honest).
-  Confirm at GO.
 
 ## Rejected alternatives
 
@@ -172,14 +187,21 @@ manual top-up; every attempt visible to the user and in ops telemetry.
 Dependency chain: 1 → 3 → 4; 2 independent of 1; 5 needs 2 (+1 for
 the portal button); 6 last. Each slice's tests are its own gate.
 
-### Slice 1 — adapter seam + Polar implementation
+### Slice 1 — adapter seam + Polar implementation (+ D1 gating evidence)
 
 **Files**:
 `apps/platform/lib/flux_vale/contexts/billing/payment_provider.ex`,
 `apps/platform/lib/flux_vale/contexts/billing/providers/polar.ex`,
-`apps/platform/lib/flux_vale/contexts/billing/providers/hitpay.ex`,
 `apps/platform/test/flux_vale/contexts/billing/providers/polar_test.exs`
-(extend; mirror in `hitpay_test.exs`).
+(extend). HitPay is NOT touched (owner's Polar-only decision).
+
+**Gating evidence (first, before any code)**: read-only production
+API check that the flag is on — `GET /v1/organizations/{id}` with the
+org token shows `feature_settings.off_session_charges_enabled: true`.
+The transcript (flag line, org id, no token material) goes in the PR
+body. If the flag reads false after Terence's flip attempt or Polar
+denies it: STOP, report to the architect — the lane pivots to the
+reminder fallback.
 
 **Change**: three new OPTIONAL callbacks on the behaviour
 (`@callback … | {:error, :unsupported}` via a default
@@ -188,10 +210,7 @@ existing behaviour's style):
 
 - `create_billing_session/2` — Polar: upsert customer by
   `external_id` (org id), `POST /v1/customer-sessions/` →
-  `{:ok, %{customer_id: id, portal_url: url}}`. HitPay: save-method
-  session (`/v1/recurring-billing`, `save_payment_method=true`) →
-  `{:ok, %{billing_id: id, checkout_url: url}}` (implemented when the
-  lane wakes; `{:error, :unsupported}` acceptable at first).
+  `{:ok, %{customer_id: id, portal_url: url}}`.
 - `list_payment_methods/1` — Polar: `GET
   /v1/customers/{id}/payment-methods` → `{:ok, count, default_ref}`
   (we need existence + default, not the instruments).
@@ -206,13 +225,15 @@ existing behaviour's style):
   failures stay `{:error, :network_error | :api_error}` (unknown
   outcome — see Decision E).
 
-Amounts integer cents on both sides of the adapter (Polar already is;
-HitPay's decimal strings go through the existing `format_amount` /
-`parse_amount` string-math when that lane wakes).
+Amounts integer cents on both sides of the adapter. The callbacks are
+optional on the behaviour (default clauses answering `{:error,
+:unsupported}`) so the architecture stays provider-agnostic — Polar is
+the only implementation (owner's decision); no other provider grows
+them in this lane.
 
 **Tests**: Req-stubbed (the existing provider-test pattern): session
 create, method list, draft+finalize success, finalize decline (4xx →
-`:failed` + reason), transport error, unsupported arms on HitPay.
+`:failed` + reason), transport error.
 
 **Done when**:
 `cd apps/platform && mix test test/flux_vale/contexts/billing/providers/`
@@ -380,8 +401,10 @@ all aliases green at 100% coverage (#86 discipline). PR titles
   2026-10 OpenAPI (`/v1/orders/`, `/v1/orders/{id}/finalize`,
   customer-sessions, customers, payment-methods) — fetched 2026-11-17,
   quotes in this file are from those pages.
-- NOT verified (cannot be, from this repo): Polar production org's
-  `off_session_charges_enabled` flag (D1); Create Order
-  `amount`→`subtotal_amount` mapping behavior in a live sandbox call
-  (Slice 1 must capture a sandbox transcript as PR evidence); the
-  customer-portal save flow's exact return UX (staging e2e).
+- NOT verified (cannot be, from this repo): the production org's
+  `off_session_charges_enabled` state until Slice 1's evidence read
+  (Terence flips it in the Polar dashboard — PA relays in parallel);
+  Create Order `amount`→`subtotal_amount` mapping behavior in a live
+  sandbox call (Slice 1 must capture a sandbox transcript as PR
+  evidence); the customer-portal save flow's exact return UX (staging
+  e2e).
