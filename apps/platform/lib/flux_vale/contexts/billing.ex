@@ -46,6 +46,7 @@ defmodule FluxVale.Billing do
   alias FluxVale.Billing.Operations
 
   resources do
+    resource(FluxVale.Billing.AutoRechargeSetting)
     resource(FluxVale.Billing.LedgerEntry)
     resource(FluxVale.Billing.Topup)
     resource(FluxVale.Billing.Wallet)
@@ -112,4 +113,15 @@ defmodule FluxVale.Billing do
   # #364: the local staleness policy — abandoned pending rows expire;
   # money that lands late still credits (CompleteTopup's widened guard).
   defdelegate expire_stale_topups(), to: Operations.ExpireStaleTopups, as: :call
+
+  # The auto-recharge setting (#829): a two-action preference row rides
+  # the resource's code interface directly — no operation module (the
+  # BackupSetting delegate shape; the sweep op arrives with L2).
+  defdelegate get_auto_recharge_setting(organization_id, opts \\ []),
+    to: FluxVale.Billing.AutoRechargeSetting,
+    as: :get_by_organization
+
+  defdelegate set_auto_recharge_setting(setting, params, opts \\ []),
+    to: FluxVale.Billing.AutoRechargeSetting,
+    as: :set
 end

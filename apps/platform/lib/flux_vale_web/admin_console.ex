@@ -322,6 +322,10 @@ defmodule FluxValeWeb.AdminConsole do
   # enforces it.
   @excluded_resources %{
     FluxVale.Billing => %{
+      FluxVale.Billing.AutoRechargeSetting =>
+        "owner-consent rows (#829): the billing page's owner form owns every write, an operator has no path here",
+      FluxVale.Billing.AutoRechargeSetting.Version =>
+        "the paper-trail version table: the Audit section surfaces it, not the generic console (#645)",
       FluxVale.Billing.Wallet.Version =>
         "the paper-trail version table: the Audit section surfaces it, not the generic console (#645)",
       FluxVale.Billing.LedgerEntry.Version =>
