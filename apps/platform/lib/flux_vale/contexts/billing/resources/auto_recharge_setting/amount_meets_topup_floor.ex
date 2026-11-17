@@ -1,10 +1,11 @@
 defmodule FluxVale.Billing.AutoRechargeSetting.AmountMeetsTopupFloor do
   @moduledoc """
-  `amount_cents` clears the wallet top-up floor at RUNTIME
+  `amount_cents` clears the wallet top-up floor from app config
   (`FluxVale.Billing.min_topup_cents/0`) — the same gate StartTopup
   enforces on a manual top-up, so a saved amount that could never
   charge is refused at write time. An attribute `constraints(min:)`
-  cannot carry this: the floor is config, not a compile-time int.
+  cannot carry this: the floor is an int resolved from config, not a
+  compile-time literal.
   """
 
   use Ash.Resource.Validation

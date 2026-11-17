@@ -106,6 +106,13 @@ defmodule FluxVale.Billing.AutoRechargeSettingTest do
                AutoRechargeSetting.set(setting, %{mode: :reminder}, actor: member)
     end
 
+    test "a stranger (no membership at all) cannot set", %{setting: setting} do
+      stranger = AccountsFixtures.user!()
+
+      assert {:error, %Ash.Error.Forbidden{}} =
+               AutoRechargeSetting.set(setting, %{mode: :reminder}, actor: stranger)
+    end
+
     test "a platform admin bypasses (:set, #644)", %{setting: setting} do
       assert {:ok, set} = AutoRechargeSetting.set(setting, %{mode: :reminder}, actor: admin())
       assert set.mode == :reminder

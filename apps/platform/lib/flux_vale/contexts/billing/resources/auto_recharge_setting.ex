@@ -8,7 +8,7 @@ defmodule FluxVale.Billing.AutoRechargeSetting do
   joins THIS row in S2 (`:auto`) — arming it is its own explicit owner
   consent, never implied by a reminder opt-in.
 
-  `amount_cents` clears the wallet top-up floor at runtime
+  `amount_cents` clears the wallet top-up floor from app config
   (`FluxVale.Billing.min_topup_cents/0` — the StartTopup gate), so a
   saved amount that could never charge is refused at write time.
 
@@ -139,7 +139,7 @@ defmodule FluxVale.Billing.AutoRechargeSetting do
 
     # The reminder dials (decision D): the balance dips below the
     # threshold → the reminder fires, pre-filling the amount. The
-    # amount's REAL floor is runtime config — AmountMeetsTopupFloor on
+    # amount's REAL floor is app config — AmountMeetsTopupFloor on
     # :set (a constraints min needs a compile-time int).
     attribute :threshold_cents, :integer do
       allow_nil?(false)
@@ -181,7 +181,7 @@ defmodule FluxVale.Billing.AutoRechargeSetting do
       description("Owner-role write of the preference (the billing page's owner form, L3).")
       accept([:mode, :threshold_cents, :amount_cents])
 
-      # The floor is runtime config, not a compile-time int — the
+      # The floor is app config, not a compile-time int — the
       # constraint DSL cannot carry it (see the validation module).
       validate({AmountMeetsTopupFloor, []})
 
