@@ -5,11 +5,18 @@ defmodule FluxVale.Billing.Operations.StartAutoRecharge do
   provider's DRAFT order for the gross, persists the order id, then
   fires the synchronous charge.
 
-  STAGED: the only caller is S4's gated sweep arm. This operation
-  double-checks the platform gate (`FluxVale.Billing
-  .auto_recharge_charge_mode?/0`, default false) and refuses
-  (`{:error, :charge_mode_off}`) before any row or network call —
-  defense in depth, so a future caller cannot charge with the lane off.
+  STAGED: the only caller is S4's gated sweep arm. Before any row or
+  network call this operation checks three things, refusing on each:
+
+  - the platform gate (`FluxVale.Billing.auto_recharge_charge_mode?/0`,
+    default false) — `{:error, :charge_mode_off}`; defense in depth,
+    so a future caller cannot charge with the lane off;
+  - the owner's CONSENT (decision G) — `setting.mode` must be `:auto`,
+    else `{:error, :setting_not_armed}`: an org that asked for
+    reminders must never be silently charged the day the gate flips;
+  - the PAIRING — `setting.organization_id` must equal `org.id`, else
+    `{:error, :setting_org_mismatch}`: a mismatched pair would charge
+    one org's saved method and credit another's wallet.
 
   ## Caller contract (S4's sweep)
 
@@ -31,9 +38,12 @@ defmodule FluxVale.Billing.Operations.StartAutoRecharge do
   2. AFTER the row commits: `create_draft_charge` (gross = net + tax,
      reference = the row's id, customer = the setting's stored
      `provider_customer_id`). Failure (`{:error, :draft_failed, topup}`)
-     leaves the row `:pending` with NO order id — a draft that was
-     never created can never charge, and the sweep's stale arm (S4)
-     fails the row safely.
+     leaves the row `:pending` with NO order id, and the sweep's stale
+     arm (S4) fails the row safely. Honesty about that leg: a
+     transport timeout may have left a draft on Polar's side — if one
+     exists, nobody ever finalizes it (finalize is the only charge
+     trigger and requires our credentials); Polar's own draft
+     lifecycle owns it.
   3. The returned order id rides the row via the EXISTING
      `attach_checkout` action — BEFORE any finalize — so the webhook
      and the sweep's reconciliation both key on it. An attach failure
@@ -50,16 +60,21 @@ defmodule FluxVale.Billing.Operations.StartAutoRecharge do
        (`:record_attempt_outcome`, failures 0, attempt stamped) as its
        own single atomic write; `{:ok, :completed, topup}`.
      - `{:ok, %{status: :failed, failure_reason: reason}}` → an
-       ANSWERED decline: `mark_failed` AND the strike increment commit
-       in ONE transaction — both or neither (a crash between the
-       writes must not leave an uncounted failure);
-       `{:ok, :failed, topup, reason}`.
+       ANSWERED decline: the row is marked failed — terminal-once, the
+       status filter rides the UPDATE's WHERE (CompleteTopup's house
+       shape; a racer that settled the row mid-flight loses) — AND the
+       strike increment, in ONE transaction: both or neither (a crash
+       between the writes must not leave an uncounted failure);
+       `{:ok, :failed, topup, reason}`. If the racer already settled
+       it, nothing is flipped or counted:
+       `{:ok, :already_terminal, topup}`.
      - `{:error, :network_error | :api_error}` → outcome UNKNOWN: the
        row stays `:pending` WITH its order id, only `last_attempt_at`
-       is recorded, and the sweep's stale arm reconciles via
-       `fetch_payment` — a finalize that may have succeeded is
-       answered by the fetch before anything new fires;
-       `{:error, :unknown, topup}`.
+       is recorded, and the sweep's stale arm (S4) reconciles via a
+       provider ORDER fetch — S4 adds that seam (`fetch_payment`
+       serves checkout ids only; an order id would 404 there). A
+       finalize that may have succeeded is answered by that fetch
+       before anything new fires; `{:error, :unknown, topup}`.
 
   ## Outcome mails
 
@@ -79,12 +94,17 @@ defmodule FluxVale.Billing.Operations.StartAutoRecharge do
   alias FluxVale.Billing.Tax
   alias FluxVale.Billing.Topup
 
+  require Ash.Query
+
   @currency "USD"
 
   @type outcome ::
           {:ok, :completed, Topup.t()}
           | {:ok, :failed, Topup.t(), String.t() | nil}
+          | {:ok, :already_terminal, Topup.t()}
           | {:error, :charge_mode_off}
+          | {:error, :setting_not_armed}
+          | {:error, :setting_org_mismatch}
           | {:error, :draft_failed, Topup.t()}
           | {:error, :attach_failed, Topup.t()}
           | {:error, :unknown, Topup.t()}
@@ -92,13 +112,16 @@ defmodule FluxVale.Billing.Operations.StartAutoRecharge do
 
   @spec call(Organization.t(), AutoRechargeSetting.t(), keyword()) :: outcome()
   def call(%Organization{} = org, %AutoRechargeSetting{} = setting, opts \\ []) do
-    # The gate double-check (defense in depth — see the moduledoc):
-    # the sweep's arm is gated too, but the only code that can charge
-    # refuses on its own when the platform gate is off.
-    if Billing.auto_recharge_charge_mode?() do
-      charge(org, setting, opts)
-    else
-      {:error, :charge_mode_off}
+    # Gate, consent, pairing — in one check, before any row or network
+    # call (see the moduledoc). The gate is defense in depth for the
+    # lane; the consent is decision G's promise (a reminder opt-in is
+    # never a charge consent); the pairing keeps the charge and the
+    # credit on the same org.
+    cond do
+      not Billing.auto_recharge_charge_mode?() -> {:error, :charge_mode_off}
+      setting.mode != :auto -> {:error, :setting_not_armed}
+      setting.organization_id != org.id -> {:error, :setting_org_mismatch}
+      true -> charge(org, setting, opts)
     end
   end
 
@@ -218,46 +241,78 @@ defmodule FluxVale.Billing.Operations.StartAutoRecharge do
   defp decline_outcome(topup, setting, reason) do
     outcome =
       FluxVale.Repo.transaction(fn ->
-        with {:ok, failed, notifications} <-
-               Topup.mark_failed(topup, %{},
-                 authorize?: false,
-                 return_notifications?: true
-               ),
-             :ok <- count_strike(setting) do
-          {:ok, failed, notifications}
-        else
-          # Defensive: a DB failure (not simulatable under the sandbox)
-          # — the rollback answers it.
-          # coveralls-ignore-next-line
-          {:error, db_reason} -> FluxVale.Repo.rollback(db_reason)
-        end
+        settle_decline(mark_failed_once(topup), setting, topup)
       end)
 
     case outcome do
-      {:ok, {:ok, failed, notifications}} ->
+      {:ok, {:marked, failed, notifications}} ->
         Ash.Notifier.notify(notifications)
         {:ok, :failed, failed, reason}
 
-      # Defensive: the same DB failure class.
-      # coveralls-ignore-next-line
+      {:ok, {:settled, topup}} ->
+        {:ok, :already_terminal, Topup.get_by_id!(topup.id, authorize?: false)}
+
       {:error, db_reason} ->
         {:error, db_reason}
     end
   end
 
-  # The strike increment inside the decline transaction — a rollback
-  # here leaves the row unmarked (both or neither).
-  defp count_strike(setting) do
-    case record_outcome(setting,
-           consecutive_failures: setting.consecutive_failures + 1,
-           last_attempt_at: DateTime.utc_now()
-         ) do
-      {:ok, _counted} -> :ok
-      # Defensive: rolls the decline transaction back — no failed row
-      # without its strike.
-      # coveralls-ignore-next-line
-      {:error, db_reason} -> FluxVale.Repo.rollback(db_reason)
+  # The three bulk outcomes inside the decline transaction: marked
+  # (strike counts, still in-transaction), settled (a racer won —
+  # nothing to flip or count), or a DB error (rollback).
+  defp settle_decline(
+         %Ash.BulkResult{status: :success, records: [failed], notifications: notifications},
+         setting,
+         _topup
+       ) do
+    case count_strike(setting) do
+      {:ok, _counted} ->
+        {:marked, failed, notifications}
+
+      # Defensive: a setting-write DB failure rolls the decline
+      # transaction back — no failed row without its strike. (The
+      # setting action's failure is not deterministically forceable —
+      # the write is `Ash.update` on the sweep's changeset — so this
+      # arm rides the exclusion.)
+      # coveralls-ignore-start
+      {:error, db_reason} ->
+        FluxVale.Repo.rollback(db_reason)
+        # coveralls-ignore-stop
     end
+  end
+
+  defp settle_decline(%Ash.BulkResult{status: :success, records: []}, _setting, topup) do
+    {:settled, topup}
+  end
+
+  defp settle_decline(%Ash.BulkResult{status: :error, errors: errors}, _setting, _topup) do
+    FluxVale.Repo.rollback(errors)
+  end
+
+  # Terminal-once (CompleteTopup's mark_completed house shape): the
+  # status filter rides the UPDATE's WHERE, so an out-of-order racer
+  # (a webhook that settled the row mid-flight) loses (zero rows)
+  # instead of flipping an already-terminal row.
+  defp mark_failed_once(topup) do
+    query = Ash.Query.filter(Topup, id == ^topup.id and status == :pending)
+
+    Ash.bulk_update(query, :mark_failed, %{},
+      authorize?: false,
+      return_records?: true,
+      return_notifications?: true,
+      notify?: false
+    )
+  end
+
+  # The strike increment inside the decline transaction: the plain
+  # write, the raw outcome — the rollback policy lives with the caller
+  # (settle_decline), so a failure here leaves the row unmarked (both
+  # or neither).
+  defp count_strike(setting) do
+    record_outcome(setting,
+      consecutive_failures: setting.consecutive_failures + 1,
+      last_attempt_at: DateTime.utc_now()
+    )
   end
 
   # Unknown outcome: only the attempt marker moves — the strike

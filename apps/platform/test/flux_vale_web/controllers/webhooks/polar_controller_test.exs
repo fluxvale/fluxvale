@@ -89,20 +89,24 @@ defmodule FluxValeWeb.Webhooks.PolarControllerTest do
     end)
 
     # PH: an unpriced market — the gross IS the net (2500¢, no VAT).
+    # The S2 arming machinery: method status first (the AutoArmGate
+    # demands it), then the owner's :auto consent.
     {org, owner} = BillingFixtures.grant_free_org!()
 
     {:ok, bare} = AutoRechargeSetting.create(%{organization_id: org.id}, authorize?: false)
 
-    {:ok, with_evidence} =
-      Billing.set_auto_recharge_setting(bare, %{billing_country: "PH"}, actor: owner)
-
-    {:ok, setting} =
-      with_evidence
+    {:ok, attached} =
+      bare
       |> Ash.Changeset.for_update(:set_method_status, %{
         payment_method_status: :attached,
         provider_customer_id: "cus_1"
       })
       |> Ash.update(authorize?: false)
+
+    {:ok, setting} =
+      Billing.set_auto_recharge_setting(attached, %{mode: :auto, billing_country: "PH"},
+        actor: owner
+      )
 
     {org, setting}
   end

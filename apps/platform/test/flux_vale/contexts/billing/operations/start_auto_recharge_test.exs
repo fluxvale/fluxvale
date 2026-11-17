@@ -58,23 +58,27 @@ defmodule FluxVale.Billing.Operations.StartAutoRechargeTest do
     :ok
   end
 
-  # {org, setting} armed exactly as the S2 actions produce them: the
-  # owner-role write carries the buyer evidence; the system write
-  # records the saved method (provider_customer_id).
+  # {org, setting} armed exactly as the S2 machinery produces: the
+  # system write records the saved method (provider_customer_id), then
+  # the owner-role :set arms :auto (the AutoArmGate demands the method
+  # first) and carries the buyer evidence.
   defp charged_setting!(evidence \\ %{billing_country: "DE"}) do
     {org, owner} = BillingFixtures.grant_free_org!()
 
     {:ok, bare} = AutoRechargeSetting.create(%{organization_id: org.id}, authorize?: false)
 
-    {:ok, with_evidence} = Billing.set_auto_recharge_setting(bare, evidence, actor: owner)
-
-    {:ok, setting} =
-      with_evidence
+    {:ok, attached} =
+      bare
       |> Ash.Changeset.for_update(:set_method_status, %{
         payment_method_status: :attached,
         provider_customer_id: "cus_1"
       })
       |> Ash.update(authorize?: false)
+
+    {:ok, setting} =
+      Billing.set_auto_recharge_setting(attached, Map.merge(%{mode: :auto}, evidence),
+        actor: owner
+      )
 
     {org, setting}
   end
@@ -186,9 +190,9 @@ defmodule FluxVale.Billing.Operations.StartAutoRechargeTest do
     stub_draft()
     stub_finalize(declined_finalize())
 
-    expect(Topup, :mark_failed, fn topup, params, opts ->
-      assert {:ok, _really_failed, _notifications} =
-               Mimic.call_original(Topup, :mark_failed, [topup, params, opts])
+    expect(Ash, :bulk_update, 1, fn query, :mark_failed, inputs, opts ->
+      assert %Ash.BulkResult{status: :success, records: [_really_failed]} =
+               Mimic.call_original(Ash, :bulk_update, [query, :mark_failed, inputs, opts])
 
       raise "simulated crash between the writes"
     end)
@@ -205,6 +209,59 @@ defmodule FluxVale.Billing.Operations.StartAutoRechargeTest do
 
     assert row.status == :pending
     assert row.payment_request_id == @order_id
+
+    {:ok, reloaded} = AutoRechargeSetting.get_by_organization(org.id, authorize?: false)
+    assert reloaded.consecutive_failures == 0
+    assert is_nil(reloaded.last_attempt_at)
+  end
+
+  # The decline's write can answer an error deterministically (the
+  # bulk result): the rollback must leave the row pending and the
+  # strike untouched, and the error must reach the caller.
+  test "a failed decline write rolls the transaction back and answers the error" do
+    {org, setting} = charged_setting!()
+    stub_draft()
+    stub_finalize(declined_finalize())
+
+    expect(Ash, :bulk_update, 1, fn _query, :mark_failed, _inputs, _opts ->
+      %Ash.BulkResult{status: :error, errors: :db_down}
+    end)
+
+    assert {:error, :db_down} = Billing.start_auto_recharge(org, setting)
+
+    assert [row] =
+             Topup
+             |> Ash.Query.filter(organization_id == ^org.id)
+             |> Ash.read!(authorize?: false)
+
+    assert row.status == :pending
+    assert row.payment_request_id == @order_id
+
+    {:ok, reloaded} = AutoRechargeSetting.get_by_organization(org.id, authorize?: false)
+    assert reloaded.consecutive_failures == 0
+    assert is_nil(reloaded.last_attempt_at)
+  end
+
+  # Terminal-once: a racer settling the row mid-flight (its webhook,
+  # its reconcile) wins — the decline flips nothing and counts
+  # nothing; the charge's own outcome stands.
+  test "a decline landing on an already-settled row flips and counts nothing" do
+    {org, setting} = charged_setting!()
+    stub_draft()
+    stub_finalize(declined_finalize())
+
+    # The racer settles the row between the attach and the decline
+    # transaction (the precondition the flow cannot produce on its
+    # own — the attach stub rides the real action, then settles it).
+    expect(Topup, :attach_checkout, 1, fn topup, attrs, opts ->
+      {:ok, attached} = Mimic.call_original(Topup, :attach_checkout, [topup, attrs, opts])
+      {:ok, _failed} = Topup.mark_failed(attached, %{}, authorize?: false)
+      {:ok, attached}
+    end)
+
+    assert {:ok, :already_terminal, settled} = Billing.start_auto_recharge(org, setting)
+
+    assert settled.status == :failed
 
     {:ok, reloaded} = AutoRechargeSetting.get_by_organization(org.id, authorize?: false)
     assert reloaded.consecutive_failures == 0
@@ -287,6 +344,56 @@ defmodule FluxVale.Billing.Operations.StartAutoRechargeTest do
     assert [] =
              Topup
              |> Ash.Query.filter(organization_id == ^org.id)
+             |> Ash.read!(authorize?: false)
+  end
+
+  # Consent (decision G): a :reminder opt-in is never a charge
+  # consent — the day the gate flips, a reminder org still refuses.
+  test "a reminder-mode setting refuses before any row or call" do
+    {org, owner} = BillingFixtures.grant_free_org!()
+
+    {:ok, bare} = AutoRechargeSetting.create(%{organization_id: org.id}, authorize?: false)
+
+    {:ok, attached} =
+      bare
+      |> Ash.Changeset.for_update(:set_method_status, %{
+        payment_method_status: :attached,
+        provider_customer_id: "cus_1"
+      })
+      |> Ash.update(authorize?: false)
+
+    {:ok, reminder} =
+      Billing.set_auto_recharge_setting(attached, %{mode: :reminder, billing_country: "DE"},
+        actor: owner
+      )
+
+    stub(Req, :post, fn _req, _opts ->
+      flunk("no provider call without the owner's :auto consent")
+    end)
+
+    assert {:error, :setting_not_armed} = Billing.start_auto_recharge(org, reminder)
+
+    assert [] =
+             Topup
+             |> Ash.Query.filter(organization_id == ^org.id)
+             |> Ash.read!(authorize?: false)
+  end
+
+  # Pairing: a mismatched org/setting pair would charge one org's
+  # saved method and credit another's wallet — refused before either.
+  test "a setting armed on another org refuses" do
+    {_org, setting} = charged_setting!()
+    {other_org, _wallet} = BillingFixtures.funded_wallet!(balance_cents: 0)
+
+    stub(Req, :post, fn _req, _opts ->
+      flunk("no provider call on a mismatched org/setting pair")
+    end)
+
+    assert {:error, :setting_org_mismatch} = Billing.start_auto_recharge(other_org, setting)
+
+    assert [] =
+             Topup
+             |> Ash.Query.filter(organization_id == ^other_org.id)
              |> Ash.read!(authorize?: false)
   end
 

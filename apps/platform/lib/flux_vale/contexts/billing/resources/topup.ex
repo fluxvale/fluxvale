@@ -241,10 +241,14 @@ defmodule FluxVale.Billing.Topup do
       ])
     end
 
-    # The gateway answered with a payment request id — the top-up now has
-    # a checkout the webhook can report against.
+    # The gateway answered with a payment request id — the top-up now
+    # has a checkout/order the webhook can report against (both the
+    # wizard's lane and the staged auto-recharge lane attach here).
     update :attach_checkout do
-      description("System: record the gateway's payment request id (StartTopup).")
+      description(
+        "System: record the gateway's payment request id (StartTopup, StartAutoRecharge)."
+      )
+
       accept([:payment_request_id])
     end
 
