@@ -10,6 +10,7 @@ defmodule FluxVale.Infrastructure.AccessGateway.ChangesTest do
   use Mimic
 
   alias FluxVale.Accounts
+  alias FluxVale.Accounts.Membership
   alias FluxVale.Billing
   alias FluxVale.Billing.Wallet
   alias FluxVale.Clients.K8s
@@ -25,6 +26,8 @@ defmodule FluxVale.Infrastructure.AccessGateway.ChangesTest do
   alias FluxVale.TestSupport.AccountsFixtures
   alias FluxVale.TestSupport.BillingFixtures
   alias FluxVale.TestSupport.InstanceFixtures
+
+  require Ash.Query
 
   setup do
     # The instance create resolves the single cluster row (ResolveCluster).
@@ -136,6 +139,233 @@ defmodule FluxVale.Infrastructure.AccessGateway.ChangesTest do
       second = AccessFixtures.gateway!(other_org)
 
       assert first.hostname != second.hostname
+    end
+  end
+
+  describe "the single-credential create (#836)" do
+    test "mint enable: api_token with no auth_key lands :provisioning with the token stored", %{
+      org: org,
+      owner: owner
+    } do
+      parent = self()
+
+      stub(Tailscale, :write_api_credential, fn gateway, token ->
+        send(parent, {:token_stored, gateway.id, token})
+        {:ok, %{api_token_secret_ref: "api-credential-stub"}}
+      end)
+
+      expect(Tailscale, :provision_gateway_minted, fn gateway ->
+        send(parent, {:minted, gateway.id})
+        {:ok, %{credential_secret_ref: "credential-stub"}}
+      end)
+
+      reject(Tailscale, :provision_gateway, 2)
+
+      assert {:ok, gateway} =
+               AccessGateway.create(
+                 %{
+                   organization_id: org.id,
+                   monthly_cents: 200,
+                   tailnet_domain: "example.ts.net",
+                   api_token: "  tskey-api-secret  "
+                 },
+                 actor: owner,
+                 authorize?: false
+               )
+
+      assert gateway.state == :provisioning
+      assert gateway.api_token_secret_ref == "api-credential-stub"
+      assert gateway.token_set_at
+
+      # The TRIMMED token went to the Secret, under the row's own id
+      # (the Secret name derives from it), and the mint ran on that row.
+      assert_received {:token_stored, id, "tskey-api-secret"}
+      assert_received {:minted, ^id}
+    end
+
+    test "neither credential is refused on :auth_key", %{org: org} do
+      assert {:error, %Ash.Error.Invalid{errors: errors}} =
+               AccessGateway.create(
+                 %{organization_id: org.id, monthly_cents: 200, tailnet_domain: "example.ts.net"},
+                 authorize?: false
+               )
+
+      assert Enum.any?(
+               errors,
+               &(&1.field == :auth_key and
+                   &1.message == "Paste an auth key or an API token to enable private access")
+             )
+    end
+
+    test "a whitespace-only token counts as absent too", %{org: org} do
+      assert {:error, %Ash.Error.Invalid{errors: errors}} =
+               AccessGateway.create(
+                 %{
+                   organization_id: org.id,
+                   monthly_cents: 200,
+                   tailnet_domain: "example.ts.net",
+                   api_token: "   "
+                 },
+                 authorize?: false
+               )
+
+      assert Enum.any?(
+               errors,
+               &(&1.field == :auth_key and
+                   &1.message == "Paste an auth key or an API token to enable private access")
+             )
+    end
+
+    test "both credentials are refused on :api_token before anything is written", %{org: org} do
+      reject(Tailscale, :provision_gateway, 2)
+      reject(Tailscale, :provision_gateway_minted, 1)
+      reject(Tailscale, :write_api_credential, 2)
+
+      assert {:error, %Ash.Error.Invalid{errors: errors}} =
+               AccessGateway.create(
+                 %{
+                   organization_id: org.id,
+                   monthly_cents: 200,
+                   tailnet_domain: "example.ts.net",
+                   auth_key: "tskey",
+                   api_token: "tskey-api-secret"
+                 },
+                 authorize?: false
+               )
+
+      assert Enum.any?(
+               errors,
+               &(&1.field == :api_token and &1.message == "Paste one or the other, not both")
+             )
+    end
+
+    test "a token-at-create by a non-owner member is refused, nothing written", %{org: org} do
+      member = AccountsFixtures.user!()
+
+      # The precondition rides the create action with authorize?: false —
+      # the sanctioned bootstrap posture (nothing in the system makes
+      # :member rows today).
+      Membership.create!(%{organization_id: org.id, user_id: member.id, role: :member},
+        authorize?: false
+      )
+
+      # The member passes the create policy (funded by the setup grant,
+      # paid here) — the fence that bites is the TOKEN's, in the change.
+      BillingFixtures.mark_paid!(org)
+
+      reject(Tailscale, :write_api_credential, 2)
+      reject(Tailscale, :provision_gateway_minted, 1)
+
+      assert {:error, %Ash.Error.Invalid{errors: errors}} =
+               AccessGateway.create(
+                 %{
+                   organization_id: org.id,
+                   monthly_cents: 200,
+                   tailnet_domain: "example.ts.net",
+                   api_token: "tskey-api-secret"
+                 },
+                 actor: member
+               )
+
+      assert Enum.any?(
+               errors,
+               &(&1.field == :api_token and
+                   &1.message == "Only an organization owner can store the Tailscale API token")
+             )
+
+      assert {:error, _not_found} = AccessGateway.get_for_organization(org.id, authorize?: false)
+    end
+
+    test "a failed token store at create refuses the create with the store sentence", %{
+      org: org,
+      owner: owner
+    } do
+      # The three tag shapes the store-failure logger must never leak:
+      # an atom, a status/reason map, anything else. Same sentence each.
+      for failure <- [:cluster_down, %{status_code: 500, reason: :boom}, "unexpected shape"] do
+        stub(Tailscale, :write_api_credential, fn _gateway, _token -> {:error, failure} end)
+
+        assert {:error, %Ash.Error.Invalid{errors: errors}} =
+                 AccessGateway.create(
+                   %{
+                     organization_id: org.id,
+                     monthly_cents: 200,
+                     tailnet_domain: "example.ts.net",
+                     api_token: "tskey-api-secret"
+                   },
+                   actor: owner,
+                   authorize?: false
+                 )
+
+        assert Enum.any?(
+                 errors,
+                 &(&1.field == :api_token and
+                     &1.message == "we couldn't store the token — try again")
+               )
+      end
+    end
+
+    test "the mint failure matrix surfaces the copy table and rolls the row back", %{
+      org: org,
+      owner: owner
+    } do
+      stub(Tailscale, :write_api_credential, fn _gateway, _token ->
+        {:ok, %{api_token_secret_ref: "api-credential-stub"}}
+      end)
+
+      stub(Tailscale, :cleanup_failed_provision, fn _gateway -> :ok end)
+
+      for {reason, sentence} <- [
+            {:unauthorized,
+             "Your Tailscale API key was rejected. Paste a fresh one in Settings → Access"},
+            {:forbidden,
+             "Your Tailscale API key can't create join keys — add the auth_keys scope when you mint it, or paste an auth key instead"},
+            {:network_error, "Couldn't reach Tailscale to create a join key. Try again"}
+          ] do
+        stub(Tailscale, :provision_gateway_minted, fn _gateway -> {:error, reason} end)
+
+        assert {:error, %Ash.Error.Invalid{errors: errors}} =
+                 AccessGateway.create(
+                   %{
+                     organization_id: org.id,
+                     monthly_cents: 200,
+                     tailnet_domain: "example.ts.net",
+                     api_token: "tskey-api-secret"
+                   },
+                   actor: owner,
+                   authorize?: false
+                 )
+
+        assert Enum.any?(errors, &(&1.field == :auth_key and &1.message == sentence))
+
+        # No row: the create's transaction rolled back with the failure.
+        assert {:error, _not_found} =
+                 AccessGateway.get_for_organization(org.id, authorize?: false)
+      end
+    end
+
+    test "a failed mint create runs the create-path cleanup", %{org: org, owner: owner} do
+      stub(Tailscale, :write_api_credential, fn _gateway, _token ->
+        {:ok, %{api_token_secret_ref: "api-credential-stub"}}
+      end)
+
+      stub(Tailscale, :provision_gateway_minted, fn _gateway -> {:error, :unauthorized} end)
+
+      # The provider already revoked what it could; the Secret deletes
+      # (including the api-credential one this create wrote) ride here.
+      expect(Tailscale, :cleanup_failed_provision, fn _gateway -> :ok end)
+
+      assert {:error, _reason} =
+               AccessGateway.create(
+                 %{
+                   organization_id: org.id,
+                   monthly_cents: 200,
+                   tailnet_domain: "example.ts.net",
+                   api_token: "tskey-api-secret"
+                 },
+                 actor: owner,
+                 authorize?: false
+               )
     end
   end
 
@@ -620,6 +850,117 @@ defmodule FluxVale.Infrastructure.AccessGateway.ChangesTest do
     end
   end
 
+  describe "reconnect without a pasted key (#836)" do
+    test "mints from the stored token, and the row lands :provisioning", %{org: org} do
+      gateway = AccessFixtures.gateway!(org)
+
+      reject(Tailscale, :update_credential, 2)
+
+      expect(Tailscale, :reconnect_minted, fn gateway ->
+        assert gateway.state == :active
+        :ok
+      end)
+
+      assert {:ok, reconnected} = AccessGateway.update_credential(gateway, %{}, authorize?: false)
+
+      assert reconnected.state == :provisioning
+      assert reconnected.status_message == "Reconnecting access"
+      assert reconnected.needs_attention_since == nil
+    end
+
+    test "a changed domain re-renders the serve config before the mint too", %{org: org} do
+      gateway = AccessFixtures.gateway!(org)
+      parent = self()
+
+      stub(Tailscale, :refresh_routes, fn %{tailnet_domain: domain} ->
+        send(parent, {:refreshed, domain})
+        {:ok, %{}}
+      end)
+
+      stub(Tailscale, :reconnect_minted, fn _gateway ->
+        send(parent, {:minted})
+        :ok
+      end)
+
+      assert {:ok, _reconnected} =
+               AccessGateway.update_credential(
+                 gateway,
+                 %{tailnet_domain: "rejoined.ts.net"},
+                 authorize?: false
+               )
+
+      # The mailbox order is the design: rewrite first, mint second.
+      assert_received {:refreshed, "rejoined.ts.net"}
+      assert_received {:minted}
+    end
+
+    test "no token anywhere surfaces the copy sentence, row unchanged", %{org: org} do
+      gateway = AccessFixtures.gateway!(org)
+
+      expect(Tailscale, :reconnect_minted, fn _gateway -> {:error, :no_api_token} end)
+
+      assert {:error, %Ash.Error.Invalid{errors: errors}} =
+               AccessGateway.update_credential(gateway, %{}, authorize?: false)
+
+      assert Enum.any?(
+               errors,
+               &(&1.field == :auth_key and
+                   &1.message ==
+                     "No API token is saved for this gateway. Paste an auth key, or save the token in Settings → Access")
+             )
+
+      assert AccessGateway.get_by_id!(gateway.id, authorize?: false).state == :active
+    end
+
+    test "the 403 sentence names the missing scope and the exit", %{org: org} do
+      gateway = AccessFixtures.gateway!(org)
+
+      stub(Tailscale, :reconnect_minted, fn _gateway -> {:error, :forbidden} end)
+
+      assert {:error, %Ash.Error.Invalid{errors: errors}} =
+               AccessGateway.update_credential(gateway, %{}, authorize?: false)
+
+      assert Enum.any?(
+               errors,
+               &(&1.field == :auth_key and &1.message =~ "add the auth_keys scope")
+             )
+    end
+
+    test "a :suspended row refuses before any provider call", %{org: org} do
+      gateway = AccessFixtures.gateway!(org, state: :suspended)
+
+      # No refresh, no mint, no paste-path call — the refusal is the
+      # change's, before the provider is touched at all.
+      reject(Tailscale, :reconnect_minted, 1)
+      reject(Tailscale, :update_credential, 2)
+      reject(Tailscale, :refresh_routes, 1)
+
+      assert {:error, %Ash.Error.Invalid{errors: errors}} =
+               AccessGateway.update_credential(gateway, %{}, authorize?: false)
+
+      assert Enum.any?(
+               errors,
+               &(&1.field == :auth_key and
+                   &1.message == "Resume the gateway first, then reconnect")
+             )
+    end
+
+    test "a pasted key on a :suspended row keeps the write-only fallback", %{org: org} do
+      gateway = AccessFixtures.gateway!(org, state: :suspended)
+
+      reject(Tailscale, :reconnect_minted, 1)
+
+      expect(Tailscale, :update_credential, fn _gateway, "tskey-pasted" -> :ok end)
+
+      assert {:ok, repasted} =
+               AccessGateway.update_credential(gateway, %{auth_key: "tskey-pasted"},
+                 authorize?: false
+               )
+
+      assert repasted.state == :provisioning
+    end
+  end
+
   describe "delete/1 (opt-out)" do
     test "flips :destroying and enqueues the teardown", %{org: org} do
       gateway = AccessFixtures.gateway!(org)
@@ -886,6 +1227,69 @@ defmodule FluxVale.Infrastructure.AccessGateway.ChangesTest do
     end
   end
 
+  describe "the mint create's PaperTrail sentinel (#836)" do
+    test "a token-at-create redacts the token in inputs — the value lands nowhere", %{
+      org: org,
+      owner: owner
+    } do
+      token = "tskey-api-SECRET-marker"
+
+      stub(Tailscale, :write_api_credential, fn _gateway, _token ->
+        {:ok, %{api_token_secret_ref: "api-credential-stub"}}
+      end)
+
+      stub(Tailscale, :provision_gateway_minted, fn _gateway ->
+        {:ok, %{credential_secret_ref: "credential-stub"}}
+      end)
+
+      assert {:ok, gateway} =
+               AccessGateway.create(
+                 %{
+                   organization_id: org.id,
+                   monthly_cents: 200,
+                   tailnet_domain: "example.ts.net",
+                   api_token: token
+                 },
+                 actor: owner,
+                 authorize?: false
+               )
+
+      versions = gateway_versions!(gateway.id)
+
+      create_version = Enum.find(versions, &(&1.version_action_name == :create))
+
+      # The argument is sensitive: ADR-0048's stance stores the marker,
+      # never the value (the #760 intake's exact posture).
+      assert create_version.version_action_inputs["api_token"] == "REDACTED"
+
+      # The stored changes carry only non-secret fields — the Secret's
+      # NAME and the rotation stamp — no credential value anywhere.
+      refute Enum.any?(versions, &(inspect(&1) =~ token))
+    end
+
+    test "a pasted-key create's auth_key redacts too", %{org: org} do
+      key = "tskey-SECRET-marker"
+
+      assert {:ok, gateway} =
+               AccessGateway.create(
+                 %{
+                   organization_id: org.id,
+                   monthly_cents: 200,
+                   tailnet_domain: "example.ts.net",
+                   auth_key: key
+                 },
+                 authorize?: false
+               )
+
+      versions = gateway_versions!(gateway.id)
+
+      create_version = Enum.find(versions, &(&1.version_action_name == :create))
+
+      assert create_version.version_action_inputs["auth_key"] == "REDACTED"
+      refute Enum.any?(versions, &(inspect(&1) =~ key))
+    end
+  end
+
   describe "read surfaces" do
     test "one gateway per org — the unique identity", %{org: org} do
       _first = AccessFixtures.gateway!(org)
@@ -977,6 +1381,15 @@ defmodule FluxVale.Infrastructure.AccessGateway.ChangesTest do
       },
       authorize?: false
     )
+  end
+
+  # The version rows for one gateway, oldest first (the PaperTrail test
+  # file's read posture: storage assertions run authorize?: false).
+  defp gateway_versions!(gateway_id) do
+    AccessGateway.Version
+    |> Ash.Query.filter(version_source_id == ^gateway_id)
+    |> Ash.Query.sort(version_inserted_at: :asc)
+    |> Ash.read!(authorize?: false)
   end
 
   # Bootstrap posture (mirrors the Billing policy tests): the

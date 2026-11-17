@@ -52,10 +52,21 @@ defmodule FluxVale.Infrastructure.Operations.ObserveAccessGateway do
   it if the row moved, Ash returns a `StaleRecord`, and `call/1`
   re-reads and re-decides against the committed row. Concurrent writers
   therefore converge instead of clobbering each other.
+
+  **The claim-convergence limb (#836, plan R2):** when the pass lands
+  `:active` and the row carries a stored API token, the shared
+  `ClaimUnclaimedDomains` sweep runs — this is what claims a domain
+  verified BEFORE the gateway existed (no later verify event sweeps it,
+  the #837 review's gap), keeping the today-guarantee a token save
+  gives. Idempotent (claimed domains are skipped by row), once per pass;
+  the operation logs its own failures and never raises, so a flaky
+  claim cannot flap the observer's state write — the next tick
+  re-decides.
   """
 
   alias FluxVale.Infrastructure.AccessGateway
   alias FluxVale.Infrastructure.AccessProvider
+  alias FluxVale.Infrastructure.Operations.ClaimUnclaimedDomains
 
   require Logger
 
@@ -139,7 +150,11 @@ defmodule FluxVale.Infrastructure.Operations.ObserveAccessGateway do
   defp apply_status(%AccessGateway{state: :active} = gateway, :active, _status) do
     case AccessGateway.get_by_id(gateway.id, authorize?: false) do
       {:ok, %AccessGateway{} = fresh} ->
-        if settled_active?(fresh), do: {:ok, fresh}, else: write_active(gateway)
+        if settled_active?(fresh) do
+          converge_claims({:ok, fresh})
+        else
+          converge_claims(write_active(gateway))
+        end
 
       # coveralls-ignore-start - race/defensive: the row was torn down
       # between the observation read and this re-read, or the read failed;
@@ -160,7 +175,7 @@ defmodule FluxVale.Infrastructure.Operations.ObserveAccessGateway do
   # attention clock, and arm any missing settlement anchors. The write is
   # filtered and cannot clobber a concurrent writer (see the moduledoc).
   defp apply_status(%AccessGateway{} = gateway, :active, _status) do
-    write_active(gateway)
+    converge_claims(write_active(gateway))
   end
 
   defp apply_status(%AccessGateway{state: :needs_attention} = gateway, :needs_attention, _status) do
@@ -209,6 +224,30 @@ defmodule FluxVale.Infrastructure.Operations.ObserveAccessGateway do
       not is_nil(gateway.metering_since) and
       not is_nil(gateway.provisioned_at) and
       gateway.status_message == @settled_message
+  end
+
+  # The R2 limb: an :active outcome on a row with a stored token sweeps
+  # once per pass, then returns the row untouched. A row the suspension
+  # owns never reaches here (its arm returns first). The sweep is
+  # actorless — the system seam, like the token save's — and its
+  # failures are the operation's to log-and-continue (see moduledoc).
+  defp converge_claims({:ok, %AccessGateway{state: :active} = row}) do
+    if token_stored?(row) do
+      _summary = ClaimUnclaimedDomains.call(row)
+      {:ok, row}
+    else
+      {:ok, row}
+    end
+  end
+
+  defp converge_claims(other), do: other
+
+  # The `api_token_set` calculation's exact shape, read off the raw
+  # fields (no calculation load on this path): the ref is checked as
+  # well as the stamp, because a token stored before the stamp column
+  # existed still proves itself.
+  defp token_stored?(%AccessGateway{api_token_secret_ref: ref, token_set_at: stamp}) do
+    not is_nil(ref) or not is_nil(stamp)
   end
 
   # `update_state` accepts `metering_since` (it is the observed-state

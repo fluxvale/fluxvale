@@ -13,6 +13,7 @@ defmodule FluxVale.Infrastructure.Operations.ObserveAccessGatewayTest do
   alias FluxVale.Infrastructure
   alias FluxVale.Infrastructure.AccessGateway
   alias FluxVale.Infrastructure.AccessProviders.Tailscale
+  alias FluxVale.Infrastructure.Operations.ClaimUnclaimedDomains
   alias FluxVale.TestSupport.AccessFixtures
   alias FluxVale.TestSupport.BillingFixtures
 
@@ -329,6 +330,92 @@ defmodule FluxVale.Infrastructure.Operations.ObserveAccessGatewayTest do
     end
   end
 
+  describe "the claim-convergence limb (#836)" do
+    # R2's today-guarantee: a domain verified BEFORE the gateway existed
+    # has no later verify event to sweep it — an :active pass on a row
+    # with a stored token sweeps once, whatever failed to claim is the
+    # operation's to log-and-continue.
+    test "an :active pass on a row with a stored token sweeps once", %{org: org} do
+      gateway = token_stored_row!(org)
+
+      stub(Tailscale, :gateway_status, fn _gateway ->
+        {:ok, %{state: :active, message: "Connected"}}
+      end)
+
+      expect(ClaimUnclaimedDomains, :call, 1, fn gateway ->
+        assert gateway.state == :active
+        %{claimed: ["example.com"], failed: []}
+      end)
+
+      assert {:ok, observed} = Infrastructure.observe_access_gateway(gateway)
+      assert observed.state == :active
+    end
+
+    test "the promotion to :active sweeps too", %{org: org} do
+      gateway = provisioned_row!(org)
+
+      {:ok, row} =
+        AccessGateway.set_api_token_ref(gateway, %{api_token_secret_ref: "api-credential-abc"},
+          authorize?: false
+        )
+
+      stub(Tailscale, :gateway_status, fn _gateway ->
+        {:ok, %{state: :active, message: "Connected to your tailnet"}}
+      end)
+
+      expect(ClaimUnclaimedDomains, :call, 1, fn _gateway -> %{claimed: [], failed: []} end)
+
+      assert {:ok, observed} = Infrastructure.observe_access_gateway(row)
+      assert observed.state == :active
+    end
+
+    test "a sweep failure does not fail the observation", %{org: org} do
+      gateway = token_stored_row!(org)
+
+      stub(Tailscale, :gateway_status, fn _gateway ->
+        {:ok, %{state: :active, message: "Connected"}}
+      end)
+
+      expect(ClaimUnclaimedDomains, :call, 1, fn _gateway ->
+        %{claimed: [], failed: [{:sweep, :cluster_down}]}
+      end)
+
+      assert {:ok, observed} = Infrastructure.observe_access_gateway(gateway)
+      assert observed.state == :active
+    end
+
+    test "a row without a stored token never sweeps", %{org: org} do
+      gateway = AccessFixtures.gateway!(org)
+
+      stub(Tailscale, :gateway_status, fn _gateway ->
+        {:ok, %{state: :active, message: "Connected"}}
+      end)
+
+      reject(ClaimUnclaimedDomains, :call, 1)
+
+      assert {:ok, observed} = Infrastructure.observe_access_gateway(gateway)
+      assert observed.state == :active
+    end
+
+    test "a suspended row never sweeps, even on an :active observation", %{org: org} do
+      gateway = AccessFixtures.gateway!(org, state: :suspended)
+
+      {:ok, row} =
+        AccessGateway.set_api_token_ref(gateway, %{api_token_secret_ref: "api-credential-abc"},
+          authorize?: false
+        )
+
+      stub(Tailscale, :gateway_status, fn _gateway ->
+        {:ok, %{state: :active, message: "Connected"}}
+      end)
+
+      reject(ClaimUnclaimedDomains, :call, 1)
+
+      assert {:ok, observed} = Infrastructure.observe_access_gateway(row)
+      assert observed.state == :suspended
+    end
+  end
+
   # The settled shape the observer lands: :active, both anchors armed, no
   # attention clock, the settled copy. Settled through the observer itself
   # (the only promoter to :active), read back from the committed row.
@@ -358,5 +445,27 @@ defmodule FluxVale.Infrastructure.Operations.ObserveAccessGatewayTest do
       },
       authorize?: false
     )
+  end
+
+  # A settled :active row with a stored API token — the ref write is the
+  # system seam the token save uses (never a raw attribute write).
+  defp token_stored_row!(org) do
+    stub(Tailscale, :gateway_status, fn _gateway ->
+      {:ok, %{state: :active, message: "Connected to your tailnet"}}
+    end)
+
+    {:ok, settled} =
+      org
+      |> provisioned_row!()
+      |> Infrastructure.observe_access_gateway()
+
+    assert settled.state == :active
+
+    {:ok, row} =
+      AccessGateway.set_api_token_ref(settled, %{api_token_secret_ref: "api-credential-abc"},
+        authorize?: false
+      )
+
+    row
   end
 end
