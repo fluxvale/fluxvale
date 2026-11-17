@@ -1376,6 +1376,53 @@ defmodule FluxVale.Infrastructure.InstanceTest do
     end
   end
 
+  # #820: the parking plumbing — the two markers the reconciler's
+  # repair/park writes stamp, and the status funnel clearing.
+  describe "reconcile parking markers (#820)" do
+    # The reconciler's posture: system writes, authorize?: false at the
+    # call site (InstanceK8s.update_status's stated reason — no actor in
+    # the trigger context, no bypass propagation).
+    defp system_update!(instance, action) do
+      instance
+      |> Ash.Changeset.for_update(action, %{}, authorize?: false)
+      |> Ash.update!()
+    end
+
+    test "mark_reconcile_repair stamps the grace anchor, leaves parking nil" do
+      repaired = system_update!(created!(), :mark_reconcile_repair)
+
+      assert %DateTime{} = repaired.reconcile_repaired_at
+      assert repaired.reconcile_parked_at == nil
+    end
+
+    test "park_reconcile stamps the parking marker, leaves the anchor nil" do
+      parked = system_update!(created!(), :park_reconcile)
+
+      assert %DateTime{} = parked.reconcile_parked_at
+      assert parked.reconcile_repaired_at == nil
+    end
+
+    test "the window accessor is the one source" do
+      assert Instance.reconcile_park_window_seconds() == 3600
+    end
+
+    test "update_status clears both markers — a re-wedge resumes the fast cadence" do
+      parked =
+        created!()
+        |> system_update!(:mark_reconcile_repair)
+        |> system_update!(:park_reconcile)
+
+      assert parked.reconcile_repaired_at
+      assert parked.reconcile_parked_at
+
+      {:ok, errored} = InstanceK8s.update_status(parked, :error, "boom", :rollout_failed)
+
+      assert errored.status == :error
+      assert errored.reconcile_repaired_at == nil
+      assert errored.reconcile_parked_at == nil
+    end
+  end
+
   describe "deploy/1" do
     test "lands :deploying with the ADR-0005 namespace, then :starting via the inline trigger" do
       stub_k8s()

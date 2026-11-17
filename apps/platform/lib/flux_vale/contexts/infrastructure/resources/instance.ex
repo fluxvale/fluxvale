@@ -231,6 +231,9 @@ defmodule FluxVale.Infrastructure.Instance do
   # read the SAME list — a healthy workload may clear these failures.
   @recoverable_error_reasons InstanceFailureReason.recoverable()
 
+  # #820: the parking window — one number for the trigger fragment and the park predicate.
+  @reconcile_park_window_seconds 3600
+
   oban do
     triggers do
       trigger :deploy do
@@ -250,11 +253,18 @@ defmodule FluxVale.Infrastructure.Instance do
         # #776: :error joins the reconciled set only for the unintended
         # failures the reconciler may clear; intent-bearing failures and
         # deploy_failed (retry owns it) stay out of the queue.
+        # #820: parked rows stay out — parking bounds the cadence, the
+        # window readmits for external healing. Ecto pins fragment's
+        # first arg to a literal string (no attribute/interpolation), so
+        # 3600 repeats here — change together with
+        # @reconcile_park_window_seconds.
         where(
           expr(
             status in [:deploying, :starting, :running, :no_capacity, :error] and
               (status != :error or is_nil(failure_reason) or
-                 failure_reason in ^@recoverable_error_reasons)
+                 failure_reason in ^@recoverable_error_reasons) and
+              (is_nil(reconcile_parked_at) or
+                 fragment("? < now() - interval '3600 seconds'", reconcile_parked_at))
           )
         )
 
@@ -667,6 +677,19 @@ defmodule FluxVale.Infrastructure.Instance do
       public?(false)
     end
 
+    # #820: reconcile parking trail — `reconcile_repaired_at` anchors the
+    # repair's grace window; `reconcile_parked_at` parks a no-progress
+    # row out of the reconcile queue (readmitted after the window, so
+    # external healing still lands). Both cleared by every `update_status`
+    # write. Internal, like the anchors.
+    attribute :reconcile_repaired_at, :utc_datetime_usec do
+      public?(false)
+    end
+
+    attribute :reconcile_parked_at, :utc_datetime_usec do
+      public?(false)
+    end
+
     # #203 (ADR-0036 Am. 2, #261): the owner's opt-out of scale-to-zero
     # — the idle sweep skips always-on rows. No premium tier (owner
     # decision, Oct 26): always-on instances simply never stop accruing
@@ -943,6 +966,11 @@ defmodule FluxVale.Infrastructure.Instance do
       # pairing.
       accept([:status, :status_message, :failure_reason])
       require_atomic?(false)
+
+      # #820: a status write is progress — clear both parking markers so
+      # a transition or re-wedge resumes the fast cadence.
+      change(set_attribute(:reconcile_repaired_at, nil))
+      change(set_attribute(:reconcile_parked_at, nil))
 
       change(MaintainAnchors)
       change(WakeMarkers)
@@ -1521,6 +1549,34 @@ defmodule FluxVale.Infrastructure.Instance do
       change(PerformReconcile)
     end
 
+    # #820: the repair's grace anchor — stamped by the pass that applied
+    # the restart-shaped repair. No params, system-only: the reconciler
+    # calls it authorize?: false like update_status.
+    update :mark_reconcile_repair do
+      description("System-only: stamp the repair grace anchor (#820, authorize?: false).")
+
+      accept([])
+      require_atomic?(false)
+
+      change(fn changeset, _context ->
+        Ash.Changeset.change_attribute(changeset, :reconcile_repaired_at, DateTime.utc_now())
+      end)
+    end
+
+    # #820: the no-progress parking marker. Write-once-per-window is the
+    # caller's predicate (ReconcileInstance); the trigger `where` skips
+    # rows parked inside the window. Same system-only posture.
+    update :park_reconcile do
+      description("System-only: stamp the reconcile parking marker (#820, authorize?: false).")
+
+      accept([])
+      require_atomic?(false)
+
+      change(fn changeset, _context ->
+        Ash.Changeset.change_attribute(changeset, :reconcile_parked_at, DateTime.utc_now())
+      end)
+    end
+
     update :perform_settle do
       description("The :settle_usage trigger's body — see Instance.PerformSettle (#121).")
       require_atomic?(false)
@@ -1875,6 +1931,12 @@ defmodule FluxVale.Infrastructure.Instance do
 
       # coveralls-ignore-stop
   end
+
+  @doc """
+  One source for the trigger fragment and the reconciler park predicate (#820).
+  """
+  @spec reconcile_park_window_seconds() :: pos_integer()
+  def reconcile_park_window_seconds, do: @reconcile_park_window_seconds
 
   calculations do
     # #765: the default public URL the agent handoff reads back. The

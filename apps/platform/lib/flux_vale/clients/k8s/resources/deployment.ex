@@ -346,6 +346,28 @@ defmodule FluxVale.Clients.K8s.Resources.Deployment do
   end
 
   @doc """
+  Read-only divergence check for #820: `true` when the live Deployment's
+  `spec.strategy` no longer equals `@rollout_strategy`. Exact equality —
+  SSA round-trips the integers, so a converged Deployment matches the
+  attribute verbatim (pinned by test).
+
+  Never applies anything: the reconciler's `rollout_failed` repair arm
+  (plan Slice 4) is the only caller, and on `{:ok, true}` it repairs via
+  `restart/4` — which remains the only writer here.
+  """
+  @spec strategy_diverges?(Kubereq.Kubeconfig.t(), String.t(), String.t()) ::
+          {:ok, boolean()} | {:error, Error.t()}
+  def strategy_diverges?(kubeconfig, namespace, name) do
+    case get(kubeconfig, namespace, name) do
+      {:ok, deployment} ->
+        {:ok, get_in(deployment, ["spec", "strategy"]) != @rollout_strategy}
+
+      {:error, error} ->
+        {:error, error}
+    end
+  end
+
+  @doc """
   Spec-only ensure: add `app-env` to the app container's `envFrom` when
   absent, without the restart annotation. The stopped/sleeping first-env
   path needs the spec ready for the next start, not a rollout now.

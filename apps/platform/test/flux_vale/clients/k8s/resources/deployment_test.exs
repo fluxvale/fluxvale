@@ -853,6 +853,42 @@ defmodule FluxVale.Clients.K8s.Resources.DeploymentTest do
     end
   end
 
+  describe "strategy_diverges?/3 — the #820 divergence predicate" do
+    test "a fetched pre-#776 25%/25% strategy diverges" do
+      fetched =
+        put_in(fetched_deployment(), ["spec", "strategy"], %{
+          "type" => "RollingUpdate",
+          "rollingUpdate" => %{"maxSurge" => "25%", "maxUnavailable" => "25%"}
+        })
+
+      expect(Kubereq, :get, fn _req, _ns, _name -> {:ok, %{status: 200, body: fetched}} end)
+
+      assert {:ok, true} = Deployment.strategy_diverges?(%{}, "fluxvale-app-1", "forgejo")
+    end
+
+    test "the converged SSA round-trip form (integers) does not diverge" do
+      # SSA persists the strategy back with integer fields — exactly the
+      # attribute's shape, so exact-equality reads false (no field-wise
+      # comparison that would re-repair forever).
+      fetched =
+        put_in(fetched_deployment(), ["spec", "strategy"], %{
+          "type" => "RollingUpdate",
+          "rollingUpdate" => %{"maxSurge" => 0, "maxUnavailable" => 1}
+        })
+
+      expect(Kubereq, :get, fn _req, _ns, _name -> {:ok, %{status: 200, body: fetched}} end)
+
+      assert {:ok, false} = Deployment.strategy_diverges?(%{}, "fluxvale-app-1", "forgejo")
+    end
+
+    test "a failed get propagates" do
+      expect(Kubereq, :get, fn _req, _ns, _name -> {:error, :transport_oops} end)
+
+      assert {:error, %Error{reason: :connection_error}} =
+               Deployment.strategy_diverges?(%{}, "fluxvale-app-1", "forgejo")
+    end
+  end
+
   describe "wait_for_ready/4" do
     test ":ok when the status map is ready" do
       expect(Kubereq, :get, fn _req, _ns, _name ->

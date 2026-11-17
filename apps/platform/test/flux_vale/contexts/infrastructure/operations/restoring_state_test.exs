@@ -85,6 +85,23 @@ defmodule FluxVale.Infrastructure.Operations.RestoringStateTest do
     errored
   end
 
+  # A parked marker of arbitrary age is a state no action can produce
+  # (park_reconcile stamps now, write-once-per-window) — the sanctioned
+  # Ash.Seed case, the aged-topup posture. FKs copied from an
+  # action-built row; `seconds_ago` drives the window-boundary tests.
+  defp parked_error_row!(donor, seconds_ago) do
+    Ash.Seed.seed!(Instance, %{
+      name: "Parked #{System.unique_integer()}",
+      slug: "parked-#{System.unique_integer()}",
+      organization_id: donor.organization_id,
+      cluster_id: donor.cluster_id,
+      app_version_id: donor.app_version_id,
+      status: :error,
+      failure_reason: :rollout_failed,
+      reconcile_parked_at: DateTime.add(DateTime.utc_now(), -seconds_ago, :second)
+    })
+  end
+
   describe "the enums (text-stored, code-only)" do
     test ":restoring is an Instance status" do
       assert :restoring in InstanceStatus.values()
@@ -173,6 +190,48 @@ defmodule FluxVale.Infrastructure.Operations.RestoringStateTest do
       assert recoverable.id in ids
       assert legacy.id in ids
       refute intent_bearing.id in ids
+    end
+
+    test "the trigger filter skips a parked row until the window lapses (#820)" do
+      # One cluster for every row — the create resolves the single
+      # cluster row (more than one is ADR-0006's refused shape).
+      InstanceFixtures.local_cluster!()
+      trigger = AshOban.Info.oban_trigger(Instance, :reconcile_status)
+      donor = errored_instance!(:rollout_failed)
+
+      # Fresh parking rides the action — inside the window, out of the queue.
+      fresh_row = errored_instance!(:rollout_failed)
+
+      parked_fresh =
+        fresh_row
+        |> Ash.Changeset.for_update(:park_reconcile, %{}, authorize?: false)
+        |> Ash.update!()
+
+      parked_stale = parked_error_row!(donor, 7200)
+      unmarked = errored_instance!(:rollout_failed)
+
+      # #820: the boundary pair pins the trigger fragment's SQL literal.
+      # A lone -7200s marker stays green for any window <= 7200, so
+      # drift from @reconcile_park_window_seconds would ship silently —
+      # these two rows flip at exactly 3600 (±2s guard band: both
+      # markers only age further past while the test runs, so now()
+      # skew inside the band cannot flake them).
+      parked_just_inside = parked_error_row!(donor, 3598)
+      parked_just_past = parked_error_row!(donor, 3602)
+
+      query =
+        Instance
+        |> Ash.Query.filter(trigger.where)
+        |> Ash.Query.sort(:id)
+
+      {:ok, rows} = Ash.read(query, authorize?: false)
+      ids = Enum.map(rows, & &1.id)
+
+      refute parked_fresh.id in ids, "a fresh parking marker must keep the row out"
+      refute parked_just_inside.id in ids, "a marker just inside the window stays parked"
+      assert parked_just_past.id in ids, "a marker just past the window is readmitted"
+      assert parked_stale.id in ids, "a lapsed marker is readmitted"
+      assert unmarked.id in ids, "a row with no marker is admitted"
     end
 
     test "a direct reconcile call on a :restoring row is a no-op" do

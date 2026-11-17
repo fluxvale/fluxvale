@@ -137,3 +137,30 @@ row whose unintended failure (rollout/start/stuck/missing — not
 `deploy_failed`, which retries through `:deploy`) is contradicted by a
 healthy current revision recovers to `:running`. Intent-bearing failures
 (`:stop_failed`, `:restore_failed`, `:teardown_failed`) keep their error.
+
+## Amendment 7 (2026-11-16)
+
+Per [#820](https://github.com/fluxvale/fluxvale/issues/820): a
+`rollout_failed` row whose Deployment still carries a foreign strategy
+can never satisfy the readiness gate — recovery waited on a condition
+that could not happen, one no-op reconcile job per minute, forever
+(the staging wedge: strategy `25%/25%`, quota one pod, old pod serving).
+
+The reconciler converges before it gates: a `:rollout_failed` row with
+a not-ready revision and a scheduled pod checks
+`Deployment.strategy_diverges?/3`; on divergence it applies the
+restart-shaped repair — `Deployment.restart/4`, the one-pod strategy
+plus the `restartedAt` bump, so a fresh ReplicaSet without the wedged
+one's accumulated create-backoff rolls inside the freed quota — and
+stamps `reconcile_repaired_at`. The repair earns a grace of the
+deploy-stale bound (300s) at the fast cadence; past it (or with no
+repair at all), the row parks — `reconcile_parked_at`, write-once per
+`reconcile_park_window_seconds` (3600s) — and the reconcile trigger
+stops enqueueing it until the window lapses, so external healing (a
+quota raise, a cluster repair) still gets hourly readmission. A failed
+K8s read holds the pass and never parks (a marker would suppress a
+pending repair for the whole window); a failed restart earns no grace
+and parks. Readiness promotion is unchanged — the repair only makes
+the gate reachable. Scope is `:rollout_failed` only; the other
+recoverable reasons keep the read-only no-op, and `deploy_failed`
+stays owner-owned (the #818 posture).
