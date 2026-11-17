@@ -2,8 +2,9 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.ApiClientTest do
   @moduledoc """
   The Tailscale API client's wire contract (ADR-0040 §3, spike-pinned
   against the official SDK v2.12.0): bearer auth, the device match on
-  the name's first label, the routes POST's replace semantics and the
-  split-DNS PATCH's per-domain upsert (never a PUT). HTTP is
+  the name's first label, the routes POST's replace semantics, the
+  split-DNS PATCH's per-domain upsert (never a PUT), and the
+  enrollment key mint's pinned capabilities (#836's R1). HTTP is
   Mimic-stubbed — the HitPay adapter's stance: the client translates
   wires into shapes, it does not talk to the API.
   """
@@ -16,6 +17,14 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.ApiClientTest do
   alias FluxVale.Infrastructure.AccessProviders.Tailscale.ApiClient
 
   @token "tskey-api-abc123"
+
+  # The caller's config policy (S2 reads it from config); the R1
+  # capabilities are the client's fixed pin, asserted in the body test.
+  @mint_opts [
+    tag: "tag:fluxvale-gateway",
+    ttl_seconds: 3600,
+    description: "fluxvale gateway fv-1a2b3c4d"
+  ]
 
   setup do
     original = Application.get_env(:flux_vale, :tailscale_api)
@@ -38,6 +47,10 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.ApiClientTest do
       respond.(opts)
     end)
   end
+
+  # A mint-response stub: the RAW body string, as the wire delivers it
+  # under decode_body: false (keys_create decodes it itself).
+  defp raw_body(body, status \\ 200), do: {:ok, %Req.Response{status: status, body: body}}
 
   describe "devices_lookup/2" do
     test "the device's Tailscale IPs ride along (ADR-0040 §4's view answer)" do
@@ -471,6 +484,188 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.ApiClientTest do
       end)
 
       assert {:error, :forbidden} = ApiClient.split_dns_patch(@token, %{"d" => nil})
+    end
+  end
+
+  describe "keys_create/2" do
+    # The R1 pin: reusable/ephemeral/preauthorized are the plan's FIXED
+    # values (single-use, persistent node, no approval limbo) and
+    # expirySeconds rides the same body — a drifted body mints the
+    # wrong kind of key.
+    test "POSTs the pinned R1 shape to the dash tailnet" do
+      expect_request(:post, "/api/v2/tailnet/-/keys", fn opts ->
+        assert opts[:json] == %{
+                 "capabilities" => %{
+                   "devices" => %{
+                     "create" => %{
+                       "reusable" => false,
+                       "ephemeral" => false,
+                       "preauthorized" => true,
+                       "tags" => ["tag:fluxvale-gateway"]
+                     }
+                   }
+                 },
+                 "expirySeconds" => 3600,
+                 "description" => "fluxvale gateway fv-1a2b3c4d"
+               }
+
+        assert opts[:decode_body] == false
+
+        # decode_body: false — the platform decodes the mint response
+        # itself (see the malformed-body test below for why), so the
+        # stub returns the RAW body, as the wire delivers it.
+        raw_body(~s({"id": "k1234", "key": "tskey-auth-k1234-x"}))
+      end)
+
+      assert {:ok, %{id: "k1234"}} = ApiClient.keys_create(@token, @mint_opts)
+    end
+
+    # The three caller-owned fields must FLOW from opts — the fixture
+    # above equals the plan defaults, so alone it cannot tell opts-flow
+    # from hard-coded pins. Non-default values prove the body reflects
+    # the caller's config policy (the TTL knob is the risk section's
+    # escape hatch).
+    test "tag, ttl and description flow from the caller's opts" do
+      expect_request(:post, "/api/v2/tailnet/-/keys", fn opts ->
+        assert %{
+                 "capabilities" => %{
+                   "devices" => %{"create" => %{"tags" => ["tag:other"]}}
+                 },
+                 "expirySeconds" => 720,
+                 "description" => "dr"
+               } = opts[:json]
+
+        raw_body(~s({"id": "k5555", "key": "tskey-auth-k5555-x"}))
+      end)
+
+      assert {:ok, %{id: "k5555"}} =
+               ApiClient.keys_create(@token,
+                 tag: "tag:other",
+                 ttl_seconds: 720,
+                 description: "dr"
+               )
+    end
+
+    test "returns both the id and the secret key — delivered exactly once" do
+      expect_request(:post, "/api/v2/tailnet/-/keys", fn _opts ->
+        raw_body(~s({"id": "k9876", "key": "tskey-auth-k9876-abc123"}))
+      end)
+
+      assert {:ok, %{id: "k9876", key: "tskey-auth-k9876-abc123"}} =
+               ApiClient.keys_create(@token, @mint_opts)
+    end
+
+    # A mint "succeeding" without the secret would leave the caller
+    # storing garbage — refused, the contract-break rule.
+    test "a 2xx body missing the key field is a bad payload, never a converged mint" do
+      expect_request(:post, "/api/v2/tailnet/-/keys", fn _opts ->
+        raw_body(~s({"id": "k1234"}))
+      end)
+
+      assert {:error, {:bad_payload, 200}} = ApiClient.keys_create(@token, @mint_opts)
+    end
+
+    test "a non-JSON 2xx body is a bad payload like every other read" do
+      expect_request(:post, "/api/v2/tailnet/-/keys", fn _opts ->
+        raw_body("gateway hiccup", 201)
+      end)
+
+      assert {:error, {:bad_payload, 201}} = ApiClient.keys_create(@token, @mint_opts)
+    end
+
+    # The reason keys_create decodes the body itself: Req's decode step
+    # answers a malformed body with {:error, %Jason.DecodeError{}}
+    # whose `data` field is the RAW body — secret included — and the
+    # module's error arm inspects exceptions into logs. Manual decode
+    # discards the error struct unread: nothing body-shaped can leak.
+    test "a malformed 200 body is refused and the secret never reaches a log" do
+      secret = "tskey-auth-k0001-leakcanary"
+
+      expect_request(:post, "/api/v2/tailnet/-/keys", fn _opts ->
+        raw_body(~s({"id": "k0001", "key": "#{secret}"}) <> " trailing garbage")
+      end)
+
+      logs =
+        ExUnit.CaptureLog.capture_log(fn ->
+          assert {:error, {:bad_payload, 200}} = ApiClient.keys_create(@token, @mint_opts)
+        end)
+
+      refute logs =~ secret
+      refute logs =~ "k0001"
+    end
+
+    # Defensive arm: adapters deliver binaries; a non-binary body is
+    # still a contract break, not a crash.
+    test "a non-binary 2xx body is a bad payload, not a crash" do
+      expect_request(:post, "/api/v2/tailnet/-/keys", fn _opts ->
+        {:ok, %Req.Response{status: 200, body: nil}}
+      end)
+
+      assert {:error, {:bad_payload, 200}} = ApiClient.keys_create(@token, @mint_opts)
+    end
+
+    test "401 is :unauthorized — the token was rejected" do
+      expect_request(:post, "/api/v2/tailnet/-/keys", fn _opts ->
+        {:ok, %Req.Response{status: 401, body: %{"error" => "expired"}}}
+      end)
+
+      assert {:error, :unauthorized} = ApiClient.keys_create(@token, @mint_opts)
+    end
+
+    test "403 is :forbidden — the token lacks the auth_keys scope" do
+      expect_request(:post, "/api/v2/tailnet/-/keys", fn _opts ->
+        {:ok, %Req.Response{status: 403, body: %{"error" => "denied"}}}
+      end)
+
+      assert {:error, :forbidden} = ApiClient.keys_create(@token, @mint_opts)
+    end
+
+    test "a transport failure is :network_error" do
+      expect_request(:post, "/api/v2/tailnet/-/keys", fn _opts ->
+        {:error, %Req.TransportError{reason: :timeout}}
+      end)
+
+      assert {:error, :network_error} = ApiClient.keys_create(@token, @mint_opts)
+    end
+  end
+
+  describe "keys_delete/2" do
+    test "DELETEs the keyid path and a 2xx is :ok" do
+      expect_request(:delete, "/api/v2/tailnet/-/keys/k1234567890", fn _opts ->
+        {:ok, %Req.Response{status: 200, body: %{}}}
+      end)
+
+      assert :ok = ApiClient.keys_delete(@token, "k1234567890")
+    end
+
+    test "401 maps to :unauthorized" do
+      expect_request(:delete, "/api/v2/tailnet/-/keys/k1234567890", fn _opts ->
+        {:ok, %Req.Response{status: 401, body: %{"error" => "expired"}}}
+      end)
+
+      assert {:error, :unauthorized} = ApiClient.keys_delete(@token, "k1234567890")
+    end
+
+    test "403 maps to :forbidden — the token lacks the auth_keys scope" do
+      expect_request(:delete, "/api/v2/tailnet/-/keys/k1234567890", fn _opts ->
+        {:ok, %Req.Response{status: 403, body: %{"error" => "denied"}}}
+      end)
+
+      assert {:error, :forbidden} = ApiClient.keys_delete(@token, "k1234567890")
+    end
+
+    # A 404 passes through as the status+snippet shape — whether
+    # "already gone" is tolerable is the CALLER's policy (R1), not the
+    # client's.
+    test "other non-2xx surfaces the status+snippet shape, 404 included" do
+      expect_request(:delete, "/api/v2/tailnet/-/keys/k1234567890", fn _opts ->
+        {:ok, %Req.Response{status: 404, body: %{"error" => "not found"}}}
+      end)
+
+      assert {:error, %{status: 404, body: body}} =
+               ApiClient.keys_delete(@token, "k1234567890")
+
+      assert body =~ "not found"
     end
   end
 end

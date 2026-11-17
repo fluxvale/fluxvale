@@ -21,6 +21,9 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.ApiClient do
     the body keep their routes, a `nil` value unsets. Never a
     full-replace PUT — that would rewrite the customer's other
     split-DNS routes (§12's blast-radius rule).
+  - Key mint/revoke (the gateway-enrollment lane, #836): the create
+    response carries the secret `key` value exactly once — returned to
+    the caller, never logged.
 
   `tailnet/-` (the dash) addresses the key's own tailnet — one
   credential, one tailnet, no tailnet id handling.
@@ -137,6 +140,74 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.ApiClient do
   end
 
   @doc """
+  Mints an enrollment auth key (ADR-0040 Am. 3): tagged, single-use,
+  non-ephemeral, pre-authorized. The capabilities block is FIXED — a
+  one-off key is revoked by its own consumption at join — while `opts`
+  carry the caller's config policy: `:tag`, `:ttl_seconds`,
+  `:description` (≤50 chars).
+
+  The response's `key` value is the secret, delivered exactly once: it
+  is returned to the caller and never logged. The call opts OUT of
+  Req's body decoding and decodes manually: a decode failure would
+  surface as `{:error, %Jason.DecodeError{}}` whose `data` field holds
+  the RAW body — secret included — which `error_result/1` would
+  inspect into a log line. `Jason.decode/1`'s error tuple is discarded
+  instead; no exception, no leak. A 2xx whose body lacks a binary
+  `id` or `key` (either one) is a contract break —
+  `{:error, {:bad_payload, status}}` — never a converged mint.
+  """
+  @spec keys_create(String.t(), keyword()) ::
+          {:ok, %{id: String.t(), key: String.t()}} | {:error, error()}
+  def keys_create(token, opts) when is_binary(token) and is_list(opts) do
+    req = new_req(token)
+
+    case Req.post(req,
+           url: "/api/v2/tailnet/-/keys",
+           json: keys_create_body(opts),
+           decode_body: false
+         ) do
+      {:ok, %Req.Response{status: status, body: body}} when status in 200..299 ->
+        decode_mint(status, body)
+
+      other ->
+        error_result(other)
+    end
+  end
+
+  # The one place the platform decodes a response itself — because this
+  # is the one response whose body carries a secret. Jason.decode/1
+  # answers {:error, %Jason.DecodeError{}} on malformed input; the
+  # struct's `data` is the raw body, so it is dropped unread: the
+  # status is the honest answer, and nothing body-shaped can reach a
+  # log through this path.
+  defp decode_mint(status, body) when is_binary(body) do
+    case Jason.decode(body) do
+      {:ok, %{"id" => id, "key" => key}} when is_binary(id) and is_binary(key) ->
+        {:ok, %{id: id, key: key}}
+
+      _malformed_or_incomplete ->
+        {:error, {:bad_payload, status}}
+    end
+  end
+
+  defp decode_mint(status, _not_a_binary), do: {:error, {:bad_payload, status}}
+
+  @doc """
+  Revokes an auth key by id (the id is embedded in the minted
+  `tskey-auth-<keyid>-…` value's own prefix — parsed upstream, so no
+  second store can drift). Errors pass through untranslated:
+  404-tolerance is the CALLER's policy, not the client's.
+  """
+  @spec keys_delete(String.t(), String.t()) :: :ok | {:error, error()}
+  def keys_delete(token, key_id) when is_binary(token) and is_binary(key_id) do
+    req = new_req(token)
+
+    req
+    |> Req.delete(url: "/api/v2/tailnet/-/keys/#{key_id}")
+    |> write_result()
+  end
+
+  @doc """
   The tailnet's split-DNS map: `%{domain => [nameservers]}`.
   """
   @spec split_dns_get(String.t()) :: {:ok, %{String.t() => [String.t()]}} | {:error, error()}
@@ -188,6 +259,30 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.ApiClient do
     :flux_vale
     |> Application.get_env(:tailscale_api, [])
     |> Keyword.get(:base_url, @base_url)
+  end
+
+  # The minted key's shape (the 836 plan's R1 ruling): reusable/
+  # ephemeral/preauthorized are FIXED — not policy the caller can
+  # move. Tag, TTL and description are the caller's config policy.
+  # The API embeds the id in the key value itself and answers with
+  # both exactly once (verified: Tailscale api.md `4e822c0`).
+  defp keys_create_body(opts) do
+    tag = Keyword.fetch!(opts, :tag)
+    ttl_seconds = Keyword.fetch!(opts, :ttl_seconds)
+    description = Keyword.fetch!(opts, :description)
+
+    create = %{
+      "reusable" => false,
+      "ephemeral" => false,
+      "preauthorized" => true,
+      "tags" => [tag]
+    }
+
+    %{
+      "capabilities" => %{"devices" => %{"create" => create}},
+      "expirySeconds" => ttl_seconds,
+      "description" => description
+    }
   end
 
   # The object wrapper's devices list; a map without one means the node
