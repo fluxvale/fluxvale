@@ -1404,6 +1404,12 @@ jobs:
   # check-changes must SUCCEED, not merely skip: if it failed, its
   # dependents read "skipped" and the all() below would pass on zero
   # checks run — a green umbrella that proved nothing.
+  # A sibling CANCELLED mid-flight (run superseded by the queue, #841)
+  # is neutral, not red: cancel re-evaluates `if: always()` to true, so
+  # this job still runs and gates on needs.results. Failure-then-cancel
+  # still fails the gate: cancellation re-concludes only jobs still in
+  # flight, so a sibling that failed before the cancel keeps conclusion
+  # "failure" in needs (GitHub workflow-cancellation reference).
   wait-for-ci:
     name: Wait for CI
     needs: [check-changes, platform, cli-gates, cli-matrix, mcp-gates, mcp-image, docs-lint, skills-lint, linked-issues, e2e, platform-image, deploy-image, watch-deploy, readiness-gate]
@@ -1416,6 +1422,6 @@ jobs:
           NEEDS: ${{ toJSON(needs) }}
         run: |
           echo "$NEEDS" | jq -e 'to_entries | map("\(.key): \(.value.result)") | .[]' >&2
-          echo "$NEEDS" | jq -e '.["check-changes"].result == "success" and (del(.["check-changes"]) | all(.[]; .result == "success" or .result == "skipped"))' >/dev/null \
-            && echo "All CI checks passed or were not needed" \
-            || { echo "One or more CI jobs failed or were cancelled"; exit 1; }
+          echo "$NEEDS" | jq -e '.["check-changes"].result == "success" and (del(.["check-changes"]) | all(.[]; .result == "success" or .result == "skipped" or .result == "cancelled"))' >/dev/null \
+            && echo "All CI checks passed, were not needed, or the run was cancelled" \
+            || { echo "One or more CI jobs failed"; exit 1; }
