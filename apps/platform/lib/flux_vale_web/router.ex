@@ -275,8 +275,9 @@ defmodule FluxValeWeb.Router do
   end
 
   # #765: the machine-readable agent entry point — one stable link for
-  # any agent, rendered from the same fixture as `/agent` and
-  # `/docs/agents`.
+  # any agent, rendering the fixture the `/agent` panel and the
+  # dashboard's onboarding modal render. `/docs/agents` is the
+  # impersonal guide (#817).
   scope "/", FluxValeWeb do
     pipe_through(:text_plain)
 
@@ -325,9 +326,10 @@ defmodule FluxValeWeb.Router do
     pipe_through([:browser, :public_seo])
 
     get("/docs", DocsController, :index)
-    # #765: the agent handoff's public page — a literal route before
+    # #765: the agent setup's public guide — a literal route before
     # the section param, because "agents" is a page, not a section.
-    # It renders from the same fixture as `/agent` and `/llms.txt`.
+    # Impersonal prose (#817); the prompt renders on `/agent` and the
+    # dashboard's onboarding modal.
     get("/docs/agents", AgentDocsController, :show)
     get("/docs/:section", DocsController, :section)
     get("/docs/:section/:slug", DocsController, :show)

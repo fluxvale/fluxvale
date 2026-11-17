@@ -1,6 +1,6 @@
 defmodule FluxValeWeb.AgentDocsHTML do
   @moduledoc """
-  Templates for `/docs/agents` (#765) — the public agent handoff page.
+  Templates for `/docs/agents` (#765) — the impersonal public guide (#817).
   """
 
   use FluxValeWeb, :html

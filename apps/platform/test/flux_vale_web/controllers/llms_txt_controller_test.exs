@@ -1,8 +1,8 @@
 defmodule FluxValeWeb.LlmsTxtControllerTest do
   @moduledoc false
 
-  # /llms.txt (#765): plain text, no HTML negotiation, the same prompt
-  # the panel and /docs/agents render, and links that resolve.
+  # /llms.txt (#765): plain text, no HTML negotiation, the prompt the
+  # signed-in surfaces render, and links that resolve.
 
   use FluxValeWeb.ConnCase, async: true
 

@@ -4,10 +4,12 @@ defmodule FluxValeWeb.AgentPrompt do
   agent follows to finish setup, the per-client install snippets, and
   the machine-readable `llms.txt` body.
 
-  Three surfaces render from here — the `/agent` panel (org-specific),
-  `/docs/agents` (generic), and `/llms.txt` (generic) — so the prompt
-  cannot fork. The public contexts carry placeholder org values; the
-  panel carries the signed-in user's personal org.
+  The prompt renders on the signed-in surfaces — the `/agent` panel
+  (org-specific) and the dashboard's onboarding modal — so it cannot
+  fork. `/docs/agents` is the impersonal guide pointing there (#817);
+  `/llms.txt` stays the machine-readable entry. The public context
+  carries placeholder org values; the panel carries the signed-in
+  user's personal org.
 
   Auth is one swappable setting. `:pat` renders the token path: the
   prompt names the token mint and the snippets carry a `FLUXVALE_PAT`
@@ -88,7 +90,7 @@ defmodule FluxValeWeb.AgentPrompt do
           mcp_url: String.t()
         }
 
-  @doc "The public, org-agnostic context — `/docs/agents` and `/llms.txt`."
+  @doc "The public, org-agnostic context — `/llms.txt`'s alone."
   @spec public_context() :: t()
   def public_context do
     %__MODULE__{
@@ -134,7 +136,7 @@ defmodule FluxValeWeb.AgentPrompt do
     end
   end
 
-  @doc "The four client cards — one source for the panel and the docs page."
+  @doc "The four client cards — one source for the panel and the modal."
   @spec clients() :: [map()]
   def clients, do: @clients
 
@@ -167,7 +169,7 @@ defmodule FluxValeWeb.AgentPrompt do
   @spec auth_mode() :: :pat | :oauth
   def auth_mode, do: Application.get_env(:flux_vale, :mcp_auth_mode, @auth_mode_default)
 
-  @doc "The generated prompt — the panel, `/docs/agents`, and `/llms.txt`."
+  @doc "The generated prompt — the panel, the dashboard modal, and `/llms.txt`."
   @spec prompt(t()) :: String.t()
   def prompt(%__MODULE__{} = ctx) do
     """
@@ -245,7 +247,7 @@ defmodule FluxValeWeb.AgentPrompt do
     )
   end
 
-  @doc "The doc links every surface carries — stable, same-environment URLs."
+  @doc "The doc links the panel and `/llms.txt` carry — stable, same-environment URLs."
   @spec links(t()) :: [{String.t(), String.t()}]
   def links(%__MODULE__{} = ctx) do
     [
