@@ -50,7 +50,9 @@ defmodule FluxVale.Billing.Operations.SweepAutoRechargeTest do
     assert [{_name, ^address}] = to
     # The link is the ORG route carrying the saved amount (2500¢ → $25).
     assert body =~ "/organizations/#{org.slug}/billing/topup?amount=25"
-    assert body =~ "$5"
+    # The prose names what the click buys, not just the URL param.
+    assert body =~ "Top up $25 in one click"
+    assert body =~ "your $5 reminder threshold"
     assert body =~ "once a day"
 
     assert {:ok, fresh} = AutoRechargeSetting.get_by_organization(org.id, authorize?: false)
@@ -64,7 +66,7 @@ defmodule FluxVale.Billing.Operations.SweepAutoRechargeTest do
   test "a failed send rolls the marker back — the marker cannot outlive its mail", %{
     org: org
   } do
-    stub(Mailer, :deliver_auto_recharge_reminder, fn _to, _threshold_dollars, _url ->
+    stub(Mailer, :deliver_auto_recharge_reminder, fn _to, _threshold_cents, _amount_cents, _url ->
       {:error, :postmark_down}
     end)
 
@@ -157,7 +159,7 @@ defmodule FluxVale.Billing.Operations.SweepAutoRechargeTest do
     reminder_setting!(org_b, owner_b)
     BillingFixtures.funded_wallet!(org: org_b, balance_cents: 400)
 
-    stub(Mailer, :deliver_auto_recharge_reminder, fn to, _threshold_dollars, _url ->
+    stub(Mailer, :deliver_auto_recharge_reminder, fn to, _threshold_cents, _amount_cents, _url ->
       if to == distinctive do
         raise "org A's send is on fire"
       else
@@ -171,8 +173,8 @@ defmodule FluxVale.Billing.Operations.SweepAutoRechargeTest do
     # Org B's reminder went out (the stub's delivered branch) and its
     # marker landed — the stub bypasses Swoosh, so the delivery is
     # asserted on the call log, not a mailbox message.
-    deliveries = Mimic.calls(&Mailer.deliver_auto_recharge_reminder/3)
-    delivered_to = Enum.map(deliveries, fn [to, _threshold, _url] -> to end)
+    deliveries = Mimic.calls(&Mailer.deliver_auto_recharge_reminder/4)
+    delivered_to = Enum.map(deliveries, fn [to, _threshold, _amount, _url] -> to end)
     assert AccountsFixtures.primary_address!(owner_b) in delivered_to
 
     assert {:ok, fresh_b} = AutoRechargeSetting.get_by_organization(org_b.id, authorize?: false)
@@ -181,6 +183,21 @@ defmodule FluxVale.Billing.Operations.SweepAutoRechargeTest do
     # ...while org A's marker never landed.
     assert {:ok, fresh_a} = AutoRechargeSetting.get_by_organization(org_a.id, authorize?: false)
     assert fresh_a.last_reminded_at == nil
+  end
+
+  test "a non-round threshold renders exact cents in the prose (hostile F1)", %{
+    owner: owner,
+    setting: setting
+  } do
+    # 549¢ is a legal write (min 100¢); the mail must not floor it to
+    # "$5" — the sweep passes cents, the mailer formats honestly.
+    {:ok, _set} = AutoRechargeSetting.set(setting, %{threshold_cents: 549}, actor: owner)
+
+    assert {:ok, %{reminded: 1}} = Billing.sweep_auto_recharge()
+
+    assert_received {:email, %Swoosh.Email{text_body: body}}
+    assert body =~ "$5.49"
+    refute body =~ "your $5 reminder"
   end
 
   test "an org in :off mode never sweeps", %{org: org, owner: owner, setting: setting} do

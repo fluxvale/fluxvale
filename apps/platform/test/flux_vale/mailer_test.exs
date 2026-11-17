@@ -111,11 +111,12 @@ defmodule FluxVale.MailerTest do
     end
   end
 
-  describe "deliver_auto_recharge_reminder/3 (#829)" do
-    test "names the threshold, the once-a-day cadence, and carries the one-click link" do
+  describe "deliver_auto_recharge_reminder/4 (#829)" do
+    test "names the threshold, the amount, the once-a-day cadence, and carries the one-click link" do
       url = "https://fluxvale.com/organizations/acme/billing/topup?amount=25"
 
-      {:ok, _delivery} = Mailer.deliver_auto_recharge_reminder("recharge@fluxvale.com", 5, url)
+      {:ok, _delivery} =
+        Mailer.deliver_auto_recharge_reminder("recharge@fluxvale.com", 500, 2_500, url)
 
       assert_receive {:email,
                       %Swoosh.Email{
@@ -124,7 +125,10 @@ defmodule FluxVale.MailerTest do
                         text_body: body
                       }}
 
-      assert body =~ "$5"
+      # Whole-dollar money reads "$5"/"$25" (never "$5.00"), and the
+      # prose names the amount the click buys, next to the link.
+      assert body =~ "your $5 reminder threshold"
+      assert body =~ "Top up $25 in one click"
       assert body =~ url
       assert body =~ "once a day"
 
@@ -132,6 +136,24 @@ defmodule FluxVale.MailerTest do
       # never promises automatic charging.
       refute body =~ "automatically charge"
       refute body =~ "will charge"
+    end
+
+    # Hostile F1: a div(…,100) threshold is a lie for non-round cents —
+    # 550¢ fires at $5.49 and must not read "$5".
+    test "non-round money renders exact cents, not a floored dollar" do
+      {:ok, _delivery} =
+        Mailer.deliver_auto_recharge_reminder(
+          "recharge-exact@fluxvale.com",
+          549,
+          2_550,
+          "https://fluxvale.com/organizations/acme/billing/topup?amount=25"
+        )
+
+      assert_receive {:email, %Swoosh.Email{text_body: body}}
+
+      assert body =~ "your $5.49 reminder threshold"
+      assert body =~ "Top up $25.50 in one click"
+      refute body =~ "your $5 reminder"
     end
   end
 

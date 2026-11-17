@@ -170,9 +170,15 @@ defmodule FluxVale.Billing.Operations.SweepAutoRecharge do
   end
 
   defp deliver_reminder(org, setting, email) do
-    threshold_dollars = div(setting.threshold_cents, 100)
+    threshold_cents = setting.threshold_cents
+    amount_cents = setting.amount_cents
 
-    case Mailer.deliver_auto_recharge_reminder(email, threshold_dollars, topup_url(org, setting)) do
+    case Mailer.deliver_auto_recharge_reminder(
+           email,
+           threshold_cents,
+           amount_cents,
+           topup_url(org, setting)
+         ) do
       {:ok, _delivery} ->
         :ok
 
