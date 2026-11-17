@@ -85,6 +85,8 @@ defmodule FluxVale.RuntimeConfigTest do
         assert {"17 * * * *", FluxVale.Workers.StaleTopupSweep} in crontab
         assert {"6-59/5 * * * *", FluxVale.Workers.BackupSweep} in crontab
         assert {"1-59/15 * * * *", FluxVale.Janitor.VerifyAccessDomains} in crontab
+        # #829's auto-recharge reminder sweep.
+        assert {"23 * * * *", FluxVale.Workers.RechargeSweep} in crontab
         # ADR-0040 Amendment 2: no domain-accrual tick exists.
         refute Enum.any?(crontab, fn {_expr, worker} ->
                  inspect(worker) =~ "AccessDomainSettle"
@@ -99,13 +101,45 @@ defmodule FluxVale.RuntimeConfigTest do
         # #766's OAuth sweeps (daily, off the 03:45 device codes).
         assert {"0 4 * * *", FluxVale.Janitor.PruneOAuthCodes} in crontab
         assert {"15 4 * * *", FluxVale.Janitor.PruneOAuthAuditEvents} in crontab
-        assert length(crontab) == 12
+        assert length(crontab) == 13
       end)
     end
 
     test "raises on a malformed expression — name the env var, not Oban's parser" do
       with_env(%{"IDLE_SWEEP_CRONEXPR" => "not a cron"}, fn ->
         assert_raise ArgumentError, ~r/IDLE_SWEEP_CRONEXPR/, fn -> read!(:dev) end
+      end)
+    end
+  end
+
+  describe "RECHARGE_SWEEP_CRONEXPR (#829 L2)" do
+    test "is inert in test — a stray export never compresses the suite's cadence" do
+      with_env(%{"RECHARGE_SWEEP_CRONEXPR" => "* * * * *"}, fn ->
+        oban = read!(:test)[:flux_vale][Oban] || []
+        refute Keyword.has_key?(oban, :plugins)
+      end)
+    end
+
+    test "reslots only the recharge-sweep entry outside test" do
+      with_env(%{"RECHARGE_SWEEP_CRONEXPR" => "*/2 * * * *"}, fn ->
+        oban = read!(:dev)[:flux_vale][Oban]
+        plugins = Keyword.get(oban, :plugins, [])
+        {_plugin, cron_opts} = List.keyfind(plugins, Oban.Plugins.Cron, 0)
+        crontab = Keyword.get(cron_opts, :crontab, [])
+
+        assert {"*/2 * * * *", FluxVale.Workers.RechargeSweep} in crontab
+        # The neighbours keep their config.exs homes — the override
+        # reslots one line, it doesn't fork the crontab.
+        assert {"7 * * * *", FluxVale.Workers.ZeroBalanceSweep} in crontab
+        assert {"13 * * * *", FluxVale.Workers.StrandedInstanceSweep} in crontab
+        assert {"17 * * * *", FluxVale.Workers.StaleTopupSweep} in crontab
+        assert length(crontab) == 13
+      end)
+    end
+
+    test "raises on a malformed expression — name the env var, not Oban's parser" do
+      with_env(%{"RECHARGE_SWEEP_CRONEXPR" => "not a cron"}, fn ->
+        assert_raise ArgumentError, ~r/RECHARGE_SWEEP_CRONEXPR/, fn -> read!(:dev) end
       end)
     end
   end

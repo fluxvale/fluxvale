@@ -68,6 +68,12 @@ defmodule FluxValeWeb.BillingLive.Topup do
   # The wizard's floor (#250 S6): the config minimum in whole dollars —
   # the form, its gates, and its copy all read this one value.
   @min_topup_dollars FluxVale.Billing.min_topup_dollars()
+  # The amount prefill's ceiling (#829 L2): the reminder lane's
+  # one-click link carries `amount` in whole dollars; anything above
+  # this is a typo or a crafted URL, not a top-up intent, and leaves
+  # the default. The form's own next-amount gate re-checks everything
+  # it spends — the prefill is a convenience, never a bypass.
+  @max_prefill_dollars 1000
   # The pending confirmation's brief poll loop (#377): the webhook
   # stays the source of truth — these buys at most ~10 seconds of
   # presentation promptness on a slow delivery, then the honest
@@ -79,8 +85,8 @@ defmodule FluxValeWeb.BillingLive.Topup do
   # The :org route's contract is the URL's slug, but LiveView merges
   # query params into mount params — the named heads are what keep a
   # crafted ?slug= from mounting the org frame on the personal route
-  # (/settings/access's posture): the personal head ignores params
-  # entirely.
+  # (/settings/access's posture): the personal head reads only the
+  # amount prefill (#829 L2) and ignores `slug` entirely.
   def mount(params, session, %{assigns: %{live_action: :org}} = socket) do
     user = socket.assigns.current_user
 
@@ -88,12 +94,14 @@ defmodule FluxValeWeb.BillingLive.Topup do
       {:ok, org} ->
         if PersonalOrg.personal?(socket, org) do
           # S5: the personal org's wizard IS /billing/topup — flash-free
-          # redirect (nothing failed).
-          {:ok, push_navigate(socket, to: ~p"/billing/topup")}
+          # redirect (nothing failed). The query rides along (#829 L2):
+          # the reminder's one-click link lands here with ?amount=…,
+          # and the redirect must not drop it.
+          {:ok, push_navigate(socket, to: personal_wizard_path(params))}
         else
           # Money in: any member may top up the org's wallet (the
           # wallet read policy is org members).
-          {:ok, mount_wizard(socket, org, user, session)}
+          {:ok, mount_wizard(socket, org, user, session, prefill_amount(params["amount"]))}
         end
 
       # Unknown slug and non-member land here together: the read policy
@@ -106,12 +114,12 @@ defmodule FluxValeWeb.BillingLive.Topup do
     end
   end
 
-  def mount(_params, session, socket) do
+  def mount(params, session, socket) do
     user = socket.assigns.current_user
 
     case Accounts.personal_org_for_user(user.id, actor: user) do
       {:ok, org} ->
-        {:ok, mount_wizard(socket, org, user, session)}
+        {:ok, mount_wizard(socket, org, user, session, prefill_amount(params["amount"]))}
 
       :none ->
         # Same posture as the billing page: unreachable for
@@ -123,9 +131,26 @@ defmodule FluxValeWeb.BillingLive.Topup do
     end
   end
 
+  # The redirect's target (#829 L2): the personal wizard with the query
+  # preserved — generally, not just `amount`, so a crafted-or-real
+  # reference rides too (the return flow lands the same way either
+  # route takes). Route params drop (`slug` is the only one); what
+  # survives is exactly the query string.
+  defp personal_wizard_path(params) do
+    query = Map.drop(params, ["slug"])
+
+    case query do
+      empty when empty == %{} -> ~p"/billing/topup"
+      _with_params -> ~p"/billing/topup?#{query}"
+    end
+  end
+
   # The wizard body both mount arms share: THIS org's wallet and
   # facts, and the arm's surrounding surfaces (see surface_paths/2).
-  defp mount_wizard(socket, org, user, session) do
+  # `prefill_dollars` is the reminder lane's one-click handoff (#829
+  # L2): validated or absent, it just sets what the Amount step shows
+  # when the buyer reaches it — the Details step still comes first.
+  defp mount_wizard(socket, org, user, session, prefill_dollars) do
     {:ok, wallet} = Billing.ensure_wallet(org)
     {:ok, balance} = Billing.balance(wallet, actor: user)
 
@@ -153,7 +178,7 @@ defmodule FluxValeWeb.BillingLive.Topup do
       # blocking; the billing address decides the rate.
       |> assign(ip_country: session["ip_country"])
       |> assign(tax_rate_bp: 0, reverse_charge?: false)
-      |> assign(amount_dollars: nil)
+      |> assign(amount_dollars: prefill_dollars)
       # The country combobox's open state (#364): the query the
       # buyer typed, the matches on display (capped), the keyboard
       # highlight, and whether the listbox shows at all.
@@ -1506,6 +1531,23 @@ defmodule FluxValeWeb.BillingLive.Topup do
     case Integer.parse(raw || "") do
       {dollars, ""} when dollars >= @min_topup_dollars -> dollars
       _invalid -> nil
+    end
+  end
+
+  # The `amount` query param's whole-dollar prefill (#829 L2): integer,
+  # within [floor, cap] — invalid, below-floor, or over-cap values
+  # leave today's default (nil), exactly like an absent param. Mirrors
+  # parse_dollars plus the cap; the Amount step renders whatever this
+  # returns as the starting value.
+  defp prefill_amount(nil), do: nil
+
+  defp prefill_amount(raw) when is_binary(raw) do
+    case Integer.parse(raw) do
+      {dollars, ""} when dollars >= @min_topup_dollars and dollars <= @max_prefill_dollars ->
+        dollars
+
+      _invalid ->
+        nil
     end
   end
 

@@ -111,6 +111,52 @@ defmodule FluxVale.MailerTest do
     end
   end
 
+  describe "deliver_auto_recharge_reminder/4 (#829)" do
+    test "names the threshold, the amount, the once-a-day cadence, and carries the one-click link" do
+      url = "https://fluxvale.com/organizations/acme/billing/topup?amount=25"
+
+      {:ok, _delivery} =
+        Mailer.deliver_auto_recharge_reminder("recharge@fluxvale.com", 500, 2_500, url)
+
+      assert_receive {:email,
+                      %Swoosh.Email{
+                        subject: "Your FluxVale balance is below your top-up reminder threshold",
+                        to: [{_, "recharge@fluxvale.com"}],
+                        text_body: body
+                      }}
+
+      # Whole-dollar money reads "$5"/"$25" (never "$5.00"), and the
+      # prose names the amount the click buys, next to the link.
+      assert body =~ "your $5 reminder threshold"
+      assert body =~ "Top up $25 in one click"
+      assert body =~ url
+      assert body =~ "once a day"
+
+      # The staged off-session charge lane is NOT shipped — the copy
+      # never promises automatic charging.
+      refute body =~ "automatically charge"
+      refute body =~ "will charge"
+    end
+
+    # Hostile F1: a div(…,100) threshold is a lie for non-round cents —
+    # 550¢ fires at $5.49 and must not read "$5".
+    test "non-round money renders exact cents, not a floored dollar" do
+      {:ok, _delivery} =
+        Mailer.deliver_auto_recharge_reminder(
+          "recharge-exact@fluxvale.com",
+          549,
+          2_550,
+          "https://fluxvale.com/organizations/acme/billing/topup?amount=25"
+        )
+
+      assert_receive {:email, %Swoosh.Email{text_body: body}}
+
+      assert body =~ "your $5.49 reminder threshold"
+      assert body =~ "Top up $25.50 in one click"
+      refute body =~ "your $5 reminder"
+    end
+  end
+
   describe "deliver_destroy_warning/3 (#124)" do
     test "T-7 names the date and the way out" do
       destroy_on = ~D[2026-11-12]

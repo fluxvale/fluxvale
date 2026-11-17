@@ -134,9 +134,14 @@ defmodule FluxVale.Billing do
   # money that lands late still credits (CompleteTopup's widened guard).
   defdelegate expire_stale_topups(), to: Operations.ExpireStaleTopups, as: :call
 
+  # The auto-recharge reminder sweep (#829 L2): the launch lane's
+  # engine — per reminder-armed org, one due-check + member mail +
+  # marker pass, in per-org isolation.
+  defdelegate sweep_auto_recharge(), to: Operations.SweepAutoRecharge, as: :call
+
   # The auto-recharge setting (#829): a two-action preference row with
   # no logic rides the resource's code interface directly — no
-  # operation module; the sweep operation arrives with L2.
+  # operation module.
   defdelegate get_auto_recharge_setting(organization_id, opts \\ []),
     to: FluxVale.Billing.AutoRechargeSetting,
     as: :get_by_organization

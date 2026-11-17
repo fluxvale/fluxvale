@@ -183,6 +183,51 @@ defmodule FluxVale.Mailer do
     |> deliver()
   end
 
+  @doc """
+  #829's auto-recharge reminder (the launch lane): one mail per episode
+  — the sweep's marker owns the once. Plain body, the threshold, the
+  amount the one-click link buys (the wizard opens pre-filled), and
+  the once-a-day cadence. Money rides as integer cents and formats at
+  this seam (the deliver_topup_completed convention); whole dollars
+  read "$25", anything else exact ("$5.49" — a floored dollar would
+  lie about where the threshold fires). The staged off-session charge
+  lane is NOT shipped: the copy never promises automatic charging —
+  topping up is always the org's own click.
+  """
+  @spec deliver_auto_recharge_reminder(
+          String.t(),
+          non_neg_integer(),
+          non_neg_integer(),
+          String.t()
+        ) ::
+          {:ok, map()} | {:error, term()}
+  def deliver_auto_recharge_reminder(to, threshold_cents, amount_cents, topup_url) do
+    threshold = format_money(threshold_cents)
+    amount = format_money(amount_cents)
+
+    %Swoosh.Email{}
+    |> Swoosh.Email.to(to)
+    |> Swoosh.Email.from({"FluxVale", "no-reply@fluxvale.com"})
+    |> Swoosh.Email.subject("Your FluxVale balance is below your top-up reminder threshold")
+    |> Swoosh.Email.text_body("""
+    Your FluxVale balance has dipped below your #{threshold} reminder threshold.
+
+    Top up #{amount} in one click — the link below opens the top-up wizard with that amount already filled in:
+
+    #{topup_url}
+
+    You'll get this reminder at most once a day while the balance stays below the threshold. FluxVale never charges a payment method on its own — topping up is always your decision.
+    """)
+    |> deliver()
+  end
+
+  # Whole dollars read "$25" (the launch defaults' shape); non-round
+  # amounts render exact cents via the sanctioned formatter — a
+  # div(…, 100) threshold is honest only when the cents are (550¢
+  # fires at $5.49 and must not read "$5").
+  defp format_money(cents) when rem(cents, 100) == 0, do: "$#{div(cents, 100)}"
+  defp format_money(cents), do: Pricing.format_usd(cents)
+
   defp not_completed_copy(:failed) do
     {"Your FluxVale payment didn't go through", "Your top-up didn't go through."}
   end

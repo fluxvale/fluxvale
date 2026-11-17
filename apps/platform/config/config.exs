@@ -483,6 +483,11 @@ config :flux_vale, Oban,
        # balance), :13 (stranded), and the top-of-hour rush (same
        # stance).
        {"17 * * * *", FluxVale.Workers.StaleTopupSweep},
+       # #829's auto-recharge reminder sweep, hourly at :23 — off :07
+       # (zero balance), :13 (stranded), :17 (stale top-ups), and the
+       # top-of-hour rush (#113's stance). Staging/e2e compress the
+       # cadence via runtime.exs (RECHARGE_SWEEP_CRONEXPR).
+       {"23 * * * *", FluxVale.Workers.RechargeSweep},
        # #203's idle sweep, every 5 minutes — the 1-hour idle promise
        # rounds to at most threshold + one cadence (the minute-tick
        # reconciler already crosses the top of the hour every minute).
