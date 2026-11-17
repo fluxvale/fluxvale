@@ -32,7 +32,7 @@ defmodule FluxVale.Billing.Providers.HitPay do
   configured means the key is omitted and the account default decides.
   """
 
-  @behaviour FluxVale.Billing.PaymentProvider
+  use FluxVale.Billing.PaymentProvider
 
   alias FluxVale.Billing.PaymentProvider
 

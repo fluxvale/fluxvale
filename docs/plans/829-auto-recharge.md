@@ -398,10 +398,18 @@ testing is Req-stubbed — **no live Polar calls in this slice** (the
 org is on Starter; draft-order creation would 403. The live evidence
 is S6's, post-upgrade).
 
-**Change**: four new callbacks on the behaviour, each with a DEFAULT
-CLAUSE answering `{:error, :unsupported}` (the behaviour has no
-optional-callback precedent — the default-clause form is pinned here;
-`@optional_callbacks` is not used):
+**Change**: four new callbacks on the behaviour, delivered via the
+use + defoverridable pattern — `PaymentProvider.__using__/1` injects
+`@behaviour PaymentProvider` plus default implementations answering
+`{:error, :unsupported}` for the four, and `defoverridable` lets
+adopters override. (Pinned 2026-11-17 after a blocked worker proved
+plain default clauses on the behaviour module do not exempt
+implementers — Elixir warns on every unimplemented non-optional
+@callback regardless; `@optional_callbacks` stays banned:
+non-implementers would lack the function and raise instead of
+answering.) Both providers change their adoption line from
+`@behaviour PaymentProvider` to `use PaymentProvider` — for HitPay
+that one mechanical line is the ONLY change it grows.
 
 - `create_billing_session/2` — Polar: upsert customer by
   `external_id` (org id) **carrying a complete billing address from
@@ -412,7 +420,7 @@ optional-callback precedent — the default-clause form is pinned here;
 - `list_payment_methods/1` — Polar: `GET
   /v1/customers/{id}/payment-methods` → `{:ok, count, default_ref}`
   (we need existence + default, not the instruments).
-- `create_draft_charge/3` — Polar: `POST /v1/orders/` (draft; product
+- `create_draft_charge/2` — Polar: `POST /v1/orders/` (draft; product
   = the existing "FluxVale Credits" product_id config; `amount` =
   integer cents gross; `metadata: %{"topup_id" => reference}`) →
   `{:ok, %{order_id: id, amount_cents: n}}`. Draft creation charges
