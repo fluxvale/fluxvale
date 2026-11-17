@@ -103,6 +103,14 @@ defmodule FluxVale.Billing.AutoRechargeSetting do
       forbid_if(always())
     end
 
+    policy action(:record_no_method_notice) do
+      description(
+        "System-only: the no-method notice marker, D3's two-pass rule (authorize?: false; platform admins ride the #644 bypass, ADR-0047 D4)"
+      )
+
+      forbid_if(always())
+    end
+
     policy action(:disable_with_reason) do
       description(
         "System-only: strikes / no-method auto-disable (authorize?: false; platform admins ride the #644 bypass, ADR-0047 D4)"
@@ -349,6 +357,19 @@ defmodule FluxVale.Billing.AutoRechargeSetting do
       """)
 
       accept([:consecutive_failures, :last_attempt_at])
+      require_atomic?(false)
+    end
+
+    update :record_no_method_notice do
+      description("""
+      System write of the no-method notice marker (the charge sweep's
+      D3 two-pass rule): when the org was last mailed about a missing
+      saved method, nil clears (a success or a disable re-arms the
+      two-pass cycle fresh). The charge sweep's only seam for this
+      attribute — no S2 action accepts it.
+      """)
+
+      accept([:no_method_notified_at])
       require_atomic?(false)
     end
 

@@ -55,7 +55,13 @@ defmodule FluxVale.Billing.Providers.Polar do
   402/403/412 is an ANSWERED failure — decline/no-method/SCA,
   off-session not enabled, not draft — mapped to `status: :failed`,
   never an error tuple; the draft stays re-finalizable on Polar's side
-  and this adapter never re-drives it. NO live call exists in this
+  and this adapter never re-drives it. Reading a lane row back
+  (`GET /v1/orders/{id}`, `fetch_order/1`) is the stale-pending
+  reconciliation's fetch — `fetch_payment/1` reads the CHECKOUT
+  endpoint, where an order id 404s; a 404 here answers :api_error like
+  any gateway fault, and the sweep's reconciliation leaves the row
+  pending on it (never failing a possibly-charged row on an answer it
+  cannot trust). NO live call exists in this
   lane yet: the org is on Polar's Starter plan, which cannot run
   off-session charges — activation (the Pro upgrade, plan #829 S6) is
   when the first real request fires. Everything here is
@@ -110,6 +116,11 @@ defmodule FluxVale.Billing.Providers.Polar do
   }
 
   @timestamp_tolerance_seconds 300
+
+  # Order statuses (the off-session lane's fetch, #829 S4): the stale
+  # reconciliation keys on :paid (charged) vs :draft (never finalized —
+  # nothing can charge); any other Polar status normalizes to :unknown.
+  @order_status_map %{"paid" => :paid, "draft" => :draft}
 
   @impl PaymentProvider
   @spec create_checkout(PaymentProvider.checkout_request(), keyword()) ::
@@ -236,6 +247,26 @@ defmodule FluxVale.Billing.Providers.Polar do
   """
   @spec idempotency_key(String.t()) :: String.t()
   def idempotency_key(checkout_id) when is_binary(checkout_id), do: "polar:" <> checkout_id
+
+  @doc """
+  Reads an ORDER back (the off-session lane's persisted id, #829 S4) —
+  `GET /v1/orders/{id}`. `fetch_payment/1` cannot serve this lane: it
+  reads the checkout endpoint, where an order id 404s. A 404 is logged
+  and answers :api_error like any gateway fault (see the moduledoc);
+  transport failures answer :network_error.
+  """
+  @impl PaymentProvider
+  @spec fetch_order(String.t()) ::
+          {:ok, PaymentProvider.order()} | {:error, PaymentProvider.error()}
+  def fetch_order(order_id) when is_binary(order_id) do
+    with {:ok, req} <- client(env_config()) do
+      encoded = URI.encode(order_id, &URI.char_unreserved?/1)
+
+      req
+      |> Req.get(url: "/v1/orders/#{encoded}")
+      |> handle_order_response()
+    end
+  end
 
   defp checkout_body(request, product_id, config) do
     base = %{
@@ -754,6 +785,37 @@ defmodule FluxVale.Billing.Providers.Polar do
     Logger.error("Polar finalize response is not paid: #{inspect(body)}")
     {:error, :invalid_response}
   end
+
+  defp handle_order_response({:ok, %Req.Response{status: status, body: body}})
+       when status in 200..299 do
+    order_from_body(body)
+  end
+
+  defp handle_order_response({:ok, %Req.Response{status: status, body: body}}) do
+    Logger.warning("Polar order API returned #{status}: #{inspect(body)}")
+    {:error, :api_error}
+  end
+
+  defp handle_order_response({:error, exception}) do
+    Logger.warning("Polar order API network error: #{inspect(exception)}")
+    {:error, :network_error}
+  end
+
+  defp order_from_body(%{"id" => id} = body) when is_binary(id) do
+    {:ok,
+     %{
+       order_id: id,
+       status: order_status(body["status"]),
+       amount_cents: amount_or_nil(body)
+     }}
+  end
+
+  defp order_from_body(body) do
+    Logger.error("Polar order response missing id: #{inspect(body)}")
+    {:error, :invalid_response}
+  end
+
+  defp order_status(status), do: Map.get(@order_status_map, status, :unknown)
 
   # The order's money rides subtotal_amount (contract point 1 — the
   # field the webhook maps and S3's gross guard keys on); a failed

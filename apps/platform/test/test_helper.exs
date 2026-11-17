@@ -19,6 +19,10 @@ if Mix.env() == :test do
   # for the attach-failure and raced-settle preconditions.
   Mimic.copy(FluxVale.Billing.Topup)
   Mimic.copy(Ash)
+  # The S4 sweep's lock-boundary proof: WalletLock is copied so the
+  # boundary test can record each acquisition (and that no provider
+  # call ever ran inside its transaction).
+  Mimic.copy(FluxVale.Billing.WalletLock)
   # The top-up outcome mail (#377): the mail layer is stubbed where
   # the delivery process isn't the test's own (the LiveView reconcile)
   # or the failure arm is asserted.

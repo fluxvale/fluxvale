@@ -1055,8 +1055,103 @@ defmodule FluxVale.Billing.Providers.PolarTest do
     end
   end
 
+  describe "fetch_order/1" do
+    test "normalizes a paid order — the money rides subtotal_amount" do
+      expect(Req, :get, fn _req, opts ->
+        assert opts[:url] == "/v1/orders/ord_1"
+
+        {:ok,
+         %Req.Response{
+           status: 200,
+           body: %{"id" => "ord_1", "status" => "paid", "subtotal_amount" => 2975}
+         }}
+      end)
+
+      assert {:ok, %{order_id: "ord_1", status: :paid, amount_cents: 2975}} =
+               Polar.fetch_order("ord_1")
+    end
+
+    test "a still-draft order normalizes to :draft — an unfinalized draft can never charge" do
+      expect(Req, :get, fn _req, _opts ->
+        {:ok,
+         %Req.Response{
+           status: 200,
+           body: %{"id" => "ord_1", "status" => "draft", "subtotal_amount" => 2500}
+         }}
+      end)
+
+      assert {:ok, %{status: :draft, amount_cents: 2500}} = Polar.fetch_order("ord_1")
+    end
+
+    test "an unmapped status normalizes to :unknown" do
+      expect(Req, :get, fn _req, _opts ->
+        {:ok, %Req.Response{status: 200, body: %{"id" => "ord_1", "status" => "cancelled"}}}
+      end)
+
+      assert {:ok, %{status: :unknown, amount_cents: nil}} = Polar.fetch_order("ord_1")
+    end
+
+    test "a non-integer subtotal is no amount (nil), never coerced" do
+      expect(Req, :get, fn _req, _opts ->
+        {:ok,
+         %Req.Response{
+           status: 200,
+           body: %{"id" => "ord_1", "status" => "paid", "subtotal_amount" => "2975"}
+         }}
+      end)
+
+      assert {:ok, %{status: :paid, amount_cents: nil}} = Polar.fetch_order("ord_1")
+    end
+
+    test "a 404 (an id Polar never knew) answers :api_error like any gateway fault" do
+      expect(Req, :get, fn _req, _opts ->
+        {:ok, %Req.Response{status: 404, body: %{"detail" => "not found"}}}
+      end)
+
+      assert {:error, :api_error} = Polar.fetch_order("ord_ghost")
+    end
+
+    test "maps other API and network failures to their atoms" do
+      expect(Req, :get, fn _req, _opts ->
+        {:ok, %Req.Response{status: 500, body: %{"detail" => "boom"}}}
+      end)
+
+      assert {:error, :api_error} = Polar.fetch_order("ord_1")
+
+      expect(Req, :get, fn _req, _opts ->
+        {:error, %Req.TransportError{reason: :timeout}}
+      end)
+
+      assert {:error, :network_error} = Polar.fetch_order("ord_1")
+    end
+
+    test "answers :invalid_response when the body lacks an id" do
+      expect(Req, :get, fn _req, _opts ->
+        {:ok, %Req.Response{status: 200, body: %{"status" => "paid"}}}
+      end)
+
+      assert {:error, :invalid_response} = Polar.fetch_order("ord_1")
+    end
+
+    test "percent-encodes a hostile id so it cannot retarget the GET" do
+      expect(Req, :get, fn _req, opts ->
+        assert opts[:url] == "/v1/orders/..%2Fadmin%3Fx%23y"
+
+        {:ok, %Req.Response{status: 404, body: %{}}}
+      end)
+
+      assert {:error, :api_error} = Polar.fetch_order("../admin?x#y")
+    end
+
+    test "answers :missing_config without a token" do
+      Application.put_env(:flux_vale, :polar, server: "sandbox")
+
+      assert {:error, :missing_config} = Polar.fetch_order("ord_1")
+    end
+  end
+
   describe "behaviour defaults (the use-injected off-session lane)" do
-    test "an adopter that defines none of the four answers :unsupported" do
+    test "an adopter that defines none of the five answers :unsupported" do
       assert {:error, :unsupported} = NoLaneAdopter.create_billing_session(%{}, [])
       assert {:error, :unsupported} = NoLaneAdopter.list_payment_methods("cus_1")
 
@@ -1064,6 +1159,7 @@ defmodule FluxVale.Billing.Providers.PolarTest do
                NoLaneAdopter.create_draft_charge(%{amount_cents: 2500}, customer_id: "cus_1")
 
       assert {:error, :unsupported} = NoLaneAdopter.finalize_charge("ord_1", [])
+      assert {:error, :unsupported} = NoLaneAdopter.fetch_order("ord_1")
     end
   end
 

@@ -323,6 +323,7 @@ defmodule FluxVale.Billing.AutoRechargeSettingTest do
       attempts = [
         {:record_attempt_outcome,
          %{consecutive_failures: 1, last_attempt_at: DateTime.utc_now()}},
+        {:record_no_method_notice, %{no_method_notified_at: DateTime.utc_now()}},
         {:disable_with_reason, %{disabled_reason: :manual}},
         {:set_method_status, %{payment_method_status: :attached, provider_customer_id: "cust_1"}}
       ]
@@ -412,16 +413,14 @@ defmodule FluxVale.Billing.AutoRechargeSettingTest do
 
       assert {:ok, armed} = AutoRechargeSetting.set(attached, %{mode: :auto}, actor: owner)
 
-      # D3's notice marker is written only by S4's sweep — no S2 action
-      # accepts it (the sanctioned states-actions-can't-produce case,
-      # the tax_summary_test posture): forced onto a system changeset.
+      # D3's notice marker rides S4's sweep seam (:record_no_method_notice,
+      # the action the sweep uses; actor-forbidden by policy — this
+      # mirrors the production caller).
       assert {:ok, armed} =
                armed
-               |> Ash.Changeset.for_update(:record_reminder, %{})
-               |> Ash.Changeset.force_change_attribute(
-                 :no_method_notified_at,
-                 DateTime.utc_now(:microsecond)
-               )
+               |> Ash.Changeset.for_update(:record_no_method_notice, %{
+                 no_method_notified_at: DateTime.utc_now(:microsecond)
+               })
                |> Ash.update(authorize?: false)
 
       # The disable lands at the strikes threshold: three consecutive
