@@ -267,7 +267,7 @@ defmodule FluxVale.Mailer do
     |> Swoosh.Email.text_body("""
     Your org's auto-recharge looked for a saved payment method and found none, so there was nothing to charge.
 
-    Auto-recharge can't charge without one. Add a payment method from the Billing page and it can run.
+    Auto-recharge can't charge without one. Add a payment method from the Billing page. Charging stays off until then.
     """)
     |> deliver()
   end

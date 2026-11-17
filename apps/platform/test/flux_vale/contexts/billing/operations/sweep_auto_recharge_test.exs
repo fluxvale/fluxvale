@@ -70,7 +70,7 @@ defmodule FluxVale.Billing.Operations.SweepAutoRechargeTest do
       {:error, :postmark_down}
     end)
 
-    assert {:error, "auto-recharge reminder sweep failed for 1 org(s)"} =
+    assert {:error, "auto-recharge sweep failed for 1 org(s)"} =
              Billing.sweep_auto_recharge()
 
     refute_received {:email, _email}
@@ -167,7 +167,7 @@ defmodule FluxVale.Billing.Operations.SweepAutoRechargeTest do
       end
     end)
 
-    assert {:error, "auto-recharge reminder sweep failed for 1 org(s)"} =
+    assert {:error, "auto-recharge sweep failed for 1 org(s)"} =
              Billing.sweep_auto_recharge()
 
     # Org B's reminder went out (the stub's delivered branch) and its
@@ -390,12 +390,25 @@ defmodule FluxVale.Billing.Operations.SweepAutoRechargeChargeTest do
     assert {:ok, 400} = Billing.balance(wallet, authorize?: false)
   end
 
-  test "at the threshold: idle, nothing fires", %{org: org, wallet: wallet} do
+  test "above the threshold: idle, nothing fires", %{org: org, wallet: wallet} do
     {:ok, _grant} = Billing.grant_credits(wallet, 200)
     stub_methods_only()
 
     stub(Req, :post, fn _req, opts ->
       flunk("no charge at the threshold: #{inspect(opts[:url])}")
+    end)
+
+    assert {:ok, %{charged: 0}} = Billing.sweep_auto_recharge()
+    assert auto_rows!(org.id) == []
+  end
+
+  test "balance exactly at the threshold is not due (strict <)", %{org: org, wallet: wallet} do
+    # 400¢ + 100¢ = 500¢ == threshold — not below it, nothing fires.
+    {:ok, _grant} = Billing.grant_credits(wallet, 100)
+    stub_methods_only()
+
+    stub(Req, :post, fn _req, opts ->
+      flunk("no charge at the exact threshold: #{inspect(opts[:url])}")
     end)
 
     assert {:ok, %{charged: 0}} = Billing.sweep_auto_recharge()
@@ -414,8 +427,8 @@ defmodule FluxVale.Billing.Operations.SweepAutoRechargeChargeTest do
   end
 
   test "the daily cap reached blocks the third charge", %{org: org} do
-    seeded_completed_auto_row!(org, hours_ago: 1)
-    seeded_completed_auto_row!(org, hours_ago: 2)
+    seeded_auto_row!(org, :completed, hours_ago: 1)
+    seeded_auto_row!(org, :completed, hours_ago: 2)
     stub_methods_only()
 
     stub(Req, :post, fn _req, opts ->
@@ -425,9 +438,21 @@ defmodule FluxVale.Billing.Operations.SweepAutoRechargeChargeTest do
     assert {:ok, %{charged: 0}} = Billing.sweep_auto_recharge()
   end
 
+  test "a FAILED auto charge consumes a daily-cap slot too", %{org: org} do
+    seeded_auto_row!(org, :completed, hours_ago: 1)
+    seeded_auto_row!(org, :failed, hours_ago: 2)
+    stub_methods_only()
+
+    stub(Req, :post, fn _req, opts ->
+      flunk("no charge when the cap is spent on failures: #{inspect(opts[:url])}")
+    end)
+
+    assert {:ok, %{charged: 0}} = Billing.sweep_auto_recharge()
+  end
+
   test "the cap window is rolling — charges outside 24h don't count", %{org: org} do
-    seeded_completed_auto_row!(org, hours_ago: 25)
-    seeded_completed_auto_row!(org, hours_ago: 26)
+    seeded_auto_row!(org, :completed, hours_ago: 25)
+    seeded_auto_row!(org, :completed, hours_ago: 26)
     stub_happy_charge()
 
     assert {:ok, %{charged: 1}} = Billing.sweep_auto_recharge()
@@ -487,7 +512,7 @@ defmodule FluxVale.Billing.Operations.SweepAutoRechargeChargeTest do
     stub_methods_only(0)
     stub(Mailer, :deliver_auto_recharge_no_method, fn _to -> {:error, :postmark_down} end)
 
-    assert {:error, "auto-recharge reminder sweep failed for 1 org(s)"} =
+    assert {:error, "auto-recharge sweep failed for 1 org(s)"} =
              Billing.sweep_auto_recharge()
 
     {:ok, fresh} = AutoRechargeSetting.get_by_organization(org.id, authorize?: false)
@@ -596,7 +621,7 @@ defmodule FluxVale.Billing.Operations.SweepAutoRechargeChargeTest do
     stub_happy_charge(declined_finalize())
     stub(Mailer, :deliver_auto_recharge_disabled, fn _to, _url -> {:error, :postmark_down} end)
 
-    assert {:error, "auto-recharge reminder sweep failed for 1 org(s)"} =
+    assert {:error, "auto-recharge sweep failed for 1 org(s)"} =
              Billing.sweep_auto_recharge()
 
     {:ok, fresh} = AutoRechargeSetting.get_by_organization(org.id, authorize?: false)
@@ -699,7 +724,7 @@ defmodule FluxVale.Billing.Operations.SweepAutoRechargeChargeTest do
       %Ash.BulkResult{status: :error, errors: :db_down}
     end)
 
-    assert {:error, "auto-recharge reminder sweep failed for 1 org(s)"} =
+    assert {:error, "auto-recharge sweep failed for 1 org(s)"} =
              Billing.sweep_auto_recharge()
 
     {:ok, fresh} = AutoRechargeSetting.get_by_organization(org.id, authorize?: false)
@@ -732,7 +757,7 @@ defmodule FluxVale.Billing.Operations.SweepAutoRechargeChargeTest do
   test "a method-lookup failure fails the org — the job retries the hour", %{org: org} do
     stub(Req, :get, fn _req, _opts -> {:error, %Req.TransportError{reason: :timeout}} end)
 
-    assert {:error, "auto-recharge reminder sweep failed for 1 org(s)"} =
+    assert {:error, "auto-recharge sweep failed for 1 org(s)"} =
              Billing.sweep_auto_recharge()
 
     # The decision was never reached — no row exists.
@@ -778,7 +803,7 @@ defmodule FluxVale.Billing.Operations.SweepAutoRechargeChargeTest do
        }}
     end)
 
-    assert {:error, "auto-recharge reminder sweep failed for 1 org(s)"} =
+    assert {:error, "auto-recharge sweep failed for 1 org(s)"} =
              Billing.sweep_auto_recharge()
 
     # Org B charged through; org A has no rows (its lookup never got
@@ -909,6 +934,35 @@ defmodule FluxVale.Billing.Operations.SweepAutoRechargeChargeTest do
     assert %Topup{status: :pending} = Topup.get_by_id!(stale.id, authorize?: false)
   end
 
+  test "a poison stale row fails the pass but not the reminder fleet", %{
+    org: org,
+    owner: owner,
+    setting: setting
+  } do
+    # The fixture org rides the REMINDER lane this pass; the poison
+    # stale row lives on a second, setting-less org.
+    {:ok, _reminder} =
+      Billing.set_auto_recharge_setting(setting, %{mode: :reminder}, actor: owner)
+
+    {org_b, _owner_b} = BillingFixtures.grant_free_org!()
+    poison = stale_auto_row!(org_b, payment_request_id: @order_id)
+
+    stub(Req, :get, fn _req, opts ->
+      assert opts[:url] == "/v1/orders/#{@order_id}"
+      raise "org B's provider call is on fire"
+    end)
+
+    assert {:error, "auto-recharge sweep failed for 1 org(s)"} = Billing.sweep_auto_recharge()
+
+    # The reminder arm still served its org — the poison row never
+    # touched it.
+    assert_received {:email, %Swoosh.Email{text_body: body}}
+    assert body =~ "reminder threshold"
+
+    # The poison row stays pending for the next pass (logged, skipped).
+    assert %Topup{status: :pending} = Topup.get_by_id!(poison.id, authorize?: false)
+  end
+
   test "a racer settling the stale row mid-flip loses (terminal-once)", %{
     org: org,
     owner: owner,
@@ -1009,17 +1063,18 @@ defmodule FluxVale.Billing.Operations.SweepAutoRechargeChargeTest do
     )
   end
 
-  # A completed :auto row at a given age — row + credit split across
+  # A terminal :auto row at a given age — row + credit split across
   # the webhook seam, so no action produces this in one step: the
-  # sanctioned Ash.seed! case.
-  defp seeded_completed_auto_row!(org, hours_ago: hours) do
+  # sanctioned Ash.seed! case. `status` is :completed or :failed (both
+  # consume a daily-cap slot — the cap counts CHARGES).
+  defp seeded_auto_row!(org, status, hours_ago: hours) do
     n = System.unique_integer([:positive])
 
     Ash.Seed.seed!(Topup, %{
       organization_id: org.id,
       amount_cents: 2_500,
       origin: :auto,
-      status: :completed,
+      status: status,
       payment_id: "pay_cap_#{n}",
       payment_request_id: "ord_cap_#{n}",
       created_at: DateTime.add(DateTime.utc_now(), -hours * 3600, :second),

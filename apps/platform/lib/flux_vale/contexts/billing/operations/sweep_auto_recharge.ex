@@ -1,10 +1,10 @@
 defmodule FluxVale.Billing.Operations.SweepAutoRecharge do
   @moduledoc """
   The auto-recharge sweep (#829): one hourly pass (Workers.RechargeSweep)
-  over the fleet's armed orgs, in per-org isolation — one bad org is
-  logged and skipped so the rest still gets served, and the pass reports
-  failure so the job fails after the loop and Oban retries the hour
-  (the zero-balance ladder's stance).
+  over the fleet's armed orgs, in per-org isolation — one bad org (or
+  one poison stale row) is logged and skipped so the rest still gets
+  served, and the pass reports failure so the job fails after the loop
+  and Oban retries the hour (the zero-balance ladder's stance).
 
   Three arms, in order:
 
@@ -80,10 +80,10 @@ defmodule FluxVale.Billing.Operations.SweepAutoRecharge do
   def call do
     # The stale reconciliation runs FIRST (decision E) so a failed stale
     # row frees the in-flight guard within the same pass.
-    reconcile_stale_pendings()
+    stale_outcomes = stale_pending_outcomes()
 
     reminder_outcomes = Enum.map(reminder_settings(), &safe_sweep(&1, :reminder))
-    outcomes = reminder_outcomes ++ charge_arm_outcomes()
+    outcomes = stale_outcomes ++ reminder_outcomes ++ charge_arm_outcomes()
 
     {passes, failures} = Enum.split_with(outcomes, &pass?/1)
 
@@ -100,7 +100,7 @@ defmodule FluxVale.Billing.Operations.SweepAutoRecharge do
          }}
 
       _failed ->
-        {:error, "auto-recharge reminder sweep failed for #{length(failures)} org(s)"}
+        {:error, "auto-recharge sweep failed for #{length(failures)} org(s)"}
     end
   end
 
@@ -109,7 +109,7 @@ defmodule FluxVale.Billing.Operations.SweepAutoRecharge do
   # Gate-on only: with the platform gate off, no org is charged, no
   # provider is called, and no stale row is resolved — the launch lane
   # is the reminder arm alone.
-  defp reconcile_stale_pendings do
+  defp stale_pending_outcomes do
     if Billing.auto_recharge_charge_mode?() do
       stale_cutoff = DateTime.add(DateTime.utc_now(), -@stale_pending_hours, :hour)
 
@@ -117,7 +117,9 @@ defmodule FluxVale.Billing.Operations.SweepAutoRecharge do
       Topup
       |> Ash.Query.filter(origin == :auto and status == :pending and created_at < ^stale_cutoff)
       |> Ash.read!(authorize?: false)
-      |> Enum.each(&reconcile_stale/1)
+      |> Enum.map(&safe_stale/1)
+    else
+      []
     end
   end
 
@@ -540,6 +542,17 @@ defmodule FluxVale.Billing.Operations.SweepAutoRecharge do
   end
 
   # ── The stale-pending reconciliation ──
+
+  # Per-row isolation (the org arms' safe_sweep shape): one poison row
+  # is logged and skipped, its failure rides into the pass verdict —
+  # the job fails after the loop, so Oban retries the hour.
+  defp safe_stale(row) do
+    {:ok, reconcile_stale(row)}
+  rescue
+    exception ->
+      Logger.error("Auto-recharge stale top-up #{row.id} failed: #{inspect(exception)}")
+      {:error, exception}
+  end
 
   defp reconcile_stale(%Topup{payment_request_id: nil} = row) do
     # The draft leg never completed — the order id persists BEFORE any

@@ -22,10 +22,10 @@ defmodule FluxVale.Workers.RechargeSweepTest do
 
   test "a failed pass fails the job so Oban retries" do
     stub(Billing, :sweep_auto_recharge, fn ->
-      {:error, "auto-recharge reminder sweep failed for 1 org(s)"}
+      {:error, "auto-recharge sweep failed for 1 org(s)"}
     end)
 
-    assert {:error, "auto-recharge reminder sweep failed for 1 org(s)"} =
+    assert {:error, "auto-recharge sweep failed for 1 org(s)"} =
              RechargeSweep.perform(%Oban.Job{})
   end
 end
