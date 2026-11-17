@@ -14,6 +14,7 @@ defmodule FluxVale.Billing.Providers.PolarTest do
   use Mimic
 
   alias FluxVale.Billing.Providers.Polar
+  alias FluxVale.Billing.Providers.PolarTest.NoLaneAdopter
 
   # Fixture secrets — never real values.
   @standard_key "polar_standard_key_bytes"
@@ -419,6 +420,653 @@ defmodule FluxVale.Billing.Providers.PolarTest do
     assert Polar.idempotency_key("co_1") == "polar:co_1"
   end
 
+  # The staged off-session lane (#829). All Req-stubbed — the org is
+  # on Polar's Starter plan and cannot run off-session charges; the
+  # first live call is S6's, after the Pro upgrade.
+  @org_id "11111111-1111-4111-8111-111111111111"
+
+  @session_request %{
+    organization_id: @org_id,
+    email: "buyer@example.com",
+    name: "Buyer One",
+    billing_address: %{country: "US", state: "CA"}
+  }
+
+  @draft_request %{amount_cents: 2500, currency: "USD", reference: "topup_9"}
+
+  describe "create_billing_session/2" do
+    test "upserts the customer by external_id, then opens the portal session" do
+      expect(Req, :post, fn req, opts ->
+        assert req.options[:base_url] == "https://sandbox-api.polar.sh"
+        assert Req.Request.get_header(req, "authorization") == ["Bearer sbx_token"]
+        assert opts[:url] == "/v1/customers/"
+
+        # Exact JSON: external_id carries the org id, the full
+        # billing address rides along, no null values are sent.
+        assert opts[:json] == %{
+                 "external_id" => @org_id,
+                 "email" => "buyer@example.com",
+                 "name" => "Buyer One",
+                 "billing_address" => %{"country" => "US", "state" => "CA"}
+               }
+
+        {:ok, %Req.Response{status: 200, body: %{"id" => "cus_1", "external_id" => @org_id}}}
+      end)
+
+      expect(Req, :post, fn _req, opts ->
+        assert opts[:url] == "/v1/customer-sessions/"
+        assert opts[:json] == %{"customer_id" => "cus_1"}
+
+        {:ok,
+         %Req.Response{
+           status: 200,
+           body: %{"id" => "ses_1", "customer_portal_url" => "https://polar/portal"}
+         }}
+      end)
+
+      assert {:ok, %{customer_id: "cus_1", portal_url: "https://polar/portal"}} =
+               Polar.create_billing_session(@session_request, [])
+    end
+
+    test "omits a blank name and an absent state — Polar 422s nulls" do
+      # email is contract-required (the typedoc's Polar
+      # individual-customer note); only blank name/state can be
+      # absent on the wire.
+      request = %{
+        @session_request
+        | name: "",
+          billing_address: %{country: "PH", state: nil}
+      }
+
+      expect(Req, :post, fn _req, opts ->
+        assert opts[:json] == %{
+                 "external_id" => @org_id,
+                 "email" => "buyer@example.com",
+                 "billing_address" => %{"country" => "PH"}
+               }
+
+        {:ok, %Req.Response{status: 200, body: %{"id" => "cus_1"}}}
+      end)
+
+      expect(Req, :post, fn _req, _opts ->
+        {:ok,
+         %Req.Response{status: 200, body: %{"customer_portal_url" => "https://polar/portal"}}}
+      end)
+
+      assert {:ok, %{customer_id: "cus_1"}} = Polar.create_billing_session(request, [])
+    end
+
+    test "a 422 upsert with a matching stored address adopts the customer without a patch" do
+      expect(Req, :post, fn _req, _opts ->
+        {:ok, %Req.Response{status: 422, body: %{"detail" => "external_id already exists"}}}
+      end)
+
+      expect(Req, :get, fn _req, opts ->
+        assert opts[:url] == "/v1/customers/external/#{@org_id}"
+
+        {:ok,
+         %Req.Response{
+           status: 200,
+           body: %{
+             "id" => "cus_9",
+             "external_id" => @org_id,
+             "billing_address" => %{"country" => "US", "state" => "CA"}
+           }
+         }}
+      end)
+
+      stub(Req, :patch, fn _req, _opts ->
+        flunk("a matching address must not patch")
+      end)
+
+      expect(Req, :post, fn _req, opts ->
+        assert opts[:json] == %{"customer_id" => "cus_9"}
+
+        {:ok,
+         %Req.Response{status: 200, body: %{"customer_portal_url" => "https://polar/portal"}}}
+      end)
+
+      assert {:ok, %{customer_id: "cus_9"}} = Polar.create_billing_session(@session_request, [])
+    end
+
+    test "a stored country differing only in case does not patch" do
+      expect(Req, :post, fn _req, _opts ->
+        {:ok, %Req.Response{status: 422, body: %{"detail" => "conflict"}}}
+      end)
+
+      expect(Req, :get, fn _req, _opts ->
+        {:ok,
+         %Req.Response{
+           status: 200,
+           body: %{
+             "id" => "cus_9",
+             "external_id" => @org_id,
+             "billing_address" => %{"country" => "us", "state" => "CA"}
+           }
+         }}
+      end)
+
+      stub(Req, :patch, fn _req, _opts ->
+        flunk("a case-folded country match must not patch")
+      end)
+
+      expect(Req, :post, fn _req, _opts ->
+        {:ok,
+         %Req.Response{status: 200, body: %{"customer_portal_url" => "https://polar/portal"}}}
+      end)
+
+      assert {:ok, %{customer_id: "cus_9"}} = Polar.create_billing_session(@session_request, [])
+    end
+
+    test "a 422 upsert with no stored address patches, then opens the session" do
+      expect(Req, :post, fn _req, _opts ->
+        {:ok, %Req.Response{status: 422, body: %{"detail" => "conflict"}}}
+      end)
+
+      expect(Req, :get, fn _req, _opts ->
+        {:ok,
+         %Req.Response{
+           status: 200,
+           body: %{"id" => "cus_9", "external_id" => @org_id}
+         }}
+      end)
+
+      expect(Req, :patch, fn _req, opts ->
+        assert opts[:url] == "/v1/customers/cus_9"
+
+        assert opts[:json] == %{
+                 "external_id" => @org_id,
+                 "email" => "buyer@example.com",
+                 "name" => "Buyer One",
+                 "billing_address" => %{"country" => "US", "state" => "CA"}
+               }
+
+        {:ok,
+         %Req.Response{
+           status: 200,
+           body: %{"id" => "cus_9", "billing_address" => %{"country" => "US", "state" => "CA"}}
+         }}
+      end)
+
+      expect(Req, :post, fn _req, _opts ->
+        {:ok,
+         %Req.Response{status: 200, body: %{"customer_portal_url" => "https://polar/portal"}}}
+      end)
+
+      assert {:ok, %{customer_id: "cus_9"}} = Polar.create_billing_session(@session_request, [])
+    end
+
+    test "a garbage stored country differs and the patch fixes it" do
+      expect(Req, :post, fn _req, _opts ->
+        {:ok, %Req.Response{status: 422, body: %{"detail" => "conflict"}}}
+      end)
+
+      expect(Req, :get, fn _req, _opts ->
+        {:ok,
+         %Req.Response{
+           status: 200,
+           body: %{
+             "id" => "cus_9",
+             "external_id" => @org_id,
+             "billing_address" => %{"country" => 840}
+           }
+         }}
+      end)
+
+      expect(Req, :patch, fn _req, opts ->
+        assert opts[:url] == "/v1/customers/cus_9"
+        assert opts[:json]["billing_address"] == %{"country" => "US", "state" => "CA"}
+
+        {:ok,
+         %Req.Response{
+           status: 200,
+           body: %{"id" => "cus_9", "billing_address" => %{"country" => "US", "state" => "CA"}}
+         }}
+      end)
+
+      expect(Req, :post, fn _req, _opts ->
+        {:ok,
+         %Req.Response{status: 200, body: %{"customer_portal_url" => "https://polar/portal"}}}
+      end)
+
+      assert {:ok, %{customer_id: "cus_9"}} = Polar.create_billing_session(@session_request, [])
+    end
+
+    test "a 401 upsert short-circuits to :api_error without a lookup" do
+      expect(Req, :post, fn _req, _opts ->
+        {:ok, %Req.Response{status: 401, body: %{"detail" => "bad token"}}}
+      end)
+
+      stub(Req, :get, fn _req, _opts ->
+        flunk("a 401 upsert cannot mean the external_id exists")
+      end)
+
+      assert {:error, :api_error} = Polar.create_billing_session(@session_request, [])
+    end
+
+    test "an absent customer (404 on the lookup) answers :api_error" do
+      expect(Req, :post, fn _req, _opts ->
+        {:ok, %Req.Response{status: 422, body: %{"detail" => "conflict"}}}
+      end)
+
+      expect(Req, :get, fn _req, opts ->
+        assert opts[:url] == "/v1/customers/external/#{@org_id}"
+        {:ok, %Req.Response{status: 404, body: %{"detail" => "not found"}}}
+      end)
+
+      assert {:error, :api_error} = Polar.create_billing_session(@session_request, [])
+    end
+
+    test "a failed customer lookup answers :api_error" do
+      expect(Req, :post, fn _req, _opts ->
+        {:ok, %Req.Response{status: 422, body: %{"detail" => "conflict"}}}
+      end)
+
+      expect(Req, :get, fn _req, _opts ->
+        {:ok, %Req.Response{status: 500, body: %{"detail" => "boom"}}}
+      end)
+
+      assert {:error, :api_error} = Polar.create_billing_session(@session_request, [])
+    end
+
+    test "a matched customer without a usable id is malformed gateway data" do
+      expect(Req, :post, fn _req, _opts ->
+        {:ok, %Req.Response{status: 422, body: %{"detail" => "conflict"}}}
+      end)
+
+      expect(Req, :get, fn _req, _opts ->
+        {:ok, %Req.Response{status: 200, body: %{"external_id" => @org_id}}}
+      end)
+
+      assert {:error, :invalid_response} = Polar.create_billing_session(@session_request, [])
+    end
+
+    test "a failed patch answers :api_error" do
+      expect(Req, :post, fn _req, _opts ->
+        {:ok, %Req.Response{status: 422, body: %{"detail" => "conflict"}}}
+      end)
+
+      expect(Req, :get, fn _req, _opts ->
+        {:ok, %Req.Response{status: 200, body: %{"id" => "cus_9", "external_id" => @org_id}}}
+      end)
+
+      expect(Req, :patch, fn _req, _opts ->
+        {:ok, %Req.Response{status: 500, body: %{"detail" => "boom"}}}
+      end)
+
+      assert {:error, :api_error} = Polar.create_billing_session(@session_request, [])
+    end
+
+    test "transport failures on each leg answer :network_error" do
+      expect(Req, :post, fn _req, _opts ->
+        {:error, %Req.TransportError{reason: :econnrefused}}
+      end)
+
+      assert {:error, :network_error} = Polar.create_billing_session(@session_request, [])
+
+      expect(Req, :post, fn _req, _opts ->
+        {:ok, %Req.Response{status: 422, body: %{"detail" => "conflict"}}}
+      end)
+
+      expect(Req, :get, fn _req, _opts ->
+        {:error, %Req.TransportError{reason: :timeout}}
+      end)
+
+      assert {:error, :network_error} = Polar.create_billing_session(@session_request, [])
+
+      expect(Req, :post, fn _req, _opts ->
+        {:ok, %Req.Response{status: 422, body: %{"detail" => "conflict"}}}
+      end)
+
+      expect(Req, :get, fn _req, _opts ->
+        {:ok, %Req.Response{status: 200, body: %{"id" => "cus_9", "external_id" => @org_id}}}
+      end)
+
+      expect(Req, :patch, fn _req, _opts ->
+        {:error, %Req.TransportError{reason: :timeout}}
+      end)
+
+      assert {:error, :network_error} = Polar.create_billing_session(@session_request, [])
+
+      expect(Req, :post, fn _req, _opts ->
+        {:ok, %Req.Response{status: 422, body: %{"detail" => "conflict"}}}
+      end)
+
+      expect(Req, :get, fn _req, _opts ->
+        {:ok, %Req.Response{status: 200, body: %{"id" => "cus_9", "external_id" => @org_id}}}
+      end)
+
+      expect(Req, :patch, fn _req, _opts ->
+        {:ok, %Req.Response{status: 200, body: %{"id" => "cus_9"}}}
+      end)
+
+      expect(Req, :post, fn _req, _opts ->
+        {:error, %Req.TransportError{reason: :econnrefused}}
+      end)
+
+      assert {:error, :network_error} = Polar.create_billing_session(@session_request, [])
+    end
+
+    test "answers :invalid_response when the upsert body lacks an id" do
+      expect(Req, :post, fn _req, _opts ->
+        {:ok, %Req.Response{status: 200, body: %{"external_id" => @org_id}}}
+      end)
+
+      assert {:error, :invalid_response} = Polar.create_billing_session(@session_request, [])
+    end
+
+    test "answers :invalid_response when the session body lacks the portal URL" do
+      expect(Req, :post, fn _req, _opts ->
+        {:ok, %Req.Response{status: 200, body: %{"id" => "cus_1"}}}
+      end)
+
+      expect(Req, :post, fn _req, _opts ->
+        {:ok, %Req.Response{status: 200, body: %{"id" => "ses_1"}}}
+      end)
+
+      assert {:error, :invalid_response} = Polar.create_billing_session(@session_request, [])
+    end
+
+    test "maps session API and network failures to their atoms" do
+      expect(Req, :post, fn _req, _opts ->
+        {:ok, %Req.Response{status: 200, body: %{"id" => "cus_1"}}}
+      end)
+
+      expect(Req, :post, fn _req, _opts ->
+        {:ok, %Req.Response{status: 403, body: %{"detail" => "forbidden"}}}
+      end)
+
+      assert {:error, :api_error} = Polar.create_billing_session(@session_request, [])
+
+      expect(Req, :post, fn _req, _opts ->
+        {:ok, %Req.Response{status: 200, body: %{"id" => "cus_1"}}}
+      end)
+
+      expect(Req, :post, fn _req, _opts ->
+        {:error, %Req.TransportError{reason: :timeout}}
+      end)
+
+      assert {:error, :network_error} = Polar.create_billing_session(@session_request, [])
+    end
+
+    test "answers :missing_config without a token" do
+      Application.put_env(:flux_vale, :polar, server: "sandbox")
+
+      assert {:error, :missing_config} = Polar.create_billing_session(@session_request, [])
+    end
+  end
+
+  describe "list_payment_methods/1" do
+    test "counts the methods and names the default from an items response" do
+      expect(Req, :get, fn _req, opts ->
+        assert opts[:url] == "/v1/customers/cus_1/payment-methods"
+
+        {:ok,
+         %Req.Response{
+           status: 200,
+           body: %{
+             "items" => [
+               %{"id" => "pm_2", "is_default" => false},
+               %{"id" => "pm_1", "is_default" => true}
+             ]
+           }
+         }}
+      end)
+
+      assert {:ok, 2, "pm_1"} = Polar.list_payment_methods("cus_1")
+    end
+
+    test "empty items answer {0, nil}" do
+      expect(Req, :get, fn _req, _opts ->
+        {:ok, %Req.Response{status: 200, body: %{"items" => []}}}
+      end)
+
+      assert {:ok, 0, nil} = Polar.list_payment_methods("cus_1")
+    end
+
+    test "no default among the items answers nil for the ref" do
+      expect(Req, :get, fn _req, _opts ->
+        {:ok,
+         %Req.Response{
+           status: 200,
+           body: %{"items" => [%{"id" => "pm_2", "is_default" => false}]}
+         }}
+      end)
+
+      assert {:ok, 1, nil} = Polar.list_payment_methods("cus_1")
+    end
+
+    test "a default method without an id degrades to a nil ref" do
+      expect(Req, :get, fn _req, _opts ->
+        {:ok,
+         %Req.Response{
+           status: 200,
+           body: %{"items" => [%{"is_default" => true}]}
+         }}
+      end)
+
+      assert {:ok, 1, nil} = Polar.list_payment_methods("cus_1")
+    end
+
+    test "reads a bare-array list shape too" do
+      expect(Req, :get, fn _req, _opts ->
+        {:ok,
+         %Req.Response{
+           status: 200,
+           body: [%{"id" => "pm_1", "is_default" => true}]
+         }}
+      end)
+
+      assert {:ok, 1, "pm_1"} = Polar.list_payment_methods("cus_1")
+    end
+
+    test "maps API and network failures to their atoms" do
+      expect(Req, :get, fn _req, _opts ->
+        {:ok, %Req.Response{status: 500, body: %{"detail" => "boom"}}}
+      end)
+
+      assert {:error, :api_error} = Polar.list_payment_methods("cus_1")
+
+      expect(Req, :get, fn _req, _opts ->
+        {:error, %Req.TransportError{reason: :timeout}}
+      end)
+
+      assert {:error, :network_error} = Polar.list_payment_methods("cus_1")
+    end
+
+    test "answers :invalid_response for a body that is neither items-wrapped nor an array" do
+      expect(Req, :get, fn _req, _opts ->
+        {:ok, %Req.Response{status: 200, body: %{"error" => "junk"}}}
+      end)
+
+      assert {:error, :invalid_response} = Polar.list_payment_methods("cus_1")
+    end
+
+    test "answers :missing_config without a token" do
+      Application.put_env(:flux_vale, :polar, server: "sandbox")
+
+      assert {:error, :missing_config} = Polar.list_payment_methods("cus_1")
+    end
+  end
+
+  describe "create_draft_charge/2" do
+    test "posts the draft order and returns the handle" do
+      expect(Req, :post, fn _req, opts ->
+        assert opts[:url] == "/v1/orders/"
+
+        # Exact JSON — the map equality proves OrderCreate's SINGULAR
+        # product_id (the checkout body's `products` array is another
+        # endpoint's shape), no success_url/return_url on a draft
+        # (there is no hosted flow), and the amount stays an integer.
+        assert opts[:json] == %{
+                 "customer_id" => "cus_1",
+                 "product_id" => "prod_1",
+                 "amount" => 2500,
+                 "metadata" => %{"topup_id" => "topup_9"}
+               }
+
+        # Order responses carry no top-level `amount` — the money
+        # rides subtotal_amount (contract point 1).
+        {:ok, %Req.Response{status: 200, body: %{"id" => "ord_1", "subtotal_amount" => 2500}}}
+      end)
+
+      assert {:ok, %{order_id: "ord_1", amount_cents: 2500}} =
+               Polar.create_draft_charge(@draft_request, customer_id: "cus_1")
+    end
+
+    test "answers :missing_config without opts[:customer_id] and never posts" do
+      stub(Req, :post, fn _req, _opts ->
+        flunk("no draft without a customer id")
+      end)
+
+      assert {:error, :missing_config} = Polar.create_draft_charge(@draft_request, [])
+    end
+
+    test "answers :invalid_response when the body lacks an id" do
+      expect(Req, :post, fn _req, _opts ->
+        {:ok, %Req.Response{status: 200, body: %{"subtotal_amount" => 2500}}}
+      end)
+
+      assert {:error, :invalid_response} =
+               Polar.create_draft_charge(@draft_request, customer_id: "cus_1")
+    end
+
+    test "answers :invalid_response for a non-integer amount" do
+      expect(Req, :post, fn _req, _opts ->
+        {:ok, %Req.Response{status: 200, body: %{"id" => "ord_1", "subtotal_amount" => "2500"}}}
+      end)
+
+      assert {:error, :invalid_response} =
+               Polar.create_draft_charge(@draft_request, customer_id: "cus_1")
+    end
+
+    test "maps API and network failures to their atoms" do
+      expect(Req, :post, fn _req, _opts ->
+        {:ok, %Req.Response{status: 403, body: %{"detail" => "off-session not enabled"}}}
+      end)
+
+      assert {:error, :api_error} =
+               Polar.create_draft_charge(@draft_request, customer_id: "cus_1")
+
+      expect(Req, :post, fn _req, _opts ->
+        {:error, %Req.TransportError{reason: :econnrefused}}
+      end)
+
+      assert {:error, :network_error} =
+               Polar.create_draft_charge(@draft_request, customer_id: "cus_1")
+    end
+  end
+
+  describe "finalize_charge/2" do
+    test "a paid finalize answers :completed with the echoed amount" do
+      expect(Req, :post, fn _req, opts ->
+        assert opts[:url] == "/v1/orders/ord_1/finalize"
+        assert opts[:json] == %{}
+
+        {:ok,
+         %Req.Response{
+           status: 200,
+           body: %{"id" => "ord_1", "status" => "paid", "subtotal_amount" => 2500}
+         }}
+      end)
+
+      assert {:ok,
+              %{order_id: "ord_1", amount_cents: 2500, status: :completed, failure_reason: nil}} =
+               Polar.finalize_charge("ord_1", [])
+    end
+
+    test "a 402 decline is an ANSWERED failure, not an error" do
+      expect(Req, :post, fn _req, _opts ->
+        {:ok, %Req.Response{status: 402, body: %{"detail" => "no payment method"}}}
+      end)
+
+      assert {:ok,
+              %{
+                order_id: "ord_1",
+                amount_cents: nil,
+                status: :failed,
+                failure_reason: "http_402: no payment method"
+              }} = Polar.finalize_charge("ord_1", [])
+    end
+
+    test "a failed finalize that echoes the amount carries it" do
+      expect(Req, :post, fn _req, _opts ->
+        {:ok,
+         %Req.Response{
+           status: 402,
+           body: %{"detail" => "SCA required", "subtotal_amount" => 2500}
+         }}
+      end)
+
+      assert {:ok, %{amount_cents: 2500, failure_reason: "http_402: SCA required"}} =
+               Polar.finalize_charge("ord_1", [])
+    end
+
+    test "a 403 (off-session not enabled) answers :failed with the bare code" do
+      expect(Req, :post, fn _req, _opts ->
+        {:ok, %Req.Response{status: 403, body: %{"error" => %{"nested" => true}}}}
+      end)
+
+      assert {:ok, %{status: :failed, failure_reason: "http_403"}} =
+               Polar.finalize_charge("ord_1", [])
+    end
+
+    test "a 412 (not draft) answers :failed" do
+      expect(Req, :post, fn _req, _opts ->
+        {:ok, %Req.Response{status: 412, body: %{}}}
+      end)
+
+      assert {:ok, %{status: :failed, failure_reason: "http_412"}} =
+               Polar.finalize_charge("ord_1", [])
+    end
+
+    test "other non-2xx are unknown outcomes — :api_error" do
+      expect(Req, :post, fn _req, _opts ->
+        {:ok, %Req.Response{status: 500, body: %{"detail" => "boom"}}}
+      end)
+
+      assert {:error, :api_error} = Polar.finalize_charge("ord_1", [])
+    end
+
+    test "transport failures are unknown outcomes — :network_error" do
+      expect(Req, :post, fn _req, _opts ->
+        {:error, %Req.TransportError{reason: :timeout}}
+      end)
+
+      assert {:error, :network_error} = Polar.finalize_charge("ord_1", [])
+    end
+
+    test "a 2xx that is not paid is malformed gateway data" do
+      expect(Req, :post, fn _req, _opts ->
+        {:ok,
+         %Req.Response{
+           status: 200,
+           body: %{"id" => "ord_1", "status" => "draft", "subtotal_amount" => 2500}
+         }}
+      end)
+
+      assert {:error, :invalid_response} = Polar.finalize_charge("ord_1", [])
+    end
+
+    test "answers :missing_config without a token" do
+      Application.put_env(:flux_vale, :polar, server: "sandbox")
+
+      assert {:error, :missing_config} = Polar.finalize_charge("ord_1", [])
+    end
+  end
+
+  describe "behaviour defaults (the use-injected off-session lane)" do
+    test "an adopter that defines none of the four answers :unsupported" do
+      assert {:error, :unsupported} = NoLaneAdopter.create_billing_session(%{}, [])
+      assert {:error, :unsupported} = NoLaneAdopter.list_payment_methods("cus_1")
+
+      assert {:error, :unsupported} =
+               NoLaneAdopter.create_draft_charge(%{amount_cents: 2500}, customer_id: "cus_1")
+
+      assert {:error, :unsupported} = NoLaneAdopter.finalize_charge("ord_1", [])
+    end
+  end
+
   # Standard Webhooks signing over "<id>.<ts>.<body>" with a real
   # HMAC — the same math the adapter runs.
   defp signature(key, ts, body) do
@@ -436,4 +1084,27 @@ defmodule FluxVale.Billing.Providers.PolarTest do
     seconds = System.os_time(:second)
     Integer.to_string(seconds)
   end
+end
+
+# Pins the default-clause contract (docs/plans/829 #S1): an adopter
+# that only `use`s the behaviour answers {:error, :unsupported} for
+# the four staged callbacks. The original three have no defaults —
+# every adopter implements them — so they are stubbed (specs and all)
+# purely to keep this module's compile quiet.
+defmodule FluxVale.Billing.Providers.PolarTest.NoLaneAdopter do
+  use FluxVale.Billing.PaymentProvider
+
+  alias FluxVale.Billing.PaymentProvider
+
+  @spec create_checkout(PaymentProvider.checkout_request(), keyword()) ::
+          {:ok, PaymentProvider.checkout()} | {:error, PaymentProvider.error()}
+  def create_checkout(_request, _opts), do: {:error, :missing_config}
+
+  @spec verify_webhook(binary(), String.t() | nil) ::
+          :ok | {:error, :missing_signature | :missing_config | :signature_mismatch}
+  def verify_webhook(_raw_body, _signature), do: {:error, :missing_signature}
+
+  @spec fetch_payment(String.t()) ::
+          {:ok, PaymentProvider.payment()} | {:error, PaymentProvider.error()}
+  def fetch_payment(_payment_request_id), do: {:error, :missing_config}
 end

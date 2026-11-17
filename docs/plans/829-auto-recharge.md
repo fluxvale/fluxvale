@@ -398,21 +398,31 @@ testing is Req-stubbed — **no live Polar calls in this slice** (the
 org is on Starter; draft-order creation would 403. The live evidence
 is S6's, post-upgrade).
 
-**Change**: four new callbacks on the behaviour, each with a DEFAULT
-CLAUSE answering `{:error, :unsupported}` (the behaviour has no
-optional-callback precedent — the default-clause form is pinned here;
-`@optional_callbacks` is not used):
+**Change**: four new callbacks on the behaviour, delivered via the
+use + defoverridable pattern — `PaymentProvider.__using__/1` injects
+`@behaviour PaymentProvider` plus default implementations answering
+`{:error, :unsupported}` for the four, and `defoverridable` lets
+adopters override. (Pinned 2026-11-17 after a blocked worker proved
+plain default clauses on the behaviour module do not exempt
+implementers — Elixir warns on every unimplemented non-optional
+@callback regardless; `@optional_callbacks` stays banned:
+non-implementers would lack the function and raise instead of
+answering.) Both providers change their adoption line from
+`@behaviour PaymentProvider` to `use PaymentProvider` — for HitPay
+that one mechanical line is the ONLY change it grows.
 
 - `create_billing_session/2` — Polar: upsert customer by
   `external_id` (org id) **carrying a complete billing address from
   the caller's evidence** (Polar requires one on the customer before
   Create Order — it computes tax from it), `POST
   /v1/customer-sessions/` → `{:ok, %{customer_id: id, portal_url:
-  url}}`.
+  url}}`. The request's `email` is REQUIRED (Polar's individual
+  customer requires one; S5's caller passes the enabling owner's
+  email).
 - `list_payment_methods/1` — Polar: `GET
   /v1/customers/{id}/payment-methods` → `{:ok, count, default_ref}`
   (we need existence + default, not the instruments).
-- `create_draft_charge/3` — Polar: `POST /v1/orders/` (draft; product
+- `create_draft_charge/2` — Polar: `POST /v1/orders/` (draft; product
   = the existing "FluxVale Credits" product_id config; `amount` =
   integer cents gross; `metadata: %{"topup_id" => reference}`) →
   `{:ok, %{order_id: id, amount_cents: n}}`. Draft creation charges
@@ -568,7 +578,11 @@ none → `disable_with_reason(:no_method)` + mail. If due →
 `StartAutoRecharge`. On a failed outcome: increment
 `consecutive_failures`; at `failure_strikes` →
 `disable_with_reason(:declines)` + mail with a one-click top-up URL.
-A successful outcome resets the counter AND clears
+One 403 nuance: finalize's `http_403` may be a platform-side
+condition (off-session not enabled OR the account cannot accept
+payments), not a buyer decline — strike counting treats it like any
+failure, but ops telemetry must not misread it. A successful outcome
+resets the counter AND clears
 `no_method_notified_at`. Reminder-arm behavior is unchanged for
 `:reminder` orgs.
 
@@ -620,7 +634,11 @@ read — `GET /v1/organizations/{id}` shows
 `feature_settings.off_session_charges_enabled: true`; transcript
 (flag line, org id, no token) to the PA. (2) mapping evidence — a
 draft order with `amount: <X>` (never finalized), GET it, record
-`subtotal_amount == X`. (3) flip `AUTO_RECHARGE_CHARGE_MODE=true`
+`subtotal_amount == X`. The configured product must be fixed-price,
+free, or unit-based for Create Order — the current FluxVale Credits
+product is pay-what-you-want for checkout, so S6's mapping evidence
+may require a product-config change. (3) flip
+`AUTO_RECHARGE_CHARGE_MODE=true`
 on staging with a sandbox Pro-shaped org → a staging end-to-end
 proof (save method via portal, arm :auto, cross the threshold with
 a compressed `RECHARGE_SWEEP_CRONEXPR`, observe the charge, the
