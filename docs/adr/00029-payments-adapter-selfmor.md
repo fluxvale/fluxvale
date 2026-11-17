@@ -205,10 +205,11 @@ out going forward (MoR preferred so country-by-country tax compliance
 is Polar's obligation, not ours); the HitPay capability above stays
 archived here, the adapter's sunset is a separate lane, and the
 existing `Providers.HitPay` module is untouched. The
-`PaymentProvider` behaviour grows three optional callbacks —
+`PaymentProvider` behaviour grows three callbacks —
 `create_billing_session/2`, `list_payment_methods/1`,
-`charge_saved_method/3` — and **Polar is the only implementation**;
-the optionality keeps the architecture provider-agnostic without
+`charge_saved_method/3` — each with a default clause answering
+`{:error, :unsupported}` so **Polar is the only implementation**;
+the defaults keep the architecture provider-agnostic without
 building a second lane nothing will use. **The attempt IS a top-up**:
 auto-recharge creates `Topup` rows (`origin: :auto`) completed
 through the unchanged `CompleteTopup` seam — no second posting path,
@@ -226,7 +227,7 @@ charge lane ships staged behind a platform config gate
 (`charge_mode`, default false): arming `:auto` is its own explicit
 owner consent (saved method + confirmed caps), never implied by a
 reminder opt-in. Activation is the config flip plus the API evidence
-check (`GET /v1/organizations/{id}` → `feature_settings.
-off_session_charges_enabled: true`). Nothing here changes Am. 6's
-MoR split: Polar's saved methods are Polar's vault; we store
-provider-scoped references only.
+check (`GET /v1/organizations/{id}` →
+`feature_settings.off_session_charges_enabled: true`). Nothing here
+changes Am. 6's MoR split: Polar's saved methods are Polar's vault;
+we store provider-scoped references only.

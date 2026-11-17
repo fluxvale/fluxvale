@@ -192,18 +192,19 @@ manual top-up; every attempt visible to the user and in ops telemetry.
   state, customer type, VAT number) copies from the org's last
   completed top-up as the editable default; the RATE always resolves
   fresh at charge time (#260 discipline — never a copied rate).
-- **D — caps (all owner-tunable, per D2; staged lane)**:
-  `threshold_cents` (default 500¢, min 100¢); `amount_cents` ≥ the $5
-  top-up floor (default 2500¢); `daily_charge_cap` (default 2, range
-  1–6) — at most that many auto charges per rolling 24h, and at most
-  **1 in-flight** auto attempt per org (a fixed invariant, not a
-  dial); `failure_strikes` (default 3, range 2–5) consecutive
-  failures auto-disable the setting (email says why + one-click
-  top-up link). Max auto-spend/day = `daily_charge_cap` × amount,
-  shown at enable.
+- **D — caps (threshold/amount serve BOTH lanes; the rest is staged,
+  per D2)**: `threshold_cents` (default 500¢, min 100¢) and
+  `amount_cents` ≥ the $5 top-up floor (default 2500¢) ship with the
+  launch resource; `daily_charge_cap` (default 2, range 1–6) — at
+  most that many auto charges per rolling 24h, and at most **1
+  in-flight** auto attempt per org (a fixed invariant, not a dial) —
+  and `failure_strikes` (default 3, range 2–5) consecutive failures
+  auto-disabling the setting (email says why + one-click top-up
+  link) arrive with S2. Max auto-spend/day = `daily_charge_cap` ×
+  amount, shown at enable.
 - **E — trigger** (staged lane): hourly Oban arm on the shared
   RechargeSweep worker (queue `:billing`, cron `23 * * * *`, off
-  :07/:17 and the top of the hour). Per org: `WalletLock` → fresh
+  :07/:13/:17 and the top of the hour — the billing-queue stagger). Per org: `WalletLock` → fresh
   balance read → due? → insert the pending `Topup` row → **commit**
   → charge over HTTP **outside** any transaction (the
   `suspend_gateways` discipline; a network call never holds the
@@ -244,8 +245,13 @@ Two waves. **Wave L (launch)**: L1 → L2 → (L3 ∥ L4). **Wave S
 (staged, inert)**: S1 ∥ S2 (S2 after L1 merges — same resource file);
 S3 after S1 + S2; S4 after S3 (+L2); S5 after S3 (+L3); **S6 last,
 blocked on the owner's Pro upgrade** (external — do not schedule).
-Each slice's tests are its own gate; Wave S slices merge only with
-the config gate defaulting false and no UI path reaching them.
+Each slice's tests are its own gate. Wave S inertness at launch, by
+construction: the config gate (default false) blocks `:auto` writes
+(S2) and the sweep's charge arm (S4); the UI renders nothing chargey
+gate-off (S5); the S3 webhook arm is inert by resolution-miss —
+manual checkout orders carry no `metadata.topup_id` and their
+`payment_request_id` is a checkout session id, so the arm no-ops on
+every launch-path delivery.
 
 ### L1 — the `AutoRechargeSetting` resource (launch shape)
 
@@ -287,12 +293,18 @@ exits 0 (0 failures) and `mix ash.codegen --check` is clean.
 (new), `apps/platform/lib/flux_vale/workers/recharge_sweep.ex` (new,
 `use Oban.Worker, queue: :billing, max_attempts: 3` — the
 `ZeroBalanceSweep` plumbing shape), `apps/platform/config/config.exs`
-(cron `23 * * * *` with the stagger comment) +
+(cron `23 * * * *` with a stagger comment naming the real neighbors:
+:07 zero-balance, :13 stranded-instances, :17 stale-topups, plus the
+top-of-hour rush) +
 `apps/platform/config/runtime.exs` (`RECHARGE_SWEEP_CRONEXPR`
 override — the `IDLE_SWEEP_CRONEXPR` precedent, for staging/e2e
 compression), `apps/platform/lib/flux_vale/mailer.ex`
-(`deliver_auto_recharge_reminder/3`: to, amount_dollars, url — the
-`member_emails` delivery path the zero-balance sweep already uses),
+(`deliver_auto_recharge_reminder/3`: to, amount_dollars, url —
+delivered to the org's members; DUPLICATE the org→members→primary-
+verified-address resolution as the sweep operation's own private
+helper — `SweepZeroBalance.member_emails/1` is private and the
+operation-boundary rule says private helpers are owned, not shared;
+follow the pattern, not the function),
 `apps/platform/lib/flux_vale_web/live/billing_live/topup.ex` (accept
 an `amount` query param — integer dollars, validated ≥
 `min_topup_dollars` and ≤ 1000, prefilling the Amount step; must
@@ -349,10 +361,13 @@ events.
 
 ### L4 — telemetry + public docs (launch)
 
-**Files**: `apps/platform/lib/flux_vale/prom_ex.ex` (a reminder
-counter following the module's existing event patterns — org id as
-label ONLY, no amounts), `complete_topup.ex` untouched at launch
-(the PostHog origin prop lands with S3),
+**Files**: `apps/platform/lib/flux_vale/prom_ex/plugins/business.ex`
+(the business plugin's counter set — NOT `prom_ex.ex`, which is only
+the plugin wiring; a reminder counter following that module's
+existing `:telemetry` event patterns, NO org-id label — the plugin's
+own discipline pins fleet labels to bounded enums with boot-seeded
+cardinality; an org-id dimension violates it, so the counter is
+labelless), plus the emission call in the L2 sweep operation,
 `docs/public/billing/auto-recharge.md` (new; what the reminder does,
 threshold/amount, the ≤1/day cadence, how to turn it off, and its
 relationship to the ladder warnings), this plan's Verification
