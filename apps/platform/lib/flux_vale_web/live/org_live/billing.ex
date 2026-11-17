@@ -123,8 +123,15 @@ defmodule FluxValeWeb.OrganizationLive.Billing do
   @impl Phoenix.LiveView
   # The card's phx-change round-trip: keep what the owner typed in the
   # form (the inputs re-render from this assign after a failed save).
-  def handle_event("validate-auto-recharge", %{"auto_recharge" => params}, socket) do
+  # is_map: a crafted non-map payload is a no-op, never a crash (the
+  # hostile-push silence posture).
+  def handle_event("validate-auto-recharge", %{"auto_recharge" => params}, socket)
+      when is_map(params) do
     {:noreply, assign(socket, auto_recharge_form: to_form(params, as: :auto_recharge))}
+  end
+
+  def handle_event("validate-auto-recharge", _crafted_shape, socket) do
+    {:noreply, socket}
   end
 
   @impl Phoenix.LiveView
@@ -132,8 +139,10 @@ defmodule FluxValeWeb.OrganizationLive.Billing do
   # set_auto_recharge_setting — never the resource direct): the enum,
   # the constraints, the AutoArmGate, and the owner-role policy are the
   # authority, so a crafted `:auto` and a member's crafted submit land
-  # here as an error flash, never a crash.
-  def handle_event("save-auto-recharge", %{"auto_recharge" => params}, socket) do
+  # here as an error flash, never a crash. is_map: a crafted non-map
+  # payload is a no-op, never a crash.
+  def handle_event("save-auto-recharge", %{"auto_recharge" => params}, socket)
+      when is_map(params) do
     case auto_recharge_inputs(params) do
       {:ok, inputs} ->
         case Billing.set_auto_recharge_setting(
@@ -157,23 +166,38 @@ defmodule FluxValeWeb.OrganizationLive.Billing do
     end
   end
 
+  def handle_event("save-auto-recharge", _crafted_shape, socket) do
+    {:noreply, socket}
+  end
+
   # The card's prefilled form: whole dollars, the wizard Amount step's
   # unit. Members get no form (nil) — the card renders the read-only
   # state alone.
   defp prefilled_auto_recharge_form(_setting, false = _owner?), do: nil
 
   defp prefilled_auto_recharge_form(setting, true) do
-    threshold_dollars = div(setting.threshold_cents, 100)
-    amount_dollars = div(setting.amount_cents, 100)
-
     to_form(
       %{
         "mode" => Atom.to_string(setting.mode),
-        "threshold_dollars" => Integer.to_string(threshold_dollars),
-        "amount_dollars" => Integer.to_string(amount_dollars)
+        "threshold_dollars" => prefilled_dollars(setting.threshold_cents),
+        "amount_dollars" => prefilled_dollars(setting.amount_cents)
       },
       as: :auto_recharge
     )
+  end
+
+  # Whole-round values prefill their dollar figure. A non-round stored
+  # value (549¢) MUST NOT prefill "5": an unedited save would silently
+  # floor it to 500¢ while the state copy still says $5.49. Those
+  # prefill EMPTY — the card's inline hint names the stored exact
+  # value, and the whole-dollar validation refuses the empty save.
+  defp prefilled_dollars(cents) do
+    if rem(cents, 100) == 0 do
+      dollars = div(cents, 100)
+      Integer.to_string(dollars)
+    else
+      ""
+    end
   end
 
   # The card's server-side mirror of the resource's constraints (#829

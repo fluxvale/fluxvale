@@ -5,7 +5,8 @@ defmodule FluxVale.Billing.Operations.EnsureAutoRechargeSetting do
 
   Idempotent: returns the existing row when the org already has one.
   The `unique_org` identity is the concurrent-race backstop — a lost
-  race surfaces as an error rather than a second row. System operation
+  race loses to it, and the loser's re-read returns the winner's row
+  rather than a second row or an error. System operation
   (runs with `authorize?: false`): members may read settings, the
   billing machinery provisions them — the EnsureWallet shape, followed
   so the billing pages can render the card without a second

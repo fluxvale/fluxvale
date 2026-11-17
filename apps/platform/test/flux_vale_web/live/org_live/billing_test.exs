@@ -430,21 +430,23 @@ defmodule FluxValeWeb.OrganizationLive.BillingTest do
       assert setting.mode == :off
     end
 
-    test "a non-round stored threshold renders exact cents, not a floored dollar", %{
+    test "a non-round stored value renders exact cents and prefills EMPTY", %{
       conn: conn,
       org: org,
       user: user
     } do
-      # threshold_cents is an owner-settable integer ≥ 100¢, so 550¢ is
-      # a legal row the form's whole-dollar unit cannot type — the L2
-      # mailer's exact-cents rule applies to the card's copy too. The
+      # threshold_cents/amount_cents are owner-settable integers above
+      # their floors, so 549¢ rows are legal values the form's
+      # whole-dollar unit cannot type — the L2 mailer's exact-cents
+      # rule applies to the card's copy, and the form must NOT prefill
+      # "5": an unedited save would silently floor 549¢ to 500¢. The
       # write rides the domain seam (a legal :set input).
       {:ok, setting} = Billing.ensure_auto_recharge_setting(org)
 
       assert {:ok, _set} =
                Billing.set_auto_recharge_setting(
                  setting,
-                 %{mode: :reminder, threshold_cents: 549},
+                 %{mode: :reminder, threshold_cents: 549, amount_cents: 549},
                  actor: user
                )
 
@@ -452,6 +454,83 @@ defmodule FluxValeWeb.OrganizationLive.BillingTest do
 
       assert has_element?(view, "[data-testid='auto-recharge-state']", "below $5.49")
       refute has_element?(view, "[data-testid='auto-recharge-state']", "below $5 —")
+
+      # The inputs prefill EMPTY (never a floored figure) and the hints
+      # name the stored exact values.
+      assert has_element?(view, "input#auto_recharge_threshold_dollars[value='']")
+      assert has_element?(view, "input#auto_recharge_amount_dollars[value='']")
+      assert has_element?(view, "[data-testid='auto-recharge-threshold-hint']", "Stored: $5.49")
+      assert has_element?(view, "[data-testid='auto-recharge-amount-hint']", "Stored: $5.49")
+
+      # An unedited save (both empty) fails the whole-dollar validation
+      # and leaves the stored row untouched.
+      view
+      |> element("#auto-recharge-form")
+      |> render_submit(%{
+        "auto_recharge" => %{
+          "mode" => "reminder",
+          "threshold_dollars" => "",
+          "amount_dollars" => ""
+        }
+      })
+
+      assert has_element?(view, "#flash-error", "at least $1.")
+
+      assert {:ok, unchanged} = Billing.get_auto_recharge_setting(org.id, actor: user)
+      assert unchanged.threshold_cents == 549
+      assert unchanged.amount_cents == 549
+      assert unchanged.mode == :reminder
+
+      # A half-filled save fails on the still-empty field.
+      view
+      |> element("#auto-recharge-form")
+      |> render_submit(%{
+        "auto_recharge" => %{
+          "mode" => "reminder",
+          "threshold_dollars" => "6",
+          "amount_dollars" => ""
+        }
+      })
+
+      assert has_element?(view, "#flash-error", "at least $#{Billing.min_topup_dollars()}.")
+      assert {:ok, still} = Billing.get_auto_recharge_setting(org.id, actor: user)
+      assert still.amount_cents == 549
+    end
+
+    test "a member's crafted validate event cannot resurrect the form", %{conn: _conn, org: org} do
+      member = AccountsFixtures.user!()
+
+      Membership.create!(%{organization_id: org.id, user_id: member.id, role: :member},
+        authorize?: false
+      )
+
+      member_conn = SessionHelpers.sign_in(Phoenix.ConnTest.build_conn(), member)
+      {:ok, member_view, _html} = live(member_conn, ~p"/organizations/#{org.slug}/billing")
+
+      render_click(member_view, "validate-auto-recharge", %{
+        "auto_recharge" => %{
+          "mode" => "reminder",
+          "threshold_dollars" => "3",
+          "amount_dollars" => "10"
+        }
+      })
+
+      # The view survives and stays formless — the gate is the card's,
+      # not just the mount's.
+      assert has_element?(member_view, "[data-testid='auto-recharge-state']", "Reminders are off")
+      refute has_element?(member_view, "#auto-recharge-form")
+      assert has_element?(member_view, "[data-testid='auto-recharge-member-hint']")
+    end
+
+    test "a crafted non-map payload is a no-op, never a crash", %{conn: conn, org: org} do
+      {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/billing")
+
+      render_click(view, "validate-auto-recharge", %{"auto_recharge" => "x"})
+      assert has_element?(view, "[data-testid='auto-recharge-card']")
+
+      render_click(view, "save-auto-recharge", %{"auto_recharge" => "x"})
+      assert has_element?(view, "[data-testid='auto-recharge-card']")
+      assert has_element?(view, "[data-testid='auto-recharge-state']", "Reminders are off")
     end
 
     test "a crafted submit missing the fields is rejected", %{conn: conn, org: org} do

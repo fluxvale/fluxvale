@@ -345,5 +345,40 @@ defmodule FluxValeWeb.BillingLive.IndexTest do
 
       assert has_element?(view, "#flash-error", "at least $1.")
     end
+
+    test "a crafted non-map payload is a no-op, never a crash", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/billing")
+
+      render_click(view, "validate-auto-recharge", %{"auto_recharge" => "x"})
+      assert has_element?(view, "[data-testid='auto-recharge-card']")
+
+      render_click(view, "save-auto-recharge", %{"auto_recharge" => "x"})
+      assert has_element?(view, "[data-testid='auto-recharge-card']")
+      assert has_element?(view, "[data-testid='auto-recharge-state']", "Reminders are off")
+    end
+
+    test "a non-round stored value prefills EMPTY with the exact-value hint", %{
+      conn: conn,
+      user: user,
+      wallet: wallet
+    } do
+      # 549¢ is a legal row the whole-dollar unit cannot type: the
+      # input must stay EMPTY (never a floored "5" that would silently
+      # floor on an unedited save), with the hint naming the stored
+      # exact value. The mount itself ensures the row.
+      {:ok, _pre_view, _html} = live(conn, ~p"/billing")
+
+      {:ok, setting} =
+        Billing.get_auto_recharge_setting(wallet.organization_id, authorize?: false)
+
+      assert {:ok, _set} =
+               Billing.set_auto_recharge_setting(setting, %{threshold_cents: 549}, actor: user)
+
+      {:ok, view, _html} = live(conn, ~p"/billing")
+
+      assert has_element?(view, "input#auto_recharge_threshold_dollars[value='']")
+      assert has_element?(view, "[data-testid='auto-recharge-threshold-hint']", "Stored: $5.49")
+      refute has_element?(view, "input#auto_recharge_threshold_dollars[value='5']")
+    end
   end
 end

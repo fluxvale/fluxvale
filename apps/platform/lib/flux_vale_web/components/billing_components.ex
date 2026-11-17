@@ -126,8 +126,14 @@ defmodule FluxValeWeb.BillingComponents do
   ownership check (`ActorIsOrganizationOwner`, one ownership notion),
   but the resource's `:set` policy is what actually forbids — a
   member's crafted submit dies at the domain seam as an error flash,
-  never a crash. Money rides `Pricing.format_usd_whole_or_exact/1` —
+  never a crash. The gate is enforced HERE, not just at mount: the
+  form renders only for an owner with a form, so a crafted
+  validate event (which re-assigns the form) cannot resurrect it on a
+  member's view. Money rides `Pricing.format_usd_whole_or_exact/1` —
   the L2 mail's exact-cents rule, one formatter for both surfaces.
+  A non-round stored value prefills EMPTY (an unedited save would
+  silently floor 549¢ to 500¢), with an inline hint naming the stored
+  exact value; whole-round values prefill as today.
 
   Shared by the org billing page and the personal one (same band +
   ledger shape, same card); the events it raises
@@ -150,7 +156,13 @@ defmodule FluxValeWeb.BillingComponents do
 
   @spec auto_recharge_card(map()) :: Phoenix.LiveView.Rendered.t()
   def auto_recharge_card(assigns) do
-    assigns = assign(assigns, :min_topup_dollars, FluxVale.Billing.min_topup_dollars())
+    assigns =
+      assigns
+      |> assign(:min_topup_dollars, FluxVale.Billing.min_topup_dollars())
+      |> assign(
+        threshold_exact?: rem(assigns.setting.threshold_cents, 100) != 0,
+        amount_exact?: rem(assigns.setting.amount_cents, 100) != 0
+      )
 
     ~H"""
     <.card id="auto-recharge-card" class="space-y-4" data-testid="auto-recharge-card">
@@ -181,8 +193,12 @@ defmodule FluxValeWeb.BillingComponents do
         </p>
       </div>
 
+      <%!-- The owner gate rides the CARD, not just the mount: a crafted
+          validate event re-assigns the form, and this :if is what keeps
+          a member's view formless under it (the domain seam stays the
+          authority for the write itself). --%>
       <.form
-        :if={@form}
+        :if={@owner? and @form}
         for={@form}
         id="auto-recharge-form"
         phx-change="validate-auto-recharge"
@@ -201,24 +217,44 @@ defmodule FluxValeWeb.BillingComponents do
           data-testid="auto-recharge-mode"
         />
         <div class="grid gap-4 min-[560px]:grid-cols-2">
-          <.input
-            field={@form[:threshold_dollars]}
-            type="number"
-            label="Remind below (USD)"
-            min="1"
-            step="1"
-            required
-            data-testid="auto-recharge-threshold"
-          />
-          <.input
-            field={@form[:amount_dollars]}
-            type="number"
-            label="Top-up amount (USD)"
-            min={@min_topup_dollars}
-            step="1"
-            required
-            data-testid="auto-recharge-amount-input"
-          />
+          <div>
+            <.input
+              field={@form[:threshold_dollars]}
+              type="number"
+              label="Remind below (USD)"
+              min="1"
+              step="1"
+              required
+              data-testid="auto-recharge-threshold"
+            />
+            <p
+              :if={@threshold_exact? and @form[:threshold_dollars].value in [nil, ""]}
+              class="mt-1 text-xs text-ink-subtle"
+              data-testid="auto-recharge-threshold-hint"
+            >
+              Stored: {Pricing.format_usd_whole_or_exact(@setting.threshold_cents)} — enter a whole-dollar
+              amount to update.
+            </p>
+          </div>
+          <div>
+            <.input
+              field={@form[:amount_dollars]}
+              type="number"
+              label="Top-up amount (USD)"
+              min={@min_topup_dollars}
+              step="1"
+              required
+              data-testid="auto-recharge-amount-input"
+            />
+            <p
+              :if={@amount_exact? and @form[:amount_dollars].value in [nil, ""]}
+              class="mt-1 text-xs text-ink-subtle"
+              data-testid="auto-recharge-amount-hint"
+            >
+              Stored: {Pricing.format_usd_whole_or_exact(@setting.amount_cents)} — enter a
+              whole-dollar amount to update.
+            </p>
+          </div>
         </div>
         <div class="flex justify-end">
           <.button type="submit" size="sm" id="auto-recharge-save" data-testid="auto-recharge-save">

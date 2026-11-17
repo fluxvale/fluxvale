@@ -16,7 +16,7 @@ defmodule FluxVale.PricingTest do
       assert Pricing.format_usd_whole_or_exact(0) == "$0"
     end
 
-    # A div(…, 100) threshold is honest only when the cents are: 550¢
+    # A div(…, 100) threshold is honest only when the cents are: 549¢
     # fires at $5.49 and must not read "$5".
     test "non-round cents render exact, never a floored dollar" do
       assert Pricing.format_usd_whole_or_exact(549) == "$5.49"
