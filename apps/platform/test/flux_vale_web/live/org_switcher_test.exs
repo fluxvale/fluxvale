@@ -172,7 +172,9 @@ defmodule FluxValeWeb.OrgSwitcherTest do
       authorize?: false
     )
 
-    conn = SessionHelpers.sign_in(conn, user)
+    # the #831 gate: a signed-in `/` render models a past-onboarding account
+    onboarded = SessionHelpers.onboarded!(user)
+    conn = SessionHelpers.sign_in(conn, onboarded)
     html = dashboard_html(conn)
 
     assert [row] = panel_rows(html)
@@ -451,7 +453,9 @@ defmodule FluxValeWeb.OrgSwitcherTest do
     assert canonical.id == personal.id
     assert canonical.id != legacy.id
 
-    conn = SessionHelpers.sign_in(conn, user)
+    # the #831 gate: a signed-in `/` render models a past-onboarding account
+    onboarded = SessionHelpers.onboarded!(user)
+    conn = SessionHelpers.sign_in(conn, onboarded)
 
     # The dashboard's switcher labels the canonical org "Personal" —
     # the org billing resolves; the pill and panel row name one org.

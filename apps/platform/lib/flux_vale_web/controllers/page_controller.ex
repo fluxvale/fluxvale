@@ -19,7 +19,7 @@ defmodule FluxValeWeb.PageController do
   def home(conn, _params) do
     case conn.assigns.current_user do
       nil -> landing(conn)
-      _user -> dashboard(conn)
+      user -> dashboard(conn, user)
     end
   end
 
@@ -63,7 +63,19 @@ defmodule FluxValeWeb.PageController do
   # during a DB outage.
   defp price_floor_cents, do: FluxVale.Pricing.from_price_cents()
 
-  defp dashboard(conn) do
+  # #831 D1: the gate is this arm, one nudge deep — a nil stamp (the
+  # flow never walked) redirects to /onboarding; everything else about
+  # the app stays ungated (no on_mount interception, deep links stay
+  # reachable). The attribute rides the resolved struct — no extra
+  # load. Once the flow stamps :finish_onboarding, this arm renders the
+  # dashboard as before, forever.
+  defp dashboard(conn, user)
+
+  defp dashboard(conn, %{onboarded_at: nil} = _user) do
+    redirect(conn, to: ~p"/onboarding")
+  end
+
+  defp dashboard(conn, _user) do
     conn
     |> assign(:page_title, "FluxVale Dashboard")
     |> assign(:page_description, "Your instances, balance, and runway at a glance.")

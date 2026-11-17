@@ -245,7 +245,9 @@ defmodule FluxValeWeb.Components.UserMenuTest do
     # the surfaces read the live primary; there is no mirror to drift.
     setup %{conn: conn} do
       user = SessionHelpers.user!()
-      conn = SessionHelpers.sign_in(conn, user)
+      # the #831 gate: a signed-in `/` render models a past-onboarding account
+      onboarded = SessionHelpers.onboarded!(user)
+      conn = SessionHelpers.sign_in(conn, onboarded)
 
       mirror = to_string(AccountsFixtures.primary_address!(user))
       promoted = "promoted-#{System.unique_integer([:positive])}@fluxvale.test"
@@ -298,7 +300,9 @@ defmodule FluxValeWeb.Components.UserMenuTest do
     # re-checks), a member's DOM carries no row at all — app chrome (/),
     # public chrome (/catalog), and the landing's own menu (/about).
     test "renders for a platform admin on every chrome", %{conn: conn} do
-      conn = SessionHelpers.sign_in(conn, AccountsFixtures.platform_admin!())
+      # the #831 gate: a signed-in `/` render models a past-onboarding account
+      admin = SessionHelpers.onboarded!(AccountsFixtures.platform_admin!())
+      conn = SessionHelpers.sign_in(conn, admin)
 
       for path <- [~p"/", ~p"/catalog", ~p"/about"] do
         link =
@@ -314,7 +318,9 @@ defmodule FluxValeWeb.Components.UserMenuTest do
     end
 
     test "never renders for a member, on any chrome", %{conn: conn} do
-      conn = SessionHelpers.sign_in(conn, SessionHelpers.user!())
+      # the #831 gate: a signed-in `/` render models a past-onboarding account
+      member = SessionHelpers.onboarded!(SessionHelpers.user!())
+      conn = SessionHelpers.sign_in(conn, member)
 
       for path <- [~p"/", ~p"/catalog", ~p"/about"] do
         links =

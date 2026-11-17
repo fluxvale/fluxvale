@@ -14,6 +14,18 @@ defmodule FluxVale.TestSupport.SessionHelpers do
     User.create!("web-#{System.unique_integer()}@fluxvale.com", %{}, authorize?: false)
   end
 
+  # The past-onboarding account (#831): the flow's show-once stamp rides
+  # the real :finish_onboarding action (owner actor) so the suite fails
+  # loudly if that contract moves. Signed-in surface tests model an
+  # account that already walked the flow — every `/` render in the
+  # suite asserts the dashboard, not the gate bounce.
+  @spec onboarded!(FluxVale.Identity.User.t()) :: FluxVale.Identity.User.t()
+  def onboarded!(%User{} = user) do
+    user
+    |> Ash.Changeset.for_update(:finish_onboarding, %{})
+    |> Ash.update!(actor: user)
+  end
+
   @spec sign_in(Plug.Conn.t(), FluxVale.Identity.User.t()) :: Plug.Conn.t()
   def sign_in(conn, user) do
     {:ok, token, _claims} = Jwt.token_for_user(user)
@@ -25,7 +37,7 @@ defmodule FluxVale.TestSupport.SessionHelpers do
 
   @spec user_with_session(Plug.Conn.t()) :: {FluxVale.Identity.User.t(), Plug.Conn.t()}
   def user_with_session(conn) do
-    user = user!()
+    user = onboarded!(user!())
     {user, sign_in(conn, user)}
   end
 end

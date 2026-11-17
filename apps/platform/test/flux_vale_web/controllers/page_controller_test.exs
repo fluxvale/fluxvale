@@ -299,6 +299,22 @@ defmodule FluxValeWeb.PageControllerTest do
     assert conn.assigns[:page_title] == "FluxVale Dashboard"
   end
 
+  # #831 D1: the gate is the dashboard arm of home/2, one nudge deep —
+  # a nil stamp (the flow never walked) redirects to /onboarding; no
+  # plug gates deep links. The stamped arm is the test above: every
+  # session conn the helpers mint carries the :finish_onboarding stamp,
+  # so the dashboard render keeps passing unchanged.
+  test "GET / with an un-onboarded session redirects to the onboarding flow (#831)", %{
+    conn: conn
+  } do
+    user = SessionHelpers.user!()
+    session_conn = SessionHelpers.sign_in(conn, user)
+
+    conn = get(session_conn, ~p"/")
+
+    assert redirected_to(conn) == ~p"/onboarding"
+  end
+
   test "GET /about renders the landing for anonymous visitors, canonical to /", %{conn: conn} do
     conn = get(conn, ~p"/about")
     html = html_response(conn, 200)
