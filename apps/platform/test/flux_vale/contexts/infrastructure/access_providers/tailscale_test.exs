@@ -1461,6 +1461,35 @@ defmodule FluxVale.Infrastructure.AccessProviders.TailscaleTest do
       refute_received {:keys_delete, @new_key_id}
     end
 
+    # A LOST Deployment is the reconnect-recovery case (#847 review):
+    # restart is a GET→apply that 404s on a missing object — the
+    # credential is already written, so the objects re-apply instead
+    # (the :provisioning arm's same move).
+    test "a missing Deployment re-applies the objects instead of 404ing forever", %{org: org} do
+      gateway = gateway_row!(org)
+      drain()
+      parent = self()
+
+      stub_secret_reads(gateway, not_found())
+      stub_mint(parent)
+      stub_revoke(parent)
+
+      expect(Deployment, :restart, fn _kc, _ns, _name, _opts ->
+        {:error, Error.from_response({:ok, %{status: 404, body: %{}}})}
+      end)
+
+      expect(Deployment, :apply_manifest, fn _kc, _manifest ->
+        send(parent, {:deployment_apply, :reapplied})
+        {:ok, %{}}
+      end)
+
+      assert :ok = Tailscale.reconnect_minted(gateway)
+
+      assert_received {:keys_create, @api_token, _opts}
+      assert_received {:secret_create, _ns, _credential, %{"FV_MINTED" => "1"}}
+      assert_received {:deployment_apply, :reapplied}
+    end
+
     # The catch-all arm is ALSO :needs_attention's — the exact state the
     # reconnect recovery exists for (the behaviour doc names it).
     test "a :needs_attention row takes the restart arm", %{org: org} do
@@ -1763,11 +1792,15 @@ defmodule FluxVale.Infrastructure.AccessProviders.TailscaleTest do
     end
   end
 
-  # First index of a matching message, for the order pins; nil (and a
-  # failed < comparison) when absent — the occurrence itself is pinned
-  # by the any?/refute assertions that ride along.
-  defp index_of(calls, pattern) when is_function(pattern, 1),
-    do: Enum.find_index(calls, pattern)
+  # First index of a matching message, for the order pins. Absence is a
+  # FAILURE, not nil: term ordering makes `integer < nil` true, so a
+  # nil index would silently pass every order assertion (#847 review).
+  defp index_of(calls, pattern) do
+    case Enum.find_index(calls, pattern) do
+      nil -> flunk("expected a matching event in the drained trace")
+      index -> index
+    end
+  end
 
   # ------------------------------------------------------------------
   # Mint-lane helpers (#836, slice S2)

@@ -607,15 +607,27 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale do
     # under the new key with the persisted state, and the Secret update
     # alone would not re-read.
     with {:ok, kubeconfig} <- kubeconfig(),
-         :ok <- mint_and_write_credential(kubeconfig, access_namespace(), gateway),
-         {:ok, _deployment} <-
-           Deployment.restart(
+         :ok <- mint_and_write_credential(kubeconfig, access_namespace(), gateway) do
+      case Deployment.restart(
              kubeconfig,
              access_namespace(),
              deployment_name(gateway),
              strategy: @gateway_rollout_strategy
            ) do
-      :ok
+        {:ok, _deployment} ->
+          :ok
+
+        # A LOST Deployment is the reconnect-recovery case itself
+        # (#847 review): the observer steers a row whose objects were
+        # deleted to "reconnect", and a restart is a GET→apply that
+        # 404s on a missing object. The credential is already written —
+        # re-apply the objects, the :provisioning arm's same move.
+        {:error, %Error{reason: :not_found}} ->
+          apply_gateway_objects(kubeconfig, access_namespace(), gateway)
+
+        {:error, _reason} = error ->
+          error
+      end
     end
   end
 
