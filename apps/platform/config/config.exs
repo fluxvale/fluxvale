@@ -276,10 +276,15 @@ config :flux_vale,
   # wider slice, §12) and the zones ConfigMap the S4 renderer writes.
   # `tailscale_api` is the API surface claims are written through
   # (§5's token arrives pasted through SetAccessApiToken, never env).
+  # The enrollment keys (#836, plan R1) ride the same surface: the tag a
+  # minted join key carries (tagOwners must own it or the join fails)
+  # and its TTL. Defaults live in the provider — config is override.
   access_edge: nil,
   access_dns: nil,
   tailscale_api: [
-    base_url: "https://api.tailscale.com"
+    base_url: "https://api.tailscale.com",
+    enrollment_tag: "tag:fluxvale-gateway",
+    enrollment_ttl_seconds: 3600
   ],
   # One active payment provider (ADR-0029). Per-provider webhook routes
   # and config blocks make the gateway a one-module swap. Polar is the

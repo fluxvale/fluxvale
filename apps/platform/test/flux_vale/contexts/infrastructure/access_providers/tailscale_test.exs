@@ -19,6 +19,7 @@ defmodule FluxVale.Infrastructure.AccessProviders.TailscaleTest do
   alias FluxVale.Infrastructure
   alias FluxVale.Infrastructure.AccessGateway
   alias FluxVale.Infrastructure.AccessProviders.Tailscale
+  alias FluxVale.Infrastructure.AccessProviders.Tailscale.ApiClient
   alias FluxVale.Infrastructure.AccessRoute
   alias FluxVale.Infrastructure.Operations.InstanceK8s
   alias FluxVale.TestSupport.AccessFixtures
@@ -26,6 +27,15 @@ defmodule FluxVale.Infrastructure.AccessProviders.TailscaleTest do
   alias FluxVale.TestSupport.InstanceFixtures
 
   require Ash.Query
+
+  # The mint lane's fixtures (#836): the API token lives in the
+  # api-credential Secret; minted key values carry the id in their own
+  # prefix (`tskey-auth-<keyid>-<rest>`), which is what the revoke parses.
+  @api_token "tskey-api-test-9999"
+  @old_key_id "kold111"
+  @old_key "tskey-auth-#{@old_key_id}-oldsecretvalue"
+  @new_key_id "knew222"
+  @new_key "tskey-auth-#{@new_key_id}-newsecretvalue"
 
   setup do
     # The provider resolves the kubeconfig through the single Cluster row
@@ -1161,6 +1171,422 @@ defmodule FluxVale.Infrastructure.AccessProviders.TailscaleTest do
   end
 
   # ------------------------------------------------------------------
+  # The minted enrollment key (#836, slice S2)
+  # ------------------------------------------------------------------
+
+  describe "provision_gateway_minted/1" do
+    test "mints the R1 shape, writes the marked Secret, applies the objects, returns the ref", %{
+      org: org
+    } do
+      gateway = gateway_row!(org)
+      drain()
+      parent = self()
+
+      # A fresh create row: no credential Secret to supersede (404),
+      # and the API token already stored.
+      stub_secret_reads(gateway, not_found())
+      stub_mint(parent)
+      stub_revoke(parent)
+
+      assert {:ok, %{credential_secret_ref: ref}} = Tailscale.provision_gateway_minted(gateway)
+      assert ref == name("credential", gateway)
+
+      # The R1 shape, as it crosses the client seam: tag/TTL are the
+      # config policy, the description carries the hostname only.
+      assert_received {:keys_create, @api_token, opts}
+      assert Keyword.fetch!(opts, :tag) == "tag:fluxvale-gateway"
+      assert Keyword.fetch!(opts, :ttl_seconds) == 3600
+      assert Keyword.fetch!(opts, :description) == "fluxvale gateway #{gateway.hostname}"
+
+      # The credential Secret carries the marker beside the key — and
+      # the key value's only OTHER existence is the mint response.
+      assert_received {:secret_create, _ns, credential, data}
+      assert credential == name("credential", gateway)
+      assert data == %{"TS_AUTHKEY" => @new_key, "FV_MINTED" => "1"}
+
+      calls = drain()
+
+      assert Enum.any?(calls, fn
+               {:pvc_create, _ns, claim, _spec} -> claim == name("state", gateway)
+               _other -> false
+             end)
+
+      assert Enum.any?(calls, &match?({:deployment_apply, _manifest}, &1))
+    end
+
+    test "no stored API token is refused before any mint", %{org: org} do
+      gateway = gateway_row!(org)
+      drain()
+
+      stub(Secret, :get_data, fn _kc, _ns, _name -> {:error, not_found()} end)
+      stub(ApiClient, :keys_create, fn _token, _opts -> flunk("no mint without a token") end)
+
+      assert {:error, :no_api_token} = Tailscale.provision_gateway_minted(gateway)
+    end
+
+    test "a keys_create error passes through untranslated", %{org: org} do
+      gateway = gateway_row!(org)
+      drain()
+
+      stub_secret_reads(gateway, not_found())
+      stub(ApiClient, :keys_create, fn _token, _opts -> {:error, :forbidden} end)
+      reject(ApiClient, :keys_delete, 2)
+      reject(Secret, :create, 4)
+
+      assert {:error, :forbidden} = Tailscale.provision_gateway_minted(gateway)
+    end
+
+    test "a Secret-write failure after the mint revokes the fresh key from memory", %{
+      org: org
+    } do
+      gateway = gateway_row!(org)
+      drain()
+      parent = self()
+
+      stub_secret_reads(gateway, not_found())
+      stub_mint(parent)
+      stub_revoke(parent)
+
+      expect(Secret, :create, fn _kc, _ns, _name, _data ->
+        {:error, Error.from_response({:ok, %{status: 500, body: %{}}})}
+      end)
+
+      assert {:error, %Error{}} = Tailscale.provision_gateway_minted(gateway)
+
+      # The marker never landed, so the stored-key revoke could never
+      # find this key — the in-memory revoke used the held id.
+      assert_received {:keys_delete, @new_key_id}
+    end
+
+    test "the in-memory revoke is best-effort — its own failure never masks the write error", %{
+      org: org
+    } do
+      gateway = gateway_row!(org)
+      drain()
+      parent = self()
+
+      stub_secret_reads(gateway, not_found())
+      stub_mint(parent)
+      stub_revoke(parent, {:error, :network_error})
+
+      expect(Secret, :create, fn _kc, _ns, _name, _data ->
+        {:error, Error.from_response({:ok, %{status: 500, body: %{}}})}
+      end)
+
+      assert {:error, %Error{}} = Tailscale.provision_gateway_minted(gateway)
+      assert_received {:keys_delete, @new_key_id}
+    end
+
+    test "a failure AFTER the credential Secret landed does not revoke from memory", %{
+      org: org
+    } do
+      gateway = gateway_row!(org)
+      drain()
+      parent = self()
+
+      stub_secret_reads(gateway, not_found())
+      stub_mint(parent)
+      reject(ApiClient, :keys_delete, 2)
+
+      # The credential write succeeds (marker in place); the serve-config
+      # write fails. The Secret now records the key, so
+      # cleanup_failed_provision's revoke can find it — no in-memory
+      # revoke here.
+      serve_name = name("serve-config", gateway)
+
+      stub(Secret, :create, fn _kc, _ns, secret_name, data ->
+        if secret_name == serve_name do
+          {:error, Error.from_response({:ok, %{status: 500, body: %{}}})}
+        else
+          send(parent, {:secret_create, "ns", secret_name, data})
+          {:ok, %{}}
+        end
+      end)
+
+      assert {:error, %Error{}} = Tailscale.provision_gateway_minted(gateway)
+
+      assert_received {:secret_create, _ns, credential, %{"FV_MINTED" => "1"}}
+      assert credential == name("credential", gateway)
+    end
+
+    test "the custody invariant: no log line carries the minted key value", %{org: org} do
+      gateway = gateway_row!(org)
+      drain()
+      parent = self()
+
+      stub_secret_reads(gateway, not_found())
+      stub_mint(parent)
+      stub_revoke(parent, {:error, :network_error})
+
+      # The noisiest mint exit: the credential write fails, so the
+      # in-memory revoke fires its :warning ops trail (the test env's
+      # level). The happy path's audit line is :info — never lifted
+      # here: ExUnit docs rule mutating Logger level from async tests
+      # undetermined, and the invariant below holds at any level.
+      expect(Secret, :create, fn _kc, _ns, _name, _data ->
+        {:error, Error.from_response({:ok, %{status: 500, body: %{}}})}
+      end)
+
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          assert {:error, %Error{}} = Tailscale.provision_gateway_minted(gateway)
+        end)
+
+      # The ops trail carries the ID, never the value.
+      assert log =~ "in-memory revoke failed"
+      assert log =~ @new_key_id
+      refute log =~ @new_key
+    end
+  end
+
+  describe "reconnect_minted/1" do
+    test "an :active row: supersede-revoke of the marked key FIRST, then mint, write, restart", %{
+      org: org
+    } do
+      gateway = gateway_row!(org)
+      drain()
+      parent = self()
+
+      stub_secret_reads(gateway, {:ok, %{"FV_MINTED" => "1", "TS_AUTHKEY" => @old_key}})
+      stub_mint(parent)
+      stub_revoke(parent)
+
+      expect(Deployment, :restart, fn _kc, _ns, deployment, opts ->
+        assert deployment == name("gateway", gateway)
+        assert opts[:strategy] == %{"type" => "Recreate"}
+        send(parent, {:restarted, deployment})
+        {:ok, %{}}
+      end)
+
+      assert :ok = Tailscale.reconnect_minted(gateway)
+
+      # The ruled order (R1): the prior minted key dies before the new
+      # one is minted.
+      assert_received {:keys_delete, @old_key_id}
+      assert_received {:keys_create, @api_token, _opts}
+
+      assert_received {:secret_create, _ns, credential, data}
+      assert credential == name("credential", gateway)
+      assert data == %{"TS_AUTHKEY" => @new_key, "FV_MINTED" => "1"}
+
+      assert_received {:restarted, _}
+    end
+
+    test "a :provisioning row re-applies the objects — no restart", %{org: org} do
+      gateway = gateway_row!(org, :provisioning)
+      drain()
+      parent = self()
+
+      stub_secret_reads(gateway, not_found())
+      stub_mint(parent)
+      stub_revoke(parent)
+      reject(Deployment, :restart, 4)
+
+      assert :ok = Tailscale.reconnect_minted(gateway)
+
+      assert_received {:keys_create, @api_token, _opts}
+      assert_received {:secret_create, _ns, _credential, %{"FV_MINTED" => "1"}}
+      assert_received {:deployment_apply, _manifest}
+    end
+
+    test ":suspended and :destroying are refused — R2 rules mint-on-suspended out", %{org: org} do
+      stub(ApiClient, :keys_create, fn _token, _opts -> flunk("no mint on a parked row") end)
+
+      suspended = gateway_row!(org, :suspended)
+      assert {:error, :invalid_gateway_state} = Tailscale.reconnect_minted(suspended)
+
+      # One gateway per org (unique_organization) — the :destroying row
+      # needs its own org.
+      {other_org, _owner} = BillingFixtures.grant_free_org!()
+      destroying = gateway_row!(other_org, :destroying)
+      assert {:error, :invalid_gateway_state} = Tailscale.reconnect_minted(destroying)
+    end
+
+    test "a write failure after the supersede revokes the fresh key too", %{org: org} do
+      gateway = gateway_row!(org)
+      drain()
+      parent = self()
+
+      stub_secret_reads(gateway, {:ok, %{"FV_MINTED" => "1", "TS_AUTHKEY" => @old_key}})
+      stub_mint(parent)
+      stub_revoke(parent)
+
+      expect(Secret, :create, fn _kc, _ns, _name, _data ->
+        {:error, Error.from_response({:ok, %{status: 500, body: %{}}})}
+      end)
+
+      reject(Deployment, :restart, 4)
+
+      assert {:error, %Error{}} = Tailscale.reconnect_minted(gateway)
+
+      # Both revokes ran: the superseded key, then the fresh one.
+      assert_received {:keys_delete, @old_key_id}
+      assert_received {:keys_delete, @new_key_id}
+    end
+  end
+
+  describe "update_credential/2 — the paste path's pre-write revoke" do
+    test "a paste over a marked key revokes it FIRST, and writes TS_AUTHKEY alone", %{org: org} do
+      gateway = gateway_row!(org)
+      drain()
+      parent = self()
+
+      stub_secret_reads(gateway, {:ok, %{"FV_MINTED" => "1", "TS_AUTHKEY" => @old_key}})
+      stub_revoke(parent)
+
+      expect(Deployment, :restart, fn _kc, _ns, _name, _opts -> {:ok, %{}} end)
+
+      assert :ok = Tailscale.update_credential(gateway, "tskey-pasted")
+
+      assert_received {:keys_delete, @old_key_id}
+
+      assert_received {:secret_create, _ns, credential, data}
+      assert credential == name("credential", gateway)
+
+      # The paste writes the key ALONE — the SSA replace clears the
+      # marker (a pasted key is never ours).
+      assert data == %{"TS_AUTHKEY" => "tskey-pasted"}
+    end
+
+    test "a paste over an unmarked key revokes nothing", %{org: org} do
+      gateway = gateway_row!(org)
+      drain()
+
+      stub_secret_reads(gateway, {:ok, %{"TS_AUTHKEY" => "tskey"}})
+      reject(ApiClient, :keys_delete, 2)
+
+      expect(Deployment, :restart, fn _kc, _ns, _name, _opts -> {:ok, %{}} end)
+
+      assert :ok = Tailscale.update_credential(gateway, "tskey-pasted")
+      assert_received {:secret_create, _ns, _credential, %{"TS_AUTHKEY" => "tskey-pasted"}}
+    end
+  end
+
+  describe "revoke_enrollment_credential/1" do
+    test "skips an unmarked credential — a pasted key is never ours", %{org: org} do
+      gateway = gateway_row!(org)
+      drain()
+
+      stub_secret_reads(gateway, {:ok, %{"TS_AUTHKEY" => "tskey"}})
+      reject(ApiClient, :keys_delete, 2)
+
+      assert :ok = Tailscale.revoke_enrollment_credential(gateway)
+    end
+
+    test "parses the id from the value's prefix and deletes it", %{org: org} do
+      gateway = gateway_row!(org)
+      drain()
+      parent = self()
+
+      stub_secret_reads(gateway, {:ok, %{"FV_MINTED" => "1", "TS_AUTHKEY" => @old_key}})
+      stub_revoke(parent)
+
+      assert :ok = Tailscale.revoke_enrollment_credential(gateway)
+      assert_received {:keys_delete, @old_key_id}
+    end
+
+    test "tolerates a revoke API failure — log-and-:ok", %{org: org} do
+      gateway = gateway_row!(org)
+      drain()
+      parent = self()
+
+      stub_secret_reads(gateway, {:ok, %{"FV_MINTED" => "1", "TS_AUTHKEY" => @old_key}})
+      stub_revoke(parent, {:error, :network_error})
+
+      assert :ok = Tailscale.revoke_enrollment_credential(gateway)
+      assert_received {:keys_delete, @old_key_id}
+    end
+
+    test "tolerates a missing API token", %{org: org} do
+      gateway = gateway_row!(org)
+      drain()
+
+      stub_secret_reads(
+        gateway,
+        {:ok, %{"FV_MINTED" => "1", "TS_AUTHKEY" => @old_key}},
+        {:error, not_found()}
+      )
+
+      reject(ApiClient, :keys_delete, 2)
+
+      assert :ok = Tailscale.revoke_enrollment_credential(gateway)
+    end
+
+    test "a marked credential with no parseable id stands down", %{org: org} do
+      gateway = gateway_row!(org)
+      drain()
+
+      # Prefix but no id segment, then no prefix at all — both unparseable.
+      stub_secret_reads(gateway, {:ok, %{"FV_MINTED" => "1", "TS_AUTHKEY" => "tskey-auth-bare"}})
+      assert :ok = Tailscale.revoke_enrollment_credential(gateway)
+
+      stub_secret_reads(gateway, {:ok, %{"FV_MINTED" => "1", "TS_AUTHKEY" => "no-prefix-at-all"}})
+      assert :ok = Tailscale.revoke_enrollment_credential(gateway)
+
+      reject(ApiClient, :keys_delete, 2)
+    end
+
+    test "no cluster is log-and-:ok — best-effort by contract", %{org: org} do
+      gateway = gateway_row!(org)
+
+      clusters = Ash.read!(FluxVale.Infrastructure.Cluster, authorize?: false)
+      Enum.each(clusters, &Ash.destroy!(&1, authorize?: false))
+
+      assert :ok = Tailscale.revoke_enrollment_credential(gateway)
+    end
+  end
+
+  describe "cleanup_failed_provision/1 — the minted-key revoke rides first" do
+    test "revokes a marked key BEFORE deleting the Secrets (the token dies with them)", %{
+      org: org
+    } do
+      gateway = gateway_row!(org)
+      drain()
+      parent = self()
+
+      stub_secret_reads(gateway, {:ok, %{"FV_MINTED" => "1", "TS_AUTHKEY" => @old_key}})
+      stub_revoke(parent)
+
+      stub(Secret, :delete, fn _kc, _ns, secret_name ->
+        send(parent, {:deleted, secret_name})
+        :ok
+      end)
+
+      stub(PersistentVolumeClaim, :delete, fn _kc, _ns, _claim -> :ok end)
+
+      assert :ok = Tailscale.cleanup_failed_provision(gateway)
+
+      assert_received {:keys_delete, @old_key_id}
+      assert_received {:deleted, _first}
+    end
+  end
+
+  describe "teardown_gateway/1 — the minted-key revoke rides first" do
+    test "revokes a marked key BEFORE deleting the Secrets", %{org: org} do
+      gateway = gateway_row!(org)
+      drain()
+      parent = self()
+
+      stub_secret_reads(gateway, {:ok, %{"FV_MINTED" => "1", "TS_AUTHKEY" => @old_key}})
+      stub_revoke(parent)
+
+      stub(Deployment, :delete, fn _kc, _ns, _name -> :ok end)
+
+      stub(Secret, :delete, fn _kc, _ns, secret_name ->
+        send(parent, {:deleted, secret_name})
+        :ok
+      end)
+
+      stub(PersistentVolumeClaim, :delete, fn _kc, _ns, _claim -> :ok end)
+
+      assert :ok = Tailscale.teardown_gateway(gateway)
+
+      assert_received {:keys_delete, @old_key_id}
+      assert_received {:deleted, _first}
+    end
+  end
+
+  # ------------------------------------------------------------------
   # Helpers
   # ------------------------------------------------------------------
 
@@ -1249,4 +1675,41 @@ defmodule FluxVale.Infrastructure.AccessProviders.TailscaleTest do
       0 -> Enum.reverse(acc)
     end
   end
+
+  # ------------------------------------------------------------------
+  # Mint-lane helpers (#836, slice S2)
+  # ------------------------------------------------------------------
+
+  # Dispatching Secret reads: the api-credential Secret holds the token,
+  # the credential Secret is whatever the test plants (the marker is the
+  # revoke's gate). `token_read` overridable for the missing-token arms.
+  defp stub_secret_reads(
+         gateway,
+         credential_read,
+         token_read \\ {:ok, %{"TS_API_TOKEN" => @api_token}}
+       ) do
+    stub(Secret, :get_data, fn _kc, _ns, secret_name ->
+      cond do
+        secret_name == name("api-credential", gateway) -> token_read
+        secret_name == name("credential", gateway) -> credential_read
+        true -> {:ok, %{}}
+      end
+    end)
+  end
+
+  defp stub_mint(parent) do
+    stub(ApiClient, :keys_create, fn token, opts ->
+      send(parent, {:keys_create, token, opts})
+      {:ok, %{id: @new_key_id, key: @new_key}}
+    end)
+  end
+
+  defp stub_revoke(parent, result \\ :ok) do
+    stub(ApiClient, :keys_delete, fn _token, key_id ->
+      send(parent, {:keys_delete, key_id})
+      result
+    end)
+  end
+
+  defp not_found, do: Error.from_response({:ok, %{status: 404, body: %{}}})
 end
