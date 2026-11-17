@@ -119,6 +119,20 @@ defmodule FluxVale.Identity.User do
       authorize_if(expr(id == ^actor(:id)))
       authorize_if(FluxVale.Checks.ActorIsPlatformAdmin)
     end
+
+    # The onboarding stamp (#831): owner-only, NO admin arm — onboarding
+    # is personal. :set_username grants platform admins the support path
+    # (renaming on a user's behalf); stamping another user's first-run
+    # would silently skip their one-time flow — the exact thing #831
+    # guarantees — so nothing grants it here: a plain admin session still
+    # rides the resource-level #644 blanket past this policy (doctrine,
+    # pinned in tests), while a PAT caller — the blanket standing down at
+    # the machine API — meets this policy alone and answers Forbidden on
+    # anyone else's record.
+    policy action(:finish_onboarding) do
+      description("Users stamp their own onboarding done")
+      authorize_if(expr(id == ^actor(:id)))
+    end
   end
 
   json_api do
@@ -288,6 +302,19 @@ defmodule FluxVale.Identity.User do
     attribute :invite_expires_at, :utc_datetime do
       public?(false)
     end
+
+    # The #831 first-run stamp: set ONCE by the /onboarding flow (W2) on
+    # finish OR skip — one bit, no per-step state, the flow's show-once
+    # guarantee. Nil for every existing account, seeds included — that is
+    # the point (Terence's derived admin-2 walks the flow). Amends #765's
+    # no-stored-flag stance by name (the plan's D5): that stance governed
+    # the /agent PAGE's dismissal, which stays true; the FLOW's show-once
+    # needs one persisted bit. Private like the invite stamps: the
+    # machine-API projections (/me's pinned field list, MCP) are
+    # explicit-field builders and must stay unaware of it.
+    attribute :onboarded_at, :utc_datetime_usec do
+      public?(false)
+    end
   end
 
   relationships do
@@ -367,6 +394,29 @@ defmodule FluxVale.Identity.User do
       accept([:username])
       require_atomic?(false)
       validate(ValidUsername, where: changing(:username))
+    end
+
+    # The onboarding stamp (#831 W1): the W2 flow's finish and skip both
+    # land here. NO input — the stamp is server-set, and "set once" is
+    # mechanical, not convention: the keep-first expr is data-layer
+    # rendered against the ROW (the :withdraw_invite posture), so repeat
+    # calls and stale-snapshot callers keep the ORIGINAL stamp.
+    # require_atomic? false — the record-update flow answers loudly on a
+    # mismatched target, never a silent zero-row success (the :reinvite
+    # posture).
+    update :finish_onboarding do
+      description("Stamp the account's first-run onboarding as done")
+      accept([])
+
+      # credo:disable-for-lines:6 Credo.Check.Readability.ParenthesesInCondition
+      change(
+        atomic_update(
+          :onboarded_at,
+          expr(if(is_nil(onboarded_at), now(), onboarded_at))
+        )
+      )
+
+      require_atomic?(false)
     end
 
     read :get_by_subject do
