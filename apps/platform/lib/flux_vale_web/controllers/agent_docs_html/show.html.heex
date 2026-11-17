@@ -1,7 +1,8 @@
-<%!-- The public agent handoff (#765): the same prompt the `/agent`
-panel and `/llms.txt` render, with the org left as a placeholder. The
+<%!-- The impersonal public guide (#817): what the agent setup does,
+no prompt and no client snippets — those render only on the signed-in
+surfaces, the `/agent` panel and the dashboard's first-run modal. The
 docs reading surface (ADR-0044 §5) — sidebar left, article column
-centered; zero JS, so no copy button here (the panel has one). --%>
+centered. --%>
 <Layouts.public flash={@flash} current_user={@current_user} return_to={@return_to}>
   <div class="docs docs-with-nav">
     <FluxValeWeb.DocsHTML.sidebar sections={@sections} active_agent_docs={true} />
@@ -15,9 +16,11 @@ centered; zero JS, so no copy button here (the panel has one). --%>
         </p>
         <h1 class="docs-title text-balance">Set up with your agent</h1>
         <p class="docs-standfirst">
-          One prompt finishes setup over the FluxVale MCP server: check the wallet,
-          propose an app with its cost, deploy it with your env vars, and hand back
-          the URL. Paste it into Claude Code, Cursor, VS Code, or any MCP client.
+          One copyable prompt drives an agent through a FluxVale first run over
+          the MCP server: check the wallet, propose an app with its cost, deploy
+          it with your env vars, and hand back the URL. Claude Code, Cursor,
+          VS Code, or any MCP client speaks it. This page explains the setup —
+          the personalized prompt lives behind sign-in.
         </p>
       </header>
 
@@ -25,56 +28,52 @@ centered; zero JS, so no copy button here (the panel has one). --%>
         <p :if={@current_user}>
           Signed in?
           <a href={~p"/agent"} data-testid="agent-docs-personalized-link">Open your personalized panel</a>
-        </p><h2>The prompt</h2>
-        <p>
-          Replace <span class="font-mono">&lt;your-org-slug&gt;</span> with your org if
-          your client can't discover it from <span class="font-mono">whoami</span>.
-          The prompt names the API base and MCP server, so it works as-is on this
-          environment.
+        </p>
+        <p :if={is_nil(@current_user)}>
+          Have an account?
+          <a href={@sign_in_path} data-testid="agent-docs-sign-in-link">Sign in to get your prompt</a>
+          — you land back on the personalized panel.
         </p>
 
-        <pre
-          class="whitespace-pre-wrap break-words"
-          data-testid="agent-docs-prompt"
-          phx-no-curly-interpolation
-        ><code><%= @prompt %></code></pre>
-
-        <h2>Connect a client</h2>
-        <p data-testid="agent-docs-snippet-note">{@snippet_note}</p>
-
-        <div :for={client <- @clients} class="mt-6">
-          <h3>{client.title}</h3>
-          <pre
-            class={["whitespace-pre-wrap", client.wrap]}
-            data-testid={"agent-docs-client-#{client.key}"}
-            phx-no-curly-interpolation
-          ><code><%= client.code %></code></pre>
-        </div>
-
-        <h2>What it will do</h2>
-        <ol>
-          <li :for={step <- @what_it_will_do}>{step}</li>
-        </ol>
-
+        <h2>What the agent does</h2>
         <p>
-          <strong>It asks before it spends.</strong>
-          {@commit_rule}
+          The prompt names your org, the API base, and the MCP server, then
+          walks the agent through the first run in order:
+        </p>
+        <ol>
+          <li>Check the wallet; at zero, stop and hand back the top-up link.</li>
+          <li>Pick an app from the catalog and propose one version with its price.</li>
+          <li>Confirm the spend with you before deploying.</li>
+          <li>Deploy with your env vars and poll until the instance is running.</li>
+          <li>Hand back the public instance URL; env changes come later, write-only.</li>
+        </ol>
+        <p>
+          <strong>It asks before it spends.</strong> Destructive tools —
+          instance destroy, backup restore — need a separate, explicit yes.
+        </p>
+
+        <h2>Get the prompt</h2>
+        <p>
+          The personalized prompt renders after sign-in: on the agent panel,
+          and in the onboarding modal your empty dashboard opens on first run.
+          The per-client install snippets — Claude Code, Cursor, VS Code,
+          generic JSON — ride along there too.
         </p>
 
         <h2>Keep reading</h2>
         <ul>
-          <li :for={{title, url} <- @links}>
-            <a href={url}>{title}</a>
+          <li>
+            The <a href={~p"/docs/automation/mcp"}>MCP server guide</a>
+            lists every tool and its scope.
+          </li>
+          <li>
+            The <a href={~p"/docs/automation/terraform"}>Terraform provider</a>
+            is the option to offer once an app is running.
+          </li>
+          <li>
+            <a href={~p"/llms.txt"}>/llms.txt</a> carries the generic prompt for agents.
           </li>
         </ul>
-
-        <p>
-          Prefer to read the tool surface first? The
-          <a href={~p"/docs/automation/mcp"}>MCP server guide</a>
-          lists every tool and its scope; the
-          <a href={~p"/docs/automation/terraform"}>Terraform provider</a>
-          is the option to offer once an app is running.
-        </p>
       </div>
     </article>
   </div>

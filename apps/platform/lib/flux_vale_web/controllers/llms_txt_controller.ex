@@ -1,9 +1,11 @@
 defmodule FluxValeWeb.LlmsTxtController do
   @moduledoc """
   `GET /llms.txt` (#765): the machine-readable agent entry point. One
-  stable URL an agent can be pointed at, carrying the same prompt the
-  `/agent` panel and `/docs/agents` render (one fixture:
-  `FluxValeWeb.AgentPrompt`) plus the doc links.
+  stable URL an agent can be pointed at, carrying the prompt the
+  signed-in surfaces render — the `/agent` panel and the dashboard's
+  onboarding modal (one fixture: `FluxValeWeb.AgentPrompt`) — plus the
+  doc links. The public `/docs/agents` page is the impersonal guide
+  beside it (#817).
 
   Plain text, no layout, no session. The noindex plug still rides so a
   staging copy advertises itself as non-canonical.

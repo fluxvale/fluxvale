@@ -83,8 +83,8 @@ config :flux_vale,
   # same "local" and re-open the cross-env deletion); "local" is the
   # dev default.
   platform_env: "local",
-  # The MCP endpoint the agent first-run panel, /docs/agents and
-  # /llms.txt advertise (#765). The runtime override picks the staging
+  # The MCP endpoint the agent first-run panel and /llms.txt advertise
+  # (#765). The runtime override picks the staging
   # host, and the local k3d host in dev; this default is the prod URL
   # every non-deployed context (test included) sees.
   mcp_server_url: "https://mcp.fluxvale.com/mcp",
