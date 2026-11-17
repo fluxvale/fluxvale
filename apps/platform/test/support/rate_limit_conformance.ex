@@ -93,8 +93,10 @@ defmodule FluxVale.TestSupport.RateLimitConformance do
   end
 
   @doc """
-  A per-run address in the 198.18/15 benchmarking range (62,500 values;
-  the suite draws fewer than 100).
+  A per-run address in the 198.18/15 benchmarking range. The compression
+  to two variable octets has 62,500 values and `System.unique_integer`
+  is monotonic within a run, so a collision needs a 62,500-draw span —
+  the suite draws a few hundred.
   """
   @spec unique_ip() :: String.t()
   def unique_ip do

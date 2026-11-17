@@ -13,7 +13,8 @@ defmodule FluxValeWeb.Plugs.OAuthRateLimit do
   The store is `FixedWindow` (#510): this module is the source — table
   name, buckets, row cap — and the engine owns the mechanics
   (increment-first counters, floor-bucketed windows, the claim-throttled
-  cap sweep, fail-open). A throttle must never 500 the sign-in door.
+  cap sweep, the hard row bound, fail-open). A throttle must never 500
+  the sign-in door.
 
   ## Configuration
 

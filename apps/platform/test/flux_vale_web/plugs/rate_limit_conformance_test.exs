@@ -307,8 +307,11 @@ defmodule FluxValeWeb.Plugs.RateLimitConformanceTest do
           # Second over-cap request: the frozen Google copy reaps
           # stale_one; the engine's fresh claim blocks the scan — and
           # the frozen OAuth copy's broken select_replace also turns
-          # the request into an uncounted allow. The cond below
-          # asserts that split.
+          # the request into an uncounted allow. Since S5 the frozen
+          # OAuth and engine arms agree on these keys (linger + claim +
+          # no insert); the cond's real split is frozen-Google vs the
+          # rest, and the saturated-key distinction lives in the
+          # claim-fix test above.
           second_conn = conn_for(second)
           second_result = adapter.allow.(second_conn, :register)
           assert RateLimitConformance.decision(second_result) == :ok
@@ -348,14 +351,17 @@ defmodule FluxValeWeb.Plugs.RateLimitConformanceTest do
               refute :ets.member(adapter.table, third_key)
 
             true ->
-              # The engine (both live surfaces since S4): no re-scan
-              # inside the claim window — the lapsed rows linger up to
-              # one longest window — but the requests count normally.
+              # The engine (both live surfaces): no re-scan inside the
+              # claim window AND — since S5 — no insert past the hard
+              # row cap (the fillers keep the table saturated), so the
+              # lapsed rows linger and neither new key ever lands. The
+              # saturated-key distinction against the frozen OAuth copy
+              # lives in the claim-fix test above.
               assert :ets.member(adapter.table, stale_one_key)
               assert :ets.member(adapter.table, stale_two_key)
               assert :ets.member(adapter.table, {:sweep, :last})
-              assert :ets.member(adapter.table, second_key)
-              assert :ets.member(adapter.table, third_key)
+              refute :ets.member(adapter.table, second_key)
+              refute :ets.member(adapter.table, third_key)
           end
         end
       end)
@@ -388,6 +394,76 @@ defmodule FluxValeWeb.Plugs.RateLimitConformanceTest do
 
       third_key = {:probe, third, window(@window_seconds)}
       assert :ets.lookup(source.table(), third_key) == [{third_key, 1}]
+    end
+  end
+
+  describe "the hard bound" do
+    setup do
+      original = Application.get_env(:flux_vale, FixedWindowTestSource)
+      Application.put_env(:flux_vale, FixedWindowTestSource, max_rows: 3)
+      on_exit(fn -> restore_env(FixedWindowTestSource, original) end)
+      :ok
+    end
+
+    test "past the cap a missing key is admitted uncounted and inserts nothing" do
+      source = FixedWindowTestSource
+      window = window(@window_seconds)
+
+      start_supervised!({FixedWindow, source: source, id: :engine_probe})
+      :sys.get_state(source)
+
+      # Four live rows past the cap of 3, with a fresh claim so the cap
+      # path runs without sweeping. (Static TEST-NET-3 addresses: the
+      # flood below draws from 198.18/15 and must not collide.)
+      for i <- 1..4 do
+        :ets.insert(source.table(), {{:probe, "203.0.113.#{i}", window}, 1})
+      end
+
+      now = System.system_time(:second)
+      :ets.insert(source.table(), {{:sweep, :last}, now})
+      saturated_size = :ets.info(source.table(), :size)
+
+      # A flood of new keys: every request is allowed, none counts, and
+      # the table does not grow by a single row.
+      Enum.each(1..100, fn _i ->
+        ip = RateLimitConformance.unique_ip()
+        assert :ok = FixedWindow.allow?(source, :probe, ip)
+        refute :ets.member(source.table(), {:probe, ip, window})
+      end)
+
+      assert :ets.info(source.table(), :size) == saturated_size
+
+      # An existing key still counts and refuses — no reset, no bypass.
+      target = "203.0.113.7"
+      :ets.insert(source.table(), {{:probe, target, window}, 2})
+
+      target_result = FixedWindow.allow?(source, :probe, target)
+      assert {:error, _retry} = target_result
+
+      assert :ets.lookup(source.table(), {:probe, target, window}) == [
+               {{:probe, target, window}, 3}
+             ]
+    end
+
+    test "the stale-claim sweep reclaims headroom and inserts resume" do
+      source = FixedWindowTestSource
+      window = window(@window_seconds)
+
+      start_supervised!({FixedWindow, source: source, id: :engine_probe})
+      :sys.get_state(source)
+      :ets.delete(source.table(), {:sweep, :last})
+
+      # Saturate with four LAPSED rows; no claim exists, so the first
+      # request claims, sweeps them all, and lands its own row.
+      for i <- 1..4 do
+        :ets.insert(source.table(), {{:probe, "203.0.113.1#{i}", 0}, 99})
+      end
+
+      first = RateLimitConformance.unique_ip()
+      assert :ok = FixedWindow.allow?(source, :probe, first)
+      first_key = {:probe, first, window}
+      assert :ets.lookup(source.table(), first_key) == [{first_key, 1}]
+      assert :ets.info(source.table(), :size) == 2
     end
   end
 
@@ -458,6 +534,9 @@ defmodule FluxValeWeb.Plugs.RateLimitConformanceTest do
 
   defp restore({module, nil}), do: Application.delete_env(:flux_vale, module)
   defp restore({module, value}), do: Application.put_env(:flux_vale, module, value)
+
+  defp restore_env(module, nil), do: restore({module, nil})
+  defp restore_env(module, value), do: restore({module, value})
 
   defp google_opts(overrides \\ []) do
     Keyword.merge(

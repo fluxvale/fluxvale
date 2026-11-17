@@ -31,6 +31,20 @@ defmodule FluxValeWeb.Plugs.FixedWindow do
     older than `window_start(now, max_window) - 2 * max_window` — the
     floor-aligned cutoff never reaches a window that can still be
     written, so a live counter is never reset.
+  - **The row cap is a hard bound.** Past `max_rows`, after the
+    claim-gated sweep, a request whose key has no row is admitted
+    UNCOUNTED and inserts nothing; a key that already has a row still
+    increments and can refuse. Overshoot is one concurrent burst's
+    worth of inserts plus the claim row, and those burst rows are
+    current-window rows: they hold the floor until they lapse (~2× the
+    longest window) and the sweep retires them — memory never grows
+    with the spoofed-key rate beyond that. Accepted trade, in the open:
+    under saturation new identities bypass the throttle — the same
+    identities a spoofing attacker mints for free — while repeat
+    identities stay throttled; the alternatives are unbounded memory or
+    denying the door. The stale-claim sweep reclaims lapsed rows every
+    longest window and inserts resume the moment the table is under
+    the cap.
   - **Fail open.** A gone-or-restarting table rescues into count 1
     (allowed): a throttle must not 500 the sign-in door; the next
     request counts again. Config is read and validated OUTSIDE that
@@ -138,9 +152,25 @@ defmodule FluxValeWeb.Plugs.FixedWindow do
   # Increment first; the fail-open arm covers the table-gone window (the
   # supervisor's restart), staged by the conformance suite's stopped
   # owner — the next request counts again.
+  #
+  # The row cap is a HARD bound: past it — after the claim-gated sweep —
+  # a request whose key has no row is admitted UNCOUNTED and inserts
+  # nothing, so memory stays at ~max_rows rows no matter the
+  # spoofed-key flood rate. A key that already has a row still
+  # increments (and can refuse). Fail open, never 500.
   defp bump(table, key, cap, max_window) do
     maybe_sweep_full_table(table, cap, max_window)
-    :ets.update_counter(table, key, {2, 1}, {key, 0})
+
+    cond do
+      :ets.info(table, :size) <= cap ->
+        :ets.update_counter(table, key, {2, 1}, {key, 0})
+
+      :ets.member(table, key) ->
+        :ets.update_counter(table, key, {2, 1})
+
+      true ->
+        1
+    end
   rescue
     ArgumentError -> 1
   end

@@ -159,8 +159,6 @@ defmodule FluxValeWeb.Plugs.GoogleRateLimitTest do
       stale_one = "10.248.#{unique_octet()}.#{unique_octet()}"
       stale_two = "10.246.#{unique_octet()}.#{unique_octet()}"
       live = "10.247.#{unique_octet()}.#{unique_octet()}"
-      now = System.system_time(:second)
-      window = GoogleRateLimit.window_start(now, 86_400)
 
       # Two staged stale rows: the cap is EXCEEDED (>) regardless of
       # whatever rows other tests left behind — order-independent. This
@@ -170,15 +168,23 @@ defmodule FluxValeWeb.Plugs.GoogleRateLimitTest do
       :ets.insert(@table, {{:google, stale_one, 0}, 99})
       :ets.insert(@table, {{:google, stale_two, 0}, 99})
 
+      now = System.system_time(:second)
+
       with_config([window_seconds: 86_400, max_requests: 50, max_rows: 1], fn ->
         # The stale rows exceed the cap of 1: the next allow? claims the
-        # sweep window and reaps them (rows from lapsed windows only) and
-        # counts normally — the live window's row survives
+        # sweep window and reaps them (rows from lapsed windows only).
+        # Whether the live row then INSERTS depends on what else the
+        # shared table holds once the sweep is done (the cap is a hard
+        # bound since S5) — the under-cap insert is pinned on the
+        # engine's owned table in the conformance suite.
         from_live = conn([], ip_tuple(live))
         assert GoogleRateLimit.allow?(from_live)
         refute :ets.member(@table, {:google, stale_one, 0})
         refute :ets.member(@table, {:google, stale_two, 0})
-        assert :ets.member(@table, {:google, live, window})
+
+        # The insert_new arm claimed this sweep window on the way in.
+        assert [{{:sweep, :last}, stamp}] = :ets.lookup(@table, {:sweep, :last})
+        assert stamp >= now
       end)
     end
 
