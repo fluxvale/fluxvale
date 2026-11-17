@@ -200,20 +200,31 @@ manual top-up; every attempt visible to the user and in ops telemetry.
   in-flight** auto attempt per org (a fixed invariant, not a dial) —
   and `failure_strikes` (default 3, range 2–5) consecutive failures
   auto-disabling the setting (email says why + one-click top-up
-  link) arrive with S2. Max auto-spend/day = `daily_charge_cap` ×
-  amount, shown at enable.
+  link) arrive with S2. The cap counts CHARGES, not cents — a
+  mid-window amount change just changes the next charge's size. The
+  enable-time figure shown is GROSS at the org's current rate:
+  "max charged/day ≈ cap × (amount + VAT)" (2500¢ amount, 20% VAT,
+  cap 2 → up to $60/day charged for $50 of credit).
 - **E — trigger** (staged lane): hourly Oban arm on the shared
   RechargeSweep worker (queue `:billing`, cron `23 * * * *`, off
   :07/:13/:17 and the top of the hour — the billing-queue stagger). Per org: `WalletLock` → fresh
   balance read → due? → insert the pending `Topup` row → **commit**
   → charge over HTTP **outside** any transaction (the
   `suspend_gateways` discipline; a network call never holds the
-  lock). **One charge trigger per attempt, ever**: the finalize call
-  is never re-driven on an unknown outcome, and the draft-order
-  create is never retried either — the row stays `:pending`, owned
-  by webhooks/`fetch_payment` reconciliation and the 24h stale
-  sweep. (A finalize that ANSWERED with 402/403 is a decided
-  failure, not an unknown — the reverted draft is simply abandoned.)
+  lock). **The draft order id persists BEFORE the charge trigger**:
+  the adapter splits draft creation from finalize (S1), and the row
+  records the order id (via the existing `attach_checkout` action)
+  between them — so any crash after commit is recoverable, and an
+  unknown-outcome attempt is never re-driven: a draft order that was
+  never finalized can never charge, so reconciliation may safely
+  resolve it. **The sweep reconciles stale `:pending` auto rows**
+  (older than 1 hour) before its due-check: `fetch_payment` on the
+  persisted order id → paid → complete (idempotent); draft/absent →
+  `mark_failed` (nothing can charge) and the next pass may retry.
+  A pending row therefore never waits for the 24h stale sweep, and
+  local expiry can never free an unresolved charge — the hourly
+  reconciliation has already answered it (money landing late still
+  credits: CompleteTopup's widened guard, unchanged).
 - **F — failure fall-through** (staged lane): a decline is a
   `:failed` Topup (existing terminal-once guard), counter +1,
   disable email at `failure_strikes`. The ladder is untouched — it
@@ -387,7 +398,7 @@ testing is Req-stubbed — **no live Polar calls in this slice** (the
 org is on Starter; draft-order creation would 403. The live evidence
 is S6's, post-upgrade).
 
-**Change**: three new callbacks on the behaviour, each with a DEFAULT
+**Change**: four new callbacks on the behaviour, each with a DEFAULT
 CLAUSE answering `{:error, :unsupported}` (the behaviour has no
 optional-callback precedent — the default-clause form is pinned here;
 `@optional_callbacks` is not used):
@@ -401,26 +412,30 @@ optional-callback precedent — the default-clause form is pinned here;
 - `list_payment_methods/1` — Polar: `GET
   /v1/customers/{id}/payment-methods` → `{:ok, count, default_ref}`
   (we need existence + default, not the instruments).
-- `charge_saved_method/3` — Polar: `POST /v1/orders/` (draft; product
+- `create_draft_charge/3` — Polar: `POST /v1/orders/` (draft; product
   = the existing "FluxVale Credits" product_id config; `amount` =
-  integer cents gross; `metadata: %{"topup_id" => reference}`) then
-  `POST /v1/orders/{id}/finalize` → `{:ok, %{payment_request_id:
-  order_id, payment_id: order_id, amount_cents: n, status:
-  :completed | :failed, failure_reason: binary | nil}}`. A finalize
-  `402`/`403`/`412` maps to `{:ok, …, status: :failed,
-  failure_reason: <code>}` — an ANSWERED charge, not an error; a
-  failed finalize leaves Polar's draft re-finalizable and we never
-  do (Decision E). Transport failures stay `{:error, :network_error
-  | :api_error}` (unknown outcome).
+  integer cents gross; `metadata: %{"topup_id" => reference}`) →
+  `{:ok, %{order_id: id, amount_cents: n}}`. Draft creation charges
+  nothing; the id it returns is what the caller persists BEFORE any
+  charge trigger.
+- `finalize_charge/2` — Polar: `POST /v1/orders/{id}/finalize` →
+  `{:ok, %{order_id: id, amount_cents: n, status: :completed |
+  :failed, failure_reason: binary | nil}}`. A `402`/`403`/`412` maps
+  to `{:ok, …, status: :failed, failure_reason: <code>}` — an
+  ANSWERED charge, not an error; a failed finalize leaves Polar's
+  draft re-finalizable and we never do (Decision E). Transport
+  failures stay `{:error, :network_error | :api_error}` (unknown
+  outcome — recoverable via the persisted draft id).
 
 Amounts integer cents on both sides of the adapter. The default
 clauses keep the architecture provider-agnostic — Polar is the only
 implementation (owner's decision).
 
 **Tests**: Req-stubbed (the existing provider-test pattern): session
-create (address carried), method list, draft+finalize success,
-finalize decline (402 → `:failed` + reason), finalize 403 (not
-enabled → `:failed` + reason), transport error.
+create (address carried), method list, draft create, draft +
+finalize success, finalize decline (402 → `:failed` + reason),
+finalize 403 (not enabled → `:failed` + reason), transport error on
+each leg.
 
 **Done when**:
 `MIX_TEST_PARTITION=s1 mix test test/flux_vale/contexts/billing/providers/`
@@ -493,23 +508,33 @@ Polar maps it differently, the MAPPING adjusts, never the guard.
 (origin `:auto`, net = setting.amount_cents, tax = fresh
 `Tax.quote/2` over the setting's evidence, buyer fields from the
 evidence — no buyer email), persists `:pending`; (2) AFTER commit,
-`charge_saved_method` with gross = net + tax; (3) sync `:completed` →
-nothing more (webhook/reconcile posts the credit — never the
+`create_draft_charge` (gross = net + tax) and persist the returned
+order id via the EXISTING `attach_checkout` action (the row's
+`payment_request_id` = order id — reconciliation and the webhook
+both key on it); (3) `finalize_charge` on that id; sync `:completed`
+→ nothing more (webhook/reconcile posts the credit — never the
 starter; Polar emails the buyer their own confirmation); sync
-`:failed` → `mark_failed` + `record_attempt_outcome`; `{:error,
-:network_error | :api_error}` → row stays `:pending`, outcome
-recorded as attempt-started only. Outcome mails: `TopupOutcomeMail`
-is a structural no-op for auto rows (it guards on `buyer_email`,
-which auto rows don't set) — by design; the user-facing signals are
-the balance change, the billing page, Polar's buyer email, and S4's
-disable notices.
+`:failed` → `mark_failed` + `record_attempt_outcome` **in ONE
+transaction** (both persist or neither — a crash between them must
+not leave an uncounted failure); `{:error, :network_error |
+:api_error}` on either leg → row stays `:pending` with whatever
+order id persisted (draft leg: nil; finalize leg: the id), and the
+sweep's stale-reconciliation arm owns it (Decision E). Outcome
+mails: `TopupOutcomeMail` is a structural no-op for auto rows (it
+guards on `buyer_email`, which auto rows don't set) — by design; the
+user-facing signals are the balance change, the billing page,
+Polar's buyer email, and S4's disable notices.
 
-**Tests**: happy path (row pending → charge completed → webhook
-completes + credits once, idempotent replay), decline path (failed
-row + counter), unknown-outcome path (row stays pending; assert the
-finalize was attempted exactly once and never re-driven), tax
-resolution fresh-from-table, webhook order-id resolution by metadata
-then by payment_request_id, origin prop on the analytics event.
+**Tests**: happy path (row pending → draft id attached → finalize
+completed → webhook completes + credits once, idempotent replay),
+decline path (failed row + counter, atomically), draft-leg transport
+error (row pending, NO order id — reconciled to `:failed` by the
+sweep's stale arm), finalize-leg transport error (row pending WITH
+order id; assert finalize was attempted exactly once and never
+re-driven), crash-between-writes (no failed row without its
+counter), tax resolution fresh-from-table, webhook order-id
+resolution by metadata then by payment_request_id, origin prop on
+the analytics event.
 
 **Done when**:
 `MIX_TEST_PARTITION=s3 mix test test/flux_vale/contexts/billing/operations/start_auto_recharge_test.exs test/flux_vale_web/controllers/webhooks/`
@@ -524,14 +549,23 @@ exits 0 (0 failures).
 member-emails delivery), tests.
 
 **Behavior**: the sweep grows the `:auto` arm (runs only when
-`auto_recharge_charge_mode?/0`): for each org in `:auto` mode, under
-`WalletLock` (this arm DOES take the lock — it creates top-up rows):
-re-read balance; due = `balance < threshold_cents` AND no `:pending`
-auto top-up exists AND auto charges in the last 24h <
-`daily_charge_cap` AND a payment method exists (`list_payment_methods`).
-No method → D3's two-pass rule: `no_method_notified_at` nil → notice
-mail + set it; set and still none → `disable_with_reason(:no_method)`
-+ mail. If due → `StartAutoRecharge`. On a failed outcome: increment
+`auto_recharge_charge_mode?/0`). **Stale-pending reconciliation runs
+first**, before any due-check (Decision E): every `:pending` auto
+top-up older than 1 hour → `fetch_payment` on its persisted order id
+(nil id → the draft leg never ran → `mark_failed`) → paid →
+`ReconcileTopup` completes it idempotently; draft/absent →
+`mark_failed`. Then, per org in `:auto` mode — the payment-method
+lookup (`list_payment_methods`) runs BEFORE taking `WalletLock` (a
+stalled provider call must never hold the wallet; a method removed
+between lookup and charge is answered by finalize's 402 and counted
+as a failure like any decline) — under the lock (this arm DOES take
+it — it creates top-up rows): re-read balance; due = `balance <
+threshold_cents` AND no `:pending` auto top-up exists AND auto
+charges in the last 24h < `daily_charge_cap` AND the pre-lock
+lookup found a method. No method → D3's two-pass rule:
+`no_method_notified_at` nil → notice mail + set it; set and still
+none → `disable_with_reason(:no_method)` + mail. If due →
+`StartAutoRecharge`. On a failed outcome: increment
 `consecutive_failures`; at `failure_strikes` →
 `disable_with_reason(:declines)` + mail with a one-click top-up URL.
 A successful outcome resets the counter AND clears
@@ -541,8 +575,11 @@ A successful outcome resets the counter AND clears
 **Tests**: due/not-due matrix, in-flight guard, 24h cap (against
 `daily_charge_cap`), strikes disable + mail (against
 `failure_strikes`), D3's no-method two-pass (notice-then-disable),
-counter reset on success, gate-off means the arm never runs,
-per-org isolation.
+stale-pending reconciliation (paid → completed; draft → failed; no
+order id → failed), method lookup outside the lock (assert no
+provider call while the lock is held — the operation under test
+takes the lock only after the lookup), counter reset on success,
+gate-off means the arm never runs, per-org isolation.
 
 **Done when**:
 `MIX_TEST_PARTITION=s4 mix test test/flux_vale/contexts/billing/operations/sweep_auto_recharge_test.exs test/flux_vale/workers/recharge_sweep_test.exs`

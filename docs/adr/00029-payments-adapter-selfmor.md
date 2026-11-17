@@ -205,12 +205,16 @@ out going forward (MoR preferred so country-by-country tax compliance
 is Polar's obligation, not ours); the HitPay capability above stays
 archived here, the adapter's sunset is a separate lane, and the
 existing `Providers.HitPay` module is untouched. The
-`PaymentProvider` behaviour grows three callbacks —
+`PaymentProvider` behaviour grows four callbacks —
 `create_billing_session/2`, `list_payment_methods/1`,
-`charge_saved_method/3` — each with a default clause answering
-`{:error, :unsupported}` so **Polar is the only implementation**;
-the defaults keep the architecture provider-agnostic without
-building a second lane nothing will use. **The attempt IS a top-up**:
+`create_draft_charge/3`, `finalize_charge/2` — each with a default
+clause answering `{:error, :unsupported}` so **Polar is the only
+implementation**; the defaults keep the architecture
+provider-agnostic without building a second lane nothing will use.
+The draft/finalize split persists the draft order id on the row
+BEFORE the charge trigger, making every crash window recoverable
+and every unknown outcome reconcilable without ever re-driving a
+charge. **The attempt IS a top-up**:
 auto-recharge creates `Topup` rows (`origin: :auto`) completed
 through the unchanged `CompleteTopup` seam — no second posting path,
 the ledger invariants and integer-money discipline untouched. Consent
