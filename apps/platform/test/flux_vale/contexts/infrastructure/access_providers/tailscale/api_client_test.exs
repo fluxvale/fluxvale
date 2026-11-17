@@ -48,6 +48,10 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.ApiClientTest do
     end)
   end
 
+  # A mint-response stub: the RAW body string, as the wire delivers it
+  # under decode_body: false (keys_create decodes it itself).
+  defp raw_body(body, status \\ 200), do: {:ok, %Req.Response{status: status, body: body}}
+
   describe "devices_lookup/2" do
     test "the device's Tailscale IPs ride along (ADR-0040 §4's view answer)" do
       expect_request(:get, "/api/v2/tailnet/-/devices", fn _opts ->
@@ -505,7 +509,12 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.ApiClientTest do
                  "description" => "fluxvale gateway fv-1a2b3c4d"
                }
 
-        {:ok, %Req.Response{status: 200, body: %{"id" => "k1234", "key" => "tskey-auth-k1234-x"}}}
+        assert opts[:decode_body] == false
+
+        # decode_body: false — the platform decodes the mint response
+        # itself (see the malformed-body test below for why), so the
+        # stub returns the RAW body, as the wire delivers it.
+        raw_body(~s({"id": "k1234", "key": "tskey-auth-k1234-x"}))
       end)
 
       assert {:ok, %{id: "k1234"}} = ApiClient.keys_create(@token, @mint_opts)
@@ -526,7 +535,7 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.ApiClientTest do
                  "description" => "dr"
                } = opts[:json]
 
-        {:ok, %Req.Response{status: 200, body: %{"id" => "k5555", "key" => "tskey-auth-k5555-x"}}}
+        raw_body(~s({"id": "k5555", "key": "tskey-auth-k5555-x"}))
       end)
 
       assert {:ok, %{id: "k5555"}} =
@@ -539,11 +548,7 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.ApiClientTest do
 
     test "returns both the id and the secret key — delivered exactly once" do
       expect_request(:post, "/api/v2/tailnet/-/keys", fn _opts ->
-        {:ok,
-         %Req.Response{
-           status: 200,
-           body: %{"id" => "k9876", "key" => "tskey-auth-k9876-abc123"}
-         }}
+        raw_body(~s({"id": "k9876", "key": "tskey-auth-k9876-abc123"}))
       end)
 
       assert {:ok, %{id: "k9876", key: "tskey-auth-k9876-abc123"}} =
@@ -554,18 +559,49 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.ApiClientTest do
     # storing garbage — refused, the contract-break rule.
     test "a 2xx body missing the key field is a bad payload, never a converged mint" do
       expect_request(:post, "/api/v2/tailnet/-/keys", fn _opts ->
-        {:ok, %Req.Response{status: 200, body: %{"id" => "k1234"}}}
+        raw_body(~s({"id": "k1234"}))
       end)
 
       assert {:error, {:bad_payload, 200}} = ApiClient.keys_create(@token, @mint_opts)
     end
 
-    test "a scalar 2xx body is a bad payload like every other read" do
+    test "a non-JSON 2xx body is a bad payload like every other read" do
       expect_request(:post, "/api/v2/tailnet/-/keys", fn _opts ->
-        {:ok, %Req.Response{status: 201, body: "gateway hiccup"}}
+        raw_body("gateway hiccup", 201)
       end)
 
       assert {:error, {:bad_payload, 201}} = ApiClient.keys_create(@token, @mint_opts)
+    end
+
+    # The reason keys_create decodes the body itself: Req's decode step
+    # answers a malformed body with {:error, %Jason.DecodeError{}}
+    # whose `data` field is the RAW body — secret included — and the
+    # module's error arm inspects exceptions into logs. Manual decode
+    # discards the error struct unread: nothing body-shaped can leak.
+    test "a malformed 200 body is refused and the secret never reaches a log" do
+      secret = "tskey-auth-k0001-leakcanary"
+
+      expect_request(:post, "/api/v2/tailnet/-/keys", fn _opts ->
+        raw_body(~s({"id": "k0001", "key": "#{secret}"}) <> " trailing garbage")
+      end)
+
+      logs =
+        ExUnit.CaptureLog.capture_log(fn ->
+          assert {:error, {:bad_payload, 200}} = ApiClient.keys_create(@token, @mint_opts)
+        end)
+
+      refute logs =~ secret
+      refute logs =~ "k0001"
+    end
+
+    # Defensive arm: adapters deliver binaries; a non-binary body is
+    # still a contract break, not a crash.
+    test "a non-binary 2xx body is a bad payload, not a crash" do
+      expect_request(:post, "/api/v2/tailnet/-/keys", fn _opts ->
+        {:ok, %Req.Response{status: 200, body: nil}}
+      end)
+
+      assert {:error, {:bad_payload, 200}} = ApiClient.keys_create(@token, @mint_opts)
     end
 
     test "401 is :unauthorized — the token was rejected" do

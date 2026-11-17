@@ -147,29 +147,50 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.ApiClient do
   `:description` (≤50 chars).
 
   The response's `key` value is the secret, delivered exactly once: it
-  is returned to the caller and never logged (only non-2xx body
-  snippets are logged, and Tailscale error bodies never echo the key).
-  A 2xx whose body lacks a binary `id` or `key` (either one) is a
-  contract break — `{:error, {:bad_payload, status}}` — never a
-  converged mint.
+  is returned to the caller and never logged. The call opts OUT of
+  Req's body decoding and decodes manually: a decode failure would
+  surface as `{:error, %Jason.DecodeError{}}` whose `data` field holds
+  the RAW body — secret included — which `error_result/1` would
+  inspect into a log line. `Jason.decode/1`'s error tuple is discarded
+  instead; no exception, no leak. A 2xx whose body lacks a binary
+  `id` or `key` (either one) is a contract break —
+  `{:error, {:bad_payload, status}}` — never a converged mint.
   """
   @spec keys_create(String.t(), keyword()) ::
           {:ok, %{id: String.t(), key: String.t()}} | {:error, error()}
   def keys_create(token, opts) when is_binary(token) and is_list(opts) do
     req = new_req(token)
 
-    case Req.post(req, url: "/api/v2/tailnet/-/keys", json: keys_create_body(opts)) do
-      {:ok, %Req.Response{status: status, body: %{"id" => id, "key" => key}}}
-      when status in 200..299 and is_binary(id) and is_binary(key) ->
-        {:ok, %{id: id, key: key}}
-
-      {:ok, %Req.Response{status: status}} when status in 200..299 ->
-        {:error, {:bad_payload, status}}
+    case Req.post(req,
+           url: "/api/v2/tailnet/-/keys",
+           json: keys_create_body(opts),
+           decode_body: false
+         ) do
+      {:ok, %Req.Response{status: status, body: body}} when status in 200..299 ->
+        decode_mint(status, body)
 
       other ->
         error_result(other)
     end
   end
+
+  # The one place the platform decodes a response itself — because this
+  # is the one response whose body carries a secret. Jason.decode/1
+  # answers {:error, %Jason.DecodeError{}} on malformed input; the
+  # struct's `data` is the raw body, so it is dropped unread: the
+  # status is the honest answer, and nothing body-shaped can reach a
+  # log through this path.
+  defp decode_mint(status, body) when is_binary(body) do
+    case Jason.decode(body) do
+      {:ok, %{"id" => id, "key" => key}} when is_binary(id) and is_binary(key) ->
+        {:ok, %{id: id, key: key}}
+
+      _malformed_or_incomplete ->
+        {:error, {:bad_payload, status}}
+    end
+  end
+
+  defp decode_mint(status, _not_a_binary), do: {:error, {:bad_payload, status}}
 
   @doc """
   Revokes an auth key by id (the id is embedded in the minted
