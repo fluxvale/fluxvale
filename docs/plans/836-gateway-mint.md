@@ -181,11 +181,15 @@ the teardown wins; the 1h TTL bounds a missed revoke.
   precedent). A member enabling with their own pasted auth key is
   unchanged.
 - **Create-time token store does NOT run the claim sweep** — the node
-  does not exist yet. Claims converge exactly as they do today when
-  the token lands before any domain: the observer's default
-  platform-domain claim, and `ClaimUnclaimedDomains` on later
-  verify/attach events. The provider therefore stops needing its
-  separate after-active token PATCH on the mint path.
+  does not exist yet. Claims converge through a new observer limb:
+  when the row is `:active` with a token stored, the observe pass runs
+  the shared `ClaimUnclaimedDomains` (idempotent — claimed domains are
+  skipped by row, so steady-state cost is nil). This closes the gap
+  the #837 review caught: a domain verified **before** the gateway
+  existed has no later verify event to sweep it, and today's guarantee
+  is "token save claims all verified domains" — the create-time store
+  must keep it. The provider therefore stops needing its separate
+  after-active token PATCH on the mint path.
 - **`update_credential`**: `auth_key` becomes optional. Absent +
   stored token → mint. Absent + no token → InvalidArgument "paste an
   auth key, or save an API token in Settings first". A pasted key
@@ -354,8 +358,17 @@ PR: `feat(platform): tailscale key mint and revoke API client (#836)`.
   - `write_credential/4` gains the marker: the mint path writes
     `%{"TS_AUTHKEY" => key, "FV_MINTED" => "1"}`; the paste path
     writes `TS_AUTHKEY` alone (SSA upsert replaces the map, so a
-    re-paste after a mint clears the marker — correct: a pasted key is
-    never ours to revoke).
+    re-paste after a mint clears the marker). **Before any credential
+    replacement, a marked stored key is revoked** — the mint path
+    (supersede) and the paste path alike: a pasted key over an
+    unconsumed mint would otherwise orphan it until TTL with no marker
+    left to find it (#837 review).
+  - **A mint whose Secret write fails revokes from memory**: the mint
+    flow carries the fresh key id (and the token it minted with) into
+    its failure path and calls `keys_delete` best-effort — the Secret
+    never recorded the marker, so `revoke_enrollment_credential/1`
+    alone cannot close this window (#837 review). Same shape on a
+    reconnect whose post-revoke write fails.
   - `revoke_enrollment_credential/1`: read the credential Secret; if
     `FV_MINTED` is absent → `:ok` (nothing is ours); else parse the id
     from the value's `tskey-auth-<id>-` prefix, read the API token,
@@ -371,9 +384,11 @@ PR: `feat(platform): tailscale key mint and revoke API client (#836)`.
 
 **Tests** — extend `tailscale_test.exs`: mint happy path (shape pinned
 against the stubbed `keys_create`), `:no_api_token` refusal, marker
-written on mint / absent on paste / cleared by a re-paste over a mint,
-revoke skips unmarked credentials, revoke parses the id and tolerates
-API failure, cleanup/teardown call revoke before deleting Secrets.
+written on mint / absent on paste, a paste over a marked key revokes
+it first, a mint whose Secret write fails revokes the in-memory key
+id, revoke skips unmarked credentials, revoke parses the id and
+tolerates API failure, cleanup/teardown call revoke before deleting
+Secrets.
 
 **Done when**
 
@@ -412,6 +427,8 @@ PR: `feat(platform): mint single-use tagged enrollment keys at the provider seam
     (R2 copy); otherwise mint (supersede-revoke first), then the
     existing `update_credential/2` limb under the minted key. The
     domain-refresh limb is untouched.
+  - `ObserveAccessGateway`: the active-with-token pass runs
+    `ClaimUnclaimedDomains` (idempotent) — the R2 convergence limb.
   - The R2 copy table rendered at the change layer; a `mint_error/1`
     helper maps the provider atoms to the four sentences.
 - Regenerate `open_api.json` (+ `types.rs`; note if empty).
@@ -466,8 +483,11 @@ PR: `feat(platform): single-credential gateway enable — auth_key optional, pla
   for you"), one-of validation client-visible; the copy states the
   four scopes and the `tagOwners` requirement (R1's onboarding note).
 - Re-paste panel: when the gateway has a stored token
-  (`api_token_set`), the key input hides and the button reads
-  "Reconnect" (the mint path); without a token, today's form stands.
+  (`api_token_set`), the button reads "Reconnect" (the mint path) and
+  the key input stays hidden until the user selects "Paste an auth key
+  instead" — the fallback the 403 copy names; revealing it submits the
+  pasted `auth_key` (#837 review: the UI must offer the exit the error
+  describes). Without a token, today's form stands.
 - `clear_key_display`'s strip covers `:api_token` on the enable form
   (same no-read-back rule).
 
@@ -541,7 +561,11 @@ PR: `feat(provider): enable a gateway without an auth key — platform mints (#8
   `TF_ACC_TAILSCALE_AUTH_KEY`.
 - `.github/workflows/acceptance.yml` preflight: `auth_keys` joins the
   Tailscale token scope list; the new env is minted there.
-- Tag `v0.6.0` on main after merge (the release workflow publishes).
+- Tag `v0.6.0` on main **only after the platform mint path is live on
+  production and a token-only create succeeds against it** — the
+  provider's default API URL is production, so a published token-only
+  create against an unminted API fails (#837 review; the release
+  workflow publishes the tag).
 
 **Done when**
 
@@ -580,6 +604,7 @@ PR: `chore(provider): v0.6.0 — mint-first gateway enrollment (#836)`.
 ```sh
 cd apps/platform && mix docs.lint
 # expected: "docs content ok"
+cd "$(git rev-parse --show-toplevel)"
 grep -q "auth_keys" docs/public/guides/custom-domains.md && echo scopes-updated
 # expected: "scopes-updated"
 ```
@@ -615,9 +640,10 @@ Two workers in flight at the peak, never more.
 - **Revocation best-effort vs. the P1-1 "no dangling key" rule.** The
   revoke is tried on every exit but never blocks one; the 1h TTL is
   the backstop, stated in R1 rather than implied.
-- **Provider release timing.** The owner-stack and public docs land
-  only after the platform mint path is deployed to staging (P2/S5
-  order), so no doc tells a story production refuses.
+- **Provider release timing.** The v0.6.0 tag waits for the mint path
+  live on production (P2's gate); the owner-stack and public docs land
+  only after that (P2/S5 order), so no doc tells a story production
+  refuses.
 
 ## Effort
 
