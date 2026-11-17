@@ -10,6 +10,7 @@ defmodule FluxVale.Identity.UserTest do
   use FluxVale.DataCase, async: false
 
   alias Ecto.Adapters.SQL
+  alias FluxVale.Checks.CallOutsideMachineApi
   alias FluxVale.Identity.User
   alias FluxVale.Identity.User.DeriveUsername
   alias FluxVale.Identity.UserEmail
@@ -394,6 +395,102 @@ defmodule FluxVale.Identity.UserTest do
       errors
       |> Enum.find(&is_binary(Map.get(&1, :message)))
       |> then(&Map.get(&1, :message))
+    end
+  end
+
+  describe "finish_onboarding/2 (the #831 first-run stamp)" do
+    test "stamps a nil account with the server time" do
+      user = User.create!("stampee@x.test", %{}, authorize?: false)
+
+      # nil for every existing account — the W2 gate's "not walked yet"
+      refute user.onboarded_at
+
+      assert {:ok, stamped} = finish(user, user)
+      assert %DateTime{} = stamped.onboarded_at
+    end
+
+    test "a different user is Forbidden" do
+      target = User.create!("stamp-target@x.test", %{}, authorize?: false)
+      actor = User.create!("stamp-actor@x.test", %{}, authorize?: false)
+
+      assert {:error, %Ash.Error.Forbidden{}} = finish(target, actor)
+    end
+
+    test "an admin PAT on another user is Forbidden — the blanket stands down at the machine API" do
+      target = User.create!("stamp-admin-target@x.test", %{}, authorize?: false)
+      admin = bootstrap_admin("admin@fluxvale.com")
+
+      # The #644 blanket admits admins only OUTSIDE the machine API, so a
+      # plain admin call rides the bypass, not this policy. The process
+      # mark switches it off (the admin_authority pattern) — the call then
+      # meets the action's own policy, the stance every PAT caller meets:
+      # owner-only, and no admin arm exists to fall back to.
+      key = CallOutsideMachineApi.machine_api_mark_key()
+      Process.put(key, true)
+
+      assert {:error, %Ash.Error.Forbidden{}} = finish(target, admin)
+    after
+      Process.delete(CallOutsideMachineApi.machine_api_mark_key())
+    end
+
+    test "a plain platform admin on another user is admitted — the #644 blanket rides this action" do
+      # The blanket is resource-level doctrine: a session-shaped admin
+      # passes before this action's owner-only policy ever answers. Pinned
+      # so a future scoping of the blanket away from :finish_onboarding
+      # flips THIS test loudly instead of drifting silently.
+      target = User.create!("stamp-blanket-target@x.test", %{}, authorize?: false)
+      admin = bootstrap_admin("admin@fluxvale.com")
+
+      assert {:ok, stamped} = finish(target, admin)
+      assert %DateTime{} = stamped.onboarded_at
+    end
+
+    test "the stamp is server-set — a client-carried onboarded_at is refused" do
+      user = User.create!("stamp-server@x.test", %{}, authorize?: false)
+
+      # accept([]): the action takes no input, so a payload carrying the
+      # private attribute is NoSuchInput — nothing client-side reaches
+      # the stamp, and the server-side set_attribute is the only writer.
+      assert {:error, %Ash.Error.Invalid{}} =
+               user
+               |> Ash.Changeset.for_update(:finish_onboarding, %{
+                 onboarded_at: ~U[2020-01-01T00:00:00Z]
+               })
+               |> Ash.update(actor: user, authorize?: true)
+
+      assert {:ok, stamped} = finish(user, user)
+      assert %DateTime{} = stamped.onboarded_at
+    end
+
+    test "a repeat call keeps the first stamp (keep-first, not re-stamp)" do
+      user = User.create!("keep-first@x.test", %{}, authorize?: false)
+
+      assert {:ok, first} = finish(user, user)
+      assert %DateTime{} = first.onboarded_at
+
+      assert {:ok, second} = finish(first, user)
+      assert second.onboarded_at == first.onboarded_at
+    end
+
+    test "a stale snapshot does not clobber the stamp (the expr reads the ROW)" do
+      user = User.create!("stale-snapshot@x.test", %{}, authorize?: false)
+
+      # The create!-returned struct is itself a pre-stamp snapshot (nil
+      # in memory). The row gets stamped through a fresh load…
+      fresh = Ash.get!(User, user.id, authorize?: false)
+      assert {:ok, stamped} = finish(fresh, user)
+
+      # …and the stale struct now lags the row. The keep-first expr is
+      # data-layer rendered against the ROW, never the caller's struct,
+      # so this call keeps the original stamp instead of re-stamping.
+      assert {:ok, kept} = finish(user, user)
+      assert kept.onboarded_at == stamped.onboarded_at
+    end
+
+    defp finish(user, actor) do
+      user
+      |> Ash.Changeset.for_update(:finish_onboarding, %{})
+      |> Ash.update(actor: actor, authorize?: true)
     end
   end
 
