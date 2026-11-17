@@ -107,6 +107,129 @@ defmodule FluxValeWeb.CoreComponents do
   end
 
   @doc """
+  Renders a modal dialog: a fixed backdrop with a panel above it, closed
+  by the caller's `on_cancel` event from the close button, Escape, or a
+  backdrop click. Panel clicks don't close — the panel is a sibling of
+  the backdrop, so its clicks never reach the backdrop's binding.
+
+  A native `<dialog>` opened with `showModal()` by the colocated `.Modal`
+  hook — no app.js changes. The browser owns the focus lifecycle (transfer
+  on open, Tab containment, restore on close) and Escape: the dialog's
+  native `close` event is pushed to `on_cancel`, so the server state
+  syncs. Assign-driven: the caller renders it under `:if` and clears the
+  flag in the `on_cancel` handler — plain handle_events.
+
+  ## Examples
+
+      <.modal :if={@modal_open} id="agent-modal" title="Finish setup" on_cancel="close-modal">
+        <p>Copy the prompt below.</p>
+        <:footer>
+          <.link navigate={~p"/agent"}>Open the full page</.link>
+        </:footer>
+      </.modal>
+  """
+  attr(:id, :string,
+    required: true,
+    doc: "the root's DOM id — the title's id (\"#\{@id}-title\") is the aria-labelledby target"
+  )
+
+  attr(:title, :string, required: true, doc: "the dialog's heading text")
+
+  attr(:on_cancel, :string,
+    required: true,
+    doc: "the event pushed to close (close button, Escape, backdrop click)"
+  )
+
+  attr(:testid, :string, default: nil, doc: "data-testid on the root")
+
+  attr(:class, :any,
+    default: nil,
+    doc: "appended to the panel's classes — width overrides live here"
+  )
+
+  slot(:inner_block, required: true, doc: "the dialog's body")
+  slot(:footer, doc: "the panel's footer row — links and actions under the body")
+
+  def modal(assigns) do
+    ~H"""
+    <dialog
+      id={@id}
+      data-testid={@testid}
+      data-cancel={@on_cancel}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby={"#{@id}-title"}
+      class="fixed inset-0 z-50 m-0 h-full w-full max-h-none max-w-none overflow-y-auto border-0 bg-transparent p-0"
+      phx-hook=".Modal"
+    >
+      <script :type={Phoenix.LiveView.ColocatedHook} name=".Modal">
+        export default {
+          mounted() {
+            // showModal is the whole a11y story: focus moves in, Tab
+            // stays inside, focus restores on close, and Escape closes
+            // natively — the close event is where the server sync rides.
+            this.el.showModal()
+
+            this.onClose = () => {
+              const cancel = this.el.dataset.cancel
+              if (cancel) this.pushEvent(cancel, {})
+            }
+
+            this.el.addEventListener("close", this.onClose)
+          },
+          destroyed() {
+            // Server-patched away (button/backdrop push) or page
+            // teardown: drop the listener so close() can't re-push the
+            // cancel event.
+            this.el.removeEventListener("close", this.onClose)
+            if (this.el.open) this.el.close()
+          },
+        }
+      </script>
+
+      <%!-- The backdrop is the panel's sibling, not its parent: a click
+           here closes, a click on the panel bubbles through the dialog
+           (which binds no click) and does nothing. --%>
+      <div
+        aria-hidden="true"
+        data-testid={"#{@id}-backdrop"}
+        phx-click={@on_cancel}
+        class="fixed inset-0 bg-canvas/80 backdrop-blur-sm"
+      >
+      </div>
+
+      <div
+        class={[
+          "relative mx-auto my-10 w-full max-w-3xl rounded-panel border border-line bg-panel p-6 [box-shadow:var(--elevation-lg)] sm:p-8",
+          @class
+        ]}
+        data-testid={"#{@id}-panel"}
+      >
+        <button
+          type="button"
+          aria-label={gettext("Close")}
+          data-testid={"#{@id}-close"}
+          phx-click={@on_cancel}
+          class="group absolute top-4 right-4 -m-1 cursor-pointer p-1 text-ink-subtle outline-offset-2 outline-focus focus-visible:outline-2 hover:text-ink-muted"
+        >
+          <.icon name="hero-x-mark" class="size-5" />
+        </button>
+
+        <h2 id={"#{@id}-title"} class="text-lg font-semibold tracking-tight text-ink">
+          {@title}
+        </h2>
+
+        <div class="mt-2">{render_slot(@inner_block)}</div>
+
+        <div :if={@footer != []} class="mt-4 flex justify-end border-t border-line pt-4">
+          {render_slot(@footer)}
+        </div>
+      </div>
+    </dialog>
+    """
+  end
+
+  @doc """
   Renders a button (or link, via `href`/`navigate`/`patch`) on the
   design system's button styles.
 

@@ -11,7 +11,7 @@
 msgid ""
 msgstr ""
 
-#: lib/flux_vale_web/components/core_components.ex:718
+#: lib/flux_vale_web/components/core_components.ex:841
 #: lib/flux_vale_web/live/admin_live/billing.ex:311
 #: lib/flux_vale_web/live/admin_live/gateways.ex:318
 #: lib/flux_vale_web/live/admin_live/moderation.ex:1103
@@ -679,7 +679,7 @@ msgstr ""
 msgid "Wallets and billing"
 msgstr ""
 
-#: lib/flux_vale_web/components/core_components.ex:1122
+#: lib/flux_vale_web/components/core_components.ex:1245
 #: lib/flux_vale_web/live/admin_live/moderation.ex:1566
 #: lib/flux_vale_web/live/admin_live/moderation.ex:1781
 #, elixir-autogen, elixir-format
@@ -1675,7 +1675,7 @@ msgstr ""
 #: lib/flux_vale_web/components/admin_data_table.ex:529
 #: lib/flux_vale_web/components/admin_data_table.ex:543
 #: lib/flux_vale_web/components/admin_data_table.ex:564
-#: lib/flux_vale_web/components/core_components.ex:1110
+#: lib/flux_vale_web/components/core_components.ex:1233
 #, elixir-autogen, elixir-format
 msgid "Working..."
 msgstr ""
@@ -1766,6 +1766,7 @@ msgstr[1] ""
 msgid "All"
 msgstr ""
 
+#: lib/flux_vale_web/components/core_components.ex:210
 #: lib/flux_vale_web/live/admin_live/moderation.ex:1384
 #: lib/flux_vale_web/live/admin_live/storage_requests.ex:1103
 #, elixir-autogen, elixir-format

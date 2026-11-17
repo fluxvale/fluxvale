@@ -270,7 +270,10 @@ the surface change and the PR.
   Values never ride a response or a log. ([#765](https://github.com/fluxvale/fluxvale/issues/765))
 - The post-registration handoff ships: `/agent` (the generated prompt and
   per-client snippets), `/docs/agents` (the public version), and
-  `/llms.txt` (the machine-readable entry point) — all from one fixture. ([#765](https://github.com/fluxvale/fluxvale/issues/765))
+  `/llms.txt` (the machine-readable entry point) — all from one fixture.
+  On first run the handoff opens as a modal from the signed-in
+  dashboard's empty state, beside the `/agent` page.
+  ([#765](https://github.com/fluxvale/fluxvale/issues/765), [#817](https://github.com/fluxvale/fluxvale/issues/817))
 
 ### 2026-11-09 — the initial surface
 
