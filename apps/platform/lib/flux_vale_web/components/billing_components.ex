@@ -1,11 +1,12 @@
 defmodule FluxValeWeb.BillingComponents do
   @moduledoc """
-  Shared billing render pieces (#276): the wallet facts and the
-  paginated ledger history. Extracted from `BillingLive.Index` when the
-  org billing view (`/organizations/:slug/billing`) needed the same shape
-  over a URL-resolved org. The top-up CTA and its notice stay
-  page-owned — the wizard is personal-org-pinned — so only the genuinely
-  identical markup lives here.
+  Shared billing render pieces (#276): the wallet facts, the paginated
+  ledger history, and the auto-recharge card (#829 L3). Extracted from
+  `BillingLive.Index` when the org billing view
+  (`/organizations/:slug/billing`) needed the same shape over a
+  URL-resolved org. The top-up CTA and its notice stay page-owned —
+  the wizard is personal-org-pinned — so only the genuinely identical
+  markup lives here.
   """
 
   use FluxValeWeb, :html
@@ -110,6 +111,121 @@ defmodule FluxValeWeb.BillingComponents do
           Load more
         </.button>
       </div>
+    </.card>
+    """
+  end
+
+  @doc """
+  The auto-recharge card (#829 L3, the LAUNCH shape): the reminder
+  lane's state — and, for owners, its form. The card is honest about
+  what ships: email reminders only, at most one per day; nothing in
+  the copy promises automatic charging (the charge lane is staged
+  behind the platform gate and renders nothing at all).
+
+  The form gate is UX only: `owner?` rides the write policy's own
+  ownership check (`ActorIsOrganizationOwner`, one ownership notion),
+  but the resource's `:set` policy is what actually forbids — a
+  member's crafted submit dies at the domain seam as an error flash,
+  never a crash. Money rides `Pricing.format_usd_whole_or_exact/1` —
+  the L2 mail's exact-cents rule, one formatter for both surfaces.
+
+  Shared by the org billing page and the personal one (same band +
+  ledger shape, same card); the events it raises
+  (`save-auto-recharge` / `validate-auto-recharge`) are the rendering
+  LiveView's — the surfaces wire them identically, each owning its
+  private copies (the operation-boundary stance: follow the pattern,
+  not the function).
+  """
+  attr(:setting, :any,
+    required: true,
+    doc: "the org's AutoRechargeSetting row (Billing.ensure_auto_recharge_setting/1's)"
+  )
+
+  attr(:owner?, :boolean,
+    required: true,
+    doc: "owner-role actors get the form; members read the state"
+  )
+
+  attr(:form, :any, required: true, doc: "the owner's prefilled form (nil for members)")
+
+  @spec auto_recharge_card(map()) :: Phoenix.LiveView.Rendered.t()
+  def auto_recharge_card(assigns) do
+    assigns = assign(assigns, :min_topup_dollars, FluxVale.Billing.min_topup_dollars())
+
+    ~H"""
+    <.card id="auto-recharge-card" class="space-y-4" data-testid="auto-recharge-card">
+      <div>
+        <h2 class="text-base font-medium text-ink">Auto-recharge</h2>
+        <p class="mt-1 text-sm text-ink-muted" data-testid="auto-recharge-state">
+          <%= if @setting.mode == :reminder do %>
+            Reminders on: we'll email your org a one-click top-up link when the balance drops
+            below {Pricing.format_usd_whole_or_exact(@setting.threshold_cents)} — at most once
+            a day.
+          <% else %>
+            Reminders are off.
+          <% end %>
+        </p>
+        <p
+          :if={@setting.mode == :reminder}
+          class="mt-1 text-sm text-ink-muted"
+          data-testid="auto-recharge-amount"
+        >
+          Each link pre-fills a {Pricing.format_usd_whole_or_exact(@setting.amount_cents)} top-up.
+        </p>
+        <p
+          :if={not @owner?}
+          class="mt-1 text-xs text-ink-subtle"
+          data-testid="auto-recharge-member-hint"
+        >
+          Only the organization owner can change this.
+        </p>
+      </div>
+
+      <.form
+        :if={@form}
+        for={@form}
+        id="auto-recharge-form"
+        phx-change="validate-auto-recharge"
+        phx-submit="save-auto-recharge"
+        class="space-y-4 border-t border-line pt-4"
+        data-testid="auto-recharge-form"
+      >
+        <%!-- The enum rejects :auto today and the form must not offer it:
+            the launch shape is reminders only (the charge lane is staged
+            and gated off — it renders nothing, here or anywhere). --%>
+        <.input
+          field={@form[:mode]}
+          type="select"
+          label="Reminders"
+          options={[{"Off", "off"}, {"On", "reminder"}]}
+          data-testid="auto-recharge-mode"
+        />
+        <div class="grid gap-4 min-[560px]:grid-cols-2">
+          <.input
+            field={@form[:threshold_dollars]}
+            type="number"
+            label="Remind below (USD)"
+            min="1"
+            step="1"
+            required
+            data-testid="auto-recharge-threshold"
+          />
+          <.input
+            field={@form[:amount_dollars]}
+            type="number"
+            label="Top-up amount (USD)"
+            min={@min_topup_dollars}
+            step="1"
+            required
+            data-testid="auto-recharge-amount-input"
+          />
+        </div>
+        <div class="flex justify-end">
+          <.button type="submit" size="sm" id="auto-recharge-save" data-testid="auto-recharge-save">
+            Save
+          </.button>
+        </div>
+      </.form>
     </.card>
     """
   end

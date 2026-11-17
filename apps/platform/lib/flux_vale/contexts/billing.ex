@@ -160,4 +160,11 @@ defmodule FluxVale.Billing do
   defdelegate start_auto_recharge(org, setting, opts \\ []),
     to: Operations.StartAutoRecharge,
     as: :call
+
+  # The billing card's provisioning seam (#829 L3): the owner's first
+  # :set is an UPDATE — it cannot run on a nil row, so the pages ensure
+  # the row at mount (read-then-create, the EnsureWallet shape).
+  defdelegate ensure_auto_recharge_setting(org),
+    to: Operations.EnsureAutoRechargeSetting,
+    as: :call
 end

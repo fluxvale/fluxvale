@@ -13,8 +13,11 @@ defmodule FluxValeWeb.OrganizationLive.BillingTest do
   alias FluxVale.Accounts.Membership
   alias FluxVale.Accounts.Organization
   alias FluxVale.Billing
+  alias FluxVale.Billing.AutoRechargeSetting
   alias FluxVale.TestSupport.AccountsFixtures
   alias FluxVale.TestSupport.SessionHelpers
+
+  require Ash.Query
 
   setup %{conn: conn} do
     user = AccountsFixtures.user!()
@@ -212,5 +215,278 @@ defmodule FluxValeWeb.OrganizationLive.BillingTest do
              live(conn, ~p"/organizations/#{other_org.slug}/billing")
 
     assert flash["error"] == "Organization not found."
+  end
+
+  # ── The auto-recharge card (#829 L3, the launch shape) ──
+
+  describe "the auto-recharge card" do
+    test "a mount ensures the row: a fresh org renders OFF and the row exists", %{
+      conn: conn,
+      org: org
+    } do
+      {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/billing")
+
+      assert has_element?(view, "[data-testid='auto-recharge-card']")
+      assert has_element?(view, "[data-testid='auto-recharge-state']", "Reminders are off")
+
+      # The provisioning seam ran at mount: the owner's first write is
+      # :set (an UPDATE), so the row must exist even though nothing
+      # rendered it before. authorize?: false — asserting STORAGE (the
+      # paper-trail posture).
+      assert {:ok, %AutoRechargeSetting{mode: :off}} =
+               Billing.get_auto_recharge_setting(org.id, authorize?: false)
+    end
+
+    test "two mounts, one row — the unique_org backstop holds", %{conn: conn, org: org} do
+      {:ok, _first, _html} = live(conn, ~p"/organizations/#{org.slug}/billing")
+      {:ok, _second, _html} = live(conn, ~p"/organizations/#{org.slug}/billing")
+
+      rows =
+        AutoRechargeSetting
+        |> Ash.Query.filter(organization_id == ^org.id)
+        |> Ash.read!(authorize?: false)
+
+      assert length(rows) == 1
+    end
+
+    test "the owner sees the form; a member sees only the read-only state", %{
+      conn: conn,
+      org: org
+    } do
+      {:ok, owner_view, _html} = live(conn, ~p"/organizations/#{org.slug}/billing")
+
+      assert has_element?(owner_view, "#auto-recharge-form")
+      assert has_element?(owner_view, "select[data-testid='auto-recharge-mode']")
+
+      # The colleague with a plain :member seat: the state is theirs to
+      # read, the form is not theirs to touch.
+      member = AccountsFixtures.user!()
+
+      Membership.create!(%{organization_id: org.id, user_id: member.id, role: :member},
+        authorize?: false
+      )
+
+      member_conn = SessionHelpers.sign_in(Phoenix.ConnTest.build_conn(), member)
+
+      {:ok, member_view, _html} = live(member_conn, ~p"/organizations/#{org.slug}/billing")
+
+      assert has_element?(member_view, "[data-testid='auto-recharge-state']", "Reminders are off")
+      refute has_element?(member_view, "#auto-recharge-form")
+      assert has_element?(member_view, "[data-testid='auto-recharge-member-hint']")
+    end
+
+    test ":auto is not an offered mode — the form offers reminders only", %{conn: conn, org: org} do
+      {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/billing")
+
+      assert has_element?(view, "select[data-testid='auto-recharge-mode'] option[value='off']")
+      assert has_element?(view, "#auto-recharge-form option[value='reminder']")
+      refute has_element?(view, "#auto-recharge-form option[value='auto']")
+    end
+
+    test "the owner enables reminders — the card reads ON and the row persists", %{
+      conn: conn,
+      org: org,
+      user: user
+    } do
+      {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/billing")
+
+      view
+      |> element("#auto-recharge-form")
+      |> render_submit(%{
+        "auto_recharge" => %{
+          "mode" => "reminder",
+          "threshold_dollars" => "10",
+          "amount_dollars" => "25"
+        }
+      })
+
+      assert has_element?(view, "#flash-info", "Reminder settings saved.")
+      assert has_element?(view, "[data-testid='auto-recharge-state']", "Reminders on")
+      assert has_element?(view, "[data-testid='auto-recharge-state']", "below $10")
+      assert has_element?(view, "[data-testid='auto-recharge-amount']", "$25")
+
+      # Persisted, not just displayed — re-read through the domain seam.
+      assert {:ok, setting} = Billing.get_auto_recharge_setting(org.id, actor: user)
+      assert setting.mode == :reminder
+      assert setting.threshold_cents == 1_000
+      assert setting.amount_cents == 2_500
+    end
+
+    test "typing survives the validate round-trip", %{conn: conn, org: org} do
+      {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/billing")
+
+      view
+      |> element("#auto-recharge-form")
+      |> render_change(%{
+        "auto_recharge" => %{
+          "mode" => "reminder",
+          "threshold_dollars" => "7",
+          "amount_dollars" => "30"
+        }
+      })
+
+      assert has_element?(view, "input#auto_recharge_threshold_dollars[value='7']")
+      assert has_element?(view, "input#auto_recharge_amount_dollars[value='30']")
+    end
+
+    test "a threshold below $1 is rejected and nothing persists", %{
+      conn: conn,
+      org: org,
+      user: user
+    } do
+      {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/billing")
+
+      view
+      |> element("#auto-recharge-form")
+      |> render_submit(%{
+        "auto_recharge" => %{
+          "mode" => "reminder",
+          "threshold_dollars" => "0",
+          "amount_dollars" => "25"
+        }
+      })
+
+      assert has_element?(
+               view,
+               "#flash-error",
+               "The threshold must be a whole-dollar amount of at least $1."
+             )
+
+      assert {:ok, setting} = Billing.get_auto_recharge_setting(org.id, actor: user)
+      assert setting.mode == :off
+    end
+
+    test "an amount below the top-up floor is rejected and nothing persists", %{
+      conn: conn,
+      org: org,
+      user: user
+    } do
+      {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/billing")
+      floor = Billing.min_topup_dollars()
+
+      view
+      |> element("#auto-recharge-form")
+      |> render_submit(%{
+        "auto_recharge" => %{
+          "mode" => "reminder",
+          "threshold_dollars" => "10",
+          "amount_dollars" => Integer.to_string(floor - 1)
+        }
+      })
+
+      assert has_element?(
+               view,
+               "#flash-error",
+               "The amount must be a whole-dollar amount of at least $#{floor}."
+             )
+
+      assert {:ok, setting} = Billing.get_auto_recharge_setting(org.id, actor: user)
+      assert setting.mode == :off
+    end
+
+    test "a crafted :auto submit fails the domain's validation — a flash error, not a crash", %{
+      conn: conn,
+      org: org,
+      user: user
+    } do
+      {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/billing")
+
+      view
+      |> element("#auto-recharge-form")
+      |> render_submit(%{
+        "auto_recharge" => %{
+          "mode" => "auto",
+          "threshold_dollars" => "10",
+          "amount_dollars" => "25"
+        }
+      })
+
+      assert has_element?(view, "#flash-error", "Couldn't save the reminder settings.")
+      assert {:ok, setting} = Billing.get_auto_recharge_setting(org.id, actor: user)
+      assert setting.mode == :off
+    end
+
+    test "a member's crafted submit is forbidden at the domain seam — a flash error, not a crash",
+         %{conn: _conn, org: org, user: user} do
+      member = AccountsFixtures.user!()
+
+      Membership.create!(%{organization_id: org.id, user_id: member.id, role: :member},
+        authorize?: false
+      )
+
+      member_conn = SessionHelpers.sign_in(Phoenix.ConnTest.build_conn(), member)
+      {:ok, member_view, _html} = live(member_conn, ~p"/organizations/#{org.slug}/billing")
+
+      render_click(member_view, "save-auto-recharge", %{
+        "auto_recharge" => %{
+          "mode" => "reminder",
+          "threshold_dollars" => "10",
+          "amount_dollars" => "25"
+        }
+      })
+
+      assert has_element?(member_view, "#flash-error", "Couldn't save the reminder settings.")
+      assert {:ok, setting} = Billing.get_auto_recharge_setting(org.id, actor: user)
+      assert setting.mode == :off
+    end
+
+    test "a non-round stored threshold renders exact cents, not a floored dollar", %{
+      conn: conn,
+      org: org,
+      user: user
+    } do
+      # threshold_cents is an owner-settable integer ≥ 100¢, so 550¢ is
+      # a legal row the form's whole-dollar unit cannot type — the L2
+      # mailer's exact-cents rule applies to the card's copy too. The
+      # write rides the domain seam (a legal :set input).
+      {:ok, setting} = Billing.ensure_auto_recharge_setting(org)
+
+      assert {:ok, _set} =
+               Billing.set_auto_recharge_setting(
+                 setting,
+                 %{mode: :reminder, threshold_cents: 549},
+                 actor: user
+               )
+
+      {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/billing")
+
+      assert has_element?(view, "[data-testid='auto-recharge-state']", "below $5.49")
+      refute has_element?(view, "[data-testid='auto-recharge-state']", "below $5 —")
+    end
+
+    test "a crafted submit missing the fields is rejected", %{conn: conn, org: org} do
+      # A raw event push, not a form submit — the DOM inputs always
+      # merge their values into a submit, so the missing-fields shape
+      # is a crafted event's shape (the whole_dollars nil arm).
+      {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/billing")
+
+      render_click(view, "save-auto-recharge", %{"auto_recharge" => %{"mode" => "reminder"}})
+
+      assert has_element?(view, "#flash-error", "at least $1.")
+    end
+
+    test "turning reminders off again reads OFF", %{conn: conn, org: org, user: user} do
+      {:ok, setting} = Billing.ensure_auto_recharge_setting(org)
+
+      assert {:ok, _on} =
+               Billing.set_auto_recharge_setting(setting, %{mode: :reminder}, actor: user)
+
+      {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/billing")
+
+      view
+      |> element("#auto-recharge-form")
+      |> render_submit(%{
+        "auto_recharge" => %{
+          "mode" => "off",
+          "threshold_dollars" => "5",
+          "amount_dollars" => "25"
+        }
+      })
+
+      assert has_element?(view, "[data-testid='auto-recharge-state']", "Reminders are off")
+      refute has_element?(view, "[data-testid='auto-recharge-amount']")
+      assert {:ok, persisted} = Billing.get_auto_recharge_setting(org.id, actor: user)
+      assert persisted.mode == :off
+    end
   end
 end

@@ -7,8 +7,11 @@ defmodule FluxValeWeb.OrganizationLive.Billing do
   non-member's probe is indistinguishable from a typo (no enumeration).
 
   The band's Top up wallet CTA opens the org-scoped top-up wizard
-  (#408): a top-up credits the URL org's wallet. The personal org has
-  no view here at all (S5): its URL redirects to `/billing` — one
+  (#408): a top-up credits the URL org's wallet. The auto-recharge
+  card (#829 L3, the launch shape — reminders only) mounts between
+  the band and the ledger, the personal page's shape over this
+  URL-resolved org; owners set it, members read it. The personal org
+  has no view here at all (S5): its URL redirects to `/billing` — one
   wallet, one surface.
   """
 
@@ -17,6 +20,7 @@ defmodule FluxValeWeb.OrganizationLive.Billing do
   alias FluxVale.Accounts.Organization
   alias FluxVale.Billing
   alias FluxVale.Billing.LedgerEntry
+  alias FluxVale.Checks.ActorIsOrganizationOwner
   alias FluxValeWeb.BillingComponents
   alias FluxValeWeb.PersonalOrg
 
@@ -67,8 +71,26 @@ defmodule FluxValeWeb.OrganizationLive.Billing do
         page: page,
         history_empty?: page.results == []
       )
+      |> assign_auto_recharge(org, user)
 
     {:ok, socket}
+  end
+
+  # The auto-recharge card's assigns (#829 L3): the row ensured at
+  # mount — the owner's first write is `:set`, an UPDATE that cannot
+  # run on a nil row, so the page provisions through the system seam
+  # (`Billing.ensure_auto_recharge_setting`, the EnsureWallet shape).
+  # The form gate is the write policy's own ownership check — UX only;
+  # the domain seam is the authority. The personal billing page mirrors
+  # this wiring on purpose: each surface owns its private helpers, only
+  # the markup is shared (BillingComponents.auto_recharge_card).
+  defp assign_auto_recharge(socket, org, user) do
+    {:ok, setting} = Billing.ensure_auto_recharge_setting(org)
+    owner? = ActorIsOrganizationOwner.owner?(user, org)
+
+    socket
+    |> assign(auto_recharge_setting: setting, auto_recharge_owner?: owner?)
+    |> assign(auto_recharge_form: prefilled_auto_recharge_form(setting, owner?))
   end
 
   @impl Phoenix.LiveView
@@ -96,6 +118,111 @@ defmodule FluxValeWeb.OrganizationLive.Billing do
         {:noreply, socket}
         # coveralls-ignore-stop
     end
+  end
+
+  @impl Phoenix.LiveView
+  # The card's phx-change round-trip: keep what the owner typed in the
+  # form (the inputs re-render from this assign after a failed save).
+  def handle_event("validate-auto-recharge", %{"auto_recharge" => params}, socket) do
+    {:noreply, assign(socket, auto_recharge_form: to_form(params, as: :auto_recharge))}
+  end
+
+  @impl Phoenix.LiveView
+  # The owner's save, through the domain seam (Billing.
+  # set_auto_recharge_setting — never the resource direct): the enum,
+  # the constraints, the AutoArmGate, and the owner-role policy are the
+  # authority, so a crafted `:auto` and a member's crafted submit land
+  # here as an error flash, never a crash.
+  def handle_event("save-auto-recharge", %{"auto_recharge" => params}, socket) do
+    case auto_recharge_inputs(params) do
+      {:ok, inputs} ->
+        case Billing.set_auto_recharge_setting(
+               socket.assigns.auto_recharge_setting,
+               inputs,
+               actor: socket.assigns.current_user
+             ) do
+          {:ok, setting} ->
+            {:noreply,
+             socket
+             |> put_flash(:info, "Reminder settings saved.")
+             |> assign(auto_recharge_setting: setting)
+             |> assign(auto_recharge_form: prefilled_auto_recharge_form(setting, true))}
+
+          {:error, _rejected_by_the_domain} ->
+            {:noreply, failed_auto_recharge_save(socket, params, default_auto_recharge_error())}
+        end
+
+      {:error, message} ->
+        {:noreply, failed_auto_recharge_save(socket, params, message)}
+    end
+  end
+
+  # The card's prefilled form: whole dollars, the wizard Amount step's
+  # unit. Members get no form (nil) — the card renders the read-only
+  # state alone.
+  defp prefilled_auto_recharge_form(_setting, false = _owner?), do: nil
+
+  defp prefilled_auto_recharge_form(setting, true) do
+    threshold_dollars = div(setting.threshold_cents, 100)
+    amount_dollars = div(setting.amount_cents, 100)
+
+    to_form(
+      %{
+        "mode" => Atom.to_string(setting.mode),
+        "threshold_dollars" => Integer.to_string(threshold_dollars),
+        "amount_dollars" => Integer.to_string(amount_dollars)
+      },
+      as: :auto_recharge
+    )
+  end
+
+  # The card's server-side mirror of the resource's constraints (#829
+  # L1): threshold ≥ $1 (the attribute constraint's floor in the form's
+  # whole-dollar unit), amount ≥ the wizard's floor
+  # (Billing.min_topup_dollars/0 — the same unit the one-click link
+  # pre-fills). Mode rides as the typed string: the enum and the
+  # AutoArmGate are the authority — a crafted `:auto` is refused by the
+  # domain, not by this card.
+  defp auto_recharge_inputs(params) do
+    min_dollars = Billing.min_topup_dollars()
+
+    with {:ok, threshold} <-
+           whole_dollars(params["threshold_dollars"], 1, threshold_error()),
+         {:ok, amount} <-
+           whole_dollars(params["amount_dollars"], min_dollars, amount_error()) do
+      {:ok,
+       %{
+         mode: params["mode"],
+         threshold_cents: threshold * 100,
+         amount_cents: amount * 100
+       }}
+    end
+  end
+
+  defp whole_dollars(raw, min, message) when is_binary(raw) do
+    trimmed = String.trim(raw)
+
+    case Integer.parse(trimmed) do
+      {dollars, ""} when dollars >= min -> {:ok, dollars}
+      _not_a_whole_dollar_at_or_above_the_min -> {:error, message}
+    end
+  end
+
+  defp whole_dollars(_missing_or_malformed, _min, message), do: {:error, message}
+
+  defp failed_auto_recharge_save(socket, params, message) do
+    socket
+    |> put_flash(:error, message)
+    |> assign(auto_recharge_form: to_form(params, as: :auto_recharge))
+  end
+
+  defp default_auto_recharge_error,
+    do: "Couldn't save the reminder settings. Check the values and try again."
+
+  defp threshold_error, do: "The threshold must be a whole-dollar amount of at least $1."
+
+  defp amount_error do
+    "The amount must be a whole-dollar amount of at least $#{Billing.min_topup_dollars()}."
   end
 
   @impl Phoenix.LiveView
@@ -152,7 +279,20 @@ defmodule FluxValeWeb.OrganizationLive.Billing do
           </div>
         </section>
 
-        <%!-- 2. The ledger — the S4/S6 section shape (the personal
+        <%!-- 2. The auto-recharge card (#829 L3): between the band and
+        the ledger. The container-level rise rides a node no patch
+        replaces (the ledger's measured pattern). --%>
+        <section aria-label="Auto-recharge" class="wrap pt-10">
+          <div class="rise [animation-delay:120ms]">
+            <BillingComponents.auto_recharge_card
+              setting={@auto_recharge_setting}
+              owner?={@auto_recharge_owner?}
+              form={@auto_recharge_form}
+            />
+          </div>
+        </section>
+
+        <%!-- 3. The ledger — the S4/S6 section shape (the personal
         page's posture): heading outside the card, container-level rise
         (stream patches rewrite rows in place; node identity is what
         the rise rides). --%>
