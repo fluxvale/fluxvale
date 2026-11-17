@@ -1074,7 +1074,7 @@ defmodule FluxVale.Infrastructure.AccessGateway do
   end
 
   def mint_error(:forbidden) do
-    "Your Tailscale API key can't create join keys — add the auth_keys " <>
+    "Your Tailscale API key can't create join keys — add the `auth_keys` " <>
       "scope when you mint it, or paste an auth key instead"
   end
 

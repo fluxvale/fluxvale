@@ -61,8 +61,12 @@ defmodule FluxVale.Infrastructure.AccessGateway.CreateStoresApiToken do
         # The Secret write rides the create's transaction (the
         # SetApiToken posture): it lands before the row does, so the ref
         # the row commits with is always backed by a written Secret.
-        Ash.Changeset.before_action(changeset, fn changeset ->
+        changeset
+        |> Ash.Changeset.before_action(fn changeset ->
           store_token(changeset, context.actor, token)
+        end)
+        |> Ash.Changeset.after_transaction(fn changeset, result ->
+          cleanup_orphaned_secret(changeset, result)
         end)
 
       true ->
@@ -73,6 +77,26 @@ defmodule FluxVale.Infrastructure.AccessGateway.CreateStoresApiToken do
   @impl Ash.Resource.Change
   # coveralls-ignore-next-line trivial callback — always false (cluster I/O in the hook)
   def atomic?, do: false
+
+  # The Secret written in before_action OUTLIVES a rolled-back insert —
+  # external I/O is not unwound by the DB transaction (#853 hostile
+  # review). The likeliest trigger is the unique_organization identity
+  # (a double-submitted enable form); ProvisionCluster's cleanup never
+  # runs in that window (its after_action follows a successful insert),
+  # and the orphan would be permanent — the name derives from the dead
+  # attempt's uuid, so no later create or teardown ever finds it. The
+  # P1-1 rule ("no orphaned API key, from EVERY exit") closes it here:
+  # best-effort delete on any error result, 404-tolerant and idempotent
+  # with ProvisionCluster's own mint-failure cleanup (which also fires
+  # on the paths where it can — a double call is harmless).
+  defp cleanup_orphaned_secret(changeset, {:error, _reason} = result) do
+    gateway = row_shape(changeset)
+
+    _cleaned = AccessProvider.impl_for(gateway).cleanup_failed_provision(gateway)
+    result
+  end
+
+  defp cleanup_orphaned_secret(_changeset, result), do: result
 
   defp store_token(changeset, actor, token) do
     gateway = row_shape(changeset)

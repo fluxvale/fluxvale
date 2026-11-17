@@ -332,26 +332,12 @@ defmodule FluxVale.Infrastructure.Operations.ObserveAccessGatewayTest do
 
   describe "the claim-convergence limb (#836)" do
     # R2's today-guarantee: a domain verified BEFORE the gateway existed
-    # has no later verify event to sweep it — an :active pass on a row
-    # with a stored token sweeps once, whatever failed to claim is the
-    # operation's to log-and-continue.
-    test "an :active pass on a row with a stored token sweeps once", %{org: org} do
-      gateway = token_stored_row!(org)
-
-      stub(Tailscale, :gateway_status, fn _gateway ->
-        {:ok, %{state: :active, message: "Connected"}}
-      end)
-
-      expect(ClaimUnclaimedDomains, :call, 1, fn gateway ->
-        assert gateway.state == :active
-        %{claimed: ["example.com"], failed: []}
-      end)
-
-      assert {:ok, observed} = Infrastructure.observe_access_gateway(gateway)
-      assert observed.state == :active
-    end
-
-    test "the promotion to :active sweeps too", %{org: org} do
+    # has no later verify event to sweep it — the FIRST-JOIN promotion
+    # (out of :provisioning) sweeps once. Every other pass is forbidden
+    # (#853 hostile review): steady passes would re-hit the tailnet API
+    # every minute, and needs_attention re-promotions would flap against
+    # the sweep's own drift-on-401.
+    test "the first-join promotion sweeps once on a token-stored row", %{org: org} do
       gateway = provisioned_row!(org)
 
       {:ok, row} =
@@ -363,29 +349,79 @@ defmodule FluxVale.Infrastructure.Operations.ObserveAccessGatewayTest do
         {:ok, %{state: :active, message: "Connected to your tailnet"}}
       end)
 
-      expect(ClaimUnclaimedDomains, :call, 1, fn _gateway -> %{claimed: [], failed: []} end)
+      expect(ClaimUnclaimedDomains, :call, 1, fn gateway ->
+        assert gateway.state == :active
+        %{claimed: ["example.com"], failed: []}
+      end)
 
       assert {:ok, observed} = Infrastructure.observe_access_gateway(row)
       assert observed.state == :active
     end
 
-    test "a sweep failure does not fail the observation", %{org: org} do
+    test "a settled row's steady pass never sweeps", %{org: org} do
       gateway = token_stored_row!(org)
 
       stub(Tailscale, :gateway_status, fn _gateway ->
         {:ok, %{state: :active, message: "Connected"}}
       end)
 
-      expect(ClaimUnclaimedDomains, :call, 1, fn _gateway ->
-        %{claimed: [], failed: [{:sweep, :cluster_down}]}
-      end)
+      reject(ClaimUnclaimedDomains, :call, 1)
 
       assert {:ok, observed} = Infrastructure.observe_access_gateway(gateway)
       assert observed.state == :active
     end
 
-    test "a row without a stored token never sweeps", %{org: org} do
-      gateway = AccessFixtures.gateway!(org)
+    test "a needs_attention re-promotion never sweeps — the flap loop's signature", %{org: org} do
+      gateway = provisioned_row!(org)
+
+      {:ok, row} =
+        AccessGateway.set_api_token_ref(gateway, %{api_token_secret_ref: "api-credential-abc"},
+          authorize?: false
+        )
+
+      # The drift shape the sweep itself writes on a rejected token.
+      {:ok, drifted} =
+        AccessGateway.update_state(
+          row,
+          %{
+            state: :needs_attention,
+            status_message: "Your Tailscale API key was rejected. Paste a fresh one"
+          },
+          authorize?: false
+        )
+
+      stub(Tailscale, :gateway_status, fn _gateway ->
+        {:ok, %{state: :active, message: "Connected to your tailnet"}}
+      end)
+
+      reject(ClaimUnclaimedDomains, :call, 1)
+
+      assert {:ok, observed} = Infrastructure.observe_access_gateway(drifted)
+      assert observed.state == :active
+    end
+
+    test "a sweep failure does not fail the observation", %{org: org} do
+      gateway = provisioned_row!(org)
+
+      {:ok, row} =
+        AccessGateway.set_api_token_ref(gateway, %{api_token_secret_ref: "api-credential-abc"},
+          authorize?: false
+        )
+
+      stub(Tailscale, :gateway_status, fn _gateway ->
+        {:ok, %{state: :active, message: "Connected to your tailnet"}}
+      end)
+
+      expect(ClaimUnclaimedDomains, :call, 1, fn _gateway ->
+        %{claimed: [], failed: [{:sweep, :cluster_down}]}
+      end)
+
+      assert {:ok, observed} = Infrastructure.observe_access_gateway(row)
+      assert observed.state == :active
+    end
+
+    test "a promotion without a stored token never sweeps", %{org: org} do
+      gateway = provisioned_row!(org)
 
       stub(Tailscale, :gateway_status, fn _gateway ->
         {:ok, %{state: :active, message: "Connected"}}

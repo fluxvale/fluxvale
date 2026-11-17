@@ -276,6 +276,44 @@ defmodule FluxVale.Infrastructure.AccessGateway.ChangesTest do
       assert {:error, _not_found} = AccessGateway.get_for_organization(org.id, authorize?: false)
     end
 
+    test "a rolled-back insert still deletes the token Secret it wrote (#853 review)", %{
+      org: org,
+      owner: owner
+    } do
+      # The unique_organization identity is the likeliest trigger: a
+      # double-submitted enable form. The SECOND create writes the
+      # api-credential Secret in before_action, then the INSERT fails —
+      # ProvisionCluster's after_action never runs, so the after_transaction
+      # limb is the only thing standing between the crown credential and a
+      # permanent orphan under a uuid no later create reuses.
+      existing = AccessFixtures.gateway!(org)
+
+      stub(Tailscale, :write_api_credential, fn _gateway, _token ->
+        {:ok, %{api_token_secret_ref: "api-credential-stub"}}
+      end)
+
+      reject(Tailscale, :provision_gateway_minted, 1)
+
+      expect(Tailscale, :cleanup_failed_provision, fn gateway ->
+        send(self(), {:cleanup, gateway.organization_id})
+        :ok
+      end)
+
+      assert {:error, _identity} =
+               AccessGateway.create(
+                 %{
+                   organization_id: existing.organization_id,
+                   monthly_cents: 200,
+                   tailnet_domain: "example.ts.net",
+                   api_token: "tskey-api-secret"
+                 },
+                 actor: owner,
+                 authorize?: false
+               )
+
+      assert_received {:cleanup, _org_id}
+    end
+
     test "a failed token store at create refuses the create with the store sentence", %{
       org: org,
       owner: owner
@@ -319,7 +357,7 @@ defmodule FluxVale.Infrastructure.AccessGateway.ChangesTest do
             {:unauthorized,
              "Your Tailscale API key was rejected. Paste a fresh one in Settings → Access"},
             {:forbidden,
-             "Your Tailscale API key can't create join keys — add the auth_keys scope when you mint it, or paste an auth key instead"},
+             "Your Tailscale API key can't create join keys — add the `auth_keys` scope when you mint it, or paste an auth key instead"},
             {:network_error, "Couldn't reach Tailscale to create a join key. Try again"}
           ] do
         stub(Tailscale, :provision_gateway_minted, fn _gateway -> {:error, reason} end)
@@ -353,7 +391,15 @@ defmodule FluxVale.Infrastructure.AccessGateway.ChangesTest do
 
       # The provider already revoked what it could; the Secret deletes
       # (including the api-credential one this create wrote) ride here.
-      expect(Tailscale, :cleanup_failed_provision, fn _gateway -> :ok end)
+      # Cleanup can run TWICE by design: ProvisionCluster's mint-fail
+      # pass, then CreateStoresApiToken's after_transaction orphan limb —
+      # idempotent deletes, so a stub (not a strict expectation).
+      parent = self()
+
+      stub(Tailscale, :cleanup_failed_provision, fn _gateway ->
+        send(parent, :cleaned)
+        :ok
+      end)
 
       assert {:error, _reason} =
                AccessGateway.create(
@@ -366,6 +412,8 @@ defmodule FluxVale.Infrastructure.AccessGateway.ChangesTest do
                  actor: owner,
                  authorize?: false
                )
+
+      assert_received :cleaned
     end
   end
 
@@ -922,7 +970,24 @@ defmodule FluxVale.Infrastructure.AccessGateway.ChangesTest do
 
       assert Enum.any?(
                errors,
-               &(&1.field == :auth_key and &1.message =~ "add the auth_keys scope")
+               &(&1.field == :auth_key and
+                   &1.message =~ "add the `auth_keys` scope")
+             )
+    end
+
+    test "the 403 sentence is the pinned one, verbatim", %{org: org} do
+      gateway = AccessFixtures.gateway!(org)
+
+      stub(Tailscale, :reconnect_minted, fn _gateway -> {:error, :forbidden} end)
+
+      assert {:error, %Ash.Error.Invalid{errors: errors}} =
+               AccessGateway.update_credential(gateway, %{}, authorize?: false)
+
+      assert Enum.any?(
+               errors,
+               &(&1.field == :auth_key and
+                   &1.message ==
+                     "Your Tailscale API key can't create join keys — add the `auth_keys` scope when you mint it, or paste an auth key instead")
              )
     end
 
