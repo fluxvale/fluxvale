@@ -221,7 +221,28 @@ defmodule FluxVale.Billing.AutoRechargeSettingTest do
   end
 
   describe "the charge gate (S2, staged — the launch posture)" do
-    test "the gate reads false by default" do
+    setup do
+      # The group owns its precondition (the stub_build_sha posture):
+      # an env carrying AUTO_RECHARGE_CHARGE_MODE=true flips the app
+      # env at boot — pin the launch posture false for the group and
+      # restore after. The config DEFAULT stays covered by the arming
+      # describe's restore logic (every other test in the module runs
+      # against the restored boot value).
+      original = Application.get_env(:flux_vale, :auto_recharge)
+      Application.put_env(:flux_vale, :auto_recharge, charge_mode: false)
+
+      on_exit(fn ->
+        if original do
+          Application.put_env(:flux_vale, :auto_recharge, original)
+        else
+          Application.delete_env(:flux_vale, :auto_recharge)
+        end
+      end)
+
+      :ok
+    end
+
+    test "the gate reads false (the launch posture, pinned)" do
       refute Billing.auto_recharge_charge_mode?()
     end
 
@@ -244,8 +265,12 @@ defmodule FluxVale.Billing.AutoRechargeSettingTest do
              )
     end
 
-    test "provisioning cannot carry a mode param (:create accepts only the org — a future widening of :create trips this test)",
-         %{org: org} do
+    test "provisioning cannot carry a mode param (:create accepts only the org — a future widening of :create trips this test)" do
+      # A FRESH org, no setting row: the Invalid can only be the
+      # unknown param — the unique_org duplicate on the setup org
+      # would mask the pin.
+      {org, _owner} = BillingFixtures.grant_free_org!()
+
       # authorize?: false — the provisioning seam's posture (bootstrap).
       # Ash refuses unknown params loudly, so :mode is rejected today;
       # if a widening ever adds it to :create's accept list, this
@@ -563,7 +588,7 @@ defmodule FluxVale.Billing.AutoRechargeSettingTest do
       # state code, nil is country-wide — the Topup comment's shape):
       # a US business with a state, then a German business country-wide
       # with its VAT number on file.
-      assert {:ok, _set} =
+      assert {:ok, us_row} =
                AutoRechargeSetting.set(
                  setting,
                  %{
@@ -575,9 +600,13 @@ defmodule FluxVale.Billing.AutoRechargeSettingTest do
                  actor: owner
                )
 
-      assert {:ok, _set} =
+      # The clear must act on the SET state: the setup struct still
+      # holds billing_state nil in memory, and Ash drops nil-to-nil
+      # (the L1 marker nit's class) — the FIRST returned record is the
+      # changeset's data, so nil really clears "CA".
+      assert {:ok, _de_row} =
                AutoRechargeSetting.set(
-                 setting,
+                 us_row,
                  %{
                    billing_country: "DE",
                    billing_state: nil,
@@ -585,6 +614,17 @@ defmodule FluxVale.Billing.AutoRechargeSettingTest do
                  },
                  actor: owner
                )
+
+      # The persisted row, not just the returned struct — the clear
+      # really cleared before the trail asserts mean anything.
+      assert {:ok, reloaded} =
+               AutoRechargeSetting.get_by_organization(setting.organization_id,
+                 authorize?: false
+               )
+
+      assert reloaded.billing_country == "DE"
+      assert is_nil(reloaded.billing_state)
+      assert reloaded.vat_number == "DE123456789"
 
       # Version-row reads that assert STORAGE run authorize?: false (the
       # paper_trail_test posture).
