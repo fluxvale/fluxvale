@@ -1,10 +1,15 @@
 # Plan: the agent handoff becomes an onboarding modal; agent docs stay public (#817)
 
-Status: AT THE START GATE — awaiting Terence's go. Steer revised Nov 16
-evening: Polar's pattern (a button that opens a modal with the prompt),
-and the agent docs stay public under `/docs`. The earlier
-force-the-account framing (auth-scope `/docs/agents`, redirect to
-sign-up) is dropped; D5 records why nothing warrants keeping any of it.
+Status: SHIPPED — the plan's slices landed as #824 (panel extraction),
+#823 (signed-in guide link), #828 (button + modal, later reworked onto
+the native `<dialog>` per a review finding), and #840 (D7: the guide
+goes impersonal). Kept as the decision record; the D7 llms.txt tension
+remains Terence's parked call. Original framing below was written at
+the START gate — Terence's steer revised Nov 16 evening: Polar's
+pattern (a button that opens a modal with the prompt), and the agent
+docs stay public under `/docs`. The earlier force-the-account framing
+(auth-scope `/docs/agents`, redirect to sign-up) is dropped; D5
+records why nothing warrants keeping any of it.
 
 Survey: the handoff page (`apps/platform/lib/flux_vale_web/live/agent_live.ex`),
 the prompt source of truth (`apps/platform/lib/flux_vale_web/agent_prompt.ex`),

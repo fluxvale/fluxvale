@@ -1,11 +1,15 @@
 # Plan: onboarding collects the username, offers the agent, shows the loop (#831)
 
-Status: AT TERENCE'S GATE via the PA — plan-first, no implementation
-before the go. This is the onboarding lane's second arc; it extends
-#817's surface (the modal, `AgentPanel`) and supersedes part of #765's
-landing stance (D5). Trigger: Terence's first-run on the fresh prod —
-the seeded first user derives `admin-2` because `admin` is reserved
-(`DeriveUsername.@reserved`), and no step lets the user choose.
+Status: SHIPPED — W1 landed as #833 (the stamp; the ADR-0047 policy
+matrix documented in its PR body), W2 as #846 (the gate + flow, with
+the e2e sign-in helpers learning the gate and a dedicated onboarding
+spec). The e2e helper change surfaced a parked follow-up: capture.mjs
+has not learned the gate (parked to the next screenshot-taking UI
+lane). Kept as the decision record; the original plan-first framing
+below is as it went to Terence's gate. Trigger, for the record:
+Terence's first-run on the fresh post-wipe prod — the seeded first
+user derives `admin-2` because `admin` is reserved, and no step let
+the user choose.
 
 Survey: `DeriveUsername` + `ValidUsername` + the `:set_username` action
 (`contexts/identity/resources/user/…`), SettingsLive's rename (the
