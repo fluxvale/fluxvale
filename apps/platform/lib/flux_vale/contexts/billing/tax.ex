@@ -11,7 +11,14 @@ defmodule FluxVale.Billing.Tax do
   Every consumer of the formula (the wizard's display, StartTopup's
   default derivation) calls `tax_cents/2` — the half-up-to-the-cent
   rounding lives in exactly one place.
+
+  `quote/2` is the full resolution both top-up lanes share (#829 S3):
+  reverse-charge detection, the fresh rate-table resolve (#260 — never
+  a copied rate), and the tax figure from the resolved rate. The
+  ip-signal stays with the callers (`ip_matches_billing?/2`).
   """
+
+  alias FluxVale.Pricing
 
   # B2B reverse charge: a VAT number that passes this format check is the
   # recorded proof (the issue's settled rule). Real VIES validation is a
@@ -40,6 +47,48 @@ defmodule FluxVale.Billing.Tax do
     do: String.match?(vat_number, @vat_format)
 
   def reverse_charge?(_customer_type, _vat_number), do: false
+
+  @doc """
+  The full tax resolution for a charge at `net_cents` (#829 S3): the
+  evidence map's reverse-charge proof zeroes the rate; otherwise the
+  rate table answers fresh at call time (#260 — the same resolution
+  the wizard displayed, never a copied rate), and `tax_cents/2` turns
+  the resolved rate into the VAT. An unpriced market (no table row)
+  and a missing billing country resolve to 0, `ResolveTaxRate`'s
+  stance.
+  """
+  @spec quote(map(), non_neg_integer()) :: %{
+          rate_bp: non_neg_integer(),
+          tax_cents: non_neg_integer(),
+          reverse_charge?: boolean()
+        }
+  def quote(evidence, net_cents) do
+    customer_type = evidence[:customer_type] || :consumer
+    reverse_charge? = reverse_charge?(customer_type, evidence[:vat_number])
+
+    rate_bp =
+      if reverse_charge? do
+        0
+      else
+        resolve_rate(evidence)
+      end
+
+    %{
+      rate_bp: rate_bp,
+      tax_cents: tax_cents(net_cents, rate_bp),
+      reverse_charge?: reverse_charge?
+    }
+  end
+
+  # The rate table answers for the billing country; no country is an
+  # unpriced market — priced at zero, the same stance as a country
+  # with no table row (`ResolveTaxRate`).
+  defp resolve_rate(evidence) do
+    case evidence[:billing_country] do
+      nil -> 0
+      country -> Pricing.resolve_tax_rate(country, evidence[:billing_state], DateTime.utc_now())
+    end
+  end
 
   @doc """
   Whether the recorded IP country matches the billing country exactly —

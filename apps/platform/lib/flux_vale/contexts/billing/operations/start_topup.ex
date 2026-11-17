@@ -10,13 +10,12 @@ defmodule FluxVale.Billing.Operations.StartTopup do
 
   Credits are a single-purpose voucher — VAT added on top (#138,
   ADR-0029 Am. 3 gate 2): the row's `amount_cents` is the NET credit,
-  `tax_cents` the VAT on it — always `FluxVale.Billing.Tax.tax_cents/2`
-  from the row's rate (0 when reverse-charge), never inlined twice.
-  The rate table is the sole rate source (#260): the row's rate is
-  resolved here from the billing country
-  (`Pricing.resolve_tax_rate/3`), never taken from the caller's
-  `tax_rate_bp` — a caller rate or tax figure that contradicts the
-  resolution fails the top-up closed (`:tax_rate_mismatch` /
+  `tax_cents` the VAT on it — always `FluxVale.Billing.Tax.quote/2`'s
+  figure from the row's rate (0 when reverse-charge), never inlined
+  twice. The rate table is the sole rate source (#260): the row's rate
+  is resolved here from the billing country, never taken from the
+  caller's `tax_rate_bp` — a caller rate or tax figure that contradicts
+  the resolution fails the top-up closed (`:tax_rate_mismatch` /
   `:tax_cents_mismatch`) before anything is persisted or charged —
   under reverse charge only the tax figure is checked (the evidence
   zeroes the rate whatever the caller carried) — so the wizard's
@@ -41,7 +40,6 @@ defmodule FluxVale.Billing.Operations.StartTopup do
   alias FluxVale.Accounts.Organization
   alias FluxVale.Billing.Tax
   alias FluxVale.Billing.Topup
-  alias FluxVale.Pricing
 
   @currency "USD"
 
@@ -100,27 +98,17 @@ defmodule FluxVale.Billing.Operations.StartTopup do
 
   defp do_create_topup(org, params) do
     customer_type = params[:customer_type] || :consumer
-    reverse_charge? = Tax.reverse_charge?(customer_type, params[:vat_number])
 
-    # Reverse charge: the applied rate is 0 and tax is 0 — enforced here
-    # so the row can never contradict the proof it records. Otherwise
-    # the rate table answers (#260): the same resolution the wizard
-    # displayed, so the two agree whenever the table hasn't moved under
-    # the session.
-    rate_bp =
-      if reverse_charge? do
-        0
-      else
-        resolve_rate(params)
-      end
+    # The full resolution — reverse charge, the fresh table rate (#260),
+    # the tax figure — lives on Tax (the domain helper both lanes share).
+    buyer_evidence = evidence(params, customer_type)
+    tax = Tax.quote(buyer_evidence, params.amount_cents)
 
     # The resolved rate is authoritative: the tax is always the
     # helper's figure from it. A caller figure that contradicts it
     # fails closed before anything is persisted.
-    tax_cents = Tax.tax_cents(params.amount_cents, rate_bp)
-
-    with :ok <- check_tax_rate(params[:tax_rate_bp], rate_bp, reverse_charge?),
-         :ok <- check_tax_cents(params[:tax_cents], tax_cents) do
+    with :ok <- check_tax_rate(params[:tax_rate_bp], tax.rate_bp, tax.reverse_charge?),
+         :ok <- check_tax_cents(params[:tax_cents], tax.tax_cents) do
       Topup.create(
         %{
           organization_id: org.id,
@@ -132,9 +120,9 @@ defmodule FluxVale.Billing.Operations.StartTopup do
           customer_type: customer_type,
           vat_number: params[:vat_number],
           ip_country: params[:ip_country],
-          tax_rate_bp: rate_bp,
-          tax_cents: tax_cents,
-          reverse_charge?: reverse_charge?,
+          tax_rate_bp: tax.rate_bp,
+          tax_cents: tax.tax_cents,
+          reverse_charge?: tax.reverse_charge?,
           ip_matches_billing?:
             Tax.ip_matches_billing?(
               params[:billing_country],
@@ -146,14 +134,13 @@ defmodule FluxVale.Billing.Operations.StartTopup do
     end
   end
 
-  # The rate table answers for the billing country; no country is an
-  # unpriced market — priced at zero, the same stance as a country
-  # with no table row (`ResolveTaxRate`).
-  defp resolve_rate(params) do
-    case params[:billing_country] do
-      nil -> 0
-      country -> Pricing.resolve_tax_rate(country, params[:billing_state], DateTime.utc_now())
-    end
+  defp evidence(params, customer_type) do
+    %{
+      billing_country: params[:billing_country],
+      billing_state: params[:billing_state],
+      customer_type: customer_type,
+      vat_number: params[:vat_number]
+    }
   end
 
   # A supplied rate is a cross-check against the table's resolution,

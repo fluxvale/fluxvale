@@ -200,16 +200,17 @@ defmodule FluxVale.Billing.Operations.CompleteTopup do
         # ADR-0049 S1b: the webhook/reconciliation path has no actor, and
         # the Topup row carries no user id — the owning org's id is the
         # distinct_id (the row's single ownership axis; the buyer's email
-        # never rides). Props keep only the provider enum: the ADR-0049
-        # disclosure covers usage events, not billing amounts — money
+        # never rides). Props keep only bounded enums: the provider name
+        # (the idempotency key's prefix — the payment reference after it
+        # never rides, the PostHogRequestContext posture) and the row's
+        # origin (#829: which lane bought the credits). No amounts — the
+        # ADR-0049 disclosure covers usage events, not billing; money
         # questions live in the Grafana domain dashboards (ADR-0012's
-        # domain sight). The provider name is the idempotency key's
-        # prefix; the payment reference after it never rides (the
-        # PostHogRequestContext posture).
+        # domain sight).
         props =
           case idempotency_provider(outcome.idempotency_key) do
-            nil -> %{}
-            provider -> %{provider: provider}
+            nil -> %{origin: topup.origin}
+            provider -> %{provider: provider, origin: topup.origin}
           end
 
         FluxVale.Analytics.capture("wallet topped up", topup.organization_id, props)
