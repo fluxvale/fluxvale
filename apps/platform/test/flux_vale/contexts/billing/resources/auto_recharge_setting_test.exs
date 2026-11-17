@@ -160,12 +160,21 @@ defmodule FluxVale.Billing.AutoRechargeSettingTest do
 
       assert reminded.last_reminded_at == now
 
+      # Clear from the REMINDED struct — the original still holds nil,
+      # and Ash drops a nil-to-nil change (the clear must act on a set
+      # marker to prove anything).
       assert {:ok, cleared} =
-               setting
+               reminded
                |> Ash.Changeset.for_update(:record_reminder, %{last_reminded_at: nil})
                |> Ash.update(authorize?: false)
 
       assert is_nil(cleared.last_reminded_at)
+
+      # The persisted row, not just the returned struct.
+      assert {:ok, reloaded} =
+               AutoRechargeSetting.get_by_organization(setting.organization_id, authorize?: false)
+
+      assert reloaded.last_reminded_at == nil
     end
 
     test "actor-forbidden for every actor the policies see; the admin blanket admits (#644)", %{
