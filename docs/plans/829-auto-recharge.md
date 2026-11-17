@@ -1,12 +1,17 @@
 # Plan: auto-recharge for wallet credits (#829)
 
-**Status**: GO 2026-11-17 — Terence approved via the PA, with one scope
-revision: **Polar only** (his provider decision: HitPay is out going
-forward, MoR preferred so country-by-country tax compliance is not
-ours). D1/D2/D3 decided below. This document is the worker fan-out
-spec; the HitPay sunset itself is a separate lane (the existing
-adapter module is untouched here).
-**Scope**: platform repo only, Polar lane only.
+**Status**: GO 2026-11-17 (Terence, via the PA), amended same day by
+his sequencing decision: **launch ships the reminder lane** (low
+balance → email with a one-click top-up link, Polar-only); the
+off-session charge lane is **built ready but staged behind a Polar
+Pro plan upgrade that happens only after launch** — activation is a
+config flip plus the API evidence check (Slice S6). Polar-only
+throughout (his provider decision: HitPay out going forward, MoR
+preferred). This document is the worker fan-out spec; the HitPay
+sunset is a separate lane (the adapter module is untouched here).
+
+**Scope**: platform repo only, Polar lane only, two waves: **L
+(launch)** and **S (staged, inert until activation)**.
 
 ## What the code says today (all read, not guessed)
 
@@ -76,26 +81,46 @@ for the archive; nothing in the slices touches it):
   repo's no-Node asset rule), `GET /v1/customers/{id}/payment-methods`.
 - Off-session charge: `POST /v1/orders/` creates a **draft order
   against a saved payment method** (one-time product; `amount` in
-  integer smallest-unit overrides the price; `metadata` rides);
-  `POST /v1/orders/{id}/finalize` **synchronously attempts the charge**
-  — success → `paid`, failure (decline, missing method, SCA) → stays
-  `draft` + 4xx. Webhook `order.paid` fires like today's checkout
-  orders.
-- **Gate**: "The organization must have the `off_session_charges_enabled`
-  feature flag" — a Polar-side org flag. It is **readable over the
-  API**: `GET /v1/organizations/{id}` → `feature_settings.
-  off_session_charges_enabled` — that read is D1's evidence step
-  (below); the flip itself is the owner's dashboard action.
+  integer smallest-unit overrides the price; `metadata` rides; the
+  customer must carry a **complete billing address** — Polar computes
+  tax from it — and at least one saved method); `POST
+  /v1/orders/{id}/finalize` **synchronously attempts the charge** —
+  success → `paid` (Polar emails the buyer their own confirmation;
+  `order.paid` webhook fires), failure → 4xx with the order reverted
+  to `draft` (`402` decline/no-method/SCA; `403` off-session not
+  enabled for the org; `412` not draft). A failed finalize leaves a
+  re-finalizable draft — our discipline never re-drives it (Decision
+  E).
+- **Gate — preview + PAID-PLAN-ONLY** (polar.sh/docs/features/orders +
+  the fees page, read 2026-11-17): "Off-session charges are currently
+  in preview. You'll only be able to run off-session charges if you
+  are on a paid plan." Pro is $20/mo at 3.8% + 40¢ (Growth $100,
+  Scale $400; Starter cannot run them). The org flag
+  (`feature_settings.off_session_charges_enabled`, readable via
+  `GET /v1/organizations/{id}`) unlocks with the plan upgrade, not a
+  dashboard toggle. Our org post-dates Polar's May 27 2026 Early
+  Member cutoff — there is no grandfathered rate to lose by upgrading
+  later.
 
-### The honest alternative (fallback, still designed here)
+## The two lanes
 
-Scheduled attempt + one-click email: the platform emails a pre-filled
-top-up link when the threshold trips. UX cost, plainly: it is NOT
-zero-touch — the org must open the mail, be signed in, and pay before
-the balance hits the stop gate; latency is the inbox, and a missed mail
-means stopped instances exactly as today. It ships anyway as the
-degrade path (disable notices carry the one-click link), and becomes
-the whole feature **only if D1 denies**.
+**Launch lane — the reminder** (ships now): when the wallet dips
+below the org's threshold, the platform emails the org's members a
+one-click, amount-prefilled top-up link. No stored credentials, no
+off-session API, nothing the Starter plan can't run. UX cost, stated
+plainly: it is NOT zero-touch — the org must open the mail, be signed
+in, and pay before the balance hits the stop gate; latency is the
+inbox, and a missed mail means stopped instances exactly as today
+(the ladder's own < 24h runway warning still fires independently
+beneath it).
+
+**Staged lane — the off-session charge** (built ready, inert until
+activation): the saved-method design below, everything behind a
+platform config gate (`charge_mode`, default false). Activation =
+Terence upgrades the Polar org to Pro after launch → flip
+`AUTO_RECHARGE_CHARGE_MODE` → run the evidence check (Slice S6).
+Nothing in Wave S gates launch; nothing in Wave L knows about Wave S
+beyond the shared setting row.
 
 ## Decisions
 
@@ -112,62 +137,94 @@ manual top-up; every attempt visible to the user and in ops telemetry.
   archived research record. The adapter's provider-agnostic behaviour
   is unchanged (ADR-0029's architecture stands); HitPay simply grows
   nothing — and the adapter's sunset is a separate lane, not this one.
-- **D1 — resolved as revised.** Terence flips `off_session_charges_enabled`
-  in the Polar dashboard himself (his account; the PA relays the ask).
-  **Slice 1's first step is the gating evidence**: a read-only
-  production `GET /v1/organizations/{id}` captured with the flag
-  visible (`feature_settings.off_session_charges_enabled: true`).
-  Nothing downstream builds until that transcript exists in the slice
-  PR. If Polar denies the flag: the lane pivots to the reminder-email
-  fallback exactly as costed above — no other invariant changes.
-- **D2 — ratified as recommended**: threshold 500¢, amount 2500¢
-  defaults, 2 auto charges per rolling 24h, 3-strike auto-disable —
-  all user-tunable at the setting layer.
-- **D3 — ratified**: no saved method at sweep time → skip + one notice
-  email; still none on the next pass → disable (`disabled_reason:
+- **D1 — superseded by the sequencing decision.** Off-session charges
+  are preview + paid-plan-only on Polar (facts above). Terence WILL
+  subscribe to Pro ($20/mo) but ONLY AFTER LAUNCH. Therefore:
+  **launch scope = the reminder lane**; the charge lane stages behind
+  the upgrade, structured so activation is a config flip plus the
+  evidence check (`GET /v1/organizations/{id}` showing the flag true —
+  Slice S6). The flag requirement is quoted from the Create Order
+  endpoint's own description; pre-upgrade, the honest runtime shape is
+  finalize's `403`.
+- **D2 — ratified as recommended, all four owner-tunable** (staged
+  lane): threshold 500¢, amount 2500¢, 2 auto charges per rolling 24h,
+  3-strike auto-disable — each an attribute on the setting with
+  bounded ranges (see Slice S2); the "max auto-spend/day = daily cap ×
+  amount" line shown at enable recomputes from the stored values.
+  The launch lane inherits threshold + amount with the same defaults;
+  its cadence (at most one reminder per 24h per episode) is fixed,
+  not a dial — revisit on the first complaint about mailbox fatigue.
+- **D3 — ratified** (staged lane): no saved method at sweep time →
+  skip + one notice email (persisted marker `no_method_notified_at`);
+  still none on the next pass → disable (`disabled_reason:
   :no_method`).
+- **Sequencing** (Terence, 2026-11-17): Wave L is the launch gate —
+  nothing requiring off-session capability may block it. Wave S builds
+  ready and stays inert. The activation slice (S6) is blocked on the
+  owner's Pro upgrade — an external event, not a code dependency.
 
 **Settled here (build on unless the owner objects)**
 
-- **A — the attempt IS a top-up.** Auto-recharge creates `Topup` rows
-  (new `origin: :manual | :auto`, additive) and completes through the
-  unchanged `CompleteTopup` seam. No second posting path exists to
-  keep honest; the invariant "same ledger rows" holds by construction.
+- **G — the shared setting, two consent levels.** One
+  `AutoRechargeSetting` row per org carries both lanes. At launch:
+  `mode: :off | :reminder` (owner-role writes). The staged lane adds
+  `:auto` — arming it is its OWN explicit owner consent (saved method
+  + confirmed charge settings), never implied by a reminder opt-in:
+  an org that asked for emails must never be silently charged the day
+  the config gate flips. Launch lane reminder rules: fire when
+  `balance < threshold_cents` and `last_reminded_at` is older than
+  24h (or nil); clear the marker when balance recovers ≥ threshold
+  (episode semantics, the ladder-warning shape).
+- **A — the attempt IS a top-up** (staged lane). Auto-recharge
+  creates `Topup` rows (new `origin: :manual | :auto`, additive) and
+  completes through the unchanged `CompleteTopup` seam. No second
+  posting path exists to keep honest; the invariant "same ledger
+  rows" holds by construction. The launch lane creates NO top-up
+  rows — the top-up it produces is an ordinary manual one through
+  the wizard.
 - **B — Polar only** (was "Polar first"; upgraded by the GO revision).
   Active provider, MoR tax handling, synchronous finalize,
   redirect-only save-method (portal).
-- **C — consent model**: one `AutoRechargeSetting` per org. Writes are
-  **owner-role only** (recurring spend consent ≠ "money in"; the
-  wizard's any-member stance does not carry). Enable requires a saved
-  method + confirmed amount/threshold. Buyer evidence (billing
-  country/state, customer type, VAT number) copies from the org's last
+- **C — consent model** (staged lane): writes are **owner-role only**
+  (recurring spend consent ≠ "money in"; the wizard's any-member
+  stance does not carry). Arming `:auto` requires a saved method +
+  confirmed amount/threshold/caps. Buyer evidence (billing country/
+  state, customer type, VAT number) copies from the org's last
   completed top-up as the editable default; the RATE always resolves
   fresh at charge time (#260 discipline — never a copied rate).
-- **D — caps**: threshold `threshold_cents` (default 500¢, min 100¢);
-  `amount_cents` ≥ the $5 top-up floor (default 2500¢); at most
-  **1 in-flight** auto attempt per org; at most **2 auto charges per
-  rolling 24h**; **3 consecutive failures auto-disable** the setting
-  (email says why + one-click top-up link). Max auto-spend/day =
-  2 × amount, shown at enable.
-- **E — trigger**: new hourly Oban worker (queue `:billing`, cron
-  `23 * * * *`, off :07/:17 and the top of the hour). Per org:
-  `WalletLock` → fresh balance read → due? → insert the pending
-  `Topup` row → **commit** → charge over HTTP **outside** any
-  transaction (the `suspend_gateways` discipline; a network call never
-  holds the lock). One POST per attempt, ever: an unknown-outcome
-  (timeout) attempt is never re-POSTed — the row stays `:pending`,
-  owned by webhooks/`fetch_payment` reconciliation and the 24h stale
-  sweep. (The one-POST rule was also the answer to HitPay's
-  undocumented charge idempotency; it stays as Polar discipline too —
-  the finalize call is the single charge trigger.)
-- **F — failure fall-through**: a decline is a `:failed` Topup
-  (existing terminal-once guard), counter +1, disable email at 3. The
-  ladder is untouched — it keeps its hourly cadence; a successful
-  recharge lifts the balance and the ladder clears itself next pass
-  (recovery arm already does this). No new wallet states.
+- **D — caps (all owner-tunable, per D2; staged lane)**:
+  `threshold_cents` (default 500¢, min 100¢); `amount_cents` ≥ the $5
+  top-up floor (default 2500¢); `daily_charge_cap` (default 2, range
+  1–6) — at most that many auto charges per rolling 24h, and at most
+  **1 in-flight** auto attempt per org (a fixed invariant, not a
+  dial); `failure_strikes` (default 3, range 2–5) consecutive
+  failures auto-disable the setting (email says why + one-click
+  top-up link). Max auto-spend/day = `daily_charge_cap` × amount,
+  shown at enable.
+- **E — trigger** (staged lane): hourly Oban arm on the shared
+  RechargeSweep worker (queue `:billing`, cron `23 * * * *`, off
+  :07/:17 and the top of the hour). Per org: `WalletLock` → fresh
+  balance read → due? → insert the pending `Topup` row → **commit**
+  → charge over HTTP **outside** any transaction (the
+  `suspend_gateways` discipline; a network call never holds the
+  lock). **One charge trigger per attempt, ever**: the finalize call
+  is never re-driven on an unknown outcome, and the draft-order
+  create is never retried either — the row stays `:pending`, owned
+  by webhooks/`fetch_payment` reconciliation and the 24h stale
+  sweep. (A finalize that ANSWERED with 402/403 is a decided
+  failure, not an unknown — the reverted draft is simply abandoned.)
+- **F — failure fall-through** (staged lane): a decline is a
+  `:failed` Topup (existing terminal-once guard), counter +1,
+  disable email at `failure_strikes`. The ladder is untouched — it
+  keeps its hourly cadence; a successful recharge lifts the balance
+  and the ladder clears itself next pass (recovery arm already does
+  this). No new wallet states.
 
 ## Rejected alternatives
 
+- **Off-session auto-charge at launch** — requires the Polar Pro plan
+  pre-launch; the owner upgrades only post-launch (his sequencing
+  decision). Launch waits on no paid plan.
 - **Polar subscriptions + metered usage (postpaid)** — replaces the
   prepaid wallet with postpaid billing; breaks the
   ledger-as-source-of-truth stance and the prepaid-credit product
@@ -175,72 +232,22 @@ manual top-up; every attempt visible to the user and in ops telemetry.
 - **HitPay-first implementation** — dormant provider; its production
   gates (Am. 3) moved to Polar with the MoR switch (OQ #4). Building
   the dormant lane first doubles the surface before any user benefits.
-- **Card data anywhere near us** — both providers vault the method;
+- **Card data anywhere near us** — the provider vaults the method;
   we store provider-scoped references only (same posture as today's
   checkout tokens).
 - **Silent scheduled charges without a saved method** — impossible by
-  definition; the reminder lane is the honest version and is the
-  fallback, not a silent charge.
+  definition; the reminder lane is the honest version.
 
 ## Slices
 
-Dependency chain: 1 → 3 → 4; 2 independent of 1; 5 needs 2 (+1 for
-the portal button); 6 last. Each slice's tests are its own gate.
+Two waves. **Wave L (launch)**: L1 → L2 → (L3 ∥ L4). **Wave S
+(staged, inert)**: S1 ∥ S2 (S2 after L1 merges — same resource file);
+S3 after S1 + S2; S4 after S3 (+L2); S5 after S3 (+L3); **S6 last,
+blocked on the owner's Pro upgrade** (external — do not schedule).
+Each slice's tests are its own gate; Wave S slices merge only with
+the config gate defaulting false and no UI path reaching them.
 
-### Slice 1 — adapter seam + Polar implementation (+ D1 gating evidence)
-
-**Files**:
-`apps/platform/lib/flux_vale/contexts/billing/payment_provider.ex`,
-`apps/platform/lib/flux_vale/contexts/billing/providers/polar.ex`,
-`apps/platform/test/flux_vale/contexts/billing/providers/polar_test.exs`
-(extend). HitPay is NOT touched (owner's Polar-only decision).
-
-**Gating evidence (first, before any code)**: read-only production
-API check that the flag is on — `GET /v1/organizations/{id}` with the
-org token shows `feature_settings.off_session_charges_enabled: true`.
-The transcript (flag line, org id, no token material) goes in the PR
-body. If the flag reads false after Terence's flip attempt or Polar
-denies it: STOP, report to the architect — the lane pivots to the
-reminder fallback.
-
-**Change**: three new OPTIONAL callbacks on the behaviour
-(`@callback … | {:error, :unsupported}` via a default
-`@optional_callbacks` or explicit default clauses — follow the
-existing behaviour's style):
-
-- `create_billing_session/2` — Polar: upsert customer by
-  `external_id` (org id), `POST /v1/customer-sessions/` →
-  `{:ok, %{customer_id: id, portal_url: url}}`.
-- `list_payment_methods/1` — Polar: `GET
-  /v1/customers/{id}/payment-methods` → `{:ok, count, default_ref}`
-  (we need existence + default, not the instruments).
-- `charge_saved_method/3` — Polar: `POST /v1/orders/` (draft; product
-  = the existing "FluxVale Credits" product_id config; `amount` =
-  integer cents gross; `metadata: %{"topup_id" => reference}`) then
-  `POST /v1/orders/{id}/finalize` → `{:ok, %{payment_request_id:
-  order_id, payment_id: order_id, amount_cents: n, status: :completed
-  | :failed, failure_reason: binary | nil}}`. A finalize 4xx maps to
-  `{:ok, …, status: :failed, failure_reason: <code>}` (decline,
-  missing method, SCA) — an ANSWERED charge, not an error; transport
-  failures stay `{:error, :network_error | :api_error}` (unknown
-  outcome — see Decision E).
-
-Amounts integer cents on both sides of the adapter. The callbacks are
-optional on the behaviour (default clauses answering `{:error,
-:unsupported}`) so the architecture stays provider-agnostic — Polar is
-the only implementation (owner's decision); no other provider grows
-them in this lane.
-
-**Tests**: Req-stubbed (the existing provider-test pattern): session
-create, method list, draft+finalize success, finalize decline (4xx →
-`:failed` + reason), transport error.
-
-**Done when**:
-`cd apps/platform && mix test test/flux_vale/contexts/billing/providers/`
-exits 0 with the new cases (0 failures), and
-`mix credo --strict` on the touched files is clean.
-
-### Slice 2 — the `AutoRechargeSetting` resource
+### L1 — the `AutoRechargeSetting` resource (launch shape)
 
 **Files**:
 `apps/platform/lib/flux_vale/contexts/billing/resources/auto_recharge_setting.ex`
@@ -249,162 +256,362 @@ exits 0 with the new cases (0 failures), and
 migration via `mix ash.codegen add_auto_recharge_settings`, tests at
 `test/flux_vale/contexts/billing/resources/auto_recharge_setting_test.exs`.
 
-**Shape**: `organization_id` (unique, one per org), `enabled` (bool,
-default false), `threshold_cents` (int, ≥ 100), `amount_cents` (int,
-≥ `min_topup_cents`), `consecutive_failures` (int, default 0),
-`disabled_reason` (`:manual | :declines | :no_method | nil`),
-buyer evidence (`billing_country`, `billing_state`, `customer_type`,
-`vat_number` — sensitive, mirroring Topup), `provider_customer_id`
-(string), `payment_method_status` (`:none | :attached`),
-`last_attempt_at`, timestamps. Paper-trail mixin like Wallet's.
+**Shape (launch only — charge fields arrive with S2)**:
+`organization_id` (unique, one per org), `mode`
+(`Types.AutoRechargeMode`: `:off | :reminder`, default `:off`),
+`threshold_cents` (int, ≥ 100, default 500), `amount_cents` (int,
+≥ `min_topup_cents`, default 2500), `last_reminded_at`
+(utc_datetime_usec, nil), timestamps. Paper-trail mixin like
+Wallet's; AshAdmin read-only (table: org, mode, threshold, amount,
+last reminded).
 
-**Actions/policies**: `:enable` / `:update` / `:disable` are
-owner-role writes (membership `role: :owner` via the org relation —
-the wallet's member filter plus the role guard); members read.
-System actions (`:record_attempt_outcome`, `:disable_with_reason`,
-`:set_method_status`) run `authorize?: false`, actor-forbidden by
-policy (the wallet's `set_carryover` shape).
+**Actions/policies**: `:set` (owner-role write accepting
+mode/threshold/amount; the constraints guard values — a `:reminder`
+write with threshold 50¢ fails the attribute constraint); members
+read. System action `:record_reminder` (writes `last_reminded_at`,
+clears with nil) runs `authorize?: false`, actor-forbidden by policy
+(the wallet's `set_carryover` shape).
 
-**Tests**: policy matrix (member cannot enable, owner can, system
-writes actor-forbidden), attribute constraints, uniqueness.
+**Tests**: policy matrix (member cannot set, owner can, system
+action actor-forbidden), attribute constraints (threshold floor,
+amount floor, mode enum), uniqueness.
 
-**Done when**: `mix test test/flux_vale/contexts/billing/` green
-(includes the new file) and `mix ash.codegen --check` clean.
+**Done when**:
+`MIX_TEST_PARTITION=l1 mix test test/flux_vale/contexts/billing/resources/auto_recharge_setting_test.exs`
+exits 0 (0 failures) and `mix ash.codegen --check` is clean.
 
-### Slice 3 — `StartAutoRecharge` operation + webhook arm
-
-**Files**:
-`apps/platform/lib/flux_vale/contexts/billing/operations/start_auto_recharge.ex`
-(new), `.../operations/start_topup.ex` (extract ONLY the shared tax
-resolution/guard block into a private-sharable form or a small
-`Billing.TaxQuote` helper — do not duplicate the rate logic),
-`apps/platform/lib/flux_vale_web/controllers/webhooks/polar_controller.ex`
-(order.paid arm: accept order-id payloads — resolve by
-`metadata.topup_id` first, then `payment_request_id` == order id;
-idempotency key `polar:<order_id>`), `billing.ex` delegates, tests
-mirroring `start_topup_test.exs` + `polar_controller` tests.
-
-**Behavior**: `call(org, setting, opts)` — under `WalletLock` +
-fresh balance read (caller = sweep) already done, this operation:
-(1) builds the `Topup` (origin `:auto`, net = setting.amount_cents,
-tax = fresh `Tax.tax_cents(net, resolved_rate(setting evidence))`,
-buyer fields from the evidence), persists `:pending`; (2) AFTER
-commit, `charge_saved_method` with gross = net + tax; (3) sync
-`:completed` → nothing more (webhook/reconcile posts the credit —
-never the starter); sync `:failed` → `mark_failed` +
-`record_attempt_outcome`; `{:error, :network_error | :api_error}` →
-row stays `:pending`, outcome recorded as attempt-started only.
-Amount guard: CompleteTopup's gross check applies unchanged (the
-order `subtotal_amount` must equal gross — verify in Slice 1 sandbox
-evidence that Create Order's `amount` maps to `subtotal_amount` the
-way checkout amounts do; if Polar maps it differently, adjust the
-mapping here, never the guard).
-
-**Tests**: happy path (row pending → charge completed → webhook
-completes + credits once, idempotent replay), decline path (failed
-row + counter), timeout path (row stays pending, no second POST —
-assert one HTTP call), tax resolution fresh-from-table, webhook
-order-id resolution by metadata then by payment_request_id.
-
-**Done when**: the new operation + controller tests green
-(`mix test test/flux_vale/contexts/billing/operations/start_auto_recharge_test.exs
-test/flux_vale_web/controllers/webhooks/` — 0 failures).
-
-### Slice 4 — `RechargeSweep` worker + caps + auto-disable
+### L2 — the reminder sweep + mail + one-click prefill
 
 **Files**:
 `apps/platform/lib/flux_vale/contexts/billing/operations/sweep_auto_recharge.ex`
 (new), `apps/platform/lib/flux_vale/workers/recharge_sweep.ex` (new,
 `use Oban.Worker, queue: :billing, max_attempts: 3` — the
-`ZeroBalanceSweep` plumbing shape), `config/config.exs` (cron
-`23 * * * *` with the stagger comment), `mailer.ex` +
-`topup_outcome_mail.ex` (disable notice), tests.
+`ZeroBalanceSweep` plumbing shape), `apps/platform/config/config.exs`
+(cron `23 * * * *` with the stagger comment) +
+`apps/platform/config/runtime.exs` (`RECHARGE_SWEEP_CRONEXPR`
+override — the `IDLE_SWEEP_CRONEXPR` precedent, for staging/e2e
+compression), `apps/platform/lib/flux_vale/mailer.ex`
+(`deliver_auto_recharge_reminder/3`: to, amount_dollars, url — the
+`member_emails` delivery path the zero-balance sweep already uses),
+`apps/platform/lib/flux_vale_web/live/billing_live/topup.ex` (accept
+an `amount` query param — integer dollars, validated ≥
+`min_topup_dollars` and ≤ 1000, prefilling the Amount step; must
+survive the personal↔org route redirect), tests for all of it.
 
-**Behavior**: for each org with an enabled setting, in per-org
-isolation (`safe_sweep` rescue pattern): under `WalletLock`, re-read
-balance; due = `balance < threshold_cents` AND no `:pending` auto
-top-up exists AND auto charges in the last 24h < 2 AND a payment
-method exists (`list_payment_methods`; none → notice mail + disable
-per D3); if due → `StartAutoRecharge` (which owns the top-up row).
-On a failed outcome: increment `consecutive_failures`; at 3 →
-`disable_with_reason(:declines)` + mail with a one-click top-up URL
-(`~p"/billing/topup"` or the org route). A successful outcome resets
-the counter. One wallet's failure never blocks the rest; job fails
-after the loop so Oban retries (the ZeroBalanceSweep stance).
+**Behavior**: for each org with `mode: :reminder`, in per-org
+isolation (`safe_sweep` rescue pattern — one bad org is logged and
+skipped, job fails after the loop): read the wallet balance (the
+live aggregate; NO advisory lock — the reminder writes no wallet
+state, so there is nothing to serialize; a balance that moves
+mid-read only shifts the reminder by one pass). Below threshold AND
+(`last_reminded_at` nil OR > 24h ago) → send the reminder (mail +
+`last_reminded_at` write in ONE transaction, the ladder's
+marker+mail discipline — a failed send rolls the marker back) to the
+org's member emails, linking the org top-up route with
+`?amount=<amount_dollars>` (the personal route when the org is the
+member's personal org — the wizard redirect must carry the param).
+Balance ≥ threshold → clear `last_reminded_at` (episode re-arm).
+The reminder copy names the threshold and the one-click amount and
+never promises automatic charging.
 
-**Tests**: due/not-due matrix, in-flight guard, 24h cap, 3-strike
-disable + mail, no-method disable (D3), counter reset on success,
-per-org isolation.
+**Tests**: below-threshold + never reminded → mail + marker (assert
+both, atomically); below-threshold + reminded 23h ago → no mail;
+recovery clears marker; amount param prefill + validation (below
+floor ignored) + redirect survival; per-org isolation.
 
-**Done when**: `mix test test/flux_vale/workers/recharge_sweep_test.exs
-test/flux_vale/contexts/billing/operations/sweep_auto_recharge_test.exs`
-green (0 failures).
+**Done when**:
+`MIX_TEST_PARTITION=l2 mix test test/flux_vale/contexts/billing/operations/sweep_auto_recharge_test.exs test/flux_vale/workers/recharge_sweep_test.exs test/flux_vale_web/live/billing_live/topup_test.exs`
+exits 0 (0 failures).
 
-### Slice 5 — billing UI: the auto-recharge card
+### L3 — billing UI: the auto-recharge card (launch shape)
 
 **Files**:
-`apps/platform/lib/flux_vale_web/live/org_live/billing.ex` (+ the
-personal billing surface it shares shape with),
+`apps/platform/lib/flux_vale_web/live/org_live/billing.ex` + the
+personal billing surface it shares shape with,
 `apps/platform/lib/flux_vale_web/components/billing_components.ex`,
 LiveView tests beside the existing ones.
 
 **Behavior**: a card between the balance band and the ledger: state
-(off / armed with threshold/amount/next-cap math), the saved-method
-status, and for owners: enable/disable, threshold+amount form
-(validated server-side against Slice 2's constraints), "Add payment
-method" (LiveView event → `create_billing_session` → external
-redirect to `customer_portal_url` — fresh per click, never stored),
-attempt history = existing top-up rows filtered `origin: :auto`
-(badge "Auto" on those rows wherever top-ups render). All capture
-rules apply at PR time (this is a user-visible surface: screenshots,
-light+dark).
+(off / reminders on, with the threshold and amount shown and "we'll
+email your org a one-click top-up link at most once a day while the
+balance is below the threshold" copy — no future-feature promises);
+for owners: the mode/threshold/amount form (validated server-side
+against L1's constraints); for members: read-only. All capture rules
+apply at PR time (user-visible surface: screenshots, light+dark,
+embedded absolute raw URLs).
 
-**Tests**: render states per role (member sees, owner edits),
-form validation, redirect event, origin badge.
+**Tests**: render states per role, form validation, enable/disable
+events.
 
-**Done when**: `mix test test/flux_vale_web/live/org_live/billing_test.exs`
-(and the personal-surface file) green with the new cases.
+**Done when**:
+`MIX_TEST_PARTITION=l3 mix test test/flux_vale_web/live/org_live/billing_test.exs`
+(and the personal-surface file) exits 0 with the new cases.
 
-### Slice 6 — telemetry + docs
+### L4 — telemetry + public docs (launch)
 
-**Files**: `apps/platform/lib/flux_vale/prom_ex.ex` (attempt counter
-by outcome — org id as label ONLY, no amounts),
-`complete_topup.ex` (PostHog "wallet topped up" gains an
-`origin` prop; still no amounts — the ADR-0049 posture),
-`docs/public/billing/auto-recharge.md` (new; what it does, the caps,
-how to disable, the failure ladder promise), this plan's Verification
+**Files**: `apps/platform/lib/flux_vale/prom_ex.ex` (a reminder
+counter following the module's existing event patterns — org id as
+label ONLY, no amounts), `complete_topup.ex` untouched at launch
+(the PostHog origin prop lands with S3),
+`docs/public/billing/auto-recharge.md` (new; what the reminder does,
+threshold/amount, the ≤1/day cadence, how to turn it off, and its
+relationship to the ladder warnings), this plan's Verification
 section updated.
 
 **Done when**: `mix ci` green overall (the PR gate below) and
 `mix docs.lint`/`blog.lint` clean.
 
+### S1 — adapter seam + Polar implementation (staged, no live calls)
+
+**Files**:
+`apps/platform/lib/flux_vale/contexts/billing/payment_provider.ex`,
+`apps/platform/lib/flux_vale/contexts/billing/providers/polar.ex`,
+`apps/platform/test/flux_vale/contexts/billing/providers/polar_test.exs`
+(extend). HitPay is NOT touched (owner's Polar-only decision). All
+testing is Req-stubbed — **no live Polar calls in this slice** (the
+org is on Starter; draft-order creation would 403. The live evidence
+is S6's, post-upgrade).
+
+**Change**: three new callbacks on the behaviour, each with a DEFAULT
+CLAUSE answering `{:error, :unsupported}` (the behaviour has no
+optional-callback precedent — the default-clause form is pinned here;
+`@optional_callbacks` is not used):
+
+- `create_billing_session/2` — Polar: upsert customer by
+  `external_id` (org id) **carrying a complete billing address from
+  the caller's evidence** (Polar requires one on the customer before
+  Create Order — it computes tax from it), `POST
+  /v1/customer-sessions/` → `{:ok, %{customer_id: id, portal_url:
+  url}}`.
+- `list_payment_methods/1` — Polar: `GET
+  /v1/customers/{id}/payment-methods` → `{:ok, count, default_ref}`
+  (we need existence + default, not the instruments).
+- `charge_saved_method/3` — Polar: `POST /v1/orders/` (draft; product
+  = the existing "FluxVale Credits" product_id config; `amount` =
+  integer cents gross; `metadata: %{"topup_id" => reference}`) then
+  `POST /v1/orders/{id}/finalize` → `{:ok, %{payment_request_id:
+  order_id, payment_id: order_id, amount_cents: n, status:
+  :completed | :failed, failure_reason: binary | nil}}`. A finalize
+  `402`/`403`/`412` maps to `{:ok, …, status: :failed,
+  failure_reason: <code>}` — an ANSWERED charge, not an error; a
+  failed finalize leaves Polar's draft re-finalizable and we never
+  do (Decision E). Transport failures stay `{:error, :network_error
+  | :api_error}` (unknown outcome).
+
+Amounts integer cents on both sides of the adapter. The default
+clauses keep the architecture provider-agnostic — Polar is the only
+implementation (owner's decision).
+
+**Tests**: Req-stubbed (the existing provider-test pattern): session
+create (address carried), method list, draft+finalize success,
+finalize decline (402 → `:failed` + reason), finalize 403 (not
+enabled → `:failed` + reason), transport error.
+
+**Done when**:
+`MIX_TEST_PARTITION=s1 mix test test/flux_vale/contexts/billing/providers/`
+exits 0 with the new cases (0 failures), and `mix credo --strict`
+on the touched files is clean.
+
+### S2 — the setting's charge extension + the config gate (staged)
+
+**Files**:
+`apps/platform/lib/flux_vale/contexts/billing/resources/auto_recharge_setting.ex`
+(extend), its types file (`AutoRechargeMode` gains `:auto`),
+`apps/platform/lib/flux_vale/contexts/billing.ex`
+(`auto_recharge_charge_mode?/0`), `apps/platform/config/config.exs`
+(`config :flux_vale, :auto_recharge, charge_mode: false`) +
+`apps/platform/config/runtime.exs` (`AUTO_RECHARGE_CHARGE_MODE`
+env override, whitelist map — the `PAYMENTS_PROVIDER` shape),
+migration via `mix ash.codegen extend_auto_recharge_settings_for_charge`,
+tests.
+
+**Change**: widen `mode` to `:off | :reminder | :auto`; add
+`daily_charge_cap` (1–6, default 2), `failure_strikes` (2–5,
+default 3), `consecutive_failures` (default 0), `disabled_reason`
+(`:manual | :declines | :no_method | nil`), `no_method_notified_at`,
+buyer evidence (`billing_country`, `billing_state`, `customer_type`,
+`vat_number` — sensitive, mirroring Topup), `provider_customer_id`
+(string), `payment_method_status` (`:none | :attached`),
+`last_attempt_at`. The `:set` action REJECTS `mode: :auto` unless
+`Billing.auto_recharge_charge_mode?/0` (a validation, not a policy —
+the gate is platform state, not actor identity). System actions:
+`:record_attempt_outcome`, `:disable_with_reason`,
+`:set_method_status` (`authorize?: false`, actor-forbidden).
+
+**Tests**: `:auto` rejected with the gate false, accepted with it
+true (config capture/restore per the test-ownership rule);
+constraint matrix for the new attributes; system-action policy
+forbids.
+
+**Done when**:
+`MIX_TEST_PARTITION=s2 mix test test/flux_vale/contexts/billing/resources/auto_recharge_setting_test.exs`
+exits 0 (0 failures) and `mix ash.codegen --check` is clean.
+
+### S3 — `StartAutoRecharge` operation + webhook arm (staged)
+
+**Files**:
+`apps/platform/lib/flux_vale/contexts/billing/operations/start_auto_recharge.ex`
+(new), `apps/platform/lib/flux_vale/contexts/billing/tax.ex` (extend
+with `quote/2` — evidence → `%{rate_bp, tax_cents, reverse_charge?}`
+— and refactor `StartTopup` to consume it; `Tax` is the domain helper
+module, NOT a shared private helper, per the operation-boundary rule
+in `apps/platform/AGENTS.md`; the rate logic must not be duplicated),
+`apps/platform/lib/flux_vale/contexts/billing/resources/topup.ex`
+(the additive `origin` attribute: `:manual | :auto`, default
+`:manual`),
+`apps/platform/lib/flux_vale_web/controllers/webhooks/polar_controller.ex`
+(order.paid arm: accept order-id payloads — resolve by
+`metadata.topup_id` first, then `payment_request_id` == order id;
+idempotency key `polar:<order_id>`), `billing.ex` delegates,
+`complete_topup.ex` (PostHog "wallet topped up" gains an `origin`
+prop; still no amounts — the ADR-0049 posture), tests mirroring
+`start_topup_test.exs` + `polar_controller` tests.
+
+**Behavior — load-bearing first**: CompleteTopup's gross guard
+applies UNCHANGED — the order's `subtotal_amount` must equal the
+gross we sent. S6's evidence transcript must show Create Order's
+`amount` maps to `subtotal_amount` the way checkout amounts do; if
+Polar maps it differently, the MAPPING adjusts, never the guard.
+
+`call(org, setting, opts)` — under `WalletLock` + fresh balance read
+(caller = sweep) already done, this operation: (1) builds the `Topup`
+(origin `:auto`, net = setting.amount_cents, tax = fresh
+`Tax.quote/2` over the setting's evidence, buyer fields from the
+evidence — no buyer email), persists `:pending`; (2) AFTER commit,
+`charge_saved_method` with gross = net + tax; (3) sync `:completed` →
+nothing more (webhook/reconcile posts the credit — never the
+starter; Polar emails the buyer their own confirmation); sync
+`:failed` → `mark_failed` + `record_attempt_outcome`; `{:error,
+:network_error | :api_error}` → row stays `:pending`, outcome
+recorded as attempt-started only. Outcome mails: `TopupOutcomeMail`
+is a structural no-op for auto rows (it guards on `buyer_email`,
+which auto rows don't set) — by design; the user-facing signals are
+the balance change, the billing page, Polar's buyer email, and S4's
+disable notices.
+
+**Tests**: happy path (row pending → charge completed → webhook
+completes + credits once, idempotent replay), decline path (failed
+row + counter), unknown-outcome path (row stays pending; assert the
+finalize was attempted exactly once and never re-driven), tax
+resolution fresh-from-table, webhook order-id resolution by metadata
+then by payment_request_id, origin prop on the analytics event.
+
+**Done when**:
+`MIX_TEST_PARTITION=s3 mix test test/flux_vale/contexts/billing/operations/start_auto_recharge_test.exs test/flux_vale_web/controllers/webhooks/`
+exits 0 (0 failures).
+
+### S4 — the sweep's charge arm (staged)
+
+**Files**:
+`apps/platform/lib/flux_vale/contexts/billing/operations/sweep_auto_recharge.ex`
+(extend), `apps/platform/lib/flux_vale/mailer.ex`
+(`deliver_auto_recharge_disabled/2` + `deliver_auto_recharge_no_method/1`,
+member-emails delivery), tests.
+
+**Behavior**: the sweep grows the `:auto` arm (runs only when
+`auto_recharge_charge_mode?/0`): for each org in `:auto` mode, under
+`WalletLock` (this arm DOES take the lock — it creates top-up rows):
+re-read balance; due = `balance < threshold_cents` AND no `:pending`
+auto top-up exists AND auto charges in the last 24h <
+`daily_charge_cap` AND a payment method exists (`list_payment_methods`).
+No method → D3's two-pass rule: `no_method_notified_at` nil → notice
+mail + set it; set and still none → `disable_with_reason(:no_method)`
++ mail. If due → `StartAutoRecharge`. On a failed outcome: increment
+`consecutive_failures`; at `failure_strikes` →
+`disable_with_reason(:declines)` + mail with a one-click top-up URL.
+A successful outcome resets the counter AND clears
+`no_method_notified_at`. Reminder-arm behavior is unchanged for
+`:reminder` orgs.
+
+**Tests**: due/not-due matrix, in-flight guard, 24h cap (against
+`daily_charge_cap`), strikes disable + mail (against
+`failure_strikes`), D3's no-method two-pass (notice-then-disable),
+counter reset on success, gate-off means the arm never runs,
+per-org isolation.
+
+**Done when**:
+`MIX_TEST_PARTITION=s4 mix test test/flux_vale/contexts/billing/operations/sweep_auto_recharge_test.exs test/flux_vale/workers/recharge_sweep_test.exs`
+exits 0 (0 failures).
+
+### S5 — the UI's charge card (staged)
+
+**Files**: the L3 surfaces (org + personal billing pages,
+billing_components), LiveView tests.
+
+**Behavior**: the card grows its `:auto` presentation, rendered ONLY
+when `Billing.auto_recharge_charge_mode?/0` — gate false means the
+launch UI, byte-for-byte. Charge state: saved-method status,
+threshold/amount/cap/strikes form ("max auto-spend/day =
+daily_charge_cap × amount"), "Add payment method" (LiveView event →
+`create_billing_session` → external redirect to `customer_portal_url`
+— fresh per click, never stored), attempt history = top-up rows
+filtered `origin: :auto` (badge "Auto" wherever top-ups render).
+Arming `:auto` is a separate, explicitly-confirmed action from
+`:reminder` (a checkbox-style consent, not a shared toggle).
+Screenshots light+dark.
+
+**Tests**: gate-off renders launch shape (no charge affordances),
+gate-on renders charge card per role, arming consent flow, origin
+badge.
+
+**Done when**:
+`MIX_TEST_PARTITION=s5 mix test test/flux_vale_web/live/org_live/billing_test.exs`
+(and the personal-surface file) exits 0 with the new cases.
+
+### S6 — activation (blocked on the owner's Pro upgrade)
+
+**External precondition**: Terence has upgraded the Polar org to
+Pro. Until the PA relays it, this slice is NOT scheduled.
+
+**Steps** (mostly operator evidence, minimal code): (1) evidence
+read — `GET /v1/organizations/{id}` shows
+`feature_settings.off_session_charges_enabled: true`; transcript
+(flag line, org id, no token) to the PA. (2) mapping evidence — a
+draft order with `amount: <X>` (never finalized), GET it, record
+`subtotal_amount == X`. (3) flip `AUTO_RECHARGE_CHARGE_MODE=true`
+on staging with a sandbox Pro-shaped org → a staging end-to-end
+proof (save method via portal, arm :auto, cross the threshold with
+a compressed `RECHARGE_SWEEP_CRONEXPR`, observe the charge, the
+credit, the ledger row, the balance). (4) production flip + one
+real org arms it when ready. (5) this plan's Verification section
+updated with the transcripts.
+
+**Done when**: the PA holds the activation report with the two
+transcripts and the staging proof capture paths.
+
 ## ADR amendment
 
 Lands in THIS plan PR (billing-semantics change → yes, it warrants
 one): [ADR-0029](../adr/00029-payments-adapter-selfmor.md)
-Amendment 7 — saved methods + off-session charges join the adapter;
-attempt-is-a-top-up; consent/caps; HitPay capability recorded so the
-dormant-lane wake is a module. Index row updated to Amendments 1–7.
+Amendment 7 — saved methods + off-session charges join the adapter
+(Polar-exclusive per the owner's decision); attempt-is-a-top-up;
+consent/caps; launch-ships-the-reminder sequencing with the staged
+charge lane behind the Polar Pro upgrade. Index row updated to
+Amendments 1–7.
 
 ## Overall PR gate
 
 Implementation PRs (not this one): `cd apps/platform && mix ci` —
 all aliases green at 100% coverage (#86 discipline). PR titles
-`feat(platform): …` per slice or one PR per the owner's call at GO;
-`Closes #829` only on the PR that completes the feature.
+`feat(platform): …` per slice; `Closes #829` rides the PR that
+completes the LAUNCH scope (Wave L), the staged wave references the
+issue without closing it.
 
 ## Verification status
 
 - Code citations: read on this branch (`e8b8fcc8`), files named above.
 - Provider facts: HitPay docs (save-payment-method, charge-saved-card
-  OpenAPI, availability-by-market PH row, sandbox guide) and Polar
+  OpenAPI, availability-by-market PH row, sandbox guide); Polar
   2026-10 OpenAPI (`/v1/orders/`, `/v1/orders/{id}/finalize`,
-  customer-sessions, customers, payment-methods) — fetched 2026-11-17,
-  quotes in this file are from those pages.
+  customer-sessions, customers, payment-methods) plus
+  polar.sh/docs/features/orders (preview + paid-plan note, the 402/
+  403/412 table, the billing-address requirement) and the fees page
+  (plan table, Early Member cutoff) — fetched 2026-11-17; quotes in
+  this file are from those pages.
 - NOT verified (cannot be, from this repo): the production org's
-  `off_session_charges_enabled` state until Slice 1's evidence read
-  (Terence flips it in the Polar dashboard — PA relays in parallel);
-  Create Order `amount`→`subtotal_amount` mapping behavior in a live
-  sandbox call (Slice 1 must capture a sandbox transcript as PR
-  evidence); the customer-portal save flow's exact return UX (staging
-  e2e).
+  `off_session_charges_enabled` state (it is false until the Pro
+  upgrade — S6's evidence read); Create Order `amount`→
+  `subtotal_amount` mapping in a live call (S6); the customer-portal
+  save flow's exact return UX (S6 staging proof); whether Polar's
+  SANDBOX org allows draft orders pre-upgrade (if it does, S6's
+  mapping evidence may run early — never blocking).

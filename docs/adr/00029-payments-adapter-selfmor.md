@@ -215,8 +215,18 @@ through the unchanged `CompleteTopup` seam — no second posting path,
 the ledger invariants and integer-money discipline untouched. Consent
 is per-org and owner-role-only: opt-in enable with threshold, amount,
 daily caps, consecutive-failure auto-disable ([the
-plan](../plans/829-auto-recharge.md) owns the model). If Polar's org
-flag were denied, the fallback would be the no-credentials reminder
-lane (scheduled attempts + one-click top-up email). Nothing here
-changes Am. 6's MoR split: Polar's saved methods are Polar's vault;
-we store provider-scoped references only.
+plan](../plans/829-auto-recharge.md) owns the model).
+
+**Sequencing (owner, same day)**: Polar's off-session charges are
+preview + paid-plan-only (Pro $20/mo unlocks the org flag); the owner
+upgrades to Pro only AFTER launch. So **launch ships the reminder
+lane** — low balance → email with a one-click, amount-prefilled
+top-up link; no stored credentials, nothing off-session — and the
+charge lane ships staged behind a platform config gate
+(`charge_mode`, default false): arming `:auto` is its own explicit
+owner consent (saved method + confirmed caps), never implied by a
+reminder opt-in. Activation is the config flip plus the API evidence
+check (`GET /v1/organizations/{id}` → `feature_settings.
+off_session_charges_enabled: true`). Nothing here changes Am. 6's
+MoR split: Polar's saved methods are Polar's vault; we store
+provider-scoped references only.
