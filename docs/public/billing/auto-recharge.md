@@ -5,7 +5,7 @@ order: 10
 slug: auto-recharge
 ---
 
-Auto-recharge reminders email your organization when the wallet balance dips below a threshold you choose. The email carries a one-click link that opens the top-up wizard with your amount pre-filled. You stay in control: FluxVale never charges a payment method on its own — topping up is always your decision.
+Auto-recharge reminders email your organization when the wallet balance dips below a threshold you choose. The email carries a one-click link that opens the top-up wizard with your amount pre-filled. You stay in control: auto-recharge reminders never charge anything — topping up is always your decision.
 
 ## Turn reminders on
 

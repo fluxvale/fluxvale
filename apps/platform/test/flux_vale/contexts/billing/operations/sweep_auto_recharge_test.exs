@@ -225,6 +225,10 @@ defmodule FluxVale.Billing.Operations.SweepAutoRechargeTest do
       assert {:ok, %{reminded: 1}} = Billing.sweep_auto_recharge()
 
       assert_receive {:telemetry_event, @reminder_event, %{count: 1}, %{outcome: :reminded}}
+
+      # Exactly once: a double-emission regression fails here, not in
+      # an alert that silently reads double.
+      refute_received {:telemetry_event, @reminder_event, _measurements, _metadata}
     end
 
     test "a recovery emits the recovered decision; an idle pass emits nothing", %{
@@ -235,12 +239,14 @@ defmodule FluxVale.Billing.Operations.SweepAutoRechargeTest do
       # Fire first, so the topped-up pass is a recovery, not an idle.
       assert {:ok, %{reminded: 1}} = Billing.sweep_auto_recharge()
       assert_receive {:telemetry_event, @reminder_event, %{count: 1}, %{outcome: :reminded}}
+      refute_received {:telemetry_event, @reminder_event, _measurements, _metadata}
 
       # topped up above the threshold
       {:ok, _grant} = Billing.grant_credits(wallet, 10_000)
 
       assert {:ok, %{reminded: 0, recovered: 1}} = Billing.sweep_auto_recharge()
       assert_receive {:telemetry_event, @reminder_event, %{count: 1}, %{outcome: :recovered}}
+      refute_received {:telemetry_event, @reminder_event, _measurements, _metadata}
 
       # Recovered and never reminded: the pass decides nothing — no event.
       assert {:ok, %{reminded: 0, recovered: 0}} = Billing.sweep_auto_recharge()
