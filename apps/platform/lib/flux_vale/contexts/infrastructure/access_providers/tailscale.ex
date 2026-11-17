@@ -601,9 +601,11 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale do
 
   @impl FluxVale.Infrastructure.AccessProvider
   def reconnect_minted(%AccessGateway{} = gateway) do
-    # Restart, not recreate — the same move update_credential's :active
-    # arm makes: the pod rejoins under the new key with the persisted
-    # state, and the Secret update alone would not re-read.
+    # Restart, not recreate — the same move update_credential's
+    # catch-all restart arm makes (this clause is :active AND
+    # :needs_attention, the reconnect-recovery state): the pod rejoins
+    # under the new key with the persisted state, and the Secret update
+    # alone would not re-read.
     with {:ok, kubeconfig} <- kubeconfig(),
          :ok <- mint_and_write_credential(kubeconfig, access_namespace(), gateway),
          {:ok, _deployment} <-

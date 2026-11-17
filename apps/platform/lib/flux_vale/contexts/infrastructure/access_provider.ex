@@ -98,10 +98,11 @@ defmodule FluxVale.Infrastructure.AccessProvider do
   @doc """
   The mint-path variant of `update_credential/2`'s state-matched
   semantics: a `:provisioning` row re-applies the objects; an `:active`
-  row writes the minted key and restarts the pod. `:suspended` and
-  `:destroying` rows are REFUSED (`{:error, :invalid_gateway_state}`) —
-  a minted 1h key would sit unconsumed until a resume that may be days
-  out (plan R2). One operation, like `provision_gateway_minted/1`.
+  (or `:needs_attention` — the reconnect-recovery state) row writes the
+  minted key and restarts the pod. `:suspended` and `:destroying` rows
+  are REFUSED (`{:error, :invalid_gateway_state}`) — a minted 1h key
+  would sit unconsumed until a resume that may be days out (plan R2).
+  One operation, like `provision_gateway_minted/1`.
   """
   @callback reconnect_minted(AccessGateway.t()) :: :ok | {:error, term()}
 

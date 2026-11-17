@@ -1332,10 +1332,13 @@ defmodule FluxVale.Infrastructure.AccessProviders.TailscaleTest do
           assert {:error, %Error{}} = Tailscale.provision_gateway_minted(gateway)
         end)
 
-      # The ops trail carries the ID, never the value.
+      # The ops trail carries the ID, never the value — refuting the
+      # SECRET HALF (not the whole key string) also catches a log that
+      # leaked the value without its prefix.
       assert log =~ "in-memory revoke failed"
       assert log =~ @new_key_id
       refute log =~ @new_key
+      refute log =~ "newsecretvalue"
     end
   end
 
@@ -1360,16 +1363,27 @@ defmodule FluxVale.Infrastructure.AccessProviders.TailscaleTest do
 
       assert :ok = Tailscale.reconnect_minted(gateway)
 
-      # The ruled order (R1): the prior minted key dies before the new
-      # one is minted.
-      assert_received {:keys_delete, @old_key_id}
-      assert_received {:keys_create, @api_token, _opts}
+      # The ruled order (R1), PINNED: the prior minted key dies before
+      # the new one is minted. assert_received cannot see order
+      # (selective receive), so the drained trace is compared by index.
+      calls = drain_all()
 
-      assert_received {:secret_create, _ns, credential, data}
-      assert credential == name("credential", gateway)
-      assert data == %{"TS_AUTHKEY" => @new_key, "FV_MINTED" => "1"}
+      assert index_of(calls, &match?({:keys_delete, @old_key_id}, &1)) <
+               index_of(calls, &match?({:keys_create, @api_token, _opts}, &1))
 
-      assert_received {:restarted, _}
+      credential_name = name("credential", gateway)
+
+      write =
+        Enum.find(calls, fn
+          {:secret_create, _ns, secret_name, _data} -> secret_name == credential_name
+          _other -> false
+        end)
+
+      assert {:secret_create, _ns, ^credential_name,
+              %{"TS_AUTHKEY" => @new_key, "FV_MINTED" => "1"}} =
+               write
+
+      assert Enum.any?(calls, &match?({:restarted, _deployment}, &1))
     end
 
     test "a :provisioning row re-applies the objects — no restart", %{org: org} do
@@ -1423,6 +1437,48 @@ defmodule FluxVale.Infrastructure.AccessProviders.TailscaleTest do
       assert_received {:keys_delete, @old_key_id}
       assert_received {:keys_delete, @new_key_id}
     end
+
+    # The mirror of provision_gateway_minted's tested post-credential
+    # arm: mint+write landed, the RESTART failed. The freshly marked
+    # stored key is left for the retry's supersede (the marker is its
+    # discovery path) — no in-memory revoke fires.
+    test "a restart failure after a landed write leaves the stored key for the retry", %{org: org} do
+      gateway = gateway_row!(org)
+      drain()
+      parent = self()
+
+      stub_secret_reads(gateway, {:ok, %{"FV_MINTED" => "1", "TS_AUTHKEY" => @old_key}})
+      stub_mint(parent)
+      stub_revoke(parent)
+
+      expect(Deployment, :restart, fn _kc, _ns, _name, _opts ->
+        {:error, Error.from_response({:ok, %{status: 500, body: %{}}})}
+      end)
+
+      assert {:error, %Error{}} = Tailscale.reconnect_minted(gateway)
+
+      assert_received {:keys_delete, @old_key_id}
+      refute_received {:keys_delete, @new_key_id}
+    end
+
+    # The catch-all arm is ALSO :needs_attention's — the exact state the
+    # reconnect recovery exists for (the behaviour doc names it).
+    test "a :needs_attention row takes the restart arm", %{org: org} do
+      gateway = gateway_row!(org, :needs_attention)
+      drain()
+      parent = self()
+
+      stub_secret_reads(gateway, not_found())
+      stub_mint(parent)
+      stub_revoke(parent)
+
+      expect(Deployment, :restart, fn _kc, _ns, _name, _opts -> {:ok, %{}} end)
+
+      assert :ok = Tailscale.reconnect_minted(gateway)
+
+      assert_received {:keys_create, @api_token, _opts}
+      assert_received {:secret_create, _ns, _credential, %{"FV_MINTED" => "1"}}
+    end
   end
 
   describe "update_credential/2 — the paste path's pre-write revoke" do
@@ -1438,14 +1494,25 @@ defmodule FluxVale.Infrastructure.AccessProviders.TailscaleTest do
 
       assert :ok = Tailscale.update_credential(gateway, "tskey-pasted")
 
-      assert_received {:keys_delete, @old_key_id}
+      # Order PINNED (selective receive cannot see it): the revoke
+      # precedes the credential write it clears the way for.
+      calls = drain_all()
+      credential_name = name("credential", gateway)
 
-      assert_received {:secret_create, _ns, credential, data}
-      assert credential == name("credential", gateway)
+      assert index_of(calls, &match?({:keys_delete, @old_key_id}, &1)) <
+               index_of(calls, &match?({:secret_create, _ns, _n, _d}, &1))
 
       # The paste writes the key ALONE — the SSA replace clears the
       # marker (a pasted key is never ours).
-      assert data == %{"TS_AUTHKEY" => "tskey-pasted"}
+      assert Enum.any?(calls, fn
+               {:secret_create, _ns, ^credential_name, %{"TS_AUTHKEY" => "tskey-pasted"}} -> true
+               _other -> false
+             end)
+
+      refute Enum.any?(calls, fn
+               {:secret_create, _ns, ^credential_name, %{"FV_MINTED" => "1"}} -> true
+               _other -> false
+             end)
     end
 
     test "a paste over an unmarked key revokes nothing", %{org: org} do
@@ -1556,8 +1623,13 @@ defmodule FluxVale.Infrastructure.AccessProviders.TailscaleTest do
 
       assert :ok = Tailscale.cleanup_failed_provision(gateway)
 
-      assert_received {:keys_delete, @old_key_id}
-      assert_received {:deleted, _first}
+      # Order PINNED: the revoke precedes the Secret deletes (the token
+      # dies with the api-credential Secret — after it, a revoke is an
+      # unreachable skip).
+      calls = drain_all()
+
+      assert index_of(calls, &match?({:keys_delete, @old_key_id}, &1)) <
+               index_of(calls, &match?({:deleted, _secret}, &1))
     end
   end
 
@@ -1581,8 +1653,12 @@ defmodule FluxVale.Infrastructure.AccessProviders.TailscaleTest do
 
       assert :ok = Tailscale.teardown_gateway(gateway)
 
-      assert_received {:keys_delete, @old_key_id}
-      assert_received {:deleted, _first}
+      # Order PINNED: same rule as cleanup — the revoke precedes the
+      # deletes that destroy the token it needs.
+      calls = drain_all()
+
+      assert index_of(calls, &match?({:keys_delete, @old_key_id}, &1)) <
+               index_of(calls, &match?({:deleted, _secret}, &1))
     end
   end
 
@@ -1675,6 +1751,23 @@ defmodule FluxVale.Infrastructure.AccessProviders.TailscaleTest do
       0 -> Enum.reverse(acc)
     end
   end
+
+  # The WHOLE mailbox, in arrival order — drain/1 filters by shape, and
+  # the order pins need events it drops (keys_create, keys_delete,
+  # restarted, deleted) beside the ones it keeps.
+  defp drain_all(acc \\ []) do
+    receive do
+      message -> drain_all([message | acc])
+    after
+      0 -> Enum.reverse(acc)
+    end
+  end
+
+  # First index of a matching message, for the order pins; nil (and a
+  # failed < comparison) when absent — the occurrence itself is pinned
+  # by the any?/refute assertions that ride along.
+  defp index_of(calls, pattern) when is_function(pattern, 1),
+    do: Enum.find_index(calls, pattern)
 
   # ------------------------------------------------------------------
   # Mint-lane helpers (#836, slice S2)
