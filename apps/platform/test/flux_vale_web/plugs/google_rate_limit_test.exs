@@ -20,7 +20,15 @@ defmodule FluxValeWeb.Plugs.GoogleRateLimitTest do
   defp with_config(overrides, test) do
     original = Application.get_env(:flux_vale, GoogleRateLimit)
     Application.put_env(:flux_vale, GoogleRateLimit, overrides)
-    on_exit(fn -> Application.put_env(:flux_vale, GoogleRateLimit, original) end)
+
+    on_exit(fn ->
+      if original do
+        Application.put_env(:flux_vale, GoogleRateLimit, original)
+      else
+        Application.delete_env(:flux_vale, GoogleRateLimit)
+      end
+    end)
+
     test.()
   end
 

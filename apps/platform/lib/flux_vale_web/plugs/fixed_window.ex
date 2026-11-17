@@ -36,9 +36,11 @@ defmodule FluxValeWeb.Plugs.FixedWindow do
     UNCOUNTED and inserts nothing; a key that already has a row still
     increments and can refuse. Overshoot is one concurrent burst's
     worth of inserts plus the claim row, and those burst rows are
-    current-window rows: they hold the floor until they lapse (~2× the
-    longest window) and the sweep retires them — memory never grows
-    with the spoofed-key rate beyond that. Accepted trade, in the open:
+    current-window rows: they hold until they lapse and the sweep
+    retires them — worst case ~3× the longest window after the insert
+    (window remainder + 2× under the floor cutoff), plus up to one
+    window of sweep jitter. Memory never grows with the spoofed-key
+    rate beyond that. Accepted trade, in the open:
     under saturation new identities bypass the throttle — the same
     identities a spoofing attacker mints for free — while repeat
     identities stay throttled; the alternatives are unbounded memory or
@@ -155,9 +157,10 @@ defmodule FluxValeWeb.Plugs.FixedWindow do
   #
   # The row cap is a HARD bound: past it — after the claim-gated sweep —
   # a request whose key has no row is admitted UNCOUNTED and inserts
-  # nothing, so memory stays at ~max_rows rows no matter the
-  # spoofed-key flood rate. A key that already has a row still
-  # increments (and can refuse). Fail open, never 500.
+  # nothing, so the spoofed-key RATE cannot grow memory past the cap
+  # (the unbounded term is concurrency: one burst's worth of inserts
+  # that passed the size check before any landed). A key that already
+  # has a row still increments (and can refuse). Fail open, never 500.
   defp bump(table, key, cap, max_window) do
     maybe_sweep_full_table(table, cap, max_window)
 
