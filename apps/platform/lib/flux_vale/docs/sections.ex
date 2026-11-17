@@ -21,6 +21,11 @@ defmodule FluxVale.Docs.Sections do
       description: "How the platform works, feature by feature."
     },
     %{
+      key: "billing",
+      title: "Billing",
+      description: "Your wallet: top-ups, balance thresholds, and reminders."
+    },
+    %{
       key: "automation",
       title: "Automation",
       description: "Drive FluxVale from the terminal and from infrastructure code."

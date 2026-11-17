@@ -1,9 +1,11 @@
 defmodule FluxVale.PromEx.SeedBusinessCounters do
   @moduledoc """
-  Materializes the business families' 78 closed-enum series at 0,
-  once per boot — a sibling child right after the PromEx tree in the
-  application supervisor (children start in order, so the handlers
-  are attached; FluxVale.Observability gates both on the same env).
+  Materializes the business families' counter series at 0, once per
+  boot — the 78 closed-enum labeled series plus the label-free
+  reminder decision counter (#829), 79 seeds — a sibling child right
+  after the PromEx tree in the application supervisor (children start
+  in order, so the handlers are attached; FluxVale.Observability
+  gates both on the same env).
 
   Why: increase() never counts a series' first increment — the fleet
   occupancy rules' contract. The emitters materialize a series only
@@ -27,7 +29,7 @@ defmodule FluxVale.PromEx.SeedBusinessCounters do
   same :temporary stance accepts one residual: a
   TelemetryMetricsPrometheus Core Registry crash+restart empties
   both ETS tables and re-attaches its handlers fresh, and this task
-  never re-runs — the 78 seeds (and the accumulated history) vanish
+  never re-runs — the 79 seeds (and the accumulated history) vanish
   until the next app restart, restoring first-event blindness for
   that window. Accepted (same class as the per-deploy in-memory
   reset); the stronger form (re-seed on Registry UP via monitor) is
@@ -41,6 +43,7 @@ defmodule FluxVale.PromEx.SeedBusinessCounters do
   @gateway_event [:flux_vale, :gateway, :state_change]
   @instance_event [:flux_vale, :instance, :status_transition]
   @run_event [:flux_vale, :backup, :run]
+  @reminder_event [:flux_vale, :billing, :auto_recharge, :reminder]
 
   @spec start_link(term()) :: {:ok, pid()}
   def start_link(_arg) do
@@ -48,7 +51,7 @@ defmodule FluxVale.PromEx.SeedBusinessCounters do
   end
 
   @doc """
-  Emits the 78 zero-samples — the emitters' own measurement/metadata
+  Emits the 79 zero-samples — the emitters' own measurement/metadata
   shapes with `count: 0` (the sum metrics accumulate it, so each
   series exists at 0 and stays there). Public so tests run it
   synchronously against a started tree.
@@ -68,6 +71,10 @@ defmodule FluxVale.PromEx.SeedBusinessCounters do
     Enum.each(Business.backup_outcome_pairs(), fn {kind, status} ->
       seed(@run_event, %{count: 0, duration: 0.0}, %{kind: kind, status: status})
     end)
+
+    # One label-free series, so one seed — the reminded shape is the
+    # sweep's common case (outcome rides metadata no fleet tag reads).
+    seed(@reminder_event, %{count: 0}, %{outcome: :reminded})
 
     :ok
   end

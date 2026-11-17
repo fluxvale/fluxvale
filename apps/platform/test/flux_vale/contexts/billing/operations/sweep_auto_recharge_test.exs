@@ -3,7 +3,9 @@ defmodule FluxVale.Billing.Operations.SweepAutoRechargeTest do
   The reminder sweep (#829 L2): due + never reminded → mail AND marker
   (and a failed send rolls the marker back), the fixed 24h cadence,
   recovery clears the marker, an org nobody can reach still marks once,
-  and per-org isolation.
+  and per-org isolation. Plus the L4 decision pulse: fired and
+  recovered emit the reminder telemetry event, idle and rolled-back
+  passes emit nothing.
   """
 
   use FluxVale.DataCase, async: true
@@ -20,6 +22,11 @@ defmodule FluxVale.Billing.Operations.SweepAutoRechargeTest do
   alias FluxVale.Mailer
   alias FluxVale.TestSupport.AccountsFixtures
   alias FluxVale.TestSupport.BillingFixtures
+  alias FluxVale.TestSupport.Telemetry
+
+  # The reminder lane's ops pulse (#829 L4) — the event Plugins.Business
+  # sums into flux_vale_billing_auto_recharge_reminder_total.
+  @reminder_event [:flux_vale, :billing, :auto_recharge, :reminder]
 
   # The launch defaults (decision D): threshold 500¢, amount 2500¢.
   # The wallet is funded to 400¢ — below the threshold, so every test
@@ -209,6 +216,54 @@ defmodule FluxVale.Billing.Operations.SweepAutoRechargeTest do
 
     assert {:ok, fresh} = AutoRechargeSetting.get_by_organization(org.id, authorize?: false)
     assert fresh.last_reminded_at == nil
+  end
+
+  describe "the reminder telemetry pulse (#829 L4)" do
+    test "a fired reminder emits one count-1 decision", %{org: _org} do
+      Telemetry.capture_events([@reminder_event])
+
+      assert {:ok, %{reminded: 1}} = Billing.sweep_auto_recharge()
+
+      assert_receive {:telemetry_event, @reminder_event, %{count: 1}, %{outcome: :reminded}}
+    end
+
+    test "a recovery emits the recovered decision; an idle pass emits nothing", %{
+      wallet: wallet
+    } do
+      Telemetry.capture_events([@reminder_event])
+
+      # Fire first, so the topped-up pass is a recovery, not an idle.
+      assert {:ok, %{reminded: 1}} = Billing.sweep_auto_recharge()
+      assert_receive {:telemetry_event, @reminder_event, %{count: 1}, %{outcome: :reminded}}
+
+      # topped up above the threshold
+      {:ok, _grant} = Billing.grant_credits(wallet, 10_000)
+
+      assert {:ok, %{reminded: 0, recovered: 1}} = Billing.sweep_auto_recharge()
+      assert_receive {:telemetry_event, @reminder_event, %{count: 1}, %{outcome: :recovered}}
+
+      # Recovered and never reminded: the pass decides nothing — no event.
+      assert {:ok, %{reminded: 0, recovered: 0}} = Billing.sweep_auto_recharge()
+      refute_received {:telemetry_event, _event, _measurements, _metadata}
+    end
+
+    test "a rolled-back pass emits nothing — only committed decisions count", %{org: _org} do
+      Telemetry.capture_events([@reminder_event])
+
+      stub(Mailer, :deliver_auto_recharge_reminder, fn _to,
+                                                       _threshold_cents,
+                                                       _amount_cents,
+                                                       _url ->
+        {:error, :postmark_down}
+      end)
+
+      assert {:error, "auto-recharge reminder sweep failed for 1 org(s)"} =
+               Billing.sweep_auto_recharge()
+
+      # The marker rolled back, so the decision never persisted — the
+      # pulse must not have counted it.
+      refute_received {:telemetry_event, _event, _measurements, _metadata}
+    end
   end
 
   # The owner-role write through the :set action — tests own their

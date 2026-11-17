@@ -41,6 +41,17 @@ defmodule FluxVale.Billing.Operations.SweepAutoRecharge do
     atomic), second pass disables (`:no_method`). A success clears the
     notice marker; unknown/draft/attach outcomes leave the row to the
     stale arm and never count a strike.
+
+  The reminder arm's marker and the mail commit together — a failed
+  send rolls the marker write back, so a marker can never outlive its
+  mail and the next hourly pass retries the org (the ladder-warning
+  discipline).
+
+  Each committed reminder decision also fires the lane's ops pulse
+  (`Plugins.Business` sums it into the label-free
+  `flux_vale_billing_auto_recharge_reminder_total`, #829 L4): fired
+  and recovered count; idle and rolled-back passes do not. The charge
+  arm is out of the pulse's scope — L4 is the launch lane's telemetry.
   """
 
   alias FluxVale.Accounts.Organization
@@ -68,6 +79,15 @@ defmodule FluxVale.Billing.Operations.SweepAutoRecharge do
   # completed-or-failed auto charges inside it. The cap counts CHARGES,
   # not cents.
   @charge_window_hours 24
+
+  # The reminder lane's ops pulse (#829 L4): the decision event the
+  # business plugin's `flux_vale_billing_auto_recharge_reminder_total`
+  # sums (the literal is pinned from both sides — here and in
+  # Plugins.Business — by tests, the StateMarkers stance). Labelless:
+  # an org dimension is exactly what the plugin's cardinality rule
+  # bans, and counts only ride the payload — no amounts (the
+  # ADR-0049 posture, extended to metrics).
+  @reminder_event [:flux_vale, :billing, :auto_recharge, :reminder]
 
   @spec call() ::
           {:ok,
@@ -203,6 +223,7 @@ defmodule FluxVale.Billing.Operations.SweepAutoRecharge do
 
     case outcome do
       {:ok, kind} ->
+        emit_decision(kind)
         {:ok, kind}
 
       # A rolled-back pass (a failed send) is this org's isolated
@@ -210,6 +231,18 @@ defmodule FluxVale.Billing.Operations.SweepAutoRecharge do
       {:error, reason} ->
         {:error, reason}
     end
+  end
+
+  # The decision pulse (#829 L4): a reminder fired or an episode
+  # recovered is a persisted decision — the transaction above committed
+  # before this fires, so a rolled-back remind can never count. Idle
+  # emits nothing (the markers' granularity: a pass that decided
+  # nothing is a no-op write, and the module's other counters don't
+  # count those either).
+  defp emit_decision(:idle), do: :ok
+
+  defp emit_decision(kind) do
+    :telemetry.execute(@reminder_event, %{count: 1}, %{outcome: kind})
   end
 
   # Due: below the threshold AND never reminded, or the last reminder

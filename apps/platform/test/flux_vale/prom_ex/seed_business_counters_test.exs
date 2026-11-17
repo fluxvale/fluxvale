@@ -1,9 +1,10 @@
 defmodule FluxVale.PromEx.SeedBusinessCountersTest do
   @moduledoc """
   The boot zero-seed: with no real event fired, all 78 closed-enum
-  combos exist in the scrape at 0 — so increase() anchors on a zero
-  sample and the first real event counts (the fleet occupancy rules'
-  contract; a series' first increment is otherwise invisible).
+  combos plus the label-free reminder counter (#829) exist in the
+  scrape at 0 — so increase() anchors on a zero sample and the first
+  real event counts (the fleet occupancy rules' contract; a series'
+  first increment is otherwise invisible).
   """
 
   # async: false — starts the module-named PromEx tree, which is
@@ -15,7 +16,7 @@ defmodule FluxVale.PromEx.SeedBusinessCountersTest do
 
   @zeroed ~r/^flux_vale_(instance_status_transition|gateway_state_change|backup_run)_total\{.*\} 0$/
 
-  test "the boot child seeds all 78 combos at zero and exits cleanly" do
+  test "the boot child seeds every counter at zero and exits cleanly" do
     start_supervised!(FluxVale.PromEx)
 
     seeder = start_supervised!(SeedBusinessCounters)
@@ -32,10 +33,15 @@ defmodule FluxVale.PromEx.SeedBusinessCountersTest do
       |> String.split("\n", trim: true)
       |> Enum.filter(&Regex.match?(@zeroed, &1))
 
-    # The ceiling, exactly: no more (a spurious combo would be a
-    # permanent phantom series), no fewer (a missing one is the
+    # The labeled ceiling, exactly: no more (a spurious combo would be
+    # a permanent phantom series), no fewer (a missing one is the
     # deploy-blind edge this seeder exists to fix).
     assert length(zeroed_lines) == 78
+
+    # The label-free reminder counter (#829) seeds like the rest: one
+    # bare series at 0, no braces ever on its line.
+    assert scrape =~ "flux_vale_billing_auto_recharge_reminder_total 0"
+    refute scrape =~ "flux_vale_billing_auto_recharge_reminder_total{"
 
     # Every combo by name — count alone could hide a dupe/miss pair.
     # The instance family carries from/to only (the fleet drops
