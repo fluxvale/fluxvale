@@ -107,37 +107,44 @@ S2 modal). Same gates as the 817 slices: worker
 `MIX_TEST_PARTITION=wN`, `mix ci` green, pre-PR hostile pass, one
 concern per PR, captures per the owner rules.
 
-### W1 — the state + the gate
+### W1 — the state (deploy-safe alone)
 
-New `onboarded_at` (private attr, migration via `mix ash.codegen
-add_users_onboarded_at`), a `:finish_onboarding` update action
-(owner-only, sets the stamp), `PageController.home`'s nil-check
-redirect, and the invite hardcode repoint (`invite_accept.ex` `return_to`
-→ `/`, its test updated, #765 comment rewritten to name the flow).
-Tests: nil → redirect to `/onboarding`; stamped → dashboard; invite
-acceptance lands `/` (through the gate); action policy (owner-only).
-Done when: `MIX_TEST_PARTITION=w1 mix ci` green and a stamped account
-never sees the flow again.
+New `onboarded_at` (private `utc_datetime_usec` attribute, migration via
+`mix ash.codegen add_users_onboarded_at`), a `:finish_onboarding`
+update action (owner-only — NO admin bypass, onboarding is personal,
+unlike `set_username`'s support path — sets the stamp server-side, no
+client input), action tests including the no-admin-bypass pin.
+Deliberately state-only: the gate redirects to `/onboarding`, and the
+route does not exist until W2 — a gate without a route 404s fresh
+signups in the window between merges (re-sliced Nov 17 for
+deploy-safe intermediate states).
+Done when: `MIX_TEST_PARTITION=w1 mix ci` green; the stamp exists,
+owner-only, nil for every existing account; `/me` leaks nothing (the
+attribute is private).
 
 ```sh
 cd apps/platform
-MIX_TEST_PARTITION=w1 mix test test/flux_vale_web/controllers/page_controller_test.exs test/flux_vale_web/live/auth_live/invite_accept_test.exs
+MIX_TEST_PARTITION=w1 mix test test/flux_vale/contexts/identity/user_test.exs
 MIX_TEST_PARTITION=w1 mix ci
 ```
 
-### W2 — the `/onboarding` flow
+### W2 — the gate + the `/onboarding` flow (one deploy unit)
 
-The LiveView: step machine in LiveView state (username → agent →
-walkthrough), the D2 username step (pre-filled, `:set_username`, the
-confirm-pattern armed only on change), the D3 agent step (AgentPanel +
-modal reuse), the D4 walkthrough (static three-beat loop: pick from
-the catalog, deploy to your box, manage the instance — skippable),
-finish/skip → `:finish_onboarding` → dashboard. Gettext extraction
-rides the commit (POT reference churn precedent). Tests: each step's
-content and events, skip-at-any-step stamps and lands, accept-derived-
-username is a no-op stamp, conflict copy, walkthrough never re-renders
-once stamped. Captures: light+dark per step + the finish hop; GIF if
-any transition animates (motion rule).
+`PageController.home`'s nil-check redirect, the invite hardcode
+repoint (`return_to` → `/`, #765 comment rewritten to name the flow),
+the `/onboarding` route, and the LiveView: step machine in LiveView
+state (username → agent → walkthrough), the D2 username step
+(pre-filled, `:set_username`, the confirm-pattern armed only on
+change), the D3 agent step (AgentPanel + modal reuse), the D4
+walkthrough (static three-beat loop: pick from the catalog, deploy to
+your box, manage the instance — skippable), finish/skip →
+`:finish_onboarding` → dashboard. Gettext extraction rides the commit
+(POT reference churn precedent). Tests: the gate (nil → redirect,
+stamped → dashboard), invite acceptance lands through the gate, each
+step's content and events, skip-at-any-step stamps and lands,
+accept-derived-username is a no-op stamp, conflict copy, walkthrough
+never re-renders once stamped. Captures: light+dark per step + the
+finish hop; GIF if any transition animates (motion rule).
 Done when: a fresh account walks username→agent→loop→dashboard end to
 end; every skip path stamps and lands; `MIX_TEST_PARTITION=w2 mix ci`
 green; captures embedded.
