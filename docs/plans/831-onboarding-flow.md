@@ -115,9 +115,11 @@ concern per PR, captures per the owner rules.
 
 New `onboarded_at` (private `utc_datetime_usec` attribute, migration via
 `mix ash.codegen add_users_onboarded_at`), a `:finish_onboarding`
-update action (owner-only — NO admin bypass, onboarding is personal,
-unlike `set_username`'s support path — sets the stamp server-side, no
-client input), action tests including the no-admin-bypass pin.
+update action (owner-only at the action level: the #644 resource-level
+admin blanket still admits session admins per ADR-0047 D4, only the
+machine-API/PAT arm is Forbidden; the four-arm matrix is pinned in the
+tests and documented in #833's PR body), sets the stamp server-side,
+no client input.
 Deliberately state-only: the gate redirects to `/onboarding`, and the
 route does not exist until W2 — a gate without a route 404s fresh
 signups in the window between merges (re-sliced Nov 17 for
