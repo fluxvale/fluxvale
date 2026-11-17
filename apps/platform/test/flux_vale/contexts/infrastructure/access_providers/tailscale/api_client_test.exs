@@ -511,6 +511,32 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.ApiClientTest do
       assert {:ok, %{id: "k1234"}} = ApiClient.keys_create(@token, @mint_opts)
     end
 
+    # The three caller-owned fields must FLOW from opts — the fixture
+    # above equals the plan defaults, so alone it cannot tell opts-flow
+    # from hard-coded pins. Non-default values prove the body reflects
+    # the caller's config policy (the TTL knob is the risk section's
+    # escape hatch).
+    test "tag, ttl and description flow from the caller's opts" do
+      expect_request(:post, "/api/v2/tailnet/-/keys", fn opts ->
+        assert %{
+                 "capabilities" => %{
+                   "devices" => %{"create" => %{"tags" => ["tag:other"]}}
+                 },
+                 "expirySeconds" => 720,
+                 "description" => "dr"
+               } = opts[:json]
+
+        {:ok, %Req.Response{status: 200, body: %{"id" => "k5555", "key" => "tskey-auth-k5555-x"}}}
+      end)
+
+      assert {:ok, %{id: "k5555"}} =
+               ApiClient.keys_create(@token,
+                 tag: "tag:other",
+                 ttl_seconds: 720,
+                 description: "dr"
+               )
+    end
+
     test "returns both the id and the secret key — delivered exactly once" do
       expect_request(:post, "/api/v2/tailnet/-/keys", fn _opts ->
         {:ok,

@@ -149,8 +149,9 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.ApiClient do
   The response's `key` value is the secret, delivered exactly once: it
   is returned to the caller and never logged (only non-2xx body
   snippets are logged, and Tailscale error bodies never echo the key).
-  A 2xx whose body lacks BOTH a binary `id` and `key` is a contract
-  break — `{:error, {:bad_payload, status}}` — never a converged mint.
+  A 2xx whose body lacks a binary `id` or `key` (either one) is a
+  contract break — `{:error, {:bad_payload, status}}` — never a
+  converged mint.
   """
   @spec keys_create(String.t(), keyword()) ::
           {:ok, %{id: String.t(), key: String.t()}} | {:error, error()}
