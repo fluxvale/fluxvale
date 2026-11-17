@@ -341,34 +341,47 @@ PR: `feat(platform): tailscale key mint and revoke API client (#836)`.
 
 **What lands**
 
-- `access_provider.ex`: one new callback —
-  `enrollment_credential(AccessGateway.t()) :: {:ok, String.t()} | {:error, term()}`
-  ("produce a join credential from the org's stored provider token"),
-  plus `revoke_enrollment_credential(AccessGateway.t()) :: :ok`. Provider-
-  agnostic vocabulary only; a WireGuard impl answers `{:error, :unsupported}`.
+- `access_provider.ex`: minting and writing are **one provider
+  operation** — a minted key never crosses the seam as a bare value,
+  because the write-failure revoke needs the minting token and the
+  fresh key id, and both live inside the provider (#837 review,
+  follow-up). Two new callbacks beside
+  `revoke_enrollment_credential(AccessGateway.t()) :: :ok`:
+  - `provision_gateway_minted(AccessGateway.t()) ::
+  {:ok, %{credential_secret_ref: String.t()}} | {:error, term()}` —
+  the create-path variant of `provision_gateway/2` (same return
+  contract).
+  - `reconnect_minted(AccessGateway.t()) :: :ok | {:error, term()}` —
+  the reconnect variant of `update_credential/2`'s state-matched
+  semantics (provisioning → re-apply, active → restart).
+  Provider-agnostic vocabulary only; a WireGuard impl answers
+  `{:error, :unsupported}`.
 - `access_providers/tailscale.ex`:
-  - `enrollment_credential/1`: `read_api_credential` → `ApiClient.keys_create`
-    (tag/ttl/description from
-    `config :flux_vale, :tailscale_api` — defaults
+  - Both mint callbacks share one private flow:
+    `read_api_credential` → `ApiClient.keys_create` (tag/ttl/
+    description from `config :flux_vale, :tailscale_api` — defaults
     `enrollment_tag: "tag:fluxvale-gateway"`,
-    `enrollment_ttl_seconds: 3600`) → returns the key. Errors pass
+    `enrollment_ttl_seconds: 3600`) → write the credential Secret with
+    the marker → then the existing provision/update limbs. Errors pass
     through untranslated (`:no_api_token`, `:unauthorized`,
     `:forbidden`, `:network_error` …) — the copy table is the change
-    layer's, R2.
-  - `write_credential/4` gains the marker: the mint path writes
+    layer's, R2. `provision_gateway/2`'s post-credential limbs refactor
+    into a shared private helper both paths call.
+  - The credential Secret gains the marker: the mint path writes
     `%{"TS_AUTHKEY" => key, "FV_MINTED" => "1"}`; the paste path
     writes `TS_AUTHKEY` alone (SSA upsert replaces the map, so a
     re-paste after a mint clears the marker). **Before any credential
     replacement, a marked stored key is revoked** — the mint path
-    (supersede) and the paste path alike: a pasted key over an
-    unconsumed mint would otherwise orphan it until TTL with no marker
-    left to find it (#837 review).
-  - **A mint whose Secret write fails revokes from memory**: the mint
-    flow carries the fresh key id (and the token it minted with) into
-    its failure path and calls `keys_delete` best-effort — the Secret
-    never recorded the marker, so `revoke_enrollment_credential/1`
-    alone cannot close this window (#837 review). Same shape on a
-    reconnect whose post-revoke write fails.
+    (supersede) and the paste path (`update_credential/2` gains the
+    same pre-write revoke) alike: a pasted key over an unconsumed mint
+    would otherwise orphan it until TTL with no marker left to find it
+    (#837 review).
+  - **A mint whose Secret write fails revokes from memory**: the
+    shared flow holds the token and the fresh key id at the failure
+    point and calls `keys_delete` best-effort — the Secret never
+    recorded the marker, so `revoke_enrollment_credential/1` alone
+    cannot close this window (#837 review). Same shape on a reconnect
+    whose post-supersede write fails.
   - `revoke_enrollment_credential/1`: read the credential Secret; if
     `FV_MINTED` is absent → `:ok` (nothing is ours); else parse the id
     from the value's `tskey-auth-<id>-` prefix, read the API token,
@@ -376,9 +389,7 @@ PR: `feat(platform): tailscale key mint and revoke API client (#836)`.
     run it best-effort).
   - Wiring: `cleanup_failed_provision` and `teardown_gateway` call
     revoke **before** their Secret deletes (the token dies with the
-    api-credential Secret — read it while it exists). The reconnect
-    mint (S3) supersedes: revoke the old minted key before writing the
-    new one.
+    api-credential Secret — read it while it exists).
 - `config/config.exs`: the two new keys documented beside the existing
   `:tailscale_api` block (defaults in code, config optional).
 
@@ -418,15 +429,15 @@ PR: `feat(platform): mint single-use tagged enrollment keys at the provider seam
     (R2). Exactly-one-of validation lands here too (both errors as
     `InvalidArgument` on the offending field).
   - `update_credential`: `auth_key` → `allow_nil?: true`.
-  - `ProvisionCluster`: when the `auth_key` argument is absent, obtain
-    the credential via `impl_for(gateway).enrollment_credential/1`
-    instead of the Secret re-read (the create row has no credential
-    Secret yet; the retry shape is unchanged — a stored credential
-    still answers the trigger).
+  - `ProvisionCluster`: when the `auth_key` argument is absent, call
+    `impl_for(gateway).provision_gateway_minted/1` instead of
+    `provision_gateway/2` (the create row has no credential Secret
+    yet; the retry shape is unchanged — a stored credential still
+    answers the trigger).
   - `RepasteCredential`: absent `auth_key` → suspended rows refuse
-    (R2 copy); otherwise mint (supersede-revoke first), then the
-    existing `update_credential/2` limb under the minted key. The
-    domain-refresh limb is untouched.
+    (R2 copy); otherwise call `impl_for(gateway).reconnect_minted/1`
+    (supersede-revoke, mint, write, restart/re-apply — one provider
+    operation, S2). The domain-refresh limb is untouched.
   - `ObserveAccessGateway`: the active-with-token pass runs
     `ClaimUnclaimedDomains` (idempotent) — the R2 convergence limb.
   - The R2 copy table rendered at the change layer; a `mint_error/1`
@@ -446,10 +457,11 @@ Both credentials write-only (never echoed); response default_fields
 unchanged. Failures are 400 `InvalidArgument` with the R2 sentences.
 
 **Tests** — extend `access_gateway/changes_test.exs`: mint enable
-(stubbed `enrollment_credential`) lands `:provisioning` with the
+(stubbed `provision_gateway_minted`) lands `:provisioning` with the
 Secret written; exactly-one-of both directions; token-at-create by a
 non-owner refused; token-at-create writes ref+stamp and skips the
-sweep; reconnect-without-key mints and lands `:provisioning`;
+sweep (the observer limb claims later); reconnect-without-key mints
+(stubbed `reconnect_minted`) and lands `:provisioning`;
 reconnect with no token anywhere refused; reconnect on suspended
 refused; mint-failure matrix (the four sentences) fails the action
 and rolls back the create; minted key never in the version record's
