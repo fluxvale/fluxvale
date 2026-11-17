@@ -30,6 +30,17 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale do
   (`:unauthorized`) honestly instead of leaving the panel saying
   Connected.
 
+  **Enrollment keys are minted, not pasted** (#836, ADR-0040 Am. 3):
+  for the one-paste enable the provider mints its own short-lived
+  tagged key from the stored API token. Mint and credential write are
+  ONE operation (`provision_gateway_minted/1`, `reconnect_minted/1`) —
+  the write-failure revoke needs the minting token and the fresh key
+  id, both internal here. The key value exists in exactly two places:
+  the mint response in memory and the credential Secret (marked
+  `FV_MINTED`); never a log line, never Postgres, never a return above
+  the behaviour seam. Revocation is marker-gated: a user-pasted key is
+  never revoked by us.
+
   All cluster access resolves through the gateway's own cluster (the
   platform's single cluster today — `Cluster` is the placement seam).
   """
@@ -92,7 +103,7 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale do
   defp image, do: Application.fetch_env!(:flux_vale, :access_gateway)[:image]
 
   # ------------------------------------------------------------------
-  # provision_gateway/2
+  # provision_gateway/2 and provision_gateway_minted/1
   # ------------------------------------------------------------------
 
   @impl FluxVale.Infrastructure.AccessProvider
@@ -100,29 +111,40 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale do
     with {:ok, kubeconfig} <- kubeconfig() do
       namespace = access_namespace()
 
-      result =
-        with :ok <- write_credential(kubeconfig, namespace, gateway, auth_key),
-             {:ok, _serve} <- write_serve_config(kubeconfig, namespace, gateway),
-             {:ok, _pvc} <- ensure_state(kubeconfig, namespace, gateway),
-             {:ok, _deploy} <-
-               Deployment.apply_manifest(kubeconfig, deployment_manifest(gateway, namespace)) do
-          {:ok, :provisioned}
-        end
-
-      case result do
-        {:ok, :provisioned} ->
-          # The row records the Secret's name (never the key) — the
-          # moduledoc's contract, and what a reader needs to locate the
-          # credential without knowing this module's naming rule.
-          {:ok, %{credential_secret_ref: credential_secret_name(gateway)}}
-
-        {:error, _reason} = error ->
-          # Cleanup is the CREATE path's business (see
-          # `provision_gateway/2`'s doc): the drift-repair retry reads its
-          # key FROM this Secret, so deleting it here would turn a
-          # transient cluster error into an unrepairable gateway.
-          error
+      # A failure leaves the credential Secret in place deliberately
+      # (`cleanup_failed_provision/1` is the only deleter): `:provision`'s
+      # drift repair reads its key FROM this Secret, so deleting it here
+      # would turn a transient cluster error into an unrepairable gateway.
+      with :ok <- write_credential(kubeconfig, namespace, gateway, auth_key),
+           :ok <- apply_gateway_objects(kubeconfig, namespace, gateway) do
+        # The row records the Secret's name (never the key) — the
+        # moduledoc's contract, and what a reader needs to locate the
+        # credential without knowing this module's naming rule.
+        {:ok, %{credential_secret_ref: credential_secret_name(gateway)}}
       end
+    end
+  end
+
+  @impl FluxVale.Infrastructure.AccessProvider
+  def provision_gateway_minted(%AccessGateway{} = gateway) do
+    # One operation (the #837 review's ruling): mint → credential
+    # Secret (with the marker) → objects. A failure past the mint is
+    # the mint flow's to revoke from memory.
+    with {:ok, kubeconfig} <- kubeconfig(),
+         :ok <- mint_and_write_credential(kubeconfig, access_namespace(), gateway),
+         :ok <- apply_gateway_objects(kubeconfig, access_namespace(), gateway) do
+      {:ok, %{credential_secret_ref: credential_secret_name(gateway)}}
+    end
+  end
+
+  # The post-credential limbs of BOTH provision paths (paste and mint):
+  # serve config, state PVC, Deployment — SSA-idempotent, in that order.
+  defp apply_gateway_objects(kubeconfig, namespace, gateway) do
+    with {:ok, _serve} <- write_serve_config(kubeconfig, namespace, gateway),
+         {:ok, _pvc} <- ensure_state(kubeconfig, namespace, gateway),
+         {:ok, _deploy} <-
+           Deployment.apply_manifest(kubeconfig, deployment_manifest(gateway, namespace)) do
+      :ok
     end
   end
 
@@ -504,6 +526,13 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale do
     # restart path would 404 and strand the row with no owner way out.
     # Re-apply the objects instead: provision_gateway is SSA-idempotent
     # and writes the key on the way, the create path's same call.
+
+    # The paste REPLACES the credential: a marked stored key is revoked
+    # first (the pre-write rule every credential replacement follows —
+    # a pasted key over an unconsumed mint would orphan it until TTL
+    # with no marker left to find it).
+    revoke_enrollment_credential(gateway)
+
     case provision_gateway(gateway, auth_key) do
       {:ok, _ref} -> :ok
       {:error, _reason} = error -> error
@@ -518,12 +547,16 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale do
     # resurrect a pod the ladder scaled to 0 — and the observer refuses to
     # override a suspension, so that pod would serve for free. The new key
     # lands on the next resume, which scales the pod up itself.
+    revoke_enrollment_credential(gateway)
+
     with {:ok, kubeconfig} <- kubeconfig() do
       write_credential(kubeconfig, access_namespace(), gateway, auth_key)
     end
   end
 
   def update_credential(%AccessGateway{} = gateway, auth_key) do
+    revoke_enrollment_credential(gateway)
+
     with {:ok, kubeconfig} <- kubeconfig(),
          :ok <- write_credential(kubeconfig, access_namespace(), gateway, auth_key) do
       # Restart, not recreate: the pod rejoins under the new key with the
@@ -539,6 +572,215 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale do
       end
     end
   end
+
+  # ------------------------------------------------------------------
+  # The minted enrollment key (#836, ADR-0040 Am. 3)
+  # ------------------------------------------------------------------
+
+  # The reconnect half of the mint seam: the state-matched semantics of
+  # update_credential/2, but the key is minted here, never pasted.
+  # R2 rules mint-on-suspended out: a 1h key would sit unconsumed until
+  # a resume that may be days out — and :destroying is going away
+  # entirely. S3's change layer refuses suspended rows first; this arm
+  # is the seam's own backstop.
+  @impl FluxVale.Infrastructure.AccessProvider
+  def reconnect_minted(%AccessGateway{state: :provisioning} = gateway) do
+    # The drift-repair shape: no Deployment to restart — mint, write,
+    # re-apply the objects.
+    with {:ok, kubeconfig} <- kubeconfig(),
+         :ok <- mint_and_write_credential(kubeconfig, access_namespace(), gateway) do
+      apply_gateway_objects(kubeconfig, access_namespace(), gateway)
+    end
+  end
+
+  @impl FluxVale.Infrastructure.AccessProvider
+  def reconnect_minted(%AccessGateway{state: state})
+      when state in [:suspended, :destroying] do
+    {:error, :invalid_gateway_state}
+  end
+
+  @impl FluxVale.Infrastructure.AccessProvider
+  def reconnect_minted(%AccessGateway{} = gateway) do
+    # Restart, not recreate — the same move update_credential's
+    # catch-all restart arm makes (this clause is :active AND
+    # :needs_attention, the reconnect-recovery state): the pod rejoins
+    # under the new key with the persisted state, and the Secret update
+    # alone would not re-read.
+    with {:ok, kubeconfig} <- kubeconfig(),
+         :ok <- mint_and_write_credential(kubeconfig, access_namespace(), gateway) do
+      case Deployment.restart(
+             kubeconfig,
+             access_namespace(),
+             deployment_name(gateway),
+             strategy: @gateway_rollout_strategy
+           ) do
+        {:ok, _deployment} ->
+          :ok
+
+        # A LOST Deployment is the reconnect-recovery case itself
+        # (#847 review): the observer steers a row whose objects were
+        # deleted to "reconnect", and a restart is a GET→apply that
+        # 404s on a missing object. The credential is already written —
+        # re-apply the objects, the :provisioning arm's same move.
+        {:error, %Error{reason: :not_found}} ->
+          apply_gateway_objects(kubeconfig, access_namespace(), gateway)
+
+        {:error, _reason} = error ->
+          error
+      end
+    end
+  end
+
+  # BOTH mint callbacks share this one flow — a minted key never
+  # crosses the seam as a bare value, so the token and the fresh key id
+  # stay in this process (#837 review). Steps, in order: supersede-revoke
+  # of a marked stored key, read the API token, mint (keys_create),
+  # write the credential Secret WITH the marker. A Secret-write failure
+  # revokes the fresh key from memory: the marker never landed, so
+  # revoke_enrollment_credential/1 alone could never find it. Returns
+  # :ok | {:error, term()} deliberately — the key value stops here; it
+  # is never a function return above the credential write.
+  defp mint_and_write_credential(kubeconfig, namespace, gateway) do
+    revoke_enrollment_credential(kubeconfig, gateway)
+
+    with {:ok, token} <- read_api_credential(gateway),
+         {:ok, %{id: key_id, key: key}} <- ApiClient.keys_create(token, mint_opts(gateway)) do
+      case write_credential(kubeconfig, namespace, gateway, key, minted?: true) do
+        :ok ->
+          # R3's audit line: ids only, never values.
+          Logger.info("gateway #{gateway.id} minted enrollment key #{key_id}")
+          :ok
+
+        {:error, _reason} = error ->
+          # The Secret never recorded the marker — revoke from memory,
+          # best-effort. The write error is the answer; this is the ops
+          # trail.
+          revoke_fresh_key(token, key_id)
+          error
+      end
+    end
+  end
+
+  # R1's pinned key shape, config-overridable where it has an ops
+  # reason to move: tag and TTL are policy (`config :flux_vale,
+  # :tailscale_api`, in-code defaults — config is override only); the
+  # description is derived (≤50 chars, no org/app names — §1's opacity
+  # rule). The reusable/ephemeral/preauthorized half is FIXED inside the
+  # ApiClient.
+  defp mint_opts(gateway) do
+    config = Application.get_env(:flux_vale, :tailscale_api, [])
+
+    [
+      tag: Keyword.get(config, :enrollment_tag, "tag:fluxvale-gateway"),
+      ttl_seconds: Keyword.get(config, :enrollment_ttl_seconds, 3600),
+      description: "fluxvale gateway #{gateway.hostname}"
+    ]
+  end
+
+  @impl FluxVale.Infrastructure.AccessProvider
+  def revoke_enrollment_credential(%AccessGateway{} = gateway) do
+    case kubeconfig() do
+      {:ok, kubeconfig} ->
+        revoke_enrollment_credential(kubeconfig, gateway)
+
+      {:error, reason} ->
+        Logger.warning(
+          "Access gateway #{gateway.id} enrollment-key revoke skipped (no cluster; " <>
+            "the TTL bounds it): #{inspect(reason)}"
+        )
+
+        :ok
+    end
+  end
+
+  # Best-effort by contract: every failure here is log-and-:ok — the
+  # callers run this on exits where the original error (or the teardown)
+  # wins, and a missed revoke dies with the 1h TTL.
+  defp revoke_enrollment_credential(kubeconfig, gateway) do
+    case Secret.get_data(kubeconfig, access_namespace(), credential_secret_name(gateway)) do
+      {:ok, %{"FV_MINTED" => "1", "TS_AUTHKEY" => key}} when is_binary(key) ->
+        revoke_marked_key(gateway, key)
+
+      # No marker: nothing stored is ours — a user-pasted key is NEVER
+      # revoked by us (it may be the owner's reusable key for other
+      # devices). An unreadable/absent Secret has nothing reachable
+      # either.
+      _unmarked_or_unreadable ->
+        :ok
+    end
+  end
+
+  defp revoke_marked_key(gateway, key) do
+    case enrollment_key_id(key) do
+      nil ->
+        Logger.warning(
+          "Access gateway #{gateway.id} enrollment-key revoke skipped (no parseable " <>
+            "key id in the marked credential; the TTL bounds it)"
+        )
+
+        :ok
+
+      key_id ->
+        delete_enrollment_key(gateway, key_id)
+    end
+  end
+
+  defp delete_enrollment_key(gateway, key_id) do
+    case read_api_credential(gateway) do
+      {:ok, token} ->
+        case ApiClient.keys_delete(token, key_id) do
+          :ok ->
+            Logger.info("gateway #{gateway.id} revoked enrollment key #{key_id}")
+            :ok
+
+          {:error, reason} ->
+            Logger.warning(
+              "Access gateway #{gateway.id} enrollment-key #{key_id} revoke failed " <>
+                "(the TTL bounds it): #{inspect(reason)}"
+            )
+
+            :ok
+        end
+
+      {:error, reason} ->
+        Logger.warning(
+          "Access gateway #{gateway.id} enrollment-key #{key_id} revoke skipped (no " <>
+            "readable token; the TTL bounds it): #{inspect(reason)}"
+        )
+
+        :ok
+    end
+  end
+
+  # The in-memory revoke (mint succeeded, Secret write failed): the
+  # token and fresh key id are still in hand at the failure point —
+  # exactly why mint and write are one operation.
+  defp revoke_fresh_key(token, key_id) do
+    case ApiClient.keys_delete(token, key_id) do
+      :ok ->
+        Logger.info("gateway revoked the unconsumed mint #{key_id} (credential write failed)")
+        :ok
+
+      {:error, reason} ->
+        Logger.warning(
+          "enrollment key #{key_id} in-memory revoke failed (the TTL bounds it): #{inspect(reason)}"
+        )
+
+        :ok
+    end
+  end
+
+  # The API embeds the key id in the value itself:
+  # `tskey-auth-<keyid>-<rest>` — parsed from the value (R3), never
+  # stored separately, so no second store can drift.
+  defp enrollment_key_id("tskey-auth-" <> rest) do
+    case String.split(rest, "-", parts: 2) do
+      [key_id, _rest_of_value] -> key_id
+      _no_id_segment -> nil
+    end
+  end
+
+  defp enrollment_key_id(_unshaped), do: nil
 
   @impl FluxVale.Infrastructure.AccessProvider
   def read_credential(%AccessGateway{} = gateway) do
@@ -583,6 +825,11 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale do
     with {:ok, kubeconfig} <- kubeconfig() do
       namespace = access_namespace()
 
+      # A minted enrollment key is revoked FIRST: the API token dies with
+      # the api-credential Secret below — read it while it exists.
+      # Best-effort (the 1h TTL bounds a miss); the deletes run regardless.
+      revoke_enrollment_credential(kubeconfig, gateway)
+
       # Delete the keys first: they are the only objects a stranger
       # could use if the rest of the cleanup fails and the row is
       # already gone. The api-credential rides the same rule (P1-1: no
@@ -624,6 +871,12 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale do
            # the retry converges instead of compounding.
            attached = AccessGateway.attached_instances(gateway),
            :ok <- detach_all(gateway, attached) do
+        # A minted enrollment key is revoked BEFORE the object deletes:
+        # the token dies with the api-credential Secret in delete_objects
+        # — read it while it exists. Best-effort (the 1h TTL bounds a
+        # miss); the teardown wins.
+        revoke_enrollment_credential(kubeconfig, gateway)
+
         delete_objects(kubeconfig, namespace, gateway)
       end
     end
@@ -687,12 +940,22 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale do
   # Credential
   # ==================================================================
 
-  # `TS_AUTHKEY` only. The row stores the ref; nothing reads the value
-  # back out (no reveal path exists, deliberately — ADR-0039 §4).
-  defp write_credential(kubeconfig, namespace, gateway, auth_key) do
+  # `TS_AUTHKEY` alone on the paste path; the mint path adds the
+  # `FV_MINTED` marker (R3). SSA replaces the whole data map, so a
+  # re-paste after a mint clears the marker — exactly the un-mark
+  # semantic: a pasted key is never ours. The row stores the ref;
+  # nothing reads the value back out except the marker-gated revoke.
+  defp write_credential(kubeconfig, namespace, gateway, auth_key, opts \\ []) do
     name = credential_secret_name(gateway)
 
-    case Secret.create(kubeconfig, namespace, name, %{"TS_AUTHKEY" => auth_key}) do
+    data =
+      if opts[:minted?] do
+        %{"TS_AUTHKEY" => auth_key, "FV_MINTED" => "1"}
+      else
+        %{"TS_AUTHKEY" => auth_key}
+      end
+
+    case Secret.create(kubeconfig, namespace, name, data) do
       {:ok, _secret} -> :ok
       {:error, _reason} = error -> error
     end

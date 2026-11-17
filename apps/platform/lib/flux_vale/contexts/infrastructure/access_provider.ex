@@ -40,6 +40,20 @@ defmodule FluxVale.Infrastructure.AccessProvider do
               {:ok, %{credential_secret_ref: String.t()}} | {:error, term()}
 
   @doc """
+  The mint-path variant of `provision_gateway/2` (the one-paste enable,
+  ADR-0040 Am. 3): the implementation mints its own short-lived, tagged,
+  single-use enrollment key from the stored API token and writes it to
+  the credential Secret — mint and write are ONE operation, because the
+  write-failure revoke needs the minting token and the fresh key id, and
+  both live inside the provider (#837 review). A minted key never
+  crosses this seam as a bare value. Same return contract as
+  `provision_gateway/2`. `{:error, :unsupported}` for a provider with
+  no mint.
+  """
+  @callback provision_gateway_minted(AccessGateway.t()) ::
+              {:ok, %{credential_secret_ref: String.t()}} | {:error, term()}
+
+  @doc """
   Allocates a provider route for the instance and applies it: the serve
   config gains the instance's port and the instance's private
   NetworkPolicy admits the gateway's namespace. Returns the route.
@@ -80,6 +94,27 @@ defmodule FluxVale.Infrastructure.AccessProvider do
   joins under the new key (the re-paste recovery, ADR-0039 §4).
   """
   @callback update_credential(AccessGateway.t(), String.t()) :: :ok | {:error, term()}
+
+  @doc """
+  The mint-path variant of `update_credential/2`'s state-matched
+  semantics: a `:provisioning` row re-applies the objects; an `:active`
+  (or `:needs_attention` — the reconnect-recovery state) row writes the
+  minted key and restarts the pod. `:suspended` and `:destroying` rows
+  are REFUSED (`{:error, :invalid_gateway_state}`) — a minted 1h key
+  would sit unconsumed until a resume that may be days out (plan R2).
+  One operation, like `provision_gateway_minted/1`.
+  """
+  @callback reconnect_minted(AccessGateway.t()) :: :ok | {:error, term()}
+
+  @doc """
+  Best-effort revocation of a minted-and-stored enrollment key: the
+  credential Secret's `FV_MINTED` marker gates it — a user-pasted key
+  is NEVER revoked (it may be the owner's reusable key for other
+  devices). Always `:ok`: the minted key's 1h TTL bounds a missed
+  revoke, and callers run this on failure/exit paths where the original
+  error wins.
+  """
+  @callback revoke_enrollment_credential(AccessGateway.t()) :: :ok
 
   @doc """
   Reads the auth key back from the gateway's Secret — **internal only**,
