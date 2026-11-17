@@ -73,6 +73,20 @@ defmodule FluxVale.Billing do
   @spec min_topup_dollars() :: pos_integer()
   def min_topup_dollars, do: div(@min_topup_cents, 100)
 
+  # The staged charge lane's platform gate (#829 S2). A RUNTIME read —
+  # unlike min_topup_cents's compile_env above: the gate must flip on
+  # env (`AUTO_RECHARGE_CHARGE_MODE`) without a recompile. The root key
+  # is read then Keyword.get-ed because the nested-path
+  # `Application.get_env/3` call is deprecated and non-traversing on
+  # this Elixir (a list key reads as a literal key, always the default).
+  @doc "Whether the auto-recharge charge lane is enabled — false until the Polar Pro upgrade (activation slice S6)."
+  @spec auto_recharge_charge_mode?() :: boolean()
+  def auto_recharge_charge_mode? do
+    :flux_vale
+    |> Application.get_env(:auto_recharge, [])
+    |> Keyword.get(:charge_mode, false)
+  end
+
   # Operations are verb-named modules under operations/ (see
   # apps/platform/AGENTS.md); the domain stays the public seam
   defdelegate ensure_wallet(org), to: Operations.EnsureWallet, as: :call
