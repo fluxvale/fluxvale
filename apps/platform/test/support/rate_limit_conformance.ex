@@ -1,53 +1,31 @@
 defmodule FluxVale.TestSupport.RateLimitConformance do
   @moduledoc """
-  One request sequence, every fixed-window implementation (#510).
+  One request sequence, the live fixed-window implementations (#510).
 
-  The adapters wrap the live modules and the frozen pre-lane oracles, so a
-  refactor can run the same steps through both and compare the thing that
-  must not change: the allow/refuse decision. `run/2` executes the steps
-  against one adapter's table; `verdicts/1` strips the retry value so
-  Google's boolean and OAuth's `{:error, retry}` compare as `:ok` /
-  `:refused`.
+  The adapters wrap the live modules, so a change can run the same steps
+  through both surfaces and compare the thing that must not change: the
+  allow/refuse decision. `run/2` executes the steps against one adapter's
+  table; `verdicts/1` strips the retry value so Google's boolean and
+  OAuth's `{:error, retry}` compare as `:ok` / `:refused`.
 
-  The oracle copies are test-only and are deleted at lane close (#510).
+  The pre-lane frozen oracles that proved the S1-S5 refactor
+  behavior-preserving lived beside this module and were deleted at lane
+  close (#510).
   """
 
-  alias FluxVale.TestSupport.LegacyGoogleRateLimit
-  alias FluxVale.TestSupport.LegacyOAuthRateLimit
   alias FluxValeWeb.Plugs.GoogleRateLimit
   alias FluxValeWeb.Plugs.OAuthRateLimit
 
   @type adapter :: %{
-          name: atom(),
           allow: (Plug.Conn.t(), atom() -> term()),
           sweep: (-> term()),
           table: atom(),
           key: (atom(), String.t(), integer() -> tuple())
         }
 
-  @doc "The two Google implementations: frozen before, live now."
-  @spec google_adapters() :: [{atom(), adapter()}]
-  def google_adapters, do: [legacy: legacy_google(), current: current_google()]
-
-  @doc "The two OAuth implementations: frozen before, live now."
-  @spec oauth_adapters() :: [{atom(), adapter()}]
-  def oauth_adapters, do: [legacy: legacy_oauth(), current: current_oauth()]
-
-  @spec legacy_google() :: adapter()
-  def legacy_google do
-    %{
-      name: :legacy_google,
-      allow: fn conn, _bucket -> LegacyGoogleRateLimit.allow?(conn) end,
-      sweep: fn -> LegacyGoogleRateLimit.sweep_expired() end,
-      table: LegacyGoogleRateLimit.Windows,
-      key: fn _bucket, ip, window -> {ip, window} end
-    }
-  end
-
   @spec current_google() :: adapter()
   def current_google do
     %{
-      name: :current_google,
       allow: fn conn, _bucket -> GoogleRateLimit.allow?(conn) end,
       sweep: fn -> GoogleRateLimit.sweep_expired() end,
       table: GoogleRateLimit.Windows,
@@ -55,21 +33,9 @@ defmodule FluxVale.TestSupport.RateLimitConformance do
     }
   end
 
-  @spec legacy_oauth() :: adapter()
-  def legacy_oauth do
-    %{
-      name: :legacy_oauth,
-      allow: fn conn, bucket -> LegacyOAuthRateLimit.allow?(conn, bucket) end,
-      sweep: fn -> LegacyOAuthRateLimit.sweep_expired() end,
-      table: LegacyOAuthRateLimit.Windows,
-      key: fn bucket, ip, window -> {bucket, ip, window} end
-    }
-  end
-
   @spec current_oauth() :: adapter()
   def current_oauth do
     %{
-      name: :current_oauth,
       allow: fn conn, bucket -> OAuthRateLimit.allow?(conn, bucket) end,
       sweep: fn -> OAuthRateLimit.sweep_expired() end,
       table: OAuthRateLimit.Windows,
