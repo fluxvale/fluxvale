@@ -412,9 +412,14 @@ defmodule FluxValeWeb.Router do
         {FluxValeWeb.NavSection, :derive}
       ] do
       # #765: the post-registration handoff — reachable later too. The
-      # invite acceptance redirects here; the dashboard's empty state
-      # links it for anyone who lands at `/` first.
+      # dashboard's empty state links it for anyone who wants the
+      # prompt directly; the invite acceptance now lands `/`, where the
+      # gate routes fresh accounts into the flow below.
       live("/agent", AgentLive)
+      # #831: the show-once first-run flow — username, the agent
+      # handoff, the walkthrough. Entry is the `/` gate (D1); a stamped
+      # user hitting the route directly is bounced by the mount.
+      live("/onboarding", OnboardingLive)
       live("/apps", CatalogLive.Index)
       live("/apps/:slug", CatalogLive.Show)
       live("/apps/:slug/deploy", CatalogLive.Deploy)

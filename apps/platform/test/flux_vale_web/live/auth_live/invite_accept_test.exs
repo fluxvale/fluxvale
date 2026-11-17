@@ -75,9 +75,9 @@ defmodule FluxValeWeb.AuthLive.InviteAcceptTest do
       session_form = form(view, "#session-form")
       conn = follow_trigger_action(session_form, conn)
 
-      # #765: a fresh account lands on the agent handoff, not the
-      # empty dashboard.
-      assert redirected_to(conn) == ~p"/agent"
+      # #831: the landing is plain `/` — the onboarding gate takes it
+      # from there (this fresh account's next GET / is the flow).
+      assert redirected_to(conn) == ~p"/"
       session = Plug.Conn.get_session(conn)
       assert %{id: id} = UserAuth.resolve_user(session)
       assert id == invited.id

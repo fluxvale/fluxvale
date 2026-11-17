@@ -45,7 +45,8 @@ test("authed-dashboard: signed-in / shows the dashboard", async ({
   const email = `test+dash-${runId}@fluxvale.com`;
   await signIn(page, new TestInbox(request, testInboxToken!), email);
 
-  // signIn lands on "/" — for a session that's the dashboard now.
+  // signIn walks the gate's flow when it appears (#831: skip stamps)
+  // and lands on "/" — for a session that's the dashboard now.
   await expect(
     page.getByRole("heading", { name: "Dashboard", level: 1 }),
   ).toBeVisible();

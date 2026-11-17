@@ -399,7 +399,9 @@ defmodule FluxValeWeb.DashboardLiveTest do
 
     AccountsFixtures.attach_primary_email!(orgless, "orgless-#{n}@fluxvale.test")
 
-    conn = SessionHelpers.sign_in(conn, orgless)
+    # the #831 gate: a signed-in `/` render models a past-onboarding account
+    onboarded = SessionHelpers.onboarded!(orgless)
+    conn = SessionHelpers.sign_in(conn, onboarded)
 
     {:ok, view, html} = dashboard(conn)
 
