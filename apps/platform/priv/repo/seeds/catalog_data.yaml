@@ -315,12 +315,13 @@
     slug: productivity
     # #610: widened from "Notes and personal knowledge apps." when
     # Vikunja joined — tasks and projects are the category's second
-    # half now.
+    # half now. #827 widens it again for bookmarks: Linkwarden sits
+    # next to notes and tasks as capture-and-keep apps.
     description: >-
-      Notes, tasks, and personal knowledge apps.
+      Notes, tasks, and bookmark apps.
     audience: >-
-      A fit for people who want their notes and tasks in one place, on
-      their own terms.
+      A fit for people who want their notes, tasks, and bookmarks in
+      one place, on their own terms.
   apps:
     - name: Memos
       slug: memos
@@ -633,6 +634,212 @@
             client_secret_env: VIKUNJA_AUTH_OPENID_PROVIDERS_POCKETID_CLIENTSECRET
             enabled_env: VIKUNJA_AUTH_OPENID_ENABLED
             pkce: false
+
+    - name: Linkwarden
+      slug: linkwarden
+      tagline: Bookmark manager that preserves the pages you save
+      description: |
+        A collaborative bookmark manager built around preservation.
+        Every link you save can keep a full copy of its page as a
+        screenshot, a PDF, and a single-file HTML archive, so the
+        content survives even when the original page disappears.
+        Links organize into collections with tags, descriptions, and
+        per-member permissions, and the built-in reader shows the
+        saved page as clean text with highlights. Phone apps and
+        browser extensions connect to the same instance. Links, tags,
+        and accounts live in a PostgreSQL database bundled inside the
+        instance, and the preserved files live on the instance
+        volume. The first account registered becomes the admin, so
+        claim the instance right after deploying.
+      # Icon vendored (#716) — upstream: https://raw.githubusercontent.com/linkwarden/linkwarden/v2.17.0/assets/logo.png
+      # (the rounded-square app mark: cyan bolt on a solid dark field,
+      # so it reads on the icon tile in both themes).
+      icon_url: /images/catalog/linkwarden/icon.png
+      source_url: https://github.com/linkwarden/linkwarden
+      docs_url: https://docs.linkwarden.app
+      # #827: facts promoted from the verified packaging decisions and
+      # the running app (the version notes below carry the evidence) —
+      # nothing invented. Alternatives are names only.
+      caveats:
+        - Preserving a page launches a real browser on demand. Heavy or slow pages can take a while to archive.
+        - Full-text search runs on the bundled PostgreSQL database. The separate Meilisearch engine is not part of this packaging.
+        - The first account registered becomes the admin. Claim the instance right after deploying.
+        - Sign-ups stay open on the instance URL. Turn on the registration toggle and redeploy after claiming the admin account.
+      alternatives:
+        - Raindrop.io
+        - Wallabag
+      # #611 S7: the curated in-action copy, captured from a running
+      # instance (the dashboard with three preserved links + the link
+      # detail's preserved formats).
+      community_url: https://github.com/linkwarden/linkwarden/discussions
+      in_action_intro: >-
+        A dashboard with three saved links and their preserved
+        copies, captured from a running instance.
+      screenshots:
+        - src: /images/catalog/linkwarden/dashboard.png
+          alt: The Linkwarden dashboard listing three link cards with preserved page previews
+          caption: Saved links as cards, each carrying its preserved page.
+        - src: /images/catalog/linkwarden/link-detail.png
+          alt: A saved link open with its screenshot, PDF and readable preserves listed
+          caption: A link, with everything preserved beside it.
+      features:
+        - icon: hero-archive-box
+          title: Pages preserved in full
+          body: Each link keeps a screenshot, a PDF and a single-file HTML copy of the page as it was.
+        - icon: hero-book-open
+          title: Reader view with highlights
+          body: Read the saved page as clean text and highlight the parts worth keeping.
+        - icon: hero-user-group
+          title: Collections you can share
+          body: Collections carry tags, descriptions and per-member permissions, and can be published as public pages.
+        - icon: hero-magnifying-glass
+          title: Search through the page text
+          body: Full-text search covers link names, descriptions and the text of preserved pages.
+      faq:
+        - question: How do I set up Linkwarden?
+          answer: Open the instance URL and register. The first account becomes the admin, so do it right after deploying.
+        - question: What does Linkwarden keep for each link?
+          answer: A screenshot, a PDF and a single-file HTML copy of the page, plus the link name, description and tags.
+        - question: How do I close public sign-up?
+          answer: Register the admin account first, then turn on the registration toggle in the deploy settings and redeploy.
+      versions:
+        - version: "2.17.0"          # upstream stable, 2026-11-10
+          # The canonical image (upstream's own release pipeline pushes
+          # GHCR), pinned by exact tag. Tags carry a v prefix — bare
+          # 2.17.0 does not exist in the registry (checked against the
+          # GHCR v2 API, 2026-11-17), and v2.17.0 resolved to the
+          # multi-arch index, digest sha256:7c11fde5…, the same index
+          # `latest` pointed at that day (the ActualBudget convention).
+          image: ghcr.io/linkwarden/linkwarden:v2.17.0
+          port: 3000
+          # The image's own HEALTHCHECK probes the same path (the
+          # Dockerfile at v2.17.0 curls --fail against /), an
+          # unauthenticated 200 that renders the sign-in page.
+          healthcheck_path: /
+          # #73's deploy op sets this to the instance's public URL.
+          # Upstream documents NEXTAUTH_URL as the auth base URL and
+          # recommends a /api/v1/auth suffix for OAuth callback
+          # resolution. This packaging ships username-and-password
+          # sign-in only (no SSO provider envs), and that flow was
+          # verified end to end against the running app with the bare
+          # origin: register, sign-in through the login page, and an
+          # authenticated API call all answered 200. Cookie security
+          # still keys off the URL scheme (NextAuth derives its
+          # __Secure- prefixes from the https prefix), so the https
+          # instance URL keeps secure cookies on.
+          instance_url_env: NEXTAUTH_URL
+          # The storage folder resolves to /data/data inside the
+          # container: STORAGE_FOLDER defaults to `data`, joined from
+          # the app's working dir (/data/apps/web) as /data/data —
+          # exactly where upstream's compose mounts the volume, and
+          # never /data itself (that directory holds the app tree in
+          # the image). Verified against the running app: screenshots,
+          # PDFs, readability JSON, and previews land under archives/
+          # of it.
+          storage_mount_path: /data/data
+          # The app-plus-storage split (the Umami bundled shape): the
+          # database rides the bundled backing service below, and the
+          # preserved files (screenshot, PDF, monolith HTML,
+          # readability, preview per link) ride the instance volume.
+          default_storage_gb: 10
+          # Honest defaults (D1/D4/D5), probed from the running app on
+          # this release: the web process idles around 300 MB and the
+          # archive worker around 60 MB (one container runs both, the
+          # image CMD's concurrently pair). Preserving a page launches
+          # the bundled browser on demand, capped by upstream's own
+          # 100 MB per-format buffers, and it closes after the queue
+          # empties. `medium` is 0.5 CPU / 1024 MB — exactly this
+          # version's compute ($3.69/mo) plus 10 GB of storage at
+          # $0.40/mo per-GB (B′). The bundled PostgreSQL carves 0.10
+          # CPU / 256 MB, leaving the app 0.40 / 768 against the
+          # measured idle. Below-recommendation sizing refuses for
+          # DB-backed entries (ADR-0045 D5), and archive-heavy owners
+          # can move up a rung in the stepper.
+          default_cpu_cores: "0.5"
+          default_memory_mb: 1024
+          recommended_size: medium
+          release_notes: |
+            First FluxVale catalog release, tracking upstream v2.17.0.
+            PostgreSQL 18 runs inside the instance and shares its
+            resources, and preserved pages live on the instance
+            volume. The first account registered on the instance URL
+            becomes the admin.
+          published_at: "2026-11-10T18:30:29Z"
+          # The bundled-database shape (ADR-0045, the Umami bundled
+          # row's contract): Linkwarden is PostgreSQL-only (the Prisma
+          # datasource pins provider postgresql, no SQLite fallback),
+          # so the platform provisions the per-instance database and
+          # composes DATABASE_URL at deploy from the get-or-create
+          # backing Secret; a user value naming it is rejected at
+          # create (#612 D6). No Meilisearch service ships: the
+          # Meili client initializes only when MEILI_MASTER_KEY is set
+          # (packages/lib/meilisearchClient.ts) and search falls back
+          # to PostgreSQL queries — verified live, search answered
+          # from the database with no MEILI_* set anywhere. One
+          # service declared, the registry's postgres major.
+          backing_services:
+            - kind: postgres
+              version: "18"
+              url_env: DATABASE_URL
+          # DATABASE_URL flips platform-owned (the takeover spec):
+          # secret kept (the URL embeds the generated password),
+          # required dropped — the wizard never renders the input.
+          configurable_env_vars:
+            DATABASE_URL:
+              label: PostgreSQL connection string
+              description: Provided by the bundled PostgreSQL. There is nothing to enter.
+              type: string
+              required: false
+              secret: true
+            # NextAuth's signing secret for sessions, JWTs, and
+            # preserved-content tokens (upstream docs call for a long
+            # random value in every non-development deployment). The
+            # platform mints no app secrets (the Pocket ID
+            # ENCRYPTION_KEY precedent), so the owner generates one at
+            # deploy time (upstream's recipe is `openssl rand -base64
+            # 32`).
+            NEXTAUTH_SECRET:
+              label: Auth secret
+              description: >-
+                A random string that secures sign-in sessions.
+                Generate one with openssl rand -base64 32 and keep the
+                same value on every restart.
+              type: string
+              required: true
+              secret: true
+            # Upstream has no in-app registration switch — closing
+            # sign-up is this env var, and env is a deploy-time
+            # snapshot, so it rides a redeploy (the SSO_* pattern).
+            # Setting it before the first account exists would brick
+            # the claim (the admin seat is user 1), so the description
+            # and the first-run guidance both put the claim first. The
+            # seed tests pin that it ships in this layer alone.
+            NEXT_PUBLIC_DISABLE_REGISTRATION:
+              label: Close public sign-up
+              description: >-
+                Turn on to stop new account registration. Register
+                the admin account first, then set this and redeploy.
+                Sign-up stays open while this is off.
+              type: boolean
+              default: false
+          # First-run contract (#181, ADR-0034): registration is open
+          # on a fresh instance and the FIRST registrant becomes the
+          # admin — verified from the running app: the first POST
+          # /api/v1/users returned id 1 (the admin seat — the admin
+          # test is "id equals NEXT_PUBLIC_ADMIN, defaulting to 1") and
+          # a second registration landed as a plain member at id 2.
+          # Nothing to pin (env is empty) and nothing to lock: the
+          # registration toggle ships as a deploy input above, and no
+          # other upstream key can block or take over the claim.
+          first_run:
+            pattern: first_registered_user_admin
+            env: {}
+            forbidden_env: []
+            guidance: >-
+              Open the instance URL and register. The first account
+              becomes the admin, so claim the instance promptly. Then
+              turn on the registration toggle in the deploy settings
+              and redeploy, so no one else can register.
 
 - category:
     name: Security
