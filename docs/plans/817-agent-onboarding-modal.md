@@ -122,11 +122,36 @@ a link is display-only use, honoring the pipeline's never-a-gate
 comment), and `docs/mcp.md`'s first-run section names the modal as the
 in-app first-run surface. No copy anywhere says the guide is gated.
 
+## D7. The prompt becomes dashboard-exclusive; /docs keeps the guide (Terence's scope add, Nov 17)
+
+The full handoff prompt (and its client snippets) renders ONLY on the
+signed-in surfaces: the onboarding modal and `/agent`. `/docs/agents`
+keeps its URL and becomes the impersonal guide — prose about the agent
+setup, no prompt block, no snippets — with pointers: signed-in readers
+get `/agent` (S3's line, absorbed into the new shape), anonymous
+readers get `/sign-in?return_to=/agent` (the account door, landing back
+on the panel). Never a 404.
+
+- **Replace, not redirect**: the page stays. The sidebar entry (#801),
+  the docs-index CTA, the landing CTAs, llms.txt's Agent-setup link,
+  and the prompt's own `Reference:` line all keep resolving truthfully
+  with zero repointing; the golden fixture and both machine surfaces
+  (`/agent`, `/llms.txt`) are untouched.
+- **Surfaced tension, not decided here**: `/llms.txt` still serves the
+  full prompt body anonymously. The standing stance (#817's body, D5)
+  keeps machine surfaces unchanged, and this slice honors it — but full
+  prompt exclusivity would eventually have to answer for llms.txt.
+  That is Terence's call, a separate decision; this plan flags it.
+- **Sequencing**: S4 cuts from main only after #828 merges — the
+  template and tests overlap unmerged #823's signed-in line and #828's
+  moduledoc extension.
+
 ## Slices
 
 Each lands as its own PR (`Closes #817` only on the last), own worktree
 branch, `mix ci` green before review. S1 → S2 are sequential (component
-dependency); S3 is parallel (no file overlap with S1/S2). Fresh
+dependency); S3 is parallel (no file overlap with S1/S2); S4 is last
+(D7's overlaps). Fresh
 worktree recipe per app AGENTS.md: `mix deps.get`, then
 `MIX_ENV=test mix ash.setup` (and `mix ash.setup` for dev).
 
@@ -195,6 +220,38 @@ byte-identical to today (no `<a href="/agent">` when signed out);
 cd apps/platform
 MIX_TEST_PARTITION=s3 mix test test/flux_vale_web/controllers/agent_docs_controller_test.exs
 MIX_TEST_PARTITION=s3 mix ci
+```
+
+### S4 — the prompt leaves the public guide (dashboard-exclusive)
+
+Cuts from main AFTER #828 merges. Files:
+`controllers/agent_docs_controller.ex` (moduledoc rewrite; assigns drop
+prompt/clients, keep sections/sidebar data),
+`controllers/agent_docs_html/show.html.heex` (remove the prompt block
+and any snippet rendering; guide prose + pointers — signed-in → `/agent`
+S3's line absorbed, anonymous → `/sign-in?return_to=/agent`),
+`test/flux_vale_web/controllers/agent_docs_controller_test.exs`
+(content tests rewritten: no `agent-docs-prompt` testid, no literal
+prompt lines in the response; guide prose + both pointers asserted;
+sidebar-active stands), `docs/mcp.md` (surfaces line: the handoff
+renders at `/agent` and the dashboard modal; `/docs/agents` is the
+impersonal guide; `/llms.txt` the machine entry),
+`docs/README.md` (the mcp.md row's "one fixture" surfaces list),
+`docs/public/automation/mcp.md` (the "same recipe as one copyable
+prompt" claim becomes the pointer claim),
+`controllers/llms_txt_controller.ex` (moduledoc only: no longer "the
+same prompt the /docs/agents page renders").
+Done when: anonymous `/docs/agents` renders the guide with NO prompt
+content and points at sign-in; signed-in renders the `/agent` pointer;
+sidebar + docs-index links stand; `agent_prompt.ex`, the golden
+fixture, `/agent`, `/llms.txt`, and `/settings/agents` are untouched;
+captures (anonymous light+dark, signed-in light+dark) embedded;
+`MIX_TEST_PARTITION=s4 mix ci` green.
+
+```sh
+cd apps/platform
+MIX_TEST_PARTITION=s4 mix test test/flux_vale_web/controllers/agent_docs_controller_test.exs
+MIX_TEST_PARTITION=s4 mix ci
 ```
 
 ## Out of scope
