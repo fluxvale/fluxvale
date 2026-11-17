@@ -1,6 +1,6 @@
 # ADR-0029: Payments — adapter architecture; direct processing via pluggable providers
 
-**Status**: Accepted (amended — see Amendments 1–6)
+**Status**: Accepted (amended — see Amendments 1–7)
 **Date**: 2026-09-01
 
 **Context**: v1 used Dodo Payments (checkout + Standard Webhooks). OQ #4
@@ -183,3 +183,55 @@ identity, no double credit.
 environment with its own token. The active-provider flip is gated on a
 no-real-charge staging e2e (100% discount code) and is an env/config
 change only.
+
+## Amendment 7 (2026-11-17): saved payment methods + off-session charges join the adapter (#829)
+
+**Trigger**: auto-recharge (#829) — when a wallet dips below the
+org's threshold, the platform charges a saved payment method so
+instances keep running instead of hitting the zero-balance gate.
+Research (docs.hitpayapp.com + Polar's 2026-10 OpenAPI, 2026-11-17):
+both providers could do it — Polar via methods saved through the
+customer portal (`customer-sessions` → `customer_portal_url`,
+redirect-only — no JS SDK) charged off-session by draft
+`POST /v1/orders/` + `finalize` (synchronous; org flag
+`off_session_charges_enabled`); HitPay via `save_payment_method=true`
+billing sessions + `POST /v1/charge/recurring-billing/{id}`
+(variable amount, synchronous; PH recurring methods: cards,
+ShopeePay, TnG, ZaloPay — GCash fixed-cycle only; no documented
+charge idempotency, so one POST per attempt, ever).
+
+**Decision (owner's GO, 2026-11-17 — Polar exclusively)**: HitPay is
+out going forward (MoR preferred so country-by-country tax compliance
+is Polar's obligation, not ours); the HitPay capability above stays
+archived here, the adapter's sunset is a separate lane, and the
+existing `Providers.HitPay` module is untouched. The
+`PaymentProvider` behaviour grows four callbacks —
+`create_billing_session/2`, `list_payment_methods/1`,
+`create_draft_charge/3`, `finalize_charge/2` — each with a default
+clause answering `{:error, :unsupported}` so **Polar is the only
+implementation**; the defaults keep the architecture
+provider-agnostic without building a second lane nothing will use.
+The draft/finalize split persists the draft order id on the row
+BEFORE the charge trigger, making every crash window recoverable
+and every unknown outcome reconcilable without ever re-driving a
+charge. **The attempt IS a top-up**:
+auto-recharge creates `Topup` rows (`origin: :auto`) completed
+through the unchanged `CompleteTopup` seam — no second posting path,
+the ledger invariants and integer-money discipline untouched. Consent
+is per-org and owner-role-only: opt-in enable with threshold, amount,
+daily caps, consecutive-failure auto-disable ([the
+plan](../plans/829-auto-recharge.md) owns the model).
+
+**Sequencing (owner, same day)**: Polar's off-session charges are
+preview + paid-plan-only (Pro $20/mo unlocks the org flag); the owner
+upgrades to Pro only AFTER launch. So **launch ships the reminder
+lane** — low balance → email with a one-click, amount-prefilled
+top-up link; no stored credentials, nothing off-session — and the
+charge lane ships staged behind a platform config gate
+(`charge_mode`, default false): arming `:auto` is its own explicit
+owner consent (saved method + confirmed caps), never implied by a
+reminder opt-in. Activation is the config flip plus the API evidence
+check (`GET /v1/organizations/{id}` →
+`feature_settings.off_session_charges_enabled: true`). Nothing here
+changes Am. 6's MoR split: Polar's saved methods are Polar's vault;
+we store provider-scoped references only.
