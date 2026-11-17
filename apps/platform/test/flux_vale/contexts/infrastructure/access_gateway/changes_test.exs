@@ -926,6 +926,12 @@ defmodule FluxVale.Infrastructure.AccessGateway.ChangesTest do
       end)
 
       stub(Tailscale, :reconnect_minted, fn _gateway ->
+        # Order PINNED here, not after the fact: refresh_routes runs
+        # before the provider call, so its message must ALREADY be in
+        # the mailbox by the time the mint callback starts (selective
+        # receive would wave a mint-first trace through two
+        # assert_receiveds).
+        assert_received {:refreshed, "rejoined.ts.net"}
         send(parent, {:minted})
         :ok
       end)
@@ -937,8 +943,6 @@ defmodule FluxVale.Infrastructure.AccessGateway.ChangesTest do
                  authorize?: false
                )
 
-      # The mailbox order is the design: rewrite first, mint second.
-      assert_received {:refreshed, "rejoined.ts.net"}
       assert_received {:minted}
     end
 
@@ -998,6 +1002,30 @@ defmodule FluxVale.Infrastructure.AccessGateway.ChangesTest do
       # change's, before the provider is touched at all.
       reject(Tailscale, :reconnect_minted, 1)
       reject(Tailscale, :update_credential, 2)
+      reject(Tailscale, :refresh_routes, 1)
+
+      assert {:error, %Ash.Error.Invalid{errors: errors}} =
+               AccessGateway.update_credential(gateway, %{}, authorize?: false)
+
+      assert Enum.any?(
+               errors,
+               &(&1.field == :auth_key and
+                   &1.message == "Resume the gateway first, then reconnect")
+             )
+    end
+
+    # The #853 review's race: a caller holds a :provisioning struct
+    # while the ladder commits :suspended underneath. The refusal must
+    # read the COMMITTED row — a mint on the stale struct would
+    # re-apply objects at one replica and resurrect the suspended pod.
+    test "a STALE struct whose row was suspended underneath still refuses", %{org: org} do
+      gateway = AccessFixtures.gateway!(org)
+
+      {:ok, _suspended} =
+        AccessGateway.update_state(gateway, %{state: :suspended}, authorize?: false)
+
+      # `gateway` is deliberately the pre-suspend struct.
+      reject(Tailscale, :reconnect_minted, 1)
       reject(Tailscale, :refresh_routes, 1)
 
       assert {:error, %Ash.Error.Invalid{errors: errors}} =

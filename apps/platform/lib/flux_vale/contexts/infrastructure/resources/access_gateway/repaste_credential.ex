@@ -49,8 +49,6 @@ defmodule FluxVale.Infrastructure.AccessGateway.RepasteCredential do
 
   @impl Ash.Resource.Change
   def change(changeset, _opts, _context) do
-    pasted? = pasted?(changeset)
-
     Ash.Changeset.before_action(changeset, fn changeset ->
       # The struct the provider writes from — the row as this action is
       # about to see it, not the stale pre-write struct. Every provider
@@ -64,20 +62,63 @@ defmodule FluxVale.Infrastructure.AccessGateway.RepasteCredential do
         | tailnet_domain: Ash.Changeset.get_attribute(changeset, :tailnet_domain)
       }
 
-      # The row's CURRENT state: a mint on a parked gateway is refused
-      # before ANY provider call — no refresh, no mint.
-      if not pasted? and changeset.data.state == :suspended do
-        Ash.Changeset.add_error(
-          changeset,
-          InvalidArgument.exception(
-            field: :auth_key,
-            message: "Resume the gateway first, then reconnect"
-          )
-        )
+      # The keyless mint's parked-row refusal reads the COMMITTED state
+      # (keyless_reconnect below) — a caller can hold a stale
+      # :provisioning/:active row while the ladder suspends underneath.
+      if pasted?(changeset) do
+        reconnect(changeset, gateway, stored_domain, true)
       else
-        reconnect(changeset, gateway, stored_domain, pasted?)
+        keyless_reconnect(changeset, gateway, stored_domain)
       end
     end)
+  end
+
+  # The keyless arm's gate: re-read the committed row before ANY
+  # provider call. A stale :provisioning struct whose row was suspended
+  # underneath would otherwise dispatch the provider's re-apply path —
+  # resurrecting the suspended pod at one replica with no funding check
+  # (#853 review). The re-read serializes the decision with suspension
+  # (the SetApiToken ensure_storable stance); a vanished row refuses
+  # like every other gone-row seam.
+  defp keyless_reconnect(changeset, gateway, stored_domain) do
+    case committed_gatekeeper(gateway) do
+      {:ok, %{state: committed_state}} ->
+        reconnect(changeset, %{gateway | state: committed_state}, stored_domain, false)
+
+      {:error, state} when state in [:suspended, :destroying] ->
+        resume_first(changeset)
+
+      {:error, :gone} ->
+        Ash.Changeset.add_error(
+          changeset,
+          InvalidArgument.exception(field: :id, message: "this gateway no longer exists")
+        )
+    end
+  end
+
+  defp resume_first(changeset) do
+    Ash.Changeset.add_error(
+      changeset,
+      InvalidArgument.exception(
+        field: :auth_key,
+        message: "Resume the gateway first, then reconnect"
+      )
+    )
+  end
+
+  # The committed row's state — the decision input for the keyless mint
+  # (a vanished row refuses; the struct's own state may be stale).
+  defp committed_gatekeeper(%AccessGateway{} = gateway) do
+    case AccessGateway.get_by_id(gateway.id, authorize?: false) do
+      {:ok, %AccessGateway{state: state}} when state in [:suspended, :destroying] ->
+        {:error, state}
+
+      {:ok, %AccessGateway{state: state}} ->
+        {:ok, %{state: state}}
+
+      {:error, _gone} ->
+        {:error, :gone}
+    end
   end
 
   # The domain refresh limb is untouched and still runs first in both
