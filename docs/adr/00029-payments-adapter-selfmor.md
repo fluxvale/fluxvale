@@ -1,6 +1,6 @@
 # ADR-0029: Payments — adapter architecture; direct processing via pluggable providers
 
-**Status**: Accepted (amended — see Amendments 1–6)
+**Status**: Accepted (amended — see Amendments 1–7)
 **Date**: 2026-09-01
 
 **Context**: v1 used Dodo Payments (checkout + Standard Webhooks). OQ #4
@@ -183,3 +183,36 @@ identity, no double credit.
 environment with its own token. The active-provider flip is gated on a
 no-real-charge staging e2e (100% discount code) and is an env/config
 change only.
+
+## Amendment 7 (2026-11-17): saved payment methods + off-session charges join the adapter (#829)
+
+**Trigger**: auto-recharge (#829) — when a wallet dips below the
+org's threshold, the platform charges a saved payment method so
+instances keep running instead of hitting the zero-balance gate.
+Research (docs.hitpayapp.com + Polar's 2026-10 OpenAPI, 2026-11-17):
+**both providers can do it.** Polar: methods saved through the
+customer portal (`customer-sessions` → `customer_portal_url`,
+redirect-only — no JS SDK), charged off-session via draft
+`POST /v1/orders/` + `finalize` (synchronous; org flag
+`off_session_charges_enabled`). HitPay: `save_payment_method=true`
+billing sessions + `POST /v1/charge/recurring-billing/{id}`
+(variable amount, synchronous; PH recurring methods: cards,
+ShopeePay, TnG, ZaloPay — GCash fixed-cycle only; no documented
+charge idempotency, so one POST per attempt, ever).
+
+**Decision**: the `PaymentProvider` behaviour grows three optional
+callbacks — `create_billing_session/2`, `list_payment_methods/1`,
+`charge_saved_method/3` — providers without the lane answer
+`{:error, :unsupported}`. Polar implements them first (the active
+provider); HitPay's implementation is a module, not a redesign, when
+the dormant lane wakes. **The attempt IS a top-up**: auto-recharge
+creates `Topup` rows (`origin: :auto`) completed through the
+unchanged `CompleteTopup` seam — no second posting path, the ledger
+invariants and integer-money discipline untouched. Consent is per-org
+and owner-role-only: opt-in enable with threshold, amount, daily
+caps, consecutive-failure auto-disable ([the
+plan](../plans/829-auto-recharge.md) owns the model). If Polar's org
+flag is denied, the fallback is the no-credentials reminder lane
+(scheduled attempts + one-click top-up email). Nothing here changes
+Am. 6's MoR split: Polar's saved methods are Polar's vault; we store
+provider-scoped references only.
