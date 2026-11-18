@@ -7,6 +7,7 @@ defmodule FluxValeWeb.OrganizationLive.BillingTest do
   # walk (mirrors BillingLive.IndexTest).
 
   use FluxValeWeb.ConnCase, async: true
+  use Mimic
 
   import Phoenix.LiveViewTest
 
@@ -14,6 +15,8 @@ defmodule FluxValeWeb.OrganizationLive.BillingTest do
   alias FluxVale.Accounts.Organization
   alias FluxVale.Billing
   alias FluxVale.Billing.AutoRechargeSetting
+  alias FluxVale.Billing.Providers.Polar
+  alias FluxVale.Billing.Topup
   alias FluxVale.TestSupport.AccountsFixtures
   alias FluxVale.TestSupport.SessionHelpers
 
@@ -633,6 +636,724 @@ defmodule FluxValeWeb.OrganizationLive.BillingTest do
       assert has_element?(view, "[data-testid='auto-recharge-state']", "Reminders are off")
       refute has_element?(view, "[data-testid='auto-recharge-amount']")
       assert {:ok, persisted} = Billing.get_auto_recharge_setting(org.id, actor: user)
+      assert persisted.mode == :off
+    end
+  end
+
+  # ── The staged charge card (S5) ──
+  #
+  # Everything chargey exists only when the gate reads true. The gate
+  # rides a stub of Billing.auto_recharge_charge_mode?/0 — never an
+  # app-env mutation (async suites share the node's env; the S4 sweep's
+  # posture). Provider legs ride Mimic canaries (the topup_org_test
+  # stance): the session opens in the LiveView process, so stub (not
+  # expect) and assert the request through a message. NO live Polar
+  # call exists in this lane.
+
+  @launch_testids ~w(auto-recharge-card auto-recharge-state auto-recharge-form auto-recharge-mode auto-recharge-threshold auto-recharge-amount-input auto-recharge-save)
+
+  @chargey_testids ~w(auto-recharge-method auto-recharge-method-status add-payment-method auto-recharge-method-hint auto-recharge-activity auto-recharge-activity-empty auto-recharge-activity-row auto-recharge-charge-fields auto-recharge-cap auto-recharge-strikes auto-recharge-country auto-recharge-state-input auto-recharge-customer-type auto-recharge-vat auto-recharge-arm-confirm auto-recharge-arm-math auto-recharge-disabled)
+
+  describe "the charge card, gate OFF (the parity pin)" do
+    setup do
+      stub(Billing, :auto_recharge_charge_mode?, fn -> false end)
+      :ok
+    end
+
+    test "the card renders the launch testids and NOTHING more", %{conn: conn, org: org} do
+      {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/billing")
+
+      Enum.each(@launch_testids, fn testid ->
+        assert has_element?(view, "[data-testid='#{testid}']")
+      end)
+
+      Enum.each(@chargey_testids, fn testid ->
+        refute has_element?(view, "[data-testid='#{testid}']")
+      end)
+
+      # The launch select: off + reminder, never :auto.
+      assert has_element?(view, "#auto-recharge-form option[value='off']")
+      assert has_element?(view, "#auto-recharge-form option[value='reminder']")
+      refute has_element?(view, "#auto-recharge-form option[value='auto']")
+    end
+
+    test "the add-method event is refused — no provider call, no crash", %{conn: conn, org: org} do
+      parent = self()
+
+      stub(Polar, :create_billing_session, fn _request, _opts ->
+        send(parent, :provider_called_with_gate_off)
+        flunk("no provider call with the gate off")
+      end)
+
+      {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/billing")
+
+      render_click(view, "add-payment-method", %{})
+
+      assert has_element?(view, "[data-testid='auto-recharge-card']")
+      refute_received(:provider_called_with_gate_off)
+    end
+
+    test "a crafted gate-off save carrying charge fields writes none of them", %{
+      conn: conn,
+      org: org,
+      user: user
+    } do
+      {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/billing")
+
+      view
+      |> element("#auto-recharge-form")
+      |> render_submit(%{
+        "auto_recharge" => %{
+          "mode" => "reminder",
+          "threshold_dollars" => "10",
+          "amount_dollars" => "25",
+          "daily_charge_cap" => "6",
+          "failure_strikes" => "5",
+          "billing_country" => "US",
+          "customer_type" => "business"
+        }
+      })
+
+      assert has_element?(view, "#flash-info", "Reminder settings saved.")
+
+      # The gate-off save stays L3's shape: the charge fields are not
+      # part of the launch write.
+      assert {:ok, persisted} = Billing.get_auto_recharge_setting(org.id, actor: user)
+      assert persisted.daily_charge_cap == 2
+      assert persisted.failure_strikes == 3
+      assert is_nil(persisted.billing_country)
+      assert persisted.customer_type == :consumer
+    end
+  end
+
+  describe "the charge card, gate ON" do
+    setup %{conn: conn, user: user, org: org} do
+      stub(Billing, :auto_recharge_charge_mode?, fn -> true end)
+      {:ok, setting} = Billing.ensure_auto_recharge_setting(org)
+
+      %{setting: setting, owner_email: AccountsFixtures.primary_address!(user)}
+    end
+
+    # System write — :set_method_status is actor-forbidden by policy;
+    # the tests drive it the way the production seam does.
+    defp link_customer!(setting, customer_id \\ "cust_test") do
+      setting
+      |> Ash.Changeset.for_update(:set_method_status, %{
+        payment_method_status: :none,
+        provider_customer_id: customer_id
+      })
+      |> Ash.update!(authorize?: false)
+    end
+
+    defp attach_method!(setting, customer_id \\ "cust_test") do
+      setting
+      |> Ash.Changeset.for_update(:set_method_status, %{
+        payment_method_status: :attached,
+        provider_customer_id: customer_id
+      })
+      |> Ash.update!(authorize?: false)
+    end
+
+    defp save_evidence!(setting, owner) do
+      {:ok, setting} =
+        Billing.set_auto_recharge_setting(
+          setting,
+          %{billing_country: "US", billing_state: "CA"},
+          actor: owner
+        )
+
+      setting
+    end
+
+    defp auto_topup!(org, amount_cents, status) do
+      {:ok, topup} =
+        Topup.create(
+          %{organization_id: org.id, amount_cents: amount_cents, origin: :auto},
+          authorize?: false
+        )
+
+      case status do
+        :pending ->
+          topup
+
+        other ->
+          update = if(other == :completed, do: :mark_completed, else: :mark_failed)
+
+          topup
+          |> Ash.Changeset.for_update(update, %{})
+          |> Ash.update!(authorize?: false)
+      end
+    end
+
+    test "the method block renders — no customer yet, button disabled without evidence", %{
+      conn: conn,
+      org: org
+    } do
+      {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/billing")
+
+      assert has_element?(view, "[data-testid='auto-recharge-method']")
+      assert has_element?(view, "[data-testid='auto-recharge-method-status']", "None saved yet")
+      assert has_element?(view, "button[data-testid='add-payment-method'][disabled]")
+      assert has_element?(view, "[data-testid='auto-recharge-method-hint']")
+
+      # The charge form fields are present for the owner (gate-on), and
+      # the activity list renders its empty state.
+      assert has_element?(view, "[data-testid='auto-recharge-charge-fields']")
+      assert has_element?(view, "[data-testid='auto-recharge-activity']")
+      assert has_element?(view, "[data-testid='auto-recharge-activity-empty']", "No auto top-ups")
+    end
+
+    test "a saved method + a linked customer read honestly", %{
+      conn: conn,
+      org: org,
+      setting: setting,
+      user: user
+    } do
+      attach_method!(setting)
+      save_evidence!(setting, user)
+
+      stub(Polar, :list_payment_methods, fn _id -> {:ok, 1, "pm_default"} end)
+
+      {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/billing")
+
+      assert has_element?(view, "[data-testid='auto-recharge-method-status']", "Saved")
+
+      # No hint on an enabled button, and no disabled attribute.
+      refute has_element?(view, "button[data-testid='add-payment-method'][disabled]")
+    end
+
+    test "the add-method click mints the session, persists the customer ref, redirects", %{
+      conn: conn,
+      org: org,
+      setting: setting,
+      user: user,
+      owner_email: owner_email
+    } do
+      save_evidence!(setting, user)
+      parent = self()
+
+      stub(Polar, :create_billing_session, fn request, _opts ->
+        send(parent, {:session_request, request})
+        {:ok, %{customer_id: "cust_first", portal_url: "https://portal.example/one-time"}}
+      end)
+
+      {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/billing")
+
+      assert {:error, {:redirect, %{to: "https://portal.example/one-time"}}} =
+               render_click(view, "add-payment-method", %{})
+
+      # The request carried the OWNER'S primary verified email and the
+      # SETTING'S evidence address.
+      assert_received {:session_request, request}
+      assert request.email == owner_email
+      assert request.organization_id == org.id
+      assert request.billing_address == %{country: "US", state: "CA"}
+
+      # The customer reference persisted; the status stays :none — a
+      # customer is not a method (the mount sync answers that).
+      assert {:ok, persisted} = Billing.get_auto_recharge_setting(org.id, authorize?: false)
+      assert persisted.provider_customer_id == "cust_first"
+      assert persisted.payment_method_status == :none
+    end
+
+    test "a second click mints a FRESH session — never a stored URL", %{
+      conn: conn,
+      org: org,
+      setting: setting,
+      user: user
+    } do
+      save_evidence!(setting, user)
+
+      counter = :counters.new(1, [:atomics])
+
+      stub(Polar, :create_billing_session, fn _request, _opts ->
+        :counters.add(counter, 1, 1)
+        n = :counters.get(counter, 1)
+        {:ok, %{customer_id: "cust_#{n}", portal_url: "https://portal.example/#{n}"}}
+      end)
+
+      stub(Polar, :list_payment_methods, fn _id -> {:ok, 0, nil} end)
+
+      # Click one: its own mint, redirect off-site.
+      {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/billing")
+
+      assert {:error, {:redirect, %{to: "https://portal.example/1"}}} =
+               render_click(view, "add-payment-method", %{})
+
+      # The buyer returns; the next click (a fresh mount) mints AGAIN.
+      {:ok, view2, _html} = live(conn, ~p"/organizations/#{org.slug}/billing")
+
+      assert {:error, {:redirect, %{to: "https://portal.example/2"}}} =
+               render_click(view2, "add-payment-method", %{})
+
+      # The stored reference is the LATEST session's customer.
+      assert {:ok, persisted} = Billing.get_auto_recharge_setting(org.id, authorize?: false)
+      assert persisted.provider_customer_id == "cust_2"
+    end
+
+    test "the click without evidence refuses at the seam — the hint flash, no provider call", %{
+      conn: conn,
+      org: org
+    } do
+      parent = self()
+
+      stub(Polar, :create_billing_session, fn _request, _opts ->
+        send(parent, :provider_called_without_evidence)
+        flunk("no provider call without the evidence country")
+      end)
+
+      {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/billing")
+
+      # The button renders disabled; a crafted click still fires the
+      # event — the seam is the authority.
+      render_click(view, "add-payment-method", %{})
+
+      assert has_element?(view, "#flash-error", "billing country")
+      refute_received(:provider_called_without_evidence)
+    end
+
+    test "a provider fault flashes honestly", %{
+      conn: conn,
+      org: org,
+      setting: setting,
+      user: user
+    } do
+      setting = save_evidence!(setting, user)
+      stub(Polar, :create_billing_session, fn _request, _opts -> {:error, :api_error} end)
+
+      {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/billing")
+
+      render_click(view, "add-payment-method", %{})
+
+      assert has_element?(view, "#flash-error", "Couldn't open the payment portal.")
+    end
+
+    test "the mount sync attaches on count > 0", %{conn: conn, org: org, setting: setting} do
+      link_customer!(setting)
+      parent = self()
+
+      stub(Polar, :list_payment_methods, fn customer_id ->
+        send(parent, {:methods_request, customer_id})
+        {:ok, 1, "pm_default"}
+      end)
+
+      {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/billing")
+
+      assert_received {:methods_request, "cust_test"}
+      assert has_element?(view, "[data-testid='auto-recharge-method-status']", "Saved")
+
+      assert {:ok, persisted} = Billing.get_auto_recharge_setting(org.id, authorize?: false)
+      assert persisted.payment_method_status == :attached
+    end
+
+    test "the mount sync un-attaches on count 0", %{conn: conn, org: org, setting: setting} do
+      attach_method!(setting)
+      stub(Polar, :list_payment_methods, fn _id -> {:ok, 0, nil} end)
+
+      {:ok, _view, _html} = live(conn, ~p"/organizations/#{org.slug}/billing")
+
+      assert {:ok, persisted} = Billing.get_auto_recharge_setting(org.id, authorize?: false)
+      assert persisted.payment_method_status == :none
+    end
+
+    test "a sync fault leaves the stored state untouched (the next mount retries)", %{
+      conn: conn,
+      org: org,
+      setting: setting
+    } do
+      attach_method!(setting)
+      stub(Polar, :list_payment_methods, fn _id -> {:error, :network_error} end)
+
+      {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/billing")
+
+      assert has_element?(view, "[data-testid='auto-recharge-method-status']", "Saved")
+
+      assert {:ok, persisted} = Billing.get_auto_recharge_setting(org.id, authorize?: false)
+      assert persisted.payment_method_status == :attached
+    end
+
+    test "the charge settings save persists dials + evidence through the domain seam", %{
+      conn: conn,
+      org: org,
+      user: user
+    } do
+      {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/billing")
+
+      view
+      |> element("#auto-recharge-form")
+      |> render_submit(%{
+        "auto_recharge" => %{
+          "mode" => "reminder",
+          "threshold_dollars" => "10",
+          "amount_dollars" => "25",
+          "daily_charge_cap" => "4",
+          "failure_strikes" => "5",
+          "billing_country" => "US",
+          "billing_state" => "CA",
+          "customer_type" => "business",
+          "vat_number" => "GB12345678"
+        }
+      })
+
+      assert has_element?(view, "#flash-info", "Reminder settings saved.")
+
+      assert {:ok, persisted} = Billing.get_auto_recharge_setting(org.id, actor: user)
+      assert persisted.daily_charge_cap == 4
+      assert persisted.failure_strikes == 5
+      assert persisted.billing_country == "US"
+      assert persisted.billing_state == "CA"
+      assert persisted.customer_type == :business
+      assert persisted.vat_number == "GB12345678"
+    end
+
+    test "the charge dials' bounds are rejected and nothing persists", %{
+      conn: conn,
+      org: org,
+      user: user
+    } do
+      {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/billing")
+
+      view
+      |> element("#auto-recharge-form")
+      |> render_submit(%{
+        "auto_recharge" => %{
+          "mode" => "reminder",
+          "threshold_dollars" => "10",
+          "amount_dollars" => "25",
+          "daily_charge_cap" => "7",
+          "failure_strikes" => "3"
+        }
+      })
+
+      assert has_element?(view, "#flash-error", "Max charges per day must be between 1 and 6.")
+
+      view
+      |> element("#auto-recharge-form")
+      |> render_submit(%{
+        "auto_recharge" => %{
+          "mode" => "reminder",
+          "threshold_dollars" => "10",
+          "amount_dollars" => "25",
+          "daily_charge_cap" => "2",
+          "failure_strikes" => "1"
+        }
+      })
+
+      assert has_element?(view, "#flash-error", "The decline limit must be between 2 and 5.")
+
+      # A crafted save missing the dials entirely is rejected too (the
+      # non-binary arm) — the DOM always carries them on a real submit.
+      render_click(view, "save-auto-recharge", %{
+        "auto_recharge" => %{
+          "mode" => "reminder",
+          "threshold_dollars" => "10",
+          "amount_dollars" => "25"
+        }
+      })
+
+      assert has_element?(view, "#flash-error", "Max charges per day")
+
+      assert {:ok, persisted} = Billing.get_auto_recharge_setting(org.id, actor: user)
+      assert persisted.daily_charge_cap == 2
+      assert persisted.failure_strikes == 3
+      assert persisted.mode == :off
+    end
+
+    test "the evidence prefills from the last completed top-up only where the setting is empty",
+         %{
+           conn: conn,
+           org: org,
+           setting: setting,
+           user: user
+         } do
+      # A completed top-up carrying buyer evidence (system writes — the
+      # row's lifecycle is gateway-verified in production).
+      {:ok, topup} =
+        Topup.create(
+          %{
+            organization_id: org.id,
+            amount_cents: 2_500,
+            billing_country: "DE",
+            vat_number: "DE123456789"
+          },
+          authorize?: false
+        )
+
+      topup
+      |> Ash.Changeset.for_update(:mark_completed, %{})
+      |> Ash.update!(authorize?: false)
+
+      {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/billing")
+
+      # Empty setting fields fall back to the completed top-up; the
+      # dials and customer_type read the stored row.
+      assert has_element?(view, "input#auto_recharge_billing_country[value='DE']")
+      assert has_element?(view, "input#auto_recharge_vat_number[value='DE123456789']")
+      assert has_element?(view, "input#auto_recharge_billing_state[value='']")
+      assert has_element?(view, "select#auto_recharge_customer_type")
+      assert has_element?(view, "input#auto_recharge_daily_charge_cap[value='2']")
+
+      # The setting's OWN value wins when set — the copy-as-default
+      # never overwrites stored values.
+      assert {:ok, _us} =
+               Billing.set_auto_recharge_setting(setting, %{billing_country: "US"}, actor: user)
+
+      {:ok, second_view, _html} = live(conn, ~p"/organizations/#{org.slug}/billing")
+
+      assert has_element?(second_view, "input#auto_recharge_billing_country[value='US']")
+      assert has_element?(second_view, "input#auto_recharge_vat_number[value='DE123456789']")
+    end
+
+    test "the :auto option appears only with a method attached", %{
+      conn: conn,
+      org: org,
+      setting: setting
+    } do
+      # No method yet: the select mirrors the AutoArmGate's refusal.
+      {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/billing")
+      refute has_element?(view, "#auto-recharge-form option[value='auto']")
+
+      # Method attached (and the mount sync agrees).
+      attach_method!(setting)
+      stub(Polar, :list_payment_methods, fn _id -> {:ok, 1, "pm_default"} end)
+
+      {:ok, armed_view, _html} = live(conn, ~p"/organizations/#{org.slug}/billing")
+      assert has_element?(armed_view, "#auto-recharge-form option[value='auto']")
+    end
+
+    test "arming without confirm does not set it — the save opens the confirm step", %{
+      conn: conn,
+      org: org,
+      setting: setting,
+      user: user
+    } do
+      attach_method!(setting)
+      stub(Polar, :list_payment_methods, fn _id -> {:ok, 1, "pm_default"} end)
+
+      {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/billing")
+
+      view
+      |> element("#auto-recharge-form")
+      |> render_submit(%{
+        "auto_recharge" => %{
+          "mode" => "auto",
+          "threshold_dollars" => "10",
+          "amount_dollars" => "25",
+          "daily_charge_cap" => "2",
+          "failure_strikes" => "3"
+        }
+      })
+
+      # The confirm step shows, with the gross math named from the
+      # stored values.
+      assert has_element?(view, "[data-testid='auto-recharge-arm-confirm']")
+      assert has_element?(view, "[data-testid='auto-recharge-arm-math']")
+      assert has_element?(view, "[data-testid='auto-recharge-arm-math']", "$50")
+
+      # Nothing armed yet.
+      assert {:ok, setting} = Billing.get_auto_recharge_setting(org.id, actor: user)
+      assert setting.mode == :off
+      assert has_element?(view, "[data-testid='auto-recharge-state']", "Reminders are off")
+    end
+
+    test "the confirm action arms — the only event that writes :auto", %{
+      conn: conn,
+      org: org,
+      setting: setting,
+      user: user
+    } do
+      attach_method!(setting)
+      stub(Polar, :list_payment_methods, fn _id -> {:ok, 1, "pm_default"} end)
+
+      {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/billing")
+
+      view
+      |> element("#auto-recharge-form")
+      |> render_submit(%{
+        "auto_recharge" => %{
+          "mode" => "auto",
+          "threshold_dollars" => "10",
+          "amount_dollars" => "25",
+          "daily_charge_cap" => "2",
+          "failure_strikes" => "3"
+        }
+      })
+
+      assert has_element?(view, "[data-testid='auto-recharge-arm-confirm']")
+
+      view
+      |> element("#arm-auto-confirm")
+      |> render_click()
+
+      assert has_element?(view, "#flash-info", "Auto charging armed.")
+      assert has_element?(view, "[data-testid='auto-recharge-state']", "Auto charging armed")
+      refute has_element?(view, "[data-testid='auto-recharge-arm-confirm']")
+
+      assert {:ok, persisted} = Billing.get_auto_recharge_setting(org.id, actor: user)
+      assert persisted.mode == :auto
+    end
+
+    test "a gate flip between the confirm render and the click dies at the domain — an error flash, never a write",
+         %{
+           conn: conn,
+           org: org,
+           setting: setting,
+           user: user
+         } do
+      attach_method!(setting)
+      stub(Polar, :list_payment_methods, fn _id -> {:ok, 1, "pm_default"} end)
+
+      {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/billing")
+
+      view
+      |> element("#auto-recharge-form")
+      |> render_submit(%{
+        "auto_recharge" => %{
+          "mode" => "auto",
+          "threshold_dollars" => "10",
+          "amount_dollars" => "25",
+          "daily_charge_cap" => "2",
+          "failure_strikes" => "3"
+        }
+      })
+
+      assert has_element?(view, "[data-testid='auto-recharge-arm-confirm']")
+
+      # The platform gate flips (the S6 boundary is a config flip) —
+      # the AutoArmGate answers the confirm with a refusal.
+      stub(Billing, :auto_recharge_charge_mode?, fn -> false end)
+
+      view
+      |> element("#arm-auto-confirm")
+      |> render_click()
+
+      assert has_element?(view, "#flash-error", "Couldn't arm auto charging.")
+      refute has_element?(view, "[data-testid='auto-recharge-arm-confirm']")
+
+      assert {:ok, persisted} = Billing.get_auto_recharge_setting(org.id, actor: user)
+      assert persisted.mode == :off
+    end
+
+    test "cancel returns without arming", %{conn: conn, org: org, setting: setting, user: user} do
+      attach_method!(setting)
+      stub(Polar, :list_payment_methods, fn _id -> {:ok, 1, "pm_default"} end)
+
+      {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/billing")
+
+      view
+      |> element("#auto-recharge-form")
+      |> render_submit(%{
+        "auto_recharge" => %{
+          "mode" => "auto",
+          "threshold_dollars" => "10",
+          "amount_dollars" => "25",
+          "daily_charge_cap" => "2",
+          "failure_strikes" => "3"
+        }
+      })
+
+      view
+      |> element("#arm-auto-cancel")
+      |> render_click()
+
+      refute has_element?(view, "[data-testid='auto-recharge-arm-confirm']")
+      assert has_element?(view, "[data-testid='auto-recharge-state']", "Reminders are off")
+
+      assert {:ok, persisted} = Billing.get_auto_recharge_setting(org.id, actor: user)
+      assert persisted.mode == :off
+    end
+
+    test "recent activity renders the 3 most recent :auto rows; :manual never appears", %{
+      conn: conn,
+      org: org
+    } do
+      auto_topup!(org, 100, :completed)
+      auto_topup!(org, 200, :failed)
+      auto_topup!(org, 300, :pending)
+      auto_topup!(org, 400, :completed)
+
+      # A wizard row: money history, but NOT auto activity.
+      {:ok, _manual} =
+        Topup.create(%{organization_id: org.id, amount_cents: 99_900}, authorize?: false)
+
+      {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/billing")
+
+      # The three NEWEST auto rows, with their statuses and net amounts.
+      assert has_element?(view, "[data-testid='auto-recharge-activity-row']", "$4")
+      assert has_element?(view, "[data-testid='auto-recharge-activity-row']", "Completed")
+      assert has_element?(view, "[data-testid='auto-recharge-activity-row']", "$3")
+      assert has_element?(view, "[data-testid='auto-recharge-activity-row']", "Pending")
+      assert has_element?(view, "[data-testid='auto-recharge-activity-row']", "$2")
+      assert has_element?(view, "[data-testid='auto-recharge-activity-row']", "Failed")
+
+      # The oldest auto row fell off the window; the manual row never
+      # enters the list at all.
+      refute has_element?(view, "[data-testid='auto-recharge-activity-row']", "$1")
+      refute has_element?(view, "[data-testid='auto-recharge-activity-row']", "$999")
+    end
+
+    test "a disable reason renders an honest line naming why", %{
+      conn: conn,
+      org: org,
+      setting: setting
+    } do
+      setting
+      |> Ash.Changeset.for_update(:disable_with_reason, %{disabled_reason: :no_method})
+      |> Ash.update!(authorize?: false)
+
+      {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/billing")
+
+      assert has_element?(
+               view,
+               "[data-testid='auto-recharge-disabled']",
+               "no saved payment method"
+             )
+    end
+
+    test "a member is read-only everywhere — crafted charge events are refused", %{
+      conn: _conn,
+      org: org,
+      setting: setting
+    } do
+      member = AccountsFixtures.user!()
+
+      Membership.create!(%{organization_id: org.id, user_id: member.id, role: :member},
+        authorize?: false
+      )
+
+      member_conn = SessionHelpers.sign_in(Phoenix.ConnTest.build_conn(), member)
+
+      # A method is attached — the richest member view still shows no
+      # owner affordances.
+      attach_method!(setting)
+      stub(Polar, :list_payment_methods, fn _id -> {:ok, 1, "pm_default"} end)
+
+      parent = self()
+
+      stub(Polar, :create_billing_session, fn _request, _opts ->
+        send(parent, :member_triggered_provider_call)
+        flunk("no provider call from a member's view")
+      end)
+
+      {:ok, view, _html} = live(member_conn, ~p"/organizations/#{org.slug}/billing")
+
+      assert has_element?(view, "[data-testid='auto-recharge-method-status']")
+      assert has_element?(view, "[data-testid='auto-recharge-activity']")
+      assert has_element?(view, "[data-testid='auto-recharge-member-hint']")
+
+      refute has_element?(view, "[data-testid='add-payment-method']")
+      refute has_element?(view, "#auto-recharge-form")
+      refute has_element?(view, "[data-testid='auto-recharge-charge-fields']")
+      refute has_element?(view, "[data-testid='auto-recharge-arm-confirm']")
+
+      # The crafted events are silence — no provider call, no write.
+      render_click(view, "add-payment-method", %{})
+      refute_received(:member_triggered_provider_call)
+
+      render_click(view, "confirm-arm-auto", %{})
+
+      assert has_element?(view, "[data-testid='auto-recharge-card']")
+      assert {:ok, persisted} = Billing.get_auto_recharge_setting(org.id, authorize?: false)
       assert persisted.mode == :off
     end
   end

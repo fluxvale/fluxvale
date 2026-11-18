@@ -10,7 +10,8 @@ defmodule FluxValeWeb.BillingLive.Index do
   "Top up wallet" opens the top-up wizard (#137). No live updates:
   facts read at mount; the wizard's confirmation refreshes on its
   own navigation. The band facts, the ledger history, and the
-  auto-recharge card (#829 L3) render through BillingComponents —
+  auto-recharge card (#829 L3 launch shape, S5 staged charge
+  presentation — gate-on only) render through BillingComponents —
   shared with the org billing view (#276).
   """
 
@@ -19,8 +20,11 @@ defmodule FluxValeWeb.BillingLive.Index do
   alias FluxVale.Accounts
   alias FluxVale.Billing
   alias FluxVale.Billing.LedgerEntry
+  alias FluxVale.Billing.Topup
   alias FluxVale.Checks.ActorIsOrganizationOwner
   alias FluxValeWeb.BillingComponents
+
+  require Ash.Query
 
   @page_size 25
 
@@ -43,6 +47,7 @@ defmodule FluxValeWeb.BillingLive.Index do
           socket
           |> stream(:entries, page.results)
           |> assign(
+            org: org,
             wallet: wallet,
             runway: runway,
             page: page,
@@ -110,8 +115,123 @@ defmodule FluxValeWeb.BillingLive.Index do
   # authority, so a crafted `:auto` and a member's crafted submit land
   # here as an error flash, never a crash. is_map: a crafted non-map
   # payload is a no-op, never a crash.
+  #
+  # Arming :auto is its own CONFIRMED action (decision G): a save
+  # carrying the :auto choice never writes — it opens the confirm
+  # step, whose copy names the gross math; the confirm event is the
+  # write. Owner-only here too: a member's crafted :auto submit rides
+  # the normal path into the domain's refusal (the L3 discipline).
   def handle_event("save-auto-recharge", %{"auto_recharge" => params}, socket)
       when is_map(params) do
+    if arming?(socket, params) do
+      {:noreply,
+       socket
+       |> assign(arm_confirm?: true)
+       |> assign(auto_recharge_form: auto_recharge_form(params))}
+    else
+      save_auto_recharge(socket, params)
+    end
+  end
+
+  def handle_event("save-auto-recharge", _crafted_shape, socket) do
+    {:noreply, socket}
+  end
+
+  @impl Phoenix.LiveView
+  # The arming confirm (decision G): the ONLY event that writes :auto.
+  # Requires the confirm state (opened by the save handler) and the
+  # owner gate — a crafted confirm without the step is silence, never a
+  # write. The domain's AutoArmGate stays the authority: a gate flip or
+  # a method removal between confirm render and click dies at the seam
+  # as an error flash. (The member arm is unreachable on this surface
+  # — the actor is their personal org's owner — but the guard computes,
+  # never assumes.)
+  def handle_event("confirm-arm-auto", _params, socket) do
+    if socket.assigns.charge_mode? and socket.assigns.auto_recharge_owner? and
+         socket.assigns.arm_confirm? do
+      case Billing.set_auto_recharge_setting(
+             socket.assigns.auto_recharge_setting,
+             %{mode: "auto"},
+             actor: socket.assigns.current_user
+           ) do
+        {:ok, setting} ->
+          {:noreply,
+           socket
+           |> put_flash(:info, "Auto charging armed.")
+           |> assign(auto_recharge_setting: setting, arm_confirm?: false)
+           |> assign(auto_recharge_form: post_save_auto_recharge_form(setting))}
+
+        {:error, _rejected_by_the_domain} ->
+          {:noreply,
+           socket
+           |> put_flash(
+             :error,
+             "Couldn't arm auto charging. Check the charge settings and try again."
+           )
+           |> assign(arm_confirm?: false)}
+      end
+    else
+      {:noreply, socket}
+    end
+  end
+
+  @impl Phoenix.LiveView
+  def handle_event("cancel-arm-auto", _params, socket) do
+    {:noreply, assign(socket, arm_confirm?: false)}
+  end
+
+  @impl Phoenix.LiveView
+  # The "Add payment method" click (S5): owner-only, gate-on — the
+  # launch posture makes NO provider call; a crafted event is silence.
+  # Success redirects OFF-SITE to the portal URL (the wizard's
+  # practice) — the URL is FRESH per click, minted by the seam and
+  # never stored.
+  def handle_event("add-payment-method", _params, socket) do
+    if Billing.auto_recharge_charge_mode?() and socket.assigns.auto_recharge_owner? do
+      open_billing_session(socket)
+    else
+      {:noreply, socket}
+    end
+  end
+
+  defp open_billing_session(socket) do
+    case Billing.open_billing_session(
+           socket.assigns.org,
+           socket.assigns.auto_recharge_setting,
+           socket.assigns.current_user
+         ) do
+      {:ok, portal_url} ->
+        {:noreply, redirect(socket, external: portal_url)}
+
+      # The evidence is the request's country — without it the provider
+      # has nothing to tax against; the hint points at the settings.
+      {:error, :billing_country_missing} ->
+        {:noreply,
+         put_flash(
+           socket,
+           :error,
+           "Add a billing country in the charge settings first — charges are taxed against it."
+         )}
+
+      {:error, _refused_by_the_seam} ->
+        {:noreply,
+         put_flash(socket, :error, "Couldn't open the payment portal. Try again in a moment.")}
+    end
+  end
+
+  # The arming decision (decision G): gate-on, the owner, and the :auto
+  # choice — anything else rides the normal save path.
+  defp arming?(socket, params) do
+    Billing.auto_recharge_charge_mode?() and params["mode"] == "auto" and
+      socket.assigns.auto_recharge_owner?
+  end
+
+  # The non-arming save path, through the domain seam (Billing.
+  # set_auto_recharge_setting — never the resource direct): the enum,
+  # the constraints, the AutoArmGate, and the owner-role policy are the
+  # authority, so a crafted `:auto` and a member's crafted submit land
+  # here as an error flash, never a crash.
+  defp save_auto_recharge(socket, params) do
     case auto_recharge_inputs(params) do
       {:ok, inputs} ->
         case Billing.set_auto_recharge_setting(
@@ -124,7 +244,7 @@ defmodule FluxValeWeb.BillingLive.Index do
              socket
              |> put_flash(:info, "Reminder settings saved.")
              |> assign(auto_recharge_setting: setting)
-             |> assign(auto_recharge_form: prefilled_auto_recharge_form(setting, true))}
+             |> assign(auto_recharge_form: post_save_auto_recharge_form(setting))}
 
           {:error, _rejected_by_the_domain} ->
             {:noreply, failed_auto_recharge_save(socket, params, default_auto_recharge_error())}
@@ -135,20 +255,27 @@ defmodule FluxValeWeb.BillingLive.Index do
     end
   end
 
-  def handle_event("save-auto-recharge", _crafted_shape, socket) do
-    {:noreply, socket}
-  end
-
   # The card's prefilled form: whole dollars, the wizard Amount step's
   # unit. A non-owner gets no form (nil) — the card renders the
   # read-only state alone. The nil clause is unreachable HERE (this
   # surface's org is the actor's personal one, whose only seat is the
   # owner's); it keeps the helper total, mirroring the org page's
-  # (covered by that surface's member test).
+  # (covered by that surface's member test). Gate-off the form is L3's
+  # launch shape exactly (the parity pin); gate-on it carries the
+  # charge dials and the buyer evidence (S5).
   # coveralls-ignore-next-line
-  defp prefilled_auto_recharge_form(_setting, false = _owner?), do: nil
+  defp prefilled_auto_recharge_form(_setting, false = _owner?, _org, _user, _charge_mode?),
+    do: nil
 
-  defp prefilled_auto_recharge_form(setting, true) do
+  defp prefilled_auto_recharge_form(setting, true = _owner?, _org, _user, false = _gate_on?),
+    do: launch_auto_recharge_form(setting)
+
+  defp prefilled_auto_recharge_form(setting, true = _owner?, org, user, true = _gate_on?),
+    do: charge_auto_recharge_form(setting, evidence_defaults(org, user))
+
+  # L3's launch map — gate-off the card must read byte-for-byte as it
+  # shipped (the parity pin).
+  defp launch_auto_recharge_form(setting) do
     to_form(
       %{
         "mode" => Atom.to_string(setting.mode),
@@ -157,6 +284,84 @@ defmodule FluxValeWeb.BillingLive.Index do
       },
       as: :auto_recharge
     )
+  end
+
+  # After a successful save the form re-prefills from the persisted
+  # row: gate-off that's L3's shape; gate-on the charge fields with the
+  # SETTING'S evidence (the top-up lookup rode the mount, and the save
+  # just wrote the row).
+  defp post_save_auto_recharge_form(setting) do
+    if Billing.auto_recharge_charge_mode?() do
+      charge_auto_recharge_form(setting, %{})
+    else
+      launch_auto_recharge_form(setting)
+    end
+  end
+
+  # The gate-on form (S5): L3's fields plus the charge dials and buyer
+  # evidence. The dials prefill from the stored row; the evidence
+  # prefills from the row, falling back to the org's LAST COMPLETED
+  # top-up where the row is empty (decision C's copy-as-default —
+  # editable defaults, never overwriting stored values). customer_type
+  # is never empty on the row (default :consumer), so it always reads
+  # the row.
+  defp charge_auto_recharge_form(setting, evidence_defaults) do
+    to_form(
+      %{
+        "mode" => Atom.to_string(setting.mode),
+        "threshold_dollars" => prefilled_dollars(setting.threshold_cents),
+        "amount_dollars" => prefilled_dollars(setting.amount_cents),
+        "daily_charge_cap" => Integer.to_string(setting.daily_charge_cap),
+        "failure_strikes" => Integer.to_string(setting.failure_strikes),
+        "billing_country" =>
+          evidence_prefill(setting.billing_country, evidence_defaults["billing_country"]),
+        "billing_state" =>
+          evidence_prefill(setting.billing_state, evidence_defaults["billing_state"]),
+        "vat_number" => evidence_prefill(setting.vat_number, evidence_defaults["vat_number"]),
+        "customer_type" => Atom.to_string(setting.customer_type)
+      },
+      as: :auto_recharge
+    )
+  end
+
+  defp evidence_prefill(setting_value, fallback), do: setting_value || fallback || ""
+
+  # Decision C's copy-as-default: the org's LAST COMPLETED top-up's
+  # buyer evidence is the editable default for the empty setting
+  # fields — a member-visible read (the org's own money history). The
+  # RATE is never copied (#260).
+  defp evidence_defaults(org, user) do
+    case latest_completed_topup(org, user) do
+      nil ->
+        %{}
+
+      topup ->
+        %{
+          "billing_country" => topup.billing_country,
+          "billing_state" => topup.billing_state,
+          "vat_number" => topup.vat_number
+        }
+    end
+  end
+
+  defp latest_completed_topup(org, user) do
+    Topup
+    |> Ash.Query.filter(organization_id == ^org.id and status == :completed)
+    |> Ash.Query.sort(created_at: :desc, id: :desc)
+    |> Ash.Query.limit(1)
+    |> Ash.read!(actor: user)
+    |> Enum.at(0)
+  end
+
+  # The card's recent auto activity (#829 S5): the last 3 `:auto` rows,
+  # member-visible like the ledger. :manual rows (the wizard's) never
+  # enter this list.
+  defp recent_auto_topups(org, user) do
+    Topup
+    |> Ash.Query.filter(organization_id == ^org.id and origin == :auto)
+    |> Ash.Query.sort(created_at: :desc, id: :desc)
+    |> Ash.Query.limit(3)
+    |> Ash.read!(actor: user)
   end
 
   # Whole-round values prefill their dollar figure. A non-round stored
@@ -197,19 +402,68 @@ defmodule FluxValeWeb.BillingLive.Index do
         with {:ok, threshold} <-
                whole_dollars(params["threshold_dollars"], 1, threshold_error()),
              {:ok, amount} <-
-               whole_dollars(params["amount_dollars"], min_dollars, amount_error()) do
+               whole_dollars(params["amount_dollars"], min_dollars, amount_error()),
+             {:ok, charge} <- gate_on_charge_inputs(params) do
           {:ok,
-           %{
-             mode: mode,
-             threshold_cents: threshold * 100,
-             amount_cents: amount * 100
-           }}
+           Map.merge(
+             %{mode: mode, threshold_cents: threshold * 100, amount_cents: amount * 100},
+             charge
+           )}
         end
 
       crafted_mode ->
         {:ok, %{mode: crafted_mode}}
     end
   end
+
+  # Gate-on the save carries the charge dials + evidence (S5); gate-off
+  # it stays L3's shape — a crafted gate-off payload must not write
+  # charge fields (the launch posture makes the form never send them).
+  defp gate_on_charge_inputs(params) do
+    if Billing.auto_recharge_charge_mode?() do
+      charge_inputs(params)
+    else
+      {:ok, %{}}
+    end
+  end
+
+  # Server-side mirrors of the resource's constraints (#829 S2) — the
+  # domain stays the authority, the form is UX. Evidence strings ride
+  # trimmed, nil clears (the add-method enabler reads the stored row);
+  # customer_type rides as typed — the enum refuses crafted values at
+  # the domain.
+  defp charge_inputs(params) do
+    with {:ok, cap} <- bounded_int(params["daily_charge_cap"], 1, 6, cap_error()),
+         {:ok, strikes} <- bounded_int(params["failure_strikes"], 2, 5, strikes_error()) do
+      {:ok,
+       %{
+         daily_charge_cap: cap,
+         failure_strikes: strikes,
+         billing_country: present_string(params["billing_country"]),
+         billing_state: present_string(params["billing_state"]),
+         vat_number: present_string(params["vat_number"]),
+         customer_type: params["customer_type"]
+       }}
+    end
+  end
+
+  defp bounded_int(raw, min, max, message) when is_binary(raw) do
+    trimmed = String.trim(raw)
+
+    case Integer.parse(trimmed) do
+      {value, ""} when value >= min and value <= max -> {:ok, value}
+      _out_of_bounds_or_malformed -> {:error, message}
+    end
+  end
+
+  defp bounded_int(_missing_or_malformed, _min, _max, message), do: {:error, message}
+
+  defp present_string(raw) when is_binary(raw) do
+    trimmed = String.trim(raw)
+    if trimmed == "", do: nil, else: trimmed
+  end
+
+  defp present_string(_missing_or_malformed), do: nil
 
   defp whole_dollars(raw, min, message) when is_binary(raw) do
     trimmed = String.trim(raw)
@@ -249,23 +503,52 @@ defmodule FluxValeWeb.BillingLive.Index do
     "The amount must be a whole-dollar amount of at least $#{Billing.min_topup_dollars()}."
   end
 
-  # The auto-recharge card's assigns (#829 L3): the row ensured at
-  # mount — the owner's first write is `:set`, an UPDATE that cannot
-  # run on a nil row, so the page provisions through the system seam
-  # (`Billing.ensure_auto_recharge_setting`, the EnsureWallet shape).
-  # The form gate is the write policy's own ownership check — UX only;
-  # the domain seam is the authority. The org billing page mirrors this
-  # wiring on purpose: each surface owns its private helpers, only the
-  # markup is shared (BillingComponents.auto_recharge_card). On this
-  # surface the actor is their personal org's owner, so the form is
-  # the expected shape — the gate still computes, never assumes.
+  defp cap_error, do: "Max charges per day must be between 1 and 6."
+
+  defp strikes_error, do: "The decline limit must be between 2 and 5."
+
+  # The auto-recharge card's assigns (#829 L3, extended by S5): the row
+  # ensured at mount — the owner's first write is `:set`, an UPDATE
+  # that cannot run on a nil row, so the page provisions through the
+  # system seam (`Billing.ensure_auto_recharge_setting`, the EnsureWallet
+  # shape). The form gate is the write policy's own ownership check —
+  # UX only; the domain seam is the authority. Gate-on the mount also
+  # syncs the saved-method state (one cheap provider GET — the poll IS
+  # the sync; Polar has no method-attached webhook), reads the last 3
+  # `:auto` top-ups, and resolves the evidence defaults; gate-off
+  # ZERO charge-lane work happens — no sync, no reads, the launch
+  # shape. The org billing page mirrors this wiring on purpose: each
+  # surface owns its private helpers, only the markup is shared
+  # (BillingComponents.auto_recharge_card). On this surface the actor
+  # is their personal org's owner, so the form is the expected shape —
+  # the gate still computes, never assumes.
   defp assign_auto_recharge(socket, org, user) do
-    {:ok, setting} = Billing.ensure_auto_recharge_setting(org)
+    {:ok, ensured} = Billing.ensure_auto_recharge_setting(org)
     owner? = ActorIsOrganizationOwner.owner?(user, org)
+    charge_mode? = Billing.auto_recharge_charge_mode?()
+    setting = if charge_mode?, do: synced_setting(ensured), else: ensured
 
     socket
-    |> assign(auto_recharge_setting: setting, auto_recharge_owner?: owner?)
-    |> assign(auto_recharge_form: prefilled_auto_recharge_form(setting, owner?))
+    |> assign(
+      auto_recharge_setting: setting,
+      auto_recharge_owner?: owner?,
+      charge_mode?: charge_mode?,
+      arm_confirm?: false,
+      auto_topups: if(charge_mode?, do: recent_auto_topups(org, user), else: [])
+    )
+    |> assign(
+      auto_recharge_form: prefilled_auto_recharge_form(setting, owner?, org, user, charge_mode?)
+    )
+  end
+
+  # Gate-on with a stored provider customer: the sync's fresh row wins.
+  # A provider error leaves the stored row untouched — the next mount
+  # retries (never flip a status on a fault).
+  defp synced_setting(setting) do
+    case Billing.sync_payment_method(setting) do
+      {:ok, _status, fresh} -> fresh
+      {:error, _provider_or_gate} -> setting
+    end
   end
 
   @impl Phoenix.LiveView
@@ -333,6 +616,9 @@ defmodule FluxValeWeb.BillingLive.Index do
               setting={@auto_recharge_setting}
               owner?={@auto_recharge_owner?}
               form={@auto_recharge_form}
+              charge_mode?={@charge_mode?}
+              arm_confirm?={@arm_confirm?}
+              auto_topups={@auto_topups}
             />
           </div>
         </section>
