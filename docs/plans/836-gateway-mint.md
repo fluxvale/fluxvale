@@ -53,34 +53,50 @@ Bearer.
   `{access_token ("tskey-token-…"), token_type "Bearer",
   expires_in 3600, scope (the client's full set, space-separated),
   tags (tag:fluxvale-gateway)}`.
-- **No scope narrowing at exchange**: a `{"scopes":["dns"]}` body is
-  ignored — the client's created-with scope set is the token's power.
-  Our four scopes arrive whole; nothing to request.
+- **Narrowing is documented via the `scope` request parameter**
+  (kb/1215: space-delimited, the client must hold the requested
+  scopes; an undocumented `scopes` JSON body is ignored — probed). We
+  send none, so the client's created-with scope set arrives whole —
+  nothing to request.
 - The full chain works: exchange → `keys_create` with the R1 shape
-  (tag matching the client's tag — the OAuth-owned-key rule) →
-  `keys_delete`, all 200s. The minted key id parses identically for
-  revocation.
+  → `keys_delete`, all 200s. The minted key id parses identically for
+  revocation. **Tag coupling** (kb/1215): a mint by an OAuth-derived
+  token must carry one of the client's tags (or a tag its tags own) —
+  the config-pinned `enrollment_tag` must therefore BE the client's
+  tag for the owner's setup; onboarding copy (B3/B4) states the
+  pairing, or the mint hard-fails.
 - The response body carries secrets (the access token); the client
   secret rides Basic auth — neither may be logged (the S1 decode
   discipline).
 
 ### Design rulings
 
-- **The exchange decorates the token-read boundary.** Everywhere the
-  provider reads `TS_API_TOKEN` to call the API, it goes through one
-  wrapper: a cached exchange when the credential is the client pair,
-  the stored string when it is a console token. Existing console
-  users change nothing.
+- **The exchange decorates the token-read boundary.** The wrapper
+  replaces `read_api_credential` as the API-facing credential reader,
+  so ALL its callers inherit it — six shipped sites, verified:
+  claim_domain, unclaim_domain, mint_and_write_credential, the
+  observe token check, `delete_enrollment_key` (the revoke paths),
+  and `RenderAccessDNS.tailnet_ip/1` (outside the provider module —
+  the operations seam; route it through the provider's wrapper, never
+  a direct read). Existing console users change nothing.
 - **Credential shape**: the api-credential Secret holds EITHER
   `TS_API_TOKEN` (console, unchanged) OR the pair `TS_CLIENT_ID` +
   `TS_CLIENT_SECRET` (both halves required). The pair is preferred in
   every surface's copy; the console token stays accepted.
 - **Cache**: `TokenCache` — ETS keyed by client_id, value
   `%{token, expires_at}`; proactive refresh when
-  `now > expires_at − 300s`; `invalidate/1` on 401.
+  `now > expires_at − 300s`; `invalidate/1` on 401. Custody, stated:
+  the table is `:protected` (reads through the owner process only),
+  entries erased on invalidation and expiry, the token never
+  inspected into a log — memory only, like the minted key.
 - **Retry-once**: on `:unauthorized` from an OAuth-derived token
   ONLY — invalidate, re-exchange, retry once (clock-skew window). A
   console token's 401 keeps today's semantics (real rejection).
+- **Pair-aware drift copy** (B1 renders, B3 surfaces): a 403 on a
+  pair credential means the client lacks a scope — "add the missing
+  scope to the OAuth client"; a 401 that survives the retry means the
+  secret rotated — "rotate the client secret". The console sentences
+  stand for console tokens.
 - **Intake**: the panel forms and the wire take the pair —
   `ts_client_id` (non-secret, plain input) + `ts_client_secret`
   (sensitive, write-only, the strip discipline). Exactly-one-of
@@ -96,23 +112,27 @@ Bearer.
 
 - **B1 — platform: the exchange, cache, and retry seam.** ApiClient
   `oauth_exchange/2`; `TokenCache`; the `with_access_token/2` wrapper
-  at the provider seam; claim/unclaim/observe/mint paths routed
-  through it. (1.5d)
+  replacing `read_api_credential` for every API caller (all six
+  sites, incl. the revoke paths and `RenderAccessDNS.tailnet_ip/1`);
+  the pair-aware drift sentences. (1.5d)
 - **B2 — platform: the pair intake.** Secret shape; `set_api_token`
   gains the pair arguments (action name wire-stable); create gains
   the pair alternative with the extended exactly-one-of; owner fence.
   (1.5d)
 - **B3 — platform: the panel forms.** Enable card + token form gain
   the pair inputs (client id plain, secret masked), preferred; the
-  console-token input remains the alternate; screenshots. (1d)
+  console-token input remains the alternate; the tag-pairing copy;
+  screenshots. (1d)
 - **B4 — provider + owner stack + docs + v0.7.0.** The pair on the
   gateway resource; owner-stack variables/README; public docs;
-  version 0.7.0 (tag gate: standard CI + prod deploy — the live chain
-  is already proven above). (1.5d)
+  ADR-0040 **Am. 5** (the owner's OAuth ruling — the S5/Am. 4
+  precedent); version 0.7.0. Tag gate: standard CI + prod deploy +
+  **a pair-exchange create succeeds against production** (the v0.6.0
+  gate, now for the pair path) — or the deviation is recorded again,
+  as the closeout above did. (1.5d)
 
 Order: B1 → B2 sequential; B3 after B2 pins the action surface;
 B4 after B2's wire. ≈5.5 dev-days.
-
 
 ## The shape in one paragraph
 
@@ -132,7 +152,8 @@ tradeoff named.
 ## Scope fence
 
 - **No OAuth client work** (ADR-0040 §5: API key first; OAuth is the
-  self-serve upgrade, its own lane).
+  self-serve upgrade, its own lane). **Repealed by the 2026-11-18
+  lane-B addendum below — this IS that lane.**
 - **No auto-re-mint in the observer.** Deployment readiness cannot
   distinguish "bad key" from "crashloop"; a tick that mints on
   not-ready mints unboundedly. Repair stays owner-triggered — it just
