@@ -834,5 +834,23 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.ApiClientTest do
 
       assert {:error, :network_error} = ApiClient.oauth_exchange(@client_id, @client_secret)
     end
+
+    # The catch-all: an unrecognized error shape classifies as a
+    # network-class failure, inspected never (the exchange's request
+    # carries the client secret — even an unknown error type must not
+    # be dumped to a log).
+    test "an unrecognized error shape is network-class, never inspected" do
+      expect(Req, :post, fn _req, _opts ->
+        {:error, %RuntimeError{message: "tsclient-secret-canary embedded"}}
+      end)
+
+      logs =
+        ExUnit.CaptureLog.capture_log(fn ->
+          assert {:error, :network_error} = ApiClient.oauth_exchange(@client_id, @client_secret)
+        end)
+
+      refute logs =~ "tsclient-secret-canary"
+      assert logs =~ "transport-class error"
+    end
   end
 end
