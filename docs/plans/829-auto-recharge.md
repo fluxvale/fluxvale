@@ -218,13 +218,21 @@ manual top-up; every attempt visible to the user and in ops telemetry.
   unknown-outcome attempt is never re-driven: a draft order that was
   never finalized can never charge, so reconciliation may safely
   resolve it. **The sweep reconciles stale `:pending` auto rows**
-  (older than 1 hour) before its due-check: `fetch_payment` on the
-  persisted order id → paid → complete (idempotent); draft/absent →
-  `mark_failed` (nothing can charge) and the next pass may retry.
-  A pending row therefore never waits for the 24h stale sweep, and
-  local expiry can never free an unresolved charge — the hourly
-  reconciliation has already answered it (money landing late still
-  credits: CompleteTopup's widened guard, unchanged).
+  (older than 1 hour) before its due-check: `fetch_order` on the
+  persisted order id (`fetch_payment` reads the checkout endpoint,
+  where an order id 404s) → paid → complete (idempotent);
+  still-draft → `mark_failed` (nothing can charge). Amended
+  2026-11-18 (#856 review): an ABSENT order (404) or any other
+  gateway fault leaves the row **pending** — failing a
+  possibly-charged row forecloses the late credit (CompleteTopup
+  refuses `:failed` rows); the accepted cost is the in-flight guard
+  blocking that org's new attempts until the 24h `ExpireStaleTopups`
+  backstop flips the row `:expired` (which still credits late money)
+  — rare (an env flip or a Polar-side deletion), and safer than the
+  alternative. An UNKNOWN outcome (a fetch transport error) is what
+  the hourly reconciliation answers — a pending row from an unknown
+  outcome never waits for the 24h stale sweep (money landing late
+  still credits: CompleteTopup's widened guard, unchanged).
 - **F — failure fall-through** (staged lane): a decline is a
   `:failed` Topup (existing terminal-once guard), counter +1,
   disable email at `failure_strikes`. The ladder is untouched — it

@@ -19,14 +19,17 @@ defmodule FluxVale.Billing.PaymentProvider do
 
   ## The staged off-session lane (#829)
 
-  Four callbacks cover the auto-recharge lane — `create_billing_session/2`
+  Five callbacks cover the auto-recharge lane — `create_billing_session/2`
   (the pre-authenticated portal where a buyer saves a method),
   `list_payment_methods/1` (existence + default reference),
-  `create_draft_charge/2` (a draft order — creation never charges), and
-  `finalize_charge/2` (the synchronous charge attempt). Providers adopt
-  the behaviour with `use FluxVale.Billing.PaymentProvider`, which
-  injects default implementations answering `{:error, :unsupported}`
-  for exactly these four (`defoverridable` — Polar overrides, dormant
+  `create_draft_charge/2` (a draft order — creation never charges),
+  `finalize_charge/2` (the synchronous charge attempt), and
+  `fetch_order/1` (the stale-pending reconciliation's fetch for the
+  lane's rows — their persisted id is an ORDER id, which
+  `fetch_payment/1` cannot resolve: it reads the checkout endpoint).
+  Providers adopt the behaviour with `use FluxVale.Billing.PaymentProvider`,
+  which injects default implementations answering `{:error, :unsupported}`
+  for exactly these five (`defoverridable` — Polar overrides, dormant
   HitPay answers the default); the original three callbacks have no
   defaults and every provider implements them.
   """
@@ -157,6 +160,28 @@ defmodule FluxVale.Billing.PaymentProvider do
   @callback finalize_charge(order_id :: String.t(), opts :: keyword()) ::
               {:ok, charge_outcome()} | {:error, error()}
 
+  @typedoc """
+  The normalized order state (#829 S4) — the stale-pending
+  reconciliation's answer for an off-session lane row. `status` is the
+  order's lifecycle (`:paid` charged, `:draft` never finalized, any
+  unrecognized Polar status `:unknown`); `amount_cents` is the order's
+  `subtotal_amount`, nil when the response carries none.
+  """
+  @type order :: %{
+          required(:order_id) => String.t(),
+          required(:status) => :paid | :draft | atom(),
+          required(:amount_cents) => non_neg_integer() | nil
+        }
+
+  @doc """
+  Fetches a provider ORDER (#829 S4) — the stale-pending
+  reconciliation's seam for the auto-recharge lane's rows, whose
+  persisted id is an order id (`fetch_payment/1` reads the checkout
+  endpoint, where an order id 404s).
+  """
+  @callback fetch_order(order_id :: String.t()) ::
+              {:ok, order()} | {:error, error()}
+
   # Default clauses ride `use`, not plain defs on this module: Elixir
   # warns on every unimplemented non-optional @callback even when the
   # behaviour defines defaults (probed 2026-11-17 — plain defs here
@@ -168,8 +193,8 @@ defmodule FluxVale.Billing.PaymentProvider do
   @doc """
   Adopts the behaviour with the staged off-session lane's defaults:
   `create_billing_session/2`, `list_payment_methods/1`,
-  `create_draft_charge/2`, and `finalize_charge/2` answer
-  `{:error, :unsupported}` unless overridden.
+  `create_draft_charge/2`, `finalize_charge/2`, and `fetch_order/1`
+  answer `{:error, :unsupported}` unless overridden.
   """
   defmacro __using__(_opts) do
     quote do
@@ -183,10 +208,13 @@ defmodule FluxVale.Billing.PaymentProvider do
 
       def finalize_charge(_order_id, _opts), do: {:error, :unsupported}
 
+      def fetch_order(_order_id), do: {:error, :unsupported}
+
       defoverridable create_billing_session: 2,
                      list_payment_methods: 1,
                      create_draft_charge: 2,
-                     finalize_charge: 2
+                     finalize_charge: 2,
+                     fetch_order: 1
     end
   end
 end

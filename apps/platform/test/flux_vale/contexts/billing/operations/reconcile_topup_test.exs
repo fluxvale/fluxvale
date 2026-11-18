@@ -157,4 +157,138 @@ defmodule FluxVale.Billing.Operations.ReconcileTopupTest do
 
     assert {:error, :network_error} = Billing.reconcile_topup("pr_1")
   end
+
+  # ── The order lane (#829 S4) ──
+
+  describe "call/2, lane: :order (the auto-recharge rows)" do
+    setup do
+      # The order lane fetches ORDERs — Polar is the only implementer
+      # (HitPay answers the injected :unsupported default). Re-pin the
+      # provider over the module setup's HitPay pin, capture-restore.
+      original_provider = Application.get_env(:flux_vale, :payments_provider)
+      original_polar = Application.get_env(:flux_vale, :polar)
+
+      Application.put_env(:flux_vale, :payments_provider, FluxVale.Billing.Providers.Polar)
+
+      Application.put_env(:flux_vale, :polar,
+        access_token: "tok",
+        webhook_secret: "secret",
+        server: "sandbox",
+        product_id: "prod_1"
+      )
+
+      on_exit(fn ->
+        Application.put_env(:flux_vale, :payments_provider, original_provider)
+        Application.put_env(:flux_vale, :polar, original_polar)
+      end)
+
+      :ok
+    end
+
+    # An off-session lane row: origin :auto, its id is the ORDER id.
+    defp order_topup_row!(amount_cents) do
+      {org, wallet} = BillingFixtures.funded_wallet!(balance_cents: 0)
+
+      {:ok, topup} =
+        Topup.create(
+          %{organization_id: org.id, amount_cents: amount_cents, origin: :auto},
+          authorize?: false
+        )
+
+      {:ok, attached} =
+        Topup.attach_checkout(topup, %{payment_request_id: "ord_1"}, authorize?: false)
+
+      {attached, wallet}
+    end
+
+    defp paid_order(subtotal) do
+      {:ok,
+       %Req.Response{
+         status: 200,
+         body: %{"id" => "ord_1", "status" => "paid", "subtotal_amount" => subtotal}
+       }}
+    end
+
+    test "a paid order completes the row through the polar:<order_id> key" do
+      {topup, wallet} = order_topup_row!(500)
+
+      expect(Req, :get, fn _req, opts ->
+        assert opts[:url] == "/v1/orders/ord_1"
+        paid_order(500)
+      end)
+
+      assert {:ok, %Topup{status: :completed}} = Billing.reconcile_topup("ord_1", :order)
+      assert {:ok, 500} = Billing.balance(wallet, authorize?: false)
+
+      # The credit's ledger key is the webhook arm's seam — one
+      # idempotency key per payment, whoever asks first.
+      key = "polar:ord_1"
+
+      assert {:ok, :already_completed} =
+               Billing.complete_topup(%{
+                 payment_request_id: topup.payment_request_id,
+                 payment_id: topup.payment_request_id,
+                 amount_cents: 500,
+                 idempotency_key: key
+               })
+
+      assert {:ok, 500} = Billing.balance(wallet, authorize?: false)
+    end
+
+    test "the gross guard applies unchanged (contract point 1)" do
+      {_topup, wallet} = order_topup_row!(500)
+
+      expect(Req, :get, fn _req, _opts -> paid_order(400) end)
+
+      assert {:error, :amount_mismatch} = Billing.reconcile_topup("ord_1", :order)
+      assert {:ok, 0} = Billing.balance(wallet, authorize?: false)
+    end
+
+    test "a still-draft order answers :unfinalized and leaves the row" do
+      {topup, _wallet} = order_topup_row!(500)
+
+      expect(Req, :get, fn _req, _opts ->
+        {:ok,
+         %Req.Response{
+           status: 200,
+           body: %{"id" => "ord_1", "status" => "draft", "subtotal_amount" => 500}
+         }}
+      end)
+
+      assert {:ok, :unfinalized} = Billing.reconcile_topup("ord_1", :order)
+
+      {:ok, fresh} = Topup.get_by_id(topup.id, authorize?: false)
+      assert fresh.status == :pending
+    end
+
+    test "a paid order without a usable amount answers :pending" do
+      expect(Req, :get, fn _req, _opts ->
+        {:ok, %Req.Response{status: 200, body: %{"id" => "ord_1", "status" => "paid"}}}
+      end)
+
+      assert {:ok, :pending} = Billing.reconcile_topup("ord_1", :order)
+    end
+
+    test "an unknown status answers :pending" do
+      expect(Req, :get, fn _req, _opts ->
+        {:ok, %Req.Response{status: 200, body: %{"id" => "ord_1", "status" => "cancelled"}}}
+      end)
+
+      assert {:ok, :pending} = Billing.reconcile_topup("ord_1", :order)
+    end
+
+    test "a gateway fault (404 included) answers the error atom" do
+      expect(Req, :get, fn _req, _opts ->
+        {:ok, %Req.Response{status: 404, body: %{"detail" => "not found"}}}
+      end)
+
+      assert {:error, :api_error} = Billing.reconcile_topup("ord_1", :order)
+
+      expect(Req, :get, fn _req, _opts ->
+        {:error, %Req.TransportError{reason: :timeout}}
+      end)
+
+      assert {:error, :network_error} = Billing.reconcile_topup("ord_1", :order)
+    end
+  end
 end

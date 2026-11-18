@@ -221,6 +221,57 @@ defmodule FluxVale.Mailer do
     |> deliver()
   end
 
+  @doc """
+  #829's auto-recharge disable notice (decision F): the staged lane
+  was turned OFF and the org must hear why. Sent on the declines
+  disable (the saved method's charges kept failing), so the copy is
+  deliberately neutral about the card — a finalize 403 can be a
+  platform-side condition (off-session not enabled, the account cannot
+  accept payments), not a buyer decline. Carries the one-click top-up
+  link in the reminder's shape (the caller builds it: the org route
+  with the saved amount pre-filled). Money is not restated here — the
+  link carries it.
+  """
+  @spec deliver_auto_recharge_disabled(String.t(), String.t()) ::
+          {:ok, map()} | {:error, term()}
+  def deliver_auto_recharge_disabled(to, topup_url) do
+    %Swoosh.Email{}
+    |> Swoosh.Email.to(to)
+    |> Swoosh.Email.from({"FluxVale", "no-reply@fluxvale.com"})
+    |> Swoosh.Email.subject("Your FluxVale auto-recharge was turned off")
+    |> Swoosh.Email.text_body("""
+    Your org's recent auto-recharge charges could not be completed, so we've turned auto-recharge off for your organization. Nothing will charge while it's off.
+
+    You can top up in one click. The link below opens the top-up wizard with your saved amount already filled in:
+
+    #{topup_url}
+
+    You can turn auto-recharge back on from the Billing page once charging works again.
+    """)
+    |> deliver()
+  end
+
+  @doc """
+  #829's no-saved-method mail (decision D3) — one copy, honest at both
+  passes of the two-pass rule: on the first pass it is the NOTICE (the
+  sweep expected a saved method and found none), and if the next pass
+  still finds none it rides the :no_method DISABLE. No top-up link on
+  purpose: the fix is attaching a method, not topping up.
+  """
+  @spec deliver_auto_recharge_no_method(String.t()) :: {:ok, map()} | {:error, term()}
+  def deliver_auto_recharge_no_method(to) do
+    %Swoosh.Email{}
+    |> Swoosh.Email.to(to)
+    |> Swoosh.Email.from({"FluxVale", "no-reply@fluxvale.com"})
+    |> Swoosh.Email.subject("FluxVale auto-recharge found no saved payment method")
+    |> Swoosh.Email.text_body("""
+    Your org's auto-recharge looked for a saved payment method and found none, so there was nothing to charge.
+
+    Auto-recharge can't charge without one. Add a payment method from the Billing page. Charging stays off until then.
+    """)
+    |> deliver()
+  end
+
   # Whole dollars read "$25" (the launch defaults' shape); non-round
   # amounts render exact cents via the sanctioned formatter — a
   # div(…, 100) threshold is honest only when the cents are (550¢

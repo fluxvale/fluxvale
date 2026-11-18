@@ -157,6 +157,72 @@ defmodule FluxVale.MailerTest do
     end
   end
 
+  # #829 S4: the staged charge arm's two notices. The owner's copy rule:
+  # plain sentences, no em-dashes, no semicolons.
+  describe "deliver_auto_recharge_disabled/2 (#829 F)" do
+    test "names the disable, carries the one-click link, and stays neutral about the card" do
+      url = "https://fluxvale.com/organizations/acme/billing/topup?amount=25"
+
+      {:ok, _delivery} =
+        Mailer.deliver_auto_recharge_disabled("disabled@fluxvale.com", url)
+
+      assert_receive {:email,
+                      %Swoosh.Email{
+                        subject: "Your FluxVale auto-recharge was turned off",
+                        to: [{_, "disabled@fluxvale.com"}],
+                        text_body: body
+                      }}
+
+      # The honest why: the charges could not be completed — never that
+      # the buyer's card was at fault (a finalize 403 can be a
+      # platform-side condition, not a decline).
+      assert body =~ "charges could not be completed"
+      assert body =~ "turned auto-recharge off"
+      assert body =~ "Nothing will charge while it's off"
+      assert body =~ "top up in one click"
+      assert body =~ url
+
+      refute body =~ "declined"
+      refute body =~ "your card"
+      refute body =~ "payment method was"
+    end
+
+    test "the copy's style rule: no em-dashes, no semicolons" do
+      {:ok, _delivery} =
+        Mailer.deliver_auto_recharge_disabled(
+          "copy@fluxvale.com",
+          "https://fluxvale.com/organizations/acme/billing/topup?amount=25"
+        )
+
+      assert_receive {:email, %Swoosh.Email{text_body: body}}
+      refute body =~ "—"
+      refute body =~ ";"
+    end
+  end
+
+  describe "deliver_auto_recharge_no_method/1 (#829 D3)" do
+    test "names the missing method honestly, with no top-up link" do
+      {:ok, _delivery} = Mailer.deliver_auto_recharge_no_method("nomethod@fluxvale.com")
+
+      assert_receive {:email,
+                      %Swoosh.Email{
+                        subject: "FluxVale auto-recharge found no saved payment method",
+                        to: [{_, "nomethod@fluxvale.com"}],
+                        text_body: body
+                      }}
+
+      # The copy serves both passes of D3's two-pass rule: a notice and
+      # a disable both read true — no method, nothing to charge, add
+      # one to run it.
+      assert body =~ "found none"
+      assert body =~ "nothing to charge"
+      assert body =~ "Add a payment method from the Billing page"
+
+      # No link on purpose: the fix is attaching a method, not topping up.
+      refute body =~ "http"
+    end
+  end
+
   describe "deliver_destroy_warning/3 (#124)" do
     test "T-7 names the date and the way out" do
       destroy_on = ~D[2026-11-12]

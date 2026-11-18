@@ -127,8 +127,12 @@ defmodule FluxVale.Billing do
   defdelegate fail_topup(payment_request_id), to: Operations.FailTopup, as: :call
 
   # M6 (#137): the Confirmation step's reconciliation — same credit
-  # path as the webhook, promptness only.
-  defdelegate reconcile_topup(payment_request_id), to: Operations.ReconcileTopup, as: :call
+  # path as the webhook, promptness only. The lane picks the fetch
+  # (#829 S4): a checkout session id rides fetch_payment (default),
+  # an ORDER id rides fetch_order (the auto-recharge lane's rows).
+  defdelegate reconcile_topup(payment_request_id, lane \\ :checkout),
+    to: Operations.ReconcileTopup,
+    as: :call
 
   # #364: the local staleness policy — abandoned pending rows expire;
   # money that lands late still credits (CompleteTopup's widened guard).
