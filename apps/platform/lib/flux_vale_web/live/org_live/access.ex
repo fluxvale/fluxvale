@@ -30,6 +30,11 @@ defmodule FluxValeWeb.OrganizationLive.Access do
   write-only: a password input, and no read-back path ever returns the
   stored key (ADR-0039 §4).
 
+  #836: the enable takes the API token — we create the join key from
+  it — or the fallback auth key; a stored token makes reconnect a
+  zero-paste click, with the key input behind an explicit fallback
+  toggle.
+
   #635: the Device sign-ins (#362) and API tokens (#483) sections
   moved OUT of this page to /settings/developer
   (DeveloperSettingsLive) — developer tooling, not the access surface.
@@ -169,7 +174,11 @@ defmodule FluxValeWeb.OrganizationLive.Access do
       gateway: gateway,
       price_cents: monthly_cents()
     )
-    |> assign(repaste_open?: repaste_open_for(gateway), remove_armed?: false)
+    |> assign(
+      repaste_open?: repaste_open_for(gateway),
+      repaste_key_fallback?: false,
+      remove_armed?: false
+    )
     |> assign(attach_error: nil)
     |> stream_configure(:attached, dom_id: &"access-attached-#{&1.route.id}")
     |> stream_configure(:attachable, dom_id: &"access-attach-#{&1.id}")
@@ -203,8 +212,12 @@ defmodule FluxValeWeb.OrganizationLive.Access do
         {:noreply,
          socket
          |> put_flash(:info, "Private access is connecting. This page updates on its own.")
-         |> assign(gateway: gateway)
-         |> assign(repaste_open?: repaste_open_for(gateway), remove_armed?: false)
+         |> assign(gateway: loaded_gateway(socket, gateway))
+         |> assign(
+           repaste_open?: repaste_open_for(gateway),
+           repaste_key_fallback?: false,
+           remove_armed?: false
+         )
          |> assign_forms()}
 
       {:error, form} ->
@@ -226,8 +239,9 @@ defmodule FluxValeWeb.OrganizationLive.Access do
     end
   end
 
-  # Re-paste — the NeedsLogin / deleted-node recovery. The engine writes
-  # the Secret and restarts; the copy stays "reconnect", never the
+  # Re-paste — the NeedsLogin / deleted-node recovery, and #836's mint
+  # reconnect: the token-state form submits with NO key (the platform
+  # mints the join key); the copy stays "reconnect", never the
   # machinery underneath.
   def handle_event("repaste", %{"gateway" => params}, socket) do
     case AshPhoenix.Form.submit(socket.assigns.form, params: params) do
@@ -235,25 +249,45 @@ defmodule FluxValeWeb.OrganizationLive.Access do
         {:noreply,
          socket
          |> put_flash(:info, "Reconnecting with the new key. This page updates on its own.")
-         |> assign(gateway: gateway)
-         |> assign(repaste_open?: repaste_open_for(gateway))
+         |> assign(gateway: loaded_gateway(socket, gateway))
+         |> assign(repaste_open?: repaste_open_for(gateway), repaste_key_fallback?: false)
          |> assign_forms()}
 
       {:error, form} ->
-        # The engine's own answer (the change writes "Couldn't update
-        # the access key — try again") is field-less, so the flash is
-        # its surface — never a silent dead click. The form rebuilds
-        # from the row carrying only the errors: the submitted key is
-        # not echoed back (ADR-0039 §4).
+        # The engine's own answer (the change writes the mint copy — the
+        # 403's "paste an auth key instead" among them) lands on the
+        # :auth_key field, which the token state keeps hidden behind the
+        # fallback toggle: reveal it so the sentence is actually
+        # readable. The form rebuilds from the row carrying only the
+        # errors: the submitted key is not echoed back (ADR-0039 §4).
         {:noreply,
          socket
          |> put_flash(:error, "Couldn't update the access key. Try again.")
+         |> assign(repaste_key_fallback?: true)
          |> rebuild_form_with_errors(form)}
     end
   end
 
+  # A submit with no gateway payload at all (the mint form has no
+  # visible inputs, and a crafted empty event should never crash) is
+  # the same empty-params submit — the action decides mint vs paste.
+  def handle_event("repaste", _no_gateway_payload, socket) do
+    handle_event("repaste", %{"gateway" => %{}}, socket)
+  end
+
   def handle_event("toggle-repaste", _params, socket) do
-    {:noreply, assign(socket, repaste_open?: not socket.assigns.repaste_open?)}
+    {:noreply,
+     assign(socket,
+       repaste_open?: not socket.assigns.repaste_open?,
+       repaste_key_fallback?: false
+     )}
+  end
+
+  # #836's fallback toggle — "Paste an auth key instead" reveals the
+  # key input the mint 403 copy names as the exit. Client state only;
+  # the submit's own payload picks the path.
+  def handle_event("toggle-repaste-key", _params, socket) do
+    {:noreply, assign(socket, repaste_key_fallback?: not socket.assigns.repaste_key_fallback?)}
   end
 
   # #760: the API token is a paste-only secret — the auth-key posture,
@@ -290,7 +324,7 @@ defmodule FluxValeWeb.OrganizationLive.Access do
         {:noreply,
          socket
          |> put_flash(:info, "Token saved.")
-         |> assign(gateway: fresh || gateway)
+         |> assign(gateway: fresh || loaded_gateway(socket, gateway))
          |> assign_forms()
          |> assign_domains()}
 
@@ -344,7 +378,7 @@ defmodule FluxValeWeb.OrganizationLive.Access do
             {:noreply,
              socket
              |> put_flash(:info, "Removing private access. Billing stops now.")
-             |> assign(gateway: gateway)
+             |> assign(gateway: loaded_gateway(socket, gateway))
              |> assign(remove_armed?: false)
              |> assign_forms()}
 
@@ -373,7 +407,7 @@ defmodule FluxValeWeb.OrganizationLive.Access do
         {:noreply,
          socket
          |> put_flash(:info, "Retrying removal. This page updates on its own.")
-         |> assign(gateway: gateway)
+         |> assign(gateway: loaded_gateway(socket, gateway))
          |> assign(remove_armed?: false)
          |> assign_forms()}
 
@@ -392,7 +426,7 @@ defmodule FluxValeWeb.OrganizationLive.Access do
         {:noreply,
          socket
          |> put_flash(:info, "Private access is reconnecting. This page updates on its own.")
-         |> assign(gateway: gateway)
+         |> assign(gateway: loaded_gateway(socket, gateway))
          |> refresh_wallet_gates()
          |> assign_forms()}
 
@@ -515,7 +549,11 @@ defmodule FluxValeWeb.OrganizationLive.Access do
       socket
     else
       socket
-      |> assign(repaste_open?: repaste_open_for(gateway), remove_armed?: false)
+      |> assign(
+        repaste_open?: repaste_open_for(gateway),
+        repaste_key_fallback?: false,
+        remove_armed?: false
+      )
       |> assign_forms()
       |> refresh_pairing()
     end
@@ -595,6 +633,7 @@ defmodule FluxValeWeb.OrganizationLive.Access do
                   row_paid?={@row_paid?}
                   billing_path={@billing_path}
                   repaste_open?={@repaste_open?}
+                  repaste_key_fallback?={@repaste_key_fallback?}
                   remove_armed?={@remove_armed?}
                 />
 
@@ -686,7 +725,7 @@ defmodule FluxValeWeb.OrganizationLive.Access do
           </p>
           <ul class="mt-2 list-disc space-y-1 pl-5 text-sm text-ink-muted">
             <li>
-              Create a tag for FluxVale (for example <span class="font-mono">tag:fluxvale</span>)
+              Create the tag <span class="font-mono">tag:fluxvale-gateway</span> in your ACL
               and make yourself its owner.
             </li>
             <li>Turn on MagicDNS.</li>
@@ -742,21 +781,39 @@ defmodule FluxValeWeb.OrganizationLive.Access do
         <div>
           <h3 class="text-sm font-medium text-ink-muted">Enable private access</h3>
           <p class="mt-1 text-sm text-ink-muted">
-            Paste a reusable auth key from your Tailscale admin console. It is stored in
-            our own secret store and never shown again.
+            Paste one credential: your Tailscale API token, or an auth key. Whichever
+            you paste is stored in our own secret store and never shown again.
+          </p>
+          <p class="mt-1 text-xs text-ink-muted" data-testid="access-tagowners-note">
+            Your tailnet's ACL must own <span class="font-mono">tag:fluxvale-gateway</span>
+            (Tailscale admin console → Access Controls), or the join will not complete.
           </p>
         </div>
 
         <.form for={@form} id="access-enable-form" phx-change="validate" phx-submit="enable">
           <div class="space-y-4">
             <.input
+              field={@form[:api_token]}
+              type="password"
+              label="API token"
+              placeholder="tskey-api-…"
+              data-testid="access-api-token-input"
+            />
+            <p class="text-xs text-ink-muted">
+              We create the join key for you from this token. Mint it from a tailnet
+              owner or admin account (admin console → Settings → Keys → Generate
+              API token) — the token carries that account's permissions.
+            </p>
+            <.input
               field={@form[:auth_key]}
               type="password"
               label="Auth key"
               placeholder="tskey-auth-…"
-              required
               data-testid="access-key-input"
             />
+            <p class="text-xs text-ink-muted">
+              The fallback: a reusable auth key from your Tailscale admin console.
+            </p>
             <.input
               field={@form[:tailnet_domain]}
               type="text"
@@ -789,6 +846,7 @@ defmodule FluxValeWeb.OrganizationLive.Access do
   attr(:row_paid?, :boolean, required: true)
   attr(:billing_path, :string, required: true)
   attr(:repaste_open?, :boolean, required: true)
+  attr(:repaste_key_fallback?, :boolean, required: true)
   attr(:remove_armed?, :boolean, required: true)
 
   defp gateway_card(assigns) do
@@ -844,6 +902,7 @@ defmodule FluxValeWeb.OrganizationLive.Access do
           row_paid?={@row_paid?}
           billing_path={@billing_path}
           repaste_open?={@repaste_open?}
+          repaste_key_fallback?={@repaste_key_fallback?}
           remove_armed?={@remove_armed?}
         />
       </.card>
@@ -858,6 +917,7 @@ defmodule FluxValeWeb.OrganizationLive.Access do
   attr(:row_paid?, :boolean, required: true)
   attr(:billing_path, :string, required: true)
   attr(:repaste_open?, :boolean, required: true)
+  attr(:repaste_key_fallback?, :boolean, required: true)
   attr(:remove_armed?, :boolean, required: true)
 
   defp gateway_actions(assigns) do
@@ -872,6 +932,8 @@ defmodule FluxValeWeb.OrganizationLive.Access do
           <.repaste_panel
             form={@form}
             open?={@repaste_open?}
+            token_set?={api_token_set?(@gateway)}
+            key_fallback?={@repaste_key_fallback?}
             toggle_label="Re-paste key"
             submit_label="Save key"
           />
@@ -880,6 +942,8 @@ defmodule FluxValeWeb.OrganizationLive.Access do
           <.repaste_panel
             form={@form}
             open?={@repaste_open?}
+            token_set?={api_token_set?(@gateway)}
+            key_fallback?={@repaste_key_fallback?}
             toggle_label="Re-paste key"
             submit_label="Save key"
           />
@@ -895,6 +959,8 @@ defmodule FluxValeWeb.OrganizationLive.Access do
           <.repaste_panel
             form={@form}
             open?={@repaste_open?}
+            token_set?={api_token_set?(@gateway)}
+            key_fallback?={@repaste_key_fallback?}
             toggle_label="Reconnect"
             submit_label="Reconnect"
             prominent?
@@ -1086,11 +1152,18 @@ defmodule FluxValeWeb.OrganizationLive.Access do
   attr(:toggle_label, :string, required: true)
   attr(:submit_label, :string, required: true)
   attr(:prominent?, :boolean, default: false)
+  attr(:token_set?, :boolean, required: true)
+  attr(:key_fallback?, :boolean, required: true)
 
   defp repaste_panel(assigns) do
     ~H"""
     <div data-testid="access-repaste">
-      <%= if @open? do %>
+      <%= if @token_set? do %>
+        <%!-- #836: a stored token makes reconnect a zero-paste click —
+        the platform creates the join key from it, no input to fill. The
+        key input stays hidden until the fallback toggle reveals it (the
+        mint 403 copy's named exit, the #837 review amendment); the
+        revealed form is today's paste path. --%>
         <.form
           for={@form}
           id="access-repaste-form"
@@ -1098,47 +1171,110 @@ defmodule FluxValeWeb.OrganizationLive.Access do
           phx-submit="repaste"
           class="space-y-3"
         >
-          <.input
-            field={@form[:auth_key]}
-            type="password"
-            label="New auth key"
-            placeholder="tskey-auth-…"
-            required
-            data-testid="access-repaste-key"
-          />
-          <.input
-            field={@form[:tailnet_domain]}
-            type="text"
-            label="Tailnet domain"
-            placeholder="your-tailnet.ts.net"
-            required
-            data-testid="access-repaste-domain"
-          />
-          <div class="flex gap-3">
-            <.button type="submit" size="sm" data-testid="access-repaste-submit">
-              {@submit_label}
-            </.button>
-            <.button
-              type="button"
-              phx-click="toggle-repaste"
-              variant="ghost"
-              size="sm"
-              data-testid="access-repaste-hide"
-            >
-              Cancel
-            </.button>
-          </div>
+          <%= if @key_fallback? do %>
+            <.input
+              field={@form[:auth_key]}
+              type="password"
+              label="Auth key"
+              placeholder="tskey-auth-…"
+              required
+              data-testid="access-repaste-key"
+            />
+            <.input
+              field={@form[:tailnet_domain]}
+              type="text"
+              label="Tailnet domain"
+              placeholder="your-tailnet.ts.net"
+              required
+              data-testid="access-repaste-domain"
+            />
+            <div class="flex gap-3">
+              <.button type="submit" size="sm" data-testid="access-repaste-submit">
+                Reconnect
+              </.button>
+              <.button
+                type="button"
+                phx-click="toggle-repaste-key"
+                variant="ghost"
+                size="sm"
+                data-testid="access-repaste-fallback-hide"
+              >
+                Cancel
+              </.button>
+            </div>
+          <% else %>
+            <div class="flex gap-3">
+              <.button
+                type="submit"
+                size="sm"
+                variant={if(@prominent?, do: "primary", else: "ghost")}
+                data-testid="access-reconnect"
+              >
+                Reconnect
+              </.button>
+              <.button
+                type="button"
+                phx-click="toggle-repaste-key"
+                variant="ghost"
+                size="sm"
+                data-testid="access-repaste-fallback"
+              >
+                Paste an auth key instead
+              </.button>
+            </div>
+          <% end %>
         </.form>
       <% else %>
-        <.button
-          type="button"
-          phx-click="toggle-repaste"
-          variant={if(@prominent?, do: "primary", else: "ghost")}
-          size="sm"
-          data-testid="access-repaste-toggle"
-        >
-          {@toggle_label}
-        </.button>
+        <%= if @open? do %>
+          <.form
+            for={@form}
+            id="access-repaste-form"
+            phx-change="validate"
+            phx-submit="repaste"
+            class="space-y-3"
+          >
+            <.input
+              field={@form[:auth_key]}
+              type="password"
+              label="New auth key"
+              placeholder="tskey-auth-…"
+              required
+              data-testid="access-repaste-key"
+            />
+            <.input
+              field={@form[:tailnet_domain]}
+              type="text"
+              label="Tailnet domain"
+              placeholder="your-tailnet.ts.net"
+              required
+              data-testid="access-repaste-domain"
+            />
+            <div class="flex gap-3">
+              <.button type="submit" size="sm" data-testid="access-repaste-submit">
+                {@submit_label}
+              </.button>
+              <.button
+                type="button"
+                phx-click="toggle-repaste"
+                variant="ghost"
+                size="sm"
+                data-testid="access-repaste-hide"
+              >
+                Cancel
+              </.button>
+            </div>
+          </.form>
+        <% else %>
+          <.button
+            type="button"
+            phx-click="toggle-repaste"
+            variant={if(@prominent?, do: "primary", else: "ghost")}
+            size="sm"
+            data-testid="access-repaste-toggle"
+          >
+            {@toggle_label}
+          </.button>
+        <% end %>
       <% end %>
     </div>
     """
@@ -1357,13 +1493,29 @@ defmodule FluxValeWeb.OrganizationLive.Access do
   end
 
   # The member read policy scopes to the actor's orgs; the owner passed
-  # the UX gate, so a miss here is genuinely "no gateway".
+  # the UX gate, so a miss here is genuinely "no gateway". The stored-
+  # token calc rides every read — the reconnect panel branches on it
+  # (#836).
   defp fetch_gateway(org, user) do
     case AccessGateway.get_for_organization(org.id, actor: user) do
-      {:ok, gateway} -> gateway
+      {:ok, gateway} -> Ash.load!(gateway, :api_token_set, actor: user)
       {:error, _not_found} -> nil
     end
   end
+
+  # A form submit returns the row without the stored-token calc the
+  # reconnect panel branches on (#836) — the same load fetch_gateway
+  # gives every re-read, so the panel renders the right shape wherever
+  # the row came from.
+  defp loaded_gateway(socket, gateway) do
+    Ash.load!(gateway, :api_token_set, actor: socket.assigns.current_user)
+  end
+
+  # The stored-token boolean (the resource's public calculation) as the
+  # reconnect panel reads it. Nothing renders this card without a
+  # gateway, and every path feeding it loads the calc.
+  defp api_token_set?(%AccessGateway{api_token_set: true}), do: true
+  defp api_token_set?(%AccessGateway{}), do: false
 
   # The form tracks the panel's state: create when there is no gateway,
   # re-paste when there is.
@@ -1424,11 +1576,31 @@ defmodule FluxValeWeb.OrganizationLive.Access do
   # targets the changeset's ARGUMENT — that is what AshPhoenix's
   # input_value reads first, not the params maps.
   defp clear_key_display(%Phoenix.HTML.Form{source: %AshPhoenix.Form{} = ash_form} = form) do
-    %{
-      form
-      | source: strip_secret(ash_form, :auth_key),
-        params: Map.delete(form.params, "auth_key")
-    }
+    key_stripped = strip_secret(ash_form, :auth_key)
+
+    stripped =
+      if api_token_argument?(key_stripped) do
+        strip_secret(key_stripped, :api_token)
+      else
+        # The update form's action has no :api_token argument, so
+        # force_set_argument is off the table (NoSuchInput) — but its
+        # PARAMS map still absorbs a crafted api_token from a hostile
+        # event, and the socket state must not carry it (#857 hostile
+        # review). Drop the key; there is nothing to force.
+        %{key_stripped | params: Map.delete(key_stripped.params, "api_token")}
+      end
+
+    without_keys = Map.delete(form.params, "auth_key")
+    params = Map.delete(without_keys, "api_token")
+
+    %{form | source: stripped, params: params}
+  end
+
+  # The token strip is the create form's alone: update_credential has
+  # no api_token argument, and force-setting an unknown argument adds a
+  # NoSuchInput error to every re-paste validate round-trip.
+  defp api_token_argument?(ash_form) do
+    Enum.any?(ash_form.source.action.arguments, &(&1.name == :api_token))
   end
 
   # The form rebuilt on every token event: it carries no params and no
@@ -1450,21 +1622,49 @@ defmodule FluxValeWeb.OrganizationLive.Access do
     %{
       ash_form
       | source: Ash.Changeset.force_set_argument(ash_form.source, argument, ""),
-        params: Map.delete(ash_form.params, Atom.to_string(argument))
+        params: Map.delete(ash_form.params, Atom.to_string(argument)),
+        # AshPhoenix's validate stores the SUBMITTED params verbatim in
+        # raw_params — the third place a typed secret survives the strip
+        # (#857 review; verified: ash_phoenix form.ex validate/3 assigns
+        # raw_params = new_params — here always the inner params map,
+        # never the "gateway" envelope, because every handler passes the
+        # unwrapped inner map). Nothing reads it for rendering and the
+        # next validate replaces it wholesale, so deleting the secret
+        # key is safe and closes the retention.
+        raw_params: Map.delete(ash_form.raw_params, Atom.to_string(argument))
     }
   end
 
   # A failed submit rediscovers the form from the row — which has no
   # key — and carries only the errored form's field errors, so the
   # submitted key never echoes back (ADR-0039 §4; the backups panel's
-  # secret-field posture).
+  # secret-field posture). Two details make the errors actually render:
+  # the {msg, opts} tuple format .input translates, and an "used" marker
+  # per errored field — .input hides a field's errors until its key is
+  # in the form's params, and a fresh rebuild has none. The markers are
+  # empty strings: the keys flip the used-gate, the values stay empty,
+  # and the rendered value reads the fresh changeset anyway (never the
+  # submitted secret).
   defp rebuild_form_with_errors(socket, errored_form) do
     socket
     |> assign_forms()
     |> then(fn socket ->
-      errors = AshPhoenix.Form.errors(errored_form)
+      errors = AshPhoenix.Form.errors(errored_form, format: :raw)
 
-      assign(socket, form: %{socket.assigns.form | errors: errors})
+      used =
+        Enum.reduce(errors, %{}, fn
+          {field, _msg}, acc when is_atom(field) -> Map.put(acc, Atom.to_string(field), "")
+          # Defensive: every error the create/update_credential actions
+          # can return today is field-scoped (verified against the S3
+          # copy table and the gone/suspended refusals); a fieldless
+          # shape would degrade to a skip here instead of a crash. No
+          # current action can produce it — the one fieldless candidate
+          # (the policy Forbidden) dies at the protocol, upstream.
+          # coveralls-ignore-next-line
+          _fieldless, acc -> acc
+        end)
+
+      assign(socket, form: %{socket.assigns.form | errors: errors, params: used})
     end)
   end
 
