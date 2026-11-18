@@ -30,10 +30,11 @@ defmodule FluxValeWeb.OrganizationLive.Access do
   write-only: a password input, and no read-back path ever returns the
   stored key (ADR-0039 §4).
 
-  #836: the enable takes the API token — we create the join key from
-  it — or the fallback auth key; a stored token makes reconnect a
-  zero-paste click, with the key input behind an explicit fallback
-  toggle.
+  #836: the enable takes one credential — the OAuth client pair
+  (preferred, lane B: the platform exchanges it and mints every join
+  key), the API token, or the fallback auth key; a stored credential
+  makes reconnect a zero-paste click, with the key input behind an
+  explicit fallback toggle.
 
   #635: the Device sign-ins (#362) and API tokens (#483) sections
   moved OUT of this page to /settings/developer
@@ -177,6 +178,7 @@ defmodule FluxValeWeb.OrganizationLive.Access do
     |> assign(
       repaste_open?: repaste_open_for(gateway),
       repaste_key_fallback?: false,
+      token_api_fallback?: false,
       remove_armed?: false
     )
     |> assign(attach_error: nil)
@@ -290,6 +292,13 @@ defmodule FluxValeWeb.OrganizationLive.Access do
     {:noreply, assign(socket, repaste_key_fallback?: not socket.assigns.repaste_key_fallback?)}
   end
 
+  # #836 lane B's alternate toggle — "Use an API token instead" reveals
+  # the console-token input the preferred client pair displaces. Client
+  # state only; the submit's own payload picks the credential shape.
+  def handle_event("toggle-token-api", _params, socket) do
+    {:noreply, assign(socket, token_api_fallback?: not socket.assigns.token_api_fallback?)}
+  end
+
   # #760: the API token is a paste-only secret — the auth-key posture,
   # one field, no reveal, no read-back. The submit runs the gateway's
   # :set_api_token action, which also claims the org's verified domains.
@@ -303,15 +312,19 @@ defmodule FluxValeWeb.OrganizationLive.Access do
     do: {:noreply, socket}
 
   def handle_event("validate-token", %{"gateway" => params}, socket) do
-    # A validate round-trip is a read-back (ADR-0039 §4): the errored
-    # form is used only for its messages, and the assigned form is
-    # rebuilt from the row, so neither the params nor the changeset ever
-    # holds the typed token (a crash dump would otherwise carry it). The
-    # DOM keeps the focused input's text; LiveView patches nothing.
-    errored = AshPhoenix.Form.validate(socket.assigns.token_form, params)
-    fresh = fresh_token_form(socket)
+    # A validate round-trip is a read-back (ADR-0039 §4): the strip
+    # pulls both secret halves out of the assigned form (argument,
+    # params, raw_params — the same three places the enable form's
+    # clear_key_display scrubs), so the socket state never carries them
+    # and a crash dump cannot either. The client id is NOT a secret —
+    # it stays, so the patch keeps it rendered while the user types the
+    # secret half (the enable form's domain-field posture).
+    form =
+      socket.assigns.token_form
+      |> AshPhoenix.Form.validate(params)
+      |> strip_token_secrets()
 
-    {:noreply, assign(socket, token_form: %{fresh | errors: AshPhoenix.Form.errors(errored)})}
+    {:noreply, assign(socket, token_form: form)}
   end
 
   def handle_event("save-token", %{"gateway" => params}, socket) do
@@ -634,6 +647,7 @@ defmodule FluxValeWeb.OrganizationLive.Access do
                   billing_path={@billing_path}
                   repaste_open?={@repaste_open?}
                   repaste_key_fallback?={@repaste_key_fallback?}
+                  token_api_fallback?={@token_api_fallback?}
                   remove_armed?={@remove_armed?}
                 />
 
@@ -781,39 +795,71 @@ defmodule FluxValeWeb.OrganizationLive.Access do
         <div>
           <h3 class="text-sm font-medium text-ink-muted">Enable private access</h3>
           <p class="mt-1 text-sm text-ink-muted">
-            Paste one credential: your Tailscale API token, or an auth key. Whichever
-            you paste is stored in our own secret store and never shown again.
+            Paste one credential: your Tailscale OAuth client (preferred), an API token, or an
+            auth key. Whichever you paste is stored in our own secret store and never shown
+            again.
           </p>
           <p class="mt-1 text-xs text-ink-muted" data-testid="access-tagowners-note">
             Your tailnet's ACL must own <span class="font-mono">tag:fluxvale-gateway</span>
             (Tailscale admin console → Access Controls), or the join will not complete.
+          </p>
+          <p class="mt-1 text-xs text-ink-muted" data-testid="access-client-tag-note">
+            The OAuth client must carry <span class="font-mono">tag:fluxvale-gateway</span>
+            too — join keys minted from it can only carry the client's own tags.
           </p>
         </div>
 
         <.form for={@form} id="access-enable-form" phx-change="validate" phx-submit="enable">
           <div class="space-y-4">
             <.input
-              field={@form[:api_token]}
-              type="password"
-              label="API token"
-              placeholder="tskey-api-…"
-              data-testid="access-api-token-input"
+              field={@form[:ts_client_id]}
+              type="text"
+              label="Client ID"
+              placeholder="k1234567890abcdef…"
+              data-testid="access-enable-client-id-input"
             />
-            <p class="text-xs text-ink-muted">
-              We create the join key for you from this token. Mint it from a tailnet
-              owner or admin account (admin console → Settings → Keys → Generate
-              API token) — the token carries that account's permissions.
-            </p>
             <.input
-              field={@form[:auth_key]}
+              field={@form[:ts_client_secret]}
               type="password"
-              label="Auth key"
-              placeholder="tskey-auth-…"
-              data-testid="access-key-input"
+              label="Client secret"
+              placeholder="Your OAuth client's secret"
+              data-testid="access-enable-client-secret-input"
             />
             <p class="text-xs text-ink-muted">
-              The fallback: a reusable auth key from your Tailscale admin console.
+              The preferred path: an OAuth client from your Tailscale admin console
+              (Settings → OAuth clients) with the <span class="font-mono">auth_keys</span>, <span class="font-mono">dns</span>,
+              and <span class="font-mono">devices:routes</span>
+              scopes (write) plus <span class="font-mono">devices:core:read</span>,
+              carrying the <span class="font-mono">tag:fluxvale-gateway</span>
+              tag. We mint every join key from it — no
+              Tailscale-side key handling at all.
             </p>
+
+            <div class="border-t border-line pt-4">
+              <.input
+                field={@form[:api_token]}
+                type="password"
+                label="API token"
+                placeholder="tskey-api-…"
+                data-testid="access-api-token-input"
+              />
+              <p class="text-xs text-ink-muted">
+                The alternate: we create the join key for you from this console token. Mint it
+                from a tailnet owner or admin account (admin console → Settings → Keys →
+                Generate API token) — the token carries that account's permissions.
+              </p>
+              <.input
+                field={@form[:auth_key]}
+                type="password"
+                label="Auth key"
+                placeholder="tskey-auth-…"
+                data-testid="access-key-input"
+              />
+              <p class="text-xs text-ink-muted">
+                The fallback: a reusable auth key from your Tailscale admin console.
+              </p>
+            </div>
+
             <.input
               field={@form[:tailnet_domain]}
               type="text"
@@ -847,6 +893,7 @@ defmodule FluxValeWeb.OrganizationLive.Access do
   attr(:billing_path, :string, required: true)
   attr(:repaste_open?, :boolean, required: true)
   attr(:repaste_key_fallback?, :boolean, required: true)
+  attr(:token_api_fallback?, :boolean, required: true)
   attr(:remove_armed?, :boolean, required: true)
 
   defp gateway_card(assigns) do
@@ -903,6 +950,7 @@ defmodule FluxValeWeb.OrganizationLive.Access do
           billing_path={@billing_path}
           repaste_open?={@repaste_open?}
           repaste_key_fallback?={@repaste_key_fallback?}
+          token_api_fallback?={@token_api_fallback?}
           remove_armed?={@remove_armed?}
         />
       </.card>
@@ -918,6 +966,7 @@ defmodule FluxValeWeb.OrganizationLive.Access do
   attr(:billing_path, :string, required: true)
   attr(:repaste_open?, :boolean, required: true)
   attr(:repaste_key_fallback?, :boolean, required: true)
+  attr(:token_api_fallback?, :boolean, required: true)
   attr(:remove_armed?, :boolean, required: true)
 
   defp gateway_actions(assigns) do
@@ -938,7 +987,11 @@ defmodule FluxValeWeb.OrganizationLive.Access do
             submit_label="Save key"
           />
         <% @gateway.state == :active -> %>
-          <.token_panel form={@token_form} token_set_at={@gateway.token_set_at} />
+          <.token_panel
+            form={@token_form}
+            token_set_at={@gateway.token_set_at}
+            token_api_fallback?={@token_api_fallback?}
+          />
           <.repaste_panel
             form={@form}
             open?={@repaste_open?}
@@ -955,7 +1008,11 @@ defmodule FluxValeWeb.OrganizationLive.Access do
               removed from your Tailscale admin console. Paste a fresh key to reconnect.
             </p>
           </.callout>
-          <.token_panel form={@token_form} token_set_at={@gateway.token_set_at} />
+          <.token_panel
+            form={@token_form}
+            token_set_at={@gateway.token_set_at}
+            token_api_fallback?={@token_api_fallback?}
+          />
           <.repaste_panel
             form={@form}
             open?={@repaste_open?}
@@ -1090,34 +1147,30 @@ defmodule FluxValeWeb.OrganizationLive.Access do
 
   attr(:form, :any, required: true)
   attr(:token_set_at, :any, required: true)
+  attr(:token_api_fallback?, :boolean, required: true)
 
-  # The token card (#760): the one field ADR-0040 Am. 3 asks for, pasted
-  # once and rotated before the 90-day expiry. It is a Tailscale API
-  # access token (`tskey-api-`), which carries the creating account's
-  # permissions — scopes belong to trust credentials, a different
-  # credential type this single-field intake does not take. The copy
-  # says plainly that saving claims already-verified domains.
+  # The token card (#760), now carrying either credential shape (#836
+  # lane B): the OAuth client pair preferred — the platform exchanges it
+  # and mints every join key from the derived token — with the console
+  # API access token behind the explicit "Use an API token instead"
+  # toggle (the repaste panel's alternate voice). The pair's copy names
+  # the console path and the scope set; the tag-pairing line is the
+  # addendum's coupling ruling (a client mints only its own tags).
   defp token_panel(assigns) do
     ~H"""
     <div class="border-t border-line pt-4" data-testid="access-api-token">
       <div>
-        <h3 class="text-sm font-medium text-ink">Tailscale API token</h3>
+        <h3 class="text-sm font-medium text-ink">Tailscale credential</h3>
         <p class="mt-1 text-xs text-ink-muted">
-          Needed to claim your domains on your tailnet. Create an API access token in your
-          Tailscale admin console under <span class="font-mono">Keys → API access tokens</span>.
-          It carries the permissions of the account that created it, so use an owner or
-          admin account.
-        </p>
-        <p class="mt-1 text-xs text-ink-muted">
-          It is stored write-only and never shown again. Saving claims the domains you have
-          already verified.
+          Needed to claim your domains on your tailnet — and the platform creates every
+          join key from it.
         </p>
         <p
           :if={@token_set_at}
           class="mt-1 text-xs text-ink-subtle"
           data-testid="access-api-token-age"
         >
-          Token set {Calendar.strftime(@token_set_at, "%b %d, %Y")}. Tailscale API keys
+          Credential set {Calendar.strftime(@token_set_at, "%b %d, %Y")}. Tailscale API keys
           expire within 90 days — paste a fresh one before then.
         </p>
       </div>
@@ -1130,18 +1183,73 @@ defmodule FluxValeWeb.OrganizationLive.Access do
         class="space-y-3"
       >
         <.input
-          field={@form[:api_token]}
-          type="password"
-          label="API token"
-          placeholder="tskey-api-…"
-          required
-          data-testid="access-api-token-input"
+          field={@form[:ts_client_id]}
+          type="text"
+          label="Client ID"
+          placeholder="k1234567890abcdef…"
+          data-testid="access-client-id-input"
         />
+        <.input
+          field={@form[:ts_client_secret]}
+          type="password"
+          label="Client secret"
+          placeholder="Your OAuth client's secret"
+          data-testid="access-client-secret-input"
+        />
+        <p class="text-xs text-ink-muted" data-testid="access-client-copy">
+          The preferred credential: an OAuth client from your Tailscale admin console
+          (Settings → OAuth clients) with the <span class="font-mono">auth_keys</span>, <span class="font-mono">dns</span>,
+          and <span class="font-mono">devices:routes</span>
+          scopes (write) plus <span class="font-mono">devices:core:read</span>
+          —
+          carrying the <span class="font-mono">tag:fluxvale-gateway</span>
+          tag, since a client can only mint join keys
+          that carry its own tags.
+        </p>
+        <p class="text-xs text-ink-muted">
+          Whichever shape you save is stored write-only and never shown again. Saving claims
+          the domains you have already verified.
+        </p>
         <div class="flex justify-end">
           <.button type="submit" size="sm" data-testid="access-api-token-save">
-            Save token
+            Save credential
           </.button>
         </div>
+
+        <%= if @token_api_fallback? do %>
+          <div class="border-t border-line pt-3">
+            <.input
+              field={@form[:api_token]}
+              type="password"
+              label="API token"
+              placeholder="tskey-api-…"
+              data-testid="access-api-token-input"
+            />
+            <p class="text-xs text-ink-muted">
+              The alternate: a console API access token (admin console → Settings → Keys →
+              API access tokens). It carries the permissions of the account that minted it.
+            </p>
+            <.button
+              type="button"
+              phx-click="toggle-token-api"
+              variant="ghost"
+              size="sm"
+              data-testid="access-token-fallback-hide"
+            >
+              Use the client pair instead
+            </.button>
+          </div>
+        <% else %>
+          <.button
+            type="button"
+            phx-click="toggle-token-api"
+            variant="ghost"
+            size="sm"
+            data-testid="access-token-fallback"
+          >
+            Use an API token instead
+          </.button>
+        <% end %>
       </.form>
     </div>
     """
@@ -1575,43 +1683,49 @@ defmodule FluxValeWeb.OrganizationLive.Access do
   # DOM-driven submit still sends whatever the browser holds. The strip
   # targets the changeset's ARGUMENT — that is what AshPhoenix's
   # input_value reads first, not the params maps.
+  #
+  # #836 lane B: the client secret gets the identical discipline. The
+  # client id does NOT — it is the OAuth client's public identity (the
+  # resource keeps it in the clear), so it may re-render, and the patch
+  # must keep it while the user types the secret half.
   defp clear_key_display(%Phoenix.HTML.Form{source: %AshPhoenix.Form{} = ash_form} = form) do
     key_stripped = strip_secret(ash_form, :auth_key)
-
-    stripped =
-      if api_token_argument?(key_stripped) do
-        strip_secret(key_stripped, :api_token)
-      else
-        # The update form's action has no :api_token argument, so
-        # force_set_argument is off the table (NoSuchInput) — but its
-        # PARAMS map still absorbs a crafted api_token from a hostile
-        # event, and the socket state must not carry it (#857 hostile
-        # review). Drop the key; there is nothing to force.
-        %{key_stripped | params: Map.delete(key_stripped.params, "api_token")}
-      end
+    token_stripped = strip_create_argument(key_stripped, :api_token)
+    secret_stripped = strip_create_argument(token_stripped, :ts_client_secret)
 
     without_keys = Map.delete(form.params, "auth_key")
-    params = Map.delete(without_keys, "api_token")
+    without_token = Map.delete(without_keys, "api_token")
+    params = Map.delete(without_token, "ts_client_secret")
+
+    %{form | source: secret_stripped, params: params}
+  end
+
+  # The create-only sensitive arguments (:api_token, :ts_client_secret):
+  # strip when the action carries the argument; the update form's action
+  # has neither, and force-setting an unknown argument adds a
+  # NoSuchInput error to every re-paste validate round-trip — but its
+  # PARAMS map still absorbs a crafted value from a hostile event, and
+  # the socket state must not carry it (#857 hostile review). Drop the
+  # key; there is nothing to force.
+  defp strip_create_argument(ash_form, argument) do
+    if Enum.any?(ash_form.source.action.arguments, &(&1.name == argument)) do
+      strip_secret(ash_form, argument)
+    else
+      %{ash_form | params: Map.delete(ash_form.params, Atom.to_string(argument))}
+    end
+  end
+
+  # The token form's validate strip: the set_api_token action carries
+  # both secret arguments unconditionally, so both strip outright. The
+  # client id is not a secret and stays (see clear_key_display).
+  defp strip_token_secrets(%Phoenix.HTML.Form{source: %AshPhoenix.Form{} = ash_form} = form) do
+    token_stripped = strip_secret(ash_form, :api_token)
+    stripped = strip_secret(token_stripped, :ts_client_secret)
+
+    without_token = Map.delete(form.params, "api_token")
+    params = Map.delete(without_token, "ts_client_secret")
 
     %{form | source: stripped, params: params}
-  end
-
-  # The token strip is the create form's alone: update_credential has
-  # no api_token argument, and force-setting an unknown argument adds a
-  # NoSuchInput error to every re-paste validate round-trip.
-  defp api_token_argument?(ash_form) do
-    Enum.any?(ash_form.source.action.arguments, &(&1.name == :api_token))
-  end
-
-  # The form rebuilt on every token event: it carries no params and no
-  # arguments, so the secret cannot survive in the socket state.
-  defp fresh_token_form(socket) do
-    socket.assigns.gateway
-    |> AshPhoenix.Form.for_update(:set_api_token,
-      actor: socket.assigns.current_user,
-      as: "gateway"
-    )
-    |> to_form()
   end
 
   # Both maps hold the submitted value after a validate round-trip (the
@@ -1672,9 +1786,24 @@ defmodule FluxValeWeb.OrganizationLive.Access do
     socket
     |> assign_forms()
     |> then(fn socket ->
-      errors = AshPhoenix.Form.errors(errored_form)
+      # The same two details that make the enable form's errors render:
+      # the {msg, opts} tuple format .input translates, and an "used"
+      # marker per errored field (.input hides a field's errors until its
+      # key is in the form's params — a fresh rebuild has none). The
+      # markers are empty strings; the rendered value reads the fresh
+      # changeset, so no secret echo rides them (ADR-0039 §4).
+      errors = AshPhoenix.Form.errors(errored_form, format: :raw)
 
-      assign(socket, token_form: %{socket.assigns.token_form | errors: errors})
+      used =
+        Enum.reduce(errors, %{}, fn
+          {field, _msg}, acc when is_atom(field) -> Map.put(acc, Atom.to_string(field), "")
+          # Defensive: the set_api_token refusals are all field-scoped
+          # (the B2 sentence and the store/fence copies); no current
+          # failure is fieldless. coveralls-ignore-next-line
+          _fieldless, acc -> acc
+        end)
+
+      assign(socket, token_form: %{socket.assigns.token_form | errors: errors, params: used})
     end)
   end
 

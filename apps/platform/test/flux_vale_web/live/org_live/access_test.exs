@@ -546,12 +546,143 @@ defmodule FluxValeWeb.OrganizationLive.AccessTest do
       assert has_element?(view, "[data-testid='access-gateway-card']")
     end
 
+    test "the client pair alone enables — no token, no key", %{
+      conn: conn,
+      owner: owner,
+      personal: personal
+    } do
+      stub(Tailscale, :write_client_credential, fn _gw, client_id, client_secret ->
+        assert client_id == "kENABLE-pair-id"
+        assert client_secret == "kENABLE-pair-secret"
+
+        {:ok, %{api_token_secret_ref: "api-credential-pair"}}
+      end)
+
+      {:ok, view, _html} = live(conn, ~p"/settings/access")
+
+      view
+      |> form("#access-enable-form",
+        gateway: %{
+          ts_client_id: "kENABLE-pair-id",
+          ts_client_secret: "kENABLE-pair-secret",
+          tailnet_domain: "example.ts.net"
+        }
+      )
+      |> render_submit()
+
+      assert has_element?(view, "[data-testid='access-gateway-card']")
+      assert has_element?(view, "[data-testid=status-badge]", "Connecting")
+
+      # The pair landed Secret-first (the CreateStoresApiToken order).
+      {:ok, row} = AccessGateway.get_for_organization(personal.id, actor: owner)
+      assert row.api_token_secret_ref == "api-credential-pair"
+      assert %DateTime{} = row.token_set_at
+
+      # The brand-new panel already reconnects minted — no key input.
+      assert has_element?(view, "[data-testid='access-reconnect']", "Reconnect")
+    end
+
+    test "the pair beside an api token renders the mixed-credential sentence", %{
+      conn: conn,
+      personal: personal
+    } do
+      {:ok, view, _html} = live(conn, ~p"/settings/access")
+
+      view
+      |> form("#access-enable-form",
+        gateway: %{
+          ts_client_id: "kMIX-id",
+          ts_client_secret: "kMIX-secret",
+          api_token: "tskey-api-MIXED",
+          tailnet_domain: "example.ts.net"
+        }
+      )
+      |> render_submit()
+
+      # The action's own sentence, rendered on the offending field.
+      assert render(element(view, "#access-enable-form")) =~
+               "Paste one credential only — the client pair or an API token or an auth key"
+
+      assert {:error, _none} =
+               AccessGateway.get_for_organization(personal.id, authorize?: false)
+    end
+
+    test "a lone client id renders the missing-half sentence", %{
+      conn: conn,
+      personal: personal
+    } do
+      {:ok, view, _html} = live(conn, ~p"/settings/access")
+
+      view
+      |> form("#access-enable-form",
+        gateway: %{ts_client_id: "kLONE-id", tailnet_domain: "example.ts.net"}
+      )
+      |> render_submit()
+
+      assert render(element(view, "#access-enable-form")) =~
+               "Save the client id and secret together"
+
+      assert {:error, _none} =
+               AccessGateway.get_for_organization(personal.id, authorize?: false)
+    end
+
+    test "the typed secrets never survive a validate round-trip — the client id does", %{
+      conn: conn
+    } do
+      {:ok, view, _html} = live(conn, ~p"/settings/access")
+
+      # The clear_key_display strip (ADR-0039 §4): both secret halves out
+      # of the markup and the socket state (#857 review) — while the
+      # client id, the public identity, survives and re-renders.
+      render_change(view, "validate", %{
+        "gateway" => %{
+          "ts_client_id" => "kENABLE-TYPING-id",
+          "ts_client_secret" => "kENABLE-TYPING-secret",
+          "api_token" => "tskey-api-TYPING-marker",
+          "tailnet_domain" => "example.ts.net"
+        }
+      })
+
+      state = :sys.get_state(view.pid)
+      refute inspect(state) =~ "kENABLE-TYPING-secret"
+      refute inspect(state) =~ "tskey-api-TYPING-marker"
+      assert inspect(state) =~ "kENABLE-TYPING-id"
+
+      # Typing still works: a pair submit right after lands the gateway.
+      stub(Tailscale, :write_client_credential, fn _gw, _id, _secret ->
+        {:ok, %{api_token_secret_ref: "api-credential-pair"}}
+      end)
+
+      view
+      |> form("#access-enable-form",
+        gateway: %{
+          ts_client_id: "kENABLE-pair-id",
+          ts_client_secret: "kENABLE-pair-secret",
+          tailnet_domain: "example.ts.net"
+        }
+      )
+      |> render_submit()
+
+      assert has_element?(view, "[data-testid='access-gateway-card']")
+    end
+
     test "the tagOwners line renders on the enable card", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/settings/access")
 
       assert has_element?(view, "[data-testid='access-tagowners-note']", "tag:fluxvale-gateway")
       assert has_element?(view, "[data-testid='access-api-token-input']")
       assert has_element?(view, "[data-testid='access-key-input']")
+    end
+
+    test "the OAuth-client copy and the tag-pairing line render", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/settings/access")
+
+      # The tagOwners line stays; the client-tag pairing sentence (the
+      # addendum's coupling ruling) joins it, and the pair inputs lead.
+      assert has_element?(view, "[data-testid='access-client-tag-note']")
+      assert has_element?(view, "[data-testid='access-client-tag-note']", "tag:fluxvale-gateway")
+      assert has_element?(view, "[data-testid='access-enable-client-id-input']")
+      assert has_element?(view, "[data-testid='access-enable-client-secret-input']")
     end
   end
 
@@ -688,6 +819,138 @@ defmodule FluxValeWeb.OrganizationLive.AccessTest do
     end
   end
 
+  # #836 lane B: the OAuth client pair is the settings card's preferred
+  # credential — both halves post together through :set_api_token, the
+  # console token stays the alternate behind its toggle, and the strip
+  # discipline covers the secret halves only (the client id is the
+  # client's public identity and may re-render).
+  describe "the client pair at settings (#836 lane B)" do
+    setup %{conn: conn} do
+      stub_provider()
+      owner = AccountsFixtures.user!()
+      org = AccountsFixtures.owned_org!(owner)
+      BillingFixtures.funded_wallet!(org: org)
+      BillingFixtures.mark_paid!(org)
+      gateway = AccessFixtures.gateway!(org)
+
+      {:ok, gateway: gateway, owner: owner, org: org, conn: SessionHelpers.sign_in(conn, owner)}
+    end
+
+    test "the pair is preferred; the console token stays behind its toggle", %{
+      conn: conn,
+      org: org
+    } do
+      {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/settings/access")
+
+      assert has_element?(view, "[data-testid='access-client-id-input']")
+      assert has_element?(view, "[data-testid='access-client-secret-input']")
+      assert has_element?(view, "[data-testid='access-client-copy']", "OAuth clients")
+      assert has_element?(view, "[data-testid='access-client-copy']", "tag:fluxvale-gateway")
+      assert has_element?(view, "[data-testid='access-api-token-save']", "Save credential")
+
+      refute has_element?(view, "[data-testid='access-api-token-input']")
+
+      view
+      |> element("[data-testid='access-token-fallback']")
+      |> render_click()
+
+      assert has_element?(view, "[data-testid='access-api-token-input']")
+    end
+
+    test "a pair save posts both halves and lands the token-set state", %{
+      conn: conn,
+      gateway: gateway,
+      org: org
+    } do
+      stub(Tailscale, :write_client_credential, fn _gw, client_id, client_secret ->
+        assert client_id == "kSETTINGS-pair-id"
+        assert client_secret == "kSETTINGS-pair-secret"
+
+        {:ok, %{api_token_secret_ref: "api-credential-pair"}}
+      end)
+
+      {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/settings/access")
+
+      view
+      |> form("#access-api-token-form",
+        gateway: %{ts_client_id: "kSETTINGS-pair-id", ts_client_secret: "kSETTINGS-pair-secret"}
+      )
+      |> render_submit()
+
+      assert has_element?(view, "#flash-info", "Token saved.")
+      assert has_element?(view, "[data-testid='access-api-token-age']")
+
+      # ADR-0039 §4: the secret half never echoes back.
+      refute render(view) =~ "kSETTINGS-pair-secret"
+
+      stored = AccessGateway.get_by_id!(gateway.id, authorize?: false)
+      assert stored.api_token_secret_ref == "api-credential-pair"
+      assert %DateTime{} = stored.token_set_at
+    end
+
+    test "a mixed save renders the B2 sentence on the client id", %{
+      conn: conn,
+      gateway: gateway,
+      org: org
+    } do
+      {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/settings/access")
+
+      # The mix the surface can actually produce: the token input
+      # revealed beside the typed pair.
+      view
+      |> element("[data-testid='access-token-fallback']")
+      |> render_click()
+
+      view
+      |> form("#access-api-token-form",
+        gateway: %{
+          api_token: "tskey-api-MIXED",
+          ts_client_id: "kMIXED-id",
+          ts_client_secret: "kMIXED-secret"
+        }
+      )
+      |> render_submit()
+
+      assert render(element(view, "#access-api-token-form")) =~
+               "Save the client id and secret together, or the API token alone"
+
+      assert has_element?(view, "#flash-error", "Couldn't save the access token")
+
+      # Refused before any write: the row's ref is untouched.
+      assert AccessGateway.get_by_id!(gateway.id, authorize?: false).api_token_secret_ref ==
+               gateway.api_token_secret_ref
+    end
+
+    test "a validate round-trip keeps the client id but never the secret halves", %{
+      conn: conn,
+      org: org
+    } do
+      {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/settings/access")
+
+      # The validate round-trip is a read-back (ADR-0039 §4): both
+      # secret halves must be gone from the markup and from the socket
+      # state (#857 review) — while the client id, the public identity,
+      # survives so the patch keeps it rendered.
+      html =
+        render_change(view, "validate-token", %{
+          "gateway" => %{
+            "ts_client_id" => "kTYPING-client-id",
+            "ts_client_secret" => "kTYPING-client-secret",
+            "api_token" => "tskey-api-TYPING-marker"
+          }
+        })
+
+      refute html =~ "kTYPING-client-secret"
+      refute html =~ "tskey-api-TYPING-marker"
+      assert html =~ "kTYPING-client-id"
+
+      state = :sys.get_state(view.pid)
+      refute inspect(state) =~ "kTYPING-client-secret"
+      refute inspect(state) =~ "tskey-api-TYPING-marker"
+      assert inspect(state) =~ "kTYPING-client-id"
+    end
+  end
+
   describe "the gateway card per state" do
     setup do
       stub_provider()
@@ -718,7 +981,7 @@ defmodule FluxValeWeb.OrganizationLive.AccessTest do
       refute_k8s_terms(render(view))
     end
 
-    test "the API token card is one write-only field, and saving stamps the age line", %{
+    test "the console-token alternate still saves and stamps the age line", %{
       conn: conn,
       org: org
     } do
@@ -732,9 +995,20 @@ defmodule FluxValeWeb.OrganizationLive.AccessTest do
       {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/settings/access")
 
       assert has_element?(view, "[data-testid='access-api-token']")
-      assert has_element?(view, "[data-testid='access-api-token-input']")
-      assert has_element?(view, "[data-testid='access-api-token-save']", "Save token")
+
+      # The client pair is preferred; the console token is the alternate
+      # behind its toggle.
+      assert has_element?(view, "[data-testid='access-client-id-input']")
+      assert has_element?(view, "[data-testid='access-client-secret-input']")
+      assert has_element?(view, "[data-testid='access-api-token-save']", "Save credential")
+      refute has_element?(view, "[data-testid='access-api-token-input']")
       refute has_element?(view, "[data-testid='access-api-token-age']")
+
+      view
+      |> element("[data-testid='access-token-fallback']")
+      |> render_click()
+
+      assert has_element?(view, "[data-testid='access-api-token-input']")
 
       view
       |> form("#access-api-token-form", gateway: %{api_token: "tskey-api-PANEL-secret"})
@@ -855,6 +1129,10 @@ defmodule FluxValeWeb.OrganizationLive.AccessTest do
       stub(Tailscale, :write_api_credential, fn _gw, _token -> {:error, :cluster_oops} end)
 
       {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/settings/access")
+
+      view
+      |> element("[data-testid='access-token-fallback']")
+      |> render_click()
 
       view
       |> form("#access-api-token-form", gateway: %{api_token: "tskey-api-SECRET-marker"})
