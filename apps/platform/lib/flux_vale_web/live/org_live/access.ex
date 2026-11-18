@@ -1640,6 +1640,13 @@ defmodule FluxValeWeb.OrganizationLive.Access do
       used =
         Enum.reduce(errors, %{}, fn
           {field, _msg}, acc when is_atom(field) -> Map.put(acc, Atom.to_string(field), "")
+          # Defensive: every error the create/update_credential actions
+          # can return today is field-scoped (verified against the S3
+          # copy table and the gone/suspended refusals); a fieldless
+          # shape would degrade to a skip here instead of a crash. No
+          # current action can produce it — the one fieldless candidate
+          # (the policy Forbidden) dies at the protocol, upstream.
+          # coveralls-ignore-next-line
           _fieldless, acc -> acc
         end)
 
