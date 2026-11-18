@@ -355,6 +355,14 @@ defmodule FluxValeWeb.BillingLive.IndexTest do
       render_click(view, "save-auto-recharge", %{"auto_recharge" => "x"})
       assert has_element?(view, "[data-testid='auto-recharge-card']")
       assert has_element?(view, "[data-testid='auto-recharge-state']", "Reminders are off")
+
+      # A crafted non-scalar MODE rides to the domain's enum and comes
+      # back as a flash error, never a crash.
+      render_click(view, "save-auto-recharge", %{
+        "auto_recharge" => %{"mode" => %{"deep" => "x"}}
+      })
+
+      assert has_element?(view, "#flash-error", "Couldn't save the reminder settings.")
     end
 
     test "a non-round stored value prefills EMPTY with the exact-value hint", %{
@@ -379,6 +387,44 @@ defmodule FluxValeWeb.BillingLive.IndexTest do
       assert has_element?(view, "input#auto_recharge_threshold_dollars[value='']")
       assert has_element?(view, "[data-testid='auto-recharge-threshold-hint']", "Stored: $5.49")
       refute has_element?(view, "input#auto_recharge_threshold_dollars[value='5']")
+    end
+
+    test "disabling reminders is a mode-only save — a non-round row needs no dollar input", %{
+      conn: conn,
+      user: user,
+      wallet: wallet
+    } do
+      # 549¢ prefills EMPTY (never-floor), so an off save that demanded
+      # whole-dollar figures would force the owner to re-enter stored
+      # values just to switch reminders off. Mode-only: stored cents
+      # survive untouched.
+      {:ok, _view, _html} = live(conn, ~p"/billing")
+
+      {:ok, setting} =
+        Billing.get_auto_recharge_setting(wallet.organization_id, authorize?: false)
+
+      assert {:ok, _set} =
+               Billing.set_auto_recharge_setting(
+                 setting,
+                 %{mode: :reminder, threshold_cents: 549, amount_cents: 549},
+                 actor: user
+               )
+
+      {:ok, view, _html} = live(conn, ~p"/billing")
+
+      view
+      |> element("#auto-recharge-form")
+      |> render_submit(%{"auto_recharge" => %{"mode" => "off"}})
+
+      assert has_element?(view, "#flash-info", "Reminder settings saved.")
+      assert has_element?(view, "[data-testid='auto-recharge-state']", "Reminders are off")
+
+      assert {:ok, persisted} =
+               Billing.get_auto_recharge_setting(wallet.organization_id, authorize?: false)
+
+      assert persisted.mode == :off
+      assert persisted.threshold_cents == 549
+      assert persisted.amount_cents == 549
     end
   end
 end

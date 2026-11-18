@@ -218,13 +218,17 @@ defmodule FluxValeWeb.BillingComponents do
         />
         <div class="grid gap-4 min-[560px]:grid-cols-2">
           <div>
+            <%!-- No `required` on the dollar inputs: a mode-off save is
+                mode-only (the never-floor rule leaves them empty on a
+                non-round row), and blocking that submit would force the
+                owner to re-enter stored values just to switch reminders
+                off. The whole-dollar validation is the server's. --%>
             <.input
               field={@form[:threshold_dollars]}
               type="number"
               label="Remind below (USD)"
               min="1"
               step="1"
-              required
               data-testid="auto-recharge-threshold"
             />
             <p
@@ -243,7 +247,6 @@ defmodule FluxValeWeb.BillingComponents do
               label="Top-up amount (USD)"
               min={@min_topup_dollars}
               step="1"
-              required
               data-testid="auto-recharge-amount-input"
             />
             <p

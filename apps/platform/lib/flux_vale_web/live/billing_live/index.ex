@@ -96,7 +96,7 @@ defmodule FluxValeWeb.BillingLive.Index do
   # hostile-push silence posture).
   def handle_event("validate-auto-recharge", %{"auto_recharge" => params}, socket)
       when is_map(params) do
-    {:noreply, assign(socket, auto_recharge_form: to_form(params, as: :auto_recharge))}
+    {:noreply, assign(socket, auto_recharge_form: auto_recharge_form(params))}
   end
 
   def handle_event("validate-auto-recharge", _crafted_shape, socket) do
@@ -174,25 +174,40 @@ defmodule FluxValeWeb.BillingLive.Index do
   end
 
   # The card's server-side mirror of the resource's constraints (#829
-  # L1): threshold ≥ $1 (the attribute constraint's floor in the form's
-  # whole-dollar unit), amount ≥ the wizard's floor
-  # (Billing.min_topup_dollars/0 — the same unit the one-click link
-  # pre-fills). Mode rides as the typed string: the enum and the
-  # AutoArmGate are the authority — a crafted `:auto` is refused by the
-  # domain, not by this card.
+  # L1) — with one deliberate carve-out: a mode-off save is MODE-ONLY.
+  # The never-floor rule leaves the dollar inputs empty on a non-round
+  # row, and demanding a valid dollar figure just to switch reminders
+  # off would force the owner to re-enter stored values they aren't
+  # changing — the stored threshold/amount survive untouched. For a
+  # reminder save the whole-dollar rules apply: threshold ≥ $1 (the
+  # attribute constraint's floor in the form's whole-dollar unit),
+  # amount ≥ the wizard's floor (Billing.min_topup_dollars/0 — the
+  # same unit the one-click link pre-fills). Any other mode — absent,
+  # or a crafted non-scalar — rides to the domain as typed: the enum
+  # and the AutoArmGate are the authority (a crafted `:auto` is
+  # refused by the domain, not by this card).
   defp auto_recharge_inputs(params) do
-    min_dollars = Billing.min_topup_dollars()
+    case params["mode"] do
+      "off" ->
+        {:ok, %{mode: "off"}}
 
-    with {:ok, threshold} <-
-           whole_dollars(params["threshold_dollars"], 1, threshold_error()),
-         {:ok, amount} <-
-           whole_dollars(params["amount_dollars"], min_dollars, amount_error()) do
-      {:ok,
-       %{
-         mode: params["mode"],
-         threshold_cents: threshold * 100,
-         amount_cents: amount * 100
-       }}
+      mode when is_binary(mode) ->
+        min_dollars = Billing.min_topup_dollars()
+
+        with {:ok, threshold} <-
+               whole_dollars(params["threshold_dollars"], 1, threshold_error()),
+             {:ok, amount} <-
+               whole_dollars(params["amount_dollars"], min_dollars, amount_error()) do
+          {:ok,
+           %{
+             mode: mode,
+             threshold_cents: threshold * 100,
+             amount_cents: amount * 100
+           }}
+        end
+
+      crafted_mode ->
+        {:ok, %{mode: crafted_mode}}
     end
   end
 
@@ -210,7 +225,19 @@ defmodule FluxValeWeb.BillingLive.Index do
   defp failed_auto_recharge_save(socket, params, message) do
     socket
     |> put_flash(:error, message)
-    |> assign(auto_recharge_form: to_form(params, as: :auto_recharge))
+    |> assign(auto_recharge_form: auto_recharge_form(params))
+  end
+
+  # A crafted payload's non-scalar values (nested maps/lists) would
+  # raise Phoenix.HTML.Safe at render — options_for_select and number
+  # inputs take strings. The form carries binary values only; anything
+  # else is dropped (the server-side validation judges the RAW params,
+  # so the domain seam still answers crafted data).
+  defp auto_recharge_form(params) do
+    params
+    |> Enum.filter(fn {_key, value} -> is_binary(value) end)
+    |> Map.new()
+    |> to_form(as: :auto_recharge)
   end
 
   defp default_auto_recharge_error,

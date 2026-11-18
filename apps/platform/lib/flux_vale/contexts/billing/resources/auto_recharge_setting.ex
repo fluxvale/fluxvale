@@ -326,6 +326,40 @@ defmodule FluxVale.Billing.AutoRechargeSetting do
         :customer_type
       ])
 
+      # A stale tab's save must WRITE the mode it showed. Two Ash
+      # mechanics conspire against a plain write here: a change equal
+      # to the in-memory record is dropped BEFORE changes run (so the
+      # check reads the raw params — fetch_change is already empty),
+      # and the persist delta is computed against changeset.data — the
+      # STALE struct — so even a forced attribute write equal to that
+      # stale data is skipped (the returned record claims the new mode
+      # while the row keeps the old one). atomic_update is the escape
+      # hatch: an explicit SET that ignores the stale-data delta,
+      # making every form save last-writer-wins, visibly — loaded-off +
+      # another tab's reminder opt-in + submit-off writes off. The raw
+      # value re-casts through the attribute's own type first (atomics
+      # carry literals; an uncast string must never slip past the
+      # enum), and a cast-refused value (a crafted :bogus) just falls
+      # through — the normal cast pipeline already flags it. The nil
+      # arm is S2's evidence writes, which omit mode — they must not
+      # grow a forced write. (Chosen over a handler-side reload +
+      # conflict report — one change here vs a fresh read and a new
+      # flash path on two surfaces.)
+      change(fn changeset, _context ->
+        raw_mode = Map.get(changeset.params, :mode) || Map.get(changeset.params, "mode")
+
+        case raw_mode do
+          nil ->
+            changeset
+
+          raw_mode ->
+            case Ash.Type.cast_input(AutoRechargeMode, raw_mode, []) do
+              {:ok, mode} -> Ash.Changeset.atomic_update(changeset, :mode, mode)
+              _cast_refused -> changeset
+            end
+        end
+      end)
+
       # The floor is app config, not a compile-time int — the
       # constraint DSL cannot carry it (see the validation module).
       validate({AmountMeetsTopupFloor, []})

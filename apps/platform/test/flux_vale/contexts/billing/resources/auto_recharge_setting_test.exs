@@ -133,6 +133,23 @@ defmodule FluxVale.Billing.AutoRechargeSettingTest do
       assert {:ok, set} = AutoRechargeSetting.set(setting, %{mode: :reminder}, actor: admin())
       assert set.mode == :reminder
     end
+
+    test "a stale tab's mode save writes the mode it showed (Ash's equal-change drop can't swallow it)",
+         %{org: org, setting: setting, owner: owner} do
+      # The race: the socket's in-memory row shows :off while another
+      # tab's :reminder has already landed on the stored row. A plain
+      # change equal to the record is dropped by Ash — the save would
+      # report success while the stored row stays :reminder. The forced
+      # mode write makes the save last-writer-wins.
+      assert {:ok, _flipped} =
+               Billing.set_auto_recharge_setting(setting, %{mode: :reminder}, actor: owner)
+
+      assert {:ok, _stale_save} =
+               Billing.set_auto_recharge_setting(setting, %{mode: :off}, actor: owner)
+
+      assert {:ok, reloaded} = Billing.get_auto_recharge_setting(org.id, actor: owner)
+      assert reloaded.mode == :off
+    end
   end
 
   describe "attribute constraints" do

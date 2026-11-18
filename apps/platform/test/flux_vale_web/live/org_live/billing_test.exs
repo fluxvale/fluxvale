@@ -544,6 +544,74 @@ defmodule FluxValeWeb.OrganizationLive.BillingTest do
       assert has_element?(view, "#flash-error", "at least $1.")
     end
 
+    test "crafted non-scalar values render without raising (validate and save)", %{
+      conn: conn,
+      org: org
+    } do
+      # Nested maps/lists ride is_map(params) and would raise
+      # Phoenix.HTML.Safe at render (options_for_select / number inputs
+      # take strings) — the form filters to binary values, and the save
+      # path answers a crafted non-scalar mode through the domain's
+      # enum as a flash error.
+      {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/billing")
+
+      render_click(view, "validate-auto-recharge", %{
+        "auto_recharge" => %{
+          "mode" => %{"deep" => "x"},
+          "threshold_dollars" => %{"nested" => "map"},
+          "amount_dollars" => ["a", "b"]
+        }
+      })
+
+      assert has_element?(view, "[data-testid='auto-recharge-card']")
+      assert has_element?(view, "[data-testid='auto-recharge-state']", "Reminders are off")
+
+      render_click(view, "save-auto-recharge", %{
+        "auto_recharge" => %{
+          "mode" => %{"deep" => "x"},
+          "threshold_dollars" => ["a"],
+          "amount_dollars" => 5
+        }
+      })
+
+      assert has_element?(view, "#flash-error", "Couldn't save the reminder settings.")
+      assert has_element?(view, "[data-testid='auto-recharge-state']", "Reminders are off")
+    end
+
+    test "disabling reminders is a mode-only save — a non-round row needs no dollar input", %{
+      conn: conn,
+      org: org,
+      user: user
+    } do
+      # 549¢ prefills EMPTY (never-floor), so an off save that demanded
+      # whole-dollar figures would force the owner to re-enter stored
+      # values just to switch reminders off. Mode-only: stored cents
+      # survive untouched.
+      {:ok, setting} = Billing.ensure_auto_recharge_setting(org)
+
+      assert {:ok, _set} =
+               Billing.set_auto_recharge_setting(
+                 setting,
+                 %{mode: :reminder, threshold_cents: 549, amount_cents: 549},
+                 actor: user
+               )
+
+      {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/billing")
+
+      view
+      |> element("#auto-recharge-form")
+      |> render_submit(%{"auto_recharge" => %{"mode" => "off"}})
+
+      assert has_element?(view, "#flash-info", "Reminder settings saved.")
+      assert has_element?(view, "[data-testid='auto-recharge-state']", "Reminders are off")
+      refute has_element?(view, "[data-testid='auto-recharge-amount']")
+
+      assert {:ok, persisted} = Billing.get_auto_recharge_setting(org.id, actor: user)
+      assert persisted.mode == :off
+      assert persisted.threshold_cents == 549
+      assert persisted.amount_cents == 549
+    end
+
     test "turning reminders off again reads OFF", %{conn: conn, org: org, user: user} do
       {:ok, setting} = Billing.ensure_auto_recharge_setting(org)
 
