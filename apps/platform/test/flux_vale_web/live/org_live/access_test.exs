@@ -420,6 +420,264 @@ defmodule FluxValeWeb.OrganizationLive.AccessTest do
     end
   end
 
+  # #836's one-paste enable: the API token alone is the primary path —
+  # the platform creates the join key from it — the auth key the
+  # fallback. Exactly one of the two is the action's own validation,
+  # rendered as the field error.
+  describe "one-paste enable (#836)" do
+    setup %{conn: conn} do
+      owner = AccountsFixtures.user!()
+      personal = AccountsFixtures.personal_org!(owner)
+
+      BillingFixtures.funded_wallet!(org: personal)
+      BillingFixtures.mark_paid!(personal)
+      stub_provider()
+
+      # The token intake and the minted cluster leg: the create must
+      # carry the token and nothing else (a pasted key alongside would
+      # be the action's both-present refusal).
+      stub(Tailscale, :write_api_credential, fn _gw, token ->
+        assert token == "tskey-api-ONE-PASTE"
+        {:ok, %{api_token_secret_ref: "api-credential-abc"}}
+      end)
+
+      stub(Tailscale, :provision_gateway_minted, fn _gateway ->
+        {:ok, %{credential_secret_ref: "credential-stub"}}
+      end)
+
+      {:ok, owner: owner, personal: personal, conn: SessionHelpers.sign_in(conn, owner)}
+    end
+
+    test "an api token alone enables — the row stores the token, the panel reconnects minted", %{
+      conn: conn,
+      owner: owner,
+      personal: personal
+    } do
+      {:ok, view, _html} = live(conn, ~p"/settings/access")
+
+      view
+      |> form("#access-enable-form",
+        gateway: %{api_token: "tskey-api-ONE-PASTE", tailnet_domain: "example.ts.net"}
+      )
+      |> render_submit()
+
+      assert has_element?(view, "[data-testid='access-gateway-card']")
+      assert has_element?(view, "[data-testid=status-badge]", "Connecting")
+
+      # The stored token is the mint path's fuel: the create landed it
+      # Secret-first (the CreateStoresApiToken order).
+      {:ok, row} = AccessGateway.get_for_organization(personal.id, actor: owner)
+      assert row.api_token_secret_ref == "api-credential-abc"
+      assert %DateTime{} = row.token_set_at
+
+      # The brand-new panel already reconnects minted — no key input.
+      assert has_element?(view, "[data-testid='access-reconnect']", "Reconnect")
+      refute has_element?(view, "[data-testid='access-repaste-key']")
+    end
+
+    test "neither credential renders the action's field error and creates nothing", %{
+      conn: conn,
+      personal: personal
+    } do
+      {:ok, view, _html} = live(conn, ~p"/settings/access")
+
+      view
+      |> form("#access-enable-form", gateway: %{tailnet_domain: "example.ts.net"})
+      |> render_submit()
+
+      # The action's own sentence, rendered as the field error.
+      assert render(element(view, "#access-enable-form")) =~
+               "Paste an auth key or an API token to enable private access"
+
+      assert has_element?(view, "#flash-error", "Couldn't enable private access")
+
+      assert {:error, _none} =
+               AccessGateway.get_for_organization(personal.id, authorize?: false)
+    end
+
+    test "both credentials render the both-present error", %{conn: conn, personal: personal} do
+      {:ok, view, _html} = live(conn, ~p"/settings/access")
+
+      view
+      |> form("#access-enable-form",
+        gateway: %{
+          auth_key: "tskey-auth-abc123",
+          api_token: "tskey-api-ONE-PASTE",
+          tailnet_domain: "example.ts.net"
+        }
+      )
+      |> render_submit()
+
+      assert render(element(view, "#access-enable-form")) =~ "Paste one or the other, not both"
+
+      assert {:error, _none} =
+               AccessGateway.get_for_organization(personal.id, authorize?: false)
+    end
+
+    test "the api token never re-renders after a validate round-trip", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/settings/access")
+
+      # The validate round-trip is a read-back if the value re-renders
+      # (the auth_key posture, ADR-0039 §4).
+      html =
+        render_change(view, "validate", %{
+          "gateway" => %{
+            "api_token" => "tskey-api-TYPING-marker",
+            "tailnet_domain" => "example.ts.net"
+          }
+        })
+
+      refute html =~ "tskey-api-TYPING-marker"
+
+      # Typing still works: a submit right after lands the gateway.
+      view
+      |> form("#access-enable-form",
+        gateway: %{api_token: "tskey-api-ONE-PASTE", tailnet_domain: "example.ts.net"}
+      )
+      |> render_submit()
+
+      assert has_element?(view, "[data-testid='access-gateway-card']")
+    end
+
+    test "the tagOwners line renders on the enable card", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/settings/access")
+
+      assert has_element?(view, "[data-testid='access-tagowners-note']", "tag:fluxvale-gateway")
+      assert has_element?(view, "[data-testid='access-api-token-input']")
+      assert has_element?(view, "[data-testid='access-key-input']")
+    end
+  end
+
+  # #836's paste-free reconnect: a stored token turns the recovery into
+  # one click, with the key input behind the explicit "Paste an auth key
+  # instead" fallback (the mint 403 copy's named exit).
+  describe "reconnect with a stored token (#836)" do
+    setup %{conn: conn} do
+      owner = AccountsFixtures.user!()
+      org = AccountsFixtures.owned_org!(owner)
+
+      BillingFixtures.funded_wallet!(org: org)
+      BillingFixtures.mark_paid!(org)
+      stub_provider()
+
+      # The token rides the panel's own intake, through the action — the
+      # row the tests mount with is the shape production stores.
+      stub(Tailscale, :write_api_credential, fn _gw, _token ->
+        {:ok, %{api_token_secret_ref: "api-credential-panel"}}
+      end)
+
+      pasted = AccessFixtures.gateway!(org)
+
+      {:ok, gateway} =
+        AccessGateway.set_api_token(pasted, %{api_token: "tskey-api-stored"},
+          actor: owner,
+          authorize?: false
+        )
+
+      {:ok, gateway: gateway, owner: owner, org: org, conn: SessionHelpers.sign_in(conn, owner)}
+    end
+
+    test "the panel reconnects with no key input — the mint path, not the paste path", %{
+      conn: conn,
+      org: org,
+      gateway: gateway
+    } do
+      expect(Tailscale, :reconnect_minted, fn %AccessGateway{} = gw ->
+        assert gw.id == gateway.id
+        :ok
+      end)
+
+      {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/settings/access")
+
+      # One click, zero pastes: the mint submit and the named fallback,
+      # no key input anywhere.
+      assert has_element?(view, "[data-testid='access-reconnect']", "Reconnect")
+
+      assert has_element?(
+               view,
+               "[data-testid='access-repaste-fallback']",
+               "Paste an auth key instead"
+             )
+
+      refute has_element?(view, "[data-testid='access-repaste-key']")
+      refute has_element?(view, "[data-testid='access-repaste-toggle']")
+
+      # The submit carries no auth_key: the mint limb answers, the paste
+      # limb (update_credential) is never stubbed and must stay dark.
+      view
+      |> form("#access-repaste-form")
+      |> render_submit()
+
+      assert has_element?(view, "[data-testid=status-badge]", "Connecting")
+      assert AccessGateway.get_by_id!(gateway.id, authorize?: false).state == :provisioning
+    end
+
+    test "the fallback toggle reveals the key input and submits the pasted key", %{
+      conn: conn,
+      org: org,
+      gateway: gateway
+    } do
+      expect(Tailscale, :update_credential, fn _gateway, "tskey-auth-pasted" -> :ok end)
+
+      {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/settings/access")
+
+      view
+      |> element("[data-testid='access-repaste-fallback']")
+      |> render_click()
+
+      assert has_element?(view, "[data-testid='access-repaste-key']")
+
+      view
+      |> form("#access-repaste-form",
+        gateway: %{auth_key: "tskey-auth-pasted", tailnet_domain: "example.ts.net"}
+      )
+      |> render_submit()
+
+      assert has_element?(view, "[data-testid=status-badge]", "Connecting")
+      assert AccessGateway.get_by_id!(gateway.id, authorize?: false).state == :provisioning
+    end
+
+    test "a mint failure surfaces the action's copy with the fallback revealed", %{
+      conn: conn,
+      org: org,
+      gateway: gateway
+    } do
+      expect(Tailscale, :reconnect_minted, fn _gateway -> {:error, :forbidden} end)
+
+      {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/settings/access")
+
+      view
+      |> form("#access-repaste-form")
+      |> render_submit()
+
+      # The 403 sentence is the actionable one — it renders, and the
+      # exit it names is open beside it.
+      assert render(view) =~ "add the `auth_keys` scope"
+      assert has_element?(view, "#flash-error", "Couldn't update the access key")
+      assert has_element?(view, "[data-testid='access-repaste-key']")
+
+      assert AccessGateway.get_by_id!(gateway.id, authorize?: false).state == :active
+    end
+
+    test "without a stored token today's panel stands unchanged", %{conn: conn} do
+      owner = AccountsFixtures.user!()
+      org = AccountsFixtures.owned_org!(owner)
+
+      BillingFixtures.funded_wallet!(org: org)
+      BillingFixtures.mark_paid!(org)
+      AccessFixtures.gateway!(org, state: :needs_attention)
+
+      {:ok, view, _html} =
+        live(SessionHelpers.sign_in(conn, owner), ~p"/organizations/#{org.slug}/settings/access")
+
+      assert has_element?(view, "#access-repaste-form")
+      assert has_element?(view, "[data-testid='access-repaste-key']")
+      assert has_element?(view, "[data-testid='access-repaste-submit']", "Reconnect")
+      refute has_element?(view, "[data-testid='access-reconnect']")
+      refute has_element?(view, "[data-testid='access-repaste-fallback']")
+    end
+  end
+
   describe "the gateway card per state" do
     setup do
       stub_provider()
