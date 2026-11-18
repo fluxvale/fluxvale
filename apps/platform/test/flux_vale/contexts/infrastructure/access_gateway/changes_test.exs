@@ -357,7 +357,7 @@ defmodule FluxVale.Infrastructure.AccessGateway.ChangesTest do
             {:unauthorized,
              "Your Tailscale API key was rejected. Paste a fresh one in Settings → Access"},
             {:forbidden,
-             "Your Tailscale API key can't create join keys — add the `auth_keys` scope when you mint it, or paste an auth key instead"},
+             "Your Tailscale API key can't create join keys — mint it from a tailnet owner or admin account, or paste an auth key instead"},
             {:network_error, "Couldn't reach Tailscale to create a join key. Try again"}
           ] do
         stub(Tailscale, :provision_gateway_minted, fn _gateway -> {:error, reason} end)
@@ -975,7 +975,7 @@ defmodule FluxVale.Infrastructure.AccessGateway.ChangesTest do
       assert Enum.any?(
                errors,
                &(&1.field == :auth_key and
-                   &1.message =~ "add the `auth_keys` scope")
+                   &1.message =~ "mint it from a tailnet owner or admin")
              )
     end
 
@@ -991,7 +991,7 @@ defmodule FluxVale.Infrastructure.AccessGateway.ChangesTest do
                errors,
                &(&1.field == :auth_key and
                    &1.message ==
-                     "Your Tailscale API key can't create join keys — add the `auth_keys` scope when you mint it, or paste an auth key instead")
+                     "Your Tailscale API key can't create join keys — mint it from a tailnet owner or admin account, or paste an auth key instead")
              )
     end
 
