@@ -771,6 +771,22 @@ recorded so the seam's rulings stay findable:
   "mint it from a tailnet owner or admin account." The four-scope
   language returns with the OAuth self-serve lane, where it is true.
 
+## Amendment 5 (2026-11-19): the OAuth trust credential is the apply's credential
+
+Terence's ruling (the #836 lane-B addendum): "do it right the first
+time" — the owner apply's Tailscale credential is an **OAuth trust
+credential client** (scopes `auth_keys dns devices:routes` write +
+`devices:core:read`, tag `fluxvale-gateway`), not a console API token.
+The platform exchanges `client_id` + `client_secret` at
+`POST /api/v2/oauth/token` (HTTP Basic, no body — live-verified), caches
+the 1-hour access token per client (fingerprint-bound, proactive
+refresh, retry-once on a stale 401), and accepts the pair on every
+intake surface beside the console token — which remains valid
+everywhere. Am. 4's "the four-scope language returns with the OAuth
+lane, where it is true" is now true of the client's created-with
+scope set. The first live pair-exchange create will be the owner
+apply itself.
+
 ## References
 
 - Source-pinned facts: `tailscale/tailscale` `ipn/ipnlocal/serve.go`

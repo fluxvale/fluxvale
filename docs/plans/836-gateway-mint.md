@@ -134,6 +134,31 @@ Bearer.
 Order: B1 → B2 sequential; B3 after B2 pins the action surface;
 B4 after B2's wire. ≈5.5 dev-days.
 
+### Lane B as built (2026-11-19, all merged)
+
+| Slice | PR | sha |
+| --- | --- | --- |
+| The addendum (this section, hardened) | #862 | `ef2807ce` |
+| B1 exchange/cache/seam | #863 | `a6431b0b` |
+| B2 pair intake | #864 | `8034cc1a` |
+| B3 panel pair | #866 | `2d376d15` |
+| B4 provider pair + v0.7.0 prep | tpfv#19 | `f507912` |
+
+Provider **v0.7.0 is tagged-pending** on the same gate shape as
+v0.6.0: standard CI + prod deploy + a pair-exchange create against
+production, or the deviation recorded. ADR-0040 **Amendment 5** (the
+OAuth ruling) is drafted in tpfv#19's body for the monorepo's docs
+slice to land. Notable review-forced corrections on the way: the
+TokenCache's dead-owner exit class (rescue cannot catch `{:noproc, …}`);
+the exchange's https transport floor and status-only error mapping (a
+misbehaving intermediary can echo the Basic header in a 502 body);
+fingerprint-bound cache entries (a rotated secret must not ride the
+old bearer); `fetch_fresh` for the 401 retry (a pre-invalidation racer
+must never answer it); the provider's 400-beats-adoption-probe; and
+the nested-changeset secret scrub (Ash's Inspect protocol omits
+`params`/`casted_arguments` — every prior inspect-based canary was
+blind to exactly that retention).
+
 ## The shape in one paragraph
 
 A user pastes **one** credential — the Tailscale API token, now with the
