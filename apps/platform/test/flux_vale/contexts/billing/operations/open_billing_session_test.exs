@@ -218,4 +218,27 @@ defmodule FluxVale.Billing.Operations.OpenBillingSessionTest do
     assert {:ok, persisted} = Billing.get_auto_recharge_setting(org.id, authorize?: false)
     assert is_nil(persisted.provider_customer_id)
   end
+
+  test "a failed reference persist rides back as the error", %{
+    org: org,
+    setting: setting,
+    owner: owner
+  } do
+    # The provider answered; the reference write dies at the DB (the
+    # fault is forced at the Ash.update seam — the S3 crash-tests'
+    # stance). Nothing persists and the fault rides back.
+    {:ok, setting} =
+      Billing.set_auto_recharge_setting(setting, %{billing_country: "US"}, actor: owner)
+
+    stub(Polar, :create_billing_session, fn _request, _opts ->
+      {:ok, %{customer_id: "cust_faulty", portal_url: "https://portal.example/faulty"}}
+    end)
+
+    stub(Ash, :update, fn _changeset, _opts -> {:error, :db_hiccup} end)
+
+    assert {:error, :db_hiccup} = Billing.open_billing_session(org, setting, owner)
+
+    assert {:ok, persisted} = Billing.get_auto_recharge_setting(org.id, authorize?: false)
+    assert is_nil(persisted.provider_customer_id)
+  end
 end

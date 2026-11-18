@@ -120,4 +120,21 @@ defmodule FluxVale.Billing.Operations.SyncPaymentMethodTest do
     assert {:ok, persisted} = Billing.get_auto_recharge_setting(org.id, authorize?: false)
     assert persisted.payment_method_status == :attached
   end
+
+  test "a failed status write rides back as the error (the stored state stands)", %{
+    org: org,
+    setting: setting
+  } do
+    # The provider answered :attached; the status write dies at the DB
+    # (forced at the Ash.update seam — the S3 crash-tests' stance). The
+    # fault rides back and the stored :none stands.
+    setting = link_customer!(setting)
+    stub(Polar, :list_payment_methods, fn _id -> {:ok, 1, "pm_default"} end)
+    stub(Ash, :update, fn _changeset, _opts -> {:error, :db_hiccup} end)
+
+    assert {:error, :db_hiccup} = Billing.sync_payment_method(setting)
+
+    assert {:ok, persisted} = Billing.get_auto_recharge_setting(org.id, authorize?: false)
+    assert persisted.payment_method_status == :none
+  end
 end

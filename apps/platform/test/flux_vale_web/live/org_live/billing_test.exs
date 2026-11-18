@@ -1277,8 +1277,22 @@ defmodule FluxValeWeb.OrganizationLive.BillingTest do
       assert {:ok, not_armed} = Billing.get_auto_recharge_setting(org.id, actor: user)
       assert not_armed.mode == :off
 
-      # A crafted click with no snapshot refuses the same way.
+      # A crafted click with no snapshot refuses the same way (the
+      # non-binary arm).
       render_click(view, "confirm-arm-auto", %{})
+      assert has_element?(view, "[data-testid='auto-recharge-arm-confirm']")
+      assert {:ok, still_off} = Billing.get_auto_recharge_setting(org.id, actor: user)
+      assert still_off.mode == :off
+
+      # A crafted snapshot with garbage values refuses too (the
+      # malformed-binary arm) — never a cast guess.
+      render_click(view, "confirm-arm-auto", %{
+        "amount" => "abc",
+        "threshold" => "10x",
+        "cap" => "2",
+        "strikes" => "3"
+      })
+
       assert has_element?(view, "[data-testid='auto-recharge-arm-confirm']")
       assert {:ok, still_off} = Billing.get_auto_recharge_setting(org.id, actor: user)
       assert still_off.mode == :off
@@ -1345,10 +1359,90 @@ defmodule FluxValeWeb.OrganizationLive.BillingTest do
       assert persisted.mode == :reminder
     end
 
-    test "a methodless crafted :auto save rides the normal path — no confirm, domain refusal", %{
+    test "a staged arming save the domain refuses flashes and never stages", %{
       conn: conn,
       org: org,
       setting: setting,
+      user: user
+    } do
+      attach_method!(setting)
+      stub(Polar, :list_payment_methods, fn _id -> {:ok, 1, "pm_default"} end)
+
+      {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/billing")
+
+      # The staged write carries a crafted customer type the enum
+      # refuses — the stage dies at the domain, the confirm never opens.
+      render_click(view, "save-auto-recharge", %{
+        "auto_recharge" => %{
+          "mode" => "auto",
+          "threshold_dollars" => "10",
+          "amount_dollars" => "25",
+          "daily_charge_cap" => "2",
+          "failure_strikes" => "3",
+          "customer_type" => "enterprise"
+        }
+      })
+
+      assert has_element?(view, "#flash-error", "Couldn't save the reminder settings.")
+      refute has_element?(view, "[data-testid='auto-recharge-arm-confirm']")
+
+      assert {:ok, persisted} = Billing.get_auto_recharge_setting(org.id, actor: user)
+      assert persisted.mode == :off
+    end
+
+    test "a crafted arming save missing the dollars refuses before staging", %{
+      conn: conn,
+      org: org,
+      setting: setting
+    } do
+      attach_method!(setting)
+      stub(Polar, :list_payment_methods, fn _id -> {:ok, 1, "pm_default"} end)
+
+      {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/billing")
+
+      render_click(view, "save-auto-recharge", %{
+        "auto_recharge" => %{
+          "mode" => "auto",
+          "daily_charge_cap" => "2",
+          "failure_strikes" => "3"
+        }
+      })
+
+      assert has_element?(view, "#flash-error", "The threshold must be")
+      refute has_element?(view, "[data-testid='auto-recharge-arm-confirm']")
+    end
+
+    test "a crafted save without evidence keys refuses at the domain — nothing persists",
+         %{
+           conn: conn,
+           org: org,
+           user: user
+         } do
+      {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/billing")
+
+      # A raw event push carries no evidence keys at all (the DOM always
+      # merges them on a real submit): the evidence strings ride nil and
+      # the domain's customer_type nullability refuses the write.
+      render_click(view, "save-auto-recharge", %{
+        "auto_recharge" => %{
+          "mode" => "reminder",
+          "threshold_dollars" => "10",
+          "amount_dollars" => "25",
+          "daily_charge_cap" => "3",
+          "failure_strikes" => "4"
+        }
+      })
+
+      assert has_element?(view, "#flash-error", "Couldn't save the reminder settings.")
+
+      assert {:ok, persisted} = Billing.get_auto_recharge_setting(org.id, actor: user)
+      assert persisted.daily_charge_cap == 2
+      assert is_nil(persisted.billing_country)
+    end
+
+    test "a methodless crafted :auto save rides the normal path — no confirm, domain refusal", %{
+      conn: conn,
+      org: org,
       user: user
     } do
       # No method attached: the confirm step would claim a saved card
