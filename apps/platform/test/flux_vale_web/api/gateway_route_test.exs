@@ -562,6 +562,7 @@ defmodule FluxValeWeb.Api.GatewayRouteTest do
       end)
 
       pat = ApiPat.mint!(user, ["gateways:write"])
+      gateway_id = gateway.id
 
       conn =
         conn
@@ -581,7 +582,9 @@ defmodule FluxValeWeb.Api.GatewayRouteTest do
       assert row["attributes"]["api_token_set"] == true
       refute conn.resp_body =~ "client-secret-ROUTE"
 
-      assert_received {:pair_stored, _, "client-id-ROUTE", "client-secret-ROUTE"}
+      # The provider writes THE URL'S gateway — the stub's recorded id
+      # must be the requested row's, not any gateway's (#864 review).
+      assert_received {:pair_stored, ^gateway_id, "client-id-ROUTE", "client-secret-ROUTE"}
 
       stored = AccessGateway.get_by_id!(gateway.id, authorize?: false)
       assert stored.api_token_secret_ref == "api-credential-pair"

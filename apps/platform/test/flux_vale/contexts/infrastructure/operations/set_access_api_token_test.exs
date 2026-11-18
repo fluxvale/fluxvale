@@ -432,9 +432,13 @@ defmodule FluxVale.Infrastructure.Operations.SetAccessApiTokenTest do
     org: org,
     owner: owner
   } do
-    # The app-global cache must not answer for this client (the
-    # no-leakage discipline the provider suite's lane-B setup uses).
-    TokenCache.clear()
+    # A client id UNIQUE to this test, so the app-global cache is cold
+    # for it without clearing anyone else's entries — the capture-
+    # restore discipline (#864 review): the on_exit invalidates only
+    # what this test put in.
+    client_id = "ts-client-id-sweep-#{System.unique_integer([:positive])}"
+
+    on_exit(fn -> TokenCache.invalidate(client_id) end)
 
     gateway = AccessFixtures.gateway!(org)
     domain = verified_domain!(owner)
@@ -450,7 +454,7 @@ defmodule FluxVale.Infrastructure.Operations.SetAccessApiTokenTest do
     stub(K8s, :kubeconfig, fn _ref -> {:ok, %{}} end)
 
     stub(Secret, :get_data, fn _kc, _ns, _name ->
-      {:ok, %{"TS_CLIENT_ID" => @client_id, "TS_CLIENT_SECRET" => @client_secret}}
+      {:ok, %{"TS_CLIENT_ID" => client_id, "TS_CLIENT_SECRET" => @client_secret}}
     end)
 
     stub(ApiClient, :oauth_exchange, fn _id, _secret ->
@@ -470,7 +474,7 @@ defmodule FluxVale.Infrastructure.Operations.SetAccessApiTokenTest do
     assert {:ok, row} =
              AccessGateway.set_api_token(
                gateway,
-               %{ts_client_id: @client_id, ts_client_secret: @client_secret},
+               %{ts_client_id: client_id, ts_client_secret: @client_secret},
                actor: owner,
                authorize?: true
              )
