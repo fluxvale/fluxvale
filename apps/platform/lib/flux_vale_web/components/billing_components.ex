@@ -208,8 +208,12 @@ defmodule FluxValeWeb.BillingComponents do
         disabled_copy: disabled_copy(setting),
         # Display-only VAT (the rate resolves FRESH at charge time,
         # #260 — never a copied rate): the confirm copy's figure reads
-        # the current rate table over the stored evidence.
-        arm_gross_cents: arm_gross_cents(setting),
+        # the current rate table over the stored evidence. Computed
+        # ONLY when the confirm step shows — the quote is a TaxRate
+        # table read, never a per-render cost (gate-off rows and the
+        # closed-confirm common case do no such work).
+        arm_gross_cents:
+          if(assigns.charge_mode? and assigns.arm_confirm?, do: arm_gross_cents(setting)),
         method_copy: method_copy(setting)
       )
 
@@ -488,6 +492,10 @@ defmodule FluxValeWeb.BillingComponents do
         <div class="flex gap-2">
           <.button
             phx-click="confirm-arm-auto"
+            phx-value-amount={@setting.amount_cents}
+            phx-value-threshold={@setting.threshold_cents}
+            phx-value-cap={@setting.daily_charge_cap}
+            phx-value-strikes={@setting.failure_strikes}
             id="arm-auto-confirm"
             size="sm"
             data-testid="auto-recharge-arm-confirm-button"

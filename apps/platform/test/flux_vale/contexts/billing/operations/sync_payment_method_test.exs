@@ -77,6 +77,18 @@ defmodule FluxVale.Billing.Operations.SyncPaymentMethodTest do
     assert persisted.payment_method_status == :attached
   end
 
+  test "the provider agreeing with the stored status skips the write (no version-row churn)", %{
+    setting: setting
+  } do
+    # The stored row already says :attached and the provider agrees —
+    # the short-circuit returns the row unwritten (the pinned binding
+    # proves no new struct came out of a write path).
+    setting = attach_method!(setting)
+    stub(Polar, :list_payment_methods, fn _id -> {:ok, 1, "pm_default"} end)
+
+    assert {:ok, :attached, ^setting} = Billing.sync_payment_method(setting)
+  end
+
   test "count 0 un-attaches (a method removed in the portal)", %{org: org, setting: setting} do
     setting = attach_method!(setting)
 

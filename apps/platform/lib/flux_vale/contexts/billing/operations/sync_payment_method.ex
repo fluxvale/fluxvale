@@ -25,7 +25,7 @@ defmodule FluxVale.Billing.Operations.SyncPaymentMethod do
   alias FluxVale.Billing.AutoRechargeSetting
 
   @spec call(AutoRechargeSetting.t()) ::
-          {:ok, :attached | :none, AutoRechargeSetting.t()} | {:error, term()}
+          {:ok, :attached | :none | :no_customer, AutoRechargeSetting.t()} | {:error, term()}
   def call(setting) do
     if Billing.auto_recharge_charge_mode?() do
       sync(setting)
@@ -44,7 +44,19 @@ defmodule FluxVale.Billing.Operations.SyncPaymentMethod do
 
     case provider.list_payment_methods(setting.provider_customer_id) do
       {:ok, count, _informational_ref} ->
-        write(setting, if(count > 0, do: :attached, else: :none))
+        status = if count > 0, do: :attached, else: :none
+
+        # The no-op short-circuit: the provider AGREES with the stored
+        # status — skip the write entirely. Without it, every mount of
+        # every card mints a paper-trail version row for a write that
+        # changes nothing (three linked Ash/ash_paper_trail internals
+        # would have to silently no-op the identical write — never
+        # assume that chain, short-circuit here).
+        if status == setting.payment_method_status do
+          {:ok, status, setting}
+        else
+          write(setting, status)
+        end
 
       # Unknown answer — the stored state stands untouched and the next
       # mount retries (never flip a status on a fault).

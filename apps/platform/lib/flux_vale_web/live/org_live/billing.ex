@@ -181,10 +181,7 @@ defmodule FluxValeWeb.OrganizationLive.Billing do
   def handle_event("save-auto-recharge", %{"auto_recharge" => params}, socket)
       when is_map(params) do
     if arming?(socket, params) do
-      {:noreply,
-       socket
-       |> assign(arm_confirm?: true)
-       |> assign(auto_recharge_form: auto_recharge_form(params))}
+      stage_arm(socket, params)
     else
       save_auto_recharge(socket, params)
     end
@@ -198,33 +195,18 @@ defmodule FluxValeWeb.OrganizationLive.Billing do
   # The arming confirm (decision G): the ONLY event that writes :auto.
   # Requires the confirm state (opened by the save handler) and the
   # owner gate — a crafted confirm on a member's view, or without the
-  # step, is silence, never a write. The domain's AutoArmGate stays the
-  # authority: a gate flip or a method removal between confirm render
-  # and click dies at the seam as an error flash.
-  def handle_event("confirm-arm-auto", _params, socket) do
+  # step, is silence, never a write.
+  #
+  # The write is BOUND to the terms the owner confirmed: the button
+  # carries the snapshot it displayed (phx-values) and the handler
+  # compares it to the CURRENT stored row — a second tab's save in
+  # between refuses with a re-rendered confirm (the copy re-reads the
+  # fresh row), never arms over unseen terms. The domain's AutoArmGate
+  # stays the authority for the gate/method questions.
+  def handle_event("confirm-arm-auto", params, socket) do
     if socket.assigns.charge_mode? and socket.assigns.auto_recharge_owner? and
          socket.assigns.arm_confirm? do
-      case Billing.set_auto_recharge_setting(
-             socket.assigns.auto_recharge_setting,
-             %{mode: "auto"},
-             actor: socket.assigns.current_user
-           ) do
-        {:ok, setting} ->
-          {:noreply,
-           socket
-           |> put_flash(:info, "Auto charging armed.")
-           |> assign(auto_recharge_setting: setting, arm_confirm?: false)
-           |> assign(auto_recharge_form: post_save_auto_recharge_form(setting))}
-
-        {:error, _rejected_by_the_domain} ->
-          {:noreply,
-           socket
-           |> put_flash(
-             :error,
-             "Couldn't arm auto charging. Check the charge settings and try again."
-           )
-           |> assign(arm_confirm?: false)}
-      end
+      confirm_arm(socket, params)
     else
       {:noreply, socket}
     end
@@ -274,19 +256,58 @@ defmodule FluxValeWeb.OrganizationLive.Billing do
     end
   end
 
-  # The arming decision (decision G): gate-on, the owner, and the :auto
-  # choice — anything else rides the normal save path.
+  # The arming decision (decision G): gate-on, the owner, the :auto
+  # choice, and a method attached — the last so the confirm only opens
+  # when it can succeed (a methodless crafted :auto rides the normal
+  # save path into the AutoArmGate's refusal, never a step that claims
+  # a saved card).
   defp arming?(socket, params) do
     Billing.auto_recharge_charge_mode?() and params["mode"] == "auto" and
+      socket.assigns.auto_recharge_setting.payment_method_status == :attached and
       socket.assigns.auto_recharge_owner?
+  end
+
+  # Save-and-stage: the form's dials + evidence persist as a NORMAL
+  # modeless write first — the confirm step then displays the
+  # just-stored terms and its binding compares against them. Mode is
+  # NOT written here; the confirm event is the only `:auto` writer
+  # (the AutoArmGate doesn't fire on a modeless save — it triggers on a
+  # mode change — and arming? already required a method).
+  defp stage_arm(socket, params) do
+    case auto_recharge_inputs(params) do
+      {:ok, inputs} ->
+        case Billing.set_auto_recharge_setting(
+               socket.assigns.auto_recharge_setting,
+               Map.delete(inputs, :mode),
+               actor: socket.assigns.current_user
+             ) do
+          {:ok, setting} ->
+            {:noreply,
+             socket
+             |> assign(auto_recharge_setting: setting, arm_confirm?: true)
+             |> assign(auto_recharge_form: post_save_auto_recharge_form(setting))}
+
+          {:error, _rejected_by_the_domain} ->
+            {:noreply, failed_auto_recharge_save(socket, params, default_auto_recharge_error())}
+        end
+
+      {:error, message} ->
+        {:noreply, failed_auto_recharge_save(socket, params, message)}
+    end
   end
 
   # The non-arming save path, through the domain seam (Billing.
   # set_auto_recharge_setting — never the resource direct): the enum,
   # the constraints, the AutoArmGate, and the owner-role policy are the
   # authority, so a crafted `:auto` and a member's crafted submit land
-  # here as an error flash, never a crash.
+  # here as an error flash, never a crash. ANY non-arming save also
+  # closes the arming confirm — the step must never outlive the owner's
+  # latest choice (a stale confirm's click, its snapshot matching
+  # unchanged terms, would otherwise arm `:auto` after the owner saved
+  # something else).
   defp save_auto_recharge(socket, params) do
+    socket = assign(socket, :arm_confirm?, false)
+
     case auto_recharge_inputs(params) do
       {:ok, inputs} ->
         case Billing.set_auto_recharge_setting(
@@ -309,6 +330,91 @@ defmodule FluxValeWeb.OrganizationLive.Billing do
         {:noreply, failed_auto_recharge_save(socket, params, message)}
     end
   end
+
+  # The binding: the button's snapshot (phx-values, binaries) compared
+  # to the CURRENT stored row. Crafted garbage refuses the same way —
+  # the safe direction.
+  defp confirm_arm(socket, params) do
+    case Billing.get_auto_recharge_setting(socket.assigns.org.id, authorize?: false) do
+      {:ok, fresh} ->
+        if terms_match?(fresh, params) do
+          arm_confirmed(socket, fresh)
+        else
+          # Stale terms — the row moved under the confirm. Re-render the
+          # step from the fresh row so the next click's snapshot carries
+          # the new values.
+          {:noreply,
+           socket
+           |> put_flash(:error, "The charge settings changed — review them and confirm again.")
+           |> assign(auto_recharge_setting: fresh)
+           |> assign(auto_recharge_form: post_save_auto_recharge_form(fresh))}
+        end
+
+      # defensive: the row vanished between the confirm render and the
+      # click (no path deletes setting rows) — close the step, never crash.
+      # coveralls-ignore-start
+      {:error, _row_gone} ->
+        {:noreply,
+         socket
+         |> put_flash(:error, "The charge settings changed — review them and confirm again.")
+         |> assign(arm_confirm?: false)}
+
+        # coveralls-ignore-stop
+    end
+  end
+
+  # The terms matched — the arm write, bound to exactly what the owner
+  # confirmed.
+  defp arm_confirmed(socket, fresh) do
+    case Billing.set_auto_recharge_setting(fresh, %{mode: "auto"},
+           actor: socket.assigns.current_user
+         ) do
+      {:ok, setting} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, "Auto charging armed.")
+         |> assign(auto_recharge_setting: setting, arm_confirm?: false)
+         |> assign(auto_recharge_form: post_save_auto_recharge_form(setting))}
+
+      {:error, _rejected_by_the_domain} ->
+        {:noreply,
+         socket
+         |> put_flash(
+           :error,
+           "Couldn't arm auto charging. Check the charge settings and try again."
+         )
+         |> assign(arm_confirm?: false)}
+    end
+  end
+
+  defp terms_match?(fresh, params) do
+    snapshot_terms(params) == %{
+      amount_cents: fresh.amount_cents,
+      threshold_cents: fresh.threshold_cents,
+      daily_charge_cap: fresh.daily_charge_cap,
+      failure_strikes: fresh.failure_strikes
+    }
+  end
+
+  defp snapshot_terms(params) do
+    %{
+      amount_cents: snapshot_int(params["amount"]),
+      threshold_cents: snapshot_int(params["threshold"]),
+      daily_charge_cap: snapshot_int(params["cap"]),
+      failure_strikes: snapshot_int(params["strikes"])
+    }
+  end
+
+  defp snapshot_int(raw) when is_binary(raw) do
+    trimmed = String.trim(raw)
+
+    case Integer.parse(trimmed) do
+      {value, ""} -> value
+      _malformed -> nil
+    end
+  end
+
+  defp snapshot_int(_missing_or_malformed), do: nil
 
   # The card's prefilled form: whole dollars, the wizard Amount step's
   # unit. Members get no form (nil) — the card renders the read-only

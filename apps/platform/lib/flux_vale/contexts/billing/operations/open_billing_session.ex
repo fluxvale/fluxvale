@@ -16,19 +16,25 @@ defmodule FluxVale.Billing.Operations.OpenBillingSession do
   (the card disables the button without it, and a crafted click still
   refuses here — Polar computes tax from it).
 
-  The customer reference persists through `:set_method_status` with the
-  status staying `:none` — a customer is not a method; the mount sync
-  (SyncPaymentMethod, this slice) flips `:attached` once the buyer
-  saves one. The portal URL is returned, NEVER stored — every click
-  mints a fresh session (the plan's never-stored rule).
+  The customer reference persists through `:set_method_status` — a
+  NEWLY linked customer (or a changed reference) reads `:none` until the
+  mount sync sees a method; a re-opened portal for the SAME customer
+  preserves `:attached` (the provider has not reported removal — the
+  sync, not a re-open, owns that flip). The portal URL is returned,
+  NEVER stored — every click mints a fresh session (the plan's
+  never-stored rule).
 
-  Gate-on only: with the platform gate off the seam refuses before any
-  provider call — the launch posture makes no charge-lane traffic.
+  The seam enforces its own preconditions: gate-on only (the launch
+  posture makes no charge-lane traffic), OWNER-role only (recurring
+  spend consent rides the same ownership notion the write policy uses —
+  defense-in-depth behind the LiveView's button gate), the owner's
+  verified address present, the evidence country present.
   """
 
   alias FluxVale.Accounts.Organization
   alias FluxVale.Billing
   alias FluxVale.Billing.AutoRechargeSetting
+  alias FluxVale.Checks.ActorIsOrganizationOwner
   alias FluxVale.Identity.User
   alias FluxVale.Identity.UserEmail
 
@@ -37,12 +43,19 @@ defmodule FluxVale.Billing.Operations.OpenBillingSession do
   @spec call(Organization.t(), AutoRechargeSetting.t(), User.t()) ::
           {:ok, String.t()} | {:error, term()}
   def call(org, setting, owner) do
-    # The gate guard is the seam's own: a LiveView guard miss must
-    # still answer refusal, never a provider call.
-    if Billing.auto_recharge_charge_mode?() do
-      open(org, setting, owner)
-    else
-      {:error, :charge_mode_off}
+    cond do
+      # The gate guard is the seam's own: a LiveView guard miss must
+      # still answer refusal, never a provider call.
+      not Billing.auto_recharge_charge_mode?() ->
+        {:error, :charge_mode_off}
+
+      # Recurring-spend consent is owner-role (decision C) — the seam
+      # does not trust its caller's button gate.
+      not ActorIsOrganizationOwner.owner?(owner.id, org.id) ->
+        {:error, :not_owner}
+
+      true ->
+        open(org, setting, owner)
     end
   end
 
@@ -108,9 +121,21 @@ defmodule FluxVale.Billing.Operations.OpenBillingSession do
   end
 
   defp persist_reference(setting, customer_id) do
+    # A re-opened portal for the SAME customer must not reset the
+    # status — the provider has not reported removal; `:none` is only
+    # for a newly linked customer (or a changed reference), and the
+    # mount sync owns every later flip.
+    status =
+      if setting.payment_method_status == :attached and
+           setting.provider_customer_id == customer_id do
+        :attached
+      else
+        :none
+      end
+
     setting
     |> Ash.Changeset.for_update(:set_method_status, %{
-      payment_method_status: :none,
+      payment_method_status: status,
       provider_customer_id: customer_id
     })
     |> Ash.update(authorize?: false)

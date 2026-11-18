@@ -14,6 +14,8 @@ defmodule FluxVale.Billing.Operations.OpenBillingSessionTest do
 
   setup :verify_on_exit!
 
+  alias FluxVale.Accounts.Membership
+  alias FluxVale.Accounts.Organization
   alias FluxVale.Billing
   alias FluxVale.Billing.Providers.Polar
   alias FluxVale.TestSupport.AccountsFixtures
@@ -101,19 +103,105 @@ defmodule FluxVale.Billing.Operations.OpenBillingSessionTest do
   end
 
   test "an owner with no verified address refuses (data drift — actions always stamp one)", %{
-    org: org,
-    setting: setting
+    org: _org,
+    setting: _setting
   } do
     # Ash.Seed.seed! — the sanctioned escape: the User create action
     # JIT-writes the address row, and this test needs an account
-    # WITHOUT one (drift the actions cannot produce).
+    # WITHOUT one (drift the actions cannot produce). The drifter is
+    # the org's OWNER here (a real membership) so the seam gets past
+    # the ownership check and refuses on the missing address.
     drifter = Ash.Seed.seed!(FluxVale.Identity.User, %{username: "no-address-drifter"})
+
+    org = Organization.create!(%{name: "Drift Org", slug: "drift-org"}, authorize?: false)
+
+    Membership.create!(%{organization_id: org.id, user_id: drifter.id, role: :owner},
+      authorize?: false
+    )
+
+    {:ok, setting} = Billing.ensure_auto_recharge_setting(org)
 
     stub(Polar, :create_billing_session, fn _request, _opts ->
       flunk("no provider call without the owner email")
     end)
 
     assert {:error, :owner_email_missing} = Billing.open_billing_session(org, setting, drifter)
+  end
+
+  test "a non-owner is refused at the seam — no provider call", %{
+    org: org,
+    setting: setting
+  } do
+    # Ash.Seed.seed! — a plain user with NO membership in the org: the
+    # LiveView's button gate is UX; the seam enforces owner-hood
+    # itself (defense-in-depth, decision C's consent model).
+    outsider = Ash.Seed.seed!(FluxVale.Identity.User, %{username: "portal-outsider"})
+
+    stub(Polar, :create_billing_session, fn _request, _opts ->
+      flunk("no provider call for a non-owner")
+    end)
+
+    assert {:error, :not_owner} = Billing.open_billing_session(org, setting, outsider)
+  end
+
+  test "a re-opened portal for the SAME customer preserves :attached", %{
+    org: org,
+    setting: setting,
+    owner: owner
+  } do
+    {:ok, setting} =
+      Billing.set_auto_recharge_setting(setting, %{billing_country: "US"}, actor: owner)
+
+    # The method is attached on this very customer (the sync put it
+    # there); the buyer re-opens the portal for a tweak.
+    attached_row =
+      setting
+      |> Ash.Changeset.for_update(:set_method_status, %{
+        payment_method_status: :attached,
+        provider_customer_id: "cust_same"
+      })
+      |> Ash.update!(authorize?: false)
+
+    stub(Polar, :create_billing_session, fn _request, _opts ->
+      {:ok, %{customer_id: "cust_same", portal_url: "https://portal.example/again"}}
+    end)
+
+    assert {:ok, "https://portal.example/again"} =
+             Billing.open_billing_session(org, attached_row, owner)
+
+    # The provider has not reported removal — the re-open never resets.
+    assert {:ok, persisted} = Billing.get_auto_recharge_setting(org.id, authorize?: false)
+    assert persisted.payment_method_status == :attached
+    assert persisted.provider_customer_id == "cust_same"
+  end
+
+  test "a changed customer reference resets to :none (newly linked customer)", %{
+    org: org,
+    setting: setting,
+    owner: owner
+  } do
+    {:ok, with_country} =
+      Billing.set_auto_recharge_setting(setting, %{billing_country: "US"}, actor: owner)
+
+    attached_row =
+      with_country
+      |> Ash.Changeset.for_update(:set_method_status, %{
+        payment_method_status: :attached,
+        provider_customer_id: "cust_old"
+      })
+      |> Ash.update!(authorize?: false)
+
+    stub(Polar, :create_billing_session, fn _request, _opts ->
+      {:ok, %{customer_id: "cust_new", portal_url: "https://portal.example/new"}}
+    end)
+
+    assert {:ok, "https://portal.example/new"} =
+             Billing.open_billing_session(org, attached_row, owner)
+
+    # A new customer has no method until the sync sees one.
+    assert {:ok, persisted} = Billing.get_auto_recharge_setting(org.id, authorize?: false)
+    assert persisted.payment_method_status == :none
+    assert persisted.provider_customer_id == "cust_new"
   end
 
   test "a provider fault rides back as the error", %{org: org, setting: setting, owner: owner} do

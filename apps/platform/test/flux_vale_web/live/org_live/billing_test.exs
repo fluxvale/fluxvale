@@ -1156,6 +1156,41 @@ defmodule FluxValeWeb.OrganizationLive.BillingTest do
       assert has_element?(view, "[data-testid='auto-recharge-state']", "Reminders are off")
     end
 
+    test "save-and-stage persists the edited dials BEFORE the confirm opens", %{
+      conn: conn,
+      org: org,
+      setting: setting,
+      user: user
+    } do
+      attach_method!(setting)
+      stub(Polar, :list_payment_methods, fn _id -> {:ok, 1, "pm_default"} end)
+
+      {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/billing")
+
+      view
+      |> element("#auto-recharge-form")
+      |> render_submit(%{
+        "auto_recharge" => %{
+          "mode" => "auto",
+          "threshold_dollars" => "10",
+          "amount_dollars" => "50",
+          "daily_charge_cap" => "4",
+          "failure_strikes" => "3"
+        }
+      })
+
+      # The dials the owner typed persisted as a normal write — the
+      # confirm's copy is truthful about them ($200 = 4 × $50 at 0% VAT).
+      assert has_element?(view, "[data-testid='auto-recharge-arm-confirm']")
+      assert has_element?(view, "[data-testid='auto-recharge-arm-math']", "$200")
+
+      assert {:ok, staged} = Billing.get_auto_recharge_setting(org.id, actor: user)
+      assert staged.amount_cents == 5_000
+      assert staged.daily_charge_cap == 4
+      # The mode write belongs to the confirm alone.
+      assert staged.mode == :off
+    end
+
     test "the confirm action arms — the only event that writes :auto", %{
       conn: conn,
       org: org,
@@ -1191,6 +1226,152 @@ defmodule FluxValeWeb.OrganizationLive.BillingTest do
 
       assert {:ok, persisted} = Billing.get_auto_recharge_setting(org.id, actor: user)
       assert persisted.mode == :auto
+    end
+
+    test "the arming write is bound to the stored terms — a co-edit refuses and re-renders", %{
+      conn: conn,
+      org: org,
+      setting: setting,
+      user: user
+    } do
+      attach_method!(setting)
+      stub(Polar, :list_payment_methods, fn _id -> {:ok, 1, "pm_default"} end)
+
+      {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/billing")
+
+      view
+      |> element("#auto-recharge-form")
+      |> render_submit(%{
+        "auto_recharge" => %{
+          "mode" => "auto",
+          "threshold_dollars" => "10",
+          "amount_dollars" => "25",
+          "daily_charge_cap" => "2",
+          "failure_strikes" => "3"
+        }
+      })
+
+      assert has_element?(view, "[data-testid='auto-recharge-arm-confirm']")
+
+      # The two-tab shape: another tab saves a new amount AFTER this
+      # tab's confirm rendered.
+      {:ok, fresh} = Billing.get_auto_recharge_setting(org.id, authorize?: false)
+
+      assert {:ok, _co_edit} =
+               Billing.set_auto_recharge_setting(fresh, %{amount_cents: 5_000}, actor: user)
+
+      # This tab's confirm still carries the old snapshot — refused,
+      # never armed over unseen terms.
+      view
+      |> element("#arm-auto-confirm")
+      |> render_click()
+
+      assert has_element?(
+               view,
+               "#flash-error",
+               "The charge settings changed — review them and confirm again."
+             )
+
+      assert has_element?(view, "[data-testid='auto-recharge-arm-confirm']")
+
+      assert {:ok, not_armed} = Billing.get_auto_recharge_setting(org.id, actor: user)
+      assert not_armed.mode == :off
+
+      # A crafted click with no snapshot refuses the same way.
+      render_click(view, "confirm-arm-auto", %{})
+      assert has_element?(view, "[data-testid='auto-recharge-arm-confirm']")
+      assert {:ok, still_off} = Billing.get_auto_recharge_setting(org.id, actor: user)
+      assert still_off.mode == :off
+
+      # The re-rendered confirm carries the fresh terms — the next
+      # click arms exactly what is displayed.
+      view
+      |> element("#arm-auto-confirm")
+      |> render_click()
+
+      assert has_element?(view, "#flash-info", "Auto charging armed.")
+      assert {:ok, armed} = Billing.get_auto_recharge_setting(org.id, actor: user)
+      assert armed.mode == :auto
+    end
+
+    test "a non-arming save closes the confirm step — the stale click cannot arm", %{
+      conn: conn,
+      org: org,
+      setting: setting,
+      user: user
+    } do
+      attach_method!(setting)
+      stub(Polar, :list_payment_methods, fn _id -> {:ok, 1, "pm_default"} end)
+
+      {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/billing")
+
+      view
+      |> element("#auto-recharge-form")
+      |> render_submit(%{
+        "auto_recharge" => %{
+          "mode" => "auto",
+          "threshold_dollars" => "10",
+          "amount_dollars" => "25",
+          "daily_charge_cap" => "2",
+          "failure_strikes" => "3"
+        }
+      })
+
+      assert has_element?(view, "[data-testid='auto-recharge-arm-confirm']")
+
+      # The owner's last explicit choice was NOT auto: a reminder save
+      # closes the step.
+      view
+      |> element("#auto-recharge-form")
+      |> render_submit(%{
+        "auto_recharge" => %{
+          "mode" => "reminder",
+          "threshold_dollars" => "10",
+          "amount_dollars" => "25",
+          "daily_charge_cap" => "2",
+          "failure_strikes" => "3"
+        }
+      })
+
+      assert has_element?(view, "#flash-info", "Reminder settings saved.")
+      refute has_element?(view, "[data-testid='auto-recharge-arm-confirm']")
+      refute has_element?(view, "#arm-auto-confirm")
+
+      # A stale confirm event (crafted raw push — the button is gone
+      # from the DOM) is silence: the guard answers, never an arm.
+      render_click(view, "confirm-arm-auto", %{})
+
+      assert {:ok, persisted} = Billing.get_auto_recharge_setting(org.id, actor: user)
+      assert persisted.mode == :reminder
+    end
+
+    test "a methodless crafted :auto save rides the normal path — no confirm, domain refusal", %{
+      conn: conn,
+      org: org,
+      setting: setting,
+      user: user
+    } do
+      # No method attached: the confirm step would claim a saved card
+      # the AutoArmGate would refuse — it never opens.
+      {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/billing")
+
+      view
+      |> element("#auto-recharge-form")
+      |> render_submit(%{
+        "auto_recharge" => %{
+          "mode" => "auto",
+          "threshold_dollars" => "10",
+          "amount_dollars" => "25",
+          "daily_charge_cap" => "2",
+          "failure_strikes" => "3"
+        }
+      })
+
+      refute has_element?(view, "[data-testid='auto-recharge-arm-confirm']")
+      assert has_element?(view, "#flash-error", "Couldn't save the reminder settings.")
+
+      assert {:ok, persisted} = Billing.get_auto_recharge_setting(org.id, actor: user)
+      assert persisted.mode == :off
     end
 
     test "a gate flip between the confirm render and the click dies at the domain — an error flash, never a write",
