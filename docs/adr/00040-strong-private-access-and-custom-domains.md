@@ -735,6 +735,41 @@ tagged-node-enrollment capability against that tailnet. The OAuth
 client remains the self-serve upgrade — one credential class, browser
 authorized, revocable unilaterally.
 
+## Amendment 4 (2026-11-18): the one-token integration as built (#836)
+
+Amendment 3's end-state shipped. Implementation pins and corrections,
+recorded so the seam's rulings stay findable:
+
+- **The minted key's shape**: tagged (`tag:fluxvale-gateway`, config
+  `:tailscale_api`), single-use, non-ephemeral, pre-authorized, 1h
+  TTL (config). **Consumption is revocation** — Tailscale auto-revokes
+  one-off keys on use (kb/1085) — so no post-active revoke limb
+  exists; explicit `DELETE` runs only where a minted key can sit
+  unconsumed (failed create, teardown, re-mint supersede, and a Secret
+  write that fails after a successful mint, revoked from memory —
+  mint and credential-write are one provider operation, so the
+  minting token never crosses the seam).
+- **The claim-convergence limb is gated to the first join**: the
+  observer sweeps `ClaimUnclaimedDomains` only on the promotion out of
+  `:provisioning` — never on steady passes (the every-tick tailnet
+  retry the sweep module's design forbids) and never on
+  `:needs_attention` re-promotions (a rejected sweep drifts the row
+  back; sweeping there flaps forever). Later convergence stays
+  event-driven (verify/attach/token-save).
+- **Keyless reconnect reads the committed row** before dispatching —
+  a stale pre-suspension struct must not re-apply objects over a
+  suspended gateway. The two-party lock protocol (the suspend path
+  locking before it scales) remains open as its own lane.
+- **Credential-model correction** (#857 review, verified against
+  Tailscale's trust-credentials reference): console API access tokens
+  are **fully permitted** — they carry the creating account's
+  permissions and offer no scope selector; scopes belong to trust
+  credentials (OAuth clients, federated identities). Am. 3's
+  "four-scope token" framing described the OAuth future, not the
+  Keys-page token v1 asks for; the intake guidance everywhere is now
+  "mint it from a tailnet owner or admin account." The four-scope
+  language returns with the OAuth self-serve lane, where it is true.
+
 ## References
 
 - Source-pinned facts: `tailscale/tailscale` `ipn/ipnlocal/serve.go`

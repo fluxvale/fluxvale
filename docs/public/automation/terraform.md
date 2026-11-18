@@ -17,17 +17,17 @@ There is no manual install step. The `required_providers` block under Configure 
 
 Offline and air-gapped machines cannot reach the registry. For those, mirror a release archive locally and point the tool at it:
 
-1. Download the zip for your platform from the [releases page](https://github.com/fluxvale/terraform-provider-fluxvale/releases) — adjust the file names below to the platform and version you took — together with the versioned checksums `terraform-provider-fluxvale_0.5.0_SHA256SUMS`. Verify the archive:
+1. Download the zip for your platform from the [releases page](https://github.com/fluxvale/terraform-provider-fluxvale/releases) — adjust the file names below to the platform and version you took — together with the versioned checksums `terraform-provider-fluxvale_0.6.0_SHA256SUMS`. Verify the archive:
 
    ```sh
-   grep terraform-provider-fluxvale_0.5.0_linux_amd64.zip terraform-provider-fluxvale_0.5.0_SHA256SUMS | sha256sum -c -   # macOS: shasum -a 256 -c -
+   grep terraform-provider-fluxvale_0.6.0_linux_amd64.zip terraform-provider-fluxvale_0.6.0_SHA256SUMS | sha256sum -c -   # macOS: shasum -a 256 -c -
    ```
 
 2. Create the mirror tree and place the zip:
 
    ```sh
    mkdir -p ~/.tfplugins-mirror/registry.terraform.io/fluxvale/fluxvale
-   cp terraform-provider-fluxvale_0.5.0_linux_amd64.zip ~/.tfplugins-mirror/registry.terraform.io/fluxvale/fluxvale/
+   cp terraform-provider-fluxvale_0.6.0_linux_amd64.zip ~/.tfplugins-mirror/registry.terraform.io/fluxvale/fluxvale/
    ```
 
 3. Point the tool at the mirror in `~/.terraformrc` for Terraform or `~/.tofurc` for OpenTofu, with the absolute path to your mirror:
@@ -51,7 +51,7 @@ terraform {
   required_providers {
     fluxvale = {
       source  = "registry.terraform.io/fluxvale/fluxvale"
-      version = "~> 0.5" # write-only secret_env_vars needs 0.4.0+
+      version = "~> 0.6" # gateway mint enrollment needs 0.6.0+
     }
   }
 }
@@ -72,7 +72,7 @@ For CI or a container, mint a scoped, short-lived token and store it in the pipe
 
 ### Create the organization
 
-Every deploy needs an organization — the ownership and billing boundary. `fluxvale_organization` creates a team organization and makes the authenticated user its owner. The resource ships in provider **v0.5.0**; bump the pin above to `~> 0.5` (or `>= 0.5`) to use it — on v0.4 the resource type does not exist:
+Every deploy needs an organization — the ownership and billing boundary. `fluxvale_organization` creates a team organization and makes the authenticated user its owner. The resource ships in provider **v0.5.0** (any `>= 0.5` pin covers it; the `~> 0.6` pin above already does) — on v0.4 the resource type does not exist:
 
 ```hcl
 resource "fluxvale_organization" "team" {
@@ -292,12 +292,21 @@ variable "tailscale_api_token" {
 
 resource "fluxvale_access_gateway" "gateway" {
   tailnet_domain      = var.tailnet_domain
-  auth_key            = var.tailscale_auth_key
   api_token           = var.tailscale_api_token
   rotate_api_token_on = "2026-11-15" # bump whenever the token changes
   depends_on          = [fluxvale_custom_domain.apps]
 }
 ```
+
+One credential is enough (provider 0.6+): with `api_token` and no
+`auth_key`, the platform **mints the gateway's join key from the
+token** — single-use, tagged, revoked on use — and stores the token at
+create, so nothing else is pasted and no join key ever changes hands.
+Mint the token from a tailnet owner/admin account (console API tokens
+carry that account's full permissions). `auth_key` remains the
+documented fallback for paste-only setups: set one or the other, never
+both. Your tailnet's ACL must own the `tag:fluxvale-gateway` tag or
+the node cannot join.
 
 The token save attempts to claim every verified domain — read
 `claimed_domains` for the result; a later verification or attach claims
