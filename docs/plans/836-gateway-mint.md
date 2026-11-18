@@ -1,11 +1,40 @@
 # Plan: Gateway enrollment with one Tailscale credential — the platform mints (#836)
 
-Status: **PLAN — awaiting the owner's go** (relayed by the PA; implementation
-fans out only on the relay). Design is ruled, not open:
-[ADR-0040](../adr/00040-strong-private-access-and-custom-domains.md)
-Amendment 3. This plan is slices, sequencing, and edge cases only.
+Status: **COMPLETE** (2026-11-18; #836 closed by #860). Merged, with
+squash shas:
 
-Umbrella: #836. Plan-first per the standing gate.
+| Slice | PR | sha |
+| --- | --- | --- |
+| The plan | #837 | `6ebbc085` |
+| S1 ApiClient mint/revoke | #839 | `e988e9ec` |
+| S2 mint at the provider seam | #847 | `7cd02c50` |
+| S3 single-credential enable | #853 | `68245044` |
+| S4 panel one-paste | #857 | `50e1d857` |
+| 403-sentence correction | #859 | `a47ab296` |
+| S5 docs + ADR Am. 4 (Closes #836) | #860 | `6f5168dd` |
+| Provider P1 mint-enable | fluxvale/terraform-provider-fluxvale#16 | `3910262` |
+| Provider P2 v0.6.0 prep + owner stack | …#17 | `62148ea` |
+| Provider token-guidance correction | …#18 | `fd5bbbe` |
+
+Provider **v0.6.0 tagged** at `fd5bbbe` (release workflow publishes
+the signed assets; the acceptance sidecar reds at its preflight until
+the repo's `TF_ACC_*` secrets exist — a standing nightly gap, not a
+lane artifact). Production and staging both served `sha-1c184abd`
+(main HEAD, the full lane) at tag time. The plan's "a token-only
+create succeeds against production" gate **was not met by a live
+create**: every credential on this seat hit the wallet policy's bare
+`forbidden` (org not funded) before the change layer. The architect
+tagged anyway, accepting the deployed-sha identity plus the test
+pyramid as substitute evidence under the PA-delegated merge
+authority, on the reasoning that the first real token-only create is
+the owner apply itself, which the provider's adoption path de-risks
+(#861 review: a deviation is a deviation — recorded, not reworded). Implementation rulings forced by review live
+in ADR-0040 Amendment 4; the paste-path sibling follow-ups are #848
+(lost-Deployment 404) and #855 (two-party reconnect/suspend
+serialization).
+
+Decision records: [ADR-0040](../adr/00040-strong-private-access-and-custom-domains.md)
+(Am. 3 the ruling, Am. 4 the as-built record). Umbrella: #836.
 
 ## The shape in one paragraph
 
