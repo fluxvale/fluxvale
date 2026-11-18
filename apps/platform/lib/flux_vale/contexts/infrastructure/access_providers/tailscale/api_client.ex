@@ -24,6 +24,11 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.ApiClient do
   - Key mint/revoke (the gateway-enrollment lane, #836): the create
     response carries the secret `key` value exactly once — returned to
     the caller, never logged.
+  - OAuth client-credential exchange (lane B, #836): the response
+    carries the access token and the request's Basic header carries the
+    client secret — the same never-logged discipline, and the same
+    manual decode (`decode_mint`'s stance) so a decode-error struct can
+    never hold the body.
 
   `tailnet/-` (the dash) addresses the key's own tailnet — one
   credential, one tailnet, no tailnet id handling.
@@ -206,6 +211,107 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.ApiClient do
     |> Req.delete(url: "/api/v2/tailnet/-/keys/#{key_id}")
     |> write_result()
   end
+
+  @doc """
+  Exchanges an OAuth client-credential pair for a short-lived access
+  token (the #836 lane-B addendum — mechanics verified live,
+  2026-11-18): `POST /api/v2/oauth/token`, HTTP Basic
+  (`client_id`:`client_secret`), NO body — the endpoint needs none and
+  ignores scope bodies.
+
+  The client secret rides the Authorization header — built explicitly
+  rather than via Req's `auth:` option, because the stubbed-`Req.post`
+  tests must be able to assert the header (the auth step never runs
+  under a stub) — and is never in the URL or a logged option. 2xx
+  returns `{:ok, %{access_token: String.t(), expires_in:
+  pos_integer()}}`; a 2xx missing either field is
+  `{:error, {:bad_payload, status}}` — the contract-break rule, never a
+  converged garbage token. 401 is a real rejection of the client
+  credentials (no retry); 403, others — the module's taxonomy.
+  """
+  @spec oauth_exchange(String.t(), String.t()) ::
+          {:ok, %{access_token: String.t(), expires_in: pos_integer()}} | {:error, error()}
+  def oauth_exchange(client_id, client_secret)
+      when is_binary(client_id) and is_binary(client_secret) do
+    # The Basic header IS the client secret: it must never ride plain
+    # HTTP. A configured base_url override is validated BEFORE the
+    # credential is attached (#863 review — Req validates redirects,
+    # not the initial URL). Test overrides stay usable: they are https.
+    with {:ok, url} <- https_base_url() do
+      req =
+        Req.new(
+          base_url: url,
+          headers: [
+            {"authorization", "Basic " <> Base.encode64(client_id <> ":" <> client_secret)}
+          ]
+        )
+
+      Req.post(req, url: "/api/v2/oauth/token", decode_body: false)
+    end
+    |> exchange_result()
+  end
+
+  defp exchange_result({:ok, %Req.Response{status: status, body: body}})
+       when status in 200..299,
+       do: decode_token(status, body)
+
+  defp exchange_result({:error, :insecure_base_url} = refusal), do: refusal
+
+  # The exchange's error paths NEVER carry bodies or exception
+  # details (#863 review): a misbehaving intermediary's 502 can echo
+  # the request's Basic header in its diagnostic body, and the module
+  # 's generic snippet logger assumes Tailscale's own bodies. Status
+  # codes and atoms only — the same taxonomy, none of the payload.
+  defp exchange_result({:ok, %Req.Response{status: @unauthorized_status}}),
+    do: {:error, :unauthorized}
+
+  defp exchange_result({:ok, %Req.Response{status: @forbidden_status}}),
+    do: {:error, :forbidden}
+
+  defp exchange_result({:ok, %Req.Response{status: status}}) do
+    Logger.warning("Tailscale OAuth exchange failed with HTTP #{status}")
+    {:error, %{status: status}}
+  end
+
+  defp exchange_result({:error, %Req.TransportError{reason: reason}}) do
+    Logger.warning("Tailscale OAuth exchange transport error: #{inspect(reason)}")
+    {:error, :network_error}
+  end
+
+  # Any other error shape: classified, never inspected — the exchange
+  # is the one endpoint whose request carries the client secret.
+  defp exchange_result({:error, _other_class}) do
+    Logger.warning("Tailscale OAuth exchange failed (transport-class error)")
+    {:error, :network_error}
+  end
+
+  # The credential-bearing endpoint's transport floor: https, or the
+  # refusal happens before any secret is placed on a request.
+  defp https_base_url do
+    url = base_url()
+
+    case URI.parse(url) do
+      %URI{scheme: "https"} -> {:ok, url}
+      _insecure_or_unparseable -> {:error, :insecure_base_url}
+    end
+  end
+
+  # The exchange response carries the access token: decoded by hand,
+  # the Jason error struct dropped unread (the decode_mint stance —
+  # its `data` field would hold the RAW body). `expires_in` is the
+  # documented integer seconds; a non-positive one can't key a cache.
+  defp decode_token(status, body) when is_binary(body) do
+    case Jason.decode(body) do
+      {:ok, %{"access_token" => token, "expires_in" => seconds}}
+      when is_binary(token) and is_integer(seconds) and seconds > 0 ->
+        {:ok, %{access_token: token, expires_in: seconds}}
+
+      _malformed_or_incomplete ->
+        {:error, {:bad_payload, status}}
+    end
+  end
+
+  defp decode_token(status, _not_a_binary), do: {:error, {:bad_payload, status}}
 
   @doc """
   The tailnet's split-DNS map: `%{domain => [nameservers]}`.

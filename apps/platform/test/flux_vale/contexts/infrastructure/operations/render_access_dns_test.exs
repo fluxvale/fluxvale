@@ -46,7 +46,7 @@ defmodule FluxVale.Infrastructure.Operations.RenderAccessDNSTest do
       {:ok, %{credential_secret_ref: "credential-stub"}}
     end)
 
-    stub(Tailscale, :read_api_credential, fn _gateway -> {:ok, "tskey-api-test"} end)
+    stub(Tailscale, :with_access_token, fn _gateway, fun -> fun.("tskey-api-test") end)
 
     stub(ApiClient, :devices_lookup, fn _token, _hostname ->
       {:ok, %{id: "dev-1", tailscale_ips: ["100.64.0.1", "fd7a::1"]}}
@@ -462,7 +462,7 @@ defmodule FluxVale.Infrastructure.Operations.RenderAccessDNSTest do
     test "a gateway with no readable API token is omitted", %{org: org} do
       claimed_gateway!(org)
 
-      stub(Tailscale, :read_api_credential, fn _gateway -> {:error, :no_api_token} end)
+      stub(Tailscale, :with_access_token, fn _gateway, _fun -> {:error, :no_api_token} end)
 
       assert RenderAccessDNS.gather() == %{}
     end

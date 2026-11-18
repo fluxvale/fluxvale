@@ -668,4 +668,189 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.ApiClientTest do
       assert body =~ "not found"
     end
   end
+
+  # The lane-B exchange (#836): the client secret rides HTTP Basic on
+  # the request, the access token rides the response body — neither may
+  # reach a URL, an option, or a log.
+  describe "oauth_exchange/2" do
+    @client_id "ts-client-id-123"
+    @client_secret "ts-client-secret-abc"
+
+    # The Basic header is the client secret: an http:// base_url
+    # override must refuse BEFORE the credential is attached (#863
+    # review) — the transport floor is https, and the test override
+    # (https://api.example) stays usable.
+    test "an http:// base_url override is refused before the secret attaches" do
+      original = Application.get_env(:flux_vale, :tailscale_api)
+      Application.put_env(:flux_vale, :tailscale_api, base_url: "http://api.example")
+
+      on_exit(fn -> Application.put_env(:flux_vale, :tailscale_api, original) end)
+
+      reject(Req, :post, 2)
+
+      assert {:error, :insecure_base_url} = ApiClient.oauth_exchange(@client_id, @client_secret)
+    end
+
+    test "POSTs to the token endpoint with HTTP Basic and NO body" do
+      expect(Req, :post, fn req, opts ->
+        assert req.options[:base_url] == "https://api.example"
+        assert opts[:url] == "/api/v2/oauth/token"
+
+        basic = "Basic " <> Base.encode64("#{@client_id}:#{@client_secret}")
+        assert Req.Request.get_header(req, "authorization") == [basic]
+
+        # Never a query param, never a body — the endpoint needs none
+        # and ignores scope bodies (verified live, 2026-11-18).
+        refute Map.has_key?(req.options, :params)
+        assert opts[:params] == nil
+        assert opts[:json] == nil
+        assert opts[:body] == nil
+
+        {:ok,
+         %Req.Response{
+           status: 200,
+           body:
+             ~s({"access_token": "tskey-token-abc", "token_type": "Bearer", "expires_in": 3600, ) <>
+               ~s("scope": "auth_keys dns devices:routes devices:core:read", "tags": ["tag:fluxvale-gateway"]})
+         }}
+      end)
+
+      assert {:ok, %{access_token: "tskey-token-abc", expires_in: 3600}} =
+               ApiClient.oauth_exchange(@client_id, @client_secret)
+    end
+
+    test "a 2xx missing either field is a bad payload, never a converged token" do
+      expect(Req, :post, fn _req, _opts ->
+        {:ok, %Req.Response{status: 200, body: ~s({"access_token": "tskey-token-abc"})}}
+      end)
+
+      assert {:error, {:bad_payload, 200}} = ApiClient.oauth_exchange(@client_id, @client_secret)
+
+      expect(Req, :post, fn _req, _opts ->
+        {:ok, %Req.Response{status: 200, body: ~s({"expires_in": 3600})}}
+      end)
+
+      assert {:error, {:bad_payload, 200}} = ApiClient.oauth_exchange(@client_id, @client_secret)
+    end
+
+    test "a non-positive expires_in is a bad payload — it cannot key a cache" do
+      expect(Req, :post, fn _req, _opts ->
+        {:ok,
+         %Req.Response{
+           status: 200,
+           body: ~s({"access_token": "tskey-token-abc", "expires_in": 0})
+         }}
+      end)
+
+      assert {:error, {:bad_payload, 200}} = ApiClient.oauth_exchange(@client_id, @client_secret)
+    end
+
+    test "a non-JSON 2xx body is a bad payload" do
+      expect(Req, :post, fn _req, _opts ->
+        {:ok, %Req.Response{status: 200, body: "gateway hiccup"}}
+      end)
+
+      assert {:error, {:bad_payload, 200}} = ApiClient.oauth_exchange(@client_id, @client_secret)
+    end
+
+    # Defensive arm: adapters deliver binaries; a non-binary body is
+    # still a contract break, not a crash.
+    test "a non-binary 2xx body is a bad payload, not a crash" do
+      expect(Req, :post, fn _req, _opts ->
+        {:ok, %Req.Response{status: 200, body: nil}}
+      end)
+
+      assert {:error, {:bad_payload, 200}} = ApiClient.oauth_exchange(@client_id, @client_secret)
+    end
+
+    # Same manual-decode discipline as the mint: Req's own decode error
+    # would carry the raw body (token included) into the error arm.
+    test "a malformed 200 body is refused and the token never reaches a log" do
+      token = "tskey-token-leakcanary"
+
+      expect(Req, :post, fn _req, _opts ->
+        {:ok,
+         %Req.Response{
+           status: 200,
+           body: ~s({"access_token": "#{token}", "expires_in": 3600}) <> " trailing garbage"
+         }}
+      end)
+
+      logs =
+        ExUnit.CaptureLog.capture_log(fn ->
+          assert {:error, {:bad_payload, 200}} =
+                   ApiClient.oauth_exchange(@client_id, @client_secret)
+        end)
+
+      refute logs =~ token
+    end
+
+    test "401 is :unauthorized — the client credentials are bad, no retry bait" do
+      expect(Req, :post, fn _req, _opts ->
+        {:ok, %Req.Response{status: 401, body: %{"error" => "invalid_client"}}}
+      end)
+
+      assert {:error, :unauthorized} = ApiClient.oauth_exchange(@client_id, @client_secret)
+    end
+
+    test "403 is :forbidden" do
+      expect(Req, :post, fn _req, _opts ->
+        {:ok, %Req.Response{status: 403, body: %{"error" => "denied"}}}
+      end)
+
+      assert {:error, :forbidden} = ApiClient.oauth_exchange(@client_id, @client_secret)
+    end
+
+    # The failure-path canary, hardened per the #863 review: a
+    # misbehaving intermediary's 502 can ECHO the request's Basic
+    # header in its diagnostic body. The exchange's error path is
+    # status-only — no body in the return, none in the log — so the
+    # canary (the raw Authorization value) reaches neither.
+    test "an error body echoing the Basic header reaches neither log nor return" do
+      basic = "Basic " <> Base.encode64("#{@client_id}:#{@client_secret}")
+
+      expect(Req, :post, fn _req, _opts ->
+        {:ok,
+         %Req.Response{
+           status: 502,
+           body: %{"error" => "upstream said: #{basic} in Authorization"}
+         }}
+      end)
+
+      logs =
+        ExUnit.CaptureLog.capture_log(fn ->
+          assert {:error, %{status: 502}} = ApiClient.oauth_exchange(@client_id, @client_secret)
+        end)
+
+      refute logs =~ basic
+      refute logs =~ @client_secret
+      assert logs =~ "502"
+    end
+
+    test "a transport failure is :network_error" do
+      expect(Req, :post, fn _req, _opts ->
+        {:error, %Req.TransportError{reason: :timeout}}
+      end)
+
+      assert {:error, :network_error} = ApiClient.oauth_exchange(@client_id, @client_secret)
+    end
+
+    # The catch-all: an unrecognized error shape classifies as a
+    # network-class failure, inspected never (the exchange's request
+    # carries the client secret — even an unknown error type must not
+    # be dumped to a log).
+    test "an unrecognized error shape is network-class, never inspected" do
+      expect(Req, :post, fn _req, _opts ->
+        {:error, %RuntimeError{message: "tsclient-secret-canary embedded"}}
+      end)
+
+      logs =
+        ExUnit.CaptureLog.capture_log(fn ->
+          assert {:error, :network_error} = ApiClient.oauth_exchange(@client_id, @client_secret)
+        end)
+
+      refute logs =~ "tsclient-secret-canary"
+      assert logs =~ "transport-class error"
+    end
+  end
 end

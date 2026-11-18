@@ -408,13 +408,20 @@ defmodule FluxVale.Infrastructure.Operations.RenderAccessDNS do
   end
 
   # The tailnet IP comes from the tailnet API (the only place the
-  # platform can read one) through the provider's own credential path —
-  # the client's reach is not widened, and the token never logs.
+  # platform can read one) through the provider's wrapper — the lane-B
+  # ruling: never a direct `read_api_credential`, so an OAuth-paired
+  # gateway resolves its token exactly like every other API caller,
+  # and the token never logs.
   defp tailnet_ip(gateway) do
-    with {:ok, token} <- Tailscale.read_api_credential(gateway),
-         {:ok, %{tailscale_ips: ips}} <- ApiClient.devices_lookup(token, gateway.hostname) do
-      first_ipv4(ips)
-    end
+    Tailscale.with_access_token(gateway, fn token ->
+      case ApiClient.devices_lookup(token, gateway.hostname) do
+        {:ok, %{tailscale_ips: ips}} ->
+          first_ipv4(ips)
+
+        {:error, _reason} = error ->
+          error
+      end
+    end)
   end
 
   # The A record needs a REAL IPv4 (100.x.y.z) — validated, not

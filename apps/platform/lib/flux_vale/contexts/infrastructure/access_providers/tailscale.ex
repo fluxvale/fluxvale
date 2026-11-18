@@ -58,6 +58,7 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale do
   alias FluxVale.Infrastructure.AccessProviders.Tailscale.ApiClient
   alias FluxVale.Infrastructure.AccessProviders.Tailscale.Ports
   alias FluxVale.Infrastructure.AccessProviders.Tailscale.ServeConfig
+  alias FluxVale.Infrastructure.AccessProviders.Tailscale.TokenCache
   alias FluxVale.Infrastructure.AccessRoute
   alias FluxVale.Infrastructure.Instance
   alias FluxVale.Infrastructure.Operations.InstanceK8s
@@ -276,16 +277,17 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale do
   # FluxVale: two one-time API writes per (tailnet, domain) — approve
   # the gateway's advertised resolver /32 (subnet routes) and add the
   # domain's split-DNS route pointing at the resolver. The token is a
-  # NEW trust surface (§5): read from the Secret, used here, never
-  # logged.
+  # NEW trust surface (§5): resolved through `with_access_token/2`,
+  # used here, never logged.
   @impl FluxVale.Infrastructure.AccessProvider
   def claim_domain(%AccessGateway{} = gateway, domain, resolver_ip) do
-    with {:ok, token} <- read_api_credential(gateway),
-         {:ok, device} <- tailnet_node(token, gateway),
-         :ok <- ensure_subnet_route(token, device.id, resolver_ip),
-         :ok <- ensure_split_dns(token, domain, resolver_ip) do
-      {:ok, %{device_id: device.id, route: route_cidr(resolver_ip)}}
-    end
+    with_access_token(gateway, fn token ->
+      with {:ok, device} <- tailnet_node(token, gateway),
+           :ok <- ensure_subnet_route(token, device.id, resolver_ip),
+           :ok <- ensure_split_dns(token, domain, resolver_ip) do
+        {:ok, %{device_id: device.id, route: route_cidr(resolver_ip)}}
+      end
+    end)
   end
 
   # The mirror. The split-DNS route is tailnet-global and SHARED — it is
@@ -297,10 +299,11 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale do
   # unclaimed domain still unsets (a no-op patch) and skips the route.
   @impl FluxVale.Infrastructure.AccessProvider
   def unclaim_domain(%AccessGateway{} = gateway, domain) do
-    with {:ok, token} <- read_api_credential(gateway),
-         :ok <- maybe_unset_split_dns(token, gateway, domain) do
-      maybe_disable_route(token, gateway, domain)
-    end
+    with_access_token(gateway, fn token ->
+      with :ok <- maybe_unset_split_dns(token, gateway, domain) do
+        maybe_disable_route(token, gateway, domain)
+      end
+    end)
   end
 
   defp tailnet_node(token, gateway) do
@@ -479,8 +482,12 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale do
   end
 
   @doc """
-  Reads the API token back — internal only (claiming needs it for the
-  Tailscale API calls). No user surface returns it (§5).
+  Reads the console API token back — the RAW Secret reader (§5, no
+  user surface returns it). NOT the API paths' credential source: they
+  resolve through `with_access_token/2`, which also understands the
+  OAuth pair (`TS_CLIENT_ID` + `TS_CLIENT_SECRET`). A Secret holding
+  only the pair therefore answers `{:error, :api_token_malformed}`
+  here — there is no console token in it.
   """
   @spec read_api_credential(AccessGateway.t()) :: {:ok, String.t()} | {:error, term()}
   def read_api_credential(%AccessGateway{} = gateway) do
@@ -500,6 +507,105 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale do
       end
     end
   end
+
+  @doc """
+  The API-facing credential read (#836 lane B): resolves the
+  api-credential Secret to a bearer token and runs `fun` with it.
+
+  The Secret holds EITHER the OAuth pair (`TS_CLIENT_ID` +
+  `TS_CLIENT_SECRET`, both non-empty binaries — the preferred shape)
+  OR the console token (`TS_API_TOKEN`, unchanged). The pair's token
+  comes from `TokenCache` (the client-credentials exchange); a
+  `{:error, :unauthorized}` from an OAuth-derived token invalidates
+  the cache and retries ONCE with a fresh exchange — the retry result
+  is final (a surviving 401 means a rotated secret, and the drift copy
+  says so). A console token's 401 is the real rejection it has always
+  been: no retry.
+
+  Every token-consuming call site routes through this wrapper (the
+  lane-B ruling — all six, the revoke paths and the DNS renderer's
+  `tailnet_ip/1` included). Errors from the resolution pass through
+  untranslated: no Secret is `{:error, :no_api_token}`, a lone pair
+  half is `{:error, :api_token_malformed}` — the malformed token
+  shape's atom, same handling as today.
+  """
+  @spec with_access_token(AccessGateway.t(), (String.t() -> result)) ::
+          result | {:error, term()}
+        when result: var
+  def with_access_token(%AccessGateway{} = gateway, fun) when is_function(fun, 1) do
+    case api_credential(gateway) do
+      {:ok, {:pair, client_id, client_secret}} ->
+        pair_call(client_id, client_secret, fun)
+
+      {:ok, {:console, token}} ->
+        fun.(token)
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
+  # The retry-once ruling: a cached OAuth token can outlive its server
+  # side validity (a rotated secret, a skew window). ONE fresh exchange
+  # answers it; the second call's result is final — no loops.
+  defp pair_call(client_id, client_secret, fun) do
+    case TokenCache.fetch(client_id, client_secret) do
+      {:ok, token} ->
+        outcome = fun.(token)
+        retry_on_unauthorized(outcome, client_id, client_secret, fun)
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
+  defp retry_on_unauthorized({:error, :unauthorized}, client_id, client_secret, fun) do
+    TokenCache.invalidate(client_id)
+
+    # fetch_fresh bypasses the cache READ (#863 review): an exchange
+    # that started BEFORE this invalidation may publish a stale entry
+    # after it — the retry must mint, never adopt that racer.
+    case TokenCache.fetch_fresh(client_id, client_secret) do
+      {:ok, fresh} ->
+        fun.(fresh)
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
+  defp retry_on_unauthorized(other, _client_id, _client_secret, _fun), do: other
+
+  # The wrapper's credential resolution over the raw Secret map — one
+  # read, one verdict. The pair wins when both its halves hold (the
+  # addendum's preference); a lone half is the malformed credential.
+  # A Secret present but holding nothing usable stays today's
+  # `:api_token_malformed`; an absent Secret stays `:no_api_token`.
+  defp api_credential(%AccessGateway{} = gateway) do
+    with {:ok, kubeconfig} <- kubeconfig() do
+      case Secret.get_data(kubeconfig, access_namespace(), api_credential_secret_name(gateway)) do
+        {:ok, %{"TS_CLIENT_ID" => client_id, "TS_CLIENT_SECRET" => client_secret}}
+        when is_binary(client_id) and client_id != "" and is_binary(client_secret) and
+               client_secret != "" ->
+          {:ok, {:pair, client_id, client_secret}}
+
+        {:ok, data} ->
+          console_or_error(data)
+
+        {:error, %Error{reason: :not_found}} ->
+          {:error, :no_api_token}
+
+        {:error, _reason} = error ->
+          error
+      end
+    end
+  end
+
+  defp console_or_error(%{"TS_API_TOKEN" => token}) when is_binary(token) and token != "" do
+    {:ok, {:console, token}}
+  end
+
+  defp console_or_error(_malformed), do: {:error, :api_token_malformed}
 
   # ------------------------------------------------------------------
   # refresh_routes/1
@@ -634,8 +740,12 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale do
   # BOTH mint callbacks share this one flow — a minted key never
   # crosses the seam as a bare value, so the token and the fresh key id
   # stay in this process (#837 review). Steps, in order: supersede-revoke
-  # of a marked stored key, read the API token, mint (keys_create),
-  # write the credential Secret WITH the marker. A Secret-write failure
+  # of a marked stored key, resolve the token through the wrapper,
+  # mint (keys_create), write the credential Secret WITH the marker.
+  # The token read and the write-failure revoke share ONE wrapper call
+  # (the lane-B ruling): the minting token stays in hand at the failure
+  # point, and the wrapper's 401 retry re-runs the whole mint attempt
+  # so a fresh token mints the replacement key. A Secret-write failure
   # revokes the fresh key from memory: the marker never landed, so
   # revoke_enrollment_credential/1 alone could never find it. Returns
   # :ok | {:error, term()} deliberately — the key value stops here; it
@@ -643,21 +753,26 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale do
   defp mint_and_write_credential(kubeconfig, namespace, gateway) do
     revoke_enrollment_credential(kubeconfig, gateway)
 
-    with {:ok, token} <- read_api_credential(gateway),
-         {:ok, %{id: key_id, key: key}} <- ApiClient.keys_create(token, mint_opts(gateway)) do
-      case write_credential(kubeconfig, namespace, gateway, key, minted?: true) do
-        :ok ->
-          # R3's audit line: ids only, never values.
-          Logger.info("gateway #{gateway.id} minted enrollment key #{key_id}")
-          :ok
-
-        {:error, _reason} = error ->
-          # The Secret never recorded the marker — revoke from memory,
-          # best-effort. The write error is the answer; this is the ops
-          # trail.
-          revoke_fresh_key(token, key_id)
-          error
+    with_access_token(gateway, fn token ->
+      with {:ok, %{id: key_id, key: key}} <- ApiClient.keys_create(token, mint_opts(gateway)) do
+        write_minted_credential(kubeconfig, namespace, gateway, token, key_id, key)
       end
+    end)
+  end
+
+  defp write_minted_credential(kubeconfig, namespace, gateway, token, key_id, key) do
+    case write_credential(kubeconfig, namespace, gateway, key, minted?: true) do
+      :ok ->
+        # R3's audit line: ids only, never values.
+        Logger.info("gateway #{gateway.id} minted enrollment key #{key_id}")
+        :ok
+
+      {:error, _reason} = error ->
+        # The Secret never recorded the marker — revoke from memory,
+        # best-effort. The write error is the answer; this is the ops
+        # trail.
+        revoke_fresh_key(token, key_id)
+        error
     end
   end
 
@@ -726,30 +841,45 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale do
   end
 
   defp delete_enrollment_key(gateway, key_id) do
-    case read_api_credential(gateway) do
-      {:ok, token} ->
+    # The fun returns keys_delete's result RAW — a 401 must reach the
+    # wrapper so an OAuth-derived token can invalidate + re-exchange +
+    # retry once (the CodeRabbit #863 catch: swallowing it here left a
+    # stale cached token's revoke silently failing while the key stayed
+    # valid). The best-effort log-and-:ok conversion happens on the
+    # FINAL outcome, below, for every caller.
+    outcome =
+      with_access_token(gateway, fn token ->
         case ApiClient.keys_delete(token, key_id) do
           :ok ->
             Logger.info("gateway #{gateway.id} revoked enrollment key #{key_id}")
             :ok
 
-          {:error, reason} ->
+          {:error, reason} = error ->
             Logger.warning(
               "Access gateway #{gateway.id} enrollment-key #{key_id} revoke failed " <>
                 "(the TTL bounds it): #{inspect(reason)}"
             )
 
-            :ok
+            error
         end
+      end)
 
-      {:error, reason} ->
-        Logger.warning(
-          "Access gateway #{gateway.id} enrollment-key #{key_id} revoke skipped (no " <>
-            "readable token; the TTL bounds it): #{inspect(reason)}"
-        )
+    revoke_outcome(outcome, gateway, key_id)
+  end
 
-        :ok
-    end
+  # The revoke is best-effort by contract; the wrapper itself failing
+  # (no readable credential — absent, malformed, or an exchange that
+  # would not resolve, including a retry that still 401s) is the same
+  # log-and-:ok as an API failure: the 1h TTL bounds a missed revoke.
+  defp revoke_outcome(:ok, _gateway, _key_id), do: :ok
+
+  defp revoke_outcome({:error, reason}, gateway, key_id) do
+    Logger.warning(
+      "Access gateway #{gateway.id} enrollment-key #{key_id} revoke stood down " <>
+        "(no usable credential, or the delete was refused; the TTL bounds it): #{inspect(reason)}"
+    )
+
+    :ok
   end
 
   # The in-memory revoke (mint succeeded, Secret write failed): the
@@ -1266,42 +1396,101 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale do
   @token_scope_message ~s(Your Tailscale API key doesn't have the permissions FluxVale needs. ) <>
                          ~s(Paste a key from a tailnet owner or admin)
 
+  # The pair-aware sentences (the lane-B addendum's drift copy): on the
+  # OAuth pair a surviving 401 means the client secret rotated, and a
+  # 403 means the client lacks a scope — different fixes, never folded
+  # into the console sentences. The console sentences stand for console
+  # tokens.
+  @pair_secret_rotated_message ~s(Your Tailscale OAuth client secret was rejected. ) <>
+                                 ~s(Rotate the client secret in Settings → Access)
+
+  @pair_scope_message ~s(Your Tailscale OAuth client lacks a scope FluxVale needs. ) <>
+                        ~s(Add the missing scope to the OAuth client)
+
   @spec token_drift_message(:unauthorized | :forbidden) :: String.t()
   def token_drift_message(:unauthorized), do: @token_rejected_message
   def token_drift_message(:forbidden), do: @token_scope_message
+
+  # The wrapper-consuming render points use this form: the copy follows
+  # the credential the API actually heard. The Secret is re-read here
+  # on the drift path only (a rejection — rare by definition), so the
+  # sentence cannot fork from what `with_access_token/2` used; anything
+  # but a confirmed pair falls back to the console copy.
+  @spec token_drift_message(AccessGateway.t(), :unauthorized | :forbidden) :: String.t()
+  def token_drift_message(%AccessGateway{} = gateway, kind)
+      when kind in [:unauthorized, :forbidden] do
+    if pair_credential?(gateway) do
+      pair_drift_message(kind)
+    else
+      token_drift_message(kind)
+    end
+  end
+
+  defp pair_drift_message(:unauthorized), do: @pair_secret_rotated_message
+  defp pair_drift_message(:forbidden), do: @pair_scope_message
+
+  # The copy chooser must never ADD a failure mode to the drift path:
+  # the wrapper's own read succeeded moments earlier (that is how the
+  # verdict happened), so a raise here is a cluster blip between the
+  # two reads — the console sentence is the honest degradation. A
+  # non-pair answer (missing Secret, malformed, error tuple) is the
+  # same fallback.
+  defp pair_credential?(gateway) do
+    match?({:ok, {:pair, _client_id, _client_secret}}, api_credential(gateway))
+  rescue
+    # coveralls-ignore-start - staging the between-reads cluster blip
+    # needs a race the sandbox cannot hold; the fallback is pinned by
+    # the console-copy equality tests, which render this chooser
+    # without a readable Secret.
+    _cluster_blip ->
+      false
+      # coveralls-ignore-stop
+  end
 
   # Only a gateway with a token ref reaches the limb (claims alone
   # cannot be verified; nothing provable either way). One-shot per
   # observation pass — no retry loop (the honest one-shot; the next
   # tick re-decides). A 401/403 lands :needs_attention with the
-  # verdict's copy; any OTHER check failure is logged and the
-  # pod-level observation stands — a flaky read must not flap a row.
+  # verdict's copy — pair-aware, and a pair 401 here has already
+  # survived the wrapper's fresh-exchange retry; any OTHER check
+  # failure is logged and the pod-level observation stands — a flaky
+  # read must not flap a row.
   defp reconcile_claim_credential({:ok, %{state: :active}} = observed, gateway) do
     if gateway.api_token_secret_ref != nil do
-      with {:ok, token} <- read_api_credential(gateway),
-           :ok <- check_token(token, gateway) do
-        reconcile_and_default_claim(token, gateway)
-        observed
-      else
-        {:error, :unauthorized} ->
-          {:ok, %{state: :needs_attention, message: token_drift_message(:unauthorized)}}
-
-        {:error, :forbidden} ->
-          {:ok, %{state: :needs_attention, message: token_drift_message(:forbidden)}}
-
-        {:error, reason} ->
-          Logger.warning(
-            "Access gateway #{gateway.id} API token check failed (no drift): #{inspect(reason)}"
-          )
-
-          observed
-      end
+      reconcile_token_backed(observed, gateway)
     else
       observed
     end
   end
 
   defp reconcile_claim_credential(observed, _gateway), do: observed
+
+  defp reconcile_token_backed(observed, gateway) do
+    outcome =
+      with_access_token(gateway, fn token ->
+        with :ok <- check_token(token, gateway) do
+          reconcile_and_default_claim(token, gateway)
+          observed
+        end
+      end)
+
+    reconcile_outcome(outcome, observed, gateway)
+  end
+
+  defp reconcile_outcome({:ok, _status}, observed, _gateway), do: observed
+
+  defp reconcile_outcome({:error, kind}, _observed, gateway)
+       when kind in [:unauthorized, :forbidden] do
+    {:ok, %{state: :needs_attention, message: token_drift_message(gateway, kind)}}
+  end
+
+  defp reconcile_outcome({:error, reason}, observed, gateway) do
+    Logger.warning(
+      "Access gateway #{gateway.id} API token check failed (no drift): #{inspect(reason)}"
+    )
+
+    observed
+  end
 
   # The claims reconcile limb (P2-4 + P2-6), plus the RULED default-on
   # platform claim (ADR-0040 §3): a gateway that is :active with a
