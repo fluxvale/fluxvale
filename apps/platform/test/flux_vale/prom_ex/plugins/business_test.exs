@@ -1,14 +1,14 @@
 defmodule FluxVale.PromEx.Plugins.BusinessTest do
   @moduledoc """
-  The fleet counter contract: three counters, the NARROWER fleet label
+  The fleet counter contract: the counters, the NARROWER fleet label
   sets (no app, no reason — the LiveDashboard tags deliberately
-  dropped), the closed-enum derivations behind the 78-series ceiling,
-  and an end-to-end scrape proving the events land as
-  `flux_vale_*_total` series (the names the fleet allowlist and the
-  alert rules query; nothing may rename them silently). Plus the #182
-  stuck-in-error gauge: the poller's contract name and shape, the
-  scoping that keeps zombies and undated rows out of the count, and
-  the rendered series.
+  dropped; the #829 reminder counter labelless outright), the
+  closed-enum derivations behind the 78-series labeled ceiling, and an
+  end-to-end scrape proving the events land as `flux_vale_*_total`
+  series (the names the fleet allowlist and the alert rules query;
+  nothing may rename them silently). Plus the #182 stuck-in-error
+  gauge: the poller's contract name and shape, the scoping that keeps
+  zombies and undated rows out of the count, and the rendered series.
   """
 
   # async: false — the scrape starts the module-named PromEx tree,
@@ -25,21 +25,23 @@ defmodule FluxVale.PromEx.Plugins.BusinessTest do
   @series ~r/^flux_vale_(instance_status_transition|gateway_state_change|backup_run)_total\{/
   @gauge_line "flux_vale_instances_in_error "
 
-  test "three counters over the narrower fleet label sets" do
+  test "four counters over the narrower fleet label sets" do
     assert [%PromEx.MetricTypes.Event{metrics: counters}] =
              Business.event_metrics(otp_app: :flux_vale)
 
-    assert length(counters) == 3
+    assert length(counters) == 4
 
     by_name = Map.new(counters, fn counter -> {counter.name, counter} end)
 
     instance = Map.fetch!(by_name, [:flux_vale, :instance, :status_transition_total])
     gateway = Map.fetch!(by_name, [:flux_vale, :gateway, :state_change_total])
     backup = Map.fetch!(by_name, [:flux_vale, :backup, :run_total])
+    reminder = Map.fetch!(by_name, [:flux_vale, :billing, :auto_recharge, :reminder_total])
 
     assert instance.event_name == [:flux_vale, :instance, :status_transition]
     assert gateway.event_name == [:flux_vale, :gateway, :state_change]
     assert backup.event_name == [:flux_vale, :backup, :run]
+    assert reminder.event_name == [:flux_vale, :billing, :auto_recharge, :reminder]
 
     # Fleet labels are deliberately narrower than the emissions carry:
     # reason (instance) and the richer metadata stay dashboard-side.
@@ -47,7 +49,12 @@ defmodule FluxVale.PromEx.Plugins.BusinessTest do
     assert gateway.tags == [:from, :to]
     assert backup.tags == [:kind, :status]
 
-    Enum.each([instance, gateway, backup], fn counter ->
+    # The reminder counter is labelless outright (#829 L4): the only
+    # natural dimension (the org) is exactly what the cardinality rule
+    # bans, and the outcome rides metadata no fleet tag reads.
+    assert reminder.tags == []
+
+    Enum.each([instance, gateway, backup, reminder], fn counter ->
       assert counter.measurement == :count
     end)
 
@@ -159,6 +166,14 @@ defmodule FluxVale.PromEx.Plugins.BusinessTest do
       %{kind: :scheduled, status: :succeeded}
     )
 
+    # The reminder sweep's decision pulse (#829 L4): outcome rides the
+    # metadata — no fleet tag reads it.
+    :telemetry.execute(
+      [:flux_vale, :billing, :auto_recharge, :reminder],
+      %{count: 1},
+      %{outcome: :reminded}
+    )
+
     scrape = PromEx.get_metrics(FluxVale.PromEx)
 
     series_lines =
@@ -167,7 +182,9 @@ defmodule FluxVale.PromEx.Plugins.BusinessTest do
       |> Enum.filter(&Regex.match?(@series, &1))
 
     # One labeled sample per family — and the dropped labels stay out:
-    # the instance series carries from/to, never reason.
+    # the instance series carries from/to, never reason. (The
+    # label-free reminder series never matches this regex: it renders
+    # no braces at all.)
     assert length(series_lines) == 3
 
     assert scrape =~
@@ -176,6 +193,14 @@ defmodule FluxVale.PromEx.Plugins.BusinessTest do
     assert scrape =~ "flux_vale_gateway_state_change_total{from=\"active\",to=\"suspended\"}"
     assert scrape =~ "flux_vale_backup_run_total{kind=\"scheduled\",status=\"succeeded\"}"
     refute scrape =~ ~r/flux_vale_instance_status_transition_total\{[^}]*reason/
+
+    # The reminder pulse, label-free (#829 L4): a bare sample line —
+    # no braces, so the outcome (and any org-adjacent idea) can never
+    # leak into a label — and the exporter contract pinned like the
+    # labeled families'.
+    assert scrape =~ "flux_vale_billing_auto_recharge_reminder_total 1"
+    refute scrape =~ "flux_vale_billing_auto_recharge_reminder_total{"
+    assert scrape =~ "# TYPE flux_vale_billing_auto_recharge_reminder_total counter"
 
     # The exporter contract, pinned: a sum metric renders TYPE
     # counter (sum's PromEx default), and a count-1 event
@@ -187,7 +212,7 @@ defmodule FluxVale.PromEx.Plugins.BusinessTest do
 
     # The naming contract, pinned from the other side: no PromEx-default
     # prefix leaks into a _total family, and the wake histograms never
-    # match a _total glob — exactly the three business families exist.
+    # match a _total glob — exactly the four business families exist.
     refute scrape =~ ~r/^flux_vale_prom_ex_.*_total\b/
     refute scrape =~ ~r/^flux_vale_wake_.*_total\b/
   end

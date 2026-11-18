@@ -389,8 +389,7 @@ cardinality; an org-id dimension violates it, so the counter is
 labelless), plus the emission call in the L2 sweep operation,
 `docs/public/billing/auto-recharge.md` (new; what the reminder does,
 threshold/amount, the ≤1/day cadence, how to turn it off, and its
-relationship to the ladder warnings), this plan's Verification
-section updated.
+relationship to the ladder warnings).
 
 **Done when**: `mix ci` green overall (the PR gate below) and
 `mix docs.lint`/`blog.lint` clean.

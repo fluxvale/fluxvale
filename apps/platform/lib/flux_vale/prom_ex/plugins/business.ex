@@ -20,6 +20,13 @@ defmodule FluxVale.PromEx.Plugins.Business do
   - `flux_vale_backup_run_total{kind,status}` — terminal backup/
     restore outcomes (BackupRun.OutcomeMarkers); the failure-rate
     alert's numerator and denominator.
+  - `flux_vale_billing_auto_recharge_reminder_total` — the reminder
+    sweep's committed decisions (SweepAutoRecharge, #829): a reminder
+    fired or an episode recovered; idle emits nothing (a pass that
+    decided nothing is the markers' no-op stance). Label-free — the
+    count is the lane's pulse, and the only natural dimension (the
+    org) is exactly what the cardinality rule bans; outcome rides the
+    metadata no fleet tag reads.
   - `flux_vale_instances_in_error` — the DB-truth stuck-in-error
     gauge (#182), one poller sample per 60s: instances whose status is
     `:error` NOW with `errored_at` inside the 7d window (StatusMarkers
@@ -34,14 +41,15 @@ defmodule FluxVale.PromEx.Plugins.Business do
   boot (PromEx.SeedBusinessCounters): 52 legal instance pairs
   (instance_transition_pairs/0) + 20 gateway pairs
   (gateway_state_pairs/0) + 6 backup outcomes
-  (backup_outcome_pairs/0) = 78 steady-state series. Seeding because
+  (backup_outcome_pairs/0) = 78 steady-state series, plus the
+  label-free reminder counter — 79. Seeding because
   increase() never counts a series' first increment — Prometheus
   anchors on the first scrape and assumes no preceding zero, so a
   series that materializes on its first real event loses that event;
   with in-memory counters resetting per deploy, that is each edge's
   first event after every deploy — exactly what the occupancy rules
   must see. The gauge adds one label-free series per platform pod —
-  79 steady-state series per pod — and is NOT seeded: the poller
+  80 steady-state series per pod — and is NOT seeded: the poller
   materializes it within one 60s tick of boot, and a count gauge needs
   no first-increment anchor (each sample is the whole truth, not a
   delta).
@@ -78,6 +86,10 @@ defmodule FluxVale.PromEx.Plugins.Business do
   @gateway_event [:flux_vale, :gateway, :state_change]
   @instance_event [:flux_vale, :instance, :status_transition]
   @run_event [:flux_vale, :backup, :run]
+
+  # The reminder sweep's decision pulse (#829 L4) — the same literal
+  # SweepAutoRecharge emits (pinned from both sides by tests).
+  @reminder_event [:flux_vale, :billing, :auto_recharge, :reminder]
 
   # Singular segment for the event (the metric family is the plural
   # rendered name below — the two namespaces stay symmetric with the
@@ -176,6 +188,13 @@ defmodule FluxVale.PromEx.Plugins.Business do
               "Terminal backup/restore outcomes by kind/status — the failure-rate alert's fraction.",
             measurement: :count,
             tags: [:kind, :status]
+          ),
+          sum(
+            metric_prefix ++ [:billing, :auto_recharge, :reminder_total],
+            event_name: @reminder_event,
+            description:
+              "Auto-recharge reminder sweep decisions — reminders fired and episodes recovered (#829).",
+            measurement: :count
           )
         ]
       )
