@@ -20,14 +20,15 @@ Provider **v0.6.0 tagged** at `fd5bbbe` (release workflow publishes
 the signed assets; the acceptance sidecar reds at its preflight until
 the repo's `TF_ACC_*` secrets exist — a standing nightly gap, not a
 lane artifact). Production and staging both served `sha-1c184abd`
-(main HEAD, the full lane) at tag time — the mint path's prod
-liveness proven by build identity. The plan's "a token-only create
-succeeds against production" was satisfied in substance by the
-deployed-sha identity plus the test pyramid, not by a live create:
-every credential on this seat hit the wallet policy's bare
-`forbidden` (org not funded) before the change layer — the first real
-token-only create is the owner apply itself, which the provider's
-adoption path de-risks. Implementation rulings forced by review live
+(main HEAD, the full lane) at tag time. The plan's "a token-only
+create succeeds against production" gate **was not met by a live
+create**: every credential on this seat hit the wallet policy's bare
+`forbidden` (org not funded) before the change layer. The architect
+tagged anyway, accepting the deployed-sha identity plus the test
+pyramid as substitute evidence under the PA-delegated merge
+authority, on the reasoning that the first real token-only create is
+the owner apply itself, which the provider's adoption path de-risks
+(#861 review: a deviation is a deviation — recorded, not reworded). Implementation rulings forced by review live
 in ADR-0040 Amendment 4; the paste-path sibling follow-ups are #848
 (lost-Deployment 404) and #855 (two-party reconnect/suspend
 serialization).
