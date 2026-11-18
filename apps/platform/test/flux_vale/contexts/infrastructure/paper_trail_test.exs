@@ -443,5 +443,39 @@ defmodule FluxVale.Infrastructure.PaperTrailTest do
       assert paste.version_action_inputs["api_token"] == "REDACTED"
       refute Enum.any?(gateway_versions, &(inspect(&1) =~ token))
     end
+
+    test "a PAIR save redacts the secret half and keeps the id — the settings lane (#836 B2)" do
+      client_secret = "ts-client-secret-TRAIL"
+
+      {org, owner} = BillingFixtures.grant_free_org!()
+
+      stub(Tailscale, :provision_gateway, fn _gateway, _key ->
+        {:ok, %{credential_secret_ref: "credential-stub"}}
+      end)
+
+      stub(Tailscale, :write_client_credential, fn _gateway, _id, _secret ->
+        {:ok, %{api_token_secret_ref: "api-credential-pair"}}
+      end)
+
+      gateway = AccessFixtures.gateway!(org)
+
+      # The action direct (the domain op is token-only): same call shape
+      # the changes-test suite uses for the pair save, actor riding for
+      # the fence and the audit attribution.
+      assert {:ok, _row} =
+               AccessGateway.set_api_token(
+                 gateway,
+                 %{ts_client_id: "client-id-1", ts_client_secret: client_secret},
+                 actor: owner,
+                 authorize?: false
+               )
+
+      versions = versions!(AccessGateway.Version, gateway.id)
+      pair = Enum.find(versions, &(&1.version_action_name == :set_api_token))
+
+      assert pair.version_action_inputs["ts_client_secret"] == "REDACTED"
+      assert pair.version_action_inputs["ts_client_id"] == "client-id-1"
+      refute Enum.any?(versions, &(inspect(&1) =~ client_secret))
+    end
   end
 end

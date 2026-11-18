@@ -11637,7 +11637,7 @@
       "post": {
         "callbacks": {},
         "deprecated": false,
-        "description": "Opts the org in (ADR-0039): writes the row as :provisioning and\nenqueues the cluster work. The hostname is minted here — opaque,\nnever derived from org or app names (§1). The monthly rate comes\nfrom the :access_gateway config and is stored as the billing\nsnapshot — it is never caller-supplied (#360: a wire caller must\nnot price their own gateway). Exactly one credential (#836): an\nauth key (the pasted fallback) or an API token — the platform\nmints the join key from it, owner only.\n",
+        "description": "Opts the org in (ADR-0039): writes the row as :provisioning and\nenqueues the cluster work. The hostname is minted here — opaque,\nnever derived from org or app names (§1). The monthly rate comes\nfrom the :access_gateway config and is stored as the billing\nsnapshot — it is never caller-supplied (#360: a wire caller must\nnot price their own gateway). Exactly one credential (#836): an\nauth key (the pasted fallback), an API token, or the OAuth client\npair (lane B) — the platform mints the join key from the token or\npair, owner only.\n",
         "parameters": [
           {
             "description": "Relationship paths to include in the response",
@@ -11728,6 +11728,26 @@
                           },
                           "tailnet_domain": {
                             "type": "string"
+                          },
+                          "ts_client_id": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "ts_client_secret": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
                           }
                         },
                         "required": [
@@ -12111,7 +12131,7 @@
       "patch": {
         "callbacks": {},
         "deprecated": false,
-        "description": "The owner pastes the four-scope Tailscale API token: the provider\nwrites the Secret, the row keeps the ref and the rotation stamp,\nand the org's verified custom domains are claimed on the tailnet.\nThe token is never readable back (ADR-0040 §5, Am. 3).\n",
+        "description": "The owner pastes a Tailscale credential: the console API token, or\nthe OAuth client pair (client id + client secret, together). The\nprovider writes the api-credential Secret, the row keeps the ref\nand the rotation stamp, and the org's verified custom domains are\nclaimed on the tailnet. The token and the client secret are never\nreadable back (ADR-0040 §5, Am. 3).\n",
         "parameters": [
           {
             "in": "path",
@@ -12169,12 +12189,36 @@
                         "additionalProperties": false,
                         "properties": {
                           "api_token": {
-                            "type": "string"
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "ts_client_id": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "ts_client_secret": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
                           }
                         },
-                        "required": [
-                          "api_token"
-                        ],
                         "type": "object"
                       },
                       "id": {
@@ -12205,7 +12249,7 @@
             }
           },
           "description": "Request body for the /access-gateways/:id/api-token operation on access_gateway resource",
-          "required": true
+          "required": false
         },
         "responses": {
           "200": {

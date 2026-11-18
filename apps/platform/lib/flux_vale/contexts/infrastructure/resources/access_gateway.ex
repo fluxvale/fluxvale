@@ -554,8 +554,9 @@ defmodule FluxVale.Infrastructure.AccessGateway do
       from the :access_gateway config and is stored as the billing
       snapshot — it is never caller-supplied (#360: a wire caller must
       not price their own gateway). Exactly one credential (#836): an
-      auth key (the pasted fallback) or an API token — the platform
-      mints the join key from it, owner only.
+      auth key (the pasted fallback), an API token, or the OAuth client
+      pair (lane B) — the platform mints the join key from the token or
+      pair, owner only.
       """)
 
       accept([:tailnet_domain])
@@ -591,6 +592,14 @@ defmodule FluxVale.Infrastructure.AccessGateway do
       # stays member+funded+paid), stored Secret-first by
       # CreateStoresApiToken before the cluster work runs.
       argument(:api_token, :string, allow_nil?: true, sensitive?: true)
+
+      # #836 lane B: the OAuth client pair, the preferred credential —
+      # the client id is public identity (NOT sensitive; PaperTrail
+      # keeps it in the clear by design), the secret is the crown half
+      # and rides sensitive. The pair is owner-fenced like the token
+      # and lands the same Secret, one shape per save (CreateStoresApiToken).
+      argument(:ts_client_id, :string, allow_nil?: true)
+      argument(:ts_client_secret, :string, allow_nil?: true, sensitive?: true)
 
       # #360: the price is the platform's, never the caller's — every
       # existing caller (the panel, the fixtures) sends the config
@@ -665,21 +674,28 @@ defmodule FluxVale.Infrastructure.AccessGateway do
       change(StateMarkers)
     end
 
-    # #760: the API-token intake — the one token ADR-0040 Am. 3 asks
-    # for. Write-only (sensitive argument, never an attribute), owner
-    # only (policy above; the change re-fences the authorize?-free
-    # seam), and the save claims this org's already-verified domains.
+    # #760: the API-token intake — the one credential ADR-0040 Am. 3
+    # asks for, now in either shape (#836 lane B): the four-scope
+    # console token OR the OAuth client pair (both halves). Write-only
+    # (sensitive arguments, never attributes), owner only (policy above;
+    # the change re-fences the authorize?-free seam), and the save
+    # claims this org's already-verified domains. The action name is
+    # wire-stable — the pair rides it as additional arguments.
     update :set_api_token do
       description("""
-      The owner pastes the four-scope Tailscale API token: the provider
-      writes the Secret, the row keeps the ref and the rotation stamp,
-      and the org's verified custom domains are claimed on the tailnet.
-      The token is never readable back (ADR-0040 §5, Am. 3).
+      The owner pastes a Tailscale credential: the console API token, or
+      the OAuth client pair (client id + client secret, together). The
+      provider writes the api-credential Secret, the row keeps the ref
+      and the rotation stamp, and the org's verified custom domains are
+      claimed on the tailnet. The token and the client secret are never
+      readable back (ADR-0040 §5, Am. 3).
       """)
 
       require_atomic?(false)
       accept([])
-      argument(:api_token, :string, allow_nil?: false, sensitive?: true)
+      argument(:api_token, :string, allow_nil?: true, sensitive?: true)
+      argument(:ts_client_id, :string, allow_nil?: true)
+      argument(:ts_client_secret, :string, allow_nil?: true, sensitive?: true)
 
       change(FluxVale.Infrastructure.AccessGateway.SetApiToken)
     end

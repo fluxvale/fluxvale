@@ -947,6 +947,70 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.ClaimTest do
 
       assert {:error, :api_token_malformed} = Tailscale.read_api_credential(gateway)
     end
+
+    test "write_client_credential stores the pair under the SAME name and returns the ref", %{
+      org: org
+    } do
+      gateway = gateway_row!(org)
+
+      assert {:ok, %{api_token_secret_ref: ref}} =
+               Tailscale.write_client_credential(gateway, @client_id, @client_secret)
+
+      assert ref == "api-credential-" <> short_id(gateway)
+
+      assert_received {:secret_create, ns, ^ref, data}
+      assert ns == "fluxvale-access"
+      assert data == %{"TS_CLIENT_ID" => @client_id, "TS_CLIENT_SECRET" => @client_secret}
+    end
+
+    test "a Secret write failure surfaces from write_client_credential", %{org: org} do
+      gateway = gateway_row!(org)
+
+      expect(Secret, :create, fn _kc, _ns, _name, _data ->
+        {:error, Error.from_response({:ok, %{status: 500, body: %{}}})}
+      end)
+
+      assert {:error, %Error{}} =
+               Tailscale.write_client_credential(gateway, @client_id, @client_secret)
+    end
+
+    # The intake's either-or property rests on THIS: Secret.create is
+    # SSA — the data map is applied whole, so the other shape's keys do
+    # not survive a re-save under the same name. (assert_received is
+    # selective: the gateway's own credential Secret write from setup
+    # also sits in the mailbox.)
+    test "a console re-save over a pair clears the pair keys — the SSA replace", %{org: org} do
+      gateway = gateway_row!(org)
+
+      assert {:ok, _ref} = Tailscale.write_client_credential(gateway, @client_id, @client_secret)
+      assert {:ok, _ref} = Tailscale.write_api_credential(gateway, @console_token)
+
+      assert_received {:secret_create, _ns, _name, pair_data}
+                      when pair_data == %{
+                             "TS_CLIENT_ID" => @client_id,
+                             "TS_CLIENT_SECRET" => @client_secret
+                           }
+
+      assert_received {:secret_create, _ns, _name, console_data}
+                      when console_data == %{"TS_API_TOKEN" => @console_token}
+    end
+
+    test "a pair re-save over a console token clears TS_API_TOKEN — the SSA replace", %{
+      org: org
+    } do
+      gateway = gateway_row!(org)
+
+      assert {:ok, _ref} = Tailscale.write_api_credential(gateway, @console_token)
+      assert {:ok, _ref} = Tailscale.write_client_credential(gateway, @client_id, @client_secret)
+
+      assert_received {:secret_create, _ns, _name, console_data}
+                      when console_data == %{"TS_API_TOKEN" => @console_token}
+
+      assert_received {:secret_create, _ns, _name, pair_data}
+                      when is_map_key(pair_data, "TS_CLIENT_ID") and
+                             is_map_key(pair_data, "TS_CLIENT_SECRET") and
+                             not is_map_key(pair_data, "TS_API_TOKEN")
+    end
   end
 
   describe "the reconcile limb's stand-downs (one-shot per pass, no flapping)" do
