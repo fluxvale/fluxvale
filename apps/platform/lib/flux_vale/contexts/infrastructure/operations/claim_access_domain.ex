@@ -159,7 +159,9 @@ defmodule FluxVale.Infrastructure.Operations.ClaimAccessDomain do
            gateway,
            %{
              state: :needs_attention,
-             status_message: AccessProvider.impl_for(gateway).token_drift_message(kind),
+             # Pair-aware (the lane-B ruling): the wrapper's verdict
+             # renders the OAuth sentences on a pair credential.
+             status_message: AccessProvider.impl_for(gateway).token_drift_message(gateway, kind),
              needs_attention_since: DateTime.utc_now()
            },
            context: %{suppress_state_markers: true},

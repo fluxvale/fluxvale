@@ -21,6 +21,7 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.ClaimTest do
   alias FluxVale.Infrastructure.AccessGateway
   alias FluxVale.Infrastructure.AccessProviders.Tailscale
   alias FluxVale.Infrastructure.AccessProviders.Tailscale.ApiClient
+  alias FluxVale.Infrastructure.AccessProviders.Tailscale.TokenCache
   alias FluxVale.TestSupport.BillingFixtures
   alias FluxVale.TestSupport.InstanceFixtures
 
@@ -709,6 +710,183 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.ClaimTest do
 
       assert_received {:deleted, second}
       assert second == name_prefix(gateway, "api-credential")
+    end
+  end
+
+  # ------------------------------------------------------------------
+  # The OAuth pair credential (lane B, #836): the wrapper, the cache,
+  # the retry-once — every pin the console paths never needed.
+  # ------------------------------------------------------------------
+
+  @client_id "ts-client-id-1"
+  @client_secret "ts-client-secret-1"
+
+  describe "the OAuth pair credential (lane B)" do
+    setup do
+      # The Secret holds the pair instead of the console token, and the
+      # app-global token cache is cleared — no entry from another test
+      # may answer for this client (the no-leakage discipline).
+      TokenCache.clear()
+
+      stub(Secret, :get_data, fn _kc, _ns, _name ->
+        {:ok, %{"TS_CLIENT_ID" => @client_id, "TS_CLIENT_SECRET" => @client_secret}}
+      end)
+
+      stub(ApiClient, :oauth_exchange, fn _client_id, _client_secret ->
+        count = Process.get(:exchange_count, 0) + 1
+        Process.put(:exchange_count, count)
+
+        {:ok, %{access_token: "tskey-token-#{count}", expires_in: 3600}}
+      end)
+
+      :ok
+    end
+
+    defp exchange_count, do: Process.get(:exchange_count, 0)
+
+    test "a pair-backed claim exchanges ONCE and claims with the OAuth token", %{org: org} do
+      gateway = gateway_row!(org)
+      parent = self()
+
+      stub(ApiClient, :devices_lookup, fn token, _hostname ->
+        send(parent, {:devices_lookup, token})
+        {:ok, %{id: "dev-777"}}
+      end)
+
+      assert {:ok, %{device_id: "dev-777", route: @ours}} =
+               Tailscale.claim_domain(gateway, @domain, @resolver_ip)
+
+      assert exchange_count() == 1
+      assert_received {:devices_lookup, "tskey-token-1"}
+    end
+
+    test "a 401 on the first try retries exactly once with a FRESH token and succeeds", %{
+      org: org
+    } do
+      gateway = gateway_row!(org)
+      parent = self()
+
+      stub(ApiClient, :devices_lookup, fn token, _hostname ->
+        send(parent, {:devices_lookup, token})
+
+        if Process.get(:lookup_count, 0) == 0 do
+          Process.put(:lookup_count, 1)
+          {:error, :unauthorized}
+        else
+          {:ok, %{id: "dev-777"}}
+        end
+      end)
+
+      assert {:ok, %{device_id: "dev-777", route: @ours}} =
+               Tailscale.claim_domain(gateway, @domain, @resolver_ip)
+
+      # One exchange for the cached token, one fresh exchange after the
+      # invalidate — and the retry heard the FRESH token, no more.
+      assert exchange_count() == 2
+      assert_received {:devices_lookup, "tskey-token-1"}
+      assert_received {:devices_lookup, "tskey-token-2"}
+      refute_received {:devices_lookup, _third}
+    end
+
+    test "a retry whose fresh exchange fails propagates the exchange error", %{org: org} do
+      gateway = gateway_row!(org)
+
+      # Seed the cache, then kill the exchange: the 401's invalidate
+      # leaves only the (failing) live exchange to answer.
+      assert {:ok, "tskey-token-1"} =
+               TokenCache.fetch(@client_id, @client_secret)
+
+      stub(ApiClient, :oauth_exchange, fn _client_id, _client_secret ->
+        {:error, :unauthorized}
+      end)
+
+      stub(ApiClient, :devices_lookup, fn _token, _hostname -> {:error, :unauthorized} end)
+
+      assert {:error, :unauthorized} = Tailscale.claim_domain(gateway, @domain, @resolver_ip)
+    end
+
+    test "an exchange failure on the FIRST fetch propagates from the wrapper", %{org: org} do
+      stub(ApiClient, :oauth_exchange, fn _client_id, _client_secret ->
+        {:error, :unauthorized}
+      end)
+
+      gateway = gateway_row!(org)
+
+      assert {:error, :unauthorized} = Tailscale.claim_domain(gateway, @domain, @resolver_ip)
+    end
+
+    test "a Secret read failure surfaces through the wrapper untranslated", %{org: org} do
+      stub(Secret, :get_data, fn _kc, _ns, _name ->
+        {:error, Error.from_response({:ok, %{status: 500, body: %{}}})}
+      end)
+
+      gateway = gateway_row!(org)
+
+      assert {:error, %Error{}} = Tailscale.claim_domain(gateway, @domain, @resolver_ip)
+    end
+
+    test "a console token's 401 does NOT retry (the drift semantics unchanged)", %{org: org} do
+      stub(Secret, :get_data, fn _kc, _ns, _name -> {:ok, %{"TS_API_TOKEN" => @token}} end)
+
+      # The exchange must never fire: a console token's 401 is the real
+      # rejection it has always been — the flunk IS the call-count pin.
+      stub(ApiClient, :oauth_exchange, fn _client_id, _client_secret ->
+        flunk("a console token never exchanges")
+      end)
+
+      stub(ApiClient, :devices_lookup, fn _token, _hostname -> {:error, :unauthorized} end)
+
+      gateway = gateway_row!(org)
+
+      assert {:error, :unauthorized} = Tailscale.claim_domain(gateway, @domain, @resolver_ip)
+    end
+
+    test "a lone pair half is :api_token_malformed — the malformed token shape's handling", %{
+      org: org
+    } do
+      stub(Secret, :get_data, fn _kc, _ns, _name -> {:ok, %{"TS_CLIENT_ID" => @client_id}} end)
+      reject(ApiClient, :oauth_exchange, 2)
+
+      gateway = gateway_row!(org)
+
+      assert {:error, :api_token_malformed} =
+               Tailscale.claim_domain(gateway, @domain, @resolver_ip)
+    end
+
+    test "a pair 401 that survived the retry lands the rotate-the-secret copy", %{org: org} do
+      claimed = with_claims(gateway_row!(org), %{@domain => claim_entry(@resolver_ip)})
+      gateway = with_token_ref(claimed, "api-credential-x")
+
+      stub(ApiClient, :devices_lookup, fn _token, _hostname -> {:error, :unauthorized} end)
+
+      assert {:ok, %{state: :needs_attention, message: message}} =
+               Tailscale.gateway_status(gateway)
+
+      assert message == Tailscale.token_drift_message(gateway, :unauthorized)
+      assert message =~ "Rotate the client secret"
+      refute message == Tailscale.token_drift_message(:unauthorized)
+    end
+
+    test "a pair 403 lands the add-the-missing-scope copy", %{org: org} do
+      claimed = with_claims(gateway_row!(org), %{@domain => claim_entry(@resolver_ip)})
+      gateway = with_token_ref(claimed, "api-credential-x")
+
+      stub(ApiClient, :devices_lookup, fn _token, _hostname -> {:error, :forbidden} end)
+
+      assert {:ok, %{state: :needs_attention, message: message}} =
+               Tailscale.gateway_status(gateway)
+
+      assert message == Tailscale.token_drift_message(gateway, :forbidden)
+      assert message =~ "Add the missing scope"
+      refute message == Tailscale.token_drift_message(:forbidden)
+    end
+
+    test "read_api_credential stays the console reader — a pair Secret has no console token", %{
+      org: org
+    } do
+      gateway = gateway_row!(org)
+
+      assert {:error, :api_token_malformed} = Tailscale.read_api_credential(gateway)
     end
   end
 

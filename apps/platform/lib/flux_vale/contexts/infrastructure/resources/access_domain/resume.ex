@@ -293,6 +293,8 @@ defmodule FluxVale.Infrastructure.AccessDomain.Resume do
   defp token_failure_message(_gateway, :no_api_token), do: @missing_token_message
 
   defp token_failure_message(gateway, kind) do
-    AccessProvider.impl_for(gateway).token_drift_message(kind)
+    # Pair-aware (the lane-B ruling): a claim that failed through the
+    # wrapper renders the OAuth sentences when the credential is the pair.
+    AccessProvider.impl_for(gateway).token_drift_message(gateway, kind)
   end
 end

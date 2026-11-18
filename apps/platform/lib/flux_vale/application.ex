@@ -60,6 +60,10 @@ defmodule FluxVale.Application do
           # guard's live allowVolumeExpansion probe, cached per cluster
           # (the process only owns the ETS table; probes run in callers).
           FluxVale.Infrastructure.Operations.StorageExpansion,
+          # Tailscale OAuth access-token cache (#836 lane B) — same
+          # class of child: the process only owns the ETS table;
+          # exchanges run in callers (Mimic-process-local rule).
+          FluxVale.Infrastructure.AccessProviders.Tailscale.TokenCache,
           # Edge activity debounce (#203, ADR-0036) — the beacon's
           # in-memory last-flush markers; DB state survives restarts.
           FluxVale.Edge.Activity,

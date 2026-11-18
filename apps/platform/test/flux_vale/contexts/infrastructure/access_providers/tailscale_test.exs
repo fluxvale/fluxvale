@@ -1214,6 +1214,33 @@ defmodule FluxVale.Infrastructure.AccessProviders.TailscaleTest do
       assert Enum.any?(calls, &match?({:deployment_apply, _manifest}, &1))
     end
 
+    test "a pair-backed mint resolves through the wrapper — the mint hears the OAuth token", %{
+      org: org
+    } do
+      gateway = gateway_row!(org)
+      drain()
+      parent = self()
+
+      # The api-credential Secret holds the OAuth pair instead of the
+      # console token. The client_id is unique to this row: async tests
+      # share the app-global token cache, and a unique id means no
+      # parallel test can answer for (or be answered by) another's entry.
+      client_id = "ts-client-id-#{gateway.id}"
+
+      stub_secret_reads(gateway, not_found(), pair_read(client_id))
+      stub_mint(parent)
+
+      stub(ApiClient, :oauth_exchange, fn exchange_client_id, _client_secret ->
+        send(parent, {:oauth_exchange, exchange_client_id})
+        {:ok, %{access_token: "tskey-token-oauth", expires_in: 3600}}
+      end)
+
+      assert {:ok, _ref} = Tailscale.provision_gateway_minted(gateway)
+
+      assert_received {:oauth_exchange, ^client_id}
+      assert_received {:keys_create, "tskey-token-oauth", _opts}
+    end
+
     test "no stored API token is refused before any mint", %{org: org} do
       gateway = gateway_row!(org)
       drain()
@@ -1828,6 +1855,12 @@ defmodule FluxVale.Infrastructure.AccessProviders.TailscaleTest do
       send(parent, {:keys_create, token, opts})
       {:ok, %{id: @new_key_id, key: @new_key}}
     end)
+  end
+
+  # The lane-B pair shape for the api-credential Secret (the wrapper's
+  # preferred credential).
+  defp pair_read(client_id) do
+    {:ok, %{"TS_CLIENT_ID" => client_id, "TS_CLIENT_SECRET" => "ts-client-secret"}}
   end
 
   defp stub_revoke(parent, result \\ :ok) do
