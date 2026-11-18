@@ -1,8 +1,11 @@
 defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.TokenCache do
   @moduledoc """
   The OAuth-derived access token's cache (#836 lane B): one
-  client-credentials exchange per client per hour, not one per API
-  call. Keyed by `client_id`, value `%{token: String.t(), expires_at:
+  client-credentials exchange per client per hour in the single-
+  threaded case, not one per API call — two CONCURRENT first-fetches
+  may both exchange (both tokens are freshly minted and valid; last
+  write wins, harmlessly — no serialization, by design). Keyed by
+  `client_id`, value `%{token: String.t(), expires_at:
   DateTime.t()}`; a fetch inside the last
   `@refresh_skew_seconds` (300s — the clock-skew window) of its life
   exchanges fresh, and `invalidate/1` erases ahead of the wrapper's
@@ -101,6 +104,14 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.TokenCache do
     ArgumentError ->
       :ok
       # coveralls-ignore-stop
+  catch
+    # coveralls-ignore-start - a DEAD owner exits {:noproc, …} rather
+    # than raising — rescue cannot catch an exit class (#863 review:
+    # the degradation contract was false as written). Same answer:
+    # nothing to invalidate.
+    :exit, _noproc ->
+      :ok
+      # coveralls-ignore-stop
   end
 
   # Writes go through the owner (:protected). A lost write (restart
@@ -111,6 +122,13 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.TokenCache do
     # coveralls-ignore-start - the owner-restart window again: the
     # token itself is good; only the caching is lost.
     ArgumentError ->
+      :ok
+      # coveralls-ignore-stop
+  catch
+    # coveralls-ignore-start - the exit-class twin of the rescue
+    # above (#863 review): a dead owner must degrade, not crash the
+    # API caller mid-flight.
+    :exit, _noproc ->
       :ok
       # coveralls-ignore-stop
   end

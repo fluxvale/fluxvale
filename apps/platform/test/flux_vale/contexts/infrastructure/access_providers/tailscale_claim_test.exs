@@ -720,6 +720,7 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.ClaimTest do
 
   @client_id "ts-client-id-1"
   @client_secret "ts-client-secret-1"
+  @console_token "tskey-api-console-1"
 
   describe "the OAuth pair credential (lane B)" do
     setup do
@@ -853,6 +854,58 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.ClaimTest do
                Tailscale.claim_domain(gateway, @domain, @resolver_ip)
     end
 
+    # The precedence rules B2's intake leans on (#863 review): a
+    # mixed Secret must resolve deterministically — the PAIR wins when
+    # both its halves hold, and a console token plus a lone half stays
+    # console (the half is nobody's credential).
+    test "a Secret holding BOTH shapes uses the pair — the addendum's preference", %{org: org} do
+      stub(Secret, :get_data, fn _kc, _ns, _name ->
+        {:ok,
+         %{
+           "TS_CLIENT_ID" => @client_id,
+           "TS_CLIENT_SECRET" => @client_secret,
+           "TS_API_TOKEN" => @console_token
+         }}
+      end)
+
+      parent = self()
+
+      stub(ApiClient, :devices_lookup, fn token, _hostname ->
+        send(parent, {:devices_lookup, token})
+        {:ok, %{id: "dev-777"}}
+      end)
+
+      row = gateway_row!(org)
+
+      assert {:ok, %{device_id: "dev-777"}} =
+               Tailscale.claim_domain(row, @domain, @resolver_ip)
+
+      assert exchange_count() == 1
+      assert_received {:devices_lookup, "tskey-token-1"}
+    end
+
+    test "a console token plus a lone pair half stays console", %{org: org} do
+      stub(Secret, :get_data, fn _kc, _ns, _name ->
+        {:ok, %{"TS_API_TOKEN" => @console_token, "TS_CLIENT_ID" => @client_id}}
+      end)
+
+      reject(ApiClient, :oauth_exchange, 2)
+
+      parent = self()
+
+      stub(ApiClient, :devices_lookup, fn token, _hostname ->
+        send(parent, {:devices_lookup, token})
+        {:ok, %{id: "dev-777"}}
+      end)
+
+      row = gateway_row!(org)
+
+      assert {:ok, %{device_id: "dev-777"}} =
+               Tailscale.claim_domain(row, @domain, @resolver_ip)
+
+      assert_received {:devices_lookup, @console_token}
+    end
+
     test "a pair 401 that survived the retry lands the rotate-the-secret copy", %{org: org} do
       claimed = with_claims(gateway_row!(org), %{@domain => claim_entry(@resolver_ip)})
       gateway = with_token_ref(claimed, "api-credential-x")
@@ -865,6 +918,12 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.ClaimTest do
       assert message == Tailscale.token_drift_message(gateway, :unauthorized)
       assert message =~ "Rotate the client secret"
       refute message == Tailscale.token_drift_message(:unauthorized)
+
+      # The retry result is FINAL: exactly two exchanges (initial +
+      # retry), never a third — a surviving 401 must not loop (#863
+      # review: the message alone is identical under a triple-exchange
+      # regression, so the count is the pin).
+      assert exchange_count() == 2
     end
 
     test "a pair 403 lands the add-the-missing-scope copy", %{org: org} do
