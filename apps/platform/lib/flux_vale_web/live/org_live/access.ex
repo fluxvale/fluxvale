@@ -1767,10 +1767,24 @@ defmodule FluxValeWeb.OrganizationLive.Access do
   # any crash report's status — must not carry a secret. `force_` because
   # the changeset is already validated by then (Ash's own warning).
   defp strip_secret(ash_form, argument) do
+    key = Atom.to_string(argument)
+    changeset = ash_form.source
+    forced = Ash.Changeset.force_set_argument(changeset, argument, "")
+
+    # The nested changeset's OWN retention: params (the submitted
+    # attributes/arguments map AshPhoenix passes into
+    # Changeset.for_update) and casted_arguments both hold the
+    # typed secret after a validate — Ash's Inspect protocol
+    # omits them, so the socket-state canaries never saw it
+    # (#866 review). Scrubbed here, alongside the form's maps.
+    scrubbed =
+      forced
+      |> scrub_changeset_param(key)
+      |> scrub_casted_argument(argument)
+
     %{
       ash_form
-      | source: Ash.Changeset.force_set_argument(ash_form.source, argument, ""),
-        params: Map.delete(ash_form.params, Atom.to_string(argument)),
+      | source: scrubbed,
         # AshPhoenix's validate stores the SUBMITTED params verbatim in
         # raw_params — the third place a typed secret survives the strip
         # (#857 review; verified: ash_phoenix form.ex validate/3 assigns
@@ -1779,9 +1793,30 @@ defmodule FluxValeWeb.OrganizationLive.Access do
         # unwrapped inner map). Nothing reads it for rendering and the
         # next validate replaces it wholesale, so deleting the secret
         # key is safe and closes the retention.
-        raw_params: Map.delete(ash_form.raw_params, Atom.to_string(argument))
+        params: Map.delete(ash_form.params, key),
+        raw_params: Map.delete(ash_form.raw_params, key)
     }
   end
+
+  # The changeset's params map is string-keyed and PUBLIC (a map any
+  # caller may hold) — delete the secret key outright; a missing key
+  # and an absent key are indistinguishable to every reader.
+  defp scrub_changeset_param(changeset, key) when is_map_key(changeset.params, key) do
+    %{changeset | params: Map.delete(changeset.params, key)}
+  end
+
+  defp scrub_changeset_param(changeset, _key), do: changeset
+
+  # casted_arguments is atom-keyed; the casted VALUE may be a typed
+  # struct wrapping the string — replace with the empty-string cast
+  # (the same value force_set_argument writes), never a delete (an
+  # argument the action declares should stay present-shaped).
+  defp scrub_casted_argument(changeset, argument)
+       when is_map_key(changeset.casted_arguments, argument) do
+    %{changeset | casted_arguments: Map.put(changeset.casted_arguments, argument, "")}
+  end
+
+  defp scrub_casted_argument(changeset, _argument), do: changeset
 
   # A failed submit rediscovers the form from the row — which has no
   # key — and carries only the errored form's field errors, so the

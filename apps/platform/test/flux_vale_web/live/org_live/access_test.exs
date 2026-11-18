@@ -969,6 +969,34 @@ defmodule FluxValeWeb.OrganizationLive.AccessTest do
       refute inspect(state) =~ "kTYPING-client-secret"
       refute inspect(state) =~ "tskey-api-TYPING-marker"
       assert inspect(state) =~ "kTYPING-client-id"
+
+      # The nested changeset is the retention Ash's Inspect protocol
+      # HIDES (#866 review): params and casted_arguments both hold a
+      # typed secret after a validate. Asserted directly, not via
+      # inspect — the canary must fail if either ever regresses.
+      token_form = socket_token_form(state)
+
+      # The form's own params (AshPhoenix's) and the nested changeset's
+      # params — Ash's Inspect protocol omits the changeset's, so these
+      # are asserted DIRECTLY (#866 review): nil is the clean case; a
+      # present binary must not carry the canary.
+      refute inspect(token_form.params["ts_client_secret"]) =~ "kTYPING"
+      refute inspect(token_form.params["api_token"]) =~ "tskey-api"
+
+      changeset = token_form.source.source
+      secret_param = changeset.params["ts_client_secret"]
+      token_param = changeset.params["api_token"]
+      refute is_binary(secret_param) and secret_param =~ "kTYPING"
+      refute is_binary(token_param) and token_param =~ "tskey-api"
+
+      for {arg, value} <- [
+            {:ts_client_secret, Map.get(changeset, :casted_arguments, %{})[:ts_client_secret]},
+            {:api_token, Map.get(changeset, :casted_arguments, %{})[:api_token]}
+          ] do
+        refute inspect(value) =~ "kTYPING"
+        refute inspect(value) =~ "tskey-api"
+        assert is_nil(value) or value == "" or arg in [:ts_client_secret, :api_token]
+      end
     end
   end
 
@@ -2420,5 +2448,12 @@ defmodule FluxValeWeb.OrganizationLive.AccessTest do
       refute has_element?(view, "[data-testid='device-sign-ins']")
       refute has_element?(view, "[data-testid='api-tokens']")
     end
+  end
+
+  # The socket's assigns, dug to the token form's Phoenix wrapper —
+  # the direct-changeset assertions need the real struct, not Ash's
+  # redacted Inspect output (#866 review).
+  defp socket_token_form(%{socket: socket}) do
+    socket.assigns.token_form
   end
 end
