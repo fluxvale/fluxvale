@@ -167,4 +167,16 @@ defmodule FluxVale.Billing do
   defdelegate ensure_auto_recharge_setting(org),
     to: Operations.EnsureAutoRechargeSetting,
     as: :call
+
+  # The billing card's saved-method seams (#829 S5). The card's
+  # "Add payment method" click mints a FRESH portal session per click —
+  # the returned URL is redirected to and never stored — and the mount
+  # sync is the method status's only updater (Polar has no
+  # method-attached webhook; the poll IS the sync). The LiveView never
+  # calls the provider module directly: these are its domain seams.
+  defdelegate open_billing_session(org, setting, owner),
+    to: Operations.OpenBillingSession,
+    as: :call
+
+  defdelegate sync_payment_method(setting), to: Operations.SyncPaymentMethod, as: :call
 end

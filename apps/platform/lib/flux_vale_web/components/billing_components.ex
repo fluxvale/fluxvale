@@ -13,6 +13,7 @@ defmodule FluxValeWeb.BillingComponents do
 
   alias FluxVale.Billing.LedgerEntry
   alias FluxVale.Billing.Month
+  alias FluxVale.Billing.Tax
   alias FluxVale.Pricing
 
   @micro_per_cent 10_000
@@ -116,11 +117,23 @@ defmodule FluxValeWeb.BillingComponents do
   end
 
   @doc """
-  The auto-recharge card (#829 L3, the LAUNCH shape): the reminder
-  lane's state — and, for owners, its form. The card is honest about
-  what ships: email reminders only, at most one per day; nothing in
-  the copy promises automatic charging (the charge lane is staged
-  behind the platform gate and renders nothing at all).
+  The auto-recharge card (#829): L3's launch shape — the reminder
+  lane's state and, for owners, its form — plus S5's staged CHARGE
+  presentation, rendered ONLY when `charge_mode?` (the platform gate,
+  `Billing.auto_recharge_charge_mode?/0`) is true. Gate-off the card
+  renders byte-for-byte the launch shape: no charge affordances, no
+  `:auto` option, no add-method, no evidence fields — the parity pin
+  test rides the launch testids and nothing more.
+
+  The gate-on presentation: the saved-method block (status + the
+  owner's "Add payment method" button — enabled only when the setting
+  carries a billing country, the provider taxes against it); the last
+  3 `:auto` top-ups (the org's money history, member-visible like the
+  ledger); the owner form extended with the charge dials and buyer
+  evidence; and the `:auto` arming confirm — a second, explicit step
+  whose copy names the gross math ("max charged/day = cap × (amount +
+  VAT at your rate)"), never a side effect of saving settings. The
+  disable reason renders an honest line naming why the lane stopped.
 
   The form gate is UX only: `owner?` rides the write policy's own
   ownership check (`ActorIsOrganizationOwner`, one ownership notion),
@@ -135,12 +148,16 @@ defmodule FluxValeWeb.BillingComponents do
   silently floor 549¢ to 500¢), with an inline hint naming the stored
   exact value; whole-round values prefill as today.
 
+  The `:auto` option mirrors the AutoArmGate (method attached, gate
+  on) — the domain validation is the real gate; the select is UX.
+
   Shared by the org billing page and the personal one (same band +
   ledger shape, same card); the events it raises
-  (`save-auto-recharge` / `validate-auto-recharge`) are the rendering
-  LiveView's — the surfaces wire them identically, each owning its
-  private copies (the operation-boundary stance: follow the pattern,
-  not the function).
+  (`save-auto-recharge` / `validate-auto-recharge` /
+  `add-payment-method` / `confirm-arm-auto` / `cancel-arm-auto`) are
+  the rendering LiveView's — the surfaces wire them identically, each
+  owning its private copies (the operation-boundary stance: follow the
+  pattern, not the function).
   """
   attr(:setting, :any,
     required: true,
@@ -154,14 +171,50 @@ defmodule FluxValeWeb.BillingComponents do
 
   attr(:form, :any, required: true, doc: "the owner's prefilled form (nil for members)")
 
+  attr(:charge_mode?, :boolean,
+    required: true,
+    doc:
+      "the platform gate (Billing.auto_recharge_charge_mode?/0) — everything chargey renders only gate-on"
+  )
+
+  attr(:arm_confirm?, :boolean,
+    default: false,
+    doc:
+      "gate-on: the arming confirm step is showing (set by the save handler, cleared by confirm/cancel)"
+  )
+
+  attr(:auto_topups, :list,
+    default: [],
+    doc: "gate-on: the last 3 :auto top-ups (the card's attempt history)"
+  )
+
   @spec auto_recharge_card(map()) :: Phoenix.LiveView.Rendered.t()
   def auto_recharge_card(assigns) do
+    setting = assigns.setting
+
     assigns =
       assigns
       |> assign(:min_topup_dollars, FluxVale.Billing.min_topup_dollars())
       |> assign(
-        threshold_exact?: rem(assigns.setting.threshold_cents, 100) != 0,
-        amount_exact?: rem(assigns.setting.amount_cents, 100) != 0
+        threshold_exact?: rem(setting.threshold_cents, 100) != 0,
+        amount_exact?: rem(setting.amount_cents, 100) != 0,
+        # The Add-method button's enabler (decision C): the provider
+        # taxes charges against the billing address, so the session
+        # request needs the setting's country.
+        evidence_saved?: is_binary(setting.billing_country) and setting.billing_country != "",
+        # The :auto option mirrors the AutoArmGate (the validation is
+        # the real gate — a crafted :auto is refused at the domain).
+        auto_option?: assigns.charge_mode? and setting.payment_method_status == :attached,
+        disabled_copy: disabled_copy(setting),
+        # Display-only VAT (the rate resolves FRESH at charge time,
+        # #260 — never a copied rate): the confirm copy's figure reads
+        # the current rate table over the stored evidence. Computed
+        # ONLY when the confirm step shows — the quote is a TaxRate
+        # table read, never a per-render cost (gate-off rows and the
+        # closed-confirm common case do no such work).
+        arm_gross_cents:
+          if(assigns.charge_mode? and assigns.arm_confirm?, do: arm_gross_cents(setting)),
+        method_copy: method_copy(setting)
       )
 
     ~H"""
@@ -169,12 +222,20 @@ defmodule FluxValeWeb.BillingComponents do
       <div>
         <h2 class="text-base font-medium text-ink">Auto-recharge</h2>
         <p class="mt-1 text-sm text-ink-muted" data-testid="auto-recharge-state">
-          <%= if @setting.mode == :reminder do %>
-            Reminders on: we'll email your org a one-click top-up link when the balance drops
-            below {Pricing.format_usd_whole_or_exact(@setting.threshold_cents)} — at most once
-            a day.
-          <% else %>
-            Reminders are off.
+          <%= cond do %>
+            <% @charge_mode? and @setting.mode == :auto -> %>
+              Auto charging armed: we'll charge {Pricing.format_usd_whole_or_exact(
+                @setting.amount_cents
+              )} when the balance drops below {Pricing.format_usd_whole_or_exact(
+                @setting.threshold_cents
+              )} — at most {@setting.daily_charge_cap} {plural(@setting.daily_charge_cap, "charge")} a
+              day.
+            <% @setting.mode == :reminder -> %>
+              Reminders on: we'll email your org a one-click top-up link when the balance drops
+              below {Pricing.format_usd_whole_or_exact(@setting.threshold_cents)} — at most once
+              a day.
+            <% true -> %>
+              Reminders are off.
           <% end %>
         </p>
         <p
@@ -191,6 +252,86 @@ defmodule FluxValeWeb.BillingComponents do
         >
           Only the organization owner can change this.
         </p>
+        <%!-- S4's disable arm (declines / no-method) is why an armed
+            lane can be off — the honest line names it. Hidden once
+            re-armed (:auto): a stale reason must not contradict the
+            armed state above. --%>
+        <p
+          :if={@charge_mode? and not is_nil(@disabled_copy) and @setting.mode != :auto}
+          class="mt-1 text-sm text-danger"
+          data-testid="auto-recharge-disabled"
+        >
+          {@disabled_copy}
+        </p>
+      </div>
+
+      <%!-- The saved-method block (gate-on): status + provider-customer
+          presence, and the owner's portal click. The button's enabler is
+          the setting's billing country (the request requires it); the
+          disable is honest with a hint at the evidence fields below. --%>
+      <div
+        :if={@charge_mode?}
+        class="border-t border-line pt-4"
+        data-testid="auto-recharge-method"
+      >
+        <p class="eyebrow">Payment method</p>
+        <p class="mt-1 text-sm text-ink-muted" data-testid="auto-recharge-method-status">
+          {@method_copy}
+        </p>
+        <div :if={@owner?} class="mt-3">
+          <.button
+            phx-click="add-payment-method"
+            id="add-payment-method"
+            size="sm"
+            variant="secondary"
+            disabled={not @evidence_saved?}
+            data-testid="add-payment-method"
+          >
+            Add payment method
+          </.button>
+          <p
+            :if={not @evidence_saved?}
+            class="mt-1.5 text-xs text-ink-subtle"
+            data-testid="auto-recharge-method-hint"
+          >
+            Save a billing country in the charge settings below first — charges are taxed
+            against it.
+          </p>
+        </div>
+      </div>
+
+      <%!-- Recent auto activity (gate-on): the last 3 :auto rows — the
+          org's money history, member-visible like the ledger. --%>
+      <div
+        :if={@charge_mode?}
+        class="border-t border-line pt-4"
+        data-testid="auto-recharge-activity"
+      >
+        <p class="eyebrow">Recent auto top-ups</p>
+        <p
+          :if={@auto_topups == []}
+          class="mt-1 text-sm text-ink-muted"
+          data-testid="auto-recharge-activity-empty"
+        >
+          No auto top-ups yet.
+        </p>
+        <div class="mt-2">
+          <div
+            :for={topup <- @auto_topups}
+            data-testid="auto-recharge-activity-row"
+            class="flex items-center justify-between gap-4 py-1.5"
+          >
+            <span class="font-mono text-xs whitespace-nowrap text-ink-muted">
+              {Calendar.strftime(topup.created_at, "%b %d, %Y")}
+            </span>
+            <span class="min-w-0 flex-1 truncate text-sm text-ink">
+              {status_label(topup.status)}
+            </span>
+            <span class="font-mono text-xs whitespace-nowrap text-ink">
+              {Pricing.format_usd_whole_or_exact(topup.amount_cents)}
+            </span>
+          </div>
+        </div>
       </div>
 
       <%!-- The owner gate rides the CARD, not just the mount: a crafted
@@ -206,14 +347,17 @@ defmodule FluxValeWeb.BillingComponents do
         class="space-y-4 border-t border-line pt-4"
         data-testid="auto-recharge-form"
       >
-        <%!-- The enum rejects :auto today and the form must not offer it:
-            the launch shape is reminders only (the charge lane is staged
-            and gated off — it renders nothing, here or anywhere). --%>
+        <%!-- Gate-off the form offers reminders only (the launch shape).
+            Gate-on the select gains :auto — ONLY with a method attached;
+            the AutoArmGate validation is the real gate. --%>
         <.input
           field={@form[:mode]}
           type="select"
           label="Reminders"
-          options={[{"Off", "off"}, {"On", "reminder"}]}
+          options={
+            [{"Off", "off"}, {"On", "reminder"}] ++
+              if(@auto_option?, do: [{"Auto", "auto"}], else: [])
+          }
           data-testid="auto-recharge-mode"
         />
         <div class="grid gap-4 min-[560px]:grid-cols-2">
@@ -259,14 +403,170 @@ defmodule FluxValeWeb.BillingComponents do
             </p>
           </div>
         </div>
+
+        <%!-- The staged charge settings (S5, gate-on): the dials
+            (decision D2) and the buyer evidence (decision C). The
+            resource's constraints are the authority — this form is UX. --%>
+        <div
+          :if={@charge_mode?}
+          class="space-y-4 border-t border-line pt-4"
+          data-testid="auto-recharge-charge-fields"
+        >
+          <div class="grid gap-4 min-[560px]:grid-cols-2">
+            <.input
+              field={@form[:daily_charge_cap]}
+              type="number"
+              label="Max charges per day"
+              min="1"
+              max="6"
+              step="1"
+              data-testid="auto-recharge-cap"
+            />
+            <.input
+              field={@form[:failure_strikes]}
+              type="number"
+              label="Disable after this many declines"
+              min="2"
+              max="5"
+              step="1"
+              data-testid="auto-recharge-strikes"
+            />
+          </div>
+          <div class="grid gap-4 min-[560px]:grid-cols-2">
+            <.input
+              field={@form[:billing_country]}
+              type="text"
+              label="Billing country (ISO code)"
+              data-testid="auto-recharge-country"
+            />
+            <.input
+              field={@form[:billing_state]}
+              type="text"
+              label="Billing state / province"
+              data-testid="auto-recharge-state-input"
+            />
+          </div>
+          <div class="grid gap-4 min-[560px]:grid-cols-2">
+            <.input
+              field={@form[:customer_type]}
+              type="select"
+              label="Customer type"
+              options={[{"Consumer", "consumer"}, {"Business", "business"}]}
+              data-testid="auto-recharge-customer-type"
+            />
+            <.input
+              field={@form[:vat_number]}
+              type="text"
+              label="VAT number (business buyers)"
+              data-testid="auto-recharge-vat"
+            />
+          </div>
+        </div>
+
         <div class="flex justify-end">
           <.button type="submit" size="sm" id="auto-recharge-save" data-testid="auto-recharge-save">
             Save
           </.button>
         </div>
       </.form>
+
+      <%!-- Arming :auto is its own CONFIRMED action (decision G) —
+          never a side effect of saving settings. The confirm copy names
+          the gross math; the figure is display-only (the rate resolves
+          fresh at charge time). --%>
+      <div
+        :if={@charge_mode? and @owner? and @arm_confirm?}
+        class="space-y-3 border-t border-line pt-4"
+        data-testid="auto-recharge-arm-confirm"
+      >
+        <p class="text-sm font-medium text-ink">Confirm auto charging</p>
+        <p class="text-sm text-ink-muted">
+          We'll charge your saved card automatically when the balance drops below the threshold.
+        </p>
+        <p class="text-sm text-ink-muted" data-testid="auto-recharge-arm-math">
+          Max charged/day = {@setting.daily_charge_cap} ×
+          ({Pricing.format_usd_whole_or_exact(@setting.amount_cents)} + VAT at your rate) — up to {Pricing.format_usd_whole_or_exact(
+            @arm_gross_cents
+          )} per day.
+        </p>
+        <div class="flex gap-2">
+          <.button
+            phx-click="confirm-arm-auto"
+            phx-value-amount={@setting.amount_cents}
+            phx-value-threshold={@setting.threshold_cents}
+            phx-value-cap={@setting.daily_charge_cap}
+            phx-value-strikes={@setting.failure_strikes}
+            id="arm-auto-confirm"
+            size="sm"
+            data-testid="auto-recharge-arm-confirm-button"
+          >
+            Confirm auto charging
+          </.button>
+          <.button
+            phx-click="cancel-arm-auto"
+            id="arm-auto-cancel"
+            size="sm"
+            variant="secondary"
+            data-testid="auto-recharge-arm-cancel-button"
+          >
+            Cancel
+          </.button>
+        </div>
+      </div>
     </.card>
     """
+  end
+
+  # The saved-method status line (gate-on): the status plus the
+  # provider-customer presence — a linked profile with no method yet
+  # reads differently from no profile at all.
+  defp method_copy(%{payment_method_status: :attached}),
+    do: "Saved — auto charging will use it."
+
+  defp method_copy(%{payment_method_status: :none, provider_customer_id: id})
+       when is_binary(id) and id != "",
+       do: "None saved yet — your billing profile is linked. Add a card to enable auto charging."
+
+  defp method_copy(_nothing_linked),
+    do: "None saved yet. Add a card to enable auto charging."
+
+  # Why an armed lane stopped (S4's disable arm) — nil reads no line.
+  # The map keeps one executable line for coveralls; each reason is the
+  # copy itself.
+  defp disabled_copy(%{disabled_reason: nil}), do: nil
+
+  defp disabled_copy(%{disabled_reason: reason}) do
+    copy = %{
+      manual: "Auto charging was turned off.",
+      declines:
+        "Auto charging was stopped after repeated declined charges — check your card, then re-arm.",
+      no_method:
+        "Auto charging was stopped because no saved payment method was found — add one, then re-arm."
+    }
+
+    Map.fetch!(copy, reason)
+  end
+
+  # The confirm step's gross figure: cap × (amount + VAT), VAT quoted
+  # over the stored evidence at the CURRENT rate table — display only,
+  # the charge itself resolves the rate fresh (#260). An unpriced
+  # market quotes 0 (ResolveTaxRate's stance).
+  defp arm_gross_cents(setting) do
+    evidence = %{
+      billing_country: setting.billing_country,
+      billing_state: setting.billing_state,
+      customer_type: setting.customer_type,
+      vat_number: setting.vat_number
+    }
+
+    quote = Tax.quote(evidence, setting.amount_cents)
+    setting.daily_charge_cap * (setting.amount_cents + quote.tax_cents)
+  end
+
+  defp status_label(status) when is_atom(status) do
+    status
+    |> Atom.to_string()
+    |> String.capitalize()
   end
 
   @doc """
