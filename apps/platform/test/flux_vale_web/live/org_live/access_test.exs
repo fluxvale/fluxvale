@@ -921,6 +921,27 @@ defmodule FluxValeWeb.OrganizationLive.AccessTest do
                gateway.api_token_secret_ref
     end
 
+    # The #866 review's hidden-input case: the B2 blank-save refusal
+    # lands on :api_token — an input the CLOSED console toggle keeps
+    # out of the DOM. The error path must force the toggle open so the
+    # sentence renders beside its field (the repaste-fallback posture).
+    test "a blank save reveals the console-token input for its sentence", %{conn: conn, org: org} do
+      {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/settings/access")
+
+      refute has_element?(view, "[data-testid='access-api-token-input']")
+
+      # The form's own (empty) values submit — the closed-toggle user's
+      # blank save.
+      view
+      |> form("#access-api-token-form")
+      |> render_submit()
+
+      assert has_element?(view, "[data-testid='access-api-token-input']")
+
+      assert render(element(view, "#access-api-token-form")) =~
+               "Save the client id and secret together, or the API token alone"
+    end
+
     test "a validate round-trip keeps the client id but never the secret halves", %{
       conn: conn,
       org: org

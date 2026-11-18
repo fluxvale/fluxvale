@@ -338,16 +338,25 @@ defmodule FluxValeWeb.OrganizationLive.Access do
          socket
          |> put_flash(:info, "Token saved.")
          |> assign(gateway: fresh || loaded_gateway(socket, gateway))
+         |> assign(token_api_fallback?: false)
          |> assign_forms()
          |> assign_domains()}
 
       {:error, form} ->
         # Field-less failures (and the write's own message) surface as a
         # flash; the form rebuilds from the row with only its errors, so
-        # the submitted token never echoes back (ADR-0039 §4).
+        # the submitted token never echoes back (ADR-0039 §4). A refusal
+        # that lands on :api_token FORCE-OPENS the console-token toggle:
+        # the B2 blank-save sentence points there, and the closed toggle
+        # would render it nowhere — the repaste fallback's posture
+        # (#866 review: the sentence must be readable beside its input).
+        raw_errors = AshPhoenix.Form.errors(form, format: :raw)
+        used_fields = Enum.map(raw_errors, &elem(&1, 0))
+
         {:noreply,
          socket
          |> put_flash(:error, "Couldn't save the access token. Try again.")
+         |> maybe_reveal_token_fallback(used_fields)
          |> rebuild_token_form_with_errors(form)}
     end
   end
@@ -557,6 +566,19 @@ defmodule FluxValeWeb.OrganizationLive.Access do
   # wipe a half-typed key out of the re-paste form. A state move can
   # also flip the pairing sections' visibility (the suspension hides
   # them), so their data refetches with the chrome.
+  # The sentence's input must be in the DOM when its error arrives —
+  # the #760 lane's input was always rendered (and required); the
+  # toggle hid it, so the reveal restores the readable contract.
+  # (Placed with its caller's section; the arm-remove family below
+  # regroups under the module's handle_event spine.)
+  defp maybe_reveal_token_fallback(socket, used_fields) do
+    if :api_token in used_fields do
+      assign(socket, token_api_fallback?: true)
+    else
+      socket
+    end
+  end
+
   defp maybe_rebuild_panel(socket, gateway, previous) do
     if state_of(gateway) == previous do
       socket
@@ -565,6 +587,7 @@ defmodule FluxValeWeb.OrganizationLive.Access do
       |> assign(
         repaste_open?: repaste_open_for(gateway),
         repaste_key_fallback?: false,
+        token_api_fallback?: false,
         remove_armed?: false
       )
       |> assign_forms()
@@ -1711,7 +1734,18 @@ defmodule FluxValeWeb.OrganizationLive.Access do
     if Enum.any?(ash_form.source.action.arguments, &(&1.name == argument)) do
       strip_secret(ash_form, argument)
     else
-      %{ash_form | params: Map.delete(ash_form.params, Atom.to_string(argument))}
+      # The guarded arm: no argument to force, but BOTH retention maps
+      # absorb a crafted value — params AND raw_params (ash_phoenix
+      # stores the submitted params verbatim in raw_params on every
+      # validate; #866 review caught the else-arm skipping it while its
+      # own comment claimed the #857 invariant).
+      key = Atom.to_string(argument)
+
+      %{
+        ash_form
+        | params: Map.delete(ash_form.params, key),
+          raw_params: Map.delete(ash_form.raw_params, key)
+      }
     end
   end
 
