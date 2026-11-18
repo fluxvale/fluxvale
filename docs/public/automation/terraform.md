@@ -284,6 +284,10 @@ never enters state or plan, and the API never echoes it. State keeps
 registry's readable half).
 
 ```hcl
+variable "tailnet_domain" {
+  type = string
+}
+
 variable "tailscale_api_token" {
   type      = string
   sensitive = true

@@ -745,10 +745,11 @@ recorded so the seam's rulings stay findable:
   TTL (config). **Consumption is revocation** — Tailscale auto-revokes
   one-off keys on use (kb/1085) — so no post-active revoke limb
   exists; explicit `DELETE` runs only where a minted key can sit
-  unconsumed (failed create, teardown, re-mint supersede, and a Secret
-  write that fails after a successful mint, revoked from memory —
-  mint and credential-write are one provider operation, so the
-  minting token never crosses the seam).
+  unconsumed (failed create, teardown, re-mint supersede, a pasted key
+  superseding an unconsumed mint, and a Secret write that fails after
+  a successful mint, revoked from memory — mint and credential-write
+  are one provider operation, so the minting token never crosses the
+  seam).
 - **The claim-convergence limb is gated to the first join**: the
   observer sweeps `ClaimUnclaimedDomains` only on the promotion out of
   `:provisioning` — never on steady passes (the every-tick tailnet
