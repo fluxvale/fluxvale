@@ -562,7 +562,10 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale do
   defp retry_on_unauthorized({:error, :unauthorized}, client_id, client_secret, fun) do
     TokenCache.invalidate(client_id)
 
-    case TokenCache.fetch(client_id, client_secret) do
+    # fetch_fresh bypasses the cache READ (#863 review): an exchange
+    # that started BEFORE this invalidation may publish a stale entry
+    # after it — the retry must mint, never adopt that racer.
+    case TokenCache.fetch_fresh(client_id, client_secret) do
       {:ok, fresh} ->
         fun.(fresh)
 

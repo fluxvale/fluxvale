@@ -257,7 +257,33 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.ApiClient do
 
   defp exchange_result({:error, :insecure_base_url} = refusal), do: refusal
 
-  defp exchange_result(other), do: error_result(other)
+  # The exchange's error paths NEVER carry bodies or exception
+  # details (#863 review): a misbehaving intermediary's 502 can echo
+  # the request's Basic header in its diagnostic body, and the module
+  # 's generic snippet logger assumes Tailscale's own bodies. Status
+  # codes and atoms only — the same taxonomy, none of the payload.
+  defp exchange_result({:ok, %Req.Response{status: @unauthorized_status}}),
+    do: {:error, :unauthorized}
+
+  defp exchange_result({:ok, %Req.Response{status: @forbidden_status}}),
+    do: {:error, :forbidden}
+
+  defp exchange_result({:ok, %Req.Response{status: status}}) do
+    Logger.warning("Tailscale OAuth exchange failed with HTTP #{status}")
+    {:error, %{status: status}}
+  end
+
+  defp exchange_result({:error, %Req.TransportError{reason: reason}}) do
+    Logger.warning("Tailscale OAuth exchange transport error: #{inspect(reason)}")
+    {:error, :network_error}
+  end
+
+  # Any other error shape: classified, never inspected — the exchange
+  # is the one endpoint whose request carries the client secret.
+  defp exchange_result({:error, _other_class}) do
+    Logger.warning("Tailscale OAuth exchange failed (transport-class error)")
+    {:error, :network_error}
+  end
 
   # The credential-bearing endpoint's transport floor: https, or the
   # refusal happens before any secret is placed on a request.

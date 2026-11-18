@@ -39,10 +39,18 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.TokenCache do
   The client's access token — from the cache while fresh, else a fresh
   exchange (cached on success). Exchange failure propagates; nothing
   is cached. `now` is injectable so tests can walk the clock.
+
+  A cache HIT is bound to the credential pair: the entry carries a
+  SHA-256 fingerprint of `client_id:client_secret` (the raw secret is
+  never stored), and a rotated secret under the same client id is a
+  MISS — the old bearer must not outlive its minting credential
+  (#863 review). `fetch_fresh/2` bypasses the cache READ for the
+  wrapper's 401 retry, so an exchange that started before the
+  invalidation can never answer it.
   """
   @spec fetch(String.t(), String.t(), DateTime.t()) :: {:ok, String.t()} | {:error, term()}
   def fetch(client_id, client_secret, now \\ DateTime.utc_now()) do
-    case lookup(client_id, now) do
+    case lookup(client_id, fingerprint(client_id, client_secret), now) do
       {:ok, token} ->
         {:ok, token}
 
@@ -51,15 +59,37 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.TokenCache do
     end
   end
 
+  @doc """
+  The retry path's fetch: the cache READ is bypassed (a pre-401
+  in-flight exchange may have published a stale entry after the
+  invalidation raced it — the retry must mint, not adopt), and the
+  fresh result is cached as usual.
+  """
+  @spec fetch_fresh(String.t(), String.t()) :: {:ok, String.t()} | {:error, term()}
+  def fetch_fresh(client_id, client_secret) do
+    exchange(client_id, client_secret, DateTime.utc_now())
+  end
+
+  # The pair's binding fingerprint: a one-way digest of both halves.
+  # A rotated secret under the same client id produces a different
+  # fingerprint, so the lookup misses and a new exchange mints under
+  # the CURRENT credential — the raw secret never touches the table.
+  defp fingerprint(client_id, client_secret) do
+    digest = :crypto.hash(:sha256, client_id <> ":" <> client_secret)
+    Base.encode16(digest)
+  end
+
   # Reads are direct (the :protected table allows them from any
   # process); the freshness line is `now < expires_at − skew`, and a
   # stale entry is erased on the spot (custody: erased on expiry).
-  defp lookup(client_id, now) do
+  # The entry's fingerprint must match the CALLER's pair — a hit for
+  # a different credential is a miss.
+  defp lookup(client_id, fp, now) do
     case :ets.lookup(@table, client_id) do
-      [{^client_id, %{token: token, expires_at: expires_at}}] ->
+      [{^client_id, %{token: token, expires_at: expires_at, fp: entry_fp}}] ->
         threshold = DateTime.add(expires_at, -@refresh_skew_seconds, :second)
 
-        if DateTime.compare(now, threshold) == :lt do
+        if entry_fp == fp and DateTime.compare(now, threshold) == :lt do
           {:ok, token}
         else
           invalidate(client_id)
@@ -82,7 +112,13 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.TokenCache do
   defp exchange(client_id, client_secret, now) do
     case ApiClient.oauth_exchange(client_id, client_secret) do
       {:ok, %{access_token: token, expires_in: seconds}} ->
-        cache(client_id, token, DateTime.add(now, seconds, :second))
+        cache(
+          client_id,
+          token,
+          DateTime.add(now, seconds, :second),
+          fingerprint(client_id, client_secret)
+        )
+
         {:ok, token}
 
       # Failures cache nothing — a broken exchange must not stick.
@@ -116,8 +152,8 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.TokenCache do
 
   # Writes go through the owner (:protected). A lost write (restart
   # window) only costs one extra exchange on the next fetch.
-  defp cache(client_id, token, expires_at) do
-    GenServer.call(__MODULE__, {:put, client_id, token, expires_at})
+  defp cache(client_id, token, expires_at, fp) do
+    GenServer.call(__MODULE__, {:put, client_id, token, expires_at, fp})
   rescue
     # coveralls-ignore-start - the owner-restart window again: the
     # token itself is good; only the caching is lost.
@@ -156,8 +192,8 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.TokenCache do
   end
 
   @impl GenServer
-  def handle_call({:put, client_id, token, expires_at}, _from, state) do
-    :ets.insert(@table, {client_id, %{token: token, expires_at: expires_at}})
+  def handle_call({:put, client_id, token, expires_at, fp}, _from, state) do
+    :ets.insert(@table, {client_id, %{token: token, expires_at: expires_at, fp: fp}})
     {:reply, :ok, state}
   end
 

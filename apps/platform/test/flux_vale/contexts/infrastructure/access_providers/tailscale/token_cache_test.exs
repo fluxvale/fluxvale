@@ -127,6 +127,38 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.TokenCacheTest do
     assert entries() == []
   end
 
+  # A ROTATED secret under the same client id must not ride the old
+  # bearer (#863 review): the fingerprint binds entries to the pair
+  # that minted them, and the raw secret never touches the table.
+  test "a rotated secret under the same client id is a miss — a fresh exchange mints" do
+    now = DateTime.utc_now()
+    assert {:ok, "tskey-token-1"} = TokenCache.fetch(@client_id, @client_secret, now)
+    assert exchange_count() == 1
+
+    assert {:ok, "tskey-token-2"} =
+             TokenCache.fetch(@client_id, "ts-client-secret-ROTATED", now)
+
+    assert exchange_count() == 2
+    # The raw secret is nowhere in the table — only its digest rides.
+    refute inspect(:ets.tab2list(table())) =~ @client_secret
+    refute inspect(:ets.tab2list(table())) =~ "ts-client-secret-ROTATED"
+  end
+
+  # The retry path's fetch (#863 review): the cache READ is bypassed —
+  # a stale entry published by an in-flight pre-invalidation exchange
+  # can never answer the retry — while the fresh result still caches.
+  test "fetch_fresh bypasses the cache read but caches its result" do
+    now = DateTime.utc_now()
+    assert {:ok, "tskey-token-1"} = TokenCache.fetch(@client_id, @client_secret, now)
+
+    assert {:ok, "tskey-token-2"} = TokenCache.fetch_fresh(@client_id, @client_secret)
+    assert exchange_count() == 2
+
+    # And the fresh entry now serves plain fetches.
+    assert {:ok, "tskey-token-2"} = TokenCache.fetch(@client_id, @client_secret, now)
+    assert exchange_count() == 2
+  end
+
   defp table, do: TokenCache.Cache
 
   # A :protected table reads from any process — the assertions may peek.

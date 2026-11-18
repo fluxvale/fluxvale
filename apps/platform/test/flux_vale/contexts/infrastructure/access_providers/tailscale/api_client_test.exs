@@ -801,24 +801,30 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.ApiClientTest do
       assert {:error, :forbidden} = ApiClient.oauth_exchange(@client_id, @client_secret)
     end
 
-    # The failure-path canary: the client secret rides ONLY the
-    # Authorization header — error logs (status+snippet arms) must never
-    # carry it. Tailscale error bodies echo neither half.
-    test "the client secret never reaches a log on a failure path" do
+    # The failure-path canary, hardened per the #863 review: a
+    # misbehaving intermediary's 502 can ECHO the request's Basic
+    # header in its diagnostic body. The exchange's error path is
+    # status-only — no body in the return, none in the log — so the
+    # canary (the raw Authorization value) reaches neither.
+    test "an error body echoing the Basic header reaches neither log nor return" do
+      basic = "Basic " <> Base.encode64("#{@client_id}:#{@client_secret}")
+
       expect(Req, :post, fn _req, _opts ->
-        {:ok, %Req.Response{status: 500, body: %{"error" => String.duplicate("boom", 100)}}}
+        {:ok,
+         %Req.Response{
+           status: 502,
+           body: %{"error" => "upstream said: #{basic} in Authorization"}
+         }}
       end)
 
       logs =
         ExUnit.CaptureLog.capture_log(fn ->
-          assert {:error, %{status: 500, body: snippet}} =
-                   ApiClient.oauth_exchange(@client_id, @client_secret)
-
-          assert snippet =~ "boom"
+          assert {:error, %{status: 502}} = ApiClient.oauth_exchange(@client_id, @client_secret)
         end)
 
+      refute logs =~ basic
       refute logs =~ @client_secret
-      refute logs =~ @client_id
+      assert logs =~ "502"
     end
 
     test "a transport failure is :network_error" do
