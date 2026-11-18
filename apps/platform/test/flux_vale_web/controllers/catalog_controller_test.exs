@@ -901,7 +901,17 @@ defmodule FluxValeWeb.CatalogControllerTest do
       # reach one peer each), so every page still shows the card — the
       # honest result, not a bug. S7 ships the curated sections for
       # every seeded app, so they render everywhere.
-      for slug <- seeded do
+      # S3: every seeded app renders the four generated sections plus
+      # the curated ones. The browse card is the under-two-peers
+      # fallback: #610 put a second app in Productivity (its pairs
+      # reached one peer each) and #827 a third, so Productivity pages
+      # now render two peer cards where the fallback used to sit —
+      # the honest result, not a bug. S7 ships the curated sections
+      # for every seeded app, so they render everywhere.
+      {productivity, others} =
+        Enum.split_with(seeded, &(&1 in ["memos", "vikunja", "linkwarden"]))
+
+      for slug <- others do
         html = html_response(get(conn, ~p"/catalog/#{slug}"), 200)
 
         assert html =~ ~s(data-testid="benefits-section")
@@ -913,6 +923,22 @@ defmodule FluxValeWeb.CatalogControllerTest do
         assert html =~ ~s(data-testid="features-section")
         # The seeded screenshots render by src path, so a renderer that
         # rewrites or drops the PNG sources cannot pass silently.
+        assert html =~ ~s(/images/catalog/#{slug}/)
+      end
+
+      for slug <- productivity do
+        html = html_response(get(conn, ~p"/catalog/#{slug}"), 200)
+
+        assert html =~ ~s(data-testid="benefits-section")
+        assert html =~ ~s(data-testid="faq-section")
+        assert html =~ ~s(data-testid="similar-section")
+        assert html =~ ~s(data-testid="cta-section")
+        # Two same-category peers: the similar row carries their
+        # cards, and the under-two-peers fallback is gone by design.
+        assert html =~ ~s(data-testid="similar-from-price")
+        refute html =~ ~s(data-testid="browse-card")
+        assert html =~ ~s(data-testid="in-action-section")
+        assert html =~ ~s(data-testid="features-section")
         assert html =~ ~s(/images/catalog/#{slug}/)
       end
 

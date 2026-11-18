@@ -69,11 +69,11 @@ defmodule FluxVale.Catalog.LintTest do
       lines = Lint.report(CatalogData.entries())
 
       for slug <-
-            ~w(forgejo kavita memos pocket-id vaultwarden actualbudget umami vikunja docmost) do
+            ~w(forgejo kavita memos pocket-id vaultwarden actualbudget umami vikunja docmost linkwarden) do
         assert "#{slug}: full parity" in lines
       end
 
-      assert List.last(lines) == "9 apps: 0 minimum, 0 recommended, 9 full parity"
+      assert List.last(lines) == "10 apps: 0 minimum, 0 recommended, 10 full parity"
     end
   end
 

@@ -332,13 +332,14 @@ defmodule FluxVale.Seeds.CatalogDataTest do
     test "shipped catalog_data.yaml normalizes the Memos entry (#492)" do
       entry = entry_by_slug("productivity")
 
-      # #610 widened the category copy when Vikunja joined.
+      # #610 widened the category copy when Vikunja joined, and #827
+      # widened it again when Linkwarden joined.
       assert entry.category == %{
                name: "Productivity",
                slug: "productivity",
-               description: "Notes, tasks, and personal knowledge apps.",
+               description: "Notes, tasks, and bookmark apps.",
                audience:
-                 "A fit for people who want their notes and tasks in one place, on their own terms."
+                 "A fit for people who want their notes, tasks, and bookmarks in one place, on their own terms."
              }
 
       app = app_by_slug!([entry], "memos")
@@ -635,6 +636,71 @@ defmodule FluxVale.Seeds.CatalogDataTest do
       assert guidance =~ "becomes the workspace admin"
     end
 
+    test "shipped catalog_data.yaml normalizes the Linkwarden entry (#827)" do
+      entry = entry_by_slug("productivity")
+
+      app = app_by_slug!([entry], "linkwarden")
+      assert app.name == "Linkwarden"
+      assert app.source_url == "https://github.com/linkwarden/linkwarden"
+      # Preserved files ride the app's own storage — no file-access sidecar.
+      assert app.file_access == false
+
+      assert app.icon_url == "/images/catalog/linkwarden/icon.png"
+
+      version = hd(app.versions)
+      assert version.version == "2.17.0"
+      # The canonical upstream image, pinned by exact tag; GHCR tags
+      # carry a v prefix (bare 2.17.0 does not exist in the registry).
+      assert version.image == "ghcr.io/linkwarden/linkwarden:v2.17.0"
+      assert version.port == 3000
+      # The image's own HEALTHCHECK path (curl --fail against /).
+      assert version.healthcheck_path == "/"
+      # STORAGE_FOLDER defaults to `data` joined from the app's working
+      # dir (/data/apps/web) — the upstream compose mount.
+      assert version.storage_mount_path == "/data/data"
+      # The deploy op fills the auth base URL (verified bare-origin).
+      assert version.instance_url_env == "NEXTAUTH_URL"
+      assert Decimal.equal?(version.default_cpu_cores, Decimal.new("0.5"))
+      assert version.default_memory_mb == 1024
+      assert version.default_storage_gb == 10
+      assert version.recommended_size == "medium"
+      assert version.published_at == ~U[2026-11-10 18:30:29Z]
+      assert version.default_env_vars == %{}
+      assert version.oidc_callback_path == nil
+
+      # The bundled-database shape (ADR-0045): platform-owned
+      # DATABASE_URL (secret kept, required dropped), one postgres
+      # major, no Meilisearch service.
+      assert version.backing_services == [
+               %{"kind" => "postgres", "version" => "18", "url_env" => "DATABASE_URL"}
+             ]
+
+      assert %{"required" => false, "secret" => true} =
+               version.configurable_env_vars["DATABASE_URL"]
+
+      # The owner's required secret; the registration toggle is the
+      # one boolean, and it ships in this layer alone (absent from
+      # default_env_vars and the first-run contract).
+      assert %{"required" => true, "secret" => true} =
+               version.configurable_env_vars["NEXTAUTH_SECRET"]
+
+      assert %{"type" => "boolean", "default" => false} =
+               version.configurable_env_vars["NEXT_PUBLIC_DISABLE_REGISTRATION"]
+
+      # Register-first-admin, nothing to pin and nothing to lock: the
+      # registration toggle rides the deploy inputs above.
+      assert version.first_run["pattern"] == "first_registered_user_admin"
+      assert version.first_run["env"] == %{}
+      assert version.first_run["forbidden_env"] == []
+
+      # The honest copy: first-user admin, Meilisearch omitted,
+      # registration posture — pinned so the facts can't drift.
+      caveats = Enum.join(app.caveats, " ")
+      assert caveats =~ "first account registered becomes the admin"
+      assert caveats =~ "Meilisearch engine is not part of this packaging"
+      assert caveats =~ "Sign-ups stay open"
+    end
+
     test "comments-only and empty files parse to []" do
       comments_only = tmp_path("# comments only\n")
       assert CatalogData.entries(comments_only) == []
@@ -657,7 +723,7 @@ defmodule FluxVale.Seeds.CatalogDataTest do
                "media" =>
                  "A fit for personal libraries and households that want their own media server.",
                "productivity" =>
-                 "A fit for people who want their notes and tasks in one place, on their own terms.",
+                 "A fit for people who want their notes, tasks, and bookmarks in one place, on their own terms.",
                "security" =>
                  "A fit for anyone who would rather hold their own passwords and keys.",
                "identity" => "A fit for households and teams that want one sign-in they control.",
@@ -893,7 +959,7 @@ defmodule FluxVale.Seeds.CatalogDataTest do
       assert entry.category.audience == nil
     end
 
-    test "exactly one shipped entry declares backing services — the Umami takeover row (#612 S4)" do
+    test "shipped entries declaring backing services stay deliberate (#612 S4, #827)" do
       versions =
         default_catalog_path()
         |> CatalogData.entries()
@@ -904,13 +970,20 @@ defmodule FluxVale.Seeds.CatalogDataTest do
 
       declaring = Enum.filter(versions, &(&1.backing_services != []))
 
-      assert [%{version: "3.4.1-bundled", backing_services: services}] = declaring
-      assert services == [%{"kind" => "postgres", "version" => "18", "url_env" => "DATABASE_URL"}]
+      # Two rows, both deliberate: the Umami takeover (#612 S4) and the
+      # Linkwarden bundled entry (#827, same ADR-0045 shape).
+      assert MapSet.new(declaring, & &1.version) ==
+               MapSet.new(["3.4.1-bundled", "2.17.0"])
+
+      for %{version: "3.4.1-bundled"} = row <- declaring do
+        assert row.backing_services == [
+                 %{"kind" => "postgres", "version" => "18", "url_env" => "DATABASE_URL"}
+               ]
+      end
 
       # Every other version normalizes to [] — the declaration stays a
-      # per-version opt-in, and the pinned BYO row is untouched.
-      assert length(declaring) == 1
-      assert Enum.count(versions, &(&1.backing_services == [])) == length(versions) - 1
+      # per-version opt-in.
+      assert Enum.count(versions, &(&1.backing_services == [])) == length(versions) - 2
     end
 
     test "passes a backing-services declaration through raw for write-time validation (#612)" do

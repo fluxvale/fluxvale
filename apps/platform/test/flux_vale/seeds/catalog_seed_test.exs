@@ -671,6 +671,85 @@ defmodule FluxVale.Seeds.CatalogSeedTest do
       assert contract.guidance =~ "becomes the workspace admin"
     end
 
+    test "seeds the shipped Linkwarden entry and its first-run contract (#827)" do
+      assert :ok == Seeds.seed_pricing!()
+      assert :ok == Seeds.seed_catalog!()
+
+      category = Category.get_by_slug!("productivity", authorize?: false)
+      assert category.name == "Productivity"
+
+      app = App.get_by_slug!("linkwarden", authorize?: false)
+      assert app.category_id == category.id
+      assert app.source_url == "https://github.com/linkwarden/linkwarden"
+      # Preserved files ride the app's own volume — no file-access sidecar.
+      assert app.file_access == false
+
+      version =
+        "linkwarden"
+        |> App.get_by_slug!(authorize?: false)
+        |> Ash.load!([app_versions: :recommended_size], authorize?: false)
+        |> Map.fetch!(:app_versions)
+        |> hd()
+
+      assert version.version == "2.17.0"
+      # The canonical upstream image (its own release pipeline pushes
+      # GHCR), not a mirror; tags carry the v prefix.
+      assert version.image == "ghcr.io/linkwarden/linkwarden:v2.17.0"
+      assert version.port == 3000
+      # The image's own healthcheck path (unauthenticated 200 on /).
+      assert version.healthcheck_path == "/"
+      # STORAGE_FOLDER defaults to `data` joined from /data/apps/web —
+      # the upstream compose mount, never /data itself (the app tree).
+      assert version.storage_mount_path == "/data/data"
+      # The deploy op fills the auth base URL (verified bare-origin).
+      assert version.instance_url_env == "NEXTAUTH_URL"
+      assert version.oidc_callback_path == nil
+      # The compute class kept equal to `medium` by
+      # ValidateSizeMatchesAllocation (the seed would refuse a drift).
+      assert Decimal.equal?(version.default_cpu_cores, Decimal.new("0.5"))
+      assert version.default_memory_mb == 1024
+      assert version.default_storage_gb == 10
+      assert version.recommended_size.slug == "medium"
+
+      # The bundled-database shape (ADR-0045): one postgres major,
+      # DATABASE_URL composed at deploy (ValidateBackingServices'
+      # every arm accepts it — url_env present, secret, optional).
+      assert [%BackingService{} = postgres] = version.backing_services
+      assert postgres.kind == :postgres
+      assert postgres.version == "18"
+      assert postgres.url_env == "DATABASE_URL"
+
+      # Platform-owned on this row: secret kept, required dropped.
+      database_url = version.configurable_env_vars["DATABASE_URL"]
+      assert %EnvVarSpec{} = database_url
+      assert database_url.required == false
+      assert database_url.secret == true
+
+      # The owner's required secret (the Pocket ID ENCRYPTION_KEY
+      # shape) and the one registration toggle.
+      secret = version.configurable_env_vars["NEXTAUTH_SECRET"]
+      assert %EnvVarSpec{} = secret
+      assert secret.required == true
+      assert secret.secret == true
+
+      toggle = version.configurable_env_vars["NEXT_PUBLIC_DISABLE_REGISTRATION"]
+      assert %EnvVarSpec{} = toggle
+      assert toggle.type == :boolean
+      assert toggle.default == false
+
+      # Nothing ships at boot; the registration key lives in the
+      # deploy inputs alone.
+      assert version.default_env_vars == %{}
+
+      contract = version.first_run
+      assert %FirstRunContract{} = contract
+      assert contract.pattern == :first_registered_user_admin
+      assert contract.env == %{}
+      assert contract.forbidden_env == []
+      assert contract.guidance =~ "first account"
+      assert contract.guidance =~ "registration toggle"
+    end
+
     test "seeds the OIDC callback paths for the six consumers (#511)" do
       assert :ok == Seeds.seed_pricing!()
       assert :ok == Seeds.seed_catalog!()
@@ -684,7 +763,10 @@ defmodule FluxVale.Seeds.CatalogSeedTest do
         "actualbudget" => "/openid/callback",
         "memos" => "/auth/callback",
         "vikunja" => "/auth/openid/pocketid",
-        "pocket-id" => nil
+        "pocket-id" => nil,
+        # No SSO surface in this packaging (credentials sign-in only,
+        # no provider envs) — the Docmost shape, nil on both counts.
+        "linkwarden" => nil
       }
 
       for {slug, path} <- expected do
@@ -707,7 +789,8 @@ defmodule FluxVale.Seeds.CatalogSeedTest do
         "kavita" => nil,
         "actualbudget" => nil,
         "memos" => nil,
-        "pocket-id" => nil
+        "pocket-id" => nil,
+        "linkwarden" => nil
       }
 
       for {slug, recipe} <- expected do
@@ -805,7 +888,7 @@ defmodule FluxVale.Seeds.CatalogSeedTest do
                "A fit for personal libraries and households that want their own media server."
 
       assert Category.get_by_slug!("productivity", authorize?: false).audience ==
-               "A fit for people who want their notes and tasks in one place, on their own terms."
+               "A fit for people who want their notes, tasks, and bookmarks in one place, on their own terms."
 
       assert Category.get_by_slug!("security", authorize?: false).audience ==
                "A fit for anyone who would rather hold their own passwords and keys."
