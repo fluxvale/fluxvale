@@ -838,6 +838,12 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale do
   end
 
   defp delete_enrollment_key(gateway, key_id) do
+    # The fun returns keys_delete's result RAW — a 401 must reach the
+    # wrapper so an OAuth-derived token can invalidate + re-exchange +
+    # retry once (the CodeRabbit #863 catch: swallowing it here left a
+    # stale cached token's revoke silently failing while the key stayed
+    # valid). The best-effort log-and-:ok conversion happens on the
+    # FINAL outcome, below, for every caller.
     outcome =
       with_access_token(gateway, fn token ->
         case ApiClient.keys_delete(token, key_id) do
@@ -845,13 +851,13 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale do
             Logger.info("gateway #{gateway.id} revoked enrollment key #{key_id}")
             :ok
 
-          {:error, reason} ->
+          {:error, reason} = error ->
             Logger.warning(
               "Access gateway #{gateway.id} enrollment-key #{key_id} revoke failed " <>
                 "(the TTL bounds it): #{inspect(reason)}"
             )
 
-            :ok
+            error
         end
       end)
 
@@ -860,14 +866,14 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale do
 
   # The revoke is best-effort by contract; the wrapper itself failing
   # (no readable credential — absent, malformed, or an exchange that
-  # would not resolve) is the same log-and-:ok as an API failure: the
-  # 1h TTL bounds a missed revoke.
+  # would not resolve, including a retry that still 401s) is the same
+  # log-and-:ok as an API failure: the 1h TTL bounds a missed revoke.
   defp revoke_outcome(:ok, _gateway, _key_id), do: :ok
 
   defp revoke_outcome({:error, reason}, gateway, key_id) do
     Logger.warning(
-      "Access gateway #{gateway.id} enrollment-key #{key_id} revoke skipped (no " <>
-        "readable token; the TTL bounds it): #{inspect(reason)}"
+      "Access gateway #{gateway.id} enrollment-key #{key_id} revoke stood down " <>
+        "(no usable credential, or the delete was refused; the TTL bounds it): #{inspect(reason)}"
     )
 
     :ok

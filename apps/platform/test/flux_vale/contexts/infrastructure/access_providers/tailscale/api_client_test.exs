@@ -676,6 +676,21 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.ApiClientTest do
     @client_id "ts-client-id-123"
     @client_secret "ts-client-secret-abc"
 
+    # The Basic header is the client secret: an http:// base_url
+    # override must refuse BEFORE the credential is attached (#863
+    # review) — the transport floor is https, and the test override
+    # (https://api.example) stays usable.
+    test "an http:// base_url override is refused before the secret attaches" do
+      original = Application.get_env(:flux_vale, :tailscale_api)
+      Application.put_env(:flux_vale, :tailscale_api, base_url: "http://api.example")
+
+      on_exit(fn -> Application.put_env(:flux_vale, :tailscale_api, original) end)
+
+      reject(Req, :post, 2)
+
+      assert {:error, :insecure_base_url} = ApiClient.oauth_exchange(@client_id, @client_secret)
+    end
+
     test "POSTs to the token endpoint with HTTP Basic and NO body" do
       expect(Req, :post, fn req, opts ->
         assert req.options[:base_url] == "https://api.example"

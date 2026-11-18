@@ -233,20 +233,40 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale.ApiClient do
           {:ok, %{access_token: String.t(), expires_in: pos_integer()}} | {:error, error()}
   def oauth_exchange(client_id, client_secret)
       when is_binary(client_id) and is_binary(client_secret) do
-    req =
-      Req.new(
-        base_url: base_url(),
-        headers: [
-          {"authorization", "Basic " <> Base.encode64(client_id <> ":" <> client_secret)}
-        ]
-      )
+    # The Basic header IS the client secret: it must never ride plain
+    # HTTP. A configured base_url override is validated BEFORE the
+    # credential is attached (#863 review — Req validates redirects,
+    # not the initial URL). Test overrides stay usable: they are https.
+    with {:ok, url} <- https_base_url() do
+      req =
+        Req.new(
+          base_url: url,
+          headers: [
+            {"authorization", "Basic " <> Base.encode64(client_id <> ":" <> client_secret)}
+          ]
+        )
 
-    case Req.post(req, url: "/api/v2/oauth/token", decode_body: false) do
-      {:ok, %Req.Response{status: status, body: body}} when status in 200..299 ->
-        decode_token(status, body)
+      Req.post(req, url: "/api/v2/oauth/token", decode_body: false)
+    end
+    |> exchange_result()
+  end
 
-      other ->
-        error_result(other)
+  defp exchange_result({:ok, %Req.Response{status: status, body: body}})
+       when status in 200..299,
+       do: decode_token(status, body)
+
+  defp exchange_result({:error, :insecure_base_url} = refusal), do: refusal
+
+  defp exchange_result(other), do: error_result(other)
+
+  # The credential-bearing endpoint's transport floor: https, or the
+  # refusal happens before any secret is placed on a request.
+  defp https_base_url do
+    url = base_url()
+
+    case URI.parse(url) do
+      %URI{scheme: "https"} -> {:ok, url}
+      _insecure_or_unparseable -> {:error, :insecure_base_url}
     end
   end
 
