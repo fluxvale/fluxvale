@@ -486,6 +486,8 @@ defmodule FluxVale.Infrastructure.AccessGateway.ChangesTest do
       reject(Tailscale, :write_client_credential, 3)
       reject(Tailscale, :write_api_credential, 2)
 
+      # The three GENUINE mixes (token + id, token + secret, token +
+      # the whole pair) — the lone-half arms have their own tests.
       for params <- [
             %{api_token: "tskey-api", ts_client_id: "client-id-1"},
             %{api_token: "tskey-api", ts_client_secret: "client-secret-1"},
@@ -493,8 +495,7 @@ defmodule FluxVale.Infrastructure.AccessGateway.ChangesTest do
               api_token: "tskey-api",
               ts_client_id: "client-id-1",
               ts_client_secret: "client-secret-1"
-            },
-            %{ts_client_secret: "client-secret-1"}
+            }
           ] do
         assert {:error, %Ash.Error.Invalid{errors: errors}} =
                  AccessGateway.set_api_token(gateway, params, authorize?: false)
@@ -506,6 +507,27 @@ defmodule FluxVale.Infrastructure.AccessGateway.ChangesTest do
                        "Save the client id and secret together, or the API token alone")
                )
       end
+    end
+
+    test "a lone secret is refused on :ts_client_id — the lone-half arm, not a mix", %{
+      org: org
+    } do
+      gateway = AccessFixtures.gateway!(org)
+
+      reject(Tailscale, :write_client_credential, 3)
+      reject(Tailscale, :write_api_credential, 2)
+
+      assert {:error, %Ash.Error.Invalid{errors: errors}} =
+               AccessGateway.set_api_token(gateway, %{ts_client_secret: "client-secret-1"},
+                 authorize?: false
+               )
+
+      assert Enum.any?(
+               errors,
+               &(&1.field == :ts_client_id and
+                   &1.message ==
+                     "Save the client id and secret together, or the API token alone")
+             )
     end
 
     test "an empty save is refused on :api_token", %{org: org} do
