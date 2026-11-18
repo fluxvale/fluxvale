@@ -800,9 +800,9 @@ defmodule FluxValeWeb.OrganizationLive.Access do
               data-testid="access-api-token-input"
             />
             <p class="text-xs text-ink-muted">
-              We create the join key for you from this token. It needs these scopes: <span class="font-mono">dns</span>, <span class="font-mono">devices:routes</span>,
-              <span class="font-mono">devices:core:read</span>
-              and <span class="font-mono">auth_keys</span>.
+              We create the join key for you from this token. Mint it from a tailnet
+              owner or admin account (admin console → Settings → Keys → Generate
+              API token) — the token carries that account's permissions.
             </p>
             <.input
               field={@form[:auth_key]}
@@ -1617,9 +1617,33 @@ defmodule FluxValeWeb.OrganizationLive.Access do
     %{
       ash_form
       | source: Ash.Changeset.force_set_argument(ash_form.source, argument, ""),
-        params: Map.delete(ash_form.params, Atom.to_string(argument))
+        params: Map.delete(ash_form.params, Atom.to_string(argument)),
+        # AshPhoenix's validate stores the SUBMITTED params verbatim in
+        # raw_params — the third place a typed secret survives the strip
+        # (#857 review; verified: ash_phoenix form.ex validate/3 assigns
+        # raw_params = new_params). Nothing reads it for rendering and
+        # the next validate replaces it wholesale, so deleting the
+        # secret key is safe and closes the retention.
+        raw_params: scrub_raw_params(ash_form.raw_params, Atom.to_string(argument))
     }
   end
+
+  # raw_params is either the bare inner params or the %{"form_name" =>
+  # inner} envelope, depending on how validate was called — scrub both
+  # shapes.
+  defp scrub_raw_params(raw_params, key) when is_map(raw_params) do
+    inner = Map.delete(raw_params, key)
+
+    case Map.get(raw_params, "gateway") do
+      %{} = wrapped ->
+        Map.put(inner, "gateway", Map.delete(wrapped, key))
+
+      _unwrapped ->
+        inner
+    end
+  end
+
+  defp scrub_raw_params(raw_params, _key), do: raw_params
 
   # A failed submit rediscovers the form from the row — which has no
   # key — and carries only the errored form's field errors, so the

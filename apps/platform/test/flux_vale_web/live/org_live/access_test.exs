@@ -529,6 +529,13 @@ defmodule FluxValeWeb.OrganizationLive.AccessTest do
 
       refute html =~ "tskey-api-TYPING-marker"
 
+      # State-level too (#857 review): AshPhoenix retains the submitted
+      # params in raw_params — argument, params, and raw_params all
+      # carry the typed secret unless the strip scrubs all three. The
+      # socket's state — and so any crash report's — must hold none.
+      state = :sys.get_state(view.pid)
+      refute inspect(state) =~ "tskey-api-TYPING-marker"
+
       # Typing still works: a submit right after lands the gateway.
       view
       |> form("#access-enable-form",
@@ -765,7 +772,7 @@ defmodule FluxValeWeb.OrganizationLive.AccessTest do
 
     test "token events on the empty state are no-ops, never crashes", %{
       conn: conn,
-      personal: personal
+      personal: _personal
     } do
       {:ok, view, _html} = live(conn, ~p"/settings/access")
 
@@ -1630,7 +1637,7 @@ defmodule FluxValeWeb.OrganizationLive.AccessTest do
       org: org
     } do
       gateway = AccessFixtures.gateway!(org)
-      instance = AccessFixtures.private_instance!(org, owner)
+      _instance = AccessFixtures.private_instance!(org, owner)
 
       _domain = verified_domain!(org, owner, "apps.customer.com")
 
