@@ -1,9 +1,9 @@
 defmodule FluxVale.Infrastructure.AccessGateway.CreateStoresApiToken do
   @moduledoc """
   The one-paste enable's token intake (#836) — the create twin of
-  `SetApiToken`: when the create carries `api_token` (and no auth key),
-  the provider writes the api-credential Secret and the row is born
-  carrying the ref plus the rotation stamp.
+  `SetApiToken`: when the create carries a Tailscale API credential, the
+  provider writes the api-credential Secret and the row is born carrying
+  the ref plus the rotation stamp.
 
   **Order is the recovery property** (the `SetApiToken` stance): the
   Secret first, the ref second — the ref columns commit with the row,
@@ -14,14 +14,18 @@ defmodule FluxVale.Infrastructure.AccessGateway.CreateStoresApiToken do
   existed converge through the observer's claim limb — the
   today-guarantee a token save must keep (#837 review).
 
-  **Exactly one credential**, validated before any write: both absent
-  and both present are field-scoped refusals — refusing ambiguity is
-  cheaper and more honest than a silent precedence rule (plan R2).
+  **Exactly one credential, three ways** (#836 lane B): an auth key, an
+  API token, or the OAuth client pair (both halves) — validated before
+  any write. Both-absent, any two shapes together, and a lone pair half
+  are field-scoped refusals — refusing ambiguity is cheaper and more
+  honest than a silent precedence rule (plan R2).
 
-  **The owner fence is the TOKEN's, not the row's** (#760 precedent):
-  the create policy stays member+funded+paid (a member enabling with
-  their own pasted key is unchanged), and this change re-fences the
-  authorize?-free seam exactly like `SetApiToken.ensure_org_owner`.
+  **The owner fence is the CREDENTIAL's, not the row's** (#760
+  precedent): the create policy stays member+funded+paid (a member
+  enabling with their own pasted key is unchanged), and this change
+  re-fences the authorize?-free seam exactly like
+  `SetApiToken.ensure_org_owner` whenever a token or pair rides the
+  create.
   """
 
   use Ash.Resource.Change
@@ -33,46 +37,83 @@ defmodule FluxVale.Infrastructure.AccessGateway.CreateStoresApiToken do
 
   require Logger
 
+  # The lane-B sentences: a lone pair half wants its sibling; a pair
+  # beside any other credential is ambiguity, refused (plan R2's
+  # posture — never a silent precedence rule).
+  @pair_sentence "Save the client id and secret together"
+  @mixed_sentence "Paste one credential only — the client pair or an API token or an auth key"
+
   @impl Ash.Resource.Change
   def change(changeset, _opts, context) do
-    key? = pasted?(Ash.Changeset.get_argument(changeset, :auth_key))
-    token = trimmed_token(changeset)
-
-    cond do
-      not key? and is_nil(token) ->
-        Ash.Changeset.add_error(
-          changeset,
-          InvalidArgument.exception(
-            field: :auth_key,
-            message: "Paste an auth key or an API token to enable private access"
-          )
-        )
-
-      key? and token != nil ->
-        Ash.Changeset.add_error(
-          changeset,
-          InvalidArgument.exception(
-            field: :api_token,
-            message: "Paste one or the other, not both"
-          )
-        )
-
-      token != nil ->
-        # The Secret write rides the create's transaction (the
-        # SetApiToken posture): it lands before the row does, so the ref
-        # the row commits with is always backed by a written Secret.
+    case intake(changeset) do
+      {:ok, credential} ->
         changeset
         |> Ash.Changeset.before_action(fn changeset ->
-          store_token(changeset, context.actor, token)
+          store_credential(changeset, context.actor, credential)
         end)
         |> Ash.Changeset.after_transaction(fn changeset, result ->
           cleanup_orphaned_secret(changeset, result)
         end)
 
-      true ->
+      # The auth key alone: the pasted fallback, untouched by this
+      # change (ProvisionCluster carries the key to the provider).
+      :paste_path ->
         changeset
+
+      {:refuse, field, message} ->
+        refuse(changeset, field, message)
     end
   end
+
+  # The three-way exactly-one-of (#836 lane B): auth_key | api_token |
+  # client pair. The clauses ARE the rules, in priority order: a
+  # complete pair beside any other credential is ambiguity (plan R2 —
+  # never a silent precedence rule); the pair alone stores; the #853
+  # both-tokens refusal verbatim; a lone pair half wants its sibling;
+  # nothing at all is refused on the auth key; then the two single-
+  # credential paths (the token stores, the pasted key rides as today).
+  defp intake(changeset) do
+    pasted = {
+      trimmed(changeset, :auth_key),
+      trimmed(changeset, :api_token),
+      trimmed(changeset, :ts_client_id),
+      trimmed(changeset, :ts_client_secret)
+    }
+
+    one_credential(pasted)
+  end
+
+  defp one_credential({key, token, client_id, client_secret})
+       when is_binary(client_id) and is_binary(client_secret) and
+              not (is_nil(key) and is_nil(token)) do
+    {:refuse, :ts_client_id, @mixed_sentence}
+  end
+
+  defp one_credential({_key, _token, client_id, client_secret})
+       when is_binary(client_id) and is_binary(client_secret) do
+    {:ok, {:pair, client_id, client_secret}}
+  end
+
+  defp one_credential({key, token, _id, _secret}) when is_binary(key) and is_binary(token),
+    do: {:refuse, :api_token, "Paste one or the other, not both"}
+
+  # The id alone — its secret half is missing.
+  defp one_credential({_key, _token, client_id, _secret}) when is_binary(client_id),
+    do: {:refuse, :ts_client_secret, @pair_sentence}
+
+  # The secret alone — its id half is missing.
+  defp one_credential({_key, _token, _id, client_secret}) when is_binary(client_secret),
+    do: {:refuse, :ts_client_id, @pair_sentence}
+
+  defp one_credential({nil, nil, nil, nil}),
+    do: {:refuse, :auth_key, "Paste an auth key or an API token to enable private access"}
+
+  defp one_credential({_key, token, _id, _secret}) when is_binary(token),
+    do: {:ok, {:console, token}}
+
+  # The auth key alone: the pasted fallback, untouched by this change
+  # (ProvisionCluster carries the key to the provider).
+  defp one_credential({_key, _token, _id, _secret}), do: :paste_path
 
   @impl Ash.Resource.Change
   # coveralls-ignore-next-line trivial callback — always false (cluster I/O in the hook)
@@ -98,11 +139,11 @@ defmodule FluxVale.Infrastructure.AccessGateway.CreateStoresApiToken do
 
   defp cleanup_orphaned_secret(_changeset, result), do: result
 
-  defp store_token(changeset, actor, token) do
+  defp store_credential(changeset, actor, credential) do
     gateway = row_shape(changeset)
 
     if actor && ActorIsOrganizationOwner.owner?(actor, %Organization{id: gateway.organization_id}) do
-      case AccessProvider.impl_for(gateway).write_api_credential(gateway, token) do
+      case write_credential(gateway, credential) do
         {:ok, %{api_token_secret_ref: ref}} ->
           changeset
           |> Ash.Changeset.force_change_attribute(:api_token_secret_ref, ref)
@@ -117,24 +158,45 @@ defmodule FluxVale.Infrastructure.AccessGateway.CreateStoresApiToken do
               "(#{reason_tag(reason)})"
           )
 
+          {field, message} = store_failure_copy(credential)
+
           Ash.Changeset.add_error(
             changeset,
-            InvalidArgument.exception(
-              field: :api_token,
-              message: "we couldn't store the token — try again"
-            )
+            InvalidArgument.exception(field: field, message: message)
           )
       end
     else
       Ash.Changeset.add_error(
         changeset,
         InvalidArgument.exception(
-          field: :api_token,
+          field: fence_field(credential),
           message: "Only an organization owner can store the Tailscale API token"
         )
       )
     end
   end
+
+  # The console arm rides the provider's token writer; the pair arm the
+  # client-pair writer — same Secret, one shape per write (SSA).
+  defp write_credential(gateway, {:console, token}) do
+    AccessProvider.impl_for(gateway).write_api_credential(gateway, token)
+  end
+
+  defp write_credential(gateway, {:pair, client_id, client_secret}) do
+    AccessProvider.impl_for(gateway).write_client_credential(gateway, client_id, client_secret)
+  end
+
+  # The store-failure and fence fields name the shape's leading input.
+  defp store_failure_copy({:console, _token}),
+    do: {:api_token, "we couldn't store the token — try again"}
+
+  defp store_failure_copy({:pair, _id, _secret}),
+    do: {:ts_client_secret, "we couldn't store the credential — try again"}
+
+  # The fence error lands on the shape's leading input: the token arm
+  # keeps the #760 field pin, the pair arm names the client id.
+  defp fence_field({:console, _token}), do: :api_token
+  defp fence_field({:pair, _id, _secret}), do: :ts_client_id
 
   # The struct the provider writes from: the Secret's name derives from
   # the row's id, whose lazy default is on the changeset by the time
@@ -149,10 +211,10 @@ defmodule FluxVale.Infrastructure.AccessGateway.CreateStoresApiToken do
     }
   end
 
-  defp trimmed_token(changeset) do
-    case Ash.Changeset.get_argument(changeset, :api_token) do
-      token when is_binary(token) ->
-        trimmed = String.trim(token)
+  defp trimmed(changeset, key) do
+    case Ash.Changeset.get_argument(changeset, key) do
+      value when is_binary(value) ->
+        trimmed = String.trim(value)
         if trimmed == "", do: nil, else: trimmed
 
       _absent ->
@@ -160,11 +222,17 @@ defmodule FluxVale.Infrastructure.AccessGateway.CreateStoresApiToken do
     end
   end
 
-  defp pasted?(value) when is_binary(value), do: String.trim(value) != ""
-  defp pasted?(_absent), do: false
+  # add_error RETURNS the modified changeset — refusing means returning
+  # it, not the original.
+  defp refuse(changeset, field, message) do
+    Ash.Changeset.add_error(
+      changeset,
+      InvalidArgument.exception(field: field, message: message)
+    )
+  end
 
   # Status codes and atoms only — never the provider's message or its
-  # request body (the Secret carries the token).
+  # request body (the Secret carries the credential).
   defp reason_tag(%{status_code: code, reason: reason}),
     do: "http=#{inspect(code)} reason=#{inspect(reason)}"
 

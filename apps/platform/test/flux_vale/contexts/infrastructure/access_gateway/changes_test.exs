@@ -22,6 +22,7 @@ defmodule FluxVale.Infrastructure.AccessGateway.ChangesTest do
   alias FluxVale.Infrastructure.AccessGateway
   alias FluxVale.Infrastructure.AccessProviders.Tailscale
   alias FluxVale.Infrastructure.AccessRoute
+  alias FluxVale.Infrastructure.Operations.ClaimUnclaimedDomains
   alias FluxVale.TestSupport.AccessFixtures
   alias FluxVale.TestSupport.AccountsFixtures
   alias FluxVale.TestSupport.BillingFixtures
@@ -414,6 +415,421 @@ defmodule FluxVale.Infrastructure.AccessGateway.ChangesTest do
                )
 
       assert_received :cleaned
+    end
+  end
+
+  describe "the pair intake at settings (#836 lane B)" do
+    # The claim sweep reads the global :access_dns env through the
+    # operation stack, so the sweep-runs pin stubs the operation at the
+    # seam (the async-safe arm; the wrapper's own pair resolution is
+    # pinned end-to-end in SetAccessApiTokenTest).
+    test "a pair save stores both halves trimmed, sets ref + stamp, and runs the sweep", %{
+      org: org,
+      owner: owner
+    } do
+      gateway = AccessFixtures.gateway!(org)
+      parent = self()
+
+      stub(Tailscale, :write_client_credential, fn gw, client_id, client_secret ->
+        send(parent, {:pair_stored, gw.id, client_id, client_secret})
+        {:ok, %{api_token_secret_ref: "api-credential-pair"}}
+      end)
+
+      stub(ClaimUnclaimedDomains, :call, fn row, opts ->
+        send(parent, {:sweep, row.id, opts[:actor].id})
+        %{claimed: [], failed: []}
+      end)
+
+      reject(Tailscale, :write_api_credential, 2)
+
+      assert {:ok, row} =
+               AccessGateway.set_api_token(
+                 gateway,
+                 %{ts_client_id: "  client-id-1  ", ts_client_secret: " client-secret-1 \n"},
+                 actor: owner,
+                 authorize?: false
+               )
+
+      assert row.api_token_secret_ref == "api-credential-pair"
+      assert %DateTime{} = row.token_set_at
+
+      assert_received {:pair_stored, id, "client-id-1", "client-secret-1"}
+
+      owner_id = owner.id
+      assert_received {:sweep, ^id, ^owner_id}
+    end
+
+    test "a whitespace-only half counts as absent — the lone half is refused", %{org: org} do
+      gateway = AccessFixtures.gateway!(org)
+
+      reject(Tailscale, :write_client_credential, 3)
+      reject(Tailscale, :write_api_credential, 2)
+
+      assert {:error, %Ash.Error.Invalid{errors: errors}} =
+               AccessGateway.set_api_token(
+                 gateway,
+                 %{ts_client_id: "client-id-1", ts_client_secret: "   "},
+                 authorize?: false
+               )
+
+      # The id is alone: the refusal names its missing half's field.
+      assert Enum.any?(
+               errors,
+               &(&1.field == :ts_client_secret and
+                   &1.message == "Save the client id and secret together, or the API token alone")
+             )
+    end
+
+    test "each mixed shape is refused on :ts_client_id with the sentence", %{org: org} do
+      gateway = AccessFixtures.gateway!(org)
+
+      reject(Tailscale, :write_client_credential, 3)
+      reject(Tailscale, :write_api_credential, 2)
+
+      for params <- [
+            %{api_token: "tskey-api", ts_client_id: "client-id-1"},
+            %{api_token: "tskey-api", ts_client_secret: "client-secret-1"},
+            %{
+              api_token: "tskey-api",
+              ts_client_id: "client-id-1",
+              ts_client_secret: "client-secret-1"
+            },
+            %{ts_client_secret: "client-secret-1"}
+          ] do
+        assert {:error, %Ash.Error.Invalid{errors: errors}} =
+                 AccessGateway.set_api_token(gateway, params, authorize?: false)
+
+        assert Enum.any?(
+                 errors,
+                 &(&1.field == :ts_client_id and
+                     &1.message ==
+                       "Save the client id and secret together, or the API token alone")
+               )
+      end
+    end
+
+    test "an empty save is refused on :api_token", %{org: org} do
+      gateway = AccessFixtures.gateway!(org)
+
+      reject(Tailscale, :write_client_credential, 3)
+      reject(Tailscale, :write_api_credential, 2)
+
+      assert {:error, %Ash.Error.Invalid{errors: errors}} =
+               AccessGateway.set_api_token(gateway, %{}, authorize?: false)
+
+      assert Enum.any?(
+               errors,
+               &(&1.field == :api_token and
+                   &1.message == "Save the client id and secret together, or the API token alone")
+             )
+    end
+
+    test "a failed pair store refuses on :ts_client_secret with the store sentence", %{
+      org: org,
+      owner: owner
+    } do
+      gateway = AccessFixtures.gateway!(org)
+
+      stub(Tailscale, :write_client_credential, fn _gw, _id, _secret ->
+        {:error, :cluster_down}
+      end)
+
+      assert {:error, %Ash.Error.Invalid{errors: errors}} =
+               AccessGateway.set_api_token(
+                 gateway,
+                 %{ts_client_id: "client-id-1", ts_client_secret: "client-secret-1"},
+                 actor: owner,
+                 authorize?: false
+               )
+
+      assert Enum.any?(
+               errors,
+               &(&1.field == :ts_client_secret and
+                   &1.message == "we couldn't store the credential — try again")
+             )
+
+      assert AccessGateway.get_by_id!(gateway.id, authorize?: false).api_token_secret_ref == nil
+    end
+
+    test "the fence covers the pair — a member is refused before any write", %{org: org} do
+      gateway = AccessFixtures.gateway!(org)
+      member = AccountsFixtures.user!()
+
+      Membership.create!(%{organization_id: org.id, user_id: member.id, role: :member},
+        authorize?: false
+      )
+
+      reject(Tailscale, :write_client_credential, 3)
+
+      # The policy fences the member on every actor path; this is the
+      # authorize?-free seam's own fence, so its shape is the
+      # programming-error class (the #760 intake's exact posture).
+      assert {:error, %Ash.Error.Unknown{}} =
+               AccessGateway.set_api_token(
+                 gateway,
+                 %{ts_client_id: "client-id-1", ts_client_secret: "client-secret-1"},
+                 actor: member,
+                 authorize?: false
+               )
+
+      assert AccessGateway.get_by_id!(gateway.id, authorize?: false).api_token_secret_ref == nil
+    end
+  end
+
+  describe "the pair intake at create (#836 lane B)" do
+    test "a pair-at-create is born with the ref and the stamp and skips the claim sweep", %{
+      org: org,
+      owner: owner
+    } do
+      parent = self()
+
+      stub(Tailscale, :write_client_credential, fn gw, client_id, client_secret ->
+        send(parent, {:pair_stored, gw.id, client_id, client_secret})
+        {:ok, %{api_token_secret_ref: "api-credential-pair"}}
+      end)
+
+      stub(Tailscale, :provision_gateway_minted, fn gw ->
+        send(parent, {:minted, gw.id})
+        {:ok, %{credential_secret_ref: "credential-stub"}}
+      end)
+
+      stub(ClaimUnclaimedDomains, :call, fn _row, _opts ->
+        flunk("the create path never sweeps — the observer's first join claims later")
+      end)
+
+      reject(Tailscale, :write_api_credential, 2)
+      reject(Tailscale, :provision_gateway, 2)
+
+      assert {:ok, gateway} =
+               AccessGateway.create(
+                 %{
+                   organization_id: org.id,
+                   monthly_cents: 200,
+                   tailnet_domain: "example.ts.net",
+                   ts_client_id: " client-id-1 ",
+                   ts_client_secret: "client-secret-1"
+                 },
+                 actor: owner,
+                 authorize?: false
+               )
+
+      assert gateway.state == :provisioning
+      assert gateway.api_token_secret_ref == "api-credential-pair"
+      assert gateway.token_set_at
+
+      # The TRIMMED pair went to the Secret under the row's own id, and
+      # the mint ran on that row.
+      assert_received {:pair_stored, id, "client-id-1", "client-secret-1"}
+      assert_received {:minted, ^id}
+    end
+
+    test "a failed pair store at create refuses with the store sentence", %{
+      org: org,
+      owner: owner
+    } do
+      stub(Tailscale, :write_client_credential, fn _gw, _id, _secret ->
+        {:error, :cluster_down}
+      end)
+
+      assert {:error, %Ash.Error.Invalid{errors: errors}} =
+               AccessGateway.create(
+                 %{
+                   organization_id: org.id,
+                   monthly_cents: 200,
+                   tailnet_domain: "example.ts.net",
+                   ts_client_id: "client-id-1",
+                   ts_client_secret: "client-secret-1"
+                 },
+                 actor: owner,
+                 authorize?: false
+               )
+
+      assert Enum.any?(
+               errors,
+               &(&1.field == :ts_client_secret and
+                   &1.message == "we couldn't store the credential — try again")
+             )
+
+      assert {:error, _not_found} = AccessGateway.get_for_organization(org.id, authorize?: false)
+    end
+
+    test "a pair-at-create by a non-owner member is refused, nothing written", %{org: org} do
+      member = AccountsFixtures.user!()
+
+      Membership.create!(%{organization_id: org.id, user_id: member.id, role: :member},
+        authorize?: false
+      )
+
+      BillingFixtures.mark_paid!(org)
+
+      reject(Tailscale, :write_client_credential, 3)
+      reject(Tailscale, :provision_gateway_minted, 1)
+
+      assert {:error, %Ash.Error.Invalid{errors: errors}} =
+               AccessGateway.create(
+                 %{
+                   organization_id: org.id,
+                   monthly_cents: 200,
+                   tailnet_domain: "example.ts.net",
+                   ts_client_id: "client-id-1",
+                   ts_client_secret: "client-secret-1"
+                 },
+                 actor: member
+               )
+
+      assert Enum.any?(
+               errors,
+               &(&1.field == :ts_client_id and
+                   &1.message == "Only an organization owner can store the Tailscale API token")
+             )
+
+      assert {:error, _not_found} = AccessGateway.get_for_organization(org.id, authorize?: false)
+    end
+
+    test "a lone client id is refused on :ts_client_secret", %{org: org} do
+      reject(Tailscale, :write_client_credential, 3)
+      reject(Tailscale, :write_api_credential, 2)
+      reject(Tailscale, :provision_gateway, 2)
+      reject(Tailscale, :provision_gateway_minted, 1)
+
+      assert {:error, %Ash.Error.Invalid{errors: errors}} =
+               AccessGateway.create(
+                 %{
+                   organization_id: org.id,
+                   monthly_cents: 200,
+                   tailnet_domain: "example.ts.net",
+                   ts_client_id: "client-id-1"
+                 },
+                 authorize?: false
+               )
+
+      assert Enum.any?(
+               errors,
+               &(&1.field == :ts_client_secret and
+                   &1.message == "Save the client id and secret together")
+             )
+    end
+
+    test "a lone client secret is refused on :ts_client_id", %{org: org} do
+      reject(Tailscale, :write_client_credential, 3)
+      reject(Tailscale, :write_api_credential, 2)
+      reject(Tailscale, :provision_gateway, 2)
+      reject(Tailscale, :provision_gateway_minted, 1)
+
+      assert {:error, %Ash.Error.Invalid{errors: errors}} =
+               AccessGateway.create(
+                 %{
+                   organization_id: org.id,
+                   monthly_cents: 200,
+                   tailnet_domain: "example.ts.net",
+                   ts_client_secret: "client-secret-1"
+                 },
+                 authorize?: false
+               )
+
+      assert Enum.any?(
+               errors,
+               &(&1.field == :ts_client_id and
+                   &1.message == "Save the client id and secret together")
+             )
+    end
+
+    test "a whitespace-only half counts as absent too", %{org: org} do
+      reject(Tailscale, :write_client_credential, 3)
+
+      assert {:error, %Ash.Error.Invalid{errors: errors}} =
+               AccessGateway.create(
+                 %{
+                   organization_id: org.id,
+                   monthly_cents: 200,
+                   tailnet_domain: "example.ts.net",
+                   ts_client_id: "  ",
+                   ts_client_secret: "client-secret-1"
+                 },
+                 authorize?: false
+               )
+
+      assert Enum.any?(
+               errors,
+               &(&1.field == :ts_client_id and
+                   &1.message == "Save the client id and secret together")
+             )
+    end
+
+    test "the pair beside a token is refused on :ts_client_id", %{org: org} do
+      reject(Tailscale, :write_client_credential, 3)
+      reject(Tailscale, :write_api_credential, 2)
+
+      assert {:error, %Ash.Error.Invalid{errors: errors}} =
+               AccessGateway.create(
+                 %{
+                   organization_id: org.id,
+                   monthly_cents: 200,
+                   tailnet_domain: "example.ts.net",
+                   api_token: "tskey-api-secret",
+                   ts_client_id: "client-id-1",
+                   ts_client_secret: "client-secret-1"
+                 },
+                 authorize?: false
+               )
+
+      assert Enum.any?(
+               errors,
+               &(&1.field == :ts_client_id and
+                   &1.message ==
+                     "Paste one credential only — the client pair or an API token or an auth key")
+             )
+    end
+
+    test "the pair beside an auth key is refused on :ts_client_id", %{org: org} do
+      reject(Tailscale, :write_client_credential, 3)
+
+      assert {:error, %Ash.Error.Invalid{errors: errors}} =
+               AccessGateway.create(
+                 %{
+                   organization_id: org.id,
+                   monthly_cents: 200,
+                   tailnet_domain: "example.ts.net",
+                   auth_key: "tskey",
+                   ts_client_id: "client-id-1",
+                   ts_client_secret: "client-secret-1"
+                 },
+                 authorize?: false
+               )
+
+      assert Enum.any?(
+               errors,
+               &(&1.field == :ts_client_id and
+                   &1.message ==
+                     "Paste one credential only — the client pair or an API token or an auth key")
+             )
+    end
+
+    test "the pair beside both other credentials is refused on :ts_client_id", %{org: org} do
+      reject(Tailscale, :write_client_credential, 3)
+      reject(Tailscale, :write_api_credential, 2)
+      reject(Tailscale, :provision_gateway, 2)
+
+      assert {:error, %Ash.Error.Invalid{errors: errors}} =
+               AccessGateway.create(
+                 %{
+                   organization_id: org.id,
+                   monthly_cents: 200,
+                   tailnet_domain: "example.ts.net",
+                   auth_key: "tskey",
+                   api_token: "tskey-api-secret",
+                   ts_client_id: "client-id-1",
+                   ts_client_secret: "client-secret-1"
+                 },
+                 authorize?: false
+               )
+
+      assert Enum.any?(
+               errors,
+               &(&1.field == :ts_client_id and
+                   &1.message ==
+                     "Paste one credential only — the client pair or an API token or an auth key")
+             )
     end
   end
 
@@ -1398,6 +1814,48 @@ defmodule FluxVale.Infrastructure.AccessGateway.ChangesTest do
 
       assert create_version.version_action_inputs["auth_key"] == "REDACTED"
       refute Enum.any?(versions, &(inspect(&1) =~ key))
+    end
+
+    test "a pair-at-create redacts the secret but keeps the id in the clear", %{
+      org: org,
+      owner: owner
+    } do
+      # The split is deliberate (lane B): the client id is public
+      # identity — every OAuth client shows it — while the client
+      # secret is the crown half and rides sensitive.
+      client_id = "client-id-PLAIN-marker"
+      client_secret = "client-secret-SECRET-marker"
+
+      stub(Tailscale, :write_client_credential, fn _gateway, _id, _secret ->
+        {:ok, %{api_token_secret_ref: "api-credential-pair"}}
+      end)
+
+      stub(Tailscale, :provision_gateway_minted, fn _gateway ->
+        {:ok, %{credential_secret_ref: "credential-stub"}}
+      end)
+
+      assert {:ok, gateway} =
+               AccessGateway.create(
+                 %{
+                   organization_id: org.id,
+                   monthly_cents: 200,
+                   tailnet_domain: "example.ts.net",
+                   ts_client_id: client_id,
+                   ts_client_secret: client_secret
+                 },
+                 actor: owner,
+                 authorize?: false
+               )
+
+      versions = gateway_versions!(gateway.id)
+
+      create_version = Enum.find(versions, &(&1.version_action_name == :create))
+
+      assert create_version.version_action_inputs["ts_client_secret"] == "REDACTED"
+      assert create_version.version_action_inputs["ts_client_id"] == client_id
+
+      # The secret value appears in no version row — its own sentinel.
+      refute Enum.any?(versions, &(inspect(&1) =~ client_secret))
     end
   end
 

@@ -482,6 +482,29 @@ defmodule FluxVale.Infrastructure.AccessProviders.Tailscale do
   end
 
   @doc """
+  Writes the org's Tailscale OAuth client pair (#836 lane B) to the
+  api-credential Secret — the SAME name `write_api_credential/2` uses —
+  and returns its ref. The Secret's data map is SSA-applied whole, so a
+  console re-save clears the pair keys and vice versa: the Secret holds
+  ONE credential shape, never a mix (the wrapper's resolution relies on
+  that — see `api_credential/1`).
+  """
+  @spec write_client_credential(AccessGateway.t(), String.t(), String.t()) ::
+          {:ok, %{api_token_secret_ref: String.t()}} | {:error, term()}
+  def write_client_credential(%AccessGateway{} = gateway, client_id, client_secret) do
+    with {:ok, kubeconfig} <- kubeconfig() do
+      name = api_credential_secret_name(gateway)
+
+      data = %{"TS_CLIENT_ID" => client_id, "TS_CLIENT_SECRET" => client_secret}
+
+      case Secret.create(kubeconfig, access_namespace(), name, data) do
+        {:ok, _secret} -> {:ok, %{api_token_secret_ref: name}}
+        {:error, _reason} = error -> error
+      end
+    end
+  end
+
+  @doc """
   Reads the console API token back — the RAW Secret reader (§5, no
   user surface returns it). NOT the API paths' credential source: they
   resolve through `with_access_token/2`, which also understands the

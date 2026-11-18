@@ -13,15 +13,21 @@ defmodule FluxVale.Infrastructure.Operations.SetAccessApiTokenTest do
 
   alias FluxVale.Accounts.Membership
   alias FluxVale.Clients.K8s
+  alias FluxVale.Clients.K8s.Resources.Secret
   alias FluxVale.Infrastructure
   alias FluxVale.Infrastructure.AccessGateway
   alias FluxVale.Infrastructure.AccessProviders.Tailscale
+  alias FluxVale.Infrastructure.AccessProviders.Tailscale.ApiClient
+  alias FluxVale.Infrastructure.AccessProviders.Tailscale.TokenCache
   alias FluxVale.Infrastructure.Operations.RenderAccessDNS
   alias FluxVale.TestSupport.AccessFixtures
   alias FluxVale.TestSupport.AccountsFixtures
   alias FluxVale.TestSupport.BillingFixtures
+  alias FluxVale.TestSupport.InstanceFixtures
 
   @token "tskey-api-secret-value"
+  @client_id "ts-client-id-1"
+  @client_secret "ts-client-secret-1"
   @domain_name "apps.customer.com"
   @resolver_ip "10.43.0.20"
 
@@ -415,5 +421,61 @@ defmodule FluxVale.Infrastructure.Operations.SetAccessApiTokenTest do
              Infrastructure.set_access_api_token(gateway, @token, actor: owner)
 
     assert AccessGateway.get_by_id!(gateway.id, authorize?: false).api_token_secret_ref == nil
+  end
+
+  # The lane-B verification the change-level pins cannot reach (the
+  # settings suite here is the async: false home of the real sweep):
+  # a pair-stored row's claims read through `with_access_token/2` — the
+  # wrapper resolves the pair, the exchange mints the bearer, and the
+  # sweep claims with it. Zero shape-specific claim code.
+  test "a pair save's claim sweep exchanges and claims with the OAuth token", %{
+    org: org,
+    owner: owner
+  } do
+    # The app-global cache must not answer for this client (the
+    # no-leakage discipline the provider suite's lane-B setup uses).
+    TokenCache.clear()
+
+    gateway = AccessFixtures.gateway!(org)
+    domain = verified_domain!(owner)
+
+    stub(Tailscale, :write_client_credential, fn _gw, _id, _secret ->
+      {:ok, %{api_token_secret_ref: "api-credential-pair"}}
+    end)
+
+    # claim_domain is deliberately NOT stubbed: the Secret read answers
+    # with the pair the save stored, and the exchange runs for real
+    # (against stubs at the ApiClient seam, like the provider suite).
+    InstanceFixtures.local_cluster!()
+    stub(K8s, :kubeconfig, fn _ref -> {:ok, %{}} end)
+
+    stub(Secret, :get_data, fn _kc, _ns, _name ->
+      {:ok, %{"TS_CLIENT_ID" => @client_id, "TS_CLIENT_SECRET" => @client_secret}}
+    end)
+
+    stub(ApiClient, :oauth_exchange, fn _id, _secret ->
+      {:ok, %{access_token: "tskey-token-pair", expires_in: 3600}}
+    end)
+
+    stub(ApiClient, :devices_lookup, fn token, _hostname ->
+      send(self(), {:lookup, token})
+      {:ok, %{id: "dev-777"}}
+    end)
+
+    stub(ApiClient, :routes_get, fn _token, _id -> {:ok, %{advertised: [], enabled: []}} end)
+    stub(ApiClient, :routes_set, fn _token, _id, _routes -> :ok end)
+    stub(ApiClient, :split_dns_get, fn _token -> {:ok, %{}} end)
+    stub(ApiClient, :split_dns_patch, fn _token, _routes -> :ok end)
+
+    assert {:ok, row} =
+             AccessGateway.set_api_token(
+               gateway,
+               %{ts_client_id: @client_id, ts_client_secret: @client_secret},
+               actor: owner,
+               authorize?: true
+             )
+
+    assert row.dns_claims[domain.domain]["ip"] == @resolver_ip
+    assert_received {:lookup, "tskey-token-pair"}
   end
 end

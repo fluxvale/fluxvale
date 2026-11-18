@@ -546,6 +546,46 @@ defmodule FluxValeWeb.Api.GatewayRouteTest do
       stored = AccessGateway.get_by_id!(gateway.id, authorize?: false)
       assert stored.api_token_secret_ref == nil
     end
+
+    # #836 lane B: the pair rides the same PATCH — the client id plain,
+    # the client secret write-only (it never rides the response).
+    test "the owner stores the OAuth client pair — 200, the secret never rides back", %{
+      conn: conn
+    } do
+      {user, org} = paid_member!()
+      gateway = AccessFixtures.gateway!(org)
+      parent = self()
+
+      stub(Tailscale, :write_client_credential, fn gw, client_id, client_secret ->
+        send(parent, {:pair_stored, gw.id, client_id, client_secret})
+        {:ok, %{api_token_secret_ref: "api-credential-pair"}}
+      end)
+
+      pat = ApiPat.mint!(user, ["gateways:write"])
+
+      conn =
+        conn
+        |> auth(pat)
+        |> put_req_header("content-type", "application/vnd.api+json")
+        |> patch("/api/v1/access-gateways/#{gateway.id}/api-token", %{
+          "data" => %{
+            "type" => "access_gateway",
+            "attributes" => %{
+              "ts_client_id" => "client-id-ROUTE",
+              "ts_client_secret" => "client-secret-ROUTE"
+            }
+          }
+        })
+
+      assert %{"data" => row} = json_response(conn, 200)
+      assert row["attributes"]["api_token_set"] == true
+      refute conn.resp_body =~ "client-secret-ROUTE"
+
+      assert_received {:pair_stored, _, "client-id-ROUTE", "client-secret-ROUTE"}
+
+      stored = AccessGateway.get_by_id!(gateway.id, authorize?: false)
+      assert stored.api_token_secret_ref == "api-credential-pair"
+    end
   end
 
   describe "PATCH /api/v1/access-gateways/:id/api-token — failure shapes (#760)" do
