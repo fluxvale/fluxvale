@@ -41,6 +41,7 @@ defmodule FluxVale.Infrastructure.AccessGateway do
 
   alias Ash.Error.Changes.InvalidArgument
   alias FluxVale.Infrastructure.AccessGateway.ClaimedDomains
+  alias FluxVale.Infrastructure.AccessGateway.CreateStoresApiToken
   alias FluxVale.Infrastructure.AccessGateway.GenerateHostname
   alias FluxVale.Infrastructure.AccessGateway.PerformSettle
   alias FluxVale.Infrastructure.AccessGateway.PerformTeardown
@@ -552,7 +553,9 @@ defmodule FluxVale.Infrastructure.AccessGateway do
       never derived from org or app names (§1). The monthly rate comes
       from the :access_gateway config and is stored as the billing
       snapshot — it is never caller-supplied (#360: a wire caller must
-      not price their own gateway).
+      not price their own gateway). Exactly one credential (#836): an
+      auth key (the pasted fallback) or an API token — the platform
+      mints the join key from it, owner only.
       """)
 
       accept([:tailnet_domain])
@@ -577,7 +580,17 @@ defmodule FluxVale.Infrastructure.AccessGateway do
 
       # The provider's credential arrives as an argument, not a column:
       # provision writes it to the Secret and stores only the ref.
-      argument(:auth_key, :string, allow_nil?: false, sensitive?: true)
+      # Optional since #836 — absent means the platform mints the
+      # enrollment key from the stored API token; exactly one of the two
+      # (CreateStoresApiToken refuses both absent and both present).
+      argument(:auth_key, :string, allow_nil?: true, sensitive?: true)
+
+      # #836's one-paste enable: the Tailscale API token rides the body
+      # and never comes back. Owner-fenced by the change (the #760
+      # fence — the token is the owner's to paste; the create policy
+      # stays member+funded+paid), stored Secret-first by
+      # CreateStoresApiToken before the cluster work runs.
+      argument(:api_token, :string, allow_nil?: true, sensitive?: true)
 
       # #360: the price is the platform's, never the caller's — every
       # existing caller (the panel, the fixtures) sends the config
@@ -594,6 +607,10 @@ defmodule FluxVale.Infrastructure.AccessGateway do
           __MODULE__.monthly_cents()
         )
       end)
+
+      # The token intake runs BEFORE the cluster work: the Secret is on
+      # disk by the time provision (paste or mint) runs.
+      change(CreateStoresApiToken)
 
       change(ProvisionCluster)
     end
@@ -624,7 +641,10 @@ defmodule FluxVale.Infrastructure.AccessGateway do
       Re-pastes the auth key — the NeedsLogin / deleted-node recovery
       (§4). Writes the Secret and restarts the pod so the new key lands
       as a fresh join; the row leaves :needs_attention for
-      :provisioning and the observed-state write settles it.
+      :provisioning and the observed-state write settles it. With no key
+      pasted, the platform mints the enrollment key from the saved API
+      token (#836) — one click, zero pastes; a suspended gateway must
+      resume first.
 
       Also carries the tailnet-domain backfill: a row created before the
       column existed (or one whose owner retyped the suffix) re-renders
@@ -634,7 +654,12 @@ defmodule FluxVale.Infrastructure.AccessGateway do
 
       require_atomic?(false)
       accept([:tailnet_domain])
-      argument(:auth_key, :string, allow_nil?: false, sensitive?: true)
+
+      # Optional since #836: absent = the platform mints the enrollment
+      # key from the stored API token (RepasteCredential dispatches; a
+      # :suspended row must resume first — plan R2). A pasted key keeps
+      # today's semantics verbatim.
+      argument(:auth_key, :string, allow_nil?: true, sensitive?: true)
 
       change(FluxVale.Infrastructure.AccessGateway.RepasteCredential)
       change(StateMarkers)
@@ -1030,6 +1055,32 @@ defmodule FluxVale.Infrastructure.AccessGateway do
     |> Ash.read!(authorize?: false)
     |> Enum.map(& &1.instance)
   end
+
+  # The R2 copy table (#836) — ONE source, rendered by both mint call
+  # sites (ProvisionCluster's create leg and RepasteCredential's
+  # reconnect leg): a provider error atom maps to the user sentence that
+  # names the fix. Field :auth_key on the action. The wire never carries
+  # an atom, an inspect, or a provider struct — the reason rides the log
+  # only (the SetApiToken stance).
+  @doc false
+  @spec mint_error(term()) :: String.t()
+  def mint_error(:no_api_token) do
+    "No API token is saved for this gateway. Paste an auth key, " <>
+      "or save the token in Settings → Access"
+  end
+
+  def mint_error(:unauthorized) do
+    "Your Tailscale API key was rejected. Paste a fresh one in Settings → Access"
+  end
+
+  def mint_error(:forbidden) do
+    "Your Tailscale API key can't create join keys — add the `auth_keys` " <>
+      "scope when you mint it, or paste an auth key instead"
+  end
+
+  # Anything else (api_error, :network_error, :bad_payload, a K8s
+  # struct): honest about the outage, asks for a retry.
+  def mint_error(_other), do: "Couldn't reach Tailscale to create a join key. Try again"
 
   # The gateway's monthly rate (cents) — the one RUNTIME reader of the
   # configured price (config :access_gateway): the create action

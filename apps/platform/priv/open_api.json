@@ -11637,7 +11637,7 @@
       "post": {
         "callbacks": {},
         "deprecated": false,
-        "description": "Opts the org in (ADR-0039): writes the row as :provisioning and\nenqueues the cluster work. The hostname is minted here — opaque,\nnever derived from org or app names (§1). The monthly rate comes\nfrom the :access_gateway config and is stored as the billing\nsnapshot — it is never caller-supplied (#360: a wire caller must\nnot price their own gateway).\n",
+        "description": "Opts the org in (ADR-0039): writes the row as :provisioning and\nenqueues the cluster work. The hostname is minted here — opaque,\nnever derived from org or app names (§1). The monthly rate comes\nfrom the :access_gateway config and is stored as the billing\nsnapshot — it is never caller-supplied (#360: a wire caller must\nnot price their own gateway). Exactly one credential (#836): an\nauth key (the pasted fallback) or an API token — the platform\nmints the join key from it, owner only.\n",
         "parameters": [
           {
             "description": "Relationship paths to include in the response",
@@ -11685,8 +11685,25 @@
                       "attributes": {
                         "additionalProperties": false,
                         "properties": {
+                          "api_token": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
                           "auth_key": {
-                            "type": "string"
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
                           },
                           "monthly_cents": {
                             "anyOf": [
@@ -11714,8 +11731,7 @@
                           }
                         },
                         "required": [
-                          "tailnet_domain",
-                          "auth_key"
+                          "tailnet_domain"
                         ],
                         "type": "object"
                       },

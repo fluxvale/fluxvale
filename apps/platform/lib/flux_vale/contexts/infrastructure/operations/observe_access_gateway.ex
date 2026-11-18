@@ -52,10 +52,25 @@ defmodule FluxVale.Infrastructure.Operations.ObserveAccessGateway do
   it if the row moved, Ash returns a `StaleRecord`, and `call/1`
   re-reads and re-decides against the committed row. Concurrent writers
   therefore converge instead of clobbering each other.
+
+  **The claim-convergence limb (#836, plan R2):** the pass that
+  promotes a row out of `:provisioning` — the first-join moment —
+  sweeps `ClaimUnclaimedDomains` once when the row carries a stored
+  API token. This is what claims a domain verified BEFORE the
+  gateway existed (no later verify event sweeps it, the #837
+  review's gap), keeping the today-guarantee a token save gives. It
+  runs on NO other pass: steady `:active` passes never re-hit the
+  tailnet API (the every-tick retry the swept module's design
+  forbids), and `:needs_attention` re-promotions never sweep (a
+  rejected sweep drifts the row back — the flap loop's signature; a
+  dead token is the steady-state reconcile check's to hold, not the
+  sweep's). The sweep never raises and never rolls back the state
+  write; the next tick re-decides against the committed row.
   """
 
   alias FluxVale.Infrastructure.AccessGateway
   alias FluxVale.Infrastructure.AccessProvider
+  alias FluxVale.Infrastructure.Operations.ClaimUnclaimedDomains
 
   require Logger
 
@@ -139,7 +154,11 @@ defmodule FluxVale.Infrastructure.Operations.ObserveAccessGateway do
   defp apply_status(%AccessGateway{state: :active} = gateway, :active, _status) do
     case AccessGateway.get_by_id(gateway.id, authorize?: false) do
       {:ok, %AccessGateway{} = fresh} ->
-        if settled_active?(fresh), do: {:ok, fresh}, else: write_active(gateway)
+        if settled_active?(fresh) do
+          {:ok, fresh}
+        else
+          write_active(gateway)
+        end
 
       # coveralls-ignore-start - race/defensive: the row was torn down
       # between the observation read and this re-read, or the read failed;
@@ -160,7 +179,8 @@ defmodule FluxVale.Infrastructure.Operations.ObserveAccessGateway do
   # attention clock, and arm any missing settlement anchors. The write is
   # filtered and cannot clobber a concurrent writer (see the moduledoc).
   defp apply_status(%AccessGateway{} = gateway, :active, _status) do
-    write_active(gateway)
+    result = write_active(gateway)
+    maybe_converge_claims(gateway, result)
   end
 
   defp apply_status(%AccessGateway{state: :needs_attention} = gateway, :needs_attention, _status) do
@@ -209,6 +229,53 @@ defmodule FluxVale.Infrastructure.Operations.ObserveAccessGateway do
       not is_nil(gateway.metering_since) and
       not is_nil(gateway.provisioned_at) and
       gateway.status_message == @settled_message
+  end
+
+  # The R2 limb, gated to the FIRST-JOIN moment (#853 hostile review):
+  # the sweep runs only when the pass promotes a row out of
+  # :provisioning — the one pass that cannot repeat while the row
+  # stays up. On EVERY other pass it is forbidden:
+  #
+  # - a steady :active pass would re-hit the tailnet API every minute
+  #   while any unclaimed verified domain exists — the every-tick retry
+  #   the swept module's own design forbids ("no every-tick retry: a
+  #   revoked token cannot re-hit the tailnet API and re-drift the
+  #   gateway");
+  # - a re-promotion out of :needs_attention would FLAP: a 401/403 from
+  #   the sweep drifts the row back to :needs_attention
+  #   (ClaimAccessDomain's own honest answer), the next tick promotes
+  #   it again, forever — one API call and two row writes per minute
+  #   with the panel badge cycling.
+  # A dead token at the first-join sweep is caught once by the drift,
+  # and thereafter by the steady-state reconcile check (the existing
+  # limb) — convergent, no loop. Later convergence stays event-driven:
+  # the verify-pass, attach, and token-save sweeps.
+  defp maybe_converge_claims(%AccessGateway{state: :provisioning} = gateway, result) do
+    converge_claims(gateway, result)
+  end
+
+  defp maybe_converge_claims(_not_first_join, result), do: result
+
+  defp converge_claims(_gateway, {:ok, %AccessGateway{state: :active} = row}) do
+    if token_stored?(row) do
+      # Actorless — the Oban trigger has no actor; the claim rows carry
+      # nil attribution, unlike the token save's owner-attributed sweep
+      # (set_api_token.ex rides the actor for the audit trail).
+      _summary = ClaimUnclaimedDomains.call(row)
+      {:ok, row}
+    else
+      {:ok, row}
+    end
+  end
+
+  defp converge_claims(_gateway, other), do: other
+
+  # The `api_token_set` calculation's exact shape, read off the raw
+  # fields (no calculation load on this path): the ref is checked as
+  # well as the stamp, because a token stored before the stamp column
+  # existed still proves itself.
+  defp token_stored?(%AccessGateway{api_token_secret_ref: ref, token_set_at: stamp}) do
+    not is_nil(ref) or not is_nil(stamp)
   end
 
   # `update_state` accepts `metering_since` (it is the observed-state

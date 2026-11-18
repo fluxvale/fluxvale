@@ -22,10 +22,17 @@ defmodule FluxVale.Infrastructure.AccessGateway.ProvisionCluster do
   Landing `:provisioning` is honest — the Deployment exists but has not
   reported ready — and `gateway_status` (the observed-state write) is
   the single promoter to `:active`.
+
+  The mint variant (#836): a create with NO key argument dispatches
+  `provision_gateway_minted/1` — the platform mints the enrollment key
+  from the stored API token. Its failure runs this same create-path
+  cleanup; the wire answer is the R2 copy sentence (`AccessGateway
+  .mint_error/1`), never a raw provider reason.
   """
 
   use Ash.Resource.Change
 
+  alias Ash.Error.Changes.InvalidArgument
   alias FluxVale.Infrastructure.AccessGateway
   alias FluxVale.Infrastructure.AccessProvider
 
@@ -38,12 +45,19 @@ defmodule FluxVale.Infrastructure.AccessGateway.ProvisionCluster do
     # round-trip to get it.
     argument_key = Ash.Changeset.get_argument(changeset, :auth_key)
 
-    # `:create` when this action received the key (the create path), the
-    # drift-repair shape otherwise. Only the create path cleans up.
-    path = if is_binary(argument_key) and argument_key != "", do: :create, else: :retry
+    # `:create` when this action received the key (the paste path), `:mint`
+    # when a create carries NO key — the platform mints the enrollment
+    # key from the stored API token (#836) — and the drift-repair shape
+    # otherwise. Both create-shaped paths clean up on failure.
+    path =
+      cond do
+        is_binary(argument_key) and argument_key != "" -> :create
+        changeset.action.name == :create -> :mint
+        true -> :retry
+      end
 
     Ash.Changeset.after_action(changeset, fn _changeset, gateway ->
-      case provision(gateway, argument_key) do
+      case provision(gateway, argument_key, path) do
         :ok -> {:ok, gateway}
         {:error, reason} = error -> fail(gateway, reason, error, path)
       end
@@ -54,14 +68,26 @@ defmodule FluxVale.Infrastructure.AccessGateway.ProvisionCluster do
   # coveralls-ignore-next-line trivial callback — always false (cluster I/O in the hook)
   def atomic?, do: false
 
-  defp provision(%AccessGateway{} = gateway, auth_key)
+  defp provision(%AccessGateway{} = gateway, auth_key, :create)
        when is_binary(auth_key) and auth_key != "" do
     run(gateway, auth_key)
   end
 
+  # The one-paste enable: no key argument — the platform mints (#836).
+  # The minted key never crosses the seam as a value; the ref is all the
+  # row records. The token intake (CreateStoresApiToken) has already
+  # written the api-credential Secret the mint reads.
+  defp provision(%AccessGateway{} = gateway, _absent, :mint) do
+    case AccessProvider.impl_for(gateway).provision_gateway_minted(gateway) do
+      {:ok, %{credential_secret_ref: ref}} -> record_ref(gateway, ref)
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
   # The trigger's retry has no create argument: it reads the Secret the
-  # first attempt wrote (internal only — never a user surface).
-  defp provision(%AccessGateway{} = gateway, _absent) do
+  # first attempt wrote (internal only — never a user surface). Unchanged
+  # by #836 — a stored credential still answers the trigger.
+  defp provision(%AccessGateway{} = gateway, _absent, :retry) do
     case credential(gateway) do
       {:ok, auth_key} -> run(gateway, auth_key)
       {:error, reason} -> {:error, reason}
@@ -118,6 +144,19 @@ defmodule FluxVale.Infrastructure.AccessGateway.ProvisionCluster do
     # provider's cleanup_failed_provision/1).
     _cleaned = AccessProvider.impl_for(gateway).cleanup_failed_provision(gateway)
     error
+  end
+
+  # The mint twin (#836): same rollback cleanup — the provider already
+  # revoked what it could, and the api-credential Secret the token intake
+  # wrote rides the delete list — but the wire answer is the R2 copy
+  # sentence, never a raw atom or provider struct (the SetApiToken
+  # stance; the reason above rides the log only).
+  defp fail(gateway, reason, _error, :mint) do
+    Logger.error("Access gateway #{gateway.id} provisioning failed: #{inspect(reason)}")
+    _cleaned = AccessProvider.impl_for(gateway).cleanup_failed_provision(gateway)
+
+    {:error,
+     InvalidArgument.exception(field: :auth_key, message: AccessGateway.mint_error(reason))}
   end
 
   defp fail(gateway, reason, error, _retry) do
