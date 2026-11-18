@@ -1404,6 +1404,16 @@ jobs:
   # check-changes must SUCCEED, not merely skip: if it failed, its
   # dependents read "skipped" and the all() below would pass on zero
   # checks run — a green umbrella that proved nothing.
+  # A sibling CANCELLED by a run-level cancel (queue supersession, #841)
+  # is neutral — and ONLY then: `cancelled()` is true exactly when the run
+  # was cancelled, and the gate excuses cancelled siblings only under that
+  # flag (RUN_CANCELLED below). Any other cancelled sibling — a leg killed
+  # by its own timeout-minutes, or a manual job cancel — leaves the run
+  # alive and FAILS the gate: a timed-out leg must never read green.
+  # Failure-then-cancel still fails the gate: cancellation re-concludes
+  # only jobs still in flight, so a sibling that failed before the cancel
+  # keeps conclusion "failure" in needs (GitHub workflow-cancellation
+  # reference).
   wait-for-ci:
     name: Wait for CI
     needs: [check-changes, platform, cli-gates, cli-matrix, mcp-gates, mcp-image, docs-lint, skills-lint, linked-issues, e2e, platform-image, deploy-image, watch-deploy, readiness-gate]
@@ -1411,11 +1421,22 @@ jobs:
     if: always()
     runs-on: ubuntu-24.04
     steps:
+      # cancelled() is only legal in an `if`, so this one-step export is the
+      # way the gate reads it: true exactly when the run was cancelled.
+      - id: cancel-flag
+        if: cancelled()
+        run: echo "run_cancelled=true" >>"$GITHUB_OUTPUT"
+
       - name: Check all jobs passed
+        if: always()
         env:
           NEEDS: ${{ toJSON(needs) }}
+          # Non-empty only under a run-level cancel (#841) — see the job
+          # comment: a cancelled sibling is excused under that cause alone;
+          # timeout kills and manual job cancels must fail.
+          RUN_CANCELLED: ${{ steps.cancel-flag.outputs.run_cancelled }}
         run: |
           echo "$NEEDS" | jq -e 'to_entries | map("\(.key): \(.value.result)") | .[]' >&2
-          echo "$NEEDS" | jq -e '.["check-changes"].result == "success" and (del(.["check-changes"]) | all(.[]; .result == "success" or .result == "skipped"))' >/dev/null \
+          echo "$NEEDS" | jq -e --arg rc "$RUN_CANCELLED" '.["check-changes"].result == "success" and (del(.["check-changes"]) | all(.[]; .result == "success" or .result == "skipped" or ($rc == "true" and .result == "cancelled")))' >/dev/null \
             && echo "All CI checks passed or were not needed" \
-            || { echo "One or more CI jobs failed or were cancelled"; exit 1; }
+            || { echo "One or more CI jobs failed, or a sibling was cancelled while the run is alive"; exit 1; }
