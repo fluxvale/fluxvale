@@ -1074,8 +1074,14 @@ defmodule FluxVale.Infrastructure.AccessGateway do
   end
 
   def mint_error(:forbidden) do
-    "Your Tailscale API key can't create join keys — add the `auth_keys` " <>
-      "scope when you mint it, or paste an auth key instead"
+    # Console API access tokens are FULLY-PERMITTED — they carry the
+    # creating account's permissions and offer no scope selector
+    # (scopes belong to trust credentials: OAuth clients and federated
+    # identities; verified against Tailscale's trust-credentials
+    # reference, #857 review). A 403 therefore means the account lacks
+    # the power — the fix is the account, not a scope.
+    "Your Tailscale API key can't create join keys — mint it from a tailnet " <>
+      "owner or admin account, or paste an auth key instead"
   end
 
   # Anything else (api_error, :network_error, :bad_payload, a K8s

@@ -662,7 +662,7 @@ defmodule FluxValeWeb.OrganizationLive.AccessTest do
 
       # The 403 sentence is the actionable one — it renders, and the
       # exit it names is open beside it.
-      assert render(view) =~ "add the `auth_keys` scope"
+      assert render(view) =~ "mint it from a tailnet owner or admin"
       assert has_element?(view, "#flash-error", "Couldn't update the access key")
       assert has_element?(view, "[data-testid='access-repaste-key']")
 
