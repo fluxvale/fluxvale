@@ -609,8 +609,11 @@ defmodule FluxValeWeb.OrganizationLive.AccessTest do
       refute has_element?(view, "[data-testid='access-repaste-key']")
       refute has_element?(view, "[data-testid='access-repaste-toggle']")
 
-      # The submit carries no auth_key: the mint limb answers, the paste
-      # limb (update_credential) is never stubbed and must stay dark.
+      # The submit carries no auth_key: the mint limb answers. The
+      # discriminator is the UNSATISFIED reconnect_minted expect below —
+      # Mimic fails the test at teardown if the submit took the paste
+      # limb (whose update_credential IS stubbed permissive by the
+      # describe setup, so it alone would never fail an assertion).
       view
       |> form("#access-repaste-form")
       |> render_submit()

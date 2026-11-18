@@ -725,7 +725,7 @@ defmodule FluxValeWeb.OrganizationLive.Access do
           </p>
           <ul class="mt-2 list-disc space-y-1 pl-5 text-sm text-ink-muted">
             <li>
-              Create a tag for FluxVale (for example <span class="font-mono">tag:fluxvale</span>)
+              Create the tag <span class="font-mono">tag:fluxvale-gateway</span> in your ACL
               and make yourself its owner.
             </li>
             <li>Turn on MagicDNS.</li>
@@ -1582,7 +1582,12 @@ defmodule FluxValeWeb.OrganizationLive.Access do
       if api_token_argument?(key_stripped) do
         strip_secret(key_stripped, :api_token)
       else
-        key_stripped
+        # The update form's action has no :api_token argument, so
+        # force_set_argument is off the table (NoSuchInput) — but its
+        # PARAMS map still absorbs a crafted api_token from a hostile
+        # event, and the socket state must not carry it (#857 hostile
+        # review). Drop the key; there is nothing to force.
+        %{key_stripped | params: Map.delete(key_stripped.params, "api_token")}
       end
 
     without_keys = Map.delete(form.params, "auth_key")
