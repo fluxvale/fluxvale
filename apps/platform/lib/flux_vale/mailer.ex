@@ -187,12 +187,12 @@ defmodule FluxVale.Mailer do
   #829's auto-recharge reminder (the launch lane): one mail per episode
   — the sweep's marker owns the once. Plain body, the threshold, the
   amount the one-click link buys (the wizard opens pre-filled), and
-  the once-a-day cadence. Money rides as integer cents and formats at
-  this seam (the deliver_topup_completed convention); whole dollars
-  read "$25", anything else exact ("$5.49" — a floored dollar would
-  lie about where the threshold fires). The staged off-session charge
-  lane is NOT shipped: the copy never promises automatic charging —
-  topping up is always the org's own click.
+  the once-a-day cadence. Money rides as integer cents and formats
+  through `Pricing.format_usd_whole_or_exact/1` — the one rule the L3
+  billing card shares (whole dollars read "$25", anything else exact,
+  "$5.49"). The staged off-session charge lane is NOT shipped: the
+  copy never promises automatic charging — topping up is always the
+  org's own click.
   """
   @spec deliver_auto_recharge_reminder(
           String.t(),
@@ -202,8 +202,8 @@ defmodule FluxVale.Mailer do
         ) ::
           {:ok, map()} | {:error, term()}
   def deliver_auto_recharge_reminder(to, threshold_cents, amount_cents, topup_url) do
-    threshold = format_money(threshold_cents)
-    amount = format_money(amount_cents)
+    threshold = Pricing.format_usd_whole_or_exact(threshold_cents)
+    amount = Pricing.format_usd_whole_or_exact(amount_cents)
 
     %Swoosh.Email{}
     |> Swoosh.Email.to(to)
@@ -271,13 +271,6 @@ defmodule FluxVale.Mailer do
     """)
     |> deliver()
   end
-
-  # Whole dollars read "$25" (the launch defaults' shape); non-round
-  # amounts render exact cents via the sanctioned formatter — a
-  # div(…, 100) threshold is honest only when the cents are (550¢
-  # fires at $5.49 and must not read "$5").
-  defp format_money(cents) when rem(cents, 100) == 0, do: "$#{div(cents, 100)}"
-  defp format_money(cents), do: Pricing.format_usd(cents)
 
   defp not_completed_copy(:failed) do
     {"Your FluxVale payment didn't go through", "Your top-up didn't go through."}

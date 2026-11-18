@@ -10,6 +10,7 @@ defmodule FluxValeWeb.BillingLive.IndexTest do
   import Phoenix.LiveViewTest
 
   alias FluxVale.Billing
+  alias FluxVale.Billing.AutoRechargeSetting
   alias FluxVale.Identity.User
   alias FluxVale.TestSupport.AccountsFixtures
   alias FluxVale.TestSupport.InstanceFixtures
@@ -216,6 +217,214 @@ defmodule FluxValeWeb.BillingLive.IndexTest do
 
       {:error, {:live_redirect, %{to: to}}} ->
         assert to == ~p"/apps"
+    end
+  end
+
+  # ── The auto-recharge card (#829 L3, the launch shape) — the
+  # personal surface of the shape the org billing page shares. ──
+
+  describe "the auto-recharge card" do
+    test "the card renders between the band and the ledger, with the owner form", %{
+      conn: conn
+    } do
+      {:ok, view, _html} = live(conn, ~p"/billing")
+
+      assert has_element?(view, "[data-testid='auto-recharge-card']")
+      assert has_element?(view, "[data-testid='auto-recharge-state']", "Reminders are off")
+
+      # The personal surface's actor owns their personal org, so the
+      # form is here — computed by the gate, never assumed.
+      assert has_element?(view, "#auto-recharge-form")
+    end
+
+    test "a mount ensures the row for the personal org", %{conn: conn, wallet: wallet} do
+      {:ok, _view, _html} = live(conn, ~p"/billing")
+
+      assert {:ok, %AutoRechargeSetting{organization_id: org_id, mode: :off}} =
+               Billing.get_auto_recharge_setting(wallet.organization_id, authorize?: false)
+
+      assert org_id == wallet.organization_id
+    end
+
+    test "enabling reminders persists on the personal org", %{conn: conn, wallet: wallet} do
+      {:ok, view, _html} = live(conn, ~p"/billing")
+
+      view
+      |> element("#auto-recharge-form")
+      |> render_submit(%{
+        "auto_recharge" => %{
+          "mode" => "reminder",
+          "threshold_dollars" => "2",
+          "amount_dollars" => "10"
+        }
+      })
+
+      assert has_element?(view, "#flash-info", "Reminder settings saved.")
+      assert has_element?(view, "[data-testid='auto-recharge-state']", "Reminders on")
+      assert has_element?(view, "[data-testid='auto-recharge-state']", "below $2")
+      assert has_element?(view, "[data-testid='auto-recharge-amount']", "$10")
+
+      # Persisted, not just displayed — re-read through the domain seam.
+      assert {:ok, setting} =
+               Billing.get_auto_recharge_setting(wallet.organization_id, authorize?: false)
+
+      assert setting.mode == :reminder
+      assert setting.threshold_cents == 200
+      assert setting.amount_cents == 1_000
+    end
+
+    test "typing survives the validate round-trip", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/billing")
+
+      view
+      |> element("#auto-recharge-form")
+      |> render_change(%{
+        "auto_recharge" => %{
+          "mode" => "reminder",
+          "threshold_dollars" => "7",
+          "amount_dollars" => "30"
+        }
+      })
+
+      assert has_element?(view, "input#auto_recharge_threshold_dollars[value='7']")
+      assert has_element?(view, "input#auto_recharge_amount_dollars[value='30']")
+    end
+
+    test "a crafted :auto submit fails the domain's validation — a flash error, not a crash", %{
+      conn: conn,
+      wallet: wallet
+    } do
+      {:ok, view, _html} = live(conn, ~p"/billing")
+
+      view
+      |> element("#auto-recharge-form")
+      |> render_submit(%{
+        "auto_recharge" => %{
+          "mode" => "auto",
+          "threshold_dollars" => "10",
+          "amount_dollars" => "25"
+        }
+      })
+
+      assert has_element?(view, "#flash-error", "Couldn't save the reminder settings.")
+
+      assert {:ok, setting} =
+               Billing.get_auto_recharge_setting(wallet.organization_id, authorize?: false)
+
+      assert setting.mode == :off
+    end
+
+    test "a threshold below $1 is rejected and nothing persists", %{conn: conn, wallet: wallet} do
+      {:ok, view, _html} = live(conn, ~p"/billing")
+
+      view
+      |> element("#auto-recharge-form")
+      |> render_submit(%{
+        "auto_recharge" => %{
+          "mode" => "reminder",
+          "threshold_dollars" => "0",
+          "amount_dollars" => "10"
+        }
+      })
+
+      assert has_element?(view, "#flash-error", "at least $1.")
+
+      assert {:ok, setting} =
+               Billing.get_auto_recharge_setting(wallet.organization_id, authorize?: false)
+
+      assert setting.mode == :off
+    end
+
+    test "a crafted submit missing the fields is rejected", %{conn: conn} do
+      # A raw event push, not a form submit — the DOM inputs always
+      # merge their values into a submit, so the missing-fields shape
+      # is a crafted event's shape (the whole_dollars nil arm).
+      {:ok, view, _html} = live(conn, ~p"/billing")
+
+      render_click(view, "save-auto-recharge", %{"auto_recharge" => %{"mode" => "reminder"}})
+
+      assert has_element?(view, "#flash-error", "at least $1.")
+    end
+
+    test "a crafted non-map payload is a no-op, never a crash", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/billing")
+
+      render_click(view, "validate-auto-recharge", %{"auto_recharge" => "x"})
+      assert has_element?(view, "[data-testid='auto-recharge-card']")
+
+      render_click(view, "save-auto-recharge", %{"auto_recharge" => "x"})
+      assert has_element?(view, "[data-testid='auto-recharge-card']")
+      assert has_element?(view, "[data-testid='auto-recharge-state']", "Reminders are off")
+
+      # A crafted non-scalar MODE rides to the domain's enum and comes
+      # back as a flash error, never a crash.
+      render_click(view, "save-auto-recharge", %{
+        "auto_recharge" => %{"mode" => %{"deep" => "x"}}
+      })
+
+      assert has_element?(view, "#flash-error", "Couldn't save the reminder settings.")
+    end
+
+    test "a non-round stored value prefills EMPTY with the exact-value hint", %{
+      conn: conn,
+      user: user,
+      wallet: wallet
+    } do
+      # 549¢ is a legal row the whole-dollar unit cannot type: the
+      # input must stay EMPTY (never a floored "5" that would silently
+      # floor on an unedited save), with the hint naming the stored
+      # exact value. The mount itself ensures the row.
+      {:ok, _pre_view, _html} = live(conn, ~p"/billing")
+
+      {:ok, setting} =
+        Billing.get_auto_recharge_setting(wallet.organization_id, authorize?: false)
+
+      assert {:ok, _set} =
+               Billing.set_auto_recharge_setting(setting, %{threshold_cents: 549}, actor: user)
+
+      {:ok, view, _html} = live(conn, ~p"/billing")
+
+      assert has_element?(view, "input#auto_recharge_threshold_dollars[value='']")
+      assert has_element?(view, "[data-testid='auto-recharge-threshold-hint']", "Stored: $5.49")
+      refute has_element?(view, "input#auto_recharge_threshold_dollars[value='5']")
+    end
+
+    test "disabling reminders is a mode-only save — a non-round row needs no dollar input", %{
+      conn: conn,
+      user: user,
+      wallet: wallet
+    } do
+      # 549¢ prefills EMPTY (never-floor), so an off save that demanded
+      # whole-dollar figures would force the owner to re-enter stored
+      # values just to switch reminders off. Mode-only: stored cents
+      # survive untouched.
+      {:ok, _view, _html} = live(conn, ~p"/billing")
+
+      {:ok, setting} =
+        Billing.get_auto_recharge_setting(wallet.organization_id, authorize?: false)
+
+      assert {:ok, _set} =
+               Billing.set_auto_recharge_setting(
+                 setting,
+                 %{mode: :reminder, threshold_cents: 549, amount_cents: 549},
+                 actor: user
+               )
+
+      {:ok, view, _html} = live(conn, ~p"/billing")
+
+      view
+      |> element("#auto-recharge-form")
+      |> render_submit(%{"auto_recharge" => %{"mode" => "off"}})
+
+      assert has_element?(view, "#flash-info", "Reminder settings saved.")
+      assert has_element?(view, "[data-testid='auto-recharge-state']", "Reminders are off")
+
+      assert {:ok, persisted} =
+               Billing.get_auto_recharge_setting(wallet.organization_id, authorize?: false)
+
+      assert persisted.mode == :off
+      assert persisted.threshold_cents == 549
+      assert persisted.amount_cents == 549
     end
   end
 end

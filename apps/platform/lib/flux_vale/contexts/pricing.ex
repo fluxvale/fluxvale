@@ -50,6 +50,24 @@ defmodule FluxVale.Pricing do
   end
 
   @doc """
+  The reminder lane's money display (#829): whole dollars read "$25"
+  (the launch defaults' shape — never "$25.00"); anything else exact
+  ("$5.49" — a floored dollar would lie about where a threshold
+  fires). One formatter for every surface that states the reminder's
+  numbers — the L2 reminder mail and the L3 billing card's card — so
+  the two can never disagree about what a stored threshold reads as.
+  """
+  @spec format_usd_whole_or_exact(non_neg_integer()) :: String.t()
+  def format_usd_whole_or_exact(cents)
+      when is_integer(cents) and cents >= 0 and rem(cents, 100) == 0 do
+    "$#{div(cents, 100)}"
+  end
+
+  def format_usd_whole_or_exact(cents) when is_integer(cents) and cents >= 0 do
+    format_usd(cents)
+  end
+
+  @doc """
   The VAT rate a checkout charges (`resolve_tax_rate/3` →
   `Operations.ResolveTaxRate`): the applied rate in basis points.
   """
