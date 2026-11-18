@@ -263,7 +263,7 @@ defmodule FluxVale.Billing.Operations.SweepAutoRechargeTest do
         {:error, :postmark_down}
       end)
 
-      assert {:error, "auto-recharge reminder sweep failed for 1 org(s)"} =
+      assert {:error, "auto-recharge sweep failed for 1 org(s)"} =
                Billing.sweep_auto_recharge()
 
       # The marker rolled back, so the decision never persisted — the
