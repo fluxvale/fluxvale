@@ -41,6 +41,18 @@ defmodule FluxVale.Seeds.AdminSeedTest do
                User.get_by_email!("admin@fluxvale.com", authorize?: false)
     end
 
+    test "pins the owner handle to admin (#870)" do
+      :ok = Seeds.seed_admin!()
+
+      admin = User.get_by_email!("admin@fluxvale.com", authorize?: false)
+      assert admin.username == "admin"
+
+      # The personal org follows the handle — provisioning names the org
+      # after the username (the JIT path, which bypasses ReservedSlug by
+      # design), so the owner starts at /organizations/admin.
+      assert personal_org!(admin.id).slug == "admin"
+    end
+
     test "idempotent — a second run keeps one admin row" do
       :ok = Seeds.seed_admin!()
       :ok = Seeds.seed_admin!()

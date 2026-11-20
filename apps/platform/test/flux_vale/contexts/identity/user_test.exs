@@ -342,6 +342,33 @@ defmodule FluxVale.Identity.UserTest do
       assert first_message(error) =~ "is reserved"
     end
 
+    test "a platform admin claims a reserved name (#870)" do
+      admin = bootstrap_admin("admin@fluxvale.com")
+
+      # The #870 arm: the reserved-list rule does not stop the platform's
+      # own admin (the #754 org-slug precedent) — "admin" is claimable.
+      # The actor rides the BUILD call: ValidUsername runs eagerly at
+      # for_update, so a late-attached actor is invisible to it — the
+      # same shape the settings form uses (AshPhoenix.Form.for_update
+      # carries actor: user).
+      assert {:ok, updated} = admin_rename(admin, "admin", admin)
+      assert updated.username == "admin"
+
+      # The exemption is the reserved arm only — shape still binds admins.
+      assert {:error, error} = admin_rename(updated, "bad_name!", admin)
+      assert first_message(error) =~ "must use only lowercase"
+    end
+
+    test "format_problem/1 stays the plain rule set — reserved stays reserved" do
+      # The 1-arity is the non-admin contract (#870): reserved_ok defaults
+      # to false, so the plain call and the explicit false agree, and only
+      # the 2-arity's true opens the reserved arm.
+      assert DeriveUsername.format_problem("admin") == "is reserved"
+      assert DeriveUsername.format_problem("admin", false) == "is reserved"
+      assert DeriveUsername.format_problem("admin", true) == nil
+      assert DeriveUsername.format_problem("bad_name!") =~ "must use only lowercase"
+    end
+
     test "rejects a blank name" do
       user = User.create!("blanky@x.test", %{}, authorize?: false)
 
@@ -387,6 +414,16 @@ defmodule FluxVale.Identity.UserTest do
       user
       |> Ash.Changeset.for_update(:set_username, %{username: username})
       |> Ash.update(actor: actor, authorize?: true)
+    end
+
+    # The admin arm's invocation shape: the actor rides for_update, since
+    # ValidUsername runs eagerly there and cannot see an actor attached
+    # only at Ash.update. Mirrors the settings/onboarding forms, which
+    # build with actor: user (the same eager-validation posture).
+    defp admin_rename(user, username, admin) do
+      user
+      |> Ash.Changeset.for_update(:set_username, %{username: username}, actor: admin)
+      |> Ash.update(actor: admin, authorize?: true)
     end
 
     # The first field message of an Invalid error class ("is reserved",
