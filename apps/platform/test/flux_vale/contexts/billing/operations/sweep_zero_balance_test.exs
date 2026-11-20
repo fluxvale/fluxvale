@@ -24,8 +24,11 @@ defmodule FluxVale.Billing.Operations.SweepZeroBalanceTest do
   alias FluxVale.Clients.K8s.Resources.Service
   alias FluxVale.Identity.User
   alias FluxVale.Identity.UserEmail
+  alias FluxVale.Infrastructure.AccessGateway
+  alias FluxVale.Infrastructure.AccessProviders.Tailscale
   alias FluxVale.Infrastructure.Instance
   alias FluxVale.Infrastructure.Operations.InstanceK8s
+  alias FluxVale.TestSupport.AccessFixtures
   alias FluxVale.TestSupport.AccountsFixtures
   alias FluxVale.TestSupport.InstanceFixtures
 
@@ -375,6 +378,130 @@ defmodule FluxVale.Billing.Operations.SweepZeroBalanceTest do
     end
   end
 
+  describe "the waived wallet (#869) — the ladder stands down and pardons" do
+    # The gateway fixture's create rides the inline provision trigger —
+    # the same stubs the gateway-ladder suite uses.
+    setup do
+      stub(Tailscale, :provision_gateway, fn _gateway, _key ->
+        {:ok, %{credential_secret_ref: "credential-stub"}}
+      end)
+
+      stub(Tailscale, :scale_gateway, fn _gateway, _replicas -> :ok end)
+      stub(Tailscale, :teardown_gateway, fn _gateway -> :ok end)
+      :ok
+    end
+
+    test "balance 0 under the waiver stops nothing, suspends nothing, warns nothing", %{
+      version: version
+    } do
+      stub_stop()
+      {user, wallet} = org!()
+      running = instance!(user, :running, version)
+
+      org = Ash.load!(wallet, :organization, authorize?: false).organization
+      gateway = AccessFixtures.gateway!(org, monthly_cents: 200)
+
+      adjust_to!(wallet, 0)
+      {:ok, _wallet} = Wallet.set_waiver(wallet, %{paywall_waived: true}, actor: admin())
+
+      # the suspend arm must not even reach for the provider
+      reject(Tailscale, :scale_gateway, 2)
+
+      assert {:ok, summary} = Billing.sweep_zero_balance(wallet)
+      assert summary.stopped_ids == []
+      assert summary.suspended_gateway_ids == []
+      assert summary.destroy_warning == nil
+      refute summary.runway_warning_sent
+      refute_received {:email, _email}
+
+      assert {:ok, still_running} = Instance.get_by_id(running.id, actor: user)
+      assert still_running.status == :running
+
+      assert AccessGateway.get_by_id!(gateway.id, authorize?: false).state == :active
+      assert reload_wallet!(wallet).low_balance_warned_at == nil
+    end
+
+    test "the pardon: a live destroy clock clears under the waiver, nothing destroys", %{
+      version: version
+    } do
+      stub_stop()
+      {user, wallet} = org!()
+      instance = instance!(user, :running, version)
+      adjust_to!(wallet, -1)
+
+      # unwaived: the clock anchors on the first negative sighting
+      assert {:ok, _sweep} = Billing.sweep_zero_balance(wallet)
+      anchored_at = reload_wallet!(wallet).negative_since
+      assert anchored_at != nil
+
+      assert_received {:email, %Swoosh.Email{subject: "Your FluxVale balance is running low"}}
+
+      # past the window — destroy is DUE on the next pass
+      backdate!(reload_wallet!(wallet), negative_since: DateTime.add(anchored_at, -31, :day))
+
+      {:ok, _wallet} = Wallet.set_waiver(wallet, %{paywall_waived: true}, actor: admin())
+
+      assert {:ok, summary} = Billing.sweep_zero_balance(wallet)
+      assert summary.destroyed_ids == []
+      assert summary.destroy_warning == nil
+      assert summary.stopped_ids == []
+      refute summary.runway_warning_sent
+      refute_received {:email, _email}
+
+      assert {:ok, alive} = Instance.get_by_id(instance.id, actor: user)
+      assert alive.status == :stopped
+
+      fresh = reload_wallet!(wallet)
+      assert fresh.negative_since == nil
+      assert fresh.low_balance_warned_at == nil
+      assert fresh.destroy_t7_warned_at == nil
+      assert fresh.destroy_t1_warned_at == nil
+    end
+
+    test "negative from the start under the waiver never anchors the clock", %{version: version} do
+      stub_stop()
+      {user, wallet} = org!()
+      instance = instance!(user, :running, version)
+      {:ok, _wallet} = Wallet.set_waiver(wallet, %{paywall_waived: true}, actor: admin())
+      adjust_to!(wallet, -1)
+
+      assert {:ok, _sweep} = Billing.sweep_zero_balance(wallet)
+      assert {:ok, summary} = Billing.sweep_zero_balance(wallet)
+
+      assert summary.destroy_warning == nil
+      assert summary.stopped_ids == []
+      refute summary.runway_warning_sent
+      refute_received {:email, _email}
+
+      assert {:ok, still_running} = Instance.get_by_id(instance.id, actor: user)
+      assert still_running.status == :running
+      assert reload_wallet!(wallet).negative_since == nil
+    end
+
+    test "steady state writes nothing — the empty-marker map no-ops", %{version: version} do
+      stub_stop()
+      {user, wallet} = org!()
+      instance!(user, :running, version)
+      adjust_to!(wallet, 0)
+      {:ok, _wallet} = Wallet.set_waiver(wallet, %{paywall_waived: true}, actor: admin())
+
+      assert {:ok, _sweep} = Billing.sweep_zero_balance(wallet)
+      assert {:ok, summary} = Billing.sweep_zero_balance(wallet)
+
+      refute summary.runway_warning_sent
+      assert summary.destroy_warning == nil
+      assert summary.stopped_ids == []
+      assert summary.destroyed_ids == []
+      assert summary.suspended_gateway_ids == []
+
+      fresh = reload_wallet!(wallet)
+      assert fresh.low_balance_warned_at == nil
+      assert fresh.negative_since == nil
+      assert fresh.destroy_t7_warned_at == nil
+      assert fresh.destroy_t1_warned_at == nil
+    end
+  end
+
   # #287: seed! companions need the handle explicitly (NOT NULL); the
   # local part of the original address is unique per call.
   defp username_seed_for(address) do
@@ -384,4 +511,8 @@ defmodule FluxVale.Billing.Operations.SweepZeroBalanceTest do
     |> String.replace(~r/[^a-z0-9-]+/, "-")
     |> String.trim("-")
   end
+
+  # The waiver flip is platform-admin-only (the /admin checkbox); the
+  # actor is only policy — the precondition itself runs authorize?: false.
+  defp admin, do: AccountsFixtures.platform_admin!()
 end
