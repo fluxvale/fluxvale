@@ -22,7 +22,7 @@ defmodule FluxVale.Billing.Operations.SweepAutoRecharge do
     `:reminder` mode, read the balance (no lock — the reminder writes no
     wallet state) and, below threshold, email the members a one-click,
     amount-prefilled top-up link; marker and mail commit together.
-    Behavior is unchanged since L2.
+    L2 behavior, plus the #869 waiver stand-down below.
   - **The charge arm** (S4, STAGED — the whole arm, stale reconciliation
     included, is skipped gate-off): per org in `:auto` mode. The
     load-bearing boundary: **the locked transaction DECIDES, the charge
@@ -41,6 +41,13 @@ defmodule FluxVale.Billing.Operations.SweepAutoRecharge do
     atomic), second pass disables (`:no_method`). A success clears the
     notice marker; unknown/draft/attach outcomes leave the row to the
     stale arm and never count a strike.
+
+  Waived wallets (#869): the two live arms stand down. Accrual keeps
+  recording on a waived wallet — the ledger stays truthful and the
+  balance may run negative — so a waived org gets no reminder and no
+  charge against that negative balance. The stale-pending
+  reconciliation arm is unchanged: it resolves rows that already exist
+  and never initiates a charge.
 
   The reminder arm's marker and the mail commit together — a failed
   send rolls the marker write back, so a marker can never outlive its
@@ -194,16 +201,33 @@ defmodule FluxVale.Billing.Operations.SweepAutoRecharge do
     )
   end
 
-  # ── The reminder arm (L2, unchanged) ──
+  # ── The reminder arm (L2 — plus the #869 waiver stand-down) ──
 
-  # The balance read carries NO advisory lock and NO transaction around
-  # it: the reminder writes no wallet state, so there is nothing to
-  # serialize — a balance that moves mid-read only shifts the reminder
-  # by one pass. The marker and the mail, by contrast, commit together
-  # (remind/1), so the read and the write deliberately sit apart.
   defp pass(setting) do
     # System reads: the sweep is actorless (the ladder's stance).
     wallet = Wallet.get_by_organization!(setting.organization_id, authorize?: false)
+
+    # Waived wallet (#869): accrual still records — the ledger stays
+    # truthful, so the balance may be negative — and that is not
+    # something to remind about. Stand down before the transaction: no
+    # reminder, no marker clear, nothing. The idle shape keeps
+    # safe_sweep and the pulse treating this exactly like a
+    # balance-healthy idle pass (idle emits no pulse).
+    if wallet.paywall_waived do
+      {:ok, :idle}
+    else
+      remind_recover_or_idle(setting, wallet)
+    end
+  end
+
+  # The unwaived reminder decision: due → remind, recovered → clear
+  # the marker, else idle. The balance read carries NO advisory lock
+  # and NO transaction around it: the reminder writes no wallet state,
+  # so there is nothing to serialize — a balance that moves mid-read
+  # only shifts the reminder by one pass. The marker and the mail, by
+  # contrast, commit together (remind/1), so the read and the write
+  # deliberately sit apart.
+  defp remind_recover_or_idle(setting, wallet) do
     loaded = Ash.load!(wallet, :balance, authorize?: false)
     balance_cents = loaded.balance || 0
 
@@ -346,9 +370,20 @@ defmodule FluxVale.Billing.Operations.SweepAutoRecharge do
         wallet = Wallet.get_by_organization!(org.id, authorize?: false)
         WalletLock.acquire(wallet)
 
-        loaded = Ash.load!(wallet, :balance, authorize?: false)
+        # Waived wallet (#869): the check rides the fresh read INSIDE
+        # the lock so the decision serializes with the balance — a
+        # waiver flipped mid-pass, after the method lookup, is still
+        # caught at the decision point. Accrual keeps recording on a
+        # waived wallet (the balance may be negative — not something
+        # to charge against), so the arm stands down: {:ok, false} is
+        # idle, no charge, no method side effects.
+        if wallet.paywall_waived do
+          false
+        else
+          loaded = Ash.load!(wallet, :balance, authorize?: false)
 
-        charge_due?(org.id, setting, loaded.balance || 0)
+          charge_due?(org.id, setting, loaded.balance || 0)
+        end
       end)
 
     case outcome do

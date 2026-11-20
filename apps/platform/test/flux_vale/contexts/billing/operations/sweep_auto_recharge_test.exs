@@ -351,6 +351,7 @@ defmodule FluxVale.Billing.Operations.SweepAutoRechargeChargeTest do
   alias FluxVale.Billing
   alias FluxVale.Billing.AutoRechargeSetting
   alias FluxVale.Billing.Topup
+  alias FluxVale.Billing.Wallet
   alias FluxVale.Billing.WalletLock
   alias FluxVale.Mailer
   alias FluxVale.TestSupport.AccountsFixtures
@@ -1079,6 +1080,71 @@ defmodule FluxVale.Billing.Operations.SweepAutoRechargeChargeTest do
     assert %Topup{status: :pending} = Topup.get_by_id!(stale.id, authorize?: false)
   end
 
+  # ── The waived wallet (#869) ──
+
+  describe "the waived wallet (#869) — both live arms stand down" do
+    test "reminder: a waived wallet below threshold is idle — no mail, no marker", %{
+      wallet: wallet,
+      owner: owner,
+      setting: setting
+    } do
+      {:ok, _reminder} =
+        Billing.set_auto_recharge_setting(setting, %{mode: :reminder}, actor: owner)
+
+      waive_wallet!(wallet)
+
+      # Flunk-stubs: the waived pass must not reach the provider at all.
+      stub(Req, :get, fn _req, opts ->
+        flunk("no provider GET for a waived org: #{inspect(opts[:url])}")
+      end)
+
+      stub(Req, :post, fn _req, opts ->
+        flunk("no provider POST for a waived org: #{inspect(opts[:url])}")
+      end)
+
+      assert {:ok, %{reminded: 0, recovered: 0, charged: 0}} = Billing.sweep_auto_recharge()
+      refute_received {:email, _email}
+
+      assert {:ok, fresh} =
+               AutoRechargeSetting.get_by_organization(setting.organization_id, authorize?: false)
+
+      assert fresh.last_reminded_at == nil
+    end
+
+    test "charge: a waived wallet below threshold is idle — no row, no provider charge", %{
+      org: org,
+      wallet: wallet
+    } do
+      waive_wallet!(wallet)
+      stub_methods_only()
+
+      stub(Req, :post, fn _req, opts ->
+        flunk("no charge against a waived wallet: #{inspect(opts[:url])}")
+      end)
+
+      assert {:ok, %{charged: 0}} = Billing.sweep_auto_recharge()
+      assert auto_rows!(org.id) == []
+    end
+
+    test "stale reconciliation is unchanged: a waived org's stale row still resolves", %{
+      org: org,
+      wallet: wallet,
+      owner: owner,
+      setting: setting
+    } do
+      park_setting!(setting, owner)
+      waive_wallet!(wallet)
+      stale = stale_auto_row!(org, payment_request_id: nil)
+
+      stub(Req, :get, fn _req, opts ->
+        flunk("no fetch for an id-less row: #{inspect(opts[:url])}")
+      end)
+
+      assert {:ok, %{charged: 0}} = Billing.sweep_auto_recharge()
+      assert %Topup{status: :failed} = Topup.get_by_id!(stale.id, authorize?: false)
+    end
+  end
+
   # ── Fixtures ──
 
   # {org, setting} armed exactly as the S2 machinery produces (the S3
@@ -1104,6 +1170,16 @@ defmodule FluxVale.Billing.Operations.SweepAutoRechargeChargeTest do
   defp park_setting!(setting, owner) do
     {:ok, _off} = Billing.set_auto_recharge_setting(setting, %{mode: :off}, actor: owner)
   end
+
+  # The #869 admin waiver flip (the /admin seam, the
+  # actor_org_has_paid_test call): the platform admin flips
+  # paywall_waived — the precondition runs authorized; the admin
+  # policy itself is under test in the wallet suite.
+  defp waive_wallet!(wallet) do
+    {:ok, _waived} = Wallet.set_waiver(wallet, %{paywall_waived: true}, actor: admin())
+  end
+
+  defp admin, do: AccountsFixtures.platform_admin!()
 
   # A stale :auto pending row is a state no action can produce
   # (created_at is a write-time stamp) — the sanctioned Ash.seed! case
