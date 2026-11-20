@@ -35,7 +35,7 @@ defmodule FluxVale.Identity.User.DeriveUsername do
 
   # The shape every derived value satisfies — base/3 + with_suffix/2
   # produce exactly this. The rename validation (#285 T5) reads the same
-  # regex via format_problem/1: one rule set, no second copy.
+  # regex via format_problem/2: one rule set, no second copy.
   @username_format ~r/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/
 
   @impl Ash.Resource.Change
@@ -72,11 +72,21 @@ defmodule FluxVale.Identity.User.DeriveUsername do
   settings form renders when it is not. Uniqueness is deliberately NOT
   here — that is the `unique_username` identity's business ("has already
   been taken").
+
+  The 2-arity carries #870's admin arm: `reserved_ok` skips ONLY the
+  reserved-list rule (the #754 org-slug precedent — brand words fence
+  brand-surface claims, not the operator claiming the platform's own
+  handle); length and shape bind everyone. The 1-arity is the plain rule
+  set (`reserved_ok: false`) — every non-admin caller's contract,
+  unchanged.
   """
   @spec format_problem(String.t() | nil) :: String.t() | nil
-  def format_problem(username) when username in [nil, ""], do: "is required"
+  def format_problem(username), do: format_problem(username, false)
 
-  def format_problem(username) do
+  @spec format_problem(String.t() | nil, boolean()) :: String.t() | nil
+  def format_problem(username, _reserved_ok) when username in [nil, ""], do: "is required"
+
+  def format_problem(username, reserved_ok) do
     cond do
       String.length(username) < @min_length ->
         "must be at least #{@min_length} characters"
@@ -87,7 +97,7 @@ defmodule FluxVale.Identity.User.DeriveUsername do
       not String.match?(username, @username_format) ->
         "must use only lowercase letters, digits, and hyphens, without a leading or trailing hyphen"
 
-      username in @reserved ->
+      username in @reserved and not reserved_ok ->
         "is reserved"
 
       true ->
