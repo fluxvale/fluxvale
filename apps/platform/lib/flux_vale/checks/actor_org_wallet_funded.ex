@@ -6,6 +6,14 @@ defmodule FluxVale.Checks.ActorOrgWalletFunded do
   spends too — create-while-positive, stop, start-at-zero would
   otherwise route around the gate).
 
+  Since #869 the check is the funded gate OR the operator's paywall
+  waiver: a wallet carrying `paywall_waived` (admin-flipped from
+  /admin) passes at any balance, so a waived org can run the owner
+  stack at zero. The waiver is not money — no ledger rows, nothing
+  spendable — and never qualifies as a purchase (the paid-once gate's
+  revenue test stays the ledger's `:purchase` rows). Non-waived
+  semantics are unchanged: balance > 0 still decides.
+
   The org in play resolves through `FluxVale.Checks.OrgInPlay` — the
   one resolver the wallet gates share (action shape over attribute
   guesses, fresh row reads for updates, instance-to-org hop for
@@ -22,7 +30,7 @@ defmodule FluxVale.Checks.ActorOrgWalletFunded do
   alias FluxVale.Checks.OrgInPlay
 
   @impl Ash.Policy.Check
-  def describe(_opts), do: "the org's wallet balance is positive"
+  def describe(_opts), do: "the org's wallet is funded (positive balance) or operator-waived"
 
   @impl Ash.Policy.SimpleCheck
   def match?(actor, context, _opts) do
@@ -38,16 +46,16 @@ defmodule FluxVale.Checks.ActorOrgWalletFunded do
   end
 
   @doc """
-  The predicate: does this org's wallet hold a positive balance? A
-  wallet-less org is unfunded (balance 0 by definition — the ledger is
-  the balance).
+  The predicate: is this org funded — a positive wallet balance, OR
+  the wallet carries the operator's paywall waiver (#869)? A
+  wallet-less org is unfunded (no balance, no waiver).
   """
   @spec org_funded?(Ash.UUID.t()) :: boolean()
   def org_funded?(org_id) do
     case Wallet.get_by_organization(org_id, authorize?: false) do
       {:ok, wallet} ->
         {:ok, loaded} = Ash.load(wallet, :balance, authorize?: false)
-        (loaded.balance || 0) > 0
+        wallet.paywall_waived or (loaded.balance || 0) > 0
 
       {:error, _no_wallet} ->
         false

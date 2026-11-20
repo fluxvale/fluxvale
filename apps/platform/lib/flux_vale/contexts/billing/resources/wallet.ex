@@ -215,13 +215,15 @@ defmodule FluxVale.Billing.Wallet do
     end
 
     # The paywall waiver — the operator's designated-org switch, NOT
-    # money. It satisfies ONLY the "has paid $1+ once" gate
-    # (ActorOrgHasPaid ORs it with the ledger's :purchase rows), so
-    # testers/friends/demos can enable private access and backups
-    # without ever topping up. Balance>0 spend checks are never waived
-    # and no ledger row ever moves: no rows, no balance change, nothing
-    # spendable. Has-paid for revenue purposes stays DERIVED ledger
-    # truth — deliberately NOT mirrored into a column, so a waived org
+    # money. It satisfies BOTH wallet gates (#869): the "has paid $1+
+    # once" gate (ActorOrgHasPaid ORs it with the ledger's :purchase
+    # rows) and the funded gate (ActorOrgWalletFunded ORs it with
+    # balance > 0), so testers/friends/demos run the owner stack
+    # without ever topping up. The zero-balance ladder and
+    # auto-recharge stand down for waived wallets, and no ledger row
+    # ever moves: no rows, no balance change, nothing spendable.
+    # Has-paid for revenue purposes stays DERIVED ledger truth —
+    # deliberately NOT mirrored into a column, so a waived org
     # can never be counted as a payer by a conversion/revenue query.
     # Written only by :set_waiver (platform admin — via the admin
     # wallets surface's confirmed flip or the AshAdmin edit form).

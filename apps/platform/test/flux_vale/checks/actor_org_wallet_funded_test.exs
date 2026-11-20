@@ -10,6 +10,7 @@ defmodule FluxVale.Checks.ActorOrgWalletFundedTest do
   use Mimic
 
   alias FluxVale.Billing
+  alias FluxVale.Billing.Wallet
   alias FluxVale.Checks.ActorOrgWalletFunded
   alias FluxVale.Identity.User
   alias FluxVale.Infrastructure.BackupSetting
@@ -39,6 +40,19 @@ defmodule FluxVale.Checks.ActorOrgWalletFundedTest do
     test "a wallet-less org is unfunded — balance 0 by definition" do
       {org, _owner} = BillingFixtures.grant_free_org!()
       refute ActorOrgWalletFunded.org_funded?(org.id)
+    end
+
+    test "a waived wallet funds the org at balance 0" do
+      # The un-flipped mirror first: at balance 0 the org is unfunded,
+      # exactly as the empty-wallet test above. The flag — not the
+      # balance — is what then opens the gate (#869).
+      {_org, wallet} = BillingFixtures.funded_wallet!(balance_cents: 0)
+      refute ActorOrgWalletFunded.org_funded?(wallet.organization_id)
+
+      assert {:ok, _wallet} =
+               Wallet.set_waiver(wallet, %{paywall_waived: true}, actor: admin())
+
+      assert ActorOrgWalletFunded.org_funded?(wallet.organization_id)
     end
   end
 
@@ -76,6 +90,24 @@ defmodule FluxVale.Checks.ActorOrgWalletFundedTest do
 
       assert ActorOrgWalletFunded.match?(funded, %{subject: subject}, [])
       refute ActorOrgWalletFunded.match?(drained, %{subject: subject}, [])
+    end
+
+    test "a waived drained personal org passes the actor fallback — the waiver's OR arm" do
+      # The waiver edition of the test above: the personal org's wallet
+      # is drained to zero, the flag flipped by the admin — the
+      # actor-fallback arm passes on the OR alone.
+      waived = AccountsFixtures.user!()
+      personal = AccountsFixtures.personal_org!(waived)
+      BillingFixtures.drain_wallet!(personal)
+
+      {:ok, wallet} = Billing.ensure_wallet(personal)
+
+      assert {:ok, _wallet} =
+               Wallet.set_waiver(wallet, %{paywall_waived: true}, actor: admin())
+
+      subject = Ash.Changeset.for_create(Instance, :create, %{}, authorize?: false)
+
+      assert ActorOrgWalletFunded.match?(waived, %{subject: subject}, [])
     end
 
     test "a create naming its org as an ARGUMENT answers that org, not the actor's" do
@@ -434,6 +466,10 @@ defmodule FluxVale.Checks.ActorOrgWalletFundedTest do
     {_org, wallet} = BillingFixtures.funded_wallet!([{:org, org} | opts])
     {org, wallet, owner}
   end
+
+  # The waiver's flip actor — the has-paid suite's shape (the
+  # :set_waiver policy names ActorIsPlatformAdmin).
+  defp admin, do: AccountsFixtures.platform_admin!()
 
   defp stub_scale do
     stub(FluxVale.Clients.K8s, :kubeconfig, fn nil -> {:ok, %{}} end)
