@@ -240,12 +240,12 @@ defmodule FluxValeWeb.AdminWalletDetailLiveTest do
 
       # The card carries the contract; the confirm states what changes.
       assert has_element?(view, "[data-testid='destructive-confirm']")
-      assert has_element?(view, "[data-testid='destructive-confirm']", "has-paid gate opens")
+      assert has_element?(view, "[data-testid='destructive-confirm']", "Both wallet gates open")
 
       assert has_element?(
                view,
                "[data-testid='destructive-confirm']",
-               "private access and backups unlock"
+               "private access, backups, and deploys"
              )
 
       assert has_element?(view, "[data-testid='admin-wallet-waiver-confirm']")
@@ -294,7 +294,11 @@ defmodule FluxValeWeb.AdminWalletDetailLiveTest do
       |> element("[data-testid='admin-wallet-waiver-flip']")
       |> render_click()
 
-      assert has_element?(view, "[data-testid='destructive-confirm']", "closes again")
+      assert has_element?(
+               view,
+               "[data-testid='destructive-confirm']",
+               "spend reads the balance again"
+             )
 
       assert has_element?(
                view,
@@ -306,11 +310,11 @@ defmodule FluxValeWeb.AdminWalletDetailLiveTest do
       |> element("[data-testid='admin-wallet-waiver-confirm']")
       |> render_click()
 
-      assert has_element?(view, "#flash-info", "The has-paid gate closes again")
+      assert has_element?(view, "#flash-info", "wallet gates read the ledger again")
       assert text_of(view, "[data-testid='admin-wallet-waiver-state']") == "Not waived"
     end
 
-    test "removing the waiver from a PAID org closes nothing, and says so", %{
+    test "removing the waiver from a PAID org keeps has-paid, and says so", %{
       conn: conn,
       admin: admin
     } do
@@ -318,7 +322,7 @@ defmodule FluxValeWeb.AdminWalletDetailLiveTest do
 
       # One purchase row: the has-paid gate reads the waiver OR the
       # purchase history, so the flag is not the only thing holding
-      # the gate open.
+      # that gate open.
       {:ok, _purchase} = Billing.credit_wallet(wallet, 100)
       {:ok, _waived} = Wallet.set_waiver(wallet, %{paywall_waived: true}, actor: admin)
 
@@ -333,7 +337,7 @@ defmodule FluxValeWeb.AdminWalletDetailLiveTest do
       assert has_element?(
                view,
                "[data-testid='destructive-confirm']",
-               "nothing changes for this org"
+               "keeps the has-paid gate satisfied"
              )
 
       view
@@ -341,7 +345,7 @@ defmodule FluxValeWeb.AdminWalletDetailLiveTest do
       |> render_click()
 
       assert has_element?(view, "#flash-info", "keeps the has-paid gate satisfied")
-      assert has_element?(view, "#flash-info", "nothing changed for this org")
+      assert has_element?(view, "#flash-info", "Spend gates read the balance again")
       assert text_of(view, "[data-testid='admin-wallet-waiver-state']") == "Not waived"
 
       assert org

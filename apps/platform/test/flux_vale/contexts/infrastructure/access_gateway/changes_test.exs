@@ -1043,10 +1043,23 @@ defmodule FluxVale.Infrastructure.AccessGateway.ChangesTest do
       assert resumed.state == :provisioning
     end
 
-    test "paid but empty — the funded check still bites the resume", %{org: org, owner: owner} do
+    test "paid but empty — the funded check still bites create and resume", %{
+      org: org,
+      owner: owner
+    } do
       BillingFixtures.mark_paid!(org)
       suspended = AccessFixtures.gateway!(org, state: :suspended)
       BillingFixtures.drain_wallet!(org)
+
+      # Create rides the actor's personal org (this fixture org) — paid
+      # but drained, so the funded gate refuses where the paid-once
+      # gate passes: the non-waived pin for the create side (#869's
+      # unchanged-semantics leg; the resume side is right below).
+      assert {:error, %Ash.Error.Forbidden{}} =
+               AccessGateway.create(
+                 %{monthly_cents: 200, tailnet_domain: "example.ts.net", auth_key: "tskey"},
+                 actor: owner
+               )
 
       assert {:error, %Ash.Error.Forbidden{}} = AccessGateway.resume(suspended, actor: owner)
     end

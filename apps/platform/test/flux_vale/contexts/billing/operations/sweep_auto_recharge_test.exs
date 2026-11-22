@@ -1126,6 +1126,36 @@ defmodule FluxVale.Billing.Operations.SweepAutoRechargeChargeTest do
       assert auto_rows!(org.id) == []
     end
 
+    test "charge, no saved method: idle — no D3 notice mail, no marker, no disable", %{
+      org: org,
+      wallet: wallet
+    } do
+      # The archetypal waived org never topped up, so the provider
+      # answers zero methods: D3's two-pass rule (notice mail, then
+      # disable) stands down with the rest of the arm — the waiver is
+      # not a payment-method problem to configure the org about.
+      waive_wallet!(wallet)
+
+      # Flunk-stubs: the waived pass must not reach the provider at
+      # all — no method lookup (the arm skips before it), no charge.
+      stub(Req, :get, fn _req, opts ->
+        flunk("no provider GET for a waived org: #{inspect(opts[:url])}")
+      end)
+
+      stub(Req, :post, fn _req, opts ->
+        flunk("no provider POST for a waived org: #{inspect(opts[:url])}")
+      end)
+
+      assert {:ok, %{charged: 0}} = Billing.sweep_auto_recharge()
+      refute_received {:email, _email}
+
+      {:ok, fresh} = AutoRechargeSetting.get_by_organization(org.id, authorize?: false)
+
+      assert fresh.mode == :auto
+      assert is_nil(fresh.no_method_notified_at)
+      assert is_nil(fresh.disabled_reason)
+    end
+
     test "stale reconciliation is unchanged: a waived org's stale row still resolves", %{
       org: org,
       wallet: wallet,

@@ -39,6 +39,14 @@ defmodule FluxVale.Billing.Operations.SweepZeroBalance do
   unwaived later wallet re-arm fresh (anchor at first negative
   sighting, full 30-day warning cycle). The funded deploy gate admits
   waived wallets too (sibling slice).
+
+  The waiver is read once per pass, in the transaction, off the fresh
+  row (`:set_waiver` takes no advisory lock): a waiver granted while a
+  non-waived pass is mid-flight does not stop that pass's arms — an
+  org rescued that narrowly can lose one pass's actions (stops,
+  suspends, worst case a destroy that was already due), the same
+  one-pass tolerance a top-up landing just after the balance read
+  already had. The next pass stands down and pardons.
   """
 
   alias FluxVale.Accounts.Organization
@@ -272,8 +280,9 @@ defmodule FluxVale.Billing.Operations.SweepZeroBalance do
       # Waived → the ladder stands down entirely (#869): no provider
       # calls, no reads. Tolerated one-pass race: a waiver flipped
       # between the transaction's read of the row and this post-commit
-      # arm suspends at most one pass's gateway — self-healing next
-      # sweep, the same tolerance the balance re-read below documents.
+      # arm suspends at most one pass's gateway (resume stays
+      # member-initiated; the next pass suspends nothing further) — the
+      # same tolerance the balance re-read below documents.
       []
     else
       # Re-read the balance: the pass's own writes (a top-up landing

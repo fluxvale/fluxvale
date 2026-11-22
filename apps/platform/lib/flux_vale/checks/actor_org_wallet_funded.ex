@@ -54,12 +54,21 @@ defmodule FluxVale.Checks.ActorOrgWalletFunded do
   def org_funded?(org_id) do
     case Wallet.get_by_organization(org_id, authorize?: false) do
       {:ok, wallet} ->
-        {:ok, loaded} = Ash.load(wallet, :balance, authorize?: false)
-        wallet.paywall_waived or (loaded.balance || 0) > 0
+        # The waiver short-circuits the ledger SUM (#869): a waived org
+        # is funded at any balance, so the aggregate load below only
+        # runs for unwaived orgs.
+        wallet.paywall_waived or positive_balance?(wallet)
 
       {:error, _no_wallet} ->
         false
     end
+  end
+
+  # The balance read (a ledger aggregate) runs only past the waiver.
+  defp positive_balance?(wallet) do
+    {:ok, loaded} = Ash.load(wallet, :balance, authorize?: false)
+
+    (loaded.balance || 0) > 0
   end
 
   # The actor's org is the fallback for creates that name neither an

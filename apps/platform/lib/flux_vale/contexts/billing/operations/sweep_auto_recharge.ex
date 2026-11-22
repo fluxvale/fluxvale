@@ -335,6 +335,23 @@ defmodule FluxVale.Billing.Operations.SweepAutoRecharge do
     # System seam — the sweep is actorless.
     org = Ash.get!(Organization, setting.organization_id, authorize?: false)
 
+    # Waived wallet (#869): the WHOLE arm stands down before the method
+    # lookup. Accrual keeps recording on a waived wallet (the balance
+    # may be negative — not something to charge against), and a waived
+    # org with no saved method — the archetypal shape, it never topped
+    # up — is not something to run D3's notice/disable cycle over: no
+    # mail, no marker, no disable. Skipping the lookup also keeps the
+    # sweep off the provider network for waived orgs.
+    wallet = Wallet.get_by_organization!(org.id, authorize?: false)
+
+    if wallet.paywall_waived do
+      {:ok, :idle}
+    else
+      method_pass(org, setting)
+    end
+  end
+
+  defp method_pass(org, setting) do
     case method_lookup(setting) do
       {:ok, count, _default_ref} when count > 0 ->
         due_then_charge(org, setting)
