@@ -105,7 +105,8 @@ defmodule FluxVale.Seeds.CompanyOrgSeedTest do
              )
 
       # The seed mints the slug through the system :create — the
-      # action actors cannot reach (its policy forbids every actor).
+      # action no non-admin actor can reach (admins ride the #644
+      # blanket, but no actor surface calls it).
       :ok = Seeds.seed_admin!()
       :ok = Seeds.seed_company_org!()
 
