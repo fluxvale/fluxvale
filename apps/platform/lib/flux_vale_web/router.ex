@@ -139,10 +139,13 @@ defmodule FluxValeWeb.Router do
   # pipe_throughs — the gate rides here, mirroring the TestInbox: routes
   # compile into every release, the plug 404s unless STORYBOOK_ENABLED.
   # Internal-only exposure is the fleet's hostname routing.
+  # Serves HTML to browsers, so it carries the secure-headers plug like
+  # every other HTML pipeline — sobelow finding dies at source, not skip list.
   pipeline :storybook_browser do
     plug(:accepts, ["html"])
     plug(:fetch_session)
     plug(:protect_from_forgery)
+    plug(:put_secure_browser_headers)
     plug(FluxValeWeb.Plugs.StorybookEnabled)
   end
 
