@@ -21,26 +21,30 @@
 # no CSP directive is set anywhere in the app (accepted Phoenix default)
 # Config.CSP router.ex:42 - sitemap pipeline serves XML only, no browser
 # document for a CSP to protect (was :39 before the pipeline shifted)
-# Config.CSRF router.ex:62 - api_auth is token-authed JSON, AuthorizeApiScopes
-# 401s session writes before any handler runs (router comment; was :59)
-# Config.CSRF router.ex:445 - test_inbox_api is admin-gated JSON and its
-# scope is GET-only, no state change to forge (was :451)
-# Config.CSRF router.ex:455 - test_inbox_browser clear-mailbox form carries no
-# CSRF token by design, admin-gated non-prod (router comment; was :461)
-# Config.CSP router.ex:457 - test_inbox_browser is a config-gated non-prod
-# ops surface (404s unless TEST_INBOX_ENABLED; was :463)
+# Config.CSP router.ex:50 - text_plain serves text/plain only, no browser
+# document for a CSP to protect; put_secure_browser_headers rides the
+# pipeline (same app-wide accepted no-CSP default as :browser and sitemap)
+# Config.CSRF router.ex:70 - api_auth is token-authed JSON, AuthorizeApiScopes
+# 401s session writes before any handler runs (router comment; was :62)
+# Config.CSP router.ex:148 - storybook_browser rides the same no-CSP default
+# on the pipeline's put_secure_browser_headers, config-gated internal
+# surface (mirrors the :browser entry)
+# Config.CSRF router.ex:519 - test_inbox_api is admin-gated JSON and its
+# scope is GET-only, no state change to forge (was :445)
+# Config.CSRF router.ex:529 - test_inbox_browser clear-mailbox form carries no
+# CSRF token by design, admin-gated non-prod (router comment; was :455)
+# Config.CSP router.ex:531 - test_inbox_browser is a config-gated non-prod
+# ops surface (404s unless TEST_INBOX_ENABLED; was :457)
 # Config.CSWH endpoint.ex:14 - /live socket origin checks are configured at
 # app level (check_origin in config/runtime.exs), a non-literal list the
 # scanner cannot resolve
 # Config.CSWH endpoint.ex:42 - live_reload socket compiles only under
 # code_reloading (dev), where check_origin: false is deliberate
-# Config.Headers router.ex:134 - storybook_browser 404s unless
-# STORYBOOK_ENABLED and is internal-only by fleet hostname routing
-# (was :173)
 # SQL.Query personal_owner_backfill.ex:74 - sql() is a static heredoc with
 # zero interpolation, a one-shot backfill
-# Traversal.FileModule blog/lint.ex:62 - paths come from the priv blog
-# wildcard, operator-authored content only
+# SQL.Query errored_at_backfill.ex:64 - sql() is a static heredoc with
+# zero interpolation, a one-shot backfill (the personal_owner_backfill
+# precedent its moduledoc cites)
 # Traversal.FileModule clients/k8s.ex:81 - the namespace_file value is
 # built at k8s.ex:49 from Path.join(@sa_dir, "namespace"), a constant
 # Traversal.FileModule contexts/billing/countries.ex:64 - default_path() is a
@@ -84,7 +88,6 @@ Config.CSP: Missing Content-Security-Policy,lib/flux_vale_web/router.ex:14,67F30
 Config.CSWH: Cross-Site Websocket Hijacking,lib/flux_vale_web/endpoint.ex:14,5E9E795
 Config.CSWH: Cross-Site Websocket Hijacking,lib/flux_vale_web/endpoint.ex:42,737217C
 SQL.Query: SQL injection,lib/flux_vale/contexts/accounts/resources/organization/personal_owner_backfill.ex:74,67B03F4
-Traversal.FileModule: Directory Traversal in `File.read!`,lib/flux_vale/blog/lint.ex:62,5B4B634
 Traversal.FileModule: Directory Traversal in `File.read!`,lib/flux_vale/clients/k8s.ex:81,6A07B12
 Traversal.FileModule: Directory Traversal in `File.read!`,lib/flux_vale/contexts/billing/countries.ex:64,66D3D7B
 Traversal.FileModule: Directory Traversal in `File.read!`,lib/flux_vale/seeds/pricing_data.ex:42,516B278
@@ -101,13 +104,15 @@ XSS.SendResp: XSS in `send_resp`,lib/flux_vale_web/wake.ex:81,2A94C5B
 Traversal.FileModule: Directory Traversal in `File.read!`,lib/flux_vale/markdown.ex:22,783095E
 XSS.Raw: XSS,lib/flux_vale_web/controllers/docs_html/show.html.heex:21,649324B
 Config.CSP: Missing Content-Security-Policy,lib/flux_vale_web/router.ex:42,36485A
-Config.CSP: Missing Content-Security-Policy,lib/flux_vale_web/router.ex:457,4532441
-Config.CSRF: Missing CSRF Protections,lib/flux_vale_web/router.ex:62,5B15428
-Config.CSRF: Missing CSRF Protections,lib/flux_vale_web/router.ex:445,7948820
-Config.CSRF: Missing CSRF Protections,lib/flux_vale_web/router.ex:455,1F97529
-Config.Headers: Missing Secure Browser Headers,lib/flux_vale_web/router.ex:134,C2682A
 Traversal.FileModule: Directory Traversal in `File.read!`,lib/flux_vale/seeds/catalog_data.ex:71,17AF253
 XSS.Raw: XSS,lib/flux_vale_web/controllers/catalog_html/show.html.heex:32,4291E74
 XSS.Raw: XSS,lib/flux_vale_web/controllers/catalog_html/show.html.heex:38,57AE9CB
 XSS.Raw: XSS,lib/flux_vale_web/live/admin_live/moderation.ex:1438,370A5E
 XSS.Raw: XSS,lib/flux_vale_web/live/admin_live/moderation.ex:1611,3FAF1A4
+Config.CSP: Missing Content-Security-Policy,lib/flux_vale_web/router.ex:50,2DD33F1
+Config.CSP: Missing Content-Security-Policy,lib/flux_vale_web/router.ex:148,EFC798
+Config.CSP: Missing Content-Security-Policy,lib/flux_vale_web/router.ex:531,1022F4E
+Config.CSRF: Missing CSRF Protections,lib/flux_vale_web/router.ex:70,65DA151
+Config.CSRF: Missing CSRF Protections,lib/flux_vale_web/router.ex:519,5B1EF25
+Config.CSRF: Missing CSRF Protections,lib/flux_vale_web/router.ex:529,7325B90
+SQL.Query: SQL injection,lib/flux_vale/contexts/infrastructure/resources/instance/errored_at_backfill.ex:64,26BF6E7
