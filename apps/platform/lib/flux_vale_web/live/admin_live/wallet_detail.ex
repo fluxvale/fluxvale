@@ -8,11 +8,13 @@ defmodule FluxValeWeb.AdminLive.WalletDetail do
 
   - the paywall waiver flip (`Wallet :set_waiver`, the one
     actor-facing wallet update): confirmed inline where the toggle
-    lives. The card carries the contract (the waiver satisfies only
-    the has-paid gate, moves no money, posts no ledger row); the
-    confirm states the delta, branching on purchase history — the
-    gate reads the waiver OR the ledger's purchase rows, so removing
-    the flag from an org that has paid closes nothing;
+    lives. The card carries the contract (the waiver satisfies both
+    wallet gates, has-paid and funded, moves no money, posts no
+    ledger row); the confirm states the delta, branching on purchase
+    history — the has-paid gate reads the waiver OR the ledger's
+    purchase rows, so removing the flag from an org that has paid
+    leaves that gate satisfied while the funded gate reads the
+    balance again;
   - the goodwill credit (`LedgerEntry :grant_goodwill`, #140): the
     submit opens a confirm that states the consequence, because the
     post is irreversible. The action is KEYLESS by deliberation (the
@@ -646,8 +648,9 @@ defmodule FluxValeWeb.AdminLive.WalletDetail do
 
   # The removal copy's branch fact: the has-paid gate reads the waiver
   # OR the ledger's purchase rows, so removing the waiver from an org
-  # that HAS paid closes nothing. This read is the check, through the
-  # domain with the admin actor.
+  # that HAS paid leaves has-paid satisfied — the funded gate reads the
+  # balance either way. This read is the check, through the domain
+  # with the admin actor.
   defp has_purchase?(wallet, admin) do
     LedgerEntry
     |> Ash.Query.for_read(:read, %{}, actor: admin)
@@ -765,41 +768,42 @@ defmodule FluxValeWeb.AdminLive.WalletDetail do
   end
 
   # The confirm states the DELTA — the card above already carries the
-  # contract. Removal branches on purchase history: the gate reads the
-  # waiver OR the ledger's purchase rows, so a paid org loses nothing.
+  # contract. Removal branches on purchase history: the has-paid gate
+  # reads the waiver OR the ledger's purchase rows, so a paid org keeps
+  # that gate — the funded gate reads the balance either way.
   defp waiver_body(true, _paid?) do
     gettext(
-      "The has-paid gate opens for this org: private access and backups unlock. No money moves."
+      "Both wallet gates open for this org: private access, backups, and deploys at any balance. The zero-balance ladder stands down and clears its markers. No money moves."
     )
   end
 
   defp waiver_body(false, true) do
     gettext(
-      "The waiver flag comes off. The org's purchase history still satisfies the has-paid gate, so nothing changes for this org."
+      "The waiver flag comes off. The org's purchase history keeps the has-paid gate satisfied. Spend gates read the balance again: at zero, deploys and resumes refuse and the ladder re-arms fresh."
     )
   end
 
   defp waiver_body(false, false) do
     gettext(
-      "The has-paid gate closes again. Private access and backups lock until the org tops up. No money moves."
+      "The has-paid gate closes and spend reads the balance again: private access, backups, and deploys lock until the org tops up. The zero-balance ladder takes over from there."
     )
   end
 
   defp waiver_flash(true, _paid?) do
     gettext(
-      "The paywall gate is waived for this org. Private access and backups are unlocked. No money moved."
+      "The wallet gates are waived for this org. Private access, backups, and deploys are unlocked at any balance. No money moved."
     )
   end
 
   defp waiver_flash(false, true) do
     gettext(
-      "The waiver flag is removed. The org's purchase history keeps the has-paid gate satisfied, so nothing changed for this org."
+      "The waiver flag is removed. The org's purchase history keeps the has-paid gate satisfied. Spend gates read the balance again."
     )
   end
 
   defp waiver_flash(false, false) do
     gettext(
-      "The waiver is removed. The has-paid gate closes again. Private access and backups lock until the org tops up."
+      "The waiver is removed. The wallet gates read the ledger again: private access, backups, and deploys lock until the org tops up."
     )
   end
 
@@ -1026,7 +1030,7 @@ defmodule FluxValeWeb.AdminLive.WalletDetail do
                       <h2 class="text-base font-medium text-ink">{gettext("Paywall waiver")}</h2>
                       <p class="mt-1 text-sm text-ink-muted">
                         {gettext(
-                          "The waiver satisfies only the has-paid gate. It unlocks private access and backups for this org. It moves no money, posts no ledger row, and waives nothing spendable."
+                          "The waiver satisfies both wallet gates: has-paid and funded. It unlocks private access, backups, and deploys for this org at any balance, and the zero-balance ladder stands down. It moves no money, posts no ledger row, and waives nothing spendable."
                         )}
                       </p>
                     </div>

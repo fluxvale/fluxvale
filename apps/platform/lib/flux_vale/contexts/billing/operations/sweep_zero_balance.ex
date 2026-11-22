@@ -30,6 +30,23 @@ defmodule FluxVale.Billing.Operations.SweepZeroBalance do
   Emails ride the Swoosh/TestInbox path from inside the transaction: a
   marker set without its mail (or the reverse) can't happen — a failed
   send rolls the whole pass back and the next sweep retries.
+
+  Waived wallets (#869): while `paywall_waived` is set the ladder
+  stands down — no arm runs — and any live marker clears (the pardon).
+  Accrual keeps recording by design, so a waived wallet's balance may
+  run negative; a frozen `negative_since` would fire an instant
+  unwarned destroy the hour the waiver comes off, so the pardon lets an
+  unwaived later wallet re-arm fresh (anchor at first negative
+  sighting, full 30-day warning cycle). The funded deploy gate admits
+  waived wallets too (sibling slice).
+
+  The waiver is read once per pass, in the transaction, off the fresh
+  row (`:set_waiver` takes no advisory lock): a waiver granted while a
+  non-waived pass is mid-flight does not stop that pass's arms — an
+  org rescued that narrowly can lose one pass's actions (stops,
+  suspends, worst case a destroy that was already due), the same
+  one-pass tolerance a top-up landing just after the balance read
+  already had. The next pass stands down and pardons.
   """
 
   alias FluxVale.Accounts.Organization
@@ -79,14 +96,11 @@ defmodule FluxVale.Billing.Operations.SweepZeroBalance do
         # sees the winner's committed state.
         WalletLock.acquire(wallet)
 
-        with {:ok, fresh} <- Ash.get(Wallet, wallet.id, authorize?: false),
-             {:ok, loaded} <- Ash.load(fresh, :balance, authorize?: false),
-             {:ok, runway} <- ComputeRunway.call(loaded),
-             {:ok, summary, markers} <- ladder(loaded, runway) do
-          {:ok, _wallet} = write_markers(loaded, markers)
-          summary
-        else
-          # defensive: the reads above only fail on a DB failure — not
+        case Ash.get(Wallet, wallet.id, authorize?: false) do
+          {:ok, fresh} ->
+            pass_for(fresh)
+
+          # defensive: the read above only fails on a DB failure — not
           # simulatable under the sandbox
           # coveralls-ignore-start
           {:error, reason} ->
@@ -96,7 +110,7 @@ defmodule FluxVale.Billing.Operations.SweepZeroBalance do
       end)
 
     case outcome do
-      {:ok, summary} ->
+      {:ok, {summary, fresh}} ->
         # The gateway arm runs AFTER the wallet pass commits. A failed
         # Ash action calls Repo.rollback on the ENCLOSING transaction, so
         # suspending inside it would let one cluster hiccup discard the
@@ -110,7 +124,7 @@ defmodule FluxVale.Billing.Operations.SweepZeroBalance do
         # `stop_step` has no failure branch. The gateway arm is the only
         # out-of-DB side effect that can refuse the pass, which is exactly
         # why it runs out here.
-        suspended_gateways = suspend_gateways(wallet)
+        suspended_gateways = suspend_gateways(fresh)
 
         {:ok, %{summary | suspended_gateway_ids: suspended_gateways}}
 
@@ -119,6 +133,63 @@ defmodule FluxVale.Billing.Operations.SweepZeroBalance do
       # coveralls-ignore-start
       {:error, _reason} = error ->
         error
+        # coveralls-ignore-stop
+    end
+  end
+
+  # The pass dispatcher (#869): a waived wallet stands down; otherwise
+  # the pre-#869 ladder runs unchanged.
+  defp pass_for(fresh) do
+    # The waived branch reads only the attribute already on `fresh` —
+    # no balance load, no runway projection, and the ladder never runs.
+    if fresh.paywall_waived do
+      waived_pass(fresh)
+    else
+      ladder_pass(fresh)
+    end
+  end
+
+  # The waived stand-down (#869): the summary is the all-empty struct
+  # and the markers map clears every marker that is set. The pardon —
+  # accrual keeps recording by design, so the balance may run negative
+  # while waived, and a frozen `negative_since` would fire an instant
+  # unwarned destroy the hour the waiver comes off. Clearing lets an
+  # unwaived later wallet re-arm fresh (anchor at first negative
+  # sighting, full 30-day warning cycle). A steady-state waived wallet
+  # (all markers already nil) builds the empty map, which
+  # `write_markers/2` no-ops.
+  defp waived_pass(fresh) do
+    summary = %__MODULE__{
+      runway_warning_sent: false,
+      destroy_warning: nil,
+      stopped_ids: [],
+      destroyed_ids: [],
+      suspended_gateway_ids: []
+    }
+
+    markers =
+      [:low_balance_warned_at, :negative_since, :destroy_t7_warned_at, :destroy_t1_warned_at]
+      |> Enum.filter(fn key -> not is_nil(Map.get(fresh, key)) end)
+      |> Map.new(fn key -> {key, nil} end)
+
+    {:ok, _wallet} = write_markers(fresh, markers)
+    {summary, fresh}
+  end
+
+  # The unwaived path — exactly the pre-#869 ladder (balance load,
+  # runway projection, then the ladder arms).
+  defp ladder_pass(fresh) do
+    with {:ok, loaded} <- Ash.load(fresh, :balance, authorize?: false),
+         {:ok, runway} <- ComputeRunway.call(loaded),
+         {:ok, summary, markers} <- ladder(loaded, runway) do
+      {:ok, _wallet} = write_markers(loaded, markers)
+      {summary, fresh}
+    else
+      # defensive: the reads above only fail on a DB failure — not
+      # simulatable under the sandbox
+      # coveralls-ignore-start
+      {:error, reason} ->
+        FluxVale.Repo.rollback(reason)
         # coveralls-ignore-stop
     end
   end
@@ -204,16 +275,26 @@ defmodule FluxVale.Billing.Operations.SweepZeroBalance do
   # cheap to keep parked (no pod, kilobytes of state), and destroying it
   # would drop the owner's tailnet node identity — a re-join on every
   # top-up, which is a far worse experience than a pause.
-  defp suspend_gateways(wallet) do
-    # Re-read the balance: the pass's own writes (a top-up landing
-    # mid-flight) must not be missed, and the arm is deliberately outside
-    # the transaction that owned the earlier read.
-    if zero_or_below?(wallet) do
-      wallet.organization_id
-      |> org_gateways()
-      |> Enum.flat_map(&suspend_gateway/1)
-    else
+  defp suspend_gateways(fresh) do
+    if fresh.paywall_waived do
+      # Waived → the ladder stands down entirely (#869): no provider
+      # calls, no reads. Tolerated one-pass race: a waiver flipped
+      # between the transaction's read of the row and this post-commit
+      # arm suspends at most one pass's gateway (resume stays
+      # member-initiated; the next pass suspends nothing further) — the
+      # same tolerance the balance re-read below documents.
       []
+    else
+      # Re-read the balance: the pass's own writes (a top-up landing
+      # mid-flight) must not be missed, and the arm is deliberately outside
+      # the transaction that owned the earlier read.
+      if zero_or_below?(fresh) do
+        fresh.organization_id
+        |> org_gateways()
+        |> Enum.flat_map(&suspend_gateway/1)
+      else
+        []
+      end
     end
   end
 

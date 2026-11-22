@@ -7,6 +7,7 @@ defmodule FluxVale.Infrastructure.Operations.RunInstanceBackupTest do
   alias FluxVale.Billing
   alias FluxVale.Billing.Wallet
   alias FluxVale.Checks.ActorOrgHasPaid
+  alias FluxVale.Checks.ActorOrgWalletFunded
   alias FluxVale.Clients.K8s
   alias FluxVale.Clients.K8s.Error
   alias FluxVale.Clients.K8s.Resources.BackupJob
@@ -298,10 +299,10 @@ defmodule FluxVale.Infrastructure.Operations.RunInstanceBackupTest do
       assert runs(instance) == []
     end
 
-    test "a waived org at zero balance: :wallet_unfunded — the waiver never waives spend" do
-      # The paywall waiver ORs the PAID gate open, and nothing else: the
-      # run guard still refuses on the funded check (balance must be
-      # positive) — pinned here so a waived-but-empty org can never run.
+    test "a waived org at zero balance runs — the waiver satisfies both wallet gates (#869)" do
+      # Since #869 the paywall waiver ORs BOTH gates open: paid-once and
+      # the funded check — a waived-but-empty org backs up without a
+      # top-up. The non-waived refusals are the two tests above.
       version = base!()
 
       owner =
@@ -319,14 +320,15 @@ defmodule FluxVale.Infrastructure.Operations.RunInstanceBackupTest do
 
       BillingFixtures.drain_wallet!(org)
 
-      # The paid gate PASSES on the waiver — the funded check is what
-      # refuses.
+      # Both wallet gates pass on the waiver — the run proceeds.
       assert ActorOrgHasPaid.org_paid?(org.id)
+      assert ActorOrgWalletFunded.org_funded?(org.id)
 
-      reject(BackupJob, :create, 3)
+      stub_k8s()
 
-      assert {:error, :wallet_unfunded} = Infrastructure.run_instance_backup(instance, :manual)
-      assert runs(instance) == []
+      assert {:ok, run} = Infrastructure.run_instance_backup(instance, :manual)
+      assert run.status == :running
+      assert length(runs(instance)) == 1
     end
   end
 

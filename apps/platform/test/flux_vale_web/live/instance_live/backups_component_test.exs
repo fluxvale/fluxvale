@@ -1125,14 +1125,15 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponentTest do
              )
     end
 
-    test "a waived org at zero balance is not told to add $1 once — the waiver exists so it never must",
+    test "a waived org at zero balance runs — not told to top up, both gates waived open (#869)",
          %{
            conn: conn,
            user: user,
            version: version
          } do
-      # Waiver-only (never paid): org_paid? true on the waiver alone —
-      # the same balance-only line a paid org gets.
+      # Waiver-only (never paid, drained): org_paid? true on the waiver
+      # alone, and since #869 org_funded? too — no $1-once line, no
+      # balance line, the run starts like any funded org's.
       {:ok, org} = FluxVale.Accounts.personal_org_for_user(user.id, authorize?: false)
       {:ok, wallet} = Billing.ensure_wallet(org)
 
@@ -1140,6 +1141,7 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponentTest do
 
       instance = instance!(version, user)
       setting!(instance)
+      stub_backup_k8s()
 
       BillingFixtures.drain_wallet!(org)
 
@@ -1147,11 +1149,9 @@ defmodule FluxValeWeb.InstanceLive.BackupsComponentTest do
 
       render_click(element(view, "[data-testid=back-up-now]"))
 
-      assert has_element?(
-               view,
-               "[data-testid=backups-error]",
-               "Top up to run a backup. Keep a positive balance in your wallet."
-             )
+      assert has_element?(view, "[data-testid=backups-notice]", "Backup started")
+      assert has_element?(view, "[data-testid=backup-run][data-run-kind=manual]")
+      refute has_element?(view, "[data-testid=backups-error]")
     end
   end
 

@@ -1043,10 +1043,23 @@ defmodule FluxVale.Infrastructure.AccessGateway.ChangesTest do
       assert resumed.state == :provisioning
     end
 
-    test "paid but empty — the funded check still bites the resume", %{org: org, owner: owner} do
+    test "paid but empty — the funded check still bites create and resume", %{
+      org: org,
+      owner: owner
+    } do
       BillingFixtures.mark_paid!(org)
       suspended = AccessFixtures.gateway!(org, state: :suspended)
       BillingFixtures.drain_wallet!(org)
+
+      # Create rides the actor's personal org (this fixture org) — paid
+      # but drained, so the funded gate refuses where the paid-once
+      # gate passes: the non-waived pin for the create side (#869's
+      # unchanged-semantics leg; the resume side is right below).
+      assert {:error, %Ash.Error.Forbidden{}} =
+               AccessGateway.create(
+                 %{monthly_cents: 200, tailnet_domain: "example.ts.net", auth_key: "tskey"},
+                 actor: owner
+               )
 
       assert {:error, %Ash.Error.Forbidden{}} = AccessGateway.resume(suspended, actor: owner)
     end
@@ -1195,25 +1208,33 @@ defmodule FluxVale.Infrastructure.AccessGateway.ChangesTest do
                )
     end
 
-    test "waived but empty — the funded check still bites create and resume", %{
-      org: org,
-      owner: owner
-    } do
-      # The waiver satisfies the PAID gate only; balance>0 spend points
-      # read nothing but the ledger.
+    test "waived but empty creates and resumes too — the waiver satisfies the funded gate (#869)",
+         %{
+           org: org,
+           owner: owner
+         } do
+      # Since #869 the waiver satisfies BOTH wallet gates — paid-once
+      # and the funded check — so a waived org at balance 0 builds and
+      # resumes its gateway (the owner-stack stance). The non-waived
+      # refusal is "paid but empty" above.
       {:ok, wallet} = Billing.ensure_wallet(org)
       assert {:ok, _wallet} = Wallet.set_waiver(wallet, %{paywall_waived: true}, actor: admin())
       BillingFixtures.drain_wallet!(org)
 
-      assert {:error, %Ash.Error.Forbidden{}} =
+      assert {:ok, gateway} =
                AccessGateway.create(
                  %{monthly_cents: 200, tailnet_domain: "example.ts.net", auth_key: "tskey"},
                  actor: owner
                )
 
-      suspended = AccessFixtures.gateway!(org, state: :suspended)
+      assert gateway.organization_id == org.id
 
-      assert {:error, %Ash.Error.Forbidden{}} = AccessGateway.resume(suspended, actor: owner)
+      # Resume opens the same way — both gates read the waiver.
+      stub(Tailscale, :scale_gateway, fn _gateway, _replicas -> :ok end)
+      {:ok, suspended} = AccessGateway.suspend(gateway, authorize?: false)
+
+      assert {:ok, resumed} = AccessGateway.resume(suspended, actor: owner)
+      assert resumed.state == :provisioning
     end
   end
 

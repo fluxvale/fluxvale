@@ -41,6 +41,18 @@ defmodule FluxVale.Seeds.AdminSeedTest do
                User.get_by_email!("admin@fluxvale.com", authorize?: false)
     end
 
+    test "pins the owner handle to admin (#870)" do
+      :ok = Seeds.seed_admin!()
+
+      admin = User.get_by_email!("admin@fluxvale.com", authorize?: false)
+      assert admin.username == "admin"
+
+      # The personal org follows the handle — provisioning names the org
+      # after the username (the JIT path, which bypasses ReservedSlug by
+      # design), so the owner starts at /organizations/admin.
+      assert personal_org!(admin.id).slug == "admin"
+    end
+
     test "idempotent — a second run keeps one admin row" do
       :ok = Seeds.seed_admin!()
       :ok = Seeds.seed_admin!()
@@ -248,6 +260,19 @@ defmodule FluxVale.Seeds.AdminSeedTest do
       [membership] = memberships(personal_org!(admin.id).id)
       assert membership.role == :owner
       assert membership.user_id == admin.id
+    end
+
+    test "an existing admin-2 row is untouched — the pinned handle is for fresh installs (#870)" do
+      # The pre-#870 wart (the derivation's reserved deflection): the
+      # idempotent get-or-create must leave it alone rather than
+      # converge it — the owner's own rename through settings is the
+      # sanctioned path to "admin".
+      seed_pre119_admin!()
+
+      :ok = Seeds.seed_admin!()
+
+      admin = User.get_by_email!("admin@fluxvale.com", authorize?: false)
+      assert admin.username == "admin-2"
     end
 
     test "idempotent — a second run adds no org and no second ledger entry" do

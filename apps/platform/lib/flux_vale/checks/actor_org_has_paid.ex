@@ -14,12 +14,12 @@ defmodule FluxVale.Checks.ActorOrgHasPaid do
 
   The waiver is the operator's designated-org path (testers, friends,
   demos): a `paywall_waived` boolean on the wallet, flipped from /admin
-  by a platform admin. It satisfies THIS gate only — the funded
-  (balance > 0) checks read nothing but the ledger, and the waiver
-  never moves money (no rows, no balance, nothing spendable). Has-paid
-  for revenue purposes remains the ledger's `:purchase` rows alone:
-  the waiver is never a purchase row, so conversion queries count only
-  real payers.
+  by a platform admin. Since #869 it satisfies BOTH wallet gates —
+  this one and the funded (balance > 0) check, which ORs the same
+  flag — and it still never moves money (no rows, no balance, nothing
+  spendable). Has-paid for revenue purposes remains the ledger's
+  `:purchase` rows alone: the waiver is never a purchase row, so
+  conversion queries count only real payers.
 
   The org in play resolves through `FluxVale.Checks.OrgInPlay` — the
   one resolver the wallet gates share (action shape over attribute

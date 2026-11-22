@@ -124,9 +124,21 @@ defmodule FluxVale.Seeds do
   end
 
   defp create_admin do
-    User
-    |> Ash.Changeset.for_create(:create, %{email: @admin_email, platform_role: :admin})
-    |> Ash.create(authorize?: false)
+    # #870 pins the owner handle to "admin": the derivation reserves the
+    # bare word (this create would otherwise derive "admin-2"), and the
+    # rename validation refuses the owner's claim without the #870 admin
+    # exemption. Force-change is seed-only — username has no public input
+    # surface, and the JIT signup path is untouched. DeriveUsername keeps
+    # an already-set username by contract, so the forced value survives
+    # the create, and the personal org follows with slug "admin" (safe:
+    # org homes are /organizations/:slug, there is no literal admin
+    # route, and JIT provisioning bypasses ReservedSlug by design).
+    changeset =
+      User
+      |> Ash.Changeset.for_create(:create, %{email: @admin_email, platform_role: :admin})
+      |> Ash.Changeset.force_change_attribute(:username, "admin")
+
+    Ash.create(changeset, authorize?: false)
   end
 
   # The collision arm (#287): the create lost unique_address, so the
