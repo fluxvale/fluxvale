@@ -226,7 +226,8 @@ defmodule FluxVale.Billing.Wallet do
     # deliberately NOT mirrored into a column, so a waived org
     # can never be counted as a payer by a conversion/revenue query.
     # Written only by :set_waiver (platform admin — via the admin
-    # wallets surface's confirmed flip or the AshAdmin edit form).
+    # wallets surface's confirmed flip, the AshAdmin edit form, or the
+    # fresh-install seed's bring-up flip under the seeded admin, #879).
     attribute :paywall_waived, :boolean do
       allow_nil?(false)
       default(false)
