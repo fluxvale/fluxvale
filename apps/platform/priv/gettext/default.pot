@@ -25,38 +25,38 @@ msgstr ""
 msgid "Actions"
 msgstr ""
 
-#: lib/flux_vale_web/components/layouts.ex:501
-#: lib/flux_vale_web/components/layouts.ex:516
+#: lib/flux_vale_web/components/layouts.ex:502
+#: lib/flux_vale_web/components/layouts.ex:517
 #, elixir-autogen, elixir-format
 msgid "Attempting to reconnect"
 msgstr ""
 
-#: lib/flux_vale_web/components/layouts.ex:572
+#: lib/flux_vale_web/components/layouts.ex:573
 #, elixir-autogen, elixir-format
 msgid "Dark theme"
 msgstr ""
 
-#: lib/flux_vale_web/components/layouts.ex:545
+#: lib/flux_vale_web/components/layouts.ex:546
 #, elixir-autogen, elixir-format
 msgid "Follow system theme"
 msgstr ""
 
-#: lib/flux_vale_web/components/layouts.ex:560
+#: lib/flux_vale_web/components/layouts.ex:561
 #, elixir-autogen, elixir-format
 msgid "Light theme"
 msgstr ""
 
-#: lib/flux_vale_web/components/layouts.ex:508
+#: lib/flux_vale_web/components/layouts.ex:509
 #, elixir-autogen, elixir-format
 msgid "Something went wrong!"
 msgstr ""
 
-#: lib/flux_vale_web/components/layouts.ex:533
+#: lib/flux_vale_web/components/layouts.ex:534
 #, elixir-autogen, elixir-format
 msgid "Theme"
 msgstr ""
 
-#: lib/flux_vale_web/components/layouts.ex:493
+#: lib/flux_vale_web/components/layouts.ex:494
 #, elixir-autogen, elixir-format
 msgid "We can't find the internet"
 msgstr ""
@@ -71,8 +71,8 @@ msgstr ""
 msgid "App catalog"
 msgstr ""
 
+#: lib/flux_vale_web/components/layouts.ex:201
 #: lib/flux_vale_web/controllers/page_html/home.html.heex:56
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:532
 #, elixir-autogen, elixir-format
 msgid "Apps"
 msgstr ""
@@ -82,8 +82,8 @@ msgstr ""
 msgid "Browse apps"
 msgstr ""
 
+#: lib/flux_vale_web/components/layouts.ex:207
 #: lib/flux_vale_web/controllers/page_html/home.html.heex:353
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:538
 #, elixir-autogen, elixir-format
 msgid "Dashboard"
 msgstr ""
@@ -94,7 +94,7 @@ msgstr ""
 msgid "Developer Tools"
 msgstr ""
 
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:525
+#: lib/flux_vale_web/components/layouts.ex:194
 #, elixir-autogen, elixir-format
 msgid "Footer"
 msgstr ""
@@ -126,8 +126,8 @@ msgstr ""
 msgid "Primary"
 msgstr ""
 
+#: lib/flux_vale_web/components/layouts.ex:204
 #: lib/flux_vale_web/controllers/page_html/home.html.heex:69
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:535
 #: lib/flux_vale_web/live/feedback_live/composer.ex:238
 #, elixir-autogen, elixir-format
 msgid "Sign in"
@@ -143,7 +143,7 @@ msgstr ""
 msgid "Your dashboard"
 msgstr ""
 
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:523
+#: lib/flux_vale_web/components/layouts.ex:192
 #, elixir-autogen, elixir-format
 msgid "© %{year} FluxVale"
 msgstr ""
@@ -153,8 +153,8 @@ msgstr ""
 msgid "…and more in the catalog"
 msgstr ""
 
+#: lib/flux_vale_web/components/layouts.ex:225
 #: lib/flux_vale_web/controllers/page_html/home.html.heex:65
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:556
 #, elixir-autogen, elixir-format
 msgid "Blog"
 msgstr ""
@@ -171,12 +171,12 @@ msgstr ""
 msgid "Git forge with issues, pull requests, and Actions CI"
 msgstr ""
 
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:567
+#: lib/flux_vale_web/components/layouts.ex:236
 #, elixir-autogen, elixir-format
 msgid "Acceptable use"
 msgstr ""
 
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:563
+#: lib/flux_vale_web/components/layouts.ex:232
 #, elixir-autogen, elixir-format
 msgid "Terms"
 msgstr ""
@@ -210,8 +210,8 @@ msgstr ""
 msgid "Other services"
 msgstr ""
 
+#: lib/flux_vale_web/components/layouts.ex:202
 #: lib/flux_vale_web/controllers/page_html/home.html.heex:62
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:533
 #: lib/flux_vale_web/controllers/pricing_html/show.html.heex:9
 #, elixir-autogen, elixir-format
 msgid "Pricing"
@@ -237,7 +237,7 @@ msgstr ""
 msgid "Every app runs on FluxVale's own managed Kubernetes fleet, the same infrastructure we run ourselves on."
 msgstr ""
 
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:571
+#: lib/flux_vale_web/components/layouts.ex:240
 #, elixir-autogen, elixir-format
 msgid "Privacy"
 msgstr ""
@@ -599,7 +599,7 @@ msgstr ""
 msgid "You top up your wallet in USD. Apps bill hourly against your wallet balance, and every rate above is a monthly equivalent. There are no subscriptions."
 msgstr ""
 
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:553
+#: lib/flux_vale_web/components/layouts.ex:222
 #, elixir-autogen, elixir-format
 msgid "Guides"
 msgstr ""
@@ -2106,7 +2106,7 @@ msgid "Resource console"
 msgstr ""
 
 #: lib/flux_vale_web/components/admin_shell.ex:283
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:543
+#: lib/flux_vale_web/components/layouts.ex:212
 #, elixir-autogen, elixir-format
 msgid "Resources"
 msgstr ""
@@ -3923,7 +3923,7 @@ msgstr ""
 msgid "The sidebar groups every live domain here under Resources, collapsed to start. Every domain is live and fully supported."
 msgstr ""
 
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:547
+#: lib/flux_vale_web/components/layouts.ex:216
 #, elixir-autogen, elixir-format
 msgid "Agents"
 msgstr ""
@@ -4145,12 +4145,12 @@ msgstr ""
 msgid "Newest first by default; every column sorts. Reads run through the resource policies with your account as the actor."
 msgstr ""
 
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:560
+#: lib/flux_vale_web/components/layouts.ex:229
 #, elixir-autogen, elixir-format
 msgid "Legal"
 msgstr ""
 
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:530
+#: lib/flux_vale_web/components/layouts.ex:199
 #, elixir-autogen, elixir-format
 msgid "Product"
 msgstr ""

@@ -59,8 +59,10 @@ defmodule FluxValeWeb.FeedbackControllerTest do
       assert html =~ "data-testid=\"feedback-post-#{post.slug}\""
       assert html =~ "Feedback · FluxVale</title>"
 
-      # The public chrome's footer carries the board link.
-      assert html =~ "data-testid=\"footer-feedback\""
+      # The public chrome's header carries the board link (sm+; the
+      # unified footer's approved #810 taxonomy carries no Feedback
+      # link, #881).
+      assert html =~ ~r/href="\/feedback"[^>]*>\s*Feedback\s*<\/a>/
     end
 
     test "the header carries the composer CTA (the write is reachable from the board)", %{
@@ -206,9 +208,9 @@ defmodule FluxValeWeb.FeedbackControllerTest do
       assert html =~ "No posts yet."
       refute html =~ "No posts with this status yet."
       refute html =~ "data-testid=\"feedback-post-"
-      # The chrome stays: the footer's board link and the sort/filter
-      # toolbar render even with nothing to list.
-      assert html =~ "data-testid=\"footer-feedback\""
+      # The chrome stays: the header's board link (sm+, #881) and the
+      # sort/filter toolbar render even with nothing to list.
+      assert html =~ ~r/href="\/feedback"[^>]*>\s*Feedback\s*<\/a>/
     end
 
     test "pagination walks a page past the size boundary", %{conn: conn} do
@@ -665,8 +667,9 @@ defmodule FluxValeWeb.FeedbackControllerTest do
       assert html =~ "Nothing shipped yet."
       refute html =~ "data-testid=\"roadmap-post-"
 
-      # The chrome and the tabs stay.
-      assert html =~ "data-testid=\"footer-feedback\""
+      # The chrome and the tabs stay (the header's board link rides at
+      # sm+, #881).
+      assert html =~ ~r/href="\/feedback"[^>]*>\s*Feedback\s*<\/a>/
       assert html =~ "data-testid=\"roadmap-link\""
     end
 

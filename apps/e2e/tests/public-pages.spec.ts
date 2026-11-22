@@ -221,10 +221,14 @@ test("the sitemap is served and mentions the catalog", async ({ page }) => {
 const runtime = runtimeFor(process.env.BASE_URL);
 const seedsDemoContent = runtime !== "production";
 
-test("the feedback board renders the shell (header, footer link)", async ({ page }) => {
+test("the feedback board renders the shell (header link)", async ({ page }) => {
   await page.goto("/feedback");
   await expect(page.getByRole("heading", { name: "Feedback" })).toBeVisible();
-  await expect(page.getByTestId("footer-feedback")).toBeVisible();
+  // #881: the unified footer's taxonomy carries no Feedback link —
+  // the chrome header carries the board instead (sm and up).
+  await expect(
+    page.locator("nav[aria-label='Primary'] a[href='/feedback']"),
+  ).toBeVisible();
 });
 
 test("the feedback board renders post rows", async ({ page }) => {
@@ -244,9 +248,13 @@ test("clicking a board row opens the public post page", async ({ page }) => {
   await expect(page.getByTestId("feedback-status")).toBeVisible();
 });
 
-test("the footer carries the feedback link on a public page", async ({ page }) => {
+test("the chrome header carries the feedback link on a public page", async ({ page }) => {
   await page.goto("/feedback");
-  await expect(page.getByTestId("footer-feedback")).toBeVisible();
+  // #881: the unified footer's taxonomy carries no Feedback link; the
+  // header link (sm and up) is the board's every-page entry.
+  await expect(
+    page.locator("nav[aria-label='Primary'] a[href='/feedback']"),
+  ).toBeVisible();
 });
 
 test("the sitemap mentions the feedback board", async ({ page }) => {
@@ -257,13 +265,15 @@ test("the sitemap mentions the feedback board", async ({ page }) => {
 // #412 T9: the roadmap — a shell check that runs on every runtime: the
 // page renders honestly empty (three columns, the chrome) wherever no
 // post is planned, started, or completed yet.
-test("the roadmap renders the shell (heading, columns, footer link)", async ({ page }) => {
+test("the roadmap renders the shell (heading, columns, header link)", async ({ page }) => {
   await page.goto("/roadmap");
   await expect(page.getByRole("heading", { name: "Roadmap" })).toBeVisible();
   await expect(page.getByTestId("roadmap-column-planned")).toBeVisible();
   await expect(page.getByTestId("roadmap-column-started")).toBeVisible();
   await expect(page.getByTestId("roadmap-column-completed")).toBeVisible();
-  await expect(page.getByTestId("footer-feedback")).toBeVisible();
+  await expect(
+    page.locator("nav[aria-label='Primary'] a[href='/feedback']"),
+  ).toBeVisible();
 });
 
 test("the board header links to the roadmap", async ({ page }) => {

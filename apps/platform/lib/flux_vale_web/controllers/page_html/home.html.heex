@@ -499,80 +499,8 @@ layout's flex contract while scoping the landing styles. --%>
     </section>
   </main>
 
-  <footer class="border-t border-line">
-    <div class="wrap foot-in">
-      <span class="foot-brand">
-        <a href={~p"/"} aria-label="FluxVale" class="flex items-center gap-2.5">
-          <img
-            src={~p"/images/mark.svg"}
-            width="22"
-            height="22"
-            alt=""
-            aria-hidden="true"
-            class="dark:hidden"
-          />
-          <img
-            src={~p"/images/mark-dark.svg"}
-            width="22"
-            height="22"
-            alt=""
-            aria-hidden="true"
-            class="hidden dark:block"
-          />
-        </a>
-        <span>{gettext("© %{year} FluxVale", year: Date.utc_today().year)}</span>
-      </span>
-      <nav aria-label={gettext("Footer")} class="foot-nav">
-        <%!-- Grouped by what the link is for: the product surfaces, the
-        material that explains them, and the policies. Headings are the
-        only new copy; the links keep their existing targets and labels. --%>
-        <div class="foot-col">
-          <h2 class="foot-heading">{gettext("Product")}</h2>
-          <ul class="foot-links">
-            <li><a href="/catalog">{gettext("Apps")}</a></li>
-            <li><a href="/pricing">{gettext("Pricing")}</a></li>
-            <li :if={is_nil(@current_user)}>
-              <a href={~p"/sign-in"}>{gettext("Sign in")}</a>
-            </li>
-            <li :if={@current_user}>
-              <a href={~p"/"}>{gettext("Dashboard")}</a>
-            </li>
-          </ul>
-        </div>
-        <div class="foot-col">
-          <h2 class="foot-heading">{gettext("Resources")}</h2>
-          <ul class="foot-links">
-            <li>
-              <a href={if is_nil(@current_user), do: "/docs/agents", else: "/settings/agents"}>
-                {gettext("Agents")}
-              </a>
-            </li>
-            <%!-- #511: guides ride the footer beside the agent docs. --%>
-            <li>
-              <a href={~p"/guides/sign-in-with-pocket-id"} data-testid="footer-guides">
-                {gettext("Guides")}
-              </a>
-            </li>
-            <li><a href="/blog">{gettext("Blog")}</a></li>
-          </ul>
-        </div>
-        <div class="foot-col">
-          <h2 class="foot-heading">{gettext("Legal")}</h2>
-          <ul class="foot-links">
-            <li>
-              <a href={~p"/policies/terms"} data-testid="footer-terms">{gettext("Terms")}</a>
-            </li>
-            <li>
-              <a href={~p"/policies/acceptable-use"} data-testid="footer-acceptable-use">
-                {gettext("Acceptable use")}
-              </a>
-            </li>
-            <li>
-              <a href={~p"/policies/privacy"} data-testid="footer-privacy">{gettext("Privacy")}</a>
-            </li>
-          </ul>
-        </div>
-      </nav>
-    </div>
-  </footer>
+  <%!-- #881: the ONE public footer — the same public_footer/1 the
+  public chrome renders, defined once in layouts.ex. The landing's
+  own frame keeps its header; the footer is shared. --%>
+  <Layouts.public_footer current_user={@current_user} return_to={@return_to} />
 </div>

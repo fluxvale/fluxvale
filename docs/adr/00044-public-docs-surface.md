@@ -103,3 +103,13 @@ entry needs its own semantics), per-page OG images, and a possible
 future migration of `/guides/sign-in-with-pocket-id` into
 `docs/public` (cross-linked for now, never mirrored — [ADR-0017](00017-docs-home-adr-scope.md)'s
 rule).
+
+## Amendment 1 — 2026-11-22
+
+#881 made the #810 link-columns footer the single public footer (one
+definition, `Layouts.public_footer/1`, rendered by every
+unauthenticated surface). The approved taxonomy (Product / Resources /
+Legal) carries no Docs link, so §5's "a `Docs` link in the site
+footer" is superseded: `/docs` stays reachable from the landing's
+header and `sitemap.xml`, and re-adding it to the Resources column
+would be a one-line change on the one definition.

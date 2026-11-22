@@ -402,6 +402,86 @@ html {
   background-color: var(--canvas);
 }
 
+/* ------------------------------------------------------------------ */
+/* The one public footer (#881) — the #810 link-columns shape every   */
+/* unauthenticated surface renders (Layouts.public_footer/1; scoped   */
+/* to the component's own .foot hook, not to the landing). The        */
+/* measure is the landing's .wrap (1240px + clamp gutter); the        */
+/* columns stack under the brand at <=900px, headings staying with    */
+/* their links.                                                        */
+/* ------------------------------------------------------------------ */
+.foot .foot-in {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: start;
+  gap: clamp(24px, 4vw, 64px);
+  padding-block: clamp(28px, 3.5vw, 44px);
+  max-width: 1240px;
+  margin-inline: auto;
+  padding-inline: clamp(20px, 4vw, 52px);
+  font-size: 14px;
+  color: var(--ink-subtle);
+}
+
+.foot .foot-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.foot .foot-nav {
+  display: grid;
+  grid-template-columns: repeat(3, auto);
+  justify-content: end;
+  gap: clamp(28px, 5vw, 72px);
+}
+
+.foot .foot-heading {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.18em;
+  line-height: 1.4;
+  text-transform: uppercase;
+  color: var(--ink-muted);
+  margin-bottom: 12px;
+}
+
+.foot .foot-links {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.foot .foot-links a {
+  color: var(--ink-subtle);
+}
+
+.foot .foot-links a:hover {
+  color: var(--ink);
+}
+
+/* #532 a11y bar: the keyboard ring rides the focus token across the
+   footer's links — the brand link included, so the whole band shares
+   one treatment instead of mixing the UA default in. */
+.foot .foot-in a:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+@media (max-width: 900px) {
+  .foot .foot-in {
+    grid-template-columns: 1fr;
+    gap: 28px;
+  }
+
+  .foot .foot-nav {
+    grid-template-columns: 1fr;
+    justify-content: start;
+    gap: 28px;
+  }
+}
+
 body {
   background-color: var(--canvas);
   color: var(--ink);
