@@ -98,11 +98,9 @@ body:has(.landing) {
   max-width: 46ch;
 }
 
-/* ---- Hero: four calm layers.
+/* ---- Hero: three calm layers.
  * z0 the sunken circle wash (parallax drifts slowest)
  * z1 the product panel (offset right+down; drifts less)
- * z1.5 the float chip, below-left of the hero box (the panel edge at
- *   <=900px — see the chip note)
  * z2 the display headline, over the panel's top-left corner.
  * The overlap exists ONLY >=900px; below that everything stacks. ---- */
 .landing .hero {
@@ -158,16 +156,6 @@ body:has(.landing) {
   margin-top: var(--overlap-y);
 }
 
-/* The chip anchors to `.hero-panel`, not `.px-panel` — the parallax
- * drift makes the latter a containing block (a transformed ancestor is
- * one), which would glue the chip onto the panel. On desktop the grid
- * stretches the hero box past the panel, so the chip sits below-left of
- * the panel, matching the approved design renders: the grammar note's
- * corner straddle collides with the headline's ink there — the chip's
- * z-index is trapped in the panel's stacking context under the copy's
- * z2, per this ladder. At <=900px the hero stacks as block, the hero
- * box hugs the panel, and the straddle works (verified in the approved
- * mobile renders). */
 
 .landing .panel {
   background: var(--panel);
@@ -223,8 +211,7 @@ body:has(.landing) {
 
 /* The HTML dashboard preview: a tidy simplification of the signed-in
  * dashboard (title, deploy action, wallet chip, app rows with status
- * pills). Decorative, aria-hidden, theme-aware. The 34px bottom keeps
- * the float chip's straddle on panel canvas, not on the mock. */
+ * pills). Decorative, aria-hidden, theme-aware. */
 .landing .mock {
   padding: 18px 18px 34px;
   background: var(--canvas);
@@ -395,37 +382,6 @@ body:has(.landing) {
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.04em;
-}
-
-/* The one floating element: a float chip offset below-left of its
- * anchor's corner (the hero box on desktop, the panel itself on the
- * stacked <=900px layout — see the chip note at .hero-panel). The
- * offset rides the `translate` property (not `transform`) so the drop
- * animation's transform composes with it instead of clearing it. */
-.landing .float-chip {
-  position: absolute;
-  z-index: 3;
-  left: 0;
-  bottom: 0;
-  translate: -30% 42%;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  background: var(--panel);
-  border: 1px solid var(--line-strong);
-  border-radius: var(--radius-pill);
-  padding: 8px 14px;
-  font-family: var(--font-mono);
-  font-size: 11.5px;
-  color: var(--ink-muted);
-  box-shadow: var(--elevation-md);
-}
-
-.landing .float-chip .dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--warning);
 }
 
 /* ---- How it works: two equal lanes, human first. The human lane
@@ -833,7 +789,7 @@ body:has(.landing) {
  * under its own .foot scope — it is shared chrome (every public
  * surface, #881), not landing-local. ---- */
 
-/* ---- Motion: load reveal (rise + chip drop on the delay ladder),
+/* ---- Motion: load reveal (rise + drop on the delay ladder),
  * scroll-linked reveals + two-speed parallax where the platform
  * supports them (the static page stays fully visible without that
  * support), hover lifts above — those ride `translate` on reveal
@@ -885,7 +841,7 @@ body:has(.landing) {
   animation: landing-drop 400ms var(--motion-ease-out) forwards;
 }
 
-/* The reveal ladder: eyebrow → headline → sub + panel → CTAs → chip. */
+/* The reveal ladder: eyebrow → headline → sub + panel → CTAs. */
 .landing .d1 {
   animation-delay: 80ms;
 }
@@ -989,7 +945,7 @@ body:has(.landing) {
 }
 
 /* ---- Responsive: the hero overlap exists ONLY >=900px; below that the
- * panel stacks under the copy; chip + capsule straddles remain. ---- */
+ * panel stacks under the copy; the capsule straddle remains. ---- */
 @media (max-width: 900px) {
   .landing .hero-grid {
     display: block;
@@ -1001,10 +957,6 @@ body:has(.landing) {
 
   .landing .hero-panel {
     margin-top: 40px;
-  }
-
-  .landing .float-chip {
-    translate: -6% 45%;
   }
 
   .landing .lanes {

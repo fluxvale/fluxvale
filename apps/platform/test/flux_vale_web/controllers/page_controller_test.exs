@@ -34,11 +34,11 @@ defmodule FluxValeWeb.PageControllerTest do
     assert body =~ ~r/>Sign in/
     assert body =~ "How it works"
     assert body =~ "Two ways to a running app"
-    assert body =~ "Do it yourself"
+    assert body =~ "From the dashboard"
     assert body =~ "Pick an app"
     assert body =~ "Deploy"
     assert body =~ "FluxVale runs it"
-    assert body =~ "Or ask your agent"
+    assert body =~ "From your agent"
     assert body =~ "Ask for the app"
     assert body =~ "The agent deploys"
     assert body =~ "Ways in"
@@ -52,6 +52,14 @@ defmodule FluxValeWeb.PageControllerTest do
     assert body =~ "Browse the catalog"
     assert body =~ "Simple pricing"
     assert body =~ "a welcome credit"
+    # The pricing capsule and the hero sub carry the lane's two biggest
+    # claims — pinned in full like the rest of the surface's copy (#882).
+    assert body =~ "Every app runs on infrastructure we manage for you"
+    assert body =~ "Updates, TLS, backups, and monitoring are included."
+
+    assert body =~
+             "Or hand it to your agent from Claude Code, Cursor, VS Code, or any MCP client."
+
     assert body =~ "© #{Date.utc_today().year} FluxVale"
 
     # Phoenix scaffold regression guard — the old page must stay gone.
@@ -233,8 +241,9 @@ defmodule FluxValeWeb.PageControllerTest do
   # The hero panel is an HTML dashboard preview, not a bitmap: FluxVale
   # chrome around a tidy signed-in dashboard with real catalog apps,
   # status pills, the deploy action, and a wallet chip. The mock is
-  # aria-hidden; the float chip and the sr-only line carry the honesty.
-  test "GET / renders the hero dashboard mock with its float chip", %{conn: conn} do
+  # aria-hidden; the sr-only line carries the honesty (#882 removed the
+  # float chip layer, the spoken equivalent stays).
+  test "GET / renders the hero dashboard mock with its sr-only description", %{conn: conn} do
     conn = get(conn, ~p"/")
     html = html_response(conn, 200)
 
@@ -252,9 +261,12 @@ defmodule FluxValeWeb.PageControllerTest do
     assert html =~ "Running"
     assert html =~ "Sleeping"
 
-    assert html =~ "dashboard preview"
-    # The mock's spoken equivalent (the panel itself is aria-hidden).
+    # The mock's spoken equivalent (the panel itself is aria-hidden;
+    # the sr-only span sits outside it so screen readers reach it).
     assert html =~ "A preview of the dashboard with several apps running, not a screenshot."
+    # The float chip layer is gone (#882 owner verdict) — and with it
+    # the only element that carried the chip's classes.
+    refute html =~ "float-chip"
 
     refute html =~ "hero-app-page-light.png"
     refute html =~ "hero-app-page-dark.png"

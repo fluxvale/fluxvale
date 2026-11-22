@@ -15,8 +15,8 @@ names, hostnames, and statuses stay literal because the mock is
 aria-hidden and the sr-only line describes it.
 /catalog hrefs can move to ~p now that the route registers (router.ex)
 — left literal here pending that slice's cleanup.
-The Offset grammar (#277): four-layer offset hero (sunken circle wash, product
-panel, float chip, display headline), two equal lanes with the real
+The Offset grammar (#277): three-layer offset hero (sunken circle wash, product
+panel, display headline), two equal lanes with the real
 catalog preview, full-bleed catalog + pricing bands with a straddling
 honesty capsule, load/scroll reveals + hover lifts in landing.css. The
 whole content wraps in .landing.contents — display:contents keeps this
@@ -86,14 +86,13 @@ layout's flex contract while scoping the landing styles. --%>
   </header>
 
   <main class="flex-1">
-    <%!-- Hero: four calm layers — the sunken circle wash (z0, parallax
-    slowest), the product panel (z1, offset right+down), the float
-    chip (z1.5, below-left of the hero box), the display headline (z2).
-    The panel is the product a visitor lands on: an HTML/CSS dashboard
-    preview built from dashboard_live.ex, with real catalog apps and
-    status pills. It is decorative and aria-hidden; the float chip says
-    it is a preview, not a screenshot. The overlap exists only
-    >=900px (landing.css). --%>
+    <%!-- Hero: three calm layers — the sunken circle wash (z0, parallax
+    slowest), the product panel (z1, offset right+down), the display
+    headline (z2). The panel is the product a visitor lands on: an
+    HTML/CSS dashboard preview built from dashboard_live.ex, with real
+    catalog apps and status pills. It is decorative and aria-hidden;
+    the sr-only line after the panel is its spoken equivalent. The
+    overlap exists only >=900px (landing.css). --%>
     <section class="hero">
       <div class="wrap">
         <div class="hero-grid">
@@ -106,7 +105,7 @@ layout's flex contract while scoping the landing styles. --%>
             </h1>
             <p class="hero-sub rise d2">
               {gettext(
-                "Pick one from the catalog, deploy it, and FluxVale keeps it running. Or hand it to your agent. It can do the same from Claude Code, Cursor, VS Code, or any MCP client."
+                "Pick one from the catalog, deploy it, and FluxVale keeps it running. Or hand it to your agent from Claude Code, Cursor, VS Code, or any MCP client."
               )}
             </p>
             <div class="hero-ctas rise d3">
@@ -133,7 +132,7 @@ layout's flex contract while scoping the landing styles. --%>
             <div class="px-panel">
               <%!-- The panel window: FluxVale's own chrome around an HTML
               dashboard preview. The mock is decorative and theme-aware;
-              the sr-only line under the panel describes it. --%>
+              the sr-only line after the panel describes it. --%>
               <div class="panel" aria-hidden="true">
                 <div class="panel-bar">
                   <span class="dots"><i></i><i></i><i></i></span>
@@ -202,13 +201,10 @@ layout's flex contract while scoping the landing styles. --%>
                   </div>
                 </div>
               </div>
-            </div>
-            <%!-- Outside .px-panel on purpose: its parallax transform
-            would trap the chip on the panel (see landing.css). The
-            sr-only line gives the aria-hidden mock a spoken equivalent:
-            it is a preview, not a screenshot. --%>
-            <div class="float-chip drop d5">
-              <span class="dot"></span>{gettext("dashboard preview")}
+              <%!-- The sr-only line gives the aria-hidden mock a
+              spoken equivalent: it is a preview of that dashboard,
+              not a screenshot. It sits outside .panel (aria-hidden)
+              so screen readers still reach it. --%>
               <span class="sr-only">
                 {gettext(
                   "A preview of the dashboard with several apps running, not a screenshot."
@@ -238,7 +234,7 @@ layout's flex contract while scoping the landing styles. --%>
         </div>
         <div class="lanes">
           <div class="lane lane-human reveal">
-            <p class="lane-label">{gettext("Do it yourself")}</p>
+            <p class="lane-label">{gettext("From the dashboard")}</p>
             <ol class="lane-steps">
               <li class="lane-step">
                 <span class="n">01</span>
@@ -293,7 +289,7 @@ layout's flex contract while scoping the landing styles. --%>
             </div>
           </div>
           <div class="lane lane-agent reveal">
-            <p class="lane-label">{gettext("Or ask your agent")}</p>
+            <p class="lane-label">{gettext("From your agent")}</p>
             <ol class="lane-steps">
               <li class="lane-step">
                 <span class="n">01</span>
@@ -456,10 +452,15 @@ layout's flex contract while scoping the landing styles. --%>
     <section aria-labelledby="pricing-title" class="pricing-band">
       <div class="wrap">
         <div class="capsule-slot drop d5">
+          <%!-- The capsule claims platform-managed updates on purpose:
+          product.md lists updates as handled and the platform rolls
+          tested app versions itself. Catalog pages hold to the
+          no-update-flow word gate (benefits/1's docstring); when an
+          update flow ships, both surfaces can name it. --%>
           <span class="capsule">
             <span class="dot"></span>
             {gettext(
-              "Every app runs on FluxVale's own managed Kubernetes fleet, the same infrastructure we run ourselves on."
+              "Every app runs on infrastructure we manage for you. Updates, TLS, backups, and monitoring are included."
             )}
           </span>
         </div>
