@@ -149,7 +149,7 @@ defmodule FluxVale.MixProject do
       # row per mutation, actor-attributed. Ops first, the plan's A2-S1.
       {:ash_paper_trail, "0.8.1"},
       {:igniter, "0.8.5", only: [:dev, :test]},
-      {:phoenix, "1.8.13"},
+      {:phoenix, "1.8.17"},
       # Design-system workshop (#178) — mounted at /storybook, served at
       # storybook.fluxvale.com (fleet-routed, internal-only). Exact pin,
       # same rule as every Hex dep.
