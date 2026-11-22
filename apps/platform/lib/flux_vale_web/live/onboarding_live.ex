@@ -22,10 +22,18 @@ defmodule FluxValeWeb.OnboardingLive do
   as `/agent` in the same `<.modal>`, computed at open from OrgNav's
   assigns, nothing persisted. The dismissal card stays `/agent`'s — the
   dashboard's button remains the post-onboarding path for skippers.
+
+  #887: mount resolves completion through the signal predicate — a
+  stamped account, or one whose agent-first run already landed (a live
+  machine credential + a first instance), is bounced to `/` without a
+  click. The stamp converges best-effort on the way out; the routing
+  keys on the derived answer, so a refused write can never loop (the
+  gate's never-redirect-when-done rule).
   """
 
   use FluxValeWeb, :live_view
 
+  alias FluxVale.Onboarding
   alias FluxValeWeb.AgentPanel
   alias FluxValeWeb.AgentPrompt
 
@@ -35,15 +43,17 @@ defmodule FluxValeWeb.OnboardingLive do
   def mount(_params, _session, socket) do
     user = socket.assigns.current_user
 
-    if user.onboarded_at do
-      # D4's show-once guarantee: a stamped account hitting /onboarding
-      # directly has already walked (or skipped) the flow.
-      {:ok, push_navigate(socket, to: ~p"/")}
-    else
-      {:ok,
-       socket
-       |> assign(step: :username, agent_modal: nil)
-       |> assign(username_form: build_username_form(user))}
+    case Onboarding.converge(user) do
+      {true, _done} ->
+        # D4's show-once guarantee, plus #887's signal completion: this
+        # account has nothing left to walk.
+        {:ok, push_navigate(socket, to: ~p"/")}
+
+      {false, _flow_ahead} ->
+        {:ok,
+         socket
+         |> assign(step: :username, agent_modal: nil)
+         |> assign(username_form: build_username_form(user))}
     end
   end
 

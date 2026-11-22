@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { destroyInstance, waitForStatus } from "./helpers/instance-ui";
 import { runtimeFor } from "./helpers/runtime";
 import { waitForLiveViewJoin } from "./helpers/live-view";
 import { TestInbox } from "./helpers/test-inbox";
@@ -79,3 +80,83 @@ test("a fresh user's / is the flow: derived handle, skip stamps, shown once", as
     page.getByRole("heading", { name: "Dashboard", level: 1 }),
   ).toBeVisible();
 });
+
+// #887: the agent-first run completes onboarding with no click. The
+// signals — a live machine credential and a first instance — converge
+// the stamp server-side, so the gate renders the dashboard and the
+// flow itself bounces. The credential here is a minted PAT (the
+// agent's OAuth pair lands in the same table, and the predicate reads
+// rows, not kinds); the instance is the lifecycle spec's own Memos
+// stepper, run to Running because clean teardown needs a settled row.
+test(
+  "the agent-first run completes onboarding with no click (#887)",
+  async ({ page, request }) => {
+    // 15 min: the deploy-to-Running wait (12) dominates; sign-in,
+    // mint, stepper and assertions are seconds.
+    test.setTimeout(15 * 60_000);
+
+    const email = `test+onboard-agent-${runId}@fluxvale.com`;
+
+    // Real sign-in mechanics (this spec is the walk): the fresh
+    // account lands the flow — and STAYS there: no skip, no finish.
+    await page.goto("/sign-in");
+    await waitForLiveViewJoin(page);
+    await page.getByTestId("sign-in-email").fill(email);
+    await page.getByTestId("send-code").click();
+    const code = await new TestInbox(request, testInboxToken!).latestCode(email);
+    await page.getByTestId("sign-in-code").fill(code);
+    await page.getByTestId("verify-code").click();
+    await page.getByTestId("onboarding-step-username").waitFor();
+
+    // Signal 1 — machine auth: deep links stay ungated (#831 D1), so
+    // the account mints a PAT mid-flow; scopes stay unchecked (any
+    // live credential row counts).
+    await page.goto("/settings/developer#api-tokens");
+    await waitForLiveViewJoin(page);
+    await page.getByTestId("api-token-name-input").fill("agent-first-run");
+    await page.getByTestId("api-token-create").click();
+    await page.getByTestId("api-token-reveal-done").click();
+
+    // Signal 2 — the first instance: the lifecycle spec's Memos
+    // stepper (zero-config), this spec's own per-run user and name.
+    await page.goto("/apps");
+    await waitForLiveViewJoin(page);
+    await page.getByTestId("app-memos").click();
+    await waitForLiveViewJoin(page);
+    await page.locator("[data-testid^='deploy-']").first().click();
+    await waitForLiveViewJoin(page);
+    await page.getByTestId("version-option").first().check();
+    await page.getByTestId("continue-version").click();
+    await page.getByTestId("continue-env").click();
+    await page.getByTestId("continue-resources").click();
+    await page.getByTestId("instance-name").fill(`e2e-onboard-${runId}`);
+    await page.getByTestId("deploy-submit").click();
+    await page.waitForURL(/\/instances\//);
+    await waitForLiveViewJoin(page);
+    await waitForStatus(page, "Running", 12 * 60_000);
+
+    // The contract: `/` renders the dashboard — never step one again —
+    // with the agent's instance right there.
+    await page.goto("/");
+    await expect(
+      page.getByRole("heading", { name: "Dashboard", level: 1 }),
+    ).toBeVisible();
+    await expect(page.getByTestId("onboarding-step-username")).toHaveCount(0);
+    await expect(page.getByTestId("instance-row")).toHaveCount(1);
+
+    // And the flow itself bounces: mount converges the stamp and
+    // lands the dashboard (the show-once guarantee, signal-earned).
+    await page.goto("/onboarding");
+    await page.waitForURL((url) => url.pathname === "/");
+    await expect(
+      page.getByRole("heading", { name: "Dashboard", level: 1 }),
+    ).toBeVisible();
+
+    // Teardown — this spec's instance is its alone to destroy.
+    await page.goto("/instances");
+    await waitForLiveViewJoin(page);
+    await page.getByTestId("instance-row").click();
+    await waitForLiveViewJoin(page);
+    await destroyInstance(page);
+  },
+);

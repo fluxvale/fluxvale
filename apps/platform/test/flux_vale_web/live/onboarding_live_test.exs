@@ -5,8 +5,10 @@ defmodule FluxValeWeb.OnboardingLiveTest do
   effect, an edit renames through it (conflict copy included), every
   Skip and the final Finish stamp `:finish_onboarding` and land `/`,
   the agent step opens the #817 modal with the org-named prompt (and no
-  dismissal card — that is `/agent`'s), and a stamped account is
-  bounced at mount.
+  dismissal card — that is `/agent`'s), a stamped account is bounced at
+  mount, and (#887) a signal-complete account — live machine credential
+  plus first instance, no stamp — converges the stamp and bounces the
+  same way, never rendering the flow.
   """
 
   use FluxValeWeb.ConnCase, async: true
@@ -15,6 +17,8 @@ defmodule FluxValeWeb.OnboardingLiveTest do
   import FluxVale.TestSupport.AccountsFixtures
 
   alias FluxVale.Identity.User
+  alias FluxVale.TestSupport.ApiPat
+  alias FluxVale.TestSupport.InstanceFixtures
   alias FluxVale.TestSupport.SessionHelpers
 
   setup %{conn: conn} do
@@ -203,6 +207,23 @@ defmodule FluxValeWeb.OnboardingLiveTest do
     SessionHelpers.onboarded!(user)
 
     assert {:error, {:live_redirect, %{to: "/"}}} = live(conn, ~p"/onboarding")
+  end
+
+  # #887: the agent-first-run shape — no stamp, but the signals landed
+  # (a live machine credential + a first instance). Mount converges the
+  # stamp and bounces; the flow never renders, and the next visit to /
+  # agrees through the stamp alone.
+  test "a signal-complete account direct-hitting /onboarding converges and bounces (#887)", %{
+    conn: conn,
+    user: user
+  } do
+    ApiPat.mint!(user, [])
+    version = InstanceFixtures.app_version!()
+    InstanceFixtures.local_cluster!()
+    InstanceFixtures.instance!(version, user)
+
+    assert {:error, {:live_redirect, %{to: "/"}}} = live(conn, ~p"/onboarding")
+    assert %DateTime{} = reload(user).onboarded_at
   end
 
   test "a crafted continue frame on the last step is a no-op", %{conn: conn} do
