@@ -176,6 +176,33 @@ defmodule FluxVale.Seeds.FeedbackSeedTest do
       assert dup.comment_count == comment_rows_for!(dup.id)
     end
 
+    test "demo transitions never notify the author (#885)" do
+      assert :ok = Seeds.seed_admin!()
+      seed_feedback_with_vocabulary!()
+
+      # The fresh-install crasher this pins: the author-status mail rides
+      # the real action's after_transaction hook, and bin/seed runs in
+      # eval context where no mail backend is booted — the delivery used
+      # to exit the whole bring-up seed at the first moved post (one post
+      # converged per re-run; reproduced against a scratch release in
+      # both Postmark shapes). The demo_seed context flag mutes it:
+      # fabricated content has no real author to notify. Every moved
+      # post's author here IS the addressable admin, so a missed mute
+      # lands mail in this process's Test-adapter mailbox.
+      refute_received {:email, _}
+
+      # The positive control: a REAL transition through the same action
+      # still mails — the mute is the demo seed's alone, not the
+      # action's.
+      real = FeedbackFixtures.post!()
+      FeedbackFixtures.move_status!(real, :started)
+
+      assert_receive {:email,
+                      %Swoosh.Email{subject: "Your FluxVale feedback post is now started"}}
+
+      refute_received {:email, _}
+    end
+
     test "demo comments are real rows with resolvable handles" do
       assert :ok == Seeds.seed_admin!()
       seed_feedback_with_vocabulary!()

@@ -13,6 +13,9 @@ defmodule FluxVale.ReleaseTest do
 
   setup :verify_on_exit!
 
+  alias FluxVale.Accounts.Organization
+  alias FluxVale.Billing
+  alias FluxVale.Billing.Wallet
   alias FluxVale.Clients.K8s
   alias FluxVale.Clients.K8s.Error
   alias FluxVale.Clients.K8s.Resources.Namespace
@@ -26,11 +29,25 @@ defmodule FluxVale.ReleaseTest do
     assert :ok = FluxVale.Release.migrate()
   end
 
-  test "seed/0 brings up the admin + catalog" do
+  test "seed/0 brings up the admin pinned + the company org waived + the catalog" do
+    # The #885 acceptance contract in one pass: the release entrypoint
+    # (bin/seed's with_repo wrapper) must deliver the fresh-install
+    # state the wipe runbook checks — the admin's pinned handle (#870)
+    # and the born-waived company org (#879/#869), not merely "an admin
+    # exists". What this test cannot catch: the demo gate
+    # (seed_demo_content) is never enabled under ExUnit, so the
+    # release-context crasher #885 fixed (no mail backend in eval) never
+    # executes here — that path is pinned by the demo-seed mute test in
+    # the feedback seed suite plus the release repro in the #885 PR
+    # body.
     assert :ok = FluxVale.Release.seed()
 
-    assert %{platform_role: :admin} =
+    assert %{platform_role: :admin, username: "admin"} =
              User.get_by_email!("admin@fluxvale.com", authorize?: false)
+
+    assert {:ok, org} = Organization.get_by_slug("fluxvale", authorize?: false)
+
+    assert {:ok, %Wallet{paywall_waived: true}} = Billing.ensure_wallet(org)
   end
 
   # CLUSTER_NAME is VM-global but read only by ensure_cluster/0, so no
