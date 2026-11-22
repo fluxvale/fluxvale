@@ -20,6 +20,16 @@ defmodule FluxValeWeb.FeedbackControllerTest do
     pos
   end
 
+  # #881: the board's every-page entry is the public chrome header's
+  # Feedback link. Nav-scoped through LazyHTML — a plain regex over the
+  # body could be satisfied by any anchor, not the header's.
+  defp header_carries_feedback_link?(html) do
+    html
+    |> LazyHTML.from_document()
+    |> LazyHTML.query("nav[aria-label='Primary'] a[href='/feedback']")
+    |> Enum.to_list() != []
+  end
+
   defp row_count(html) do
     segments = String.split(html, ~s(data-testid="feedback-post-))
     length(segments) - 1
@@ -61,8 +71,8 @@ defmodule FluxValeWeb.FeedbackControllerTest do
 
       # The public chrome's header carries the board link (sm+; the
       # unified footer's approved #810 taxonomy carries no Feedback
-      # link, #881).
-      assert html =~ ~r/href="\/feedback"[^>]*>\s*Feedback\s*<\/a>/
+      # link, #881) — nav-scoped, so a body anchor can't satisfy it.
+      assert header_carries_feedback_link?(html)
     end
 
     test "the header carries the composer CTA (the write is reachable from the board)", %{
@@ -210,7 +220,7 @@ defmodule FluxValeWeb.FeedbackControllerTest do
       refute html =~ "data-testid=\"feedback-post-"
       # The chrome stays: the header's board link (sm+, #881) and the
       # sort/filter toolbar render even with nothing to list.
-      assert html =~ ~r/href="\/feedback"[^>]*>\s*Feedback\s*<\/a>/
+      assert header_carries_feedback_link?(html)
     end
 
     test "pagination walks a page past the size boundary", %{conn: conn} do
@@ -669,7 +679,7 @@ defmodule FluxValeWeb.FeedbackControllerTest do
 
       # The chrome and the tabs stay (the header's board link rides at
       # sm+, #881).
-      assert html =~ ~r/href="\/feedback"[^>]*>\s*Feedback\s*<\/a>/
+      assert header_carries_feedback_link?(html)
       assert html =~ "data-testid=\"roadmap-link\""
     end
 
