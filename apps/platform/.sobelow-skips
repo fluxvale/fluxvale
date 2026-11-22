@@ -45,8 +45,6 @@
 # SQL.Query errored_at_backfill.ex:64 - sql() is a static heredoc with
 # zero interpolation, a one-shot backfill (the personal_owner_backfill
 # precedent its moduledoc cites)
-# Traversal.FileModule blog/lint.ex:62 - paths come from the priv blog
-# wildcard, operator-authored content only
 # Traversal.FileModule clients/k8s.ex:81 - the namespace_file value is
 # built at k8s.ex:49 from Path.join(@sa_dir, "namespace"), a constant
 # Traversal.FileModule contexts/billing/countries.ex:64 - default_path() is a
@@ -90,7 +88,6 @@ Config.CSP: Missing Content-Security-Policy,lib/flux_vale_web/router.ex:14,67F30
 Config.CSWH: Cross-Site Websocket Hijacking,lib/flux_vale_web/endpoint.ex:14,5E9E795
 Config.CSWH: Cross-Site Websocket Hijacking,lib/flux_vale_web/endpoint.ex:42,737217C
 SQL.Query: SQL injection,lib/flux_vale/contexts/accounts/resources/organization/personal_owner_backfill.ex:74,67B03F4
-Traversal.FileModule: Directory Traversal in `File.read!`,lib/flux_vale/blog/lint.ex:62,5B4B634
 Traversal.FileModule: Directory Traversal in `File.read!`,lib/flux_vale/clients/k8s.ex:81,6A07B12
 Traversal.FileModule: Directory Traversal in `File.read!`,lib/flux_vale/contexts/billing/countries.ex:64,66D3D7B
 Traversal.FileModule: Directory Traversal in `File.read!`,lib/flux_vale/seeds/pricing_data.ex:42,516B278
