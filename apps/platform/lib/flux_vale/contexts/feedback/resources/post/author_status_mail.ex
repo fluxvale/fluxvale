@@ -51,8 +51,15 @@ defmodule FluxVale.Feedback.Post.AuthorStatusMail do
   # before/after comparison IS the audit fact (SetStatus stamps it; here
   # we read it). The {:error, _} arm passes refused moves through
   # untouched — nothing to notify about.
+  #
+  # The demo_seed context flag (#885) mutes the notification for
+  # fabricated transitions: the demo board's posts have no real author
+  # expectation, and the release bring-up seed runs in eval context
+  # (`bin/seed`), where no mail backend is booted — an attempted
+  # delivery there crashed the whole fresh-install seed (the seeds
+  # caller carries the full story). Only the demo seed sets the flag.
   defp notify_author(changeset, {:ok, post} = result) do
-    if post.status != changeset.data.status do
+    if post.status != changeset.data.status and changeset.context[:demo_seed] != true do
       deliver(post)
     end
 

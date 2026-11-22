@@ -948,7 +948,23 @@ defmodule FluxVale.Seeds do
             status_args
           end
 
-        Post.set_status!(created, status_args, actor: admin, authorize?: false)
+        # Demo transitions never notify their author (#885): the mail
+        # rides the real action's after_transaction hook, but the
+        # release bring-up seed runs in eval context (`bin/seed` boots
+        # no supervision tree), where no mail backend exists — the
+        # delivery exited the seed at the first fabricated transition
+        # and a fresh install converged the board one post per re-run
+        # (both Postmark shapes, reproduced against a scratch release —
+        # AuthorStatusMail's comment carries the mechanism). The rows
+        # still ride the real action (#471); only the notification side
+        # effect is off.
+        created
+        |> Ash.Changeset.for_update(:set_status, status_args,
+          actor: admin,
+          authorize?: false
+        )
+        |> Ash.Changeset.set_context(%{demo_seed: true})
+        |> Ash.update!()
       end
 
     # Tag pairings (T10) ride the real moderation action under the
