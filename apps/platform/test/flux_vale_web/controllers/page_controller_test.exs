@@ -53,8 +53,9 @@ defmodule FluxValeWeb.PageControllerTest do
     assert body =~ "Simple pricing"
     assert body =~ "a welcome credit"
     # The pricing capsule and the hero sub carry the lane's two biggest
-    # claims — pinned like the rest of the surface's copy (#882).
+    # claims — pinned in full like the rest of the surface's copy (#882).
     assert body =~ "Every app runs on infrastructure we manage for you"
+    assert body =~ "Updates, TLS, backups, and monitoring are included."
 
     assert body =~
              "Or hand it to your agent from Claude Code, Cursor, VS Code, or any MCP client."

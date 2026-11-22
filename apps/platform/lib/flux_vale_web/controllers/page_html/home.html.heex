@@ -456,6 +456,11 @@ layout's flex contract while scoping the landing styles. --%>
     <section aria-labelledby="pricing-title" class="pricing-band">
       <div class="wrap">
         <div class="capsule-slot drop d5">
+          <%!-- The capsule claims platform-managed updates on purpose:
+          product.md lists updates as handled and the platform rolls
+          tested app versions itself. Catalog pages hold to the
+          no-update-flow word gate (benefits/1's docstring); when an
+          update flow ships, both surfaces can name it. --%>
           <span class="capsule">
             <span class="dot"></span>
             {gettext(
