@@ -190,7 +190,7 @@ defmodule FluxValeWeb.CatalogPageContent do
     question(
       gettext("Do I need my own server or Docker?"),
       gettext(
-        "No. You pick the name and resources. FluxVale handles the servers, updates, and uptime."
+        "No. You pick the name and resources. FluxVale handles the servers and keeps it running."
       )
     )
   end

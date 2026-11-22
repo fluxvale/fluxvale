@@ -89,6 +89,11 @@ defmodule FluxValeWeb.Components.CatalogPageContentTest do
       assert Enum.at(items, 0).answer ==
                "Deploy it and open the URL. Forgejo is ready to use out of the box."
 
+      # The server row pins the managed stance without an update-flow
+      # claim (benefits/1's docstring — the plan §7.4 word gate).
+      assert Enum.at(items, 1).answer ==
+               "No. You pick the name and resources. FluxVale handles the servers and keeps it running."
+
       # No rates without a version, so the generic cost answer — no
       # figure, the deploy step owns the number.
       assert Enum.at(items, 2).answer == @generic_cost_answer

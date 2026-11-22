@@ -4207,17 +4207,17 @@ msgstr ""
 msgid "From your agent"
 msgstr ""
 
-#: lib/flux_vale_web/components/catalog_page_content.ex:192
-#, elixir-autogen, elixir-format
-msgid "No. You pick the name and resources. FluxVale handles the servers, updates, and uptime."
-msgstr ""
-
 #: lib/flux_vale_web/controllers/page_html/home.html.heex:108
 #, elixir-autogen, elixir-format, fuzzy
 msgid "Pick one from the catalog, deploy it, and FluxVale keeps it running. Or hand it to your agent from Claude Code, Cursor, VS Code, or any MCP client."
 msgstr ""
 
+#: lib/flux_vale_web/components/catalog_page_content.ex:192
+#, elixir-autogen, elixir-format, fuzzy
+msgid "No. You pick the name and resources. FluxVale handles the servers and keeps it running."
+msgstr ""
+
 #: lib/flux_vale_web/controllers/page_html/home.html.heex:211
 #, elixir-autogen, elixir-format
-msgid "The real dashboard, not a screenshot"
+msgid "The dashboard you get"
 msgstr ""

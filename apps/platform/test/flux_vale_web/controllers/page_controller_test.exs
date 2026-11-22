@@ -52,6 +52,13 @@ defmodule FluxValeWeb.PageControllerTest do
     assert body =~ "Browse the catalog"
     assert body =~ "Simple pricing"
     assert body =~ "a welcome credit"
+    # The pricing capsule and the hero sub carry the lane's two biggest
+    # claims — pinned like the rest of the surface's copy (#882).
+    assert body =~ "Every app runs on infrastructure we manage for you"
+
+    assert body =~
+             "Or hand it to your agent from Claude Code, Cursor, VS Code, or any MCP client."
+
     assert body =~ "© #{Date.utc_today().year} FluxVale"
 
     # Phoenix scaffold regression guard — the old page must stay gone.
@@ -252,7 +259,7 @@ defmodule FluxValeWeb.PageControllerTest do
     assert html =~ "Running"
     assert html =~ "Sleeping"
 
-    assert html =~ "The real dashboard, not a screenshot"
+    assert html =~ "The dashboard you get"
     # The mock's spoken equivalent (the panel itself is aria-hidden).
     assert html =~ "A preview of the dashboard with several apps running, not a screenshot."
 

@@ -92,7 +92,7 @@ layout's flex contract while scoping the landing styles. --%>
     The panel is the product a visitor lands on: an HTML/CSS dashboard
     preview built from dashboard_live.ex, with real catalog apps and
     status pills. It is decorative and aria-hidden; the float chip says
-    it is the real panel, not a screenshot. The overlap exists only
+    this is the dashboard you get. The overlap exists only
     >=900px (landing.css). --%>
     <section class="hero">
       <div class="wrap">
@@ -206,9 +206,9 @@ layout's flex contract while scoping the landing styles. --%>
             <%!-- Outside .px-panel on purpose: its parallax transform
             would trap the chip on the panel (see landing.css). The
             sr-only line gives the aria-hidden mock a spoken equivalent:
-            it is a preview, not a screenshot. --%>
+            it is a preview of that dashboard, not a screenshot. --%>
             <div class="float-chip drop d5">
-              <span class="dot"></span>{gettext("The real dashboard, not a screenshot")}
+              <span class="dot"></span>{gettext("The dashboard you get")}
               <span class="sr-only">
                 {gettext(
                   "A preview of the dashboard with several apps running, not a screenshot."
