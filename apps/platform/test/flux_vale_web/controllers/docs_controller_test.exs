@@ -40,8 +40,12 @@ defmodule FluxValeWeb.DocsControllerTest do
       assert html =~ ~s(data-testid="docs-agent-handoff")
       assert html =~ ~s(href="/docs/agents")
 
-      # The footer carries the docs link on every public page (ADR-0044 §5).
-      assert html =~ ~s(data-testid="footer-docs")
+      # #881: the unified link-columns footer rides the docs surface
+      # like every public page. Docs itself left the footer with the
+      # flat footer's removal (ADR-0044 Am. 1) — reachability is the
+      # landing header + the sitemap.
+      assert html =~ ~s(data-testid="footer-guides")
+      assert html =~ ~s(aria-label="Footer")
     end
   end
 

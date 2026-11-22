@@ -345,4 +345,120 @@ defmodule FluxValeWeb.Components.LayoutsTest do
       end)
     end
   end
+
+  describe "public footer (#881)" do
+    # The one public footer: the #810 link-columns shape, defined once
+    # in public_footer/1, rendered by the public chrome structurally
+    # (never opt-in). The anonymous shape keeps every link's label and
+    # column order; the session variant is pinned below.
+    test "the public chrome renders the link-columns footer, anonymous shape" do
+      html = render_component(&ChromeProbe.public/1, [])
+      doc = LazyHTML.from_fragment(html)
+
+      nav =
+        doc
+        |> LazyHTML.query("footer nav[aria-label='Footer']")
+        |> footer_headings_and_links()
+
+      assert nav.headings == ["Product", "Resources", "Legal"]
+
+      assert nav.links == [
+               "Apps",
+               "Pricing",
+               "Sign in",
+               "Agents",
+               "Guides",
+               "Blog",
+               "Terms",
+               "Acceptable use",
+               "Privacy"
+             ]
+    end
+
+    # The two session-aware cells move together: the Product column
+    # swaps Sign in for the dashboard, the Agents link points at the
+    # signed-in agent settings.
+    test "the footer columns turn inward for a signed-in visitor" do
+      html =
+        render_component(&ChromeProbe.public/1,
+          current_user: %{username: "terence", primary_email: nil}
+        )
+
+      doc = LazyHTML.from_fragment(html)
+
+      nav =
+        doc
+        |> LazyHTML.query("footer nav[aria-label='Footer']")
+        |> footer_headings_and_links()
+
+      assert nav.links == [
+               "Apps",
+               "Pricing",
+               "Dashboard",
+               "Agents",
+               "Guides",
+               "Blog",
+               "Terms",
+               "Acceptable use",
+               "Privacy"
+             ]
+
+      assert nav.hrefs["Agents"] == ["/settings/agents"]
+    end
+
+    # #462 rides the unified footer like every other chrome sign-in
+    # link: a local return target rides the query, anything else is
+    # dropped silently.
+    test "the anonymous Sign in link carries the return path" do
+      html = render_component(&ChromeProbe.public/1, return_to: "/pricing")
+      doc = LazyHTML.from_fragment(html)
+
+      nav =
+        doc
+        |> LazyHTML.query("footer nav[aria-label='Footer']")
+        |> footer_headings_and_links()
+
+      assert nav.hrefs["Sign in"] == ["/sign-in?return_to=%2Fpricing"]
+    end
+
+    # The authenticated chrome is a working surface, not marketing:
+    # no footer renders, so the one public footer stays a public-only
+    # contract.
+    test "the app chrome renders no footer" do
+      for probe <- [&ChromeProbe.with_section/1, &ChromeProbe.signed_in/1] do
+        html = render_component(probe, [])
+
+        refute html =~ ~s(aria-label="Footer")
+        refute html =~ ~s(class="foot )
+      end
+    end
+  end
+
+  # The footer nav's contract in one read: the column headings and
+  # link labels in document order, plus label→href for the
+  # session-aware cells.
+  defp footer_headings_and_links(nav) do
+    headings =
+      nav
+      |> LazyHTML.query("h2")
+      |> Enum.map(fn heading ->
+        heading
+        |> LazyHTML.text()
+        |> String.trim()
+      end)
+
+    links =
+      nav
+      |> LazyHTML.query("a")
+      |> Enum.map(&row_text/1)
+
+    hrefs =
+      nav
+      |> LazyHTML.query("a")
+      |> Map.new(fn link ->
+        {row_text(link), LazyHTML.attribute(link, "href")}
+      end)
+
+    %{headings: headings, links: links, hrefs: hrefs}
+  end
 end

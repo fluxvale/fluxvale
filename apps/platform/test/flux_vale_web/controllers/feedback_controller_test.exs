@@ -20,6 +20,16 @@ defmodule FluxValeWeb.FeedbackControllerTest do
     pos
   end
 
+  # #881: the board's every-page entry is the public chrome header's
+  # Feedback link. Nav-scoped through LazyHTML — a plain regex over the
+  # body could be satisfied by any anchor, not the header's.
+  defp header_carries_feedback_link?(html) do
+    html
+    |> LazyHTML.from_document()
+    |> LazyHTML.query("nav[aria-label='Primary'] a[href='/feedback']")
+    |> Enum.to_list() != []
+  end
+
   defp row_count(html) do
     segments = String.split(html, ~s(data-testid="feedback-post-))
     length(segments) - 1
@@ -59,8 +69,10 @@ defmodule FluxValeWeb.FeedbackControllerTest do
       assert html =~ "data-testid=\"feedback-post-#{post.slug}\""
       assert html =~ "Feedback · FluxVale</title>"
 
-      # The public chrome's footer carries the board link.
-      assert html =~ "data-testid=\"footer-feedback\""
+      # The public chrome's header carries the board link (sm+; the
+      # unified footer's approved #810 taxonomy carries no Feedback
+      # link, #881) — nav-scoped, so a body anchor can't satisfy it.
+      assert header_carries_feedback_link?(html)
     end
 
     test "the header carries the composer CTA (the write is reachable from the board)", %{
@@ -206,9 +218,9 @@ defmodule FluxValeWeb.FeedbackControllerTest do
       assert html =~ "No posts yet."
       refute html =~ "No posts with this status yet."
       refute html =~ "data-testid=\"feedback-post-"
-      # The chrome stays: the footer's board link and the sort/filter
-      # toolbar render even with nothing to list.
-      assert html =~ "data-testid=\"footer-feedback\""
+      # The chrome stays: the header's board link (sm+, #881) and the
+      # sort/filter toolbar render even with nothing to list.
+      assert header_carries_feedback_link?(html)
     end
 
     test "pagination walks a page past the size boundary", %{conn: conn} do
@@ -665,8 +677,9 @@ defmodule FluxValeWeb.FeedbackControllerTest do
       assert html =~ "Nothing shipped yet."
       refute html =~ "data-testid=\"roadmap-post-"
 
-      # The chrome and the tabs stay.
-      assert html =~ "data-testid=\"footer-feedback\""
+      # The chrome and the tabs stay (the header's board link rides at
+      # sm+, #881).
+      assert header_carries_feedback_link?(html)
       assert html =~ "data-testid=\"roadmap-link\""
     end
 

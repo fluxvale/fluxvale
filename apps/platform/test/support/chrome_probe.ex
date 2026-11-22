@@ -60,4 +60,20 @@ defmodule FluxVale.TestSupport.ChromeProbe do
     </FluxValeWeb.Layouts.app>
     """
   end
+
+  # #881: the public chrome probe — the footer lane's contract holder.
+  # Layouts.public renders the one public footer structurally (never
+  # opt-in), so this probe pins it without a DB. current_user is a
+  # plain map or nil, exactly what the chrome reads elsewhere;
+  # return_to rides the #462 sign-in link.
+  attr(:current_user, :map, default: nil)
+  attr(:return_to, :string, default: nil)
+
+  def public(assigns) do
+    ~H"""
+    <FluxValeWeb.Layouts.public flash={%{}} current_user={@current_user} return_to={@return_to}>
+      hello
+    </FluxValeWeb.Layouts.public>
+    """
+  end
 end

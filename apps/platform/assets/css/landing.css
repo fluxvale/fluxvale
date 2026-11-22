@@ -829,64 +829,9 @@ body:has(.landing) {
   translate: 0 -1px;
 }
 
-/* ---- Footer: the brand beside three labeled link columns; the
- * columns stack under the brand at the landing's one breakpoint
- * (<=900px), headings staying with their links. ---- */
-.landing .foot-in {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  align-items: start;
-  gap: clamp(24px, 4vw, 64px);
-  padding-block: clamp(28px, 3.5vw, 44px);
-  font-size: 14px;
-  color: var(--ink-subtle);
-}
-
-.landing .foot-brand {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.landing .foot-nav {
-  display: grid;
-  grid-template-columns: repeat(3, auto);
-  justify-content: end;
-  gap: clamp(28px, 5vw, 72px);
-}
-
-.landing .foot-heading {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  font-weight: 500;
-  letter-spacing: 0.18em;
-  line-height: 1.4;
-  text-transform: uppercase;
-  color: var(--ink-muted);
-  margin-bottom: 12px;
-}
-
-.landing .foot-links {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.landing .foot-links a {
-  color: var(--ink-subtle);
-}
-
-.landing .foot-links a:hover {
-  color: var(--ink);
-}
-
-/* #532 a11y bar: the keyboard ring rides the focus token across the
- * footer's links — the brand link included, so the whole band shares
- * one treatment instead of mixing the UA default in. */
-.landing .foot-in a:focus-visible {
-  outline: 2px solid var(--focus);
-  outline-offset: 2px;
-}
+/* ---- Footer: the #810 link-columns footer now lives in app.css
+ * under its own .foot scope — it is shared chrome (every public
+ * surface, #881), not landing-local. ---- */
 
 /* ---- Motion: load reveal (rise + chip drop on the delay ladder),
  * scroll-linked reveals + two-speed parallax where the platform
@@ -1087,17 +1032,8 @@ body:has(.landing) {
     grid-template-columns: 1fr;
   }
 
-  /* Footer columns stack, each heading staying with its links. */
-  .landing .foot-in {
-    grid-template-columns: 1fr;
-    gap: 28px;
-  }
-
-  .landing .foot-nav {
-    grid-template-columns: 1fr;
-    justify-content: start;
-    gap: 28px;
-  }
+  /* Footer columns stack, each heading staying with its links — the
+   * shared footer's own <=900px block in app.css carries this now. */
 
   .landing .capsule-slot {
     text-align: left;

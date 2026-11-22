@@ -23,7 +23,10 @@ defmodule FluxValeWeb.Layouts do
 
   # Shared chrome pieces (header shell, footer) live here as private
   # components so `app/1` and `public/1` render the same frame — the
-  # design system's single nav bar (#178).
+  # design system's single nav bar (#178). The public footer is the
+  # one exception to private: the landing renders its own frame (no
+  # `public/1`), so `public_footer/1` is public and both callers
+  # render the same definition (#881).
 
   @doc """
   Renders your app layout.
@@ -143,11 +146,104 @@ defmodule FluxValeWeb.Layouts do
       flash={@flash}
       current_user={@current_user}
       apps={false}
-      footer={true}
       return_to={@return_to}
     >
       {render_slot(@inner_block)}
     </.chrome>
+    """
+  end
+
+  @doc """
+  The one public footer (#881): the #810 link-columns shape — brand
+  block beside three labeled columns — defined exactly once and
+  rendered by every unauthenticated surface. The public chrome renders
+  it unconditionally (`public/1`); the landing renders it inside its
+  own frame (`home.html.heex`). Session-aware cells: the Product
+  column swaps Sign in for Dashboard, the Agents link points at the
+  signed-in settings, and Sign in carries the #462 return path. The
+  auth chrome (`auth/1`) is the one deliberate exception — see its doc.
+  """
+  attr(:current_user, :map, default: nil)
+  attr(:return_to, :string, default: nil)
+
+  def public_footer(assigns) do
+    ~H"""
+    <footer class="foot border-t border-line">
+      <div class="foot-in">
+        <span class="foot-brand">
+          <a href={~p"/"} aria-label="FluxVale" class="flex items-center gap-2.5">
+            <img
+              src={~p"/images/mark.svg"}
+              width="22"
+              height="22"
+              alt=""
+              aria-hidden="true"
+              class="dark:hidden"
+            />
+            <img
+              src={~p"/images/mark-dark.svg"}
+              width="22"
+              height="22"
+              alt=""
+              aria-hidden="true"
+              class="hidden dark:block"
+            />
+          </a>
+          <span>{gettext("© %{year} FluxVale", year: Date.utc_today().year)}</span>
+        </span>
+        <nav aria-label={gettext("Footer")} class="foot-nav">
+          <%!-- Grouped by what the link is for: the product surfaces, the
+          material that explains them, and the policies. Headings are the
+          only new copy; the links keep their existing targets and labels. --%>
+          <div class="foot-col">
+            <h2 class="foot-heading">{gettext("Product")}</h2>
+            <ul class="foot-links">
+              <li><a href="/catalog">{gettext("Apps")}</a></li>
+              <li><a href="/pricing">{gettext("Pricing")}</a></li>
+              <li :if={is_nil(@current_user)}>
+                <a href={ReturnPath.sign_in_path(@return_to)}>{gettext("Sign in")}</a>
+              </li>
+              <li :if={@current_user}>
+                <a href={~p"/"}>{gettext("Dashboard")}</a>
+              </li>
+            </ul>
+          </div>
+          <div class="foot-col">
+            <h2 class="foot-heading">{gettext("Resources")}</h2>
+            <ul class="foot-links">
+              <li>
+                <a href={if is_nil(@current_user), do: "/docs/agents", else: "/settings/agents"}>
+                  {gettext("Agents")}
+                </a>
+              </li>
+              <%!-- #511: guides ride the footer beside the agent docs. --%>
+              <li>
+                <a href={~p"/guides/sign-in-with-pocket-id"} data-testid="footer-guides">
+                  {gettext("Guides")}
+                </a>
+              </li>
+              <li><a href="/blog">{gettext("Blog")}</a></li>
+            </ul>
+          </div>
+          <div class="foot-col">
+            <h2 class="foot-heading">{gettext("Legal")}</h2>
+            <ul class="foot-links">
+              <li>
+                <a href={~p"/policies/terms"} data-testid="footer-terms">{gettext("Terms")}</a>
+              </li>
+              <li>
+                <a href={~p"/policies/acceptable-use"} data-testid="footer-acceptable-use">
+                  {gettext("Acceptable use")}
+                </a>
+              </li>
+              <li>
+                <a href={~p"/policies/privacy"} data-testid="footer-privacy">{gettext("Privacy")}</a>
+              </li>
+            </ul>
+          </div>
+        </nav>
+      </div>
+    </footer>
     """
   end
 
@@ -206,7 +302,6 @@ defmodule FluxValeWeb.Layouts do
   attr(:bare, :boolean, default: false, doc: "render main unbounded (see app/1)")
   attr(:wide, :boolean, default: false, doc: "render the header row unbounded (see app/1)")
   attr(:apps, :boolean, default: false, doc: "show the app-surface links (authenticated chrome)")
-  attr(:footer, :boolean, default: false, doc: "render the marketing footer")
 
   # #462: the sign-in return path (see app/1) — nil renders the plain
   # links, byte-identical to before.
@@ -366,106 +461,12 @@ defmodule FluxValeWeb.Layouts do
       {render_slot(@inner_block)}
     </main>
 
-    <%!-- Banding, not a hairline (#277 T3 review): the raised footer
-    band's top edge is a surface change — border-t stacked a 1px line
-    on the color edge, the one hairline left between bands. --%>
-    <footer :if={@footer} class="bg-panel-raised px-4 py-8 sm:px-6 lg:px-8">
-      <div class="mx-auto flex max-w-5xl flex-col items-center justify-between gap-4 sm:flex-row">
-        <p class="text-sm text-ink-subtle">© {Date.utc_today().year} FluxVale</p>
-        <nav aria-label="Footer">
-          <%!-- flex-wrap: the link row grew with #396's Pricing link —
-          on the narrowest phones it wraps instead of scrolling (no
-          horizontal scrolling anywhere). No wrap happens at any width
-          that already fit. --%>
-          <ul class="flex flex-wrap items-center gap-x-4 gap-y-2">
-            <li>
-              <.link navigate={~p"/catalog"} class="text-sm text-ink-muted hover:text-ink">Apps</.link>
-            </li>
-            <li>
-              <.link navigate={~p"/pricing"} class="text-sm text-ink-muted hover:text-ink">
-                Pricing
-              </.link>
-            </li>
-            <%!-- #412 T4: the feedback board joins the footer beside
-            Pricing — every public page carries it. --%>
-            <li>
-              <.link
-                navigate={~p"/feedback"}
-                class="text-sm text-ink-muted hover:text-ink"
-                data-testid="footer-feedback"
-              >
-                Feedback
-              </.link>
-            </li>
-            <%!-- #205: the footer follows the header's session awareness —
-            inward for a session, sign-in for a visitor. #462: the
-            visitor's sign-in carries the return path like the header's. --%>
-            <li :if={is_nil(@current_user)}>
-              <.link
-                navigate={ReturnPath.sign_in_path(@return_to)}
-                class="text-sm text-ink-muted hover:text-ink"
-              >Sign in</.link>
-            </li>
-            <li :if={@current_user}>
-              <.link navigate={~p"/"} class="text-sm text-ink-muted hover:text-ink">Dashboard</.link>
-            </li>
-            <%!-- #365: the legal pages ride every chrome'd surface. --%>
-            <li>
-              <.link
-                navigate={~p"/policies/terms"}
-                class="text-sm text-ink-muted hover:text-ink"
-                data-testid="footer-terms"
-              >
-                Terms
-              </.link>
-            </li>
-            <li>
-              <.link
-                navigate={~p"/policies/acceptable-use"}
-                class="text-sm text-ink-muted hover:text-ink"
-                data-testid="footer-acceptable-use"
-              >
-                Acceptable use
-              </.link>
-            </li>
-            <%!-- #511: the how-to guides live beside the policies — the
-            sign-in-with-Pocket ID guide is the first one, and the
-            footer is the one chrome every public surface renders. --%>
-            <li>
-              <.link
-                navigate={~p"/guides/sign-in-with-pocket-id"}
-                class="text-sm text-ink-muted hover:text-ink"
-                data-testid="footer-guides"
-              >
-                Guides
-              </.link>
-            </li>
-            <%!-- ADR-0044: the public docs ride beside the guides —
-            /docs is the product's own documentation surface. --%>
-            <li>
-              <.link
-                navigate={~p"/docs"}
-                class="text-sm text-ink-muted hover:text-ink"
-                data-testid="footer-docs"
-              >
-                Docs
-              </.link>
-            </li>
-            <%!-- fv332 D5: privacy rides every chrome'd surface beside
-            the other legal pages, and the landing footer mirrors it. --%>
-            <li>
-              <.link
-                navigate={~p"/policies/privacy"}
-                class="text-sm text-ink-muted hover:text-ink"
-                data-testid="footer-privacy"
-              >
-                Privacy
-              </.link>
-            </li>
-          </ul>
-        </nav>
-      </div>
-    </footer>
+    <%!-- #881: the one public footer rides the public chrome —
+    `not @apps` IS the public chrome (chrome/1's only callers are
+    app/1 and public/1), so every Layouts.public surface renders it
+    structurally, never opt-in. The authenticated app chrome renders
+    none: working pages, not marketing. --%>
+    <.public_footer :if={not @apps} current_user={@current_user} return_to={@return_to} />
 
     <.flash_group flash={@flash} />
     """
