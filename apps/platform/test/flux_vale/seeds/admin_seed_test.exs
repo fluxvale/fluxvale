@@ -436,11 +436,14 @@ defmodule FluxVale.Seeds.AdminSeedTest do
 
       admin = User.get_by_email!("admin@fluxvale.com", authorize?: false)
 
+      # #879: the company org also rides seed/0 (admin-owned) — the
+      # heal's count scopes to PERSONAL orgs, its subject.
       assert 1 ==
                Organization
                |> Ash.Query.for_read(:read, %{})
                |> Ash.Query.filter(
-                 memberships.user_id == ^admin.id and memberships.role == :owner
+                 memberships.user_id == ^admin.id and memberships.role == :owner and
+                   personal_owner_id == ^admin.id
                )
                |> Ash.count!(authorize?: false)
 

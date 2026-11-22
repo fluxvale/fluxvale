@@ -15,7 +15,10 @@ defmodule FluxVale.Seeds do
   """
 
   alias FluxVale.Accounts
+  alias FluxVale.Accounts.Membership
   alias FluxVale.Accounts.Organization
+  alias FluxVale.Billing
+  alias FluxVale.Billing.Wallet
   alias FluxVale.Catalog.App
   alias FluxVale.Catalog.AppVersion
   alias FluxVale.Catalog.Category
@@ -40,13 +43,20 @@ defmodule FluxVale.Seeds do
 
   @admin_email "admin@fluxvale.com"
 
+  # The company organization (#879): the brand-slug org the operator
+  # otherwise creates by hand after every wipe.
+  @company_org_slug "fluxvale"
+  @company_org_name "FluxVale"
+
   @doc """
   The promotable bring-up seed — dev `mix setup` and the release's
   `bin/seed` run the same path: platform admin (+ its personal org) +
-  prices + tax rates + catalog + the feedback tag vocabulary. Idempotent:
-  pricing, tax rates, the catalog, and the vocabulary converge, the
-  admin get-or-creates, and the admin-org heal provisions at most once
-  (see `seed_admin_org!/0`). Pricing runs before the catalog — versions
+  the company organization (#879) + prices + tax rates + catalog + the
+  feedback tag vocabulary. Idempotent: pricing, tax rates, the catalog,
+  and the vocabulary converge, the admin get-or-creates, the admin-org
+  heal provisions at most once (see `seed_admin_org!/0`), and the
+  company org get-or-creates by its brand slug (see
+  `seed_company_org!/0`). Pricing runs before the catalog — versions
   reference a size by slug. The `local` Cluster row is deliberately NOT
   here — `seed_local_cluster!/0` stays dev/local-only (local_seeds.exs).
 
@@ -61,6 +71,7 @@ defmodule FluxVale.Seeds do
   def seed do
     seed_admin!()
     seed_admin_org!()
+    seed_company_org!()
     seed_pricing!()
     seed_tax_rates!()
     seed_catalog!()
@@ -195,6 +206,115 @@ defmodule FluxVale.Seeds do
 
         # coveralls-ignore-stop
     end
+  end
+
+  @doc """
+  Seeds the company organization (#879): the brand-slug org the
+  operator otherwise creates by hand after every wipe — slug
+  `fluxvale`, the seeded admin as its `:owner` member, born
+  paywall-waived (#869's steady state, owner ruling Nov 22: the owner
+  org runs the company stack without topping up its own wallet; the
+  waiver is one-shot at create, so a later operator flip is final —
+  the feature-flag stance, never re-converged).
+
+  Idempotent, existence-only (the local-Cluster stance): an org
+  already on the slug that the admin owns is the operator's own —
+  nothing converges and its wallet is never touched. An org some
+  OTHER owner holds raises (the `seed_admin!` squatter posture — org
+  rename carries no reservations, ReservedSlug's accepted asymmetry,
+  so a stranger can legitimately land on the slug); the operator
+  resolves it.
+
+  The org and membership run `authorize?: false` (bootstrap — the
+  seed posture; the admin actor still rides for the paper trail), on
+  the system `:create` action: that action is actor-forbidden by
+  policy, and `ReservedSlug` fences the actor path only — actors keep
+  the full reservation fence (#408/#754). The waiver flip is the one
+  deliberate exception: it runs the REAL `:set_waiver` policy under
+  the seeded admin, because it is #869's one actor-facing write — the
+  seed performs the operator's sanctioned act through the operator's
+  sanctioned action.
+  """
+  @spec seed_company_org! :: :ok
+  def seed_company_org! do
+    admin = User.get_by_email!(@admin_email, authorize?: false)
+
+    case Organization.get_by_slug(@company_org_slug, authorize?: false) do
+      {:ok, org} ->
+        if admin_owned?(org, admin) do
+          :ok
+        else
+          raise "seed company org: slug #{@company_org_slug} is held by another owner (org #{org.id}) — rename or remove that org, then re-run"
+        end
+
+      {:error, _not_found} ->
+        create_company_org!(admin)
+    end
+  end
+
+  # The system seam (the JIT-provisioning posture): :create never runs
+  # ReservedSlug — that fence is the actor path :create_with_owner's —
+  # and its policy forbids every actor, so this mint is system-only by
+  # construction. Wallet + waiver ride the create's transaction (the
+  # ProvisionPersonalOrg shape): a mid-seed failure rolls the org back
+  # too, so a re-run creates fully instead of no-op'ing on a
+  # half-seeded org whose waiver never landed.
+  defp create_company_org!(admin) do
+    changeset =
+      Organization
+      |> Ash.Changeset.for_create(
+        :create,
+        %{name: @company_org_name, slug: @company_org_slug},
+        actor: admin,
+        authorize?: false
+      )
+      # role defaults to :owner on the membership create — the same
+      # in-transaction append both org-creation flows use.
+      |> Ash.Changeset.manage_relationship(:members, [admin],
+        type: :append,
+        authorize?: false
+      )
+      |> Ash.Changeset.after_action(fn _changeset, org ->
+        waive_company_wallet(org, admin)
+      end)
+
+    case Ash.create(changeset, authorize?: false) do
+      {:ok, _org} ->
+        :ok
+
+      # A lost slug race or a DB failure — neither sequentially
+      # simulatable under the sandbox (the seed_admin_org! posture).
+      # coveralls-ignore-start
+      {:error, reason} ->
+        raise "seed company org: #{@company_org_slug} could not be created (#{inspect(reason)}) — re-run"
+
+        # coveralls-ignore-stop
+    end
+  end
+
+  # Born waived (#869): ensure_wallet provisions the row (the waiver
+  # lives on the wallet), then the flip rides the real action under
+  # the seeded admin — policy-checked, and the paper-trail version
+  # names the admin (the admin surface's confirmed flip, verbatim).
+  # A failure here fails the whole create (see after_action).
+  defp waive_company_wallet(org, admin) do
+    with {:ok, wallet} <- Billing.ensure_wallet(org),
+         {:ok, _waived} <- Wallet.set_waiver(wallet, %{paywall_waived: true}, actor: admin) do
+      {:ok, org}
+    end
+  end
+
+  # The squatter probe: an owner membership held by the seeded admin
+  # marks the found org as the operator's own (hand-created through
+  # the #754 admin exemption, or a prior seed run).
+  defp admin_owned?(org, admin) do
+    membership =
+      Membership
+      |> Ash.Query.for_read(:read, %{})
+      |> Ash.Query.filter(organization_id == ^org.id and user_id == ^admin.id and role == :owner)
+      |> Ash.read_one!(authorize?: false)
+
+    !is_nil(membership)
   end
 
   @doc """
