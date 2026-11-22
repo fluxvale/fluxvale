@@ -227,9 +227,12 @@ defmodule FluxVale.Seeds do
 
   The org and membership run `authorize?: false` (bootstrap — the
   seed posture; the admin actor still rides for the paper trail), on
-  the system `:create` action: that action is actor-forbidden by
-  policy, and `ReservedSlug` fences the actor path only — actors keep
-  the full reservation fence (#408/#754). The waiver flip is the one
+  the system `:create` action: that action is forbidden to every
+  non-admin actor by policy (platform admins ride the #644 blanket
+  bypass — the #754 operator channel — but no actor surface calls it;
+  actor-driven creation is `:create_with_owner`, where `ReservedSlug`
+  fences the brand slug) — actors keep the full reservation fence
+  (#408/#754). The waiver flip is the one
   deliberate exception: it runs the REAL `:set_waiver` policy under
   the seeded admin, because it is #869's one actor-facing write — the
   seed performs the operator's sanctioned act through the operator's
@@ -254,8 +257,10 @@ defmodule FluxVale.Seeds do
 
   # The system seam (the JIT-provisioning posture): :create never runs
   # ReservedSlug — that fence is the actor path :create_with_owner's —
-  # and its policy forbids every actor, so this mint is system-only by
-  # construction. Wallet + waiver ride the create's transaction (the
+  # and its policy forbids every non-admin actor (platform admins ride
+  # the #644 blanket — the #754 operator channel — but no actor
+  # surface calls this action), so the mint stays off every actor
+  # surface. Wallet + waiver ride the create's transaction (the
   # ProvisionPersonalOrg shape): a mid-seed failure rolls the org back
   # too, so a re-run creates fully instead of no-op'ing on a
   # half-seeded org whose waiver never landed.

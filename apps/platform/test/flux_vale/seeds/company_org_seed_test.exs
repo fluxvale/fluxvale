@@ -11,7 +11,7 @@ defmodule FluxVale.Seeds.CompanyOrgSeedTest do
   """
 
   # async: false — the seed writes the fixed fluxvale slug and every
-  # test reads it back; the seed rule (#634/#669 class).
+  # test reads it back; the seed rule (#667, #669 class).
   use FluxVale.DataCase, async: false
 
   alias FluxVale.Accounts
@@ -142,6 +142,23 @@ defmodule FluxVale.Seeds.CompanyOrgSeedTest do
 
       {:ok, again} = Billing.ensure_wallet(hand)
       refute again.paywall_waived
+    end
+
+    test "a wallet-less adopted org stays wallet-less — the never-touch stance, pinned" do
+      # The actor path provisions no wallet (lazy, #408): an org
+      # hand-created then seeded before any billing surface touched it
+      # is adopted untouched — no wallet minted, so the paywall is NOT
+      # waived until an operator flips it. Deliberate (the seed never
+      # converges an adopted org's wallet), pinned so the edge is
+      # known, not silent.
+      :ok = Seeds.seed_admin!()
+
+      Accounts.create_organization(seeded_admin!(), %{name: "FluxVale Co", slug: "fluxvale"})
+
+      :ok = Seeds.seed_company_org!()
+
+      assert {:error, _not_found} =
+               Wallet.get_by_organization(company_org!().id, authorize?: false)
     end
 
     test "a stranger's org on the brand slug fails loudly — the squatter posture" do
