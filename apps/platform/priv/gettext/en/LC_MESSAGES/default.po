@@ -232,11 +232,6 @@ msgstr ""
 msgid "Start in minutes"
 msgstr ""
 
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:461
-#, elixir-autogen, elixir-format
-msgid "Every app runs on FluxVale's own managed Kubernetes fleet, the same infrastructure we run ourselves on."
-msgstr ""
-
 #: lib/flux_vale_web/components/layouts.ex:240
 #, elixir-autogen, elixir-format, fuzzy
 msgid "Privacy"
@@ -2926,11 +2921,6 @@ msgstr ""
 msgid "No ads, no profiling, no platform-side copies of your app data."
 msgstr ""
 
-#: lib/flux_vale_web/components/catalog_page_content.ex:192
-#, elixir-autogen, elixir-format
-msgid "No. FluxVale runs it on managed Kubernetes. You pick a name and resources, and the platform handles the rest."
-msgstr ""
-
 #: lib/flux_vale_web/components/catalog_page_content.ex:289
 #, elixir-autogen, elixir-format
 msgid "Nuremberg, in the European Union. There is one region today, and the architecture is built so more can follow."
@@ -4025,11 +4015,6 @@ msgstr ""
 msgid "Deploy"
 msgstr ""
 
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:241
-#, elixir-autogen, elixir-format
-msgid "Do it yourself"
-msgstr ""
-
 #: lib/flux_vale_web/controllers/page_html/home.html.heex:423
 #, elixir-autogen, elixir-format, fuzzy
 msgid "Every app is ready to deploy. Browse the catalog yourself, or let your agent pick."
@@ -4070,11 +4055,6 @@ msgstr ""
 msgid "Open the dashboard"
 msgstr ""
 
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:296
-#, elixir-autogen, elixir-format
-msgid "Or ask your agent"
-msgstr ""
-
 #: lib/flux_vale_web/controllers/page_html/home.html.heex:234
 #, elixir-autogen, elixir-format
 msgid "Pick an app yourself, or hand it to your agent. FluxVale runs it either way."
@@ -4093,11 +4073,6 @@ msgstr ""
 #: lib/flux_vale_web/controllers/page_controller.ex:48
 #, elixir-autogen, elixir-format
 msgid "Pick an open source app from the catalog and deploy it in minutes. Or hand it to your agent from Claude Code, Cursor, VS Code, or any MCP client. FluxVale keeps it running."
-msgstr ""
-
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:108
-#, elixir-autogen, elixir-format
-msgid "Pick one from the catalog, deploy it, and FluxVale keeps it running. Or hand it to your agent. It can do the same from Claude Code, Cursor, VS Code, or any MCP client."
 msgstr ""
 
 #: lib/flux_vale_web/controllers/page_html/home.html.heex:374
@@ -4133,11 +4108,6 @@ msgstr ""
 #: lib/flux_vale_web/controllers/page_html/home.html.heex:213
 #, elixir-autogen, elixir-format
 msgid "A preview of the dashboard with several apps running, not a screenshot."
-msgstr ""
-
-#: lib/flux_vale_web/controllers/page_html/home.html.heex:211
-#, elixir-autogen, elixir-format
-msgid "dashboard preview"
 msgstr ""
 
 #: lib/flux_vale_web/live/admin_live/resources.ex:1753
@@ -4208,4 +4178,34 @@ msgstr ""
 #: lib/flux_vale_web/live/admin_live/wallet_detail.ex:793
 #, elixir-autogen, elixir-format
 msgid "The wallet gates are waived for this org. Private access, backups, and deploys are unlocked at any balance. No money moved."
+msgstr ""
+
+#: lib/flux_vale_web/controllers/page_html/home.html.heex:461
+#, elixir-autogen, elixir-format
+msgid "Every app runs on infrastructure we manage for you. Updates, TLS, backups, and monitoring are included."
+msgstr ""
+
+#: lib/flux_vale_web/controllers/page_html/home.html.heex:241
+#, elixir-autogen, elixir-format, fuzzy
+msgid "From the dashboard"
+msgstr ""
+
+#: lib/flux_vale_web/controllers/page_html/home.html.heex:296
+#, elixir-autogen, elixir-format, fuzzy
+msgid "From your agent"
+msgstr ""
+
+#: lib/flux_vale_web/components/catalog_page_content.ex:192
+#, elixir-autogen, elixir-format
+msgid "No. You pick the name and resources. FluxVale handles the servers, updates, and uptime."
+msgstr ""
+
+#: lib/flux_vale_web/controllers/page_html/home.html.heex:108
+#, elixir-autogen, elixir-format, fuzzy
+msgid "Pick one from the catalog, deploy it, and FluxVale keeps it running. Or hand it to your agent from Claude Code, Cursor, VS Code, or any MCP client."
+msgstr ""
+
+#: lib/flux_vale_web/controllers/page_html/home.html.heex:211
+#, elixir-autogen, elixir-format
+msgid "The real dashboard, not a screenshot"
 msgstr ""

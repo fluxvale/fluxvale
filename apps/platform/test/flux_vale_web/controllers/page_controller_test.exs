@@ -34,11 +34,11 @@ defmodule FluxValeWeb.PageControllerTest do
     assert body =~ ~r/>Sign in/
     assert body =~ "How it works"
     assert body =~ "Two ways to a running app"
-    assert body =~ "Do it yourself"
+    assert body =~ "From the dashboard"
     assert body =~ "Pick an app"
     assert body =~ "Deploy"
     assert body =~ "FluxVale runs it"
-    assert body =~ "Or ask your agent"
+    assert body =~ "From your agent"
     assert body =~ "Ask for the app"
     assert body =~ "The agent deploys"
     assert body =~ "Ways in"
@@ -252,7 +252,7 @@ defmodule FluxValeWeb.PageControllerTest do
     assert html =~ "Running"
     assert html =~ "Sleeping"
 
-    assert html =~ "dashboard preview"
+    assert html =~ "The real dashboard, not a screenshot"
     # The mock's spoken equivalent (the panel itself is aria-hidden).
     assert html =~ "A preview of the dashboard with several apps running, not a screenshot."
 

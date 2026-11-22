@@ -92,7 +92,7 @@ layout's flex contract while scoping the landing styles. --%>
     The panel is the product a visitor lands on: an HTML/CSS dashboard
     preview built from dashboard_live.ex, with real catalog apps and
     status pills. It is decorative and aria-hidden; the float chip says
-    it is a preview, not a screenshot. The overlap exists only
+    it is the real panel, not a screenshot. The overlap exists only
     >=900px (landing.css). --%>
     <section class="hero">
       <div class="wrap">
@@ -106,7 +106,7 @@ layout's flex contract while scoping the landing styles. --%>
             </h1>
             <p class="hero-sub rise d2">
               {gettext(
-                "Pick one from the catalog, deploy it, and FluxVale keeps it running. Or hand it to your agent. It can do the same from Claude Code, Cursor, VS Code, or any MCP client."
+                "Pick one from the catalog, deploy it, and FluxVale keeps it running. Or hand it to your agent from Claude Code, Cursor, VS Code, or any MCP client."
               )}
             </p>
             <div class="hero-ctas rise d3">
@@ -208,7 +208,7 @@ layout's flex contract while scoping the landing styles. --%>
             sr-only line gives the aria-hidden mock a spoken equivalent:
             it is a preview, not a screenshot. --%>
             <div class="float-chip drop d5">
-              <span class="dot"></span>{gettext("dashboard preview")}
+              <span class="dot"></span>{gettext("The real dashboard, not a screenshot")}
               <span class="sr-only">
                 {gettext(
                   "A preview of the dashboard with several apps running, not a screenshot."
@@ -238,7 +238,7 @@ layout's flex contract while scoping the landing styles. --%>
         </div>
         <div class="lanes">
           <div class="lane lane-human reveal">
-            <p class="lane-label">{gettext("Do it yourself")}</p>
+            <p class="lane-label">{gettext("From the dashboard")}</p>
             <ol class="lane-steps">
               <li class="lane-step">
                 <span class="n">01</span>
@@ -293,7 +293,7 @@ layout's flex contract while scoping the landing styles. --%>
             </div>
           </div>
           <div class="lane lane-agent reveal">
-            <p class="lane-label">{gettext("Or ask your agent")}</p>
+            <p class="lane-label">{gettext("From your agent")}</p>
             <ol class="lane-steps">
               <li class="lane-step">
                 <span class="n">01</span>
@@ -459,7 +459,7 @@ layout's flex contract while scoping the landing styles. --%>
           <span class="capsule">
             <span class="dot"></span>
             {gettext(
-              "Every app runs on FluxVale's own managed Kubernetes fleet, the same infrastructure we run ourselves on."
+              "Every app runs on infrastructure we manage for you. Updates, TLS, backups, and monitoring are included."
             )}
           </span>
         </div>
