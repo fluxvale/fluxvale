@@ -11,6 +11,7 @@
 pub mod device;
 pub mod error;
 pub mod jsonapi;
+pub mod oauth;
 pub mod terraform;
 pub mod token;
 pub mod tokens;
@@ -19,6 +20,10 @@ pub mod types;
 pub use device::{DeviceClient, Minted, Poll, poll_loop};
 pub use error::ApiError;
 pub use jsonapi::{Document, Resource};
+pub use oauth::{
+    OAUTH_CLI_CLIENT_ID, OAUTH_DEVICE_GRANT_TYPE, OAuthDeviceClient, OAuthDeviceMinted, OAuthPoll,
+    OAuthTokenPair, PkceVerifier, oauth_poll_loop, pkce_challenge,
+};
 pub use token::Token;
 pub use tokens::{MintRequest, MintedToken, TokenClient};
 

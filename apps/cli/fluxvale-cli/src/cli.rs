@@ -6,9 +6,10 @@
 
 use crate::auth;
 use crate::config::{self, Config};
+use crate::mcp;
 use crate::reads;
 use crate::terraform;
-use crate::token::TokenStore;
+use crate::token::{McpTokenStore, TokenStore};
 use crate::writes::{self, ConfigureBackup, DeployFlags};
 use clap::{Parser, Subcommand, ValueEnum};
 use std::ffi::OsString;
@@ -49,6 +50,11 @@ pub enum Command {
     Auth {
         #[command(subcommand)]
         command: AuthCommand,
+    },
+    /// Sign in, sign out, or check your MCP credentials
+    Mcp {
+        #[command(subcommand)]
+        command: McpCommand,
     },
     /// Show the signed-in user
     Whoami,
@@ -127,6 +133,26 @@ pub enum AuthCommand {
         #[arg(long, value_name = "NAME")]
         name: Option<String>,
     },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum McpCommand {
+    /// Sign in for MCP access with OAuth device flow and PKCE
+    Login {
+        /// Comma-separated scopes (default: the full catalog)
+        #[arg(long, value_name = "SCOPE,SCOPE")]
+        scopes: Option<String>,
+        /// Target MCP resource URL
+        #[arg(long, value_name = "URL")]
+        resource: Option<String>,
+        /// Don't open the approval page in a browser
+        #[arg(long)]
+        no_open: bool,
+    },
+    /// Sign out and remove the stored MCP credentials
+    Logout,
+    /// Show stored MCP credential status
+    Status,
 }
 
 #[derive(Debug, Subcommand)]
@@ -416,6 +442,49 @@ pub fn run(cli: &Cli) -> anyhow::Result<()> {
                 // caller can pipe it straight into a secret store.
                 eprintln!("{}", auth::mint_summary(&minted));
                 print(Ok(minted.token.expose().to_string()))
+            }
+        },
+        Command::Mcp { command } => match command {
+            McpCommand::Login {
+                scopes,
+                resource,
+                no_open,
+            } => {
+                let host = config::host_from_base_url(&config.base_url);
+                let store = McpTokenStore::at(McpTokenStore::default_dir()?);
+                let flags = mcp::McpLoginFlags {
+                    scopes: scopes.clone(),
+                    resource: resource.clone(),
+                    no_open: *no_open,
+                };
+                print(mcp::login(
+                    &config.base_url,
+                    &host,
+                    &flags,
+                    |creds| {
+                        store.save(&host, creds)?;
+                        match store.load(&host)? {
+                            Some((_, location)) => Ok(location),
+                            None => anyhow::bail!("the MCP credentials did not persist"),
+                        }
+                    },
+                    reads::open_url,
+                    std::thread::sleep,
+                    |fragment| eprint!("{fragment}"),
+                    |line| println!("{line}"),
+                    || u64::try_from(reads::now_secs()).unwrap_or(0),
+                ))
+            }
+            McpCommand::Logout => {
+                let store = McpTokenStore::at(McpTokenStore::default_dir()?);
+                let host = config::host_from_base_url(&config.base_url);
+                print(mcp::logout_store(&store, &host))
+            }
+            McpCommand::Status => {
+                let store = McpTokenStore::at(McpTokenStore::default_dir()?);
+                let host = config::host_from_base_url(&config.base_url);
+                let now_unix = u64::try_from(reads::now_secs()).unwrap_or(0);
+                print(mcp::status_store(&store, &host, now_unix))
             }
         },
         Command::Whoami => {
@@ -709,6 +778,53 @@ mod tests {
                 .is_err(),
             "--ttl is required"
         );
+        assert!(matches!(
+            parse(&["mcp", "login"]).command,
+            Command::Mcp {
+                command: McpCommand::Login {
+                    scopes: None,
+                    resource: None,
+                    no_open: false
+                }
+            }
+        ));
+        match parse(&[
+            "mcp",
+            "login",
+            "--scopes",
+            "instances:read,wallet:read",
+            "--resource",
+            "https://mcp.fluxvale.com/mcp",
+            "--no-open",
+        ])
+        .command
+        {
+            Command::Mcp {
+                command:
+                    McpCommand::Login {
+                        scopes,
+                        resource,
+                        no_open,
+                    },
+            } => {
+                assert_eq!(scopes.as_deref(), Some("instances:read,wallet:read"));
+                assert_eq!(resource.as_deref(), Some("https://mcp.fluxvale.com/mcp"));
+                assert!(no_open);
+            }
+            other => panic!("wrong: {other:?}"),
+        }
+        assert!(matches!(
+            parse(&["mcp", "logout"]).command,
+            Command::Mcp {
+                command: McpCommand::Logout
+            }
+        ));
+        assert!(matches!(
+            parse(&["mcp", "status"]).command,
+            Command::Mcp {
+                command: McpCommand::Status
+            }
+        ));
         assert!(matches!(parse(&["whoami"]).command, Command::Whoami));
         assert!(matches!(
             parse(&["apps", "list"]).command,
