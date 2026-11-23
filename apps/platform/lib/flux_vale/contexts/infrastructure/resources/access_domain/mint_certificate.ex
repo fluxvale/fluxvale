@@ -20,12 +20,13 @@ defmodule FluxVale.Infrastructure.AccessDomain.MintCertificate do
   independently-defaulted namespace and wrote into the wrong one on a
   per-env platform).
 
-  **Accepted residue:** when issuance fails, this change best-effort
-  deletes the Certificate it may have just landed (one delete, 404
-  tolerated). If that delete fails too, an orphaned Certificate object
-  can survive on the cluster — the row rolled back, so nothing
-  references it, and a wildcard cert alone grants nothing. S3's
-  API-client lane owns a namespace sweep for these.
+  **Accepted residue:** when issuance fails with an unknown outcome
+  (transport, 5xx), this change best-effort deletes the Certificate it
+  may have just landed (one delete, 404 tolerated). If that delete
+  fails too, an orphaned Certificate object can survive on the cluster
+  — the row rolled back, so nothing references it, and a wildcard cert
+  alone grants nothing. S3's API-client lane owns a namespace sweep
+  for these.
   """
 
   use Ash.Resource.Change
@@ -69,7 +70,7 @@ defmodule FluxVale.Infrastructure.AccessDomain.MintCertificate do
             :ok
 
           {:error, reason} ->
-            cleanup_attempt(kubeconfig, domain, name)
+            rollback_unless_refused(kubeconfig, domain, name, reason)
             {:error, reason}
         end
 
@@ -78,6 +79,18 @@ defmodule FluxVale.Infrastructure.AccessDomain.MintCertificate do
         error
     end
   end
+
+  # A 4xx is the API server refusing the apply before anything
+  # persisted (RBAC, a missing namespace, an invalid object): nothing to
+  # roll back — the delete would only be refused too, and its failure
+  # logged a residual object that never existed (#893). Only an unknown
+  # outcome (transport, 5xx) can have landed.
+  defp rollback_unless_refused(_kubeconfig, _domain, _name, %Error{status_code: status})
+       when is_integer(status) and status in 400..499,
+       do: :ok
+
+  defp rollback_unless_refused(kubeconfig, domain, name, _reason),
+    do: cleanup_attempt(kubeconfig, domain, name)
 
   # Best-effort cleanup of the object this attempt may have half-landed
   # (an SSA timeout can leave it behind): one delete, 404 tolerated. If
