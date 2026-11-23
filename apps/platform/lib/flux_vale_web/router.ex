@@ -205,6 +205,8 @@ defmodule FluxValeWeb.Router do
 
     get("/oauth/authorize", OAuth.AuthorizationController, :authorize)
     post("/oauth/authorize", OAuth.AuthorizationController, :consent)
+    get("/oauth/device", OAuth.DevicePageController, :show)
+    post("/oauth/device", OAuth.DevicePageController, :decide)
   end
 
   # #362 (T3, OQ #9): the RFC 8628 device-flow wire — PLAIN JSON, not

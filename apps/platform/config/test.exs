@@ -125,5 +125,6 @@ config :flux_vale, FluxValeWeb.Plugs.OAuthRateLimit,
     authorize: [window_seconds: 86_400, max_requests: 100],
     token: [window_seconds: 86_400, max_requests: 100],
     revoke: [window_seconds: 86_400, max_requests: 100],
-    device_code: [window_seconds: 86_400, max_requests: 100]
+    device_code: [window_seconds: 86_400, max_requests: 100],
+    device_poll: [window_seconds: 86_400, max_requests: 100]
   }

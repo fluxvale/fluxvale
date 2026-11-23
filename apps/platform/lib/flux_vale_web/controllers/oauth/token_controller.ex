@@ -22,11 +22,16 @@ defmodule FluxValeWeb.OAuth.TokenController do
 
   @spec token(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def token(conn, _params) do
-    case OAuthRateLimit.allow?(conn, :token) do
+    bucket = rate_limit_bucket(conn.body_params)
+
+    case OAuthRateLimit.allow?(conn, bucket) do
       :ok -> grant(conn, conn.body_params)
       {:error, retry_after} -> rate_limited(conn, retry_after)
     end
   end
+
+  defp rate_limit_bucket(%{"grant_type" => @device_grant_type}), do: :device_poll
+  defp rate_limit_bucket(_params), do: :token
 
   defp grant(conn, %{"grant_type" => grant_type} = params)
        when grant_type == "authorization_code" or

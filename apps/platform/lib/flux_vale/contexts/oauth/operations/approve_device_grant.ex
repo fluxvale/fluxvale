@@ -15,21 +15,27 @@ defmodule FluxVale.OAuth.Operations.ApproveDeviceGrant do
   Approves `grant` for `actor`. `opts` carries the actor
   (`actor: user`) — the :approve action binds the row to it (the
   session gate is the hosted page's; the write itself is system-side,
-  the IssueAuthorizationCode posture). A missing actor is refused
-  BEFORE any write: an actor-less approve would bind no user, burn the
-  row at consume, and hand the poll a server_error (#886 hostile
-  finding — the operation is the gate, not the doc comment).
+  the IssueAuthorizationCode posture). Accepts `now:` (defaults to
+  `DateTime.utc_now()`) for deterministic expiry checks. A missing
+  actor or an expired grant is refused BEFORE any write.
 
-  Returns `{:ok, grant}`, `{:error, :actor_required}`, or
-  `{:error, :stale}` when the row moved.
+  Returns `{:ok, grant}`, `{:error, :actor_required}`,
+  `{:error, :expired}`, or `{:error, :stale}` when the row moved.
   """
   @spec call(DeviceGrant.t(), keyword()) ::
-          {:ok, DeviceGrant.t()} | {:error, :actor_required | :stale | term()}
+          {:ok, DeviceGrant.t()} | {:error, :actor_required | :expired | :stale | term()}
   def call(grant, opts \\ []) do
-    if opts[:actor] == nil do
-      {:error, :actor_required}
-    else
-      approve(grant, opts)
+    now = Keyword.get(opts, :now, DateTime.utc_now())
+
+    cond do
+      opts[:actor] == nil ->
+        {:error, :actor_required}
+
+      DateTime.compare(grant.expires_at, now) == :lt ->
+        {:error, :expired}
+
+      true ->
+        approve(grant, opts)
     end
   end
 
@@ -38,9 +44,10 @@ defmodule FluxVale.OAuth.Operations.ApproveDeviceGrant do
   # write itself runs without policies, like every other OAuth
   # decision write.
   defp approve(grant, opts) do
-    opts = Keyword.put_new(opts, :authorize?, false)
+    clean_opts = Keyword.delete(opts, :now)
+    action_opts = Keyword.put_new(clean_opts, :authorize?, false)
 
-    case DeviceGrant.approve(grant, opts) do
+    case DeviceGrant.approve(grant, action_opts) do
       {:ok, approved} ->
         FluxVale.OAuth.record_audit_event(%{
           kind: :device_grant_approved,
