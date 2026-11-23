@@ -15,6 +15,29 @@ const testInboxToken = process.env.E2E_TESTINBOX_TOKEN;
 const runId = process.env.E2E_RUN_ID ?? `run${Date.now()}`;
 const runtime = runtimeFor(process.env.BASE_URL);
 
+// #887 failure-safe instance cleanup: armed once the spec's deploy is
+// Running, cleared by a successful in-body destroy. A failed routing
+// assertion reaches afterEach with it live — the delete rides the
+// machine API with the very PAT the spec minted (the custom-hostname
+// shape), so cleanup never depends on the page's state, and every
+// step swallows itself: a failed test keeps its original error (the
+// docmost finally posture — a green run never reports red at teardown
+// either, its cleanup already asserted in the body).
+let liveInstance: { id: string; token: string } | null = null;
+
+test.afterEach(async ({ request }) => {
+  const target = liveInstance;
+  liveInstance = null;
+
+  if (!target) return;
+
+  await request
+    .delete(`/api/v1/instances/${target.id}`, {
+      headers: { authorization: `Bearer ${target.token}` },
+    })
+    .catch(() => null);
+});
+
 test.skip(
   runtime === "production",
   "sign-in sends a real email and JIT-provisions a user — not a read-only action (ADR-0024)",
@@ -42,7 +65,7 @@ test("a fresh user's / is the flow: derived handle, skip stamps, shown once", as
   page,
   request,
 }) => {
-  const email = `test+onboard-${runId}@fluxvale.com`;
+  const email = `test+onboard-${runId}-r${test.info().retry}@fluxvale.com`;
 
   // The real sign-in mechanics WITHOUT the helper's gate-walk — this
   // spec is the walk.
@@ -95,7 +118,7 @@ test(
     // mint, stepper and assertions are seconds.
     test.setTimeout(15 * 60_000);
 
-    const email = `test+onboard-agent-${runId}@fluxvale.com`;
+    const email = `test+onboard-agent-${runId}-r${test.info().retry}@fluxvale.com`;
 
     // Real sign-in mechanics (this spec is the walk): the fresh
     // account lands the flow — and STAYS there: no skip, no finish.
@@ -109,12 +132,22 @@ test(
     await page.getByTestId("onboarding-step-username").waitFor();
 
     // Signal 1 — machine auth: deep links stay ungated (#831 D1), so
-    // the account mints a PAT mid-flow; scopes stay unchecked (any
-    // live credential row counts).
+    // the account mints a PAT mid-flow. The instances:write box is
+    // checked on purpose: that scope is what the afterEach cleanup
+    // deletes the deployed instance with (any live credential row
+    // satisfies the predicate — scope breadth is cleanup's need, not
+    // the signal's). The raw value is read from the one-time reveal
+    // before Done dismisses it, exactly like an agent copying its
+    // credential.
     await page.goto("/settings/developer#api-tokens");
     await waitForLiveViewJoin(page);
     await page.getByTestId("api-token-name-input").fill("agent-first-run");
+    await page
+      .locator("[data-testid='api-token-scope'][value='instances:write']")
+      .check();
     await page.getByTestId("api-token-create").click();
+    const patToken =
+      (await page.getByTestId("api-token-reveal-value").textContent()) ?? "";
     await page.getByTestId("api-token-reveal-done").click();
 
     // Signal 2 — the first instance: the lifecycle spec's Memos
@@ -129,11 +162,17 @@ test(
     await page.getByTestId("continue-version").click();
     await page.getByTestId("continue-env").click();
     await page.getByTestId("continue-resources").click();
-    await page.getByTestId("instance-name").fill(`e2e-onboard-${runId}`);
+    await page.getByTestId("instance-name").fill(`e2e-onboard-${runId}-r${test.info().retry}`);
     await page.getByTestId("deploy-submit").click();
     await page.waitForURL(/\/instances\//);
     await waitForLiveViewJoin(page);
     await waitForStatus(page, "Running", 12 * 60_000);
+
+    // Arm the failure-safe cleanup now that the row is Running: the
+    // id rides the instance page's URL, the token was read at the
+    // reveal. A successful in-body destroy clears it below.
+    const instanceId = page.url().match(/\/instances\/([0-9a-f-]{36})/)?.[1];
+    if (instanceId) liveInstance = { id: instanceId, token: patToken.trim() };
 
     // The contract: `/` renders the dashboard — never step one again —
     // with the agent's instance right there.
@@ -158,5 +197,6 @@ test(
     await page.getByTestId("instance-row").click();
     await waitForLiveViewJoin(page);
     await destroyInstance(page);
+    liveInstance = null;
   },
 );
