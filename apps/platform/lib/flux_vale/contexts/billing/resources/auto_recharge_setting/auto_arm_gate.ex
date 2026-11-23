@@ -1,6 +1,6 @@
 defmodule FluxVale.Billing.AutoRechargeSetting.AutoArmGate do
   @moduledoc """
-  Arming `mode: :auto` passes two checks, in order (#829, decision C):
+  Arming `mode: :auto` passes three checks, in order (#829, decision C):
 
   1. the platform gate — `FluxVale.Billing.auto_recharge_charge_mode?/0`
      stays false until the Polar Pro upgrade (activation slice S6);

@@ -860,10 +860,11 @@ defmodule FluxValeWeb.BillingLive.TopupTest do
     end
 
     test "an off-ladder prefill fills the field, and Continue refuses it by name", %{conn: conn} do
-      # The prefill is a convenience, never a gate: a reminder link can
-      # still carry a between-rungs amount until the setting follows the
-      # ladder (second slice). The field is filled (the mail's promise)
-      # and the form's gate refuses it in words.
+      # The prefill is a convenience, never a gate: a reminder row that
+      # predates the ladder keeps a between-rungs amount until the owner
+      # edits it, so a reminder link can still carry one. The field is
+      # filled (the mail's promise) and the form's gate refuses it in
+      # words.
       view = to_amount(conn, %{}, ~p"/billing/topup?amount=12")
 
       input = render(element(view, "#topup-amount-form input[name='amount[dollars]']"))

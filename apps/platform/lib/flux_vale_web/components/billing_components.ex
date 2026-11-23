@@ -146,7 +146,7 @@ defmodule FluxValeWeb.BillingComponents do
   member's view. Money rides `Pricing.format_usd_whole_or_exact/1` —
   the L2 mail's exact-cents rule, one formatter for both surfaces.
   A non-round stored value prefills EMPTY (an unedited save would
-  silently floor 549¢ to 500¢), with an inline hint naming the stored
+  silently shrink 2549¢ to 2500¢), with an inline hint naming the stored
   exact value; whole-round values prefill as today. Each dollar field
   carries the top-up ladder's chip row (#888): a press fills that
   field, and a value that equals a rung presses its chip.
@@ -157,7 +157,8 @@ defmodule FluxValeWeb.BillingComponents do
   Shared by the org billing page and the personal one (same band +
   ledger shape, same card); the events it raises
   (`save-auto-recharge` / `validate-auto-recharge` /
-  `add-payment-method` / `confirm-arm-auto` / `cancel-arm-auto`) are
+  `pick-auto-recharge-rung` / `add-payment-method` / `confirm-arm-auto` /
+  `cancel-arm-auto`) are
   the rendering LiveView's — the surfaces wire them identically, each
   owning its private copies (the operation-boundary stance: follow the
   pattern, not the function).
@@ -382,7 +383,7 @@ defmodule FluxValeWeb.BillingComponents do
               field={@form[:threshold_dollars]}
               type="number"
               label="Remind below (USD)"
-              min="1"
+              min={@min_topup_dollars}
               step="1"
               data-testid="auto-recharge-threshold"
             />

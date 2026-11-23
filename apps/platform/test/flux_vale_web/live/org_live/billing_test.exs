@@ -681,6 +681,22 @@ defmodule FluxValeWeb.OrganizationLive.BillingTest do
     test "pressing a rung fills its field, and the save persists it", %{conn: conn, org: org} do
       {:ok, view, _html} = live(conn, ~p"/organizations/#{org.slug}/billing")
 
+      # Each row fills its own field: the threshold chip touches only
+      # the threshold field, the amount chip only the amount field.
+      view
+      |> element("[data-testid='auto-recharge-threshold-rung-10']")
+      |> render_click()
+
+      assert has_element?(view, "input#auto_recharge_threshold_dollars[value='10']")
+
+      assert has_element?(
+               view,
+               "button[data-testid='auto-recharge-threshold-rung-10'][aria-pressed='true']"
+             )
+
+      assert has_element?(view, "input#auto_recharge_amount_dollars[value='25']")
+      assert has_element?(view, "input#auto_recharge_threshold_dollars[min='5']")
+
       view
       |> element("[data-testid='auto-recharge-amount-rung-10']")
       |> render_click()
@@ -697,7 +713,7 @@ defmodule FluxValeWeb.OrganizationLive.BillingTest do
       |> render_submit(%{
         "auto_recharge" => %{
           "mode" => "reminder",
-          "threshold_dollars" => "5",
+          "threshold_dollars" => "10",
           "amount_dollars" => "10"
         }
       })
@@ -705,7 +721,7 @@ defmodule FluxValeWeb.OrganizationLive.BillingTest do
       assert has_element?(view, "#flash-info", "Reminder settings saved.")
 
       assert {:ok, setting} = Billing.get_auto_recharge_setting(org.id, authorize?: false)
-
+      assert setting.threshold_cents == 1_000
       assert setting.amount_cents == 1_000
     end
 

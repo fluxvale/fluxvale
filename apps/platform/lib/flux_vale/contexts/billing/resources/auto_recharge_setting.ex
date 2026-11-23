@@ -18,10 +18,10 @@ defmodule FluxVale.Billing.AutoRechargeSetting do
 
   `threshold_cents` and `amount_cents` follow the top-up ladder (#888,
   `FluxVale.Billing.topup_amount_valid?/1` — the rule the wizard and
-  StartTopup enforce), so a saved preference can never name an amount a
+  StartTopup enforce): a saved write can never store an amount a
   top-up would refuse. `AmountsOnTopupLadder` judges what a write
-  carries; `AutoArmGate` refuses to arm a row whose stored values are
-  off the ladder.
+  carries, so a row that predates the ladder keeps its stored values
+  until the owner edits them; `AutoArmGate` refuses to arm such a row.
 
   Writes are owner-role only (`:set` — recurring spend consent is not
   "money in"; the wizard's any-member stance does not carry, decision

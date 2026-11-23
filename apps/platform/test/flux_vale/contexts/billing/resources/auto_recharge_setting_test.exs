@@ -164,6 +164,13 @@ defmodule FluxVale.Billing.AutoRechargeSettingTest do
         assert {:error, %Ash.Error.Invalid{}} =
                  AutoRechargeSetting.set(setting, %{field => cents}, actor: owner)
       end
+
+      # The string-keyed shape a form or JSON caller sends.
+      assert {:error, %Ash.Error.Invalid{}} =
+               AutoRechargeSetting.set(setting, %{"amount_cents" => 700}, actor: owner)
+
+      assert {:error, %Ash.Error.Invalid{}} =
+               AutoRechargeSetting.set(setting, %{"threshold_cents" => 700}, actor: owner)
     end
 
     test "the ladder's rungs, and amounts above it, are admitted", %{
@@ -181,6 +188,11 @@ defmodule FluxVale.Billing.AutoRechargeSettingTest do
         assert set.threshold_cents == cents
         assert set.amount_cents == cents
       end
+
+      assert {:ok, set} =
+               AutoRechargeSetting.set(setting, %{"amount_cents" => 1_000}, actor: owner)
+
+      assert set.amount_cents == 1_000
     end
 
     test "a mode-only save works on a row that predates the ladder (the validation is write-scoped)" do

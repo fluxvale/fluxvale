@@ -113,7 +113,10 @@ defmodule FluxValeWeb.BillingLive.Index do
   # field the chip belongs to, the same as typing the rung. Only an
   # exact rung is taken (a crafted value is silence); the save path
   # re-validates everything through the domain seam. The nil-form clause
-  # is the member's view on the org page (no form, nothing to fill).
+  # is unreachable HERE (this surface's org is the actor's personal one,
+  # whose only seat is the owner's, so the form always exists); it stays
+  # so the two billing LiveViews remain line-for-line mirrors (the org
+  # page's copy is covered by that surface's member test).
   # coveralls-ignore-start
   def handle_event(
         "pick-auto-recharge-rung",

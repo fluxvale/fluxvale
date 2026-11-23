@@ -117,8 +117,7 @@ defmodule FluxValeWeb.BillingLive.IndexTest do
 
     # Exact cents: the hint must ROUND the reconstructed rate, not
     # truncate it again — ComputeRunway's µ¢/h conversion already
-    # rounds down, and a second round-down displayed $1.00/mo as
-    # "$0.99/mo"
+    # floors, and a second floor displayed $1.00/mo as "$0.99/mo"
     # (CodeRabbit #351).
     assert has_element?(view, "[data-testid='wallet-runway']", "at $1.00/mo current burn")
   end
@@ -398,7 +397,7 @@ defmodule FluxValeWeb.BillingLive.IndexTest do
 
       assert has_element?(view, "input#auto_recharge_threshold_dollars[value='']")
       assert has_element?(view, "[data-testid='auto-recharge-threshold-hint']", "Stored: $25.49")
-      refute has_element?(view, "input#auto_recharge_threshold_dollars[value='5']")
+      refute has_element?(view, "input#auto_recharge_threshold_dollars[value='25']")
     end
 
     test "disabling reminders is a mode-only save — a non-round row needs no dollar input", %{
@@ -469,6 +468,22 @@ defmodule FluxValeWeb.BillingLive.IndexTest do
     } do
       {:ok, view, _html} = live(conn, ~p"/billing")
 
+      # Each row fills its own field: the threshold chip touches only
+      # the threshold field, the amount chip only the amount field.
+      view
+      |> element("[data-testid='auto-recharge-threshold-rung-10']")
+      |> render_click()
+
+      assert has_element?(view, "input#auto_recharge_threshold_dollars[value='10']")
+
+      assert has_element?(
+               view,
+               "button[data-testid='auto-recharge-threshold-rung-10'][aria-pressed='true']"
+             )
+
+      assert has_element?(view, "input#auto_recharge_amount_dollars[value='25']")
+      assert has_element?(view, "input#auto_recharge_threshold_dollars[min='5']")
+
       view
       |> element("[data-testid='auto-recharge-amount-rung-10']")
       |> render_click()
@@ -485,7 +500,7 @@ defmodule FluxValeWeb.BillingLive.IndexTest do
       |> render_submit(%{
         "auto_recharge" => %{
           "mode" => "reminder",
-          "threshold_dollars" => "5",
+          "threshold_dollars" => "10",
           "amount_dollars" => "10"
         }
       })
@@ -495,6 +510,7 @@ defmodule FluxValeWeb.BillingLive.IndexTest do
       assert {:ok, setting} =
                Billing.get_auto_recharge_setting(wallet.organization_id, authorize?: false)
 
+      assert setting.threshold_cents == 1_000
       assert setting.amount_cents == 1_000
     end
 

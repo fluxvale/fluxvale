@@ -2,8 +2,9 @@ defmodule FluxVale.Billing.AutoRechargeSetting.AmountsOnTopupLadder do
   @moduledoc """
   `threshold_cents` and `amount_cents` follow the top-up ladder (#888,
   `FluxVale.Billing.topup_amount_valid?/1`) — the same rule the wizard
-  and StartTopup enforce, so a saved preference can never name an
-  amount a top-up would refuse.
+  and StartTopup enforce, so a saved write can never store an amount a
+  top-up would refuse. A row that predates the ladder keeps its stored
+  values (see below).
 
   The check is scoped to what the write CARRIES: a field is judged only
   when the action's params include it (string or atom key). A mode-only
