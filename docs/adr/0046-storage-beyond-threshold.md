@@ -175,7 +175,7 @@ are recorded — US card, before VAT (the fee table's own basis):
 | $15 | 8.3% | 6.5% |
 | $20 | 7.5% | 5.8% |
 
-On Starter the $5 rung holds about **38.3%** marginal storage gross
+On Starter the $5 rung holds about **38.2%** marginal storage gross
 (Am. 1's 41.4% is Pro). The ladder changes neither figure: it is
 recorded here, not re-ratified. Provider minimums do not bind (Polar
 $0.50, HitPay $0.30 — both cleared tenfold by the floor).
