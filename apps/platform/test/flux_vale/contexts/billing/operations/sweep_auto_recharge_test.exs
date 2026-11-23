@@ -196,15 +196,15 @@ defmodule FluxVale.Billing.Operations.SweepAutoRechargeTest do
     owner: owner,
     setting: setting
   } do
-    # 549¢ is a legal write (min 100¢); the mail must not floor it to
-    # "$5" — the sweep passes cents, the mailer formats honestly.
-    {:ok, _set} = AutoRechargeSetting.set(setting, %{threshold_cents: 549}, actor: owner)
+    # 2549¢ is a legal write (above the ladder's top rung, #888); the mail must not floor it to
+    # "$25" — the sweep passes cents, the mailer formats honestly.
+    {:ok, _set} = AutoRechargeSetting.set(setting, %{threshold_cents: 2549}, actor: owner)
 
     assert {:ok, %{reminded: 1}} = Billing.sweep_auto_recharge()
 
     assert_received {:email, %Swoosh.Email{text_body: body}}
-    assert body =~ "$5.49"
-    refute body =~ "your $5 reminder"
+    assert body =~ "$25.49"
+    refute body =~ "your $25 reminder"
   end
 
   test "an org in :off mode never sweeps", %{org: org, owner: owner, setting: setting} do

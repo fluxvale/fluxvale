@@ -117,7 +117,8 @@ defmodule FluxValeWeb.BillingLive.IndexTest do
 
     # Exact cents: the hint must ROUND the reconstructed rate, not
     # truncate it again — ComputeRunway's µ¢/h conversion already
-    # floors, and a second floor displayed $1.00/mo as "$0.99/mo"
+    # rounds down, and a second round-down displayed $1.00/mo as
+    # "$0.99/mo"
     # (CodeRabbit #351).
     assert has_element?(view, "[data-testid='wallet-runway']", "at $1.00/mo current burn")
   end
@@ -257,14 +258,14 @@ defmodule FluxValeWeb.BillingLive.IndexTest do
       |> render_submit(%{
         "auto_recharge" => %{
           "mode" => "reminder",
-          "threshold_dollars" => "2",
+          "threshold_dollars" => "10",
           "amount_dollars" => "10"
         }
       })
 
       assert has_element?(view, "#flash-info", "Reminder settings saved.")
       assert has_element?(view, "[data-testid='auto-recharge-state']", "Reminders on")
-      assert has_element?(view, "[data-testid='auto-recharge-state']", "below $2")
+      assert has_element?(view, "[data-testid='auto-recharge-state']", "below $10")
       assert has_element?(view, "[data-testid='auto-recharge-amount']", "$10")
 
       # Persisted, not just displayed — re-read through the domain seam.
@@ -272,7 +273,7 @@ defmodule FluxValeWeb.BillingLive.IndexTest do
                Billing.get_auto_recharge_setting(wallet.organization_id, authorize?: false)
 
       assert setting.mode == :reminder
-      assert setting.threshold_cents == 200
+      assert setting.threshold_cents == 1_000
       assert setting.amount_cents == 1_000
     end
 
@@ -284,12 +285,12 @@ defmodule FluxValeWeb.BillingLive.IndexTest do
       |> render_change(%{
         "auto_recharge" => %{
           "mode" => "reminder",
-          "threshold_dollars" => "7",
+          "threshold_dollars" => "15",
           "amount_dollars" => "30"
         }
       })
 
-      assert has_element?(view, "input#auto_recharge_threshold_dollars[value='7']")
+      assert has_element?(view, "input#auto_recharge_threshold_dollars[value='15']")
       assert has_element?(view, "input#auto_recharge_amount_dollars[value='30']")
     end
 
@@ -317,7 +318,7 @@ defmodule FluxValeWeb.BillingLive.IndexTest do
       assert setting.mode == :off
     end
 
-    test "a threshold below $1 is rejected and nothing persists", %{conn: conn, wallet: wallet} do
+    test "an off-ladder threshold is rejected and nothing persists", %{conn: conn, wallet: wallet} do
       {:ok, view, _html} = live(conn, ~p"/billing")
 
       view
@@ -325,12 +326,16 @@ defmodule FluxValeWeb.BillingLive.IndexTest do
       |> render_submit(%{
         "auto_recharge" => %{
           "mode" => "reminder",
-          "threshold_dollars" => "0",
+          "threshold_dollars" => "12",
           "amount_dollars" => "10"
         }
       })
 
-      assert has_element?(view, "#flash-error", "at least $1.")
+      assert has_element?(
+               view,
+               "#flash-error",
+               "The reminder threshold must be $5, $10, $15 or $20, or a whole-dollar amount above $20."
+             )
 
       assert {:ok, setting} =
                Billing.get_auto_recharge_setting(wallet.organization_id, authorize?: false)
@@ -341,12 +346,16 @@ defmodule FluxValeWeb.BillingLive.IndexTest do
     test "a crafted submit missing the fields is rejected", %{conn: conn} do
       # A raw event push, not a form submit — the DOM inputs always
       # merge their values into a submit, so the missing-fields shape
-      # is a crafted event's shape (the whole_dollars nil arm).
+      # is a crafted event's shape (the ladder_dollars nil arm).
       {:ok, view, _html} = live(conn, ~p"/billing")
 
       render_click(view, "save-auto-recharge", %{"auto_recharge" => %{"mode" => "reminder"}})
 
-      assert has_element?(view, "#flash-error", "at least $1.")
+      assert has_element?(
+               view,
+               "#flash-error",
+               "The reminder threshold must be $5, $10, $15 or $20, or a whole-dollar amount above $20."
+             )
     end
 
     test "a crafted non-map payload is a no-op, never a crash", %{conn: conn} do
@@ -373,22 +382,22 @@ defmodule FluxValeWeb.BillingLive.IndexTest do
       user: user,
       wallet: wallet
     } do
-      # 549¢ is a legal row the whole-dollar unit cannot type: the
-      # input must stay EMPTY (never a floored "5" that would silently
-      # floor on an unedited save), with the hint naming the stored
-      # exact value. The mount itself ensures the row.
+      # 2549¢ is a legal row the whole-dollar unit cannot type: the
+      # input must stay EMPTY (never a truncated "25" that would
+      # silently shrink on an unedited save), with the hint naming the
+      # stored exact value. The mount itself ensures the row.
       {:ok, _pre_view, _html} = live(conn, ~p"/billing")
 
       {:ok, setting} =
         Billing.get_auto_recharge_setting(wallet.organization_id, authorize?: false)
 
       assert {:ok, _set} =
-               Billing.set_auto_recharge_setting(setting, %{threshold_cents: 549}, actor: user)
+               Billing.set_auto_recharge_setting(setting, %{threshold_cents: 2549}, actor: user)
 
       {:ok, view, _html} = live(conn, ~p"/billing")
 
       assert has_element?(view, "input#auto_recharge_threshold_dollars[value='']")
-      assert has_element?(view, "[data-testid='auto-recharge-threshold-hint']", "Stored: $5.49")
+      assert has_element?(view, "[data-testid='auto-recharge-threshold-hint']", "Stored: $25.49")
       refute has_element?(view, "input#auto_recharge_threshold_dollars[value='5']")
     end
 
@@ -397,7 +406,7 @@ defmodule FluxValeWeb.BillingLive.IndexTest do
       user: user,
       wallet: wallet
     } do
-      # 549¢ prefills EMPTY (never-floor), so an off save that demanded
+      # 2549¢ prefills EMPTY (never a shrunk figure), so an off save that demanded
       # whole-dollar figures would force the owner to re-enter stored
       # values just to switch reminders off. Mode-only: stored cents
       # survive untouched.
@@ -409,7 +418,7 @@ defmodule FluxValeWeb.BillingLive.IndexTest do
       assert {:ok, _set} =
                Billing.set_auto_recharge_setting(
                  setting,
-                 %{mode: :reminder, threshold_cents: 549, amount_cents: 549},
+                 %{mode: :reminder, threshold_cents: 2549, amount_cents: 2549},
                  actor: user
                )
 
@@ -426,8 +435,128 @@ defmodule FluxValeWeb.BillingLive.IndexTest do
                Billing.get_auto_recharge_setting(wallet.organization_id, authorize?: false)
 
       assert persisted.mode == :off
-      assert persisted.threshold_cents == 549
-      assert persisted.amount_cents == 549
+      assert persisted.threshold_cents == 2549
+      assert persisted.amount_cents == 2549
+    end
+
+    test "the card's ladder rows render, the default threshold pressing its rung", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/billing")
+
+      assert has_element?(view, "[data-testid='auto-recharge-ladder-hint']")
+      assert has_element?(view, "[data-testid='auto-recharge-threshold-ladder']")
+      assert has_element?(view, "[data-testid='auto-recharge-amount-ladder']")
+
+      for row <- ~w(threshold amount), rung <- [5, 10, 15, 20] do
+        assert has_element?(view, "button[data-testid='auto-recharge-#{row}-rung-#{rung}']")
+      end
+
+      # The launch defaults: threshold $5 presses its rung, amount $25 is
+      # a custom amount above the ladder and presses nothing.
+      assert has_element?(
+               view,
+               "button[data-testid='auto-recharge-threshold-rung-5'][aria-pressed='true']"
+             )
+
+      refute has_element?(
+               view,
+               "button[data-testid='auto-recharge-amount-rung-20'][aria-pressed='true']"
+             )
+    end
+
+    test "pressing a rung fills its field, and the save persists it", %{
+      conn: conn,
+      wallet: wallet
+    } do
+      {:ok, view, _html} = live(conn, ~p"/billing")
+
+      view
+      |> element("[data-testid='auto-recharge-amount-rung-10']")
+      |> render_click()
+
+      assert has_element?(view, "input#auto_recharge_amount_dollars[value='10']")
+
+      assert has_element?(
+               view,
+               "button[data-testid='auto-recharge-amount-rung-10'][aria-pressed='true']"
+             )
+
+      view
+      |> element("#auto-recharge-form")
+      |> render_submit(%{
+        "auto_recharge" => %{
+          "mode" => "reminder",
+          "threshold_dollars" => "5",
+          "amount_dollars" => "10"
+        }
+      })
+
+      assert has_element?(view, "#flash-info", "Reminder settings saved.")
+
+      assert {:ok, setting} =
+               Billing.get_auto_recharge_setting(wallet.organization_id, authorize?: false)
+
+      assert setting.amount_cents == 1_000
+    end
+
+    test "a crafted rung press is a no-op", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/billing")
+
+      for params <- [
+            %{"field" => "amount_dollars", "dollars" => "12"},
+            %{"field" => "bogus", "dollars" => "10"},
+            %{"field" => "amount_dollars", "dollars" => 10},
+            %{}
+          ] do
+        render_click(view, "pick-auto-recharge-rung", params)
+      end
+
+      # The launch default still stands.
+      assert has_element?(view, "input#auto_recharge_amount_dollars[value='25']")
+    end
+
+    test "a non-parsable dollar figure is refused (the ladder's parse arm)", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/billing")
+
+      view
+      |> element("#auto-recharge-form")
+      |> render_submit(%{
+        "auto_recharge" => %{
+          "mode" => "reminder",
+          "threshold_dollars" => "1.5",
+          "amount_dollars" => "10"
+        }
+      })
+
+      assert has_element?(
+               view,
+               "#flash-error",
+               "The reminder threshold must be $5, $10, $15 or $20, or a whole-dollar amount above $20."
+             )
+    end
+
+    test "an off-ladder amount is refused and names the ladder", %{conn: conn, wallet: wallet} do
+      {:ok, view, _html} = live(conn, ~p"/billing")
+
+      view
+      |> element("#auto-recharge-form")
+      |> render_submit(%{
+        "auto_recharge" => %{
+          "mode" => "reminder",
+          "threshold_dollars" => "10",
+          "amount_dollars" => "12"
+        }
+      })
+
+      assert has_element?(
+               view,
+               "#flash-error",
+               "The top-up amount must be $5, $10, $15 or $20, or a whole-dollar amount above $20."
+             )
+
+      assert {:ok, setting} =
+               Billing.get_auto_recharge_setting(wallet.organization_id, authorize?: false)
+
+      assert setting.mode == :off
     end
   end
 
@@ -449,7 +578,7 @@ defmodule FluxValeWeb.BillingLive.IndexTest do
       {:ok, view, _html} = live(conn, ~p"/billing")
 
       for testid <-
-            ~w(auto-recharge-card auto-recharge-state auto-recharge-form auto-recharge-mode auto-recharge-threshold auto-recharge-amount-input auto-recharge-save) do
+            ~w(auto-recharge-card auto-recharge-state auto-recharge-form auto-recharge-mode auto-recharge-threshold auto-recharge-amount-input auto-recharge-save auto-recharge-ladder-hint auto-recharge-threshold-ladder auto-recharge-amount-ladder) do
         assert has_element?(view, "[data-testid='#{testid}']")
       end
 
@@ -654,7 +783,7 @@ defmodule FluxValeWeb.BillingLive.IndexTest do
         }
       })
 
-      assert has_element?(view, "#flash-error", "The threshold must be")
+      assert has_element?(view, "#flash-error", "The reminder threshold must be")
       refute has_element?(view, "[data-testid='auto-recharge-arm-confirm']")
     end
 

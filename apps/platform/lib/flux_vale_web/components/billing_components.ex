@@ -147,7 +147,9 @@ defmodule FluxValeWeb.BillingComponents do
   the L2 mail's exact-cents rule, one formatter for both surfaces.
   A non-round stored value prefills EMPTY (an unedited save would
   silently floor 549¢ to 500¢), with an inline hint naming the stored
-  exact value; whole-round values prefill as today.
+  exact value; whole-round values prefill as today. Each dollar field
+  carries the top-up ladder's chip row (#888): a press fills that
+  field, and a value that equals a rung presses its chip.
 
   The `:auto` option mirrors the AutoArmGate (method attached, gate
   on) — the domain validation is the real gate; the select is UX.
@@ -196,6 +198,11 @@ defmodule FluxValeWeb.BillingComponents do
     assigns =
       assigns
       |> assign(:min_topup_dollars, FluxVale.Billing.min_topup_dollars())
+      |> assign(ladder_dollars: Billing.topup_ladder_dollars())
+      |> assign(
+        selected_threshold: selected_dollars(input_value(assigns.form, :threshold_dollars)),
+        selected_amount: selected_dollars(input_value(assigns.form, :amount_dollars))
+      )
       |> assign(
         threshold_exact?: rem(setting.threshold_cents, 100) != 0,
         amount_exact?: rem(setting.amount_cents, 100) != 0,
@@ -361,6 +368,9 @@ defmodule FluxValeWeb.BillingComponents do
           }
           data-testid="auto-recharge-mode"
         />
+        <p class="text-xs text-ink-subtle" data-testid="auto-recharge-ladder-hint">
+          {topup_ladder_hint()}
+        </p>
         <div class="grid gap-4 min-[560px]:grid-cols-2">
           <div>
             <%!-- No `required` on the dollar inputs: a mode-off save is
@@ -376,6 +386,16 @@ defmodule FluxValeWeb.BillingComponents do
               step="1"
               data-testid="auto-recharge-threshold"
             />
+            <div class="mt-1">
+              <.topup_ladder
+                id="auto-recharge-threshold"
+                rungs={@ladder_dollars}
+                selected={@selected_threshold}
+                event="pick-auto-recharge-rung"
+                field="threshold_dollars"
+                label="Quick amounts"
+              />
+            </div>
             <p
               :if={@threshold_exact? and @form[:threshold_dollars].value in [nil, ""]}
               class="mt-1 text-xs text-ink-subtle"
@@ -394,6 +414,16 @@ defmodule FluxValeWeb.BillingComponents do
               step="1"
               data-testid="auto-recharge-amount-input"
             />
+            <div class="mt-1">
+              <.topup_ladder
+                id="auto-recharge-amount"
+                rungs={@ladder_dollars}
+                selected={@selected_amount}
+                event="pick-auto-recharge-rung"
+                field="amount_dollars"
+                label="Quick amounts"
+              />
+            </div>
             <p
               :if={@amount_exact? and @form[:amount_dollars].value in [nil, ""]}
               class="mt-1 text-xs text-ink-subtle"
@@ -530,6 +560,26 @@ defmodule FluxValeWeb.BillingComponents do
 
   defp method_copy(_nothing_linked),
     do: "None saved yet. Add a card to enable auto charging."
+
+  # A field's current value in the form, or nil when the viewer has no
+  # form (a member on the org page).
+  defp input_value(nil, _field), do: nil
+
+  defp input_value(form, field), do: form[field].value
+
+  # The chip a field's current value presses: whole dollars that are a
+  # rung, else nothing (a custom amount, or an empty field).
+  defp selected_dollars(value) when is_binary(value) do
+    case Integer.parse(value) do
+      {dollars, ""} ->
+        if dollars in Billing.topup_ladder_dollars(), do: dollars, else: nil
+
+      _not_a_rung ->
+        nil
+    end
+  end
+
+  defp selected_dollars(_missing), do: nil
 
   # Why an armed lane stopped (S4's disable arm) — nil reads no line.
   # The map keeps one executable line for coveralls; each reason is the
@@ -686,7 +736,9 @@ defmodule FluxValeWeb.BillingComponents do
   button per rung, `aria-pressed` on the rung that equals `selected`.
 
   Pure presentation: the calling LiveView owns the amount state and
-  re-renders `selected`. A press raises `event` with `phx-value-dollars`.
+  re-renders `selected`. A press raises `event` with `phx-value-dollars`;
+  `field` rides along as `phx-value-field` when one handler serves
+  several fields.
   A typed amount that equals a rung presses that rung's
   button too — the server accepts it either way
   (`FluxVale.Billing.topup_amount_valid?/1` is the one rule).
@@ -704,6 +756,7 @@ defmodule FluxValeWeb.BillingComponents do
   )
 
   attr(:event, :string, required: true, doc: "the phx-click event a button raises")
+  attr(:field, :string, default: nil, doc: "optional phx-value-field for multi-field callers")
   attr(:label, :string, required: true, doc: "the group's visible label and accessible name")
 
   @spec topup_ladder(map()) :: Phoenix.LiveView.Rendered.t()
@@ -725,6 +778,7 @@ defmodule FluxValeWeb.BillingComponents do
           id={"#{@id}-rung-#{rung}"}
           phx-click={@event}
           phx-value-dollars={rung}
+          phx-value-field={@field}
           aria-pressed={if(rung == @selected, do: "true", else: "false")}
           data-testid={"#{@id}-rung-#{rung}"}
           class={[

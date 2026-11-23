@@ -75,8 +75,9 @@ defmodule FluxVale.Billing do
 
   # The top-up ladder (#888, ADR-0046 Am. 2): the quick-pick amounts.
   # One predicate decides every surface that takes a top-up amount —
-  # the wizard's Amount step and StartTopup both call it, so the UI and
-  # the server cannot disagree. Compile_env like the floor above: a
+  # the wizard's Amount step, StartTopup and the auto-recharge setting
+  # (threshold and amount) all call it, so the UI and the server cannot
+  # disagree. Compile_env like the floor above: a
   # product constant, a move is a reviewed diff.
   @topup_ladder_cents Application.compile_env(:flux_vale, [:billing, :topup_ladder_cents])
   @topup_ladder_top_cents List.last(@topup_ladder_cents)

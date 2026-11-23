@@ -16,9 +16,12 @@ defmodule FluxVale.Billing.AutoRechargeSetting do
   Everything else on the row (`daily_charge_cap`, `failure_strikes`,
   the buyer evidence) is inert data the owner may already set.
 
-  `amount_cents` clears the wallet top-up floor from app config
-  (`FluxVale.Billing.min_topup_cents/0` — the StartTopup gate), so a
-  saved amount that could never charge is refused at write time.
+  `threshold_cents` and `amount_cents` follow the top-up ladder (#888,
+  `FluxVale.Billing.topup_amount_valid?/1` — the rule the wizard and
+  StartTopup enforce), so a saved preference can never name an amount a
+  top-up would refuse. `AmountsOnTopupLadder` judges what a write
+  carries; `AutoArmGate` refuses to arm a row whose stored values are
+  off the ladder.
 
   Writes are owner-role only (`:set` — recurring spend consent is not
   "money in"; the wizard's any-member stance does not carry, decision
@@ -35,7 +38,7 @@ defmodule FluxVale.Billing.AutoRechargeSetting do
     authorizers: [Ash.Policy.Authorizer],
     extensions: [AshAdmin.Resource, AshPaperTrail.Resource]
 
-  alias FluxVale.Billing.AutoRechargeSetting.AmountMeetsTopupFloor
+  alias FluxVale.Billing.AutoRechargeSetting.AmountsOnTopupLadder
   alias FluxVale.Billing.AutoRechargeSetting.AutoArmGate
   alias FluxVale.Billing.Types.AutoRechargeDisabledReason
   alias FluxVale.Billing.Types.AutoRechargeMode
@@ -183,9 +186,11 @@ defmodule FluxVale.Billing.AutoRechargeSetting do
     end
 
     # The reminder dials (decision D): the balance dips below the
-    # threshold → the reminder fires, pre-filling the amount. The
-    # amount's REAL floor is app config — AmountMeetsTopupFloor on
-    # :set (a constraints min needs a compile-time int).
+    # threshold → the reminder fires, pre-filling the amount. Both
+    # follow the top-up ladder (#888) — AmountsOnTopupLadder on :set.
+    # The constraint below is subsumed by it (the lowest rung is 500)
+    # and stays only as the type-level backstop (a constraints min
+    # needs a compile-time int).
     attribute :threshold_cents, :integer do
       allow_nil?(false)
       default(500)
@@ -360,9 +365,9 @@ defmodule FluxVale.Billing.AutoRechargeSetting do
         end
       end)
 
-      # The floor is app config, not a compile-time int — the
+      # The ladder is app config, not a compile-time int — the
       # constraint DSL cannot carry it (see the validation module).
-      validate({AmountMeetsTopupFloor, []})
+      validate({AmountsOnTopupLadder, []})
 
       # The staged lane's gate (AutoArmGate): a validation, not a
       # policy — the gate is platform state, not actor identity.

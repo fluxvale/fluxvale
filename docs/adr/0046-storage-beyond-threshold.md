@@ -157,8 +157,17 @@ wizard's Amount step (quick-pick buttons plus a custom field) and
 `StartTopup` refuses everything else as `:invalid_amount` (Am. 1 named
 the floor's refusal `:amount_below_minimum`; the atom changed with the
 rule). The floor is unchanged: the bottom rung IS Am. 1's $5, and a
-test pins the pairing. The auto-recharge setting adopts the same rule
-in #888's second slice.
+test pins the pairing.
+
+The auto-recharge setting follows the same ladder for both its threshold
+and its amount. `AmountsOnTopupLadder` judges what a write carries, so a
+mode-only save keeps working on any row and a row that predates the
+ladder keeps its stored values until the owner edits them;
+`AutoArmGate` refuses to arm `:auto` on a row whose stored values are
+off the ladder. The lowest reminder threshold is therefore $5 (it was
+$1). The wizard's `?amount=` prefill is deliberately not a gate: it
+fills the field with whatever a reminder link carries, and the form's
+own gate refuses an off-ladder amount in words.
 
 The owner's call (issue #888), from a live staging run: a fixed ladder
 gives the wallet a predictable shape and replaces free-form entry as
@@ -183,7 +192,7 @@ $0.50, HitPay $0.30 — both cleared tenfold by the floor).
 **Rejected:** a $10 floor for the better fee share (Am. 1 already chose
 $5 for lower early-stage friction), and snapping stored reminder
 amounts onto the ladder by migration (it rewrites a stored preference
-without the owner; the second slice validates the write instead).
+without the owner; the setting validates the write instead).
 
 Revisit trigger: the Polar Pro upgrade (plan #829 S6) re-runs the fee
 table; a provider change re-runs both.
