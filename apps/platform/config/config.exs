@@ -240,14 +240,17 @@ config :flux_vale,
   # `issuer` names the DNS-01 ClusterIssuer the fleet side owns (the
   # fleet PR creates it; this code only names it from here — staging's
   # Let's Encrypt endpoint is the dev-safe default, no rate limits).
-  # `certificate_namespace` is the platform's own access namespace (the
-  # gateway's). `issuance_deadline_hours` bounds the verify-by-issuance
+  # The wildcard Certificate lives in the platform's access namespace —
+  # resolved by `InstanceK8s.gateway_access_namespace/0`, the one source
+  # the gateway's own objects use (never a second, separately-defaulted
+  # key: that wrote into staging's namespace on a per-env platform, #893).
+  # `issuance_deadline_hours` bounds the verify-by-issuance
   # wait: a :pending row with no Ready Certificate past it is :failed.
-  # Runtime overrides wait for the fleet's env-var names (the
-  # instances_base_domain wiring in runtime.exs is the pattern).
+  # The issuer overrides at runtime via ACCESS_DOMAINS_ISSUER
+  # (runtime.exs); the namespace comes from `:access_gateway` above,
+  # as it does for every other access-edge write.
   access_domains: [
     issuer: "letsencrypt-staging",
-    certificate_namespace: "fluxvale-access",
     issuance_deadline_hours: 72,
     # The shared ACME validation namespace: the per-domain
     # `_acme-challenge` CNAME targets `<label>.<delegation_zone>`, and

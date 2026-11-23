@@ -67,7 +67,7 @@ defmodule FluxValeWeb.Api.AccessDomainRouteTest do
       # the row, inside the create's transaction.
       expect(Kubereq, :apply, fn _req, manifest, _fm ->
         assert manifest["kind"] == "Certificate"
-        assert manifest["metadata"]["namespace"] == config[:certificate_namespace]
+        assert manifest["metadata"]["namespace"] == "fluxvale-access"
         assert manifest["spec"]["dnsNames"] == ["*.#{@domain_name}"]
         assert manifest["spec"]["secretName"] =~ ~r/^access-domain-[0-9a-f]{10}$/
 
@@ -513,8 +513,7 @@ defmodule FluxValeWeb.Api.AccessDomainRouteTest do
       expect(RenderAccessDNS, :call, fn -> :ok end)
 
       expect(Kubereq, :delete, fn _req, ns, name ->
-        config = Application.fetch_env!(:flux_vale, :access_domains)
-        assert ns == config[:certificate_namespace]
+        assert ns == "fluxvale-access"
         assert name == AccessDomain.certificate_name(domain)
 
         {:ok, %{status: 200}}

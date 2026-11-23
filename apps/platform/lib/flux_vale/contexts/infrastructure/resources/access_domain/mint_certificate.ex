@@ -14,6 +14,12 @@ defmodule FluxVale.Infrastructure.AccessDomain.MintCertificate do
   `AccessDomain.certificate_spec/1` — the one owner, shared with the
   verify pass's reconcile limb.
 
+  The Certificate lives in the platform's access namespace,
+  `InstanceK8s.gateway_access_namespace/0` — the one resolver the
+  gateway's own objects use (#893: this change once carried a second,
+  independently-defaulted namespace and wrote into the wrong one on a
+  per-env platform).
+
   **Accepted residue:** when issuance fails, this change best-effort
   deletes the Certificate it may have just landed (one delete, 404
   tolerated). If that delete fails too, an orphaned Certificate object
@@ -28,6 +34,7 @@ defmodule FluxVale.Infrastructure.AccessDomain.MintCertificate do
   alias FluxVale.Clients.K8s.Error
   alias FluxVale.Clients.K8s.Resources.Certificate
   alias FluxVale.Infrastructure.AccessDomain
+  alias FluxVale.Infrastructure.Operations.InstanceK8s
 
   require Logger
 
@@ -48,14 +55,13 @@ defmodule FluxVale.Infrastructure.AccessDomain.MintCertificate do
 
   # Inside the create's transaction: an error return rolls the row back.
   defp issue_certificate(domain) do
-    config = Application.fetch_env!(:flux_vale, :access_domains)
     name = AccessDomain.certificate_name(domain)
 
     case K8s.kubeconfig() do
       {:ok, kubeconfig} ->
         case Certificate.create(
                kubeconfig,
-               Keyword.fetch!(config, :certificate_namespace),
+               InstanceK8s.gateway_access_namespace(),
                name,
                AccessDomain.certificate_spec(domain)
              ) do
@@ -63,7 +69,7 @@ defmodule FluxVale.Infrastructure.AccessDomain.MintCertificate do
             :ok
 
           {:error, reason} ->
-            cleanup_attempt(kubeconfig, config, domain, name)
+            cleanup_attempt(kubeconfig, domain, name)
             {:error, reason}
         end
 
@@ -77,10 +83,10 @@ defmodule FluxVale.Infrastructure.AccessDomain.MintCertificate do
   # (an SSA timeout can leave it behind): one delete, 404 tolerated. If
   # the delete fails too, the residual Certificate is accepted and
   # logged (see the moduledoc's accepted-residue note).
-  defp cleanup_attempt(kubeconfig, config, domain, name) do
+  defp cleanup_attempt(kubeconfig, domain, name) do
     case Certificate.delete(
            kubeconfig,
-           Keyword.fetch!(config, :certificate_namespace),
+           InstanceK8s.gateway_access_namespace(),
            name
          ) do
       :ok ->

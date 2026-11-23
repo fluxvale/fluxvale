@@ -46,6 +46,7 @@ defmodule FluxVale.Infrastructure.Operations.RemoveAccessDomain do
   alias FluxVale.Infrastructure.AccessGateway
   alias FluxVale.Infrastructure.AccessProvider
   alias FluxVale.Infrastructure.InstanceHostname
+  alias FluxVale.Infrastructure.Operations.InstanceK8s
   alias FluxVale.Infrastructure.Operations.RenderAccessDNS
 
   require Ash.Query
@@ -206,12 +207,10 @@ defmodule FluxVale.Infrastructure.Operations.RemoveAccessDomain do
   end
 
   defp safe_delete_certificate(domain) do
-    config = Application.fetch_env!(:flux_vale, :access_domains)
-
     with {:ok, kubeconfig} <- K8s.kubeconfig() do
       case Certificate.delete(
              kubeconfig,
-             Keyword.fetch!(config, :certificate_namespace),
+             InstanceK8s.gateway_access_namespace(),
              AccessDomain.certificate_name(domain)
            ) do
         :ok -> :ok

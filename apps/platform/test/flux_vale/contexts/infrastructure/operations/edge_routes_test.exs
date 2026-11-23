@@ -123,7 +123,8 @@ defmodule FluxVale.Infrastructure.Operations.EdgeRoutesTest do
   end
 
   # The cert replica's source: the fleet's cert-manager writes the
-  # issued wildcard here (:access_domains, :certificate_namespace).
+  # issued wildcard here (the access namespace,
+  # `InstanceK8s.gateway_access_namespace/0`).
   defp stub_cert_source do
     stub(Secret, :get_data, fn _kc, "fluxvale-access", "custom-wildcard-tls" ->
       {:ok, %{"tls.crt" => "CERT-PEM", "tls.key" => "KEY-PEM"}}
