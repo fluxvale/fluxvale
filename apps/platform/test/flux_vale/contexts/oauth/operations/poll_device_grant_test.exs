@@ -54,12 +54,14 @@ defmodule FluxVale.OAuth.Operations.PollDeviceGrantTest do
 
     assert {:error, {:authorization_pending, _reason}} = poll(client, minted)
 
-    now = DateTime.add(DateTime.utc_now(), 2, :second)
+    grant = grant_by_user_code(minted)
+    now = DateTime.add(grant.last_polled_at, 2, :second)
 
     assert {:error, {:slow_down, _backoff}} = poll(client, minted, %{}, now: now)
 
-    grant = grant_by_user_code(minted)
-    assert grant.poll_count == 1, "the refused poll must not count"
+    after_refused = grant_by_user_code(minted)
+    assert after_refused.poll_count == 1, "the refused poll must not count"
+    assert after_refused.last_polled_at == grant.last_polled_at
 
     # The boundary: exactly `interval` seconds after the last counted
     # poll is NOT too soon — the diff-is-strictly-less comparison.
@@ -126,6 +128,17 @@ defmodule FluxVale.OAuth.Operations.PollDeviceGrantTest do
     user: user
   } do
     other = client!(%{"client_name" => "Other Client"})
+
+    pending_minted = device_grant!(client)
+
+    assert {:error, {:invalid_grant, "device_code was issued to another client"}} =
+             poll(other, pending_minted)
+
+    pending_grant = grant_by_user_code(pending_minted)
+    assert pending_grant.status == :pending
+    assert pending_grant.poll_count == 0
+    assert pending_grant.last_polled_at == nil
+
     minted = approved_device_grant!(client, user)
 
     assert {:error, {:invalid_grant, "device_code was issued to another client"}} =

@@ -33,7 +33,8 @@ defmodule FluxVale.OAuth.Operations.MintDeviceGrant do
   # 8 chars over 31 no-confusables symbols (no I/L/O/0/1; the Identity
   # device flow's alphabet — a human compares this against their
   # terminal), display shape XXXX-XXXX.
-  @user_code_alphabet ~c"ABCDEFGHJKMNPQRSTUVWXYZ23456789"
+  @user_code_alphabet "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
+  @user_code_alphabet_size byte_size(@user_code_alphabet)
   @user_code_length 8
 
   # The user_code space is 31^8 ≈ 8.5e11 — a collision retry is
@@ -255,7 +256,10 @@ defmodule FluxVale.OAuth.Operations.MintDeviceGrant do
 
   defp user_code do
     symbols =
-      Enum.map(1..@user_code_length, fn _i -> Enum.random(@user_code_alphabet) end)
+      Enum.map(1..@user_code_length, fn _i ->
+        index = :crypto.strong_rand_range(@user_code_alphabet_size)
+        :binary.at(@user_code_alphabet, index)
+      end)
 
     # "XXXX-XXXX" — the dash is display: it splits the 8 symbols the
     # way the hosted page and the terminal show them.

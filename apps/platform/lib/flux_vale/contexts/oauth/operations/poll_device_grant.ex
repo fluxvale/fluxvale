@@ -6,14 +6,16 @@ defmodule FluxVale.OAuth.Operations.PollDeviceGrant do
 
   The machine, in the order the endpoint answers:
 
-  * unknown device_code / past `expires_at` / :expired / **:consumed**
-    → `expired_token` — :consumed is the exactly-once latch: the pair
-    crossed the wire once and will not again (RFC 8628 has no distinct
-    "already used" error; expired_token is the shape every polling
-    client already handles — the Identity device flow's answer)
+  * unknown device_code → `expired_token`
+  * a device_code issued to another client → `invalid_grant` (checked
+    before status dispatch so a stranger's poll cannot mutate
+    `last_polled_at`/`poll_count` or observe grant state)
+  * past `expires_at` / :expired / **:consumed** → `expired_token` —
+    :consumed is the exactly-once latch: the pair crossed the wire
+    once and will not again (RFC 8628 has no distinct "already used"
+    error; expired_token is the shape every polling client already
+    handles — the Identity device flow's answer)
   * :denied → `access_denied`
-  * a device_code issued to another client → `invalid_grant` (before
-    any state moves — the row is not burned by a stranger's probe)
   * :pending → the interval machine: a poll sooner than `interval`
     after the last COUNTED poll is `slow_down` (the +5s backoff is the
     CLIENT's obligation, §3.5; a refused poll never stamps
@@ -83,6 +85,13 @@ defmodule FluxVale.OAuth.Operations.PollDeviceGrant do
   end
 
   defp decide(grant, client, params, now) do
+    case client_match(grant, client) do
+      :ok -> dispatch(grant, client, params, now)
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp dispatch(grant, client, params, now) do
     cond do
       expired?(grant, now) ->
         {:error, expired_token_error()}
@@ -182,9 +191,11 @@ defmodule FluxVale.OAuth.Operations.PollDeviceGrant do
   end
 
   defp grant_pair(grant, client, params) do
-    with :ok <- client_match(grant, client),
-         :ok <- verify_pkce(grant, param(params, :code_verifier)) do
-      consume_and_mint(grant, client)
+    verifier = param(params, :code_verifier)
+
+    case verify_pkce(grant, verifier) do
+      :ok -> consume_and_mint(grant, client)
+      {:error, _reason} = error -> error
     end
   end
 
