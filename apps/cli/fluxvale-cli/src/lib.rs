@@ -9,6 +9,7 @@ pub mod auth;
 pub mod cli;
 pub mod config;
 pub mod human;
+pub mod mcp;
 pub mod reads;
 pub mod render;
 pub mod terraform;

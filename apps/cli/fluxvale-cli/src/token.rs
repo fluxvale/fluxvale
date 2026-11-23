@@ -38,6 +38,10 @@ impl fmt::Display for TokenLocation {
 const KEYCHAIN_SERVICE: &str = "fluxvale";
 /// The fallback credentials file name, sibling of `config.toml`.
 const FALLBACK_FILE: &str = "credentials";
+/// The keychain service name for MCP OAuth token pairs.
+const MCP_KEYCHAIN_SERVICE: &str = "fluxvale-mcp";
+/// The fallback MCP credentials file name, sibling of `config.toml`.
+const MCP_FALLBACK_FILE: &str = "mcp-credentials";
 
 /// Keychain first, 0600-file fallback (ADR-0019 Am. 3).
 pub struct TokenStore {
@@ -186,6 +190,206 @@ impl FileTokenStore {
     }
 
     fn parse(&self, raw: &str) -> anyhow::Result<BTreeMap<String, String>> {
+        toml::from_str(raw).map_err(|err| anyhow::anyhow!("{}: {err}", self.path.display()))
+    }
+}
+
+/// Stored OAuth credential pair for MCP access.
+#[derive(Clone, PartialEq, Eq)]
+pub struct McpCredentials {
+    pub access_token: Token,
+    pub refresh_token: Token,
+    pub expires_at_unix: u64,
+    pub scope: String,
+    pub resource: Option<String>,
+}
+
+impl McpCredentials {
+    /// Returns true when the access token is expired or will expire within `leeway_secs` of `now_unix`.
+    pub fn is_expired_within(&self, now_unix: u64, leeway_secs: u64) -> bool {
+        now_unix.saturating_add(leeway_secs) >= self.expires_at_unix
+    }
+}
+
+impl fmt::Debug for McpCredentials {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("McpCredentials")
+            .field("access_token", &"***redacted***")
+            .field("refresh_token", &"***redacted***")
+            .field("expires_at_unix", &self.expires_at_unix)
+            .field("scope", &self.scope)
+            .field("resource", &self.resource)
+            .finish()
+    }
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct StoredMcpCredentials {
+    access_token: String,
+    refresh_token: String,
+    expires_at_unix: u64,
+    scope: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    resource: Option<String>,
+}
+
+impl From<&McpCredentials> for StoredMcpCredentials {
+    fn from(creds: &McpCredentials) -> Self {
+        StoredMcpCredentials {
+            access_token: creds.access_token.expose().to_string(),
+            refresh_token: creds.refresh_token.expose().to_string(),
+            expires_at_unix: creds.expires_at_unix,
+            scope: creds.scope.clone(),
+            resource: creds.resource.clone(),
+        }
+    }
+}
+
+impl From<StoredMcpCredentials> for McpCredentials {
+    fn from(stored: StoredMcpCredentials) -> Self {
+        McpCredentials {
+            access_token: Token::new(stored.access_token),
+            refresh_token: Token::new(stored.refresh_token),
+            expires_at_unix: stored.expires_at_unix,
+            scope: stored.scope,
+            resource: stored.resource,
+        }
+    }
+}
+
+/// Keychain first (`fluxvale-mcp`), 0600-file fallback (`mcp-credentials`).
+pub struct McpTokenStore {
+    config_dir: PathBuf,
+}
+
+impl McpTokenStore {
+    /// Store rooted at the `fluxvale/` config directory.
+    pub fn at(config_dir: PathBuf) -> Self {
+        McpTokenStore { config_dir }
+    }
+
+    /// The default store location: `<config dir>/fluxvale`.
+    pub fn default_dir() -> anyhow::Result<PathBuf> {
+        TokenStore::default_dir()
+    }
+
+    /// Save MCP credentials: OS keychain (`fluxvale-mcp`) where available, else the 0600 fallback file.
+    pub fn save(&self, host: &str, creds: &McpCredentials) -> anyhow::Result<()> {
+        let json = serde_json::to_string(&StoredMcpCredentials::from(creds))?;
+        match self.keychain_entry(host) {
+            None => self.file_store().set(host, creds),
+            Some(entry) => match entry.set_password(&json) {
+                Ok(()) => Ok(()),
+                Err(keychain_error) => {
+                    self.file_store().set(host, creds).map_err(|file_error| {
+                        anyhow::anyhow!(
+                            "the OS keychain refused the MCP credentials ({keychain_error}), \
+                             and the fallback file failed too: {file_error}"
+                        )
+                    })?;
+                    let _ = entry.delete_credential();
+                    Ok(())
+                }
+            },
+        }
+    }
+
+    /// Load MCP credentials, reporting where they came from.
+    pub fn load(&self, host: &str) -> anyhow::Result<Option<(McpCredentials, TokenLocation)>> {
+        if let Some(entry) = self.keychain_entry(host)
+            && let Ok(raw) = entry.get_password()
+        {
+            let stored: StoredMcpCredentials = serde_json::from_str(&raw)
+                .map_err(|err| anyhow::anyhow!("corrupt MCP credentials in OS keychain: {err}"))?;
+            return Ok(Some((stored.into(), TokenLocation::Keychain)));
+        }
+        Ok(self
+            .file_store()
+            .get(host)?
+            .map(|creds| (creds, TokenLocation::FallbackFile)))
+    }
+
+    /// Remove MCP credentials everywhere (best-effort on each layer).
+    pub fn delete(&self, host: &str) -> anyhow::Result<()> {
+        if let Some(entry) = self.keychain_entry(host) {
+            let _ = entry.delete_credential();
+        }
+        self.file_store().remove(host)
+    }
+
+    fn keychain_entry(&self, host: &str) -> Option<keyring::Entry> {
+        keyring::Entry::new(MCP_KEYCHAIN_SERVICE, host).ok()
+    }
+
+    fn file_store(&self) -> FileMcpTokenStore {
+        FileMcpTokenStore::at(self.config_dir.clone())
+    }
+}
+
+/// The 0600 fallback file (`fluxvale/mcp-credentials`): a TOML map of host -> credentials.
+pub struct FileMcpTokenStore {
+    path: PathBuf,
+}
+
+impl FileMcpTokenStore {
+    pub fn at(config_dir: PathBuf) -> Self {
+        FileMcpTokenStore {
+            path: config_dir.join(MCP_FALLBACK_FILE),
+        }
+    }
+
+    pub fn get(&self, host: &str) -> anyhow::Result<Option<McpCredentials>> {
+        match fs::read_to_string(&self.path) {
+            Ok(raw) => {
+                let map = self.parse(&raw)?;
+                Ok(map.get(host).map(|stored| McpCredentials {
+                    access_token: Token::new(stored.access_token.clone()),
+                    refresh_token: Token::new(stored.refresh_token.clone()),
+                    expires_at_unix: stored.expires_at_unix,
+                    scope: stored.scope.clone(),
+                    resource: stored.resource.clone(),
+                }))
+            }
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(err) => Err(err.into()),
+        }
+    }
+
+    pub fn set(&self, host: &str, creds: &McpCredentials) -> anyhow::Result<()> {
+        if let Some(parent) = self.path.parent() {
+            fs::create_dir_all(parent)?;
+            set_owner_only(parent);
+        }
+        let mut map = match fs::read_to_string(&self.path) {
+            Ok(raw) => self.parse(&raw)?,
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => BTreeMap::new(),
+            Err(err) => return Err(err.into()),
+        };
+        map.insert(host.to_string(), StoredMcpCredentials::from(creds));
+        write_owner_rw(&self.path, &toml::to_string_pretty(&map)?)?;
+        set_owner_rw(&self.path)?;
+        Ok(())
+    }
+
+    pub fn remove(&self, host: &str) -> anyhow::Result<()> {
+        let raw = match fs::read_to_string(&self.path) {
+            Ok(raw) => raw,
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(err) => return Err(err.into()),
+        };
+        let mut map = self.parse(&raw)?;
+        if map.remove(host).is_none() {
+            return Ok(());
+        }
+        if map.is_empty() {
+            fs::remove_file(&self.path)?;
+        } else {
+            write_owner_rw(&self.path, &toml::to_string_pretty(&map)?)?;
+        }
+        Ok(())
+    }
+
+    fn parse(&self, raw: &str) -> anyhow::Result<BTreeMap<String, StoredMcpCredentials>> {
         toml::from_str(raw).map_err(|err| anyhow::anyhow!("{}: {err}", self.path.display()))
     }
 }
@@ -443,6 +647,197 @@ mod tests {
                 "the error must name both layers: {message}"
             );
         }
+    }
+
+    fn sample_mcp_creds(suffix: &str, resource: Option<&str>) -> McpCredentials {
+        McpCredentials {
+            access_token: Token::new(format!("fvoat_{suffix}")),
+            refresh_token: Token::new(format!("fvort_{suffix}")),
+            expires_at_unix: 1_700_003_600,
+            scope: "instances:read wallet:read".to_string(),
+            resource: resource.map(str::to_owned),
+        }
+    }
+
+    #[test]
+    fn mcp_credentials_debug_redacts_both_tokens() {
+        let creds = sample_mcp_creds("secret_pair", Some("https://mcp.fluxvale.com/mcp"));
+        let debug_str = format!("{creds:?}");
+        assert!(!debug_str.contains("fvoat_secret_pair"));
+        assert!(!debug_str.contains("fvort_secret_pair"));
+        assert!(debug_str.contains("instances:read wallet:read"));
+        assert!(debug_str.contains("https://mcp.fluxvale.com/mcp"));
+    }
+
+    #[test]
+    fn mcp_credentials_is_expired_within_boundary() {
+        let creds = McpCredentials {
+            access_token: Token::new("fvoat_a"),
+            refresh_token: Token::new("fvort_r"),
+            expires_at_unix: 1000,
+            scope: "instances:read".to_string(),
+            resource: None,
+        };
+        assert!(!creds.is_expired_within(939, 60));
+        assert!(creds.is_expired_within(940, 60));
+        assert!(creds.is_expired_within(950, 60));
+        assert!(creds.is_expired_within(1000, 0));
+        assert!(creds.is_expired_within(1001, 0));
+        assert!(!creds.is_expired_within(999, 0));
+        assert!(creds.is_expired_within(u64::MAX, 60));
+    }
+
+    #[test]
+    fn mcp_file_store_round_trip_and_isolation() {
+        let dir = temp_dir();
+        let mcp_store = FileMcpTokenStore::at(dir.clone());
+        let pat_store = FileTokenStore::at(dir);
+
+        assert!(mcp_store.get("fluxvale.com").unwrap().is_none());
+
+        let prod = sample_mcp_creds("prod", Some("https://mcp.fluxvale.com/mcp"));
+        let staging = sample_mcp_creds("staging", None);
+        mcp_store.set("fluxvale.com", &prod).unwrap();
+        mcp_store.set("staging.fluxvale.com", &staging).unwrap();
+        pat_store
+            .set("fluxvale.com", &Token::new("fvpat_separate"))
+            .unwrap();
+
+        assert_eq!(mcp_store.get("fluxvale.com").unwrap().as_ref(), Some(&prod));
+        assert_eq!(
+            mcp_store.get("staging.fluxvale.com").unwrap().as_ref(),
+            Some(&staging)
+        );
+        assert_eq!(
+            pat_store.get("fluxvale.com").unwrap(),
+            Some(Token::new("fvpat_separate"))
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn mcp_fallback_file_is_0600() {
+        use std::os::unix::fs::PermissionsExt;
+        let store = FileMcpTokenStore::at(temp_dir());
+        store
+            .set("fluxvale.com", &sample_mcp_creds("modecheck", None))
+            .unwrap();
+        let mode = fs::metadata(&store.path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600, "mcp-credentials file must be owner-only");
+
+        store
+            .set("fluxvale.com", &sample_mcp_creds("second", None))
+            .unwrap();
+        let mode = fs::metadata(&store.path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600);
+    }
+
+    #[test]
+    fn mcp_remove_prunes_host_and_empty_file() {
+        let store = FileMcpTokenStore::at(temp_dir());
+        store
+            .set("a.example", &sample_mcp_creds("a", None))
+            .unwrap();
+        store
+            .set("b.example", &sample_mcp_creds("b", None))
+            .unwrap();
+        store.remove("a.example").unwrap();
+        assert!(store.get("a.example").unwrap().is_none());
+        assert!(store.get("b.example").unwrap().is_some());
+        store.remove("b.example").unwrap();
+        assert!(
+            !store.path.exists(),
+            "empty mcp-credentials file is removed"
+        );
+        store.remove("never.existed").unwrap();
+    }
+
+    #[test]
+    fn mcp_default_store_dir_is_fluxvale_under_config() {
+        let store = McpTokenStore::at(PathBuf::from("/cfg-root"));
+        assert_eq!(store.config_dir, PathBuf::from("/cfg-root"));
+        assert!(store.file_store().path.ends_with("mcp-credentials"));
+    }
+
+    #[test]
+    fn mcp_save_falls_back_to_file_when_keychain_refuses_write() {
+        let mock = MockKeyring::install();
+
+        let host = "refusing-mcp-keychain.test";
+        let store = McpTokenStore::at(temp_dir());
+        if mock.platform_store_initialized {
+            let entry = keyring::Entry::new(MCP_KEYCHAIN_SERVICE, host)
+                .expect("the mock store builds entries");
+            let cred = entry
+                .inner
+                .as_any()
+                .downcast_ref::<keyring_core::mock::Cred>()
+                .expect("the mock store builds mock credentials");
+            cred.set_error(keyring_core::Error::Invalid(
+                "mock".to_string(),
+                "the keychain refuses the write".to_string(),
+            ));
+        }
+
+        let creds = sample_mcp_creds("fallback", Some("https://mcp.fluxvale.com/mcp"));
+        store
+            .save(host, &creds)
+            .expect("a refused keychain write must fall back to the 0600 file");
+        assert_eq!(
+            store.load(host).unwrap(),
+            Some((creds, TokenLocation::FallbackFile))
+        );
+    }
+
+    #[test]
+    fn mcp_save_names_both_layers_when_fallback_file_fails_too() {
+        let mock = MockKeyring::install();
+
+        let host = "refusing-mcp-keychain.test";
+        let dir = temp_dir();
+        std::fs::create_dir_all(dir.join("mcp-credentials")).unwrap();
+        let store = McpTokenStore::at(dir);
+        if mock.platform_store_initialized {
+            let entry = keyring::Entry::new(MCP_KEYCHAIN_SERVICE, host)
+                .expect("the mock store builds entries");
+            let cred = entry
+                .inner
+                .as_any()
+                .downcast_ref::<keyring_core::mock::Cred>()
+                .expect("the mock store builds mock credentials");
+            cred.set_error(keyring_core::Error::Invalid(
+                "mock".to_string(),
+                "the keychain refuses the write".to_string(),
+            ));
+        }
+
+        let err = store
+            .save(host, &sample_mcp_creds("neither", None))
+            .expect_err("nothing stored: both layers failed");
+        if mock.platform_store_initialized {
+            let message = err.to_string();
+            assert!(
+                message.contains("the OS keychain refused the MCP credentials")
+                    && message.contains("and the fallback file failed too"),
+                "the error must name both layers: {message}"
+            );
+        }
+    }
+
+    #[test]
+    fn mcp_store_round_trip_and_delete() {
+        let _mock = MockKeyring::install();
+        let host = "mcp-roundtrip.test";
+        let store = McpTokenStore::at(temp_dir());
+        assert!(store.load(host).unwrap().is_none());
+
+        let creds = sample_mcp_creds("roundtrip", Some("https://mcp.fluxvale.com/mcp"));
+        store.save(host, &creds).unwrap();
+        let (loaded, _location) = store.load(host).unwrap().unwrap();
+        assert_eq!(loaded, creds);
+
+        store.delete(host).unwrap();
+        assert!(store.load(host).unwrap().is_none());
     }
 
     fn temp_dir() -> PathBuf {
