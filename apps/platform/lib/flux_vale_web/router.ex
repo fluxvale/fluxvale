@@ -173,9 +173,10 @@ defmodule FluxValeWeb.Router do
   end
 
   # #766: the MCP OAuth authorization server. The metadata,
-  # registration, token, and revocation endpoints are public and
-  # credential-free; CORS is theirs alone. The authorize page rides the
-  # browser pipeline (session + CSRF) and renders the consent card.
+  # registration, device-authorization (#886), token, and revocation
+  # endpoints are public and credential-free; CORS is theirs alone. The
+  # authorize page rides the browser pipeline (session + CSRF) and
+  # renders the consent card.
   pipeline :oauth_api do
     plug(FluxValeWeb.Plugs.OAuthCors)
   end
@@ -193,6 +194,7 @@ defmodule FluxValeWeb.Router do
     )
 
     post("/oauth/register", OAuth.RegistrationController, :create)
+    post("/oauth/device/code", OAuth.DeviceController, :create_grant)
     post("/oauth/token", OAuth.TokenController, :token)
     post("/oauth/revoke", OAuth.TokenController, :revoke)
     match(:options, "/oauth/*path", OAuth.PreflightController, :options)

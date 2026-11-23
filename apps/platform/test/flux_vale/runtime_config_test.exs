@@ -102,7 +102,9 @@ defmodule FluxVale.RuntimeConfigTest do
         # #766's OAuth sweeps (daily, off the 03:45 device codes).
         assert {"0 4 * * *", FluxVale.Janitor.PruneOAuthCodes} in crontab
         assert {"15 4 * * *", FluxVale.Janitor.PruneOAuthAuditEvents} in crontab
-        assert length(crontab) == 13
+        # #886's device-grant sweep (daily, off the 04:15 OAuth audit).
+        assert {"30 4 * * *", FluxVale.Janitor.PruneDeviceGrants} in crontab
+        assert length(crontab) == 14
       end)
     end
 
@@ -134,7 +136,7 @@ defmodule FluxVale.RuntimeConfigTest do
         assert {"7 * * * *", FluxVale.Workers.ZeroBalanceSweep} in crontab
         assert {"13 * * * *", FluxVale.Workers.StrandedInstanceSweep} in crontab
         assert {"17 * * * *", FluxVale.Workers.StaleTopupSweep} in crontab
-        assert length(crontab) == 13
+        assert length(crontab) == 14
       end)
     end
 

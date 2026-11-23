@@ -21,8 +21,13 @@ defmodule FluxVale.OAuth.Client.RedirectUris do
     uris = Ash.Changeset.get_attribute(changeset, :redirect_uris) || []
 
     cond do
+      # #886: an empty allowlist is a device-only client (the seeded
+      # CLI — it speaks the redirectless device grant, and the
+      # exact-match rule trivially holds when there is nothing to
+      # match). The registration OPERATION still refuses an empty
+      # list on the wire, so DCR'd clients always carry a redirect.
       uris == [] ->
-        {:error, field: :redirect_uris, message: "at least one redirect URI is required"}
+        :ok
 
       length(uris) > 5 ->
         {:error, field: :redirect_uris, message: "at most five redirect URIs are allowed"}

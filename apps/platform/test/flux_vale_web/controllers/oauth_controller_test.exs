@@ -13,6 +13,7 @@ defmodule FluxValeWeb.OAuthControllerTest do
   alias FluxVale.Identity
   alias FluxVale.Identity.PersonalAccessToken
   alias FluxVale.OAuth.AuditEvent
+  alias FluxVale.OAuth.DeviceGrant
   alias FluxVale.TestSupport.SessionHelpers
   alias FluxValeWeb.Endpoint
   alias FluxValeWeb.Plugs.OAuthRateLimit
@@ -34,8 +35,18 @@ defmodule FluxValeWeb.OAuthControllerTest do
       assert body["token_endpoint"] == Endpoint.url() <> "/oauth/token"
       assert body["registration_endpoint"] == Endpoint.url() <> "/oauth/register"
       assert body["revocation_endpoint"] == Endpoint.url() <> "/oauth/revoke"
+
+      assert body["device_authorization_endpoint"] ==
+               Endpoint.url() <> "/oauth/device/code"
+
       assert body["response_types_supported"] == ["code"]
-      assert body["grant_types_supported"] == ["authorization_code", "refresh_token"]
+
+      assert body["grant_types_supported"] == [
+               "authorization_code",
+               "refresh_token",
+               "urn:ietf:params:oauth:grant-type:device_code"
+             ]
+
       assert body["token_endpoint_auth_methods_supported"] == ["none"]
       assert body["revocation_endpoint_auth_methods_supported"] == ["none"]
       assert body["code_challenge_methods_supported"] == ["S256"]
@@ -372,6 +383,204 @@ defmodule FluxValeWeb.OAuthControllerTest do
       response = consent_post(user, %{"consent_token" => token, "decision" => "maybe"})
 
       assert html_response(response, 400) =~ "not recognized"
+    end
+  end
+
+  describe "POST /oauth/device/code — the device authorization endpoint (#886)" do
+    test "mints a grant and answers the RFC 8628 §3.2 shape", %{conn: conn} do
+      client = client!()
+
+      response =
+        json_post(conn, "/oauth/device/code", %{
+          "client_id" => client.client_id,
+          "scope" => "instances:read offline_access",
+          "resource" => resource(),
+          "code_challenge" => challenge(verifier()),
+          "code_challenge_method" => "S256"
+        })
+
+      body = json_response(response, 200)
+      assert body["device_code"] =~ ~r/^[A-Za-z0-9_-]{43}$/
+      assert body["user_code"] =~ ~r/^[A-HJ-KM-NP-Z2-9]{4}-/
+      assert body["verification_uri"] == Endpoint.url() <> "/oauth/device"
+
+      assert body["verification_uri_complete"] ==
+               Endpoint.url() <> "/oauth/device?user_code=" <> body["user_code"]
+
+      assert body["expires_in"] == 600
+      assert body["interval"] == 5
+      assert get_resp_header(response, "cache-control") == ["no-store"]
+
+      # The grant is live for the poll.
+      assert {:ok, _grant} =
+               DeviceGrant.get_by_user_code(body["user_code"], authorize?: false)
+    end
+
+    test "an unknown client answers the §5.2 envelope", %{conn: conn} do
+      response =
+        json_post(conn, "/oauth/device/code", %{
+          "client_id" => "fvoc_nope",
+          "code_challenge" => challenge(verifier()),
+          "code_challenge_method" => "S256"
+        })
+
+      body = json_response(response, 400)
+      assert body["error"] == "invalid_client"
+    end
+
+    test "the per-IP window answers 429 with Retry-After", %{conn: conn} do
+      client = client!()
+
+      put_bucket_limit(:device_code, 1)
+
+      params = %{
+        "client_id" => client.client_id,
+        "code_challenge" => challenge(verifier()),
+        "code_challenge_method" => "S256"
+      }
+
+      first = with_ip(conn, {10, 10, 0, 7})
+      assert json_response(json_post(first, "/oauth/device/code", params), 200)
+
+      second = with_ip(conn, {10, 10, 0, 7})
+      response = json_post(second, "/oauth/device/code", params)
+
+      body = json_response(response, 429)
+      assert body["error"] == "temporarily_unavailable"
+      assert [retry_after] = get_resp_header(response, "retry-after")
+      assert String.to_integer(retry_after) > 0
+
+      # Another IP is another bucket.
+      third = with_ip(conn, {10, 10, 0, 8})
+      assert json_response(json_post(third, "/oauth/device/code", params), 200)
+    end
+  end
+
+  describe "POST /oauth/token — device_code (#886)" do
+    test "a pending grant answers authorization_pending as a §3.5 400", %{conn: conn} do
+      client = client!()
+      minted = device_grant!(client)
+
+      response =
+        form_post(conn, "/oauth/token", %{
+          "grant_type" => "urn:ietf:params:oauth:grant-type:device_code",
+          "client_id" => client.client_id,
+          "device_code" => minted.device_code,
+          "code_verifier" => minted.verifier
+        })
+
+      body = json_response(response, 400)
+      assert body["error"] == "authorization_pending"
+      assert get_resp_header(response, "cache-control") == ["no-store"]
+    end
+
+    test "an approved grant delivers the pair through the token endpoint", %{conn: conn} do
+      client = client!()
+      user = user!()
+      minted = approved_device_grant!(client, user)
+
+      response =
+        form_post(conn, "/oauth/token", %{
+          "grant_type" => "urn:ietf:params:oauth:grant-type:device_code",
+          "client_id" => client.client_id,
+          "device_code" => minted.device_code,
+          "code_verifier" => minted.verifier
+        })
+
+      body = json_response(response, 200)
+      assert body["access_token"] =~ ~r/^fvoat_/
+      assert body["refresh_token"] =~ ~r/^fvort_/
+      assert body["token_type"] == "Bearer"
+      assert body["expires_in"] == 3600
+      assert body["scope"] == "instances:read"
+
+      # The delivered pair refresh-rotates like any other family.
+      rotate =
+        form_post(conn, "/oauth/token", %{
+          "grant_type" => "refresh_token",
+          "refresh_token" => body["refresh_token"],
+          "client_id" => client.client_id
+        })
+
+      rotated = json_response(rotate, 200)
+      assert rotated["access_token"] =~ ~r/^fvoat_/
+      refute rotated["refresh_token"] == body["refresh_token"]
+    end
+
+    test "a wrong verifier, a stranger's device_code, and a denial answer §3.5 errors", %{
+      conn: conn
+    } do
+      client = client!()
+      other = client!(%{"client_name" => "Stranger"})
+      user = user!()
+
+      wrong_verifier = approved_device_grant!(client, user)
+
+      wrong_verifier_response =
+        form_post(conn, "/oauth/token", %{
+          "grant_type" => "urn:ietf:params:oauth:grant-type:device_code",
+          "client_id" => client.client_id,
+          "device_code" => wrong_verifier.device_code,
+          "code_verifier" => verifier()
+        })
+
+      assert json_response(wrong_verifier_response, 400)["error"] == "invalid_grant"
+
+      stranger = approved_device_grant!(client, user)
+
+      stranger_response =
+        form_post(conn, "/oauth/token", %{
+          "grant_type" => "urn:ietf:params:oauth:grant-type:device_code",
+          "client_id" => other.client_id,
+          "device_code" => stranger.device_code,
+          "code_verifier" => stranger.verifier
+        })
+
+      assert json_response(stranger_response, 400)["error"] == "invalid_grant"
+
+      denied = device_grant!(client)
+      {:ok, _row} = FluxVale.OAuth.deny_device_grant(denied.grant)
+
+      denied_response =
+        form_post(conn, "/oauth/token", %{
+          "grant_type" => "urn:ietf:params:oauth:grant-type:device_code",
+          "client_id" => client.client_id,
+          "device_code" => denied.device_code,
+          "code_verifier" => denied.verifier
+        })
+
+      assert json_response(denied_response, 400)["error"] == "access_denied"
+    end
+
+    test "an unknown or spent device_code answers expired_token; delivery is one-time", %{
+      conn: conn
+    } do
+      client = client!()
+      user = user!()
+      minted = approved_device_grant!(client, user)
+
+      poll = fn device_code ->
+        form_post(conn, "/oauth/token", %{
+          "grant_type" => "urn:ietf:params:oauth:grant-type:device_code",
+          "client_id" => client.client_id,
+          "device_code" => device_code,
+          "code_verifier" => minted.verifier
+        })
+      end
+
+      assert json_response(poll.(minted.device_code), 200)
+      assert json_response(poll.(minted.device_code), 400)["error"] == "expired_token"
+      assert json_response(poll.("nope"), 400)["error"] == "expired_token"
+    end
+
+    test "the unsupported-grant message names all three grants", %{conn: conn} do
+      response = form_post(conn, "/oauth/token", %{"grant_type" => "client_credentials"})
+
+      body = json_response(response, 400)
+      assert body["error"] == "unsupported_grant_type"
+
+      assert body["error_description"] =~
+               "authorization_code, refresh_token, or urn:ietf:params:oauth:grant-type:device_code"
     end
   end
 

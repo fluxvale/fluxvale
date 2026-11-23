@@ -21,6 +21,7 @@ defmodule FluxVale.OAuth do
     resource(FluxVale.OAuth.AuditEvent)
     resource(FluxVale.OAuth.AuthorizationCode)
     resource(FluxVale.OAuth.Client)
+    resource(FluxVale.OAuth.DeviceGrant)
   end
 
   # Client registration (RFC 7591) — unauthenticated by design; the
@@ -52,6 +53,32 @@ defmodule FluxVale.OAuth do
   defdelegate refresh_token(params),
     to: FluxVale.OAuth.Operations.RefreshToken,
     as: :call
+
+  # The device grant (#886): the CLI's redirectless flow — mint on the
+  # device endpoint, decide on the hosted page, poll on the token
+  # endpoint.
+  defdelegate mint_device_grant(params, opts \\ []),
+    to: FluxVale.OAuth.Operations.MintDeviceGrant,
+    as: :call
+
+  defdelegate approve_device_grant(grant, opts \\ []),
+    to: FluxVale.OAuth.Operations.ApproveDeviceGrant,
+    as: :call
+
+  defdelegate deny_device_grant(grant, opts \\ []),
+    to: FluxVale.OAuth.Operations.DenyDeviceGrant,
+    as: :call
+
+  defdelegate poll_device_grant(params, opts \\ []),
+    to: FluxVale.OAuth.Operations.PollDeviceGrant,
+    as: :call
+
+  # The device grant's wire grant_type — the token endpoint routes on
+  # it and the metadata advertises it (identity's device_grant_type
+  # posture: the delegate is the one tie).
+  defdelegate device_grant_type,
+    to: FluxVale.OAuth.Operations.PollDeviceGrant,
+    as: :grant_type
 
   # The token-pair mint and family sever stay behind the domain seam:
   # sibling operations call these delegates, never the operation modules.
@@ -89,5 +116,9 @@ defmodule FluxVale.OAuth do
 
   defdelegate prune_audit_events(opts \\ []),
     to: FluxVale.OAuth.Operations.PruneAuditEvents,
+    as: :call
+
+  defdelegate prune_device_grants(opts \\ []),
+    to: FluxVale.OAuth.Operations.PruneDeviceGrants,
     as: :call
 end

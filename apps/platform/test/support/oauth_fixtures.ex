@@ -90,4 +90,33 @@ defmodule FluxVale.TestSupport.OAuthFixtures do
 
     %{client: client, user: user, issued: issued, tokens: tokens}
   end
+
+  # #886: the device grant's preconditions — a minted (or approved)
+  # grant with its poll secrets in hand.
+
+  def device_grant!(client, overrides \\ %{}) do
+    verifier_value = verifier()
+
+    params =
+      Map.merge(
+        %{
+          "client_id" => client.client_id,
+          "scope" => "instances:read",
+          "resource" => @resource,
+          "code_challenge" => challenge(verifier_value),
+          "code_challenge_method" => "S256"
+        },
+        overrides
+      )
+
+    {:ok, minted} = OAuth.mint_device_grant(params)
+
+    Map.merge(minted, %{verifier: verifier_value, params: params})
+  end
+
+  def approved_device_grant!(client, user, overrides \\ %{}) do
+    minted = device_grant!(client, overrides)
+    {:ok, approved} = OAuth.approve_device_grant(minted.grant, actor: user)
+    %{minted | grant: approved}
+  end
 end

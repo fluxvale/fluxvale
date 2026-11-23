@@ -5,11 +5,14 @@ defmodule FluxVale.OAuth.Operations.PruneTest do
 
   import FluxVale.TestSupport.OAuthFixtures
 
+  alias FluxVale.Identity.PersonalAccessToken
+  alias FluxVale.Janitor.PruneDeviceGrants
   alias FluxVale.Janitor.PruneOAuthAuditEvents
   alias FluxVale.Janitor.PruneOAuthCodes
   alias FluxVale.OAuth
   alias FluxVale.OAuth.AuditEvent
   alias FluxVale.OAuth.AuthorizationCode
+  alias FluxVale.OAuth.DeviceGrant
 
   setup do
     %{client: client!(), user: user!()}
@@ -48,9 +51,77 @@ defmodule FluxVale.OAuth.Operations.PruneTest do
   test "the janitor jobs delegate to the prune ops", %{client: client, user: user} do
     seed_code(client, user, DateTime.add(DateTime.utc_now(), -2 * 24 * 60 * 60, :second))
     seed_audit(DateTime.add(DateTime.utc_now(), -91 * 24 * 60 * 60, :second))
+    seed_grant(client, DateTime.add(DateTime.utc_now(), -2 * 24 * 60 * 60, :second))
 
     assert {:ok, 1} = PruneOAuthCodes.perform(%Oban.Job{})
     assert {:ok, 1} = PruneOAuthAuditEvents.perform(%Oban.Job{})
+    assert {:ok, 1} = PruneDeviceGrants.perform(%Oban.Job{})
+  end
+
+  test "prune_device_grants deletes only grants past the retention horizon", %{client: client} do
+    old = seed_grant(client, DateTime.add(DateTime.utc_now(), -2 * 24 * 60 * 60, :second))
+    fresh = device_grant!(client).grant
+
+    assert {:ok, 1} = OAuth.prune_device_grants(authorize?: false)
+
+    assert {:error, _not_found} =
+             DeviceGrant.get_by_device_code_hash(old.device_code_hash, authorize?: false)
+
+    assert {:ok, %DeviceGrant{}} =
+             DeviceGrant.get_by_device_code_hash(fresh.device_code_hash, authorize?: false)
+  end
+
+  test "a terminal grant survives its first day, then the second arm sweeps it", %{client: client} do
+    # Terminal (:consumed) rows are swept by the status+updated_at arm
+    # once past the horizon — the retention claim's other half.
+    approver = user!()
+    minted = device_grant!(client)
+    {:ok, approved} = OAuth.approve_device_grant(minted.grant, actor: approver)
+    consumed = DeviceGrant.consume!(approved, authorize?: false)
+
+    # An hour back: inside the horizon — the row survives so a racing
+    # poll still answers expired_token, not "unknown".
+    hour_old = DateTime.add(DateTime.utc_now(), -1, :hour)
+    backdated = Ash.Seed.update!(consumed, %{updated_at: hour_old})
+    assert {:ok, 0} = OAuth.prune_device_grants(authorize?: false)
+
+    assert {:ok, %DeviceGrant{}} =
+             DeviceGrant.get_by_device_code_hash(backdated.device_code_hash, authorize?: false)
+
+    # Two days back: past the horizon — the second arm sweeps it.
+    two_days_old = DateTime.add(DateTime.utc_now(), -2 * 24 * 60 * 60, :second)
+    swept = Ash.Seed.update!(backdated, %{updated_at: two_days_old})
+    assert {:ok, 1} = OAuth.prune_device_grants(authorize?: false)
+
+    assert {:error, _not_found} =
+             DeviceGrant.get_by_device_code_hash(swept.device_code_hash, authorize?: false)
+  end
+
+  # Backdated expiry is an action-impossible state: the mint action
+  # always stamps a 10-minute window, so the sweep's horizon needs a
+  # seed.
+  defp seed_grant(client, expires_at) do
+    random_bytes = :crypto.strong_rand_bytes(32)
+    random_suffix = Base.url_encode64(random_bytes, padding: false)
+
+    Ash.Seed.seed!(DeviceGrant, %{
+      device_code_hash: PersonalAccessToken.token_hash(random_suffix),
+      user_code: user_code(),
+      scopes: [],
+      resource: "https://mcp.fluxvale.com/mcp",
+      code_challenge: Base.url_encode64(:crypto.strong_rand_bytes(32), padding: false),
+      status: :pending,
+      expires_at: expires_at,
+      client_id: client.id
+    })
+  end
+
+  defp user_code do
+    symbols =
+      Enum.map(1..8, fn _i -> Enum.random(~c"ABCDEFGHJKMNPQRSTUVWXYZ23456789") end)
+
+    {left, right} = Enum.split(symbols, 4)
+    IO.iodata_to_binary([left, ?-, right])
   end
 
   # Backdated expiry is an action-impossible state: the issue action

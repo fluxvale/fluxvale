@@ -25,7 +25,12 @@ defmodule FluxValeWeb.OAuth.MetadataController do
       revocation_endpoint: Issuer.endpoint("/oauth/revoke"),
       scopes_supported: Scopes.oauth_scopes(),
       response_types_supported: ["code"],
-      grant_types_supported: ["authorization_code", "refresh_token"],
+      grant_types_supported: [
+        "authorization_code",
+        "refresh_token",
+        FluxVale.OAuth.device_grant_type()
+      ],
+      device_authorization_endpoint: Issuer.endpoint("/oauth/device/code"),
       token_endpoint_auth_methods_supported: ["none"],
       revocation_endpoint_auth_methods_supported: ["none"],
       code_challenge_methods_supported: ["S256"],
