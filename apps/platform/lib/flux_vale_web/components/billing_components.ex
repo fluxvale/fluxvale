@@ -686,9 +686,8 @@ defmodule FluxValeWeb.BillingComponents do
   button per rung, `aria-pressed` on the rung that equals `selected`.
 
   Pure presentation: the calling LiveView owns the amount state and
-  re-renders `selected`. A press raises `event` with `phx-value-dollars`;
-  `field` rides along as `phx-value-field` when one handler serves
-  several fields. A typed amount that equals a rung presses that rung's
+  re-renders `selected`. A press raises `event` with `phx-value-dollars`.
+  A typed amount that equals a rung presses that rung's
   button too — the server accepts it either way
   (`FluxVale.Billing.topup_amount_valid?/1` is the one rule).
   """
@@ -705,7 +704,6 @@ defmodule FluxValeWeb.BillingComponents do
   )
 
   attr(:event, :string, required: true, doc: "the phx-click event a button raises")
-  attr(:field, :string, default: nil, doc: "optional phx-value-field for multi-field callers")
   attr(:label, :string, required: true, doc: "the group's visible label and accessible name")
 
   @spec topup_ladder(map()) :: Phoenix.LiveView.Rendered.t()
@@ -727,7 +725,6 @@ defmodule FluxValeWeb.BillingComponents do
           id={"#{@id}-rung-#{rung}"}
           phx-click={@event}
           phx-value-dollars={rung}
-          phx-value-field={@field}
           aria-pressed={if(rung == @selected, do: "true", else: "false")}
           data-testid={"#{@id}-rung-#{rung}"}
           class={[

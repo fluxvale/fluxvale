@@ -420,6 +420,9 @@ defmodule FluxValeWeb.BillingLive.Topup do
   # A chip press sets the one amount state the input also writes. Only
   # an exact rung is taken (a crafted value is silence, the hostile-push
   # posture); the form's own next-amount gate re-checks everything.
+  # LiveView never patches a number input that is in bad-input state (a
+  # lone `-`), so the field can lag the state until cleared. Continue
+  # stays blocked natively meanwhile, so nothing can be charged from it.
   def handle_event("pick-amount", %{"dollars" => dollars}, socket) when is_binary(dollars) do
     case Integer.parse(dollars) do
       {rung, ""} when rung in @topup_ladder_dollars ->
@@ -1591,19 +1594,24 @@ defmodule FluxValeWeb.BillingLive.Topup do
     end
   end
 
-  # The `amount` query param's whole-dollar prefill (#829 L2): an
-  # integer the ladder accepts (a rung, or above the top rung) within
-  # the cap — anything else leaves today's default (nil), exactly like
-  # an absent param. Mirrors parse_dollars plus the cap; the Amount step
-  # renders whatever this returns as the starting value.
+  # The `amount` query param's whole-dollar prefill (#829 L2): integer,
+  # within [floor, cap] — invalid, below-floor, or over-cap values
+  # leave today's default (nil), exactly like an absent param. Mirrors
+  # parse_dollars plus the cap; the Amount step renders whatever this
+  # returns as the starting value. The prefill is a convenience, never a
+  # gate: until the reminder setting follows the ladder (#888, second
+  # slice) a saved reminder amount can sit between the rungs, and its
+  # link must still fill the field in — the form's next-amount gate then
+  # refuses it with the rule in words. A silent blank would break the
+  # reminder mail's "already filled in" promise.
   defp prefill_amount(nil), do: nil
 
   defp prefill_amount(raw) when is_binary(raw) do
     case Integer.parse(raw) do
-      {dollars, ""} when dollars <= @max_prefill_dollars ->
-        if Billing.topup_amount_valid?(dollars * @unit_cents), do: dollars, else: nil
+      {dollars, ""} when dollars >= @min_topup_dollars and dollars <= @max_prefill_dollars ->
+        dollars
 
-      _over_cap_or_invalid ->
+      _invalid ->
         nil
     end
   end

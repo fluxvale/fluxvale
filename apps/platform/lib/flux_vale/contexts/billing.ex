@@ -60,9 +60,9 @@ defmodule FluxVale.Billing do
 
   # The minimum wallet top-up (#250 S6, ratified 2026-11-10): $5 — one
   # config value the wizard, its copy, and the paid-feature prompts all
-  # read, with StartTopup enforcing it server-side. Polar Pro's fixed
-  # $0.40 per checkout is why the floor exists (41.4% marginal storage
-  # margin at $5).
+  # read; StartTopup enforces it as the ladder's bottom rung (below).
+  # Polar Pro's fixed $0.40 per checkout is why the floor exists (41.4%
+  # marginal storage margin at $5).
   @min_topup_cents Application.compile_env(:flux_vale, [:billing, :min_topup_cents])
 
   @doc "The minimum wallet top-up, in whole US cents."

@@ -319,7 +319,8 @@ config :flux_vale,
   # eating a small lane's margin: at $5 the marginal storage rate still
   # clears 41.4% gross (45.4% at $10, rejected for early-stage
   # friction). The wizard, its copy, and the paid-feature prompts all
-  # read this one value; StartTopup enforces it server-side.
+  # read this one value; StartTopup enforces it as the ladder's bottom
+  # rung (next block).
   # The top-up ladder (#888, ADR-0046 Am. 2): the fixed quick-pick
   # amounts. A top-up is a rung or anything above the top rung. The
   # bottom rung IS min_topup_cents — topup_ladder_test.exs pins the

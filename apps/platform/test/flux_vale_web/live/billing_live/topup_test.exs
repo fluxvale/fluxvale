@@ -715,6 +715,12 @@ defmodule FluxValeWeb.BillingLive.TopupTest do
       assert render(element(view, "[data-testid='topup-amount-hint']")) =~
                "Pick an amount, or enter any amount above $20."
 
+      assert has_element?(
+               view,
+               "[data-testid='topup-amount-rule']",
+               "Top-ups start at $5. Each payment carries a fixed processing fee, so smaller top-ups are not offered."
+             )
+
       refute has_element?(view, "[data-testid='topup-summary']")
     end
 
@@ -767,6 +773,9 @@ defmodule FluxValeWeb.BillingLive.TopupTest do
       end
 
       refute has_element?(view, "[data-testid='topup-summary']")
+
+      assert render(element(view, "#topup-amount-form input[name='amount[dollars]']")) =~
+               "value=\"\""
 
       assert has_element?(
                view,
@@ -842,18 +851,38 @@ defmodule FluxValeWeb.BillingLive.TopupTest do
       assert render(element(view, "[data-testid='topup-summary']")) =~ "$25.00"
     end
 
-    test "an off-ladder prefill leaves the default", %{conn: conn} do
-      for url <- [
-            ~p"/billing/topup?amount=4",
-            ~p"/billing/topup?amount=7",
-            ~p"/billing/topup?amount=12"
-          ] do
-        view = to_amount(conn, %{}, url)
+    test "an amount below the floor leaves the default", %{conn: conn} do
+      view = to_amount(conn, %{}, ~p"/billing/topup?amount=4")
 
-        input = render(element(view, "#topup-amount-form input[name='amount[dollars]']"))
-        assert input =~ "value=\"\""
-        refute has_element?(view, "[data-testid='topup-summary']")
-      end
+      input = render(element(view, "#topup-amount-form input[name='amount[dollars]']"))
+      assert input =~ "value=\"\""
+      refute has_element?(view, "[data-testid='topup-summary']")
+    end
+
+    test "an off-ladder prefill fills the field, and Continue refuses it by name", %{conn: conn} do
+      # The prefill is a convenience, never a gate: a reminder link can
+      # still carry a between-rungs amount until the setting follows the
+      # ladder (second slice). The field is filled (the mail's promise)
+      # and the form's gate refuses it in words.
+      view = to_amount(conn, %{}, ~p"/billing/topup?amount=12")
+
+      input = render(element(view, "#topup-amount-form input[name='amount[dollars]']"))
+      assert input =~ "value=\"12\""
+      refute has_element?(view, "[data-testid='topup-summary']")
+
+      refute has_element?(
+               view,
+               "[data-testid='topup-amount-ladder'] [aria-pressed='true']"
+             )
+
+      view
+      |> form("#topup-amount-form", amount: %{dollars: "12"})
+      |> render_submit()
+
+      assert has_element?(view, "#topup-amount-form")
+
+      assert render(view) =~
+               "Choose $5, $10, $15 or $20, or enter a whole-dollar amount above $20."
     end
 
     test "?amount matching a rung prefills it and presses its chip", %{conn: conn} do
