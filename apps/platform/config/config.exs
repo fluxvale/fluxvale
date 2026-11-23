@@ -247,7 +247,8 @@ config :flux_vale,
   # `issuance_deadline_hours` bounds the verify-by-issuance
   # wait: a :pending row with no Ready Certificate past it is :failed.
   # The issuer overrides at runtime via ACCESS_DOMAINS_ISSUER
-  # (runtime.exs); the namespace via ACCESS_GATEWAY_NAMESPACE.
+  # (runtime.exs); the namespace comes from `:access_gateway` above,
+  # as it does for every other access-edge write.
   access_domains: [
     issuer: "letsencrypt-staging",
     issuance_deadline_hours: 72,
