@@ -3,10 +3,11 @@ defmodule FluxValeWeb.OAuth.DeviceController do
   The device authorization endpoint (#886, RFC 8628 §3.1/§3.2): mints
   one device grant for the CLI's redirectless flow.
 
-  Plain JSON, not form or JSON:API — the CLI is the caller and RFC
-  8628 bodies are bare `application/json` (the Identity device wire's
-  rationale). Unauthenticated BY DESIGN: the CLI has no token yet,
-  this endpoint is how it earns one; the per-IP window bounds minting.
+  Accepts `application/x-www-form-urlencoded` (RFC 8628 §3.1) and bare
+  `application/json` (the Identity device wire's shape; Plug parses
+  both) and answers plain JSON per §3.2, not JSON:API. Unauthenticated
+  BY DESIGN: the CLI has no token yet, this endpoint is how it earns
+  one; the per-IP window bounds minting.
 
   The verification URLs point at the hosted page (`/oauth/device`,
   S2): the page is the human's half of the flow — nothing redirects

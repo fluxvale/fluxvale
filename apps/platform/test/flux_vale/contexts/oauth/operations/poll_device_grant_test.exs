@@ -159,10 +159,17 @@ defmodule FluxVale.OAuth.Operations.PollDeviceGrantTest do
     client: client,
     user: user
   } do
-    minted = approved_device_grant!(client, user)
     past = DateTime.add(DateTime.utc_now(), DeviceGrant.ttl_seconds() + 1, :second)
 
-    assert {:error, {:expired_token, _reason}} = poll(client, minted, %{}, now: past)
+    pending_minted = device_grant!(client)
+    assert {:error, {:expired_token, _reason}} = poll(client, pending_minted, %{}, now: past)
+
+    denied_minted = device_grant!(client)
+    {:ok, _denied} = OAuth.deny_device_grant(denied_minted.grant, actor: user)
+    assert {:error, {:expired_token, _reason}} = poll(client, denied_minted, %{}, now: past)
+
+    approved_minted = approved_device_grant!(client, user)
+    assert {:error, {:expired_token, _reason}} = poll(client, approved_minted, %{}, now: past)
   end
 
   test "an unknown device_code answers expired_token, never not-found", %{client: client} do
@@ -182,6 +189,7 @@ defmodule FluxVale.OAuth.Operations.PollDeviceGrantTest do
     # finding: the hash guard, not a crash report).
     assert {:error, {:expired_token, _map}} = poll(client, minted, %{"device_code" => %{}})
     assert {:error, {:expired_token, _number}} = poll(client, minted, %{"device_code" => 42})
+    assert {:error, {:expired_token, _list}} = poll(client, minted, %{"device_code" => ["a"]})
   end
 
   test "an unknown or missing client is invalid_client", %{client: client, user: user} do

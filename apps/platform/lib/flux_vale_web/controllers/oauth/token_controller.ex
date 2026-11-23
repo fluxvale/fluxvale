@@ -16,9 +16,9 @@ defmodule FluxValeWeb.OAuth.TokenController do
   alias FluxVale.OAuth
   alias FluxValeWeb.Plugs.OAuthRateLimit
 
-  # The device grant routes by its URN string (the domain owns the
-  # atom; the wire owns the string).
-  @device_grant_type "urn:ietf:params:oauth:grant-type:device_code"
+  # The device grant routes by its wire URN, read from the domain seam
+  # (one tie shared with metadata and PollDeviceGrant).
+  @device_grant_type OAuth.device_grant_type()
 
   @spec token(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def token(conn, _params) do

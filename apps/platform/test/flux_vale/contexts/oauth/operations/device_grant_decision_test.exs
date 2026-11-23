@@ -10,6 +10,7 @@ defmodule FluxVale.OAuth.Operations.DeviceGrantDecisionTest do
 
   alias FluxVale.OAuth
   alias FluxVale.OAuth.AuditEvent
+  alias FluxVale.OAuth.DeviceGrant
 
   require Ash.Query
 
@@ -62,6 +63,42 @@ defmodule FluxVale.OAuth.Operations.DeviceGrantDecisionTest do
     assert {:ok, approved} = OAuth.approve_device_grant(minted.grant, actor: user!())
     assert approved.status == :approved
     assert approved.user_id != nil
+  end
+
+  test "deny without an actor is refused before any write", %{client: client} do
+    minted = device_grant!(client)
+
+    assert {:error, :actor_required} = OAuth.deny_device_grant(minted.grant)
+
+    # The row is untouched — a later actor-ful deny still wins.
+    assert {:ok, denied} = OAuth.deny_device_grant(minted.grant, actor: user!())
+    assert denied.status == :denied
+  end
+
+  test "guarded consume and touch_poll transitions refuse wrong statuses", %{
+    client: client,
+    user: user
+  } do
+    pending_minted = device_grant!(client)
+
+    assert {:error, %Ash.Error.Invalid{errors: consume_pending_errors}} =
+             DeviceGrant.consume(pending_minted.grant, authorize?: false)
+
+    assert Enum.any?(consume_pending_errors, &match?(%Ash.Error.Changes.StaleRecord{}, &1))
+
+    assert {:ok, approved} = OAuth.approve_device_grant(pending_minted.grant, actor: user)
+
+    assert {:error, %Ash.Error.Invalid{errors: touch_approved_errors}} =
+             DeviceGrant.touch_poll(approved, authorize?: false)
+
+    assert Enum.any?(touch_approved_errors, &match?(%Ash.Error.Changes.StaleRecord{}, &1))
+
+    assert {:ok, consumed} = DeviceGrant.consume(approved, authorize?: false)
+
+    assert {:error, %Ash.Error.Invalid{errors: reconsume_errors}} =
+             DeviceGrant.consume(consumed, authorize?: false)
+
+    assert Enum.any?(reconsume_errors, &match?(%Ash.Error.Changes.StaleRecord{}, &1))
   end
 
   test "a row that moved between read and write answers :stale", %{

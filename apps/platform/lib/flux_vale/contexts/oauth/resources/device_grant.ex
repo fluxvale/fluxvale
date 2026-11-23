@@ -186,7 +186,7 @@ defmodule FluxVale.OAuth.DeviceGrant do
 
     read :get_by_user_code do
       description(
-        "Resolve a grant by its user_code — the hosted page's lookup; callers gate on status (the poll reads :consumed, the page renders only :pending)"
+        "Resolve a grant by its user_code — the hosted page's lookup; callers gate on status and expiry"
       )
 
       get?(true)

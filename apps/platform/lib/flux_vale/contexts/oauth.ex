@@ -1,8 +1,9 @@
 defmodule FluxVale.OAuth do
   @moduledoc """
-  The MCP OAuth 2.1 authorization server (#766): dynamic client
-  registration, the authorization-code + PKCE flow, rotating refresh
-  tokens, RFC 7009 revocation, and the OAuth audit trail.
+  The MCP OAuth 2.1 authorization server (#766, #886): dynamic client
+  registration, the authorization-code + PKCE flow, the RFC 8628 device
+  grant, rotating refresh tokens, RFC 7009 revocation, and the OAuth
+  audit trail.
 
   The token rows themselves stay in `FluxVale.Identity` — an OAuth
   access token is a short-lived scoped `personal_access_tokens` row
@@ -45,7 +46,7 @@ defmodule FluxVale.OAuth do
     to: FluxVale.OAuth.Operations.IssueAuthorizationCode,
     as: :call
 
-  # The token endpoint's two grants.
+  # The token endpoint's code and refresh grants (device_code below).
   defdelegate exchange_code(params),
     to: FluxVale.OAuth.Operations.ExchangeCode,
     as: :call

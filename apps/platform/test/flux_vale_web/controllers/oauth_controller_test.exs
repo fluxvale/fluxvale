@@ -416,6 +416,24 @@ defmodule FluxValeWeb.OAuthControllerTest do
                DeviceGrant.get_by_user_code(body["user_code"], authorize?: false)
     end
 
+    test "accepts RFC 8628 §3.1 form-encoded requests", %{conn: conn} do
+      client = client!()
+
+      response =
+        form_post(conn, "/oauth/device/code", %{
+          "client_id" => client.client_id,
+          "scope" => "instances:read",
+          "resource" => resource(),
+          "code_challenge" => challenge(verifier()),
+          "code_challenge_method" => "S256"
+        })
+
+      body = json_response(response, 200)
+      assert body["device_code"] =~ ~r/^[A-Za-z0-9_-]{43}$/
+      assert body["user_code"] =~ ~r/^[A-HJ-KM-NP-Z2-9]{4}-/
+      assert get_resp_header(response, "cache-control") == ["no-store"]
+    end
+
     test "an unknown client answers the §5.2 envelope", %{conn: conn} do
       response =
         json_post(conn, "/oauth/device/code", %{
@@ -539,7 +557,7 @@ defmodule FluxValeWeb.OAuthControllerTest do
       assert json_response(stranger_response, 400)["error"] == "invalid_grant"
 
       denied = device_grant!(client)
-      {:ok, _row} = FluxVale.OAuth.deny_device_grant(denied.grant)
+      {:ok, _row} = FluxVale.OAuth.deny_device_grant(denied.grant, actor: user)
 
       denied_response =
         form_post(conn, "/oauth/token", %{
