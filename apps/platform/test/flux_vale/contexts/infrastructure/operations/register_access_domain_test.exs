@@ -97,6 +97,23 @@ defmodule FluxVale.Infrastructure.Operations.RegisterAccessDomainTest do
       refute exists?("apps.customer.com")
     end
 
+    test "a refused apply (403) issues no rollback delete — nothing landed to remove", %{
+      owner: owner
+    } do
+      expect(Kubereq, :apply, fn _req, _manifest, _fm ->
+        {:ok, %{status: 403, body: %{"message" => "forbidden"}}}
+      end)
+
+      reject(Kubereq, :delete, 3)
+
+      assert {:error, _reason} =
+               Infrastructure.register_access_domain(%{domain: "apps.customer.com"},
+                 actor: owner
+               )
+
+      refute exists?("apps.customer.com")
+    end
+
     test "a failed rollback cleanup still returns the original error", %{owner: owner} do
       expect(Kubereq, :apply, fn _req, _manifest, _fm ->
         {:ok, %{status: 500, body: %{}}}
