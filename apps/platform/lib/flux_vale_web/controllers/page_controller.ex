@@ -67,15 +67,21 @@ defmodule FluxValeWeb.PageController do
   # flow never walked) redirects to /onboarding; everything else about
   # the app stays ungated (no on_mount interception, deep links stay
   # reachable). The attribute rides the resolved struct — no extra
-  # load. Once the flow stamps :finish_onboarding, this arm renders the
-  # dashboard as before, forever.
-  defp dashboard(conn, user)
-
-  defp dashboard(conn, %{onboarded_at: nil} = _user) do
-    redirect(conn, to: ~p"/onboarding")
+  # load. #887: a nil stamp whose signals say done (a live machine
+  # credential + a first instance — the agent-first-run shape) renders
+  # the dashboard instead, converging the stamp on the way (the
+  # predicate module), NEVER redirecting — OnboardingLive's done-arm
+  # navigates back here, so a redirect would loop.
+  defp dashboard(conn, %{onboarded_at: nil} = user) do
+    case FluxVale.Onboarding.converge(user) do
+      {true, _done} -> render_dashboard(conn)
+      {false, _flow_ahead} -> redirect(conn, to: ~p"/onboarding")
+    end
   end
 
-  defp dashboard(conn, _user) do
+  defp dashboard(conn, _user), do: render_dashboard(conn)
+
+  defp render_dashboard(conn) do
     conn
     |> assign(:page_title, "FluxVale Dashboard")
     |> assign(:page_description, "Your instances, balance, and runway at a glance.")

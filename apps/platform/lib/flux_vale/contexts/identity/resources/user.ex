@@ -303,15 +303,21 @@ defmodule FluxVale.Identity.User do
       public?(false)
     end
 
-    # The #831 first-run stamp: set ONCE by the /onboarding flow (W2) on
-    # finish OR skip — one bit, no per-step state, the flow's show-once
-    # guarantee. Nil for every existing account, seeds included — that is
-    # the point (Terence's derived admin-2 walks the flow). Amends #765's
-    # no-stored-flag stance by name (the plan's D5): that stance governed
-    # the /agent PAGE's dismissal, which stays true; the FLOW's show-once
-    # needs one persisted bit. Private like the invite stamps: the
-    # machine-API projections (/me's pinned field list, MCP) are
-    # explicit-field builders and must stay unaware of it.
+    # The #831 first-run stamp: set ONCE on finish OR skip by the
+    # /onboarding flow (W2) — one bit, no per-step state, the flow's
+    # show-once guarantee. Nil for every existing account, seeds
+    # included — that is the point (Terence's derived admin-2 walks
+    # the flow). Amends #765's no-stored-flag stance by name (the
+    # plan's D5): that stance governed the /agent PAGE's dismissal,
+    # which stays true; the FLOW's show-once needs one persisted bit.
+    # #887 adds the second (best-effort) writer: FluxVale.Onboarding
+    # converges the stamp when the signals say done — a live machine
+    # credential plus a first instance — so an agent-first run
+    # completes onboarding without a click. Set-once expr keeps the
+    # original stamp whichever writer lands first. Private like the
+    # invite stamps: the machine-API projections (/me's pinned field
+    # list, MCP) are explicit-field builders and must stay unaware of
+    # it.
     attribute :onboarded_at, :utc_datetime_usec do
       public?(false)
     end

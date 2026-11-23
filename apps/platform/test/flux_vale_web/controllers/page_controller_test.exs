@@ -1,9 +1,12 @@
 defmodule FluxValeWeb.PageControllerTest do
   use FluxValeWeb.ConnCase, async: true
 
+  alias FluxVale.Identity.User
   alias FluxVale.Pricing
   alias FluxVale.Pricing.Size
   alias FluxVale.TestSupport.AccountsFixtures
+  alias FluxVale.TestSupport.ApiPat
+  alias FluxVale.TestSupport.InstanceFixtures
   alias FluxVale.TestSupport.PricingFixtures
   alias FluxVale.TestSupport.SessionHelpers
 
@@ -325,6 +328,27 @@ defmodule FluxValeWeb.PageControllerTest do
     conn = get(session_conn, ~p"/")
 
     assert redirected_to(conn) == ~p"/onboarding"
+  end
+
+  # #887: the agent-first-run shape — nil stamp, but a live machine
+  # credential and a first instance already landed. The gate renders
+  # the dashboard (never redirects — OnboardingLive's done-arm
+  # navigates back here, so a redirect would loop) and converges the
+  # stamp on the way, so every later visit agrees without the
+  # predicate.
+  test "GET / with a signal-complete un-onboarded session renders the dashboard and converges (#887)",
+       %{conn: conn} do
+    user = SessionHelpers.user!()
+    ApiPat.mint!(user, [])
+    version = InstanceFixtures.app_version!()
+    InstanceFixtures.local_cluster!()
+    InstanceFixtures.instance!(version, user)
+    session_conn = SessionHelpers.sign_in(conn, user)
+
+    conn = get(session_conn, ~p"/")
+
+    assert html_response(conn, 200) =~ ~s(data-testid="dashboard-balance")
+    assert Ash.get!(User, user.id, authorize?: false).onboarded_at
   end
 
   test "GET /about renders the landing for anonymous visitors, canonical to /", %{conn: conn} do
