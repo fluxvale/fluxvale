@@ -11,6 +11,7 @@ defmodule FluxValeWeb.BillingComponents do
 
   use FluxValeWeb, :html
 
+  alias FluxVale.Billing
   alias FluxVale.Billing.LedgerEntry
   alias FluxVale.Billing.Month
   alias FluxVale.Billing.Tax
@@ -677,4 +678,96 @@ defmodule FluxValeWeb.BillingComponents do
     word = to_string(reason)
     String.capitalize(word)
   end
+
+  @doc """
+  The top-up ladder (#888, ADR-0046 Am. 2): the fixed quick-pick amounts
+  as a row of pressed-state buttons — the deploy wizard's quick-pick
+  idiom (`CatalogLive.Deploy`'s size presets). One `role="group"`, one
+  button per rung, `aria-pressed` on the rung that equals `selected`.
+
+  Pure presentation: the calling LiveView owns the amount state and
+  re-renders `selected`. A press raises `event` with `phx-value-dollars`.
+  A typed amount that equals a rung presses that rung's
+  button too — the server accepts it either way
+  (`FluxVale.Billing.topup_amount_valid?/1` is the one rule).
+  """
+  attr(:id, :string, required: true, doc: "prefixes the group's and its buttons' ids and testids")
+
+  attr(:rungs, :list,
+    required: true,
+    doc: "the rungs in whole dollars (Billing.topup_ladder_dollars/0)"
+  )
+
+  attr(:selected, :integer,
+    default: nil,
+    doc: "the current amount in whole dollars; nil presses nothing"
+  )
+
+  attr(:event, :string, required: true, doc: "the phx-click event a button raises")
+  attr(:label, :string, required: true, doc: "the group's visible label and accessible name")
+
+  @spec topup_ladder(map()) :: Phoenix.LiveView.Rendered.t()
+  def topup_ladder(assigns) do
+    ~H"""
+    <div
+      id={"#{@id}-ladder"}
+      role="group"
+      aria-labelledby={"#{@id}-ladder-label"}
+      data-testid={"#{@id}-ladder"}
+    >
+      <p id={"#{@id}-ladder-label"} class="mb-1.5 text-sm font-medium text-ink">
+        {@label}
+      </p>
+      <div class="flex flex-wrap gap-2">
+        <button
+          :for={rung <- @rungs}
+          type="button"
+          id={"#{@id}-rung-#{rung}"}
+          phx-click={@event}
+          phx-value-dollars={rung}
+          aria-pressed={if(rung == @selected, do: "true", else: "false")}
+          data-testid={"#{@id}-rung-#{rung}"}
+          class={[
+            "rounded-control border px-3 py-1.5 text-sm font-medium transition-colors duration-(--motion-fast)",
+            "outline-offset-2 outline-focus focus-visible:outline-2",
+            if(rung == @selected,
+              do: "border-primary bg-primary-muted text-link",
+              else: "border-line bg-panel text-ink hover:border-line-strong hover:bg-panel-raised"
+            )
+          ]}
+        >
+          {Pricing.format_usd_whole_or_exact(rung * 100)}
+        </button>
+      </div>
+    </div>
+    """
+  end
+
+  @doc """
+  The ladder's rungs as a buyer reads them, "$5, $10, $15 or $20" —
+  built from config, so a sentence can never name a rung the rule
+  refuses. One source for every surface that states the rule in words.
+  (A one-rung ladder is not a configured shape — topup_ladder_test pins
+  four — so the empty-leading case carries no branch.)
+  """
+  @spec topup_ladder_choices() :: String.t()
+  def topup_ladder_choices do
+    formatted =
+      Enum.map(Billing.topup_ladder_dollars(), &Pricing.format_usd_whole_or_exact(&1 * 100))
+
+    {leading, [last]} = Enum.split(formatted, -1)
+    Enum.join(leading, ", ") <> " or " <> last
+  end
+
+  @doc "The ladder's top rung as a buyer reads it (\"$20\") — custom amounts start above it."
+  @spec topup_ladder_top() :: String.t()
+  def topup_ladder_top do
+    top_dollars = List.last(Billing.topup_ladder_dollars())
+    Pricing.format_usd_whole_or_exact(top_dollars * 100)
+  end
+
+  @doc "The helper line under a ladder-backed amount field."
+  @spec topup_ladder_hint() :: String.t()
+  def topup_ladder_hint,
+    do: "Pick an amount, or enter any amount above #{topup_ladder_top()}."
 end

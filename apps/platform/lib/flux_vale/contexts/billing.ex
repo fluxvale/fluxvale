@@ -60,9 +60,9 @@ defmodule FluxVale.Billing do
 
   # The minimum wallet top-up (#250 S6, ratified 2026-11-10): $5 — one
   # config value the wizard, its copy, and the paid-feature prompts all
-  # read, with StartTopup enforcing it server-side. Polar Pro's fixed
-  # $0.40 per checkout is why the floor exists (41.4% marginal storage
-  # margin at $5).
+  # read; StartTopup enforces it as the ladder's bottom rung (below).
+  # Polar Pro's fixed $0.40 per checkout is why the floor exists (41.4%
+  # marginal storage margin at $5).
   @min_topup_cents Application.compile_env(:flux_vale, [:billing, :min_topup_cents])
 
   @doc "The minimum wallet top-up, in whole US cents."
@@ -72,6 +72,33 @@ defmodule FluxVale.Billing do
   @doc "The minimum wallet top-up in whole dollars (the wizard's unit)."
   @spec min_topup_dollars() :: pos_integer()
   def min_topup_dollars, do: div(@min_topup_cents, 100)
+
+  # The top-up ladder (#888, ADR-0046 Am. 2): the quick-pick amounts.
+  # One predicate decides every surface that takes a top-up amount —
+  # the wizard's Amount step and StartTopup both call it, so the UI and
+  # the server cannot disagree. Compile_env like the floor above: a
+  # product constant, a move is a reviewed diff.
+  @topup_ladder_cents Application.compile_env(:flux_vale, [:billing, :topup_ladder_cents])
+  @topup_ladder_top_cents List.last(@topup_ladder_cents)
+
+  @doc "The top-up ladder's rungs, in whole US cents."
+  @spec topup_ladder_cents() :: [pos_integer()]
+  def topup_ladder_cents, do: @topup_ladder_cents
+
+  @doc "The top-up ladder's rungs in whole dollars (the wizard's unit)."
+  @spec topup_ladder_dollars() :: [pos_integer()]
+  def topup_ladder_dollars, do: Enum.map(@topup_ladder_cents, &div(&1, 100))
+
+  @doc """
+  Whether `amount_cents` is a valid top-up amount: a rung of the ladder,
+  or above its top rung. Anything that is not an integer is invalid.
+  """
+  @spec topup_amount_valid?(term()) :: boolean()
+  def topup_amount_valid?(amount_cents) when is_integer(amount_cents) do
+    amount_cents in @topup_ladder_cents or amount_cents > @topup_ladder_top_cents
+  end
+
+  def topup_amount_valid?(_other), do: false
 
   # The staged charge lane's platform gate (#829 S2). A RUNTIME read —
   # unlike min_topup_cents's compile_env above: the gate must flip on

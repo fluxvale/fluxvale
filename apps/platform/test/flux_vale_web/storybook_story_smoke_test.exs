@@ -21,7 +21,8 @@ defmodule FluxValeWeb.Storybook.StorySmokeTest do
     {"org_switcher", "Org Switcher"},
     {"user_menu", "User Menu"},
     {"wallet_facts", "Wallet Facts"},
-    {"ledger_history", "Ledger History"}
+    {"ledger_history", "Ledger History"},
+    {"topup_ladder", "Topup Ladder"}
   ]
 
   test "the panel components' stories load and list their variations" do

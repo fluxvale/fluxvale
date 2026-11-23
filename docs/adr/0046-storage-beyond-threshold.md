@@ -145,3 +145,45 @@ floor, 3.17¢ at $25, and 3.13¢ as the hard floor** (the variable fee costs
 is fixed overhead, not per GB: $0.20/customer at 100 customers, or about
 14 beyond-threshold customers' marginal storage margin. The fee schedule
 is a plan term, so a provider change re-runs the same table.
+
+## Amendment 2 — the top-up ladder (2026-11-22)
+
+**#888: top-up amounts become a ladder.** A top-up is valid when it is
+a rung — **$5, $10, $15, $20** (`config :flux_vale, :billing,
+topup_ladder_cents: [500, 1000, 1500, 2000]`) — or above the top rung.
+`FluxVale.Billing.topup_amount_valid?/1` is the one definition; the
+wizard's Amount step (quick-pick buttons plus a custom field) and
+`StartTopup` both call it, so the UI and the server cannot disagree.
+`StartTopup` refuses everything else as `:invalid_amount` (Am. 1 named
+the floor's refusal `:amount_below_minimum`; the atom changed with the
+rule). The floor is unchanged: the bottom rung IS Am. 1's $5, and a
+test pins the pairing. The auto-recharge setting adopts the same rule
+in #888's second slice.
+
+The owner's call (issue #888), from a live staging run: a fixed ladder
+gives the wallet a predictable shape and replaces free-form entry as
+the primary path.
+
+**Fee share per rung.** Am. 1's table is on the Pro basis (3.8% + 40¢).
+The org is on Starter (5% + 50¢) until the post-launch upgrade, so both
+are recorded — US card, before VAT (the fee table's own basis):
+
+| top-up | Starter | Pro |
+|---|---|---|
+| $5 | 15.0% | 11.8% |
+| $10 | 10.0% | 7.8% |
+| $15 | 8.3% | 6.5% |
+| $20 | 7.5% | 5.8% |
+
+On Starter the $5 rung holds about **38.2%** marginal storage gross
+(Am. 1's 41.4% is Pro). The ladder changes neither figure: it is
+recorded here, not re-ratified. Provider minimums do not bind (Polar
+$0.50, HitPay $0.30 — both cleared tenfold by the floor).
+
+**Rejected:** a $10 floor for the better fee share (Am. 1 already chose
+$5 for lower early-stage friction), and snapping stored reminder
+amounts onto the ladder by migration (it rewrites a stored preference
+without the owner; the second slice validates the write instead).
+
+Revisit trigger: the Polar Pro upgrade (plan #829 S6) re-runs the fee
+table; a provider change re-runs both.

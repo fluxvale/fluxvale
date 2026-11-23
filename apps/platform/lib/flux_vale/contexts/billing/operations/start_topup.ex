@@ -25,10 +25,11 @@ defmodule FluxVale.Billing.Operations.StartTopup do
   (`FluxVale.Billing.Tax`), so the recorded signals cannot fork from
   the buyer input.
 
-  A top-up below the configured wallet minimum (#250 S6: $5,
-  `FluxVale.Billing.min_topup_cents/0`) is refused
-  (`:amount_below_minimum`) before anything is persisted or charged —
-  the gateway's fixed per-checkout fee only amortizes at that floor.
+  A top-up amount that is not on the ladder (#888, ADR-0046 Am. 2: a
+  rung of `FluxVale.Billing.topup_ladder_cents/0`, or above its top
+  rung) is refused (`:invalid_amount`) before anything is persisted or
+  charged — the gateway's fixed per-checkout fee only amortizes from
+  the ladder's floor up.
 
   Checkout failure marks the row `:failed` (terminal, auditable) and
   returns the error; the buyer retries with a fresh row. System
@@ -88,9 +89,9 @@ defmodule FluxVale.Billing.Operations.StartTopup do
 
   defp create_topup(org, params) do
     # The floor is checked before any tax arithmetic: a negative or
-    # non-integer amount must answer `:amount_below_minimum`, never
+    # non-integer amount must answer `:invalid_amount`, never
     # reach `Tax.tax_cents/2`'s non-negative guard.
-    case check_minimum(params.amount_cents) do
+    case check_amount(params.amount_cents) do
       :ok -> do_create_topup(org, params)
       error -> error
     end
@@ -159,17 +160,16 @@ defmodule FluxVale.Billing.Operations.StartTopup do
     end
   end
 
-  # The wallet floor (#250 S6, ratified at $5): the wizard gates the
-  # amount client-side, this is the gate a crafted event cannot skip.
-  # The floor exists because Polar Pro charges a fixed $0.40 per
-  # checkout — see FluxVale.Billing.min_topup_cents/0.
-  defp check_minimum(amount_cents) do
-    minimum = FluxVale.Billing.min_topup_cents()
-
-    if is_integer(amount_cents) and amount_cents >= minimum do
+  # The ladder (#888): the wizard gates the amount with the same
+  # predicate, this is the gate a crafted event cannot skip. The floor
+  # exists because the gateway charges a fixed fee per checkout — see
+  # FluxVale.Billing.min_topup_cents/0 — and the rungs keep small
+  # top-ups to a predictable shape.
+  defp check_amount(amount_cents) do
+    if FluxVale.Billing.topup_amount_valid?(amount_cents) do
       :ok
     else
-      {:error, :amount_below_minimum}
+      {:error, :invalid_amount}
     end
   end
 

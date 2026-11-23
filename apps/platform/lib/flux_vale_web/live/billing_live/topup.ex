@@ -1,8 +1,12 @@
 defmodule FluxValeWeb.BillingLive.Topup do
   @moduledoc """
   The top-up wizard (#137, PikaPods-shaped): a $1 credit unit bought in
-  quantity — Billing Details → Amount → Payment → Confirmation. Wallet
-  balance can be used for any app, never expires, and is non-refundable.
+  quantity — Billing Details → Amount → Payment → Confirmation. The
+  Amount step offers the ladder's rungs as quick picks ($5, $10, $15,
+  $20) and takes any custom amount above the top rung — one rule,
+  `FluxVale.Billing.topup_amount_valid?/1`, shared with `StartTopup`
+  (#888). Wallet balance can be used for any app, never expires, and is
+  non-refundable.
 
   A top-up is a single-purpose purchase: VAT is collected at top-up,
   added on top of the wallet amount (#138, ADR-0029 Am. 3 gate 2). The
@@ -51,6 +55,7 @@ defmodule FluxValeWeb.BillingLive.Topup do
   alias FluxVale.Billing.Topup
   alias FluxVale.Billing.TopupOutcomeMail
   alias FluxVale.Pricing
+  alias FluxValeWeb.BillingComponents
   alias FluxValeWeb.PersonalOrg
 
   require Ash.Query
@@ -65,9 +70,13 @@ defmodule FluxValeWeb.BillingLive.Topup do
   @country_rows 8
   # $1 credit unit × quantity (decided 2026-10-13, #137).
   @unit_cents 100
-  # The wizard's floor (#250 S6): the config minimum in whole dollars —
-  # the form, its gates, and its copy all read this one value.
+  # The input's native `min` (#250 S6): the config minimum in whole
+  # dollars, a first filter only.
   @min_topup_dollars FluxVale.Billing.min_topup_dollars()
+  # The ladder (#888): the quick-pick rungs. The rule itself is
+  # Billing.topup_amount_valid?/1 — every gate here calls it, so the
+  # form and StartTopup cannot disagree.
+  @topup_ladder_dollars FluxVale.Billing.topup_ladder_dollars()
   # The amount prefill's ceiling (#829 L2): the reminder lane's
   # one-click link carries `amount` in whole dollars; anything above
   # this is a typo or a crafted URL, not a top-up intent, and leaves
@@ -408,6 +417,24 @@ defmodule FluxValeWeb.BillingLive.Topup do
     end
   end
 
+  # A chip press sets the one amount state the input also writes. Only
+  # an exact rung is taken (a crafted value is silence, the hostile-push
+  # posture); the form's own next-amount gate re-checks everything.
+  # LiveView never patches a number input that is in bad-input state (a
+  # lone `-`), so the field can lag the state until cleared. Continue
+  # stays blocked natively meanwhile, so nothing can be charged from it.
+  def handle_event("pick-amount", %{"dollars" => dollars}, socket) when is_binary(dollars) do
+    case Integer.parse(dollars) do
+      {rung, ""} when rung in @topup_ladder_dollars ->
+        {:noreply, assign(socket, amount_dollars: rung)}
+
+      _not_a_rung ->
+        {:noreply, socket}
+    end
+  end
+
+  def handle_event("pick-amount", _crafted, socket), do: {:noreply, socket}
+
   def handle_event("validate-amount", %{"amount" => %{"dollars" => dollars}}, socket) do
     {:noreply, assign(socket, amount_dollars: parse_dollars(dollars))}
   end
@@ -415,15 +442,10 @@ defmodule FluxValeWeb.BillingLive.Topup do
   def handle_event("next-amount", %{"amount" => %{"dollars" => dollars}}, socket) do
     amount = parse_dollars(dollars)
 
-    if is_integer(amount) and amount >= @min_topup_dollars do
+    if is_integer(amount) do
       {:noreply, assign(socket, amount_dollars: amount, step: :payment)}
     else
-      {:noreply,
-       put_flash(
-         socket,
-         :error,
-         "Enter a whole-dollar amount of at least $#{@min_topup_dollars}."
-       )}
+      {:noreply, put_flash(socket, :error, amount_error())}
     end
   end
 
@@ -445,8 +467,18 @@ defmodule FluxValeWeb.BillingLive.Topup do
   end
 
   defp payable?(assigns) do
-    assigns.step == :payment and is_integer(assigns.amount_dollars) and
-      assigns.amount_dollars >= @min_topup_dollars and details_valid?(assigns.details)
+    assigns.step == :payment and amount_valid?(assigns) and details_valid?(assigns.details)
+  end
+
+  # The ladder's one gate for everything the steps render: a
+  # whole-dollar amount the domain predicate accepts.
+  defp amount_valid?(assigns) do
+    is_integer(assigns.amount_dollars) and
+      Billing.topup_amount_valid?(assigns.amount_dollars * @unit_cents)
+  end
+
+  defp amount_error do
+    "Choose #{BillingComponents.topup_ladder_choices()}, or enter a whole-dollar amount above #{BillingComponents.topup_ladder_top()}."
   end
 
   defp open_checkout(socket, assigns) do
@@ -492,6 +524,7 @@ defmodule FluxValeWeb.BillingLive.Topup do
            "Payments aren't configured on this environment yet. Nothing was charged."
          )}
 
+      # :invalid_amount is unreachable here — the wizard's gate and StartTopup share the predicate.
       {:error, reason} ->
         Logger.error("Top-up checkout failed: #{inspect(reason)}")
 
@@ -874,10 +907,20 @@ defmodule FluxValeWeb.BillingLive.Topup do
       |> assign(min_topup_dollars: @min_topup_dollars)
       |> assign(form: to_form(%{"dollars" => dollars}, as: :amount))
       |> assign(totals: totals(assigns))
+      |> assign(amount_valid?: amount_valid?(assigns))
+      |> assign(ladder_dollars: @topup_ladder_dollars)
 
     ~H"""
     <.card class="space-y-4">
       <h2 class="text-base font-medium text-ink">How much do you want to add?</h2>
+
+      <BillingComponents.topup_ladder
+        id="topup-amount"
+        rungs={@ladder_dollars}
+        selected={@amount_dollars}
+        event="pick-amount"
+        label="Quick amounts"
+      />
 
       <.form
         for={@form}
@@ -886,15 +929,20 @@ defmodule FluxValeWeb.BillingLive.Topup do
         phx-submit="next-amount"
         class="space-y-4"
       >
-        <.input
-          field={@form[:dollars]}
-          label="Amount (whole US dollars)"
-          type="number"
-          min={@min_topup_dollars}
-          step="1"
-          placeholder="10"
-          required
-        />
+        <div class="space-y-1.5">
+          <.input
+            field={@form[:dollars]}
+            label="Amount (whole US dollars)"
+            type="number"
+            min={@min_topup_dollars}
+            step="1"
+            placeholder="10"
+            required
+          />
+          <p class="text-xs text-ink-subtle" data-testid="topup-amount-hint">
+            {BillingComponents.topup_ladder_hint()}
+          </p>
+        </div>
         <div class="flex items-center gap-3">
           <.button type="submit" size="sm" id="topup-amount-next">
             Continue
@@ -905,7 +953,7 @@ defmodule FluxValeWeb.BillingLive.Topup do
         </div>
       </.form>
 
-      <%= if is_integer(@amount_dollars) and @amount_dollars >= @min_topup_dollars do %>
+      <%= if @amount_valid? do %>
         <%!-- Receipt panels on the card language (#277 T6): the backups
             sub-panel idiom — panel radius, raised fill, line-strong
             border (in dark --line IS --panel-raised, so a border or
@@ -939,6 +987,10 @@ defmodule FluxValeWeb.BillingLive.Topup do
           </p>
         </div>
       <% end %>
+
+      <p class="text-xs text-ink-subtle" data-testid="topup-amount-rule">
+        Top-ups start at {Pricing.format_usd_whole_or_exact(FluxVale.Billing.min_topup_cents())}. Each payment carries a fixed processing fee, so smaller top-ups are not offered.
+      </p>
 
       <p class="text-xs text-ink-subtle" data-testid="topup-notice">
         Wallet balance can be used for any app, never expires, and is non-refundable. See the <.link
@@ -1071,14 +1123,17 @@ defmodule FluxValeWeb.BillingLive.Topup do
     end
   end
 
-  defp totals(%{amount_dollars: dollars, tax_rate_bp: rate_bp})
-       when is_integer(dollars) and dollars >= @min_topup_dollars do
-    subtotal = dollars * @unit_cents
-    tax = Tax.tax_cents(subtotal, rate_bp)
-    %{subtotal: subtotal, tax: tax, total: subtotal + tax}
+  # The ladder's rule prices the summary (#888): a whole-dollar amount
+  # the domain predicate accepts — the same gate the steps render by.
+  defp totals(%{amount_dollars: dollars, tax_rate_bp: rate_bp}) do
+    if is_integer(dollars) and Billing.topup_amount_valid?(dollars * @unit_cents) do
+      subtotal = dollars * @unit_cents
+      tax = Tax.tax_cents(subtotal, rate_bp)
+      %{subtotal: subtotal, tax: tax, total: subtotal + tax}
+    else
+      %{subtotal: 0, tax: 0, total: 0}
+    end
   end
-
-  defp totals(_unset), do: %{subtotal: 0, tax: 0, total: 0}
 
   defp taxes_label(true, _rate_bp), do: "VAT (reverse charge, 0%)"
   defp taxes_label(false, rate_bp), do: "VAT (#{Tax.percent_label(rate_bp)}%)"
@@ -1527,10 +1582,15 @@ defmodule FluxValeWeb.BillingLive.Topup do
     String.match?(email, ~r/^[^@\s]+@[^@\s]+\.[^@\s]+$/)
   end
 
+  # The ladder's rule at the form: a whole-dollar amount the domain
+  # predicate accepts, else nil.
   defp parse_dollars(raw) do
     case Integer.parse(raw || "") do
-      {dollars, ""} when dollars >= @min_topup_dollars -> dollars
-      _invalid -> nil
+      {dollars, ""} ->
+        if Billing.topup_amount_valid?(dollars * @unit_cents), do: dollars, else: nil
+
+      _invalid ->
+        nil
     end
   end
 
@@ -1538,7 +1598,12 @@ defmodule FluxValeWeb.BillingLive.Topup do
   # within [floor, cap] — invalid, below-floor, or over-cap values
   # leave today's default (nil), exactly like an absent param. Mirrors
   # parse_dollars plus the cap; the Amount step renders whatever this
-  # returns as the starting value.
+  # returns as the starting value. The prefill is a convenience, never a
+  # gate: until the reminder setting follows the ladder (#888, second
+  # slice) a saved reminder amount can sit between the rungs, and its
+  # link must still fill the field in — the form's next-amount gate then
+  # refuses it with the rule in words. A silent blank would break the
+  # reminder mail's "already filled in" promise.
   defp prefill_amount(nil), do: nil
 
   defp prefill_amount(raw) when is_binary(raw) do
