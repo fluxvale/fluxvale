@@ -29,7 +29,8 @@ defmodule FluxVale.RequiredEnvsTest do
     "DB_HOST" => "fluxvale-cnpg-pooler.fluxvale-db.svc.cluster.local",
     "DB_USER" => "flux",
     "SECRET_KEY_BASE" => "test-secret-key-base",
-    "TOKEN_SIGNING_SECRET" => "test-token-signing-secret"
+    "TOKEN_SIGNING_SECRET" => "test-token-signing-secret",
+    "ACCESS_GATEWAY_NAMESPACE" => "fluxvale-access"
   }
 
   # The prod raise names DATABASE_URL when DB_HOST is the missing
@@ -46,7 +47,8 @@ defmodule FluxVale.RequiredEnvsTest do
     "DB_NAME",
     "DB_PASSWORD",
     "DB_PORT",
-    "DB_USER"
+    "DB_USER",
+    "ACCESS_GATEWAY_NAMESPACE"
   ]
 
   test "the file and its known values agree — every name has a fixture" do

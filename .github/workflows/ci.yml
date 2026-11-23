@@ -265,6 +265,7 @@ jobs:
           SECRET_KEY_BASE: cicidummysecretcibase64chars-0000000000000000000000000000000000000000
           TOKEN_SIGNING_SECRET: cicidummytokensecret-00000000000000000000000000000000000000000000
           PLATFORM_ENV: local
+          ACCESS_GATEWAY_NAMESPACE: fluxvale-access
         run: mix test test/flux_vale_web/admin_gate_test.exs
 
       # v7.1.1 — pinned to commit: mutable tags execute unreviewed code.

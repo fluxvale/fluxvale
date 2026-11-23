@@ -386,6 +386,50 @@ case System.get_env("INSTANCE_RBAC_SA_NAMESPACE") do
     config :flux_vale, :instance_rbac, Keyword.put(rbac, :service_account_namespace, namespace)
 end
 
+# The access namespace (#273 D2): the value
+# `InstanceK8s.gateway_access_namespace/0` resolves — the gateway's own
+# objects and the access-dns ConfigMap read it, and the custom-domain
+# Certificates join the same resolver with the fix's other half (#893).
+# config.exs's `fluxvale-access` is the LOCAL default only; each
+# deployed env names its own (staging: fluxvale-access, production:
+# fluxvale-access-prod — the fleet overlays set this var), so two envs
+# on one cluster (ADR-0010) never share a namespace, quota or SA grant.
+# Required in a prod-mode boot (#242's contract): unset, the platform
+# would boot and silently answer every write with the local default —
+# production writing into staging's namespace. A non-DNS-1123 value
+# raises here rather than at the API server's rejection on the first
+# write. Test is excluded (the ACCESS_DOMAINS_ISSUER stance): test.exs
+# pins the namespace, and a stray export must not re-point every
+# access assertion.
+valid_namespace? = fn name ->
+  byte_size(name) <= 63 and Regex.match?(~r/^[a-z0-9]([-a-z0-9]*[a-z0-9])?\z/, name)
+end
+
+if config_env() != :test do
+  case {config_env(), System.get_env("ACCESS_GATEWAY_NAMESPACE")} do
+    {:prod, value} when value in [nil, ""] ->
+      raise ArgumentError,
+            "ACCESS_GATEWAY_NAMESPACE is required in a prod-mode boot (staging: " <>
+              "fluxvale-access, production: fluxvale-access-prod) — it names the " <>
+              "namespace every access-edge write targets; unset, the platform would " <>
+              "answer with the local default"
+
+    {_env, value} when value in [nil, ""] ->
+      :ok
+
+    {_env, value} ->
+      unless valid_namespace?.(value) do
+        raise ArgumentError,
+              "ACCESS_GATEWAY_NAMESPACE=#{inspect(value)} is not a DNS-1123 label — " <>
+                "expected e.g. fluxvale-access | fluxvale-access-prod"
+      end
+
+      # `config` deep-merges keyword values, so image, monthly_cents and
+      # wake_intercept_enabled keep their config.exs values.
+      config :flux_vale, :access_gateway, namespace: value
+  end
+end
+
 # #196: which platform env this app is — namespace label at deploy,
 # orphan-sweep scope (see config.exs). The label value must be a valid
 # k8s label value; raise at boot rather than mint namespaces the sweep
