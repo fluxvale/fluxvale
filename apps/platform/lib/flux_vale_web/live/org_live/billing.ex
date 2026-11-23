@@ -166,6 +166,34 @@ defmodule FluxValeWeb.OrganizationLive.Billing do
   end
 
   @impl Phoenix.LiveView
+  # A chip press on the card's ladder rows (#888): fills the one form
+  # field the chip belongs to, the same as typing the rung. Only an
+  # exact rung is taken (a crafted value is silence); the save path
+  # re-validates everything through the domain seam. The nil-form clause
+  # is the member's view on the org page (no form, nothing to fill).
+  def handle_event(
+        "pick-auto-recharge-rung",
+        _params,
+        %{assigns: %{auto_recharge_form: nil}} = socket
+      ) do
+    {:noreply, socket}
+  end
+
+  def handle_event("pick-auto-recharge-rung", %{"field" => field, "dollars" => dollars}, socket)
+      when field in ["threshold_dollars", "amount_dollars"] and is_binary(dollars) do
+    rungs = Enum.map(Billing.topup_ladder_dollars(), &Integer.to_string/1)
+
+    if dollars in rungs do
+      params = Map.put(socket.assigns.auto_recharge_form.params, field, dollars)
+      {:noreply, assign(socket, auto_recharge_form: to_form(params, as: :auto_recharge))}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_event("pick-auto-recharge-rung", _crafted, socket), do: {:noreply, socket}
+
+  @impl Phoenix.LiveView
   # The owner's save, through the domain seam (Billing.
   # set_auto_recharge_setting — never the resource direct): the enum,
   # the constraints, the AutoArmGate, and the owner-role policy are the
@@ -541,10 +569,9 @@ defmodule FluxValeWeb.OrganizationLive.Billing do
   # row, and demanding a valid dollar figure just to switch reminders
   # off would force the owner to re-enter stored values they aren't
   # changing — the stored threshold/amount survive untouched. For a
-  # reminder save the whole-dollar rules apply: threshold ≥ $1 (the
-  # attribute constraint's floor in the form's whole-dollar unit),
-  # amount ≥ the wizard's floor (Billing.min_topup_dollars/0 — the
-  # same unit the one-click link pre-fills). Any other mode — absent,
+  # reminder save the top-up ladder applies (#888): threshold and
+  # amount must each be a rung or above the top rung — the same rule
+  # the wizard and StartTopup enforce. Any other mode — absent,
   # or a crafted non-scalar — rides to the domain as typed: the enum
   # and the AutoArmGate are the authority (a crafted `:auto` is
   # refused by the domain, not by this card).
@@ -554,12 +581,10 @@ defmodule FluxValeWeb.OrganizationLive.Billing do
         {:ok, %{mode: "off"}}
 
       mode when is_binary(mode) ->
-        min_dollars = Billing.min_topup_dollars()
-
         with {:ok, threshold} <-
-               whole_dollars(params["threshold_dollars"], 1, threshold_error()),
+               ladder_dollars(params["threshold_dollars"], threshold_error()),
              {:ok, amount} <-
-               whole_dollars(params["amount_dollars"], min_dollars, amount_error()),
+               ladder_dollars(params["amount_dollars"], amount_error()),
              {:ok, charge} <- gate_on_charge_inputs(params) do
           {:ok,
            Map.merge(
@@ -622,16 +647,22 @@ defmodule FluxValeWeb.OrganizationLive.Billing do
 
   defp present_string(_missing_or_malformed), do: nil
 
-  defp whole_dollars(raw, min, message) when is_binary(raw) do
+  # The card's server-side mirror of the ladder rule (#888) — the same
+  # predicate StartTopup and the wizard use; the domain stays the
+  # authority, the form is UX.
+  defp ladder_dollars(raw, message) when is_binary(raw) do
     trimmed = String.trim(raw)
 
     case Integer.parse(trimmed) do
-      {dollars, ""} when dollars >= min -> {:ok, dollars}
-      _not_a_whole_dollar_at_or_above_the_min -> {:error, message}
+      {dollars, ""} ->
+        if Billing.topup_amount_valid?(dollars * 100), do: {:ok, dollars}, else: {:error, message}
+
+      _not_a_whole_dollar_amount ->
+        {:error, message}
     end
   end
 
-  defp whole_dollars(_missing_or_malformed, _min, message), do: {:error, message}
+  defp ladder_dollars(_missing_or_malformed, message), do: {:error, message}
 
   defp failed_auto_recharge_save(socket, params, message) do
     socket
@@ -654,10 +685,12 @@ defmodule FluxValeWeb.OrganizationLive.Billing do
   defp default_auto_recharge_error,
     do: "Couldn't save the reminder settings. Check the values and try again."
 
-  defp threshold_error, do: "The threshold must be a whole-dollar amount of at least $1."
+  defp threshold_error do
+    "The reminder threshold must be #{BillingComponents.topup_ladder_choices()}, or a whole-dollar amount above #{BillingComponents.topup_ladder_top()}."
+  end
 
   defp amount_error do
-    "The amount must be a whole-dollar amount of at least $#{Billing.min_topup_dollars()}."
+    "The top-up amount must be #{BillingComponents.topup_ladder_choices()}, or a whole-dollar amount above #{BillingComponents.topup_ladder_top()}."
   end
 
   defp cap_error, do: "Max charges per day must be between 1 and 6."

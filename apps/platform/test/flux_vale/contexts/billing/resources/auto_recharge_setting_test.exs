@@ -153,22 +153,74 @@ defmodule FluxVale.Billing.AutoRechargeSettingTest do
   end
 
   describe "attribute constraints" do
-    test "a threshold below 100¢ is rejected (the attribute constraint)", %{
+    test "a threshold or amount off the ladder is rejected when written", %{
       setting: setting,
       owner: owner
     } do
+      # The ladder (#888): the same table the predicate and StartTopup
+      # are pinned to — the agreement check for the saved setting.
+      for field <- [:threshold_cents, :amount_cents],
+          cents <- [-1, 50, 499, 501, 700, 999, 1001, 1501, 1999] do
+        assert {:error, %Ash.Error.Invalid{}} =
+                 AutoRechargeSetting.set(setting, %{field => cents}, actor: owner)
+      end
+
+      # The string-keyed shape a form or JSON caller sends.
       assert {:error, %Ash.Error.Invalid{}} =
-               AutoRechargeSetting.set(setting, %{threshold_cents: 50}, actor: owner)
+               AutoRechargeSetting.set(setting, %{"amount_cents" => 700}, actor: owner)
+
+      assert {:error, %Ash.Error.Invalid{}} =
+               AutoRechargeSetting.set(setting, %{"threshold_cents" => 700}, actor: owner)
     end
 
-    test "an amount below the runtime top-up floor is rejected (AmountMeetsTopupFloor)", %{
+    test "the ladder's rungs, and amounts above it, are admitted", %{
       setting: setting,
       owner: owner
     } do
-      below_floor = Billing.min_topup_cents() - 100
+      for cents <- [500, 1000, 1500, 2000, 2001, 2549] do
+        assert {:ok, set} =
+                 AutoRechargeSetting.set(
+                   setting,
+                   %{threshold_cents: cents, amount_cents: cents},
+                   actor: owner
+                 )
 
+        assert set.threshold_cents == cents
+        assert set.amount_cents == cents
+      end
+
+      assert {:ok, set} =
+               AutoRechargeSetting.set(setting, %{"amount_cents" => 1_000}, actor: owner)
+
+      assert set.amount_cents == 1_000
+    end
+
+    test "a mode-only save works on a row that predates the ladder (the validation is write-scoped)" do
+      # A fresh org: the module's own fixture org already holds a setting
+      # row (unique_org), and this test needs a second row.
+      {org, owner} = BillingFixtures.grant_free_org!()
+
+      # Ash.Seed.seed!: a stored off-ladder value is a state actions can
+      # no longer produce (every :set write is ladder-validated).
+      legacy =
+        Ash.Seed.seed!(AutoRechargeSetting, %{
+          organization_id: org.id,
+          mode: :reminder,
+          threshold_cents: 200,
+          amount_cents: 700
+        })
+
+      # Turning reminders off carries neither field: it must succeed,
+      # and the stored values survive untouched.
+      assert {:ok, off} = AutoRechargeSetting.set(legacy, %{mode: "off"}, actor: owner)
+      assert off.mode == :off
+      assert off.threshold_cents == 200
+      assert off.amount_cents == 700
+
+      # A write that CARRIES the stored off-ladder value is refused, even
+      # though it equals the row: an older value cannot be re-confirmed.
       assert {:error, %Ash.Error.Invalid{}} =
-               AutoRechargeSetting.set(setting, %{amount_cents: below_floor}, actor: owner)
+               AutoRechargeSetting.set(legacy, %{amount_cents: 700}, actor: owner)
     end
 
     test "a mode the enum does not carry is rejected", %{
@@ -416,6 +468,43 @@ defmodule FluxVale.Billing.AutoRechargeSettingTest do
                |> Ash.update(authorize?: false)
 
       assert {:ok, armed} = AutoRechargeSetting.set(attached, %{mode: :auto}, actor: owner)
+      assert armed.mode == :auto
+    end
+
+    test ":set with mode :auto is refused while a stored amount is off the ladder (#888)" do
+      # A fresh org: the module's own fixture org already holds a setting
+      # row (unique_org), and this test needs a second row.
+      {org, owner} = BillingFixtures.grant_free_org!()
+
+      # Gate on (the describe's setup), method attached, but the row
+      # predates the ladder: arming must not charge a value a top-up
+      # would refuse. The owner re-saves a ladder amount first.
+      legacy =
+        Ash.Seed.seed!(AutoRechargeSetting, %{
+          organization_id: org.id,
+          mode: :reminder,
+          threshold_cents: 500,
+          amount_cents: 700,
+          payment_method_status: :attached
+        })
+
+      assert {:error, %Ash.Error.Invalid{errors: errors}} =
+               AutoRechargeSetting.set(legacy, %{mode: :auto}, actor: owner)
+
+      assert Enum.any?(
+               errors,
+               &match?(
+                 %Ash.Error.Changes.InvalidAttribute{
+                   field: :mode,
+                   message: "arming :auto requires a threshold and amount on the top-up ladder"
+                 },
+                 &1
+               )
+             )
+
+      assert {:ok, armed} =
+               AutoRechargeSetting.set(legacy, %{mode: :auto, amount_cents: 1000}, actor: owner)
+
       assert armed.mode == :auto
     end
 

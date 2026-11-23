@@ -17,8 +17,8 @@ Open the billing page of your organization — or of your personal workspace; it
 
 ## What the threshold and amount mean
 
-- **Threshold** (default $5, minimum $1): when your balance drops below this, a reminder goes out.
-- **Amount** (default $25): the top-up amount the email's link pre-fills. It follows the same $5 minimum as any top-up.
+- **Threshold** (default $5): when your balance drops below this, a reminder goes out. Pick $5, $10, $15 or $20, or enter any amount above $20.
+- **Amount** (default $25): the top-up amount the email's link pre-fills. It offers the same choices as the top-up page: $5, $10, $15 or $20, or any amount above $20.
 
 ## How often reminders arrive
 

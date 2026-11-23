@@ -1599,11 +1599,11 @@ defmodule FluxValeWeb.BillingLive.Topup do
   # leave today's default (nil), exactly like an absent param. Mirrors
   # parse_dollars plus the cap; the Amount step renders whatever this
   # returns as the starting value. The prefill is a convenience, never a
-  # gate: until the reminder setting follows the ladder (#888, second
-  # slice) a saved reminder amount can sit between the rungs, and its
-  # link must still fill the field in — the form's next-amount gate then
-  # refuses it with the rule in words. A silent blank would break the
-  # reminder mail's "already filled in" promise.
+  # gate: a reminder row saved before the ladder (#888) keeps its stored
+  # amount until the owner edits it, so a reminder link can still carry
+  # a between-rungs amount and must fill the field in — the form's
+  # next-amount gate then refuses it with the rule in words. A silent
+  # blank would break the reminder mail's "already filled in" promise.
   defp prefill_amount(nil), do: nil
 
   defp prefill_amount(raw) when is_binary(raw) do
