@@ -98,7 +98,8 @@ pub fn logout(
     load: impl Fn() -> anyhow::Result<Option<McpCredentials>>,
     delete: impl Fn() -> anyhow::Result<()>,
 ) -> anyhow::Result<String> {
-    let was_signed_in = load()?.is_some();
+    // A failed pre-check must not block removal of a corrupt entry.
+    let was_signed_in = !matches!(load(), Ok(None));
     delete()?;
     if load()?.is_some() {
         anyhow::bail!("the stored MCP credentials could not be removed");
@@ -593,6 +594,26 @@ mod tests {
         assert_eq!(
             stuck.to_string(),
             "the stored MCP credentials could not be removed"
+        );
+
+        let cleared_after_corrupt = std::cell::Cell::new(false);
+        let corrupt_line = logout(
+            || {
+                if cleared_after_corrupt.get() {
+                    Ok(None)
+                } else {
+                    Err(anyhow::anyhow!("corrupt store"))
+                }
+            },
+            || {
+                cleared_after_corrupt.set(true);
+                Ok(())
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            corrupt_line,
+            "signed out of MCP, stored credentials were removed"
         );
     }
 

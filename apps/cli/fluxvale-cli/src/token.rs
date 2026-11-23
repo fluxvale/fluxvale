@@ -190,7 +190,8 @@ impl FileTokenStore {
     }
 
     fn parse(&self, raw: &str) -> anyhow::Result<BTreeMap<String, String>> {
-        toml::from_str(raw).map_err(|err| anyhow::anyhow!("{}: {err}", self.path.display()))
+        toml::from_str(raw)
+            .map_err(|err| anyhow::anyhow!("{}: {}", self.path.display(), err.message()))
     }
 }
 
@@ -279,7 +280,10 @@ impl McpTokenStore {
         match self.keychain_entry(host) {
             None => self.file_store().set(host, creds),
             Some(entry) => match entry.set_password(&json) {
-                Ok(()) => Ok(()),
+                Ok(()) => {
+                    let _ = self.file_store().remove(host);
+                    Ok(())
+                }
                 Err(keychain_error) => {
                     self.file_store().set(host, creds).map_err(|file_error| {
                         anyhow::anyhow!(
@@ -296,25 +300,49 @@ impl McpTokenStore {
 
     /// Load MCP credentials, reporting where they came from.
     pub fn load(&self, host: &str) -> anyhow::Result<Option<(McpCredentials, TokenLocation)>> {
-        if let Some(entry) = self.keychain_entry(host)
-            && let Ok(raw) = entry.get_password()
-        {
-            let stored: StoredMcpCredentials = serde_json::from_str(&raw)
-                .map_err(|err| anyhow::anyhow!("corrupt MCP credentials in OS keychain: {err}"))?;
-            return Ok(Some((stored.into(), TokenLocation::Keychain)));
+        let keychain = match self.keychain_entry(host) {
+            Some(entry) => match entry.get_password() {
+                Ok(raw) => {
+                    let stored: StoredMcpCredentials =
+                        serde_json::from_str(&raw).map_err(|err| {
+                            anyhow::anyhow!("corrupt MCP credentials in OS keychain: {err}")
+                        })?;
+                    Some(McpCredentials::from(stored))
+                }
+                Err(_) => None,
+            },
+            None => None,
+        };
+        match keychain {
+            Some(kc) => {
+                if let Ok(Some(file_creds)) = self.file_store().get(host)
+                    && file_creds.expires_at_unix > kc.expires_at_unix
+                {
+                    return Ok(Some((file_creds, TokenLocation::FallbackFile)));
+                }
+                Ok(Some((kc, TokenLocation::Keychain)))
+            }
+            None => Ok(self
+                .file_store()
+                .get(host)?
+                .map(|creds| (creds, TokenLocation::FallbackFile))),
         }
-        Ok(self
-            .file_store()
-            .get(host)?
-            .map(|creds| (creds, TokenLocation::FallbackFile)))
     }
 
-    /// Remove MCP credentials everywhere (best-effort on each layer).
+    /// Remove MCP credentials everywhere, propagating unexpected keychain errors.
     pub fn delete(&self, host: &str) -> anyhow::Result<()> {
+        self.file_store().remove(host)?;
         if let Some(entry) = self.keychain_entry(host) {
-            let _ = entry.delete_credential();
+            match entry.delete_credential() {
+                Ok(()) | Err(keyring::Error::NoEntry) => {}
+                Err(err) => {
+                    return Err(anyhow::anyhow!(
+                        "could not remove MCP credentials from the OS keychain: {err}"
+                    ));
+                }
+            }
         }
-        self.file_store().remove(host)
+        Ok(())
     }
 
     fn keychain_entry(&self, host: &str) -> Option<keyring::Entry> {
@@ -377,7 +405,10 @@ impl FileMcpTokenStore {
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(()),
             Err(err) => return Err(err.into()),
         };
-        let mut map = self.parse(&raw)?;
+        let Ok(mut map) = self.parse(&raw) else {
+            fs::remove_file(&self.path)?;
+            return Ok(());
+        };
         if map.remove(host).is_none() {
             return Ok(());
         }
@@ -390,28 +421,44 @@ impl FileMcpTokenStore {
     }
 
     fn parse(&self, raw: &str) -> anyhow::Result<BTreeMap<String, StoredMcpCredentials>> {
-        toml::from_str(raw).map_err(|err| anyhow::anyhow!("{}: {err}", self.path.display()))
+        toml::from_str(raw)
+            .map_err(|err| anyhow::anyhow!("{}: {}", self.path.display(), err.message()))
     }
 }
 
-/// Create the file 0600 (Unix) or default perms elsewhere.
+static TEMP_WRITE_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Atomically write the file with owner-only permissions (0600 on Unix) via a sibling temp file.
 fn write_owner_rw(path: &Path, contents: &str) -> std::io::Result<()> {
-    #[cfg(unix)]
-    {
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    let name = path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("credentials");
+    let seq = TEMP_WRITE_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let tmp_path = parent.join(format!(".{name}.tmp.{}.{seq}", std::process::id()));
+
+    let write_result = (|| -> std::io::Result<()> {
         use std::io::Write as _;
-        use std::os::unix::fs::OpenOptionsExt;
-        let mut file = fs::OpenOptions::new()
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .mode(0o600)
-            .open(path)?;
-        file.write_all(contents.as_bytes())
+
+        let mut options = fs::OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+        let mut file = options.open(&tmp_path)?;
+        file.write_all(contents.as_bytes())?;
+        file.sync_all()?;
+        drop(file);
+        fs::rename(&tmp_path, path)
+    })();
+
+    if write_result.is_err() {
+        let _ = fs::remove_file(&tmp_path);
     }
-    #[cfg(not(unix))]
-    {
-        fs::write(path, contents)
-    }
+    write_result
 }
 
 /// Force 0600 on a file that may already exist with looser perms.
@@ -838,6 +885,51 @@ mod tests {
 
         store.delete(host).unwrap();
         assert!(store.load(host).unwrap().is_none());
+    }
+
+    #[test]
+    fn corrupt_toml_errors_do_not_echo_token_lines_and_remove_clears_garbage() {
+        let dir = temp_dir();
+        let pat_store = FileTokenStore::at(dir.clone());
+        let mcp_store = FileMcpTokenStore::at(dir.clone());
+        let marker = "fvoat_SECRET_MARKER_NEVER_LEAK";
+
+        std::fs::write(
+            &pat_store.path,
+            format!("[bad\n\"fluxvale.com\" = \"{marker}\n"),
+        )
+        .unwrap();
+        let pat_err = pat_store.get("fluxvale.com").unwrap_err().to_string();
+        assert!(!pat_err.contains(marker), "PAT error leaked: {pat_err}");
+
+        std::fs::write(&mcp_store.path, format!("[b]\naccess_token = \"{marker}\n")).unwrap();
+        let mcp_err = mcp_store.get("b").unwrap_err().to_string();
+        assert!(!mcp_err.contains(marker), "MCP error leaked: {mcp_err}");
+
+        mcp_store.remove("b").unwrap();
+        assert!(
+            !mcp_store.path.exists(),
+            "corrupt mcp-credentials must be removed on remove()"
+        );
+    }
+
+    #[test]
+    fn atomic_write_leaves_no_temp_files() {
+        let dir = temp_dir();
+        let store = FileMcpTokenStore::at(dir.clone());
+        store
+            .set("fluxvale.com", &sample_mcp_creds("one", None))
+            .unwrap();
+        store
+            .set("fluxvale.com", &sample_mcp_creds("two", None))
+            .unwrap();
+
+        let entries: Vec<String> = std::fs::read_dir(&dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .map(|e| e.file_name().to_string_lossy().to_string())
+            .collect();
+        assert_eq!(entries, vec!["mcp-credentials".to_string()]);
     }
 
     fn temp_dir() -> PathBuf {

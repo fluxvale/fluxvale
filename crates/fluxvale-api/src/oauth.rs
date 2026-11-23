@@ -28,6 +28,9 @@ const SLOW_DOWN_PENALTY_SECS: u64 = 5;
 /// Default poll interval in seconds when omitted by the server (RFC 8628 §3.2).
 const DEFAULT_POLL_INTERVAL_SECS: u64 = 5;
 
+/// Consecutive transient poll errors (connection, 429, or 5xx) tolerated before aborting.
+const MAX_CONSECUTIVE_TRANSIENT_ERRORS: usize = 3;
+
 /// A high-entropy PKCE code verifier (RFC 7636 §4.1): 32 CSPRNG bytes
 /// base64url-encoded without padding (43 unreserved characters).
 #[derive(Clone, PartialEq, Eq)]
@@ -146,6 +149,7 @@ impl OAuthDeviceClient {
     }
 
     fn post_json(&self, path: &str, body: &Value) -> anyhow::Result<(u16, Value)> {
+        crate::tokens::require_https_or_loopback(&self.base_url)?;
         let url = format!("{}{}", self.base_url, path);
         let response = self
             .agent
@@ -157,6 +161,7 @@ impl OAuthDeviceClient {
     }
 
     fn post_form(&self, path: &str, pairs: &[(&str, &str)]) -> anyhow::Result<(u16, Value)> {
+        crate::tokens::require_https_or_loopback(&self.base_url)?;
         let url = format!("{}{}", self.base_url, path);
         let encoded = encode_form(pairs);
         let response = self
@@ -217,26 +222,69 @@ impl OAuthDeviceClient {
 
     /// `POST /oauth/token` for `device_code` grant with `code_verifier`.
     pub fn poll(&self, device_code: &str, code_verifier: &str) -> anyhow::Result<OAuthPoll> {
-        let (status, body) = self.post_form(
-            "/oauth/token",
-            &[
-                ("grant_type", OAUTH_DEVICE_GRANT_TYPE),
-                ("client_id", OAUTH_CLI_CLIENT_ID),
-                ("device_code", device_code),
-                ("code_verifier", code_verifier),
-            ],
-        )?;
+        match self.poll_step(device_code, code_verifier) {
+            PollStep::Answer(answer) => Ok(answer),
+            PollStep::Transient(err) | PollStep::Fatal(err) => Err(err),
+        }
+    }
+
+    fn poll_step(&self, device_code: &str, code_verifier: &str) -> PollStep {
+        if let Err(err) = crate::tokens::require_https_or_loopback(&self.base_url) {
+            return PollStep::Fatal(err);
+        }
+
+        let url = format!("{}/oauth/token", self.base_url);
+        let encoded = encode_form(&[
+            ("grant_type", OAUTH_DEVICE_GRANT_TYPE),
+            ("client_id", OAUTH_CLI_CLIENT_ID),
+            ("device_code", device_code),
+            ("code_verifier", code_verifier),
+        ]);
+        let mut response = match self
+            .agent
+            .post(&url)
+            .header("Content-Type", "application/x-www-form-urlencoded")
+            .send(encoded.into_bytes())
+        {
+            Ok(resp) => resp,
+            Err(err) => return PollStep::Transient(anyhow::anyhow!("connection failed: {err}")),
+        };
+
+        let status = response.status().as_u16();
+        let raw = match response.body_mut().read_to_string() {
+            Ok(raw) => raw,
+            Err(err) => return PollStep::Transient(anyhow::anyhow!("connection failed: {err}")),
+        };
+        let parsed = serde_json::from_str::<Value>(&raw);
+
+        if status == 429 || status >= 500 {
+            let err = match parsed {
+                Ok(body) => oauth_error(status, &body),
+                Err(_) => anyhow::anyhow!("HTTP {status}"),
+            };
+            return PollStep::Transient(err);
+        }
+
+        let body = match parsed {
+            Ok(body) => body,
+            Err(err) => {
+                return PollStep::Fatal(anyhow::anyhow!("HTTP {status}: unreadable body ({err})"));
+            }
+        };
 
         if status == 200 {
-            return Ok(OAuthPoll::Granted(parse_token_pair(&body)?));
+            return match parse_token_pair(&body) {
+                Ok(pair) => PollStep::Answer(OAuthPoll::Granted(pair)),
+                Err(err) => PollStep::Fatal(err),
+            };
         }
 
         match body.get("error").and_then(Value::as_str) {
-            Some("authorization_pending") => Ok(OAuthPoll::Pending),
-            Some("slow_down") => Ok(OAuthPoll::SlowDown),
-            Some("access_denied") => Ok(OAuthPoll::Denied),
-            Some("expired_token") => Ok(OAuthPoll::Expired),
-            _ => Err(oauth_error(status, &body)),
+            Some("authorization_pending") => PollStep::Answer(OAuthPoll::Pending),
+            Some("slow_down") => PollStep::Answer(OAuthPoll::SlowDown),
+            Some("access_denied") => PollStep::Answer(OAuthPoll::Denied),
+            Some("expired_token") => PollStep::Answer(OAuthPoll::Expired),
+            _ => PollStep::Fatal(oauth_error(status, &body)),
         }
     }
 
@@ -342,9 +390,16 @@ fn hex_upper(nibble: u8) -> char {
     }
 }
 
+enum PollStep {
+    Answer(OAuthPoll),
+    Transient(anyhow::Error),
+    Fatal(anyhow::Error),
+}
+
 /// Poll `/oauth/token` per RFC 8628 §3.5 until granted, denied, expired, or errored.
-/// Clamps zero intervals to 1s, adds 5s on `slow_down`, prints progress dots via
-/// `notify`, and sleeps via the injected `sleep` closure.
+/// Clamps zero intervals to 1s, adds 5s on `slow_down`, tolerates up to 3 consecutive
+/// transient errors (connection, 429, or 5xx), prints progress dots via `notify`, and
+/// sleeps via the injected `sleep` closure.
 pub fn oauth_poll_loop(
     client: &OAuthDeviceClient,
     device_code: &str,
@@ -355,24 +410,40 @@ pub fn oauth_poll_loop(
 ) -> anyhow::Result<OAuthTokenPair> {
     let mut interval = interval_secs.max(1);
     let mut dots = 0usize;
+    let mut consecutive_transient = 0usize;
     let pair = loop {
-        match client.poll(device_code, code_verifier)? {
-            OAuthPoll::Pending => {
+        match client.poll_step(device_code, code_verifier) {
+            PollStep::Answer(answer) => {
+                consecutive_transient = 0;
+                match answer {
+                    OAuthPoll::Pending => {
+                        notify(".");
+                        dots += 1;
+                        sleep(Duration::from_secs(interval));
+                    }
+                    OAuthPoll::SlowDown => {
+                        interval = interval.saturating_add(SLOW_DOWN_PENALTY_SECS);
+                        notify(".");
+                        dots += 1;
+                        sleep(Duration::from_secs(interval));
+                    }
+                    OAuthPoll::Denied => anyhow::bail!("sign-in was denied"),
+                    OAuthPoll::Expired => {
+                        anyhow::bail!("the code expired, run `fluxvale mcp login` again")
+                    }
+                    OAuthPoll::Granted(pair) => break pair,
+                }
+            }
+            PollStep::Transient(err) => {
+                consecutive_transient += 1;
+                if consecutive_transient > MAX_CONSECUTIVE_TRANSIENT_ERRORS {
+                    return Err(err);
+                }
                 notify(".");
                 dots += 1;
                 sleep(Duration::from_secs(interval));
             }
-            OAuthPoll::SlowDown => {
-                interval += SLOW_DOWN_PENALTY_SECS;
-                notify(".");
-                dots += 1;
-                sleep(Duration::from_secs(interval));
-            }
-            OAuthPoll::Denied => anyhow::bail!("sign-in was denied"),
-            OAuthPoll::Expired => {
-                anyhow::bail!("the code expired, run `fluxvale mcp login` again")
-            }
-            OAuthPoll::Granted(pair) => break pair,
+            PollStep::Fatal(err) => return Err(err),
         }
     };
     if dots > 0 {
@@ -849,5 +920,116 @@ mod tests {
             err.to_string(),
             "the code expired, run `fluxvale mcp login` again"
         );
+    }
+
+    fn respond_raw(status_line: &str, body: &str) -> String {
+        let mut response = format!("HTTP/1.1 {status_line}\r\n");
+        response.push_str(&format!("Content-Length: {}\r\n", body.len()));
+        response.push_str("Connection: close\r\n\r\n");
+        response.push_str(body);
+        response
+    }
+
+    #[test]
+    fn non_loopback_cleartext_base_url_is_refused_before_sending() {
+        let client = OAuthDeviceClient::new("http://example.com");
+
+        let mint_err = client.mint(&[], None, "challenge").unwrap_err();
+        assert!(mint_err.to_string().contains("https://"));
+
+        let poll_err = client.poll("dc", "ver").unwrap_err();
+        assert!(poll_err.to_string().contains("https://"));
+
+        let refresh_err = client.refresh(&Token::new("fvort_old"), None).unwrap_err();
+        assert!(refresh_err.to_string().contains("https://"));
+    }
+
+    #[test]
+    fn poll_loop_retries_bounded_transient_errors_and_resets_counter() {
+        let server = script(vec![
+            respond_raw("502 Bad Gateway", "<html>bad gateway</html>"),
+            respond_raw("429 Too Many Requests", "rate limited"),
+            respond(
+                "400 Bad Request",
+                &json!({"error": "authorization_pending"}),
+            ),
+            respond_raw("503 Service Unavailable", "overloaded"),
+            respond_raw("502 Bad Gateway", "<html>bad gateway</html>"),
+            respond_raw("502 Bad Gateway", "<html>bad gateway</html>"),
+            respond("200 OK", &token_pair_body()),
+        ]);
+        let rec = recorder();
+        let pair = oauth_poll_loop(
+            &OAuthDeviceClient::new(&server.base_url),
+            "dc",
+            "ver",
+            5,
+            rec.sleep(),
+            rec.notify(),
+        )
+        .unwrap();
+        assert_eq!(
+            pair.access_token,
+            Token::new("fvoat_raw_access_token_value")
+        );
+        assert_eq!(rec.slept().len(), 6);
+    }
+
+    #[test]
+    fn poll_loop_fails_after_consecutive_transient_limit_and_immediately_on_4xx() {
+        let server = script(vec![
+            respond_raw("502 Bad Gateway", "<html>1</html>"),
+            respond_raw("502 Bad Gateway", "<html>2</html>"),
+            respond_raw("502 Bad Gateway", "<html>3</html>"),
+            respond_raw("502 Bad Gateway", "<html>4</html>"),
+        ]);
+        let rec = recorder();
+        let err = oauth_poll_loop(
+            &OAuthDeviceClient::new(&server.base_url),
+            "dc",
+            "ver",
+            5,
+            rec.sleep(),
+            rec.notify(),
+        )
+        .unwrap_err();
+        assert_eq!(err.to_string(), "HTTP 502");
+        assert_eq!(rec.slept().len(), 3);
+
+        let server = script(vec![respond(
+            "400 Bad Request",
+            &json!({"error": "invalid_grant", "error_description": "wrong verifier"}),
+        )]);
+        let rec = recorder();
+        let err = oauth_poll_loop(
+            &OAuthDeviceClient::new(&server.base_url),
+            "dc",
+            "ver",
+            5,
+            rec.sleep(),
+            rec.notify(),
+        )
+        .unwrap_err();
+        assert_eq!(err.to_string(), "invalid_grant: wrong verifier");
+        assert!(rec.slept().is_empty());
+    }
+
+    #[test]
+    fn poll_loop_saturates_interval_on_slow_down_near_u64_max() {
+        let server = script(vec![
+            respond("400 Bad Request", &json!({"error": "slow_down"})),
+            respond("200 OK", &token_pair_body()),
+        ]);
+        let rec = recorder();
+        oauth_poll_loop(
+            &OAuthDeviceClient::new(&server.base_url),
+            "dc",
+            "ver",
+            u64::MAX - 2,
+            rec.sleep(),
+            rec.notify(),
+        )
+        .unwrap();
+        assert_eq!(rec.slept(), vec![Duration::from_secs(u64::MAX)]);
     }
 }

@@ -73,11 +73,7 @@ impl TokenClient {
     pub fn mint(&self, request: &MintRequest) -> anyhow::Result<MintedToken> {
         // The caller PAT and the minted value both cross this wire:
         // refuse a cleartext remote origin before either is sent.
-        if !is_https_or_loopback(&self.base_url) {
-            anyhow::bail!(
-                "the base URL must use https:// (http:// is allowed only for a loopback host)"
-            );
-        }
+        require_https_or_loopback(&self.base_url)?;
 
         let mut body = json!({
             "scopes": request.scopes,
@@ -120,10 +116,21 @@ impl TokenClient {
     }
 }
 
+/// Refuse a non-HTTPS base URL unless the host is loopback.
+pub(crate) fn require_https_or_loopback(base_url: &str) -> anyhow::Result<()> {
+    if is_https_or_loopback(base_url) {
+        Ok(())
+    } else {
+        anyhow::bail!(
+            "the base URL must use https:// (http:// is allowed only for a loopback host)"
+        )
+    }
+}
+
 /// HTTPS for any host; HTTP only when the host is loopback. A remote
 /// `http://` base URL would put the caller token and the minted value
 /// on the network in cleartext.
-fn is_https_or_loopback(base_url: &str) -> bool {
+pub(crate) fn is_https_or_loopback(base_url: &str) -> bool {
     let lower = base_url.trim_end_matches('/').to_ascii_lowercase();
     if lower.starts_with("https://") {
         return true;
