@@ -320,7 +320,12 @@ config :flux_vale,
   # clears 41.4% gross (45.4% at $10, rejected for early-stage
   # friction). The wizard, its copy, and the paid-feature prompts all
   # read this one value; StartTopup enforces it server-side.
-  billing: [min_topup_cents: 500],
+  # The top-up ladder (#888, ADR-0046 Am. 2): the fixed quick-pick
+  # amounts. A top-up is a rung or anything above the top rung. The
+  # bottom rung IS min_topup_cents — topup_ladder_test.exs pins the
+  # pairing, so moving the ladder is a reviewed diff. Revisit trigger:
+  # the Polar Pro upgrade (plan #829 S6) re-runs the fee table.
+  billing: [min_topup_cents: 500, topup_ladder_cents: [500, 1000, 1500, 2000]],
   # The staged auto-recharge charge lane's gate (#829 S2, GO decision
   # D1): false at launch — off-session charging needs the Polar Pro
   # upgrade, which happens only AFTER launch. Activation (slice S6) is

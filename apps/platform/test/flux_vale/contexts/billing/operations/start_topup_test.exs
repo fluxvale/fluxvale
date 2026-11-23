@@ -82,24 +82,41 @@ defmodule FluxVale.Billing.Operations.StartTopupTest do
     assert {"reference_number", topup.id} in form
   end
 
-  test "refuses a top-up below the wallet floor before any row or charge" do
+  test "refuses an off-ladder top-up before any row or charge" do
     {org, _wallet} = BillingFixtures.funded_wallet!(balance_cents: 0)
 
     # No Req expectation: the refusal must never reach the gateway, so a
-    # stray call would fail this test rather than pass silently.
-    assert Billing.min_topup_cents() == 500
+    # stray call would fail this test rather than pass silently. The
+    # ladder (#888): a rung or anything above the top rung. A negative
+    # amount answers the same atom and never reaches Tax.tax_cents/2's
+    # non-negative guard.
+    off_ladder = [-1, 0, 50, 499, 501, 700, 999, 1001, 1501, 1999]
 
-    assert {:error, :amount_below_minimum} =
-             Billing.start_topup(org, Map.put(@params, :amount_cents, 499))
-
-    # A negative amount answers the floor, not Tax.tax_cents/2's guard.
-    assert {:error, :amount_below_minimum} =
-             Billing.start_topup(org, Map.put(@params, :amount_cents, -1))
+    for cents <- off_ladder do
+      assert {:error, :invalid_amount} =
+               Billing.start_topup(org, Map.put(@params, :amount_cents, cents))
+    end
 
     assert [] =
              Topup
              |> Ash.Query.filter(organization_id == ^org.id)
              |> Ash.read!(authorize?: false)
+  end
+
+  test "every rung, and an amount above the ladder, opens a checkout" do
+    {org, _wallet} = BillingFixtures.funded_wallet!(balance_cents: 0)
+    amounts = [500, 1000, 1500, 2000, 2100]
+
+    expect(Req, :post, length(amounts), fn _req, _opts ->
+      id = "pr_#{System.unique_integer([:positive])}"
+
+      {:ok, %Req.Response{status: 200, body: %{"id" => id, "url" => "https://checkout/#{id}"}}}
+    end)
+
+    for cents <- amounts do
+      assert {:ok, %Topup{amount_cents: ^cents}, _checkout_url} =
+               Billing.start_topup(org, Map.put(@params, :amount_cents, cents))
+    end
   end
 
   test "an unpriced market (no table row, or no billing country) resolves to 0%" do

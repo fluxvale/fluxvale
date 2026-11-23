@@ -698,23 +698,117 @@ defmodule FluxValeWeb.BillingLive.TopupTest do
       assert has_element?(view, "#topup-amount-form")
     end
 
-    test "the amount input's floor is the configured wallet minimum", %{conn: conn} do
+    test "the amount step offers the ladder as quick picks, none pressed at first", %{
+      conn: conn
+    } do
+      view = to_amount(conn)
+
+      assert Billing.topup_ladder_dollars() == [5, 10, 15, 20]
+
+      for rung <- Billing.topup_ladder_dollars() do
+        assert has_element?(
+                 view,
+                 "button[data-testid='topup-amount-rung-#{rung}'][aria-pressed='false']"
+               )
+      end
+
+      assert render(element(view, "[data-testid='topup-amount-hint']")) =~
+               "Pick an amount, or enter any amount above $20."
+
+      refute has_element?(view, "[data-testid='topup-summary']")
+    end
+
+    test "the amount input keeps the floor as its native minimum (a first filter only)", %{
+      conn: conn
+    } do
       view = to_amount(conn)
 
       assert FluxVale.Billing.min_topup_cents() == 500
-      assert FluxVale.Billing.min_topup_dollars() == 5
       assert has_element?(view, "input[name='amount[dollars]'][min='5']")
     end
 
-    test "an amount below the wallet floor keeps the step and names the floor", %{conn: conn} do
+    test "pressing a rung sets the amount and prices the summary", %{conn: conn} do
       view = to_amount(conn)
 
       view
-      |> form("#topup-amount-form", amount: %{dollars: "4"})
-      |> render_submit()
+      |> element("[data-testid='topup-amount-rung-10']")
+      |> render_click()
+
+      assert has_element?(view, "button[data-testid='topup-amount-rung-10'][aria-pressed='true']")
+      assert has_element?(view, "button[data-testid='topup-amount-rung-5'][aria-pressed='false']")
+
+      assert render(element(view, "#topup-amount-form input[name='amount[dollars]']")) =~
+               "value=\"10\""
+
+      assert render(element(view, "[data-testid='topup-summary']")) =~ "$10.00"
+    end
+
+    test "typing a rung presses its chip (one amount state)", %{conn: conn} do
+      view = to_amount(conn)
+
+      view
+      |> form("#topup-amount-form", amount: %{dollars: "15"})
+      |> render_change()
+
+      assert has_element?(view, "button[data-testid='topup-amount-rung-15'][aria-pressed='true']")
+    end
+
+    test "a crafted or missing rung value is a no-op", %{conn: conn} do
+      view = to_amount(conn)
+
+      for params <- [
+            %{"dollars" => "12"},
+            %{"dollars" => "ten"},
+            %{"dollars" => ""},
+            %{"dollars" => 10},
+            %{}
+          ] do
+        render_click(view, "pick-amount", params)
+      end
+
+      refute has_element?(view, "[data-testid='topup-summary']")
+
+      assert has_element?(
+               view,
+               "button[data-testid='topup-amount-rung-10'][aria-pressed='false']"
+             )
+    end
+
+    test "an off-ladder amount keeps the step and names the rule", %{conn: conn} do
+      view = to_amount(conn)
+
+      for dollars <- ["4", "12", "17", "2.5"] do
+        view
+        |> form("#topup-amount-form", amount: %{dollars: dollars})
+        |> render_submit()
+
+        assert has_element?(view, "#topup-amount-form")
+        refute has_element?(view, "[data-testid='topup-summary']")
+      end
+
+      assert render(view) =~
+               "Choose $5, $10, $15 or $20, or enter a whole-dollar amount above $20."
+    end
+
+    test "the top rung and the first custom amount both advance to payment", %{conn: conn} do
+      for dollars <- ["20", "21", "25"] do
+        view = to_amount(conn)
+
+        view
+        |> form("#topup-amount-form", amount: %{dollars: dollars})
+        |> render_submit()
+
+        assert has_element?(view, "#topup-pay")
+      end
+    end
+
+    test "back from payment keeps the pressed rung", %{conn: conn} do
+      view = to_payment(conn)
+
+      render_click(view, "back")
 
       assert has_element?(view, "#topup-amount-form")
-      assert render(view) =~ "at least $5"
+      assert has_element?(view, "button[data-testid='topup-amount-rung-5'][aria-pressed='true']")
     end
 
     test "a valid amount advances to the payment step", %{conn: conn} do
@@ -748,12 +842,28 @@ defmodule FluxValeWeb.BillingLive.TopupTest do
       assert render(element(view, "[data-testid='topup-summary']")) =~ "$25.00"
     end
 
-    test "an amount below the floor leaves the default", %{conn: conn} do
-      view = to_amount(conn, %{}, ~p"/billing/topup?amount=4")
+    test "an off-ladder prefill leaves the default", %{conn: conn} do
+      for url <- [
+            ~p"/billing/topup?amount=4",
+            ~p"/billing/topup?amount=7",
+            ~p"/billing/topup?amount=12"
+          ] do
+        view = to_amount(conn, %{}, url)
 
-      input = render(element(view, "#topup-amount-form input[name='amount[dollars]']"))
-      assert input =~ "value=\"\""
-      refute has_element?(view, "[data-testid='topup-summary']")
+        input = render(element(view, "#topup-amount-form input[name='amount[dollars]']"))
+        assert input =~ "value=\"\""
+        refute has_element?(view, "[data-testid='topup-summary']")
+      end
+    end
+
+    test "?amount matching a rung prefills it and presses its chip", %{conn: conn} do
+      view = to_amount(conn, %{}, ~p"/billing/topup?amount=10")
+
+      assert render(element(view, "#topup-amount-form input[name='amount[dollars]']")) =~
+               "value=\"10\""
+
+      assert has_element?(view, "button[data-testid='topup-amount-rung-10'][aria-pressed='true']")
+      assert render(element(view, "[data-testid='topup-summary']")) =~ "$10.00"
     end
 
     test "an amount over the cap and a non-integer leave the default", %{conn: conn} do

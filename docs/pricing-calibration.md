@@ -125,6 +125,8 @@ wallet floor (`config :flux_vale, :billing, min_topup_cents: 500`) holds
 **41.4%**. Holding the 53% headline would need 3.25¢ at a $10 floor and
 3.13¢ at any floor — both rejected against the owner's number.
 
+The top-up ladder ($5/$10/$15/$20, or anything above $20) and its per-rung fee share on both Polar plans are recorded in [ADR-0046](adr/0046-storage-beyond-threshold.md) Am. 2.
+
 Rejected — extend the per-GB curve instead: the v5 curve is underwater
 at 1 TB (**$12.80** vs $14.04) and the gap widens — 2 TB **$21.53** vs
 $28.08; 7.6 TB **$58.61** vs $106.70. Pass-through + margin never sells
