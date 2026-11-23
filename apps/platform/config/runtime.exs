@@ -386,9 +386,10 @@ case System.get_env("INSTANCE_RBAC_SA_NAMESPACE") do
     config :flux_vale, :instance_rbac, Keyword.put(rbac, :service_account_namespace, namespace)
 end
 
-# The access namespace (#273 D2): the ONE value every access-edge write
-# resolves through `InstanceK8s.gateway_access_namespace/0` — gateway
-# objects, custom-domain Certificates, the access-dns ConfigMap.
+# The access namespace (#273 D2): the value
+# `InstanceK8s.gateway_access_namespace/0` resolves — the gateway's own
+# objects and the access-dns ConfigMap read it, and the custom-domain
+# Certificates join the same resolver with the fix's other half (#893).
 # config.exs's `fluxvale-access` is the LOCAL default only; each
 # deployed env names its own (staging: fluxvale-access, production:
 # fluxvale-access-prod — the fleet overlays set this var), so two envs

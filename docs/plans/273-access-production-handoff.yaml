@@ -10,8 +10,7 @@
 #
 # Pairs with the app-side runtime override (ACCESS_GATEWAY_NAMESPACE in
 # config/runtime.exs, a required-envs.txt boot guard): default
-# `fluxvale-access`, production `fluxvale-access-prod`, with the
-# custom-domain Certificates following the same resolver. Until it
+# `fluxvale-access`, production `fluxvale-access-prod`. Until it
 # landed the production SA stayed unbound here — the intended fail-safe
 # (403 on the first gateway op), which is how the first production
 # apply surfaced the gap (#893).

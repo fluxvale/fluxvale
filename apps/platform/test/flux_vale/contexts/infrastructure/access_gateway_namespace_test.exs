@@ -133,14 +133,20 @@ defmodule FluxVale.Infrastructure.AccessGatewayNamespaceTest do
 
   describe "the access-dns ConfigMap" do
     test "call/1 writes the Corefile into the configured namespace" do
-      expect(ConfigMap, :create, fn _kc, ns, name, data ->
-        assert ns == @ns
-        assert name == "access-dns-zones"
-        assert %{"Corefile" => _corefile} = data
+      parent = self()
+
+      # A stub + assert_received, never an assert inside an expect:
+      # call/1 rescues everything (the derived-state stance), so an
+      # assertion raised in the stub would be swallowed and the test
+      # would pass on the wrong namespace.
+      stub(ConfigMap, :create, fn _kc, ns, name, data ->
+        send(parent, {:configmap_create, ns, name, data})
         {:ok, %{}}
       end)
 
       assert :ok = RenderAccessDNS.call(resolver_data: %{})
+
+      assert_received {:configmap_create, @ns, "access-dns-zones", %{"Corefile" => _corefile}}
     end
 
     test "gather/0 lists a claiming gateway's pods in the configured namespace", %{
