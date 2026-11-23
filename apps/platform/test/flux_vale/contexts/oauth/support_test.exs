@@ -57,9 +57,11 @@ defmodule FluxVale.OAuth.SupportTest do
   end
 
   describe "RedirectUris" do
-    test "empty, too many, and non-string entries are refused" do
-      assert {:error, field: :redirect_uris, message: "at least one redirect URI is required"} =
-               validate([])
+    test "empty is allowed (device-only clients), too many and non-string entries are refused" do
+      # #886: a device-grant client carries no redirects — the DCR
+      # operation still refuses an empty list on the wire, so the
+      # empty allowlist is the seeded CLI's shape alone.
+      assert :ok == validate([])
 
       uris = for n <- 1..6, do: "https://client.example/cb#{n}"
 

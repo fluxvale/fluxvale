@@ -369,6 +369,10 @@ config :flux_vale,
 # upgrade half); until it lands this value IS the registry, and the
 # device endpoints validate against it (FirstPartyClient).
 config :flux_vale, :device_flow_client_id, "fluxvale-cli"
+# #886: the seeded first-party OAuth client the CLI's device grant
+# rides (stable across logins — one Connected-apps row, no DCR per
+# login burning the registration cap).
+config :flux_vale, :oauth_device_client_id, "fvoc_fluxvale_cli"
 
 # Site analytics (#576): the public layout's Umami wiring. nil until
 # runtime.exs sees BOTH UMAMI_SCRIPT_URL and UMAMI_WEBSITE_ID — nil
@@ -486,6 +490,9 @@ config :flux_vale, Oban,
        # audit rows keep the API trail's 90-day horizon.
        {"0 4 * * *", FluxVale.Janitor.PruneOAuthCodes},
        {"15 4 * * *", FluxVale.Janitor.PruneOAuthAuditEvents},
+       # #886: device grants are 10-minute capabilities; the sweep
+       # staggers off the other two OAuth jobs (same queue, one lock).
+       {"30 4 * * *", FluxVale.Janitor.PruneDeviceGrants},
        # #124's ladder sweep, hourly at :07 — off the top-of-hour rush
        # (#113's stance; the reconciler minute-tick and smoke crons sit
        # there).

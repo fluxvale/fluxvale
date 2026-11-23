@@ -29,7 +29,8 @@ defmodule FluxValeWeb.Plugs.OAuthRateLimit do
           register: [window_seconds: 600, max_requests: 5],
           authorize: [window_seconds: 60, max_requests: 60],
           token: [window_seconds: 60, max_requests: 60],
-          revoke: [window_seconds: 60, max_requests: 60]
+          revoke: [window_seconds: 60, max_requests: 60],
+          device_code: [window_seconds: 600, max_requests: 5]
         }
   """
 
@@ -45,7 +46,10 @@ defmodule FluxValeWeb.Plugs.OAuthRateLimit do
     register: [window_seconds: 600, max_requests: 5],
     authorize: [window_seconds: 60, max_requests: 60],
     token: [window_seconds: 60, max_requests: 60],
-    revoke: [window_seconds: 60, max_requests: 60]
+    revoke: [window_seconds: 60, max_requests: 60],
+    # #886: the device-authorization mint — register-strict (one
+    # login at a time; a restart of a failed flow still fits).
+    device_code: [window_seconds: 600, max_requests: 5]
   }
 
   @doc false

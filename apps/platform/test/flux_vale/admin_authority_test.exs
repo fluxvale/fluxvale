@@ -90,6 +90,8 @@ defmodule FluxVale.AdminAuthorityTest do
       "dynamically registered MCP OAuth clients — public metadata, system-written; the registration audit row is the trail",
     FluxVale.OAuth.AuthorizationCode =>
       "ephemeral auth machinery: 60-second single-use codes, hashed at rest",
+    FluxVale.OAuth.DeviceGrant =>
+      "ephemeral auth machinery: 10-minute redirectless device-grant state, hashed at rest (#886)",
     FluxVale.OAuth.AuditEvent =>
       "itself the OAuth audit trail — versioning it is a trail of a trail",
     FluxVale.Infrastructure.PocketIdCustodyEvent =>
@@ -259,7 +261,7 @@ defmodule FluxVale.AdminAuthorityTest do
     # state: full 32, exempt 42 (7 machinery + 3 OAuth + 32 version
     # resources), pending 0 — the business set is fully trailed. #829
     # L1 added the auto-recharge setting: full 33, exempt 43.
-    test "the partition counts: full 33, exempt 43, pending 0" do
+    test "the partition counts: full 33, exempt 44, pending 0" do
       pending =
         @pending
         |> Map.keys()
@@ -270,8 +272,8 @@ defmodule FluxVale.AdminAuthorityTest do
       assert MapSet.size(full) == 33,
              "the full set moved to #{MapSet.size(full)} — expected 33: a rollout slice landed, update this count"
 
-      assert map_size(@exempt) == 43,
-             "the exempt set moved to #{map_size(@exempt)} — expected 43: 7 machinery rows plus 3 OAuth rows plus 33 generated version resources"
+      assert map_size(@exempt) == 44,
+             "the exempt set moved to #{map_size(@exempt)} — expected 44: 7 machinery rows plus 4 OAuth rows plus 33 generated version resources"
 
       assert MapSet.size(pending) == 0,
              "the pending set moved to #{MapSet.size(pending)} — expected 0: the business set is fully trailed, a new resource joins a set deliberately"

@@ -186,3 +186,43 @@ working. OAuth is additive, not a migration.
   the janitor prunes short-lived codes and OAuth audit rows.
 - Existing PAT documentation and client snippets remain valid; OAuth
   is the recommended path where the client supports it.
+
+## Amendment 1 — the device grant (2026-11-22, #886)
+
+The loopback redirect dead-ends when the CLI runs on another machine
+than the browser (the owner's SSH report: `127.0.0.1:8765/callback`
+reachable by nothing). The AS gains RFC 8628's device grant as a third
+grant, shaped for that case:
+
+- `POST /oauth/device/code` mints a 10-minute grant (device_code —
+  stored SHA-256-hashed only — plus a human-comparable user_code);
+  the human's half is a hosted page on the platform, not a redirect.
+  Any registered client may mint; the CLI rides a seeded first-party
+  client (`fvoc_fluxvale_cli`, `config :oauth_device_client_id`) so
+  logins don't burn the DCR cap.
+- The poll is the token endpoint's third grant
+  (`urn:ietf:params:oauth:grant-type:device_code`) with
+  `authorization_pending`/`slow_down`/`access_denied`/`expired_token`
+  per §3.5; the pair mints through the same `mint_tokens` (family,
+  resource, tombstone check).
+- **No authorization code is ever issued in device mode.** The issue's
+  constraint — no code-shaped secret where a wrong local process could
+  read it — is met by construction: nothing redirects, nothing
+  listens, the approval latch is the consumed grant row.
+- **PKCE rides the poll, beyond RFC 8628**: the mint carries an S256
+  challenge, the poll its verifier. A stolen device_code alone cannot
+  redeem — the redirect flow's "PKCE is the proof" stance preserved
+  across grants. A verifier mismatch does not burn the row (the
+  256-bit space and the per-IP window bound guessing).
+- The redirectless flow's tokens are the same class as the redirect
+  flow's; Connected apps and family revocation apply unchanged. The
+  audit trail gains `device_grant_minted/approved/denied/
+  token_issued`.
+
+Rejected here: a hosted page that receives the code in a redirect (the
+page cannot complete PKCE — dead weight in a URL); issuing a code the
+page consumes server-side (a second single-use state with a 60s TTL
+inside a 10-minute window; the consume-once grant row already is the
+latch); PAT-only bridging (never-expiring credentials are the class
+this ADR retired). The authorization-code + PKCE flow is unchanged —
+local clients keep their loopback fast path.

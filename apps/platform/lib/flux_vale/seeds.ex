@@ -31,6 +31,7 @@ defmodule FluxVale.Seeds do
   alias FluxVale.Identity.UserEmail
   alias FluxVale.Infrastructure.Cluster
   alias FluxVale.Infrastructure.Instance
+  alias FluxVale.OAuth.Client
   alias FluxVale.Ops.FeatureFlag
   alias FluxVale.Ops.FeatureFlags
   alias FluxVale.Pricing.Size
@@ -79,6 +80,8 @@ defmodule FluxVale.Seeds do
     seed_feedback_if_demo!()
     # #597 S6
     seed_feature_flags!()
+    # #886
+    seed_oauth_client!()
   end
 
   @doc """
@@ -552,6 +555,42 @@ defmodule FluxVale.Seeds do
   """
   @spec seeded_feature_flags :: [atom()]
   def seeded_feature_flags, do: @seeded_feature_flags
+
+  @doc """
+  Seeds the first-party OAuth client the CLI's device grant rides
+  (#886): a stable `fvoc_` row under `config :oauth_device_client_id`,
+  so logins don't burn the DCR cap and Connected apps shows one
+  durable row. Idempotent lookup-then-create (this module's shape);
+  no redirect URIs — the client speaks the redirectless device grant,
+  never the loopback flow.
+  """
+  @spec seed_oauth_client! :: :ok
+  def seed_oauth_client! do
+    client_id = Application.get_env(:flux_vale, :oauth_device_client_id)
+
+    case Client.get_by_client_id(client_id, authorize?: false) do
+      {:ok, _client} ->
+        :ok
+
+      {:error, _not_found} ->
+        # Bootstrap: no actor to authorize before seed data exists (the
+        # module's posture); redirect_uris stays [] (device-only).
+        attrs = %{
+          client_id: client_id,
+          client_name: "FluxVale CLI",
+          redirect_uris: [],
+          grant_types: ["authorization_code", "refresh_token"],
+          response_types: ["code"],
+          token_endpoint_auth_method: "none"
+        }
+
+        Client
+        |> Ash.Changeset.for_create(:register, attrs, authorize?: false)
+        |> Ash.create!()
+
+        :ok
+    end
+  end
 
   @doc """
   Seeds the curated tag vocabulary (#412 T10): `platform` and

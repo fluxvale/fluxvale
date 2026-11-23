@@ -1,8 +1,9 @@
 defmodule FluxVale.OAuth do
   @moduledoc """
-  The MCP OAuth 2.1 authorization server (#766): dynamic client
-  registration, the authorization-code + PKCE flow, rotating refresh
-  tokens, RFC 7009 revocation, and the OAuth audit trail.
+  The MCP OAuth 2.1 authorization server (#766, #886): dynamic client
+  registration, the authorization-code + PKCE flow, the RFC 8628 device
+  grant, rotating refresh tokens, RFC 7009 revocation, and the OAuth
+  audit trail.
 
   The token rows themselves stay in `FluxVale.Identity` — an OAuth
   access token is a short-lived scoped `personal_access_tokens` row
@@ -21,6 +22,7 @@ defmodule FluxVale.OAuth do
     resource(FluxVale.OAuth.AuditEvent)
     resource(FluxVale.OAuth.AuthorizationCode)
     resource(FluxVale.OAuth.Client)
+    resource(FluxVale.OAuth.DeviceGrant)
   end
 
   # Client registration (RFC 7591) — unauthenticated by design; the
@@ -44,7 +46,7 @@ defmodule FluxVale.OAuth do
     to: FluxVale.OAuth.Operations.IssueAuthorizationCode,
     as: :call
 
-  # The token endpoint's two grants.
+  # The token endpoint's code and refresh grants (device_code below).
   defdelegate exchange_code(params),
     to: FluxVale.OAuth.Operations.ExchangeCode,
     as: :call
@@ -52,6 +54,32 @@ defmodule FluxVale.OAuth do
   defdelegate refresh_token(params),
     to: FluxVale.OAuth.Operations.RefreshToken,
     as: :call
+
+  # The device grant (#886): the CLI's redirectless flow — mint on the
+  # device endpoint, decide on the hosted page, poll on the token
+  # endpoint.
+  defdelegate mint_device_grant(params, opts \\ []),
+    to: FluxVale.OAuth.Operations.MintDeviceGrant,
+    as: :call
+
+  defdelegate approve_device_grant(grant, opts \\ []),
+    to: FluxVale.OAuth.Operations.ApproveDeviceGrant,
+    as: :call
+
+  defdelegate deny_device_grant(grant, opts \\ []),
+    to: FluxVale.OAuth.Operations.DenyDeviceGrant,
+    as: :call
+
+  defdelegate poll_device_grant(params, opts \\ []),
+    to: FluxVale.OAuth.Operations.PollDeviceGrant,
+    as: :call
+
+  # The device grant's wire grant_type — the token endpoint routes on
+  # it and the metadata advertises it (identity's device_grant_type
+  # posture: the delegate is the one tie).
+  defdelegate device_grant_type,
+    to: FluxVale.OAuth.Operations.PollDeviceGrant,
+    as: :grant_type
 
   # The token-pair mint and family sever stay behind the domain seam:
   # sibling operations call these delegates, never the operation modules.
@@ -89,5 +117,9 @@ defmodule FluxVale.OAuth do
 
   defdelegate prune_audit_events(opts \\ []),
     to: FluxVale.OAuth.Operations.PruneAuditEvents,
+    as: :call
+
+  defdelegate prune_device_grants(opts \\ []),
+    to: FluxVale.OAuth.Operations.PruneDeviceGrants,
     as: :call
 end
