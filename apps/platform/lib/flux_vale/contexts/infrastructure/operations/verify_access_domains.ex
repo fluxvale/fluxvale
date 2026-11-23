@@ -67,6 +67,7 @@ defmodule FluxVale.Infrastructure.Operations.VerifyAccessDomains do
   alias FluxVale.Infrastructure.InstanceHostname
   alias FluxVale.Infrastructure.Operations.ClaimUnclaimedDomains
   alias FluxVale.Infrastructure.Operations.EdgeRoutes
+  alias FluxVale.Infrastructure.Operations.InstanceK8s
   alias FluxVale.Infrastructure.Operations.RenderAccessDNS
 
   require Ash.Query
@@ -332,11 +333,9 @@ defmodule FluxVale.Infrastructure.Operations.VerifyAccessDomains do
   # Idempotent; a failure is logged and left for the next tick (the row
   # does not flap on it).
   defp reapply_certificate(domain, kubeconfig) do
-    config = Application.fetch_env!(:flux_vale, :access_domains)
-
     case Certificate.create(
            kubeconfig,
-           Keyword.fetch!(config, :certificate_namespace),
+           InstanceK8s.gateway_access_namespace(),
            AccessDomain.certificate_name(domain),
            AccessDomain.certificate_spec(domain)
          ) do
@@ -351,11 +350,9 @@ defmodule FluxVale.Infrastructure.Operations.VerifyAccessDomains do
   end
 
   defp get_certificate(domain, kubeconfig) do
-    config = Application.fetch_env!(:flux_vale, :access_domains)
-
     Certificate.get(
       kubeconfig,
-      Keyword.fetch!(config, :certificate_namespace),
+      InstanceK8s.gateway_access_namespace(),
       AccessDomain.certificate_name(domain)
     )
   end

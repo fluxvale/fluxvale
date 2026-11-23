@@ -74,7 +74,7 @@ defmodule FluxVale.Infrastructure.Operations.RemoveAccessDomainTest do
       assert :ok = InstanceHostname.destroy(hostname, authorize?: false)
 
       expect(Kubereq, :delete, fn _req, ns, name ->
-        assert ns == Application.fetch_env!(:flux_vale, :access_domains)[:certificate_namespace]
+        assert ns == "fluxvale-access"
         assert name == AccessDomain.certificate_name(domain)
         {:ok, %{status: 200}}
       end)

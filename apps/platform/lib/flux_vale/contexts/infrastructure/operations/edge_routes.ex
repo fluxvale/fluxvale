@@ -55,6 +55,7 @@ defmodule FluxVale.Infrastructure.Operations.EdgeRoutes do
   alias FluxVale.Infrastructure.AccessDomain
   alias FluxVale.Infrastructure.Instance
   alias FluxVale.Infrastructure.InstanceHostname
+  alias FluxVale.Infrastructure.Operations.InstanceK8s
 
   require Ash.Query
   require Logger
@@ -514,8 +515,8 @@ defmodule FluxVale.Infrastructure.Operations.EdgeRoutes do
   @doc """
   The instance-namespace REPLICA of a custom domain's issued-wildcard
   Secret (ADR-0040 Am. 1 as built): reads the source Secret cert-manager
-  wrote in the certificate namespace (`:access_domains,
-  :certificate_namespace` + the row's `cert_secret_ref`) and SSA-copies
+  wrote in the access namespace (`InstanceK8s.gateway_access_namespace/0`
+  + the row's `cert_secret_ref`) and SSA-copies
   `tls.crt`/`tls.key` into `namespace` as
   `access-domain-cert-<short-random-tail>` — Traefik's CRD provider
   resolves `tls.secretName` ONLY in the IngressRoute's own namespace, so
@@ -537,7 +538,7 @@ defmodule FluxVale.Infrastructure.Operations.EdgeRoutes do
   end
 
   defp source_cert_data(kubeconfig, domain) do
-    namespace = certificate_namespace()
+    namespace = InstanceK8s.gateway_access_namespace()
 
     case Secret.get_data(kubeconfig, namespace, domain.cert_secret_ref) do
       {:ok, %{"tls.crt" => crt, "tls.key" => key}}
@@ -563,11 +564,6 @@ defmodule FluxVale.Infrastructure.Operations.EdgeRoutes do
       |> String.slice(-10, 10)
 
     "access-domain-cert-#{short_id}"
-  end
-
-  defp certificate_namespace do
-    config = Application.fetch_env!(:flux_vale, :access_domains)
-    Keyword.fetch!(config, :certificate_namespace)
   end
 
   # The object_name short_id discipline (AccessDomain.certificate_name,

@@ -42,7 +42,7 @@ defmodule FluxVale.Infrastructure.Operations.RegisterAccessDomainTest do
 
       expect(Kubereq, :apply, fn _req, manifest, _fm ->
         assert manifest["kind"] == "Certificate"
-        assert manifest["metadata"]["namespace"] == config[:certificate_namespace]
+        assert manifest["metadata"]["namespace"] == "fluxvale-access"
         assert manifest["spec"]["dnsNames"] == ["*.apps.customer.com"]
         assert manifest["spec"]["secretName"] =~ ~r/^access-domain-[0-9a-f]{10}$/
         assert manifest["spec"]["issuerRef"]["name"] == config[:issuer]
