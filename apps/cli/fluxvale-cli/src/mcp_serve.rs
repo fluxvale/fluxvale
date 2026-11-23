@@ -1,0 +1,1683 @@
+//! `fluxvale mcp serve` (#886): the bridge between an MCP client's
+//! stdio and the remote MCP server's streamable HTTP transport. Each
+//! stdin line is one JSON-RPC message, forwarded verbatim as one POST
+//! with the stored access token. The bridge renews the pair itself, so
+//! the client never holds a credential. stdout is the protocol channel:
+//! one writer thread, one message per line.
+
+use crate::config;
+use crate::token::{McpCredentials, McpTokenStore};
+use fluxvale_api::{McpHttpClient, McpReply, OAuthTokenPair, Token};
+use serde_json::Value;
+use std::io::{BufRead, Write};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::{self, Receiver, Sender};
+use std::sync::{Arc, Mutex, PoisonError, RwLock};
+
+/// JSON-RPC parse error: the client wrote a line that is not JSON.
+const PARSE_ERROR: i64 = -32700;
+/// JSON-RPC internal error: what a request gets when the bridge could not get the server's answer.
+const INTERNAL_ERROR: i64 = -32603;
+/// An access token this close to its expiry is renewed before it is used.
+const EXPIRY_LEEWAY_SECS: u64 = 60;
+/// Where a request states its protocol version, under `params._meta`.
+const META_PROTOCOL_VERSION: &str = "io.modelcontextprotocol/protocolVersion";
+/// What a client reads when the stored sign-in can no longer be renewed.
+const SIGN_IN_LOST: &str = "MCP sign-in is no longer valid. Run `fluxvale mcp login`.";
+/// Every line the bridge writes to stderr starts with this.
+const PREFIX: &str = "fluxvale: ";
+
+/// The MCP endpoint the bridge talks to: the `--url` flag, else the
+/// stored pair's `resource`, else the environment's own MCP server.
+///
+/// A pair is minted for one resource and its access token is only ever
+/// sent there, so a stored `resource` that differs from the endpoint is
+/// refused, not overridden.
+pub fn resolve_url(
+    flag_url: Option<&str>,
+    stored_resource: Option<&str>,
+    base_url: &str,
+) -> anyhow::Result<String> {
+    let url = match (flag_url, stored_resource) {
+        (Some(url), _) => url.trim_end_matches('/').to_string(),
+        (None, Some(resource)) => resource.trim_end_matches('/').to_string(),
+        (None, None) => environment_url(base_url)?,
+    };
+    if let Some(bound) = stored_resource
+        && bound.trim_end_matches('/') != url
+    {
+        anyhow::bail!(
+            "the stored MCP pair is bound to {bound}. Run `fluxvale mcp login --resource {url}` to pair it with that server, or pass --url {bound}."
+        );
+    }
+    Ok(url)
+}
+
+/// The MCP server that serves an environment, from the API's host.
+fn environment_url(base_url: &str) -> anyhow::Result<String> {
+    let mcp_host = match config::host_from_base_url(base_url).as_str() {
+        "fluxvale.com" => "mcp.fluxvale.com",
+        "staging.fluxvale.com" => "mcp-staging.fluxvale.com",
+        _ => anyhow::bail!(
+            "cannot derive the MCP server URL from base URL {base_url}. Pass --url <URL>."
+        ),
+    };
+    Ok(format!("https://{mcp_host}/mcp"))
+}
+
+/// One answered POST, however it was made. [`McpHttpClient`] is the real one.
+pub trait McpTransport: Send + Sync + 'static {
+    /// POST one JSON-RPC message with the access token as the bearer.
+    fn post(
+        &self,
+        access_token: &Token,
+        body: &str,
+        protocol_version: Option<&str>,
+    ) -> anyhow::Result<McpReply>;
+}
+
+impl McpTransport for McpHttpClient {
+    fn post(
+        &self,
+        access_token: &Token,
+        body: &str,
+        protocol_version: Option<&str>,
+    ) -> anyhow::Result<McpReply> {
+        McpHttpClient::post(self, access_token, body, protocol_version)
+    }
+}
+
+/// Where the stored pair is read and written. [`McpTokenStore`] is the real one.
+pub trait McpPairStore: Send + Sync + 'static {
+    /// The stored pair for `host`, when there is one.
+    fn load(&self, host: &str) -> anyhow::Result<Option<McpCredentials>>;
+    /// Replace the stored pair for `host`.
+    fn save(&self, host: &str, pair: &McpCredentials) -> anyhow::Result<()>;
+}
+
+impl McpPairStore for McpTokenStore {
+    fn load(&self, host: &str) -> anyhow::Result<Option<McpCredentials>> {
+        Ok(McpTokenStore::load(self, host)?.map(|(pair, _)| pair))
+    }
+
+    fn save(&self, host: &str, pair: &McpCredentials) -> anyhow::Result<()> {
+        McpTokenStore::save(self, host, pair)
+    }
+}
+
+/// Runs the bridge and returns its exit code: 0 when stdin closed, 1
+/// when the stored sign-in was missing or could no longer be renewed.
+///
+/// Everything the bridge touches is a parameter, so tests drive it
+/// without a keychain or a network. `reader` is stdin, `writer` is
+/// stdout, `err` receives whole stderr lines (newline included),
+/// `connect` builds the transport for the resolved URL and may refuse
+/// it, `refresh` is the token endpoint, `now` is the clock.
+#[allow(clippy::too_many_arguments)]
+pub fn serve<R, W, E, C, T, S, F, N>(
+    flag_url: Option<&str>,
+    base_url: &str,
+    host: &str,
+    reader: R,
+    writer: W,
+    err: E,
+    connect: C,
+    store: S,
+    refresh: F,
+    now: N,
+) -> anyhow::Result<i32>
+where
+    R: BufRead + Send + 'static,
+    W: Write + Send + 'static,
+    E: Fn(&str) + Send + Sync + 'static,
+    C: FnOnce(&str) -> anyhow::Result<T>,
+    T: McpTransport,
+    S: McpPairStore,
+    F: Fn(&Token, Option<&str>) -> anyhow::Result<OAuthTokenPair> + Send + Sync + 'static,
+    N: Fn() -> u64 + Send + Sync + 'static,
+{
+    let err: Arc<ErrSink> = Arc::new(err);
+    let now: Arc<Clock> = Arc::new(now);
+    let Some(pair) = store.load(host)? else {
+        err(&format!(
+            "not signed in for MCP on {host}, run `fluxvale mcp login` first\n"
+        ));
+        return Ok(1);
+    };
+    let url = resolve_url(flag_url, pair.resource.as_deref(), base_url)?;
+    let nearly_expired = pair.is_expired_within(now(), EXPIRY_LEEWAY_SECS);
+    let (out, lines) = mpsc::channel();
+    let bridge = Arc::new(Bridge {
+        transport: Arc::new(connect(&url)?),
+        store: Arc::new(store),
+        refresh: Arc::new(refresh),
+        now,
+        err: err.clone(),
+        host: host.to_owned(),
+        current: RwLock::new(pair.clone()),
+        negotiated: RwLock::new(None),
+        renewal: Mutex::new(()),
+        dead: AtomicBool::new(false),
+        out,
+    });
+    // A token about to expire is renewed before anything is forwarded.
+    if nearly_expired && let Err(lost) = bridge.renew(&pair) {
+        err(&sign_in_lost(&lost.to_string()));
+        return Ok(1);
+    }
+
+    let reading = {
+        let bridge = bridge.clone();
+        let mut reader = reader;
+        std::thread::spawn(move || bridge.read_lines(&mut reader))
+    };
+    let writing = std::thread::spawn(move || write_lines(writer, lines));
+    // This thread holds no sender: once the reader and its forwards are
+    // done, the channel closes and the writer exits.
+    drop(bridge);
+    let written = writing
+        .join()
+        .map_err(|_| anyhow::anyhow!("the stdout writer panicked"))?;
+    let Some(stderr) = written? else {
+        reading
+            .join()
+            .map_err(|_| anyhow::anyhow!("the stdin reader panicked"))??;
+        return Ok(0);
+    };
+    // The reader may still be blocked on stdin: the caller exits the process.
+    err(&stderr);
+    Ok(1)
+}
+
+/// What the reader and its forwards hand to the writer thread.
+enum ToWriter {
+    /// One protocol message, already JSON text.
+    Line(String),
+    /// The last message, then the line for stderr: the sign-in is lost.
+    Fatal {
+        line: Option<String>,
+        stderr: String,
+    },
+}
+
+/// The token endpoint's refresh call.
+type Renew = dyn Fn(&Token, Option<&str>) -> anyhow::Result<OAuthTokenPair> + Send + Sync;
+/// The clock, in seconds since the Unix epoch.
+type Clock = dyn Fn() -> u64 + Send + Sync;
+/// Where whole stderr lines go.
+type ErrSink = dyn Fn(&str) + Send + Sync;
+
+/// The state the reader thread and every forward share.
+struct Bridge {
+    transport: Arc<dyn McpTransport>,
+    store: Arc<dyn McpPairStore>,
+    refresh: Arc<Renew>,
+    now: Arc<Clock>,
+    err: Arc<ErrSink>,
+    host: String,
+    /// The pair new forwards start from. A renewal replaces it.
+    current: RwLock<McpCredentials>,
+    /// The protocol version an answer negotiated.
+    negotiated: RwLock<Option<String>>,
+    /// Held across a renewal only, so two refusals at once renew once.
+    renewal: Mutex<()>,
+    /// Set once the sign-in is lost: nothing more is forwarded.
+    dead: AtomicBool,
+    out: Sender<ToWriter>,
+}
+
+impl Bridge {
+    /// The reader thread: forwards each stdin line, and returns at end
+    /// of input once every forward it started has finished.
+    fn read_lines<R: BufRead>(&self, reader: &mut R) -> anyhow::Result<()> {
+        let mut bytes = Vec::new();
+        std::thread::scope(|forwards| {
+            loop {
+                bytes.clear();
+                let read = reader
+                    .read_until(b'\n', &mut bytes)
+                    .map_err(|err| anyhow::anyhow!("could not read stdin: {err}"))?;
+                if read == 0 || self.dead.load(Ordering::Relaxed) {
+                    return Ok(());
+                }
+                let line = trim_newline(&bytes);
+                if line.is_empty() || line.iter().all(u8::is_ascii_whitespace) {
+                    continue;
+                }
+                let Some((line, message)) = parse_line(line) else {
+                    self.emit(error_line(&Value::Null, PARSE_ERROR, "parse error"));
+                    continue;
+                };
+                forwards.spawn(move || self.forward(&line, &message));
+            }
+        })
+    }
+
+    /// Forwards one message and hands the answers to the writer.
+    fn forward(&self, line: &str, message: &Value) {
+        let id = request_id(message);
+        let version = self.header_version(message);
+        let mut pair = self.pair();
+        let mut renewed = false;
+        let outcome = loop {
+            let reply = match self
+                .transport
+                .post(&pair.access_token, line, version.as_deref())
+            {
+                Err(err) => break Outcome::Failed(err.to_string()),
+                Ok(reply) => reply,
+            };
+            if reply.status == 401 {
+                // One renewal per message. Refused again with a pair
+                // that was just renewed: the pair is no good.
+                if renewed {
+                    break Outcome::SignedOut(String::new());
+                }
+                pair = match self.renew(&pair) {
+                    Ok(pair) => pair,
+                    Err(err) => break Outcome::SignedOut(err.to_string()),
+                };
+                renewed = true;
+                continue;
+            }
+            // Recorded before the writer sees the answer, so the next POST can carry it.
+            self.negotiate(&reply.messages);
+            if (200..300).contains(&reply.status) || !reply.messages.is_empty() {
+                break Outcome::Answered(reply.messages);
+            }
+            break Outcome::Failed(format!("the MCP server answered HTTP {}", reply.status));
+        };
+        match (outcome, id) {
+            (Outcome::Answered(messages), _) => {
+                for message in messages {
+                    self.emit(message.to_string());
+                }
+            }
+            (Outcome::Failed(why), Some(id)) => self.emit(error_line(id, INTERNAL_ERROR, &why)),
+            (Outcome::Failed(why), None) => {
+                (self.err)(&format!("{PREFIX}dropped a message: {why}\n"));
+            }
+            (Outcome::SignedOut(lost), id) => self.sign_out(id, &lost),
+        }
+    }
+
+    /// The pair new forwards start from.
+    fn pair(&self) -> McpCredentials {
+        self.current.read().unwrap_or_else(ignore_poison).clone()
+    }
+
+    /// The `MCP-Protocol-Version` header for one outgoing message.
+    ///
+    /// `initialize` carries none: the server refuses a header that
+    /// differs from the body's `params.protocolVersion`, and no header at
+    /// all is accepted. Every later POST carries the version an answer
+    /// negotiated. Before any has, a message that states its own version
+    /// under `params._meta` gets that one, because the server refuses
+    /// such a request without a matching header.
+    fn header_version(&self, message: &Value) -> Option<String> {
+        if message.get("method").and_then(Value::as_str) == Some("initialize") {
+            return None;
+        }
+        if let Some(version) = self
+            .negotiated
+            .read()
+            .unwrap_or_else(ignore_poison)
+            .as_deref()
+        {
+            return Some(version.to_owned());
+        }
+        meta_protocol_version(message).map(str::to_owned)
+    }
+
+    fn negotiate(&self, messages: &[Value]) {
+        if let Some(version) = negotiated_version(messages) {
+            *self.negotiated.write().unwrap_or_else(ignore_poison) = Some(version);
+        }
+    }
+
+    /// Renews the pair a `401` refused, and returns the pair to retry
+    /// with, which new forwards start from too.
+    ///
+    /// Only one renewal runs at a time. Refresh tokens rotate and the
+    /// server treats a second use of one as theft, so a request refused
+    /// with a pair another request has already renewed reuses that
+    /// renewal instead of presenting the same refresh token again.
+    fn renew(&self, refused: &McpCredentials) -> anyhow::Result<McpCredentials> {
+        let _one_at_a_time = self.renewal.lock().unwrap_or_else(ignore_poison);
+        let stored = self.store.load(&self.host)?;
+        let pair = match stored {
+            Some(stored) if stored.refresh_token != refused.refresh_token => stored,
+            _ => {
+                let reply = (self.refresh)(&refused.refresh_token, refused.resource.as_deref())?;
+                let pair = McpCredentials {
+                    access_token: reply.access_token,
+                    refresh_token: reply.refresh_token,
+                    expires_at_unix: (self.now)().saturating_add(reply.expires_in),
+                    scope: reply.scope,
+                    resource: refused.resource.clone(),
+                };
+                self.store.save(&self.host, &pair)?;
+                pair
+            }
+        };
+        *self.current.write().unwrap_or_else(ignore_poison) = pair.clone();
+        Ok(pair)
+    }
+
+    fn emit(&self, line: String) {
+        let _ = self.out.send(ToWriter::Line(line));
+    }
+
+    /// The sign-in is lost: answer the request if there is one, tell
+    /// stderr, and forward nothing more.
+    fn sign_out(&self, id: Option<&Value>, lost: &str) {
+        self.dead.store(true, Ordering::Relaxed);
+        let line = id.map(|id| error_line(id, INTERNAL_ERROR, SIGN_IN_LOST));
+        let _ = self.out.send(ToWriter::Fatal {
+            line,
+            stderr: sign_in_lost(lost),
+        });
+    }
+}
+
+/// How one forward ended.
+enum Outcome {
+    /// The server's messages, written as they came.
+    Answered(Vec<Value>),
+    /// No answer: the server could not be reached, or answered with nothing to pass on.
+    Failed(String),
+    /// The stored sign-in can no longer be renewed.
+    SignedOut(String),
+}
+
+/// The writer thread, the only one that touches stdout: one message per
+/// line, flushed. Returns the stderr line of a lost sign-in, when there was one.
+fn write_lines<W: Write>(
+    mut writer: W,
+    messages: Receiver<ToWriter>,
+) -> anyhow::Result<Option<String>> {
+    let mut stderr = None;
+    for message in messages {
+        match message {
+            ToWriter::Line(line) => write_line(&mut writer, &line)?,
+            ToWriter::Fatal { line, stderr: lost } => {
+                if let Some(line) = line {
+                    write_line(&mut writer, &line)?;
+                }
+                stderr = Some(lost);
+                break;
+            }
+        }
+    }
+    Ok(stderr)
+}
+
+/// A line, a newline, a flush. A closed pipe means the client is gone,
+/// which is how every session ends, not an error.
+fn write_line<W: Write>(writer: &mut W, line: &str) -> anyhow::Result<()> {
+    match writeln!(writer, "{line}").and_then(|()| writer.flush()) {
+        Err(err) if err.kind() == std::io::ErrorKind::BrokenPipe => Ok(()),
+        written => written.map_err(Into::into),
+    }
+}
+
+/// An error response the bridge writes itself.
+fn error_line(id: &Value, code: i64, message: &str) -> String {
+    let message = Value::String(message.to_owned());
+    format!(r#"{{"jsonrpc":"2.0","id":{id},"error":{{"code":{code},"message":{message}}}}}"#)
+}
+
+fn sign_in_lost(lost: &str) -> String {
+    format!("{PREFIX}MCP sign-in is no longer valid ({lost}). Run `fluxvale mcp login`.\n")
+}
+
+/// The id of a message that waits for an answer: an object with an
+/// `id` and neither a `result` nor an `error`.
+fn request_id(message: &Value) -> Option<&Value> {
+    let object = message.as_object()?;
+    match object.contains_key("result") || object.contains_key("error") {
+        true => None,
+        false => object.get("id"),
+    }
+}
+
+/// The protocol version a message states under `params._meta`.
+fn meta_protocol_version(message: &Value) -> Option<&str> {
+    message
+        .get("params")?
+        .get("_meta")?
+        .get(META_PROTOCOL_VERSION)?
+        .as_str()
+}
+
+/// The protocol version an answer negotiated: `result.protocolVersion`.
+fn negotiated_version(messages: &[Value]) -> Option<String> {
+    messages
+        .iter()
+        .find_map(|message| message.get("result")?.get("protocolVersion")?.as_str())
+        .map(str::to_owned)
+}
+
+/// A line without its terminator: `\n`, or `\r\n` from a Windows client.
+fn trim_newline(line: &[u8]) -> &[u8] {
+    let line = line.strip_suffix(b"\n").unwrap_or(line);
+    line.strip_suffix(b"\r").unwrap_or(line)
+}
+
+/// The message a line carries, as JSON text and parsed, or `None` when
+/// the line is not one. The text is the line as it came, for the wire.
+fn parse_line(line: &[u8]) -> Option<(String, Value)> {
+    let text = std::str::from_utf8(line).ok()?;
+    let message = serde_json::from_str(text).ok()?;
+    Some((text.to_owned(), message))
+}
+
+/// A lock a panicking thread left behind still guards a whole value, so it is used as is.
+fn ignore_poison<T>(poisoned: PoisonError<T>) -> T {
+    poisoned.into_inner()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+    use std::collections::BTreeMap;
+    use std::io;
+    use std::sync::mpsc::RecvTimeoutError;
+    use std::time::{Duration, Instant};
+
+    const NOW: u64 = 1_700_000_000;
+    const HOST: &str = "fluxvale.com";
+    const BASE_URL: &str = "https://fluxvale.com";
+    const MCP_URL: &str = "https://mcp.fluxvale.com/mcp";
+    /// The version the mock `initialize` result negotiates.
+    const PROTOCOL: &str = "2025-11-25";
+    /// How long a test waits for the bridge before failing instead of hanging.
+    const WAIT: Duration = Duration::from_secs(10);
+
+    // Secrets with a shape a leak would show. Every test ends by proving none reached a byte of output.
+    const ACCESS: &str = "fvoat_secret_access_token_never_leaked";
+    const REFRESH: &str = "fvort_secret_refresh_token_never_leaked";
+    const DEVICE_CODE: &str = "dc_secret_device_code_never_leaked_123456";
+    const NEXT_ACCESS: &str = "fvoat_secret_next_access_token_never_leaked";
+    const NEXT_REFRESH: &str = "fvort_secret_next_refresh_token_never_leaked";
+
+    /// The stderr line that ends a bridge whose sign-in was lost.
+    fn lost(why: &str) -> String {
+        format!("fluxvale: MCP sign-in is no longer valid ({why}). Run `fluxvale mcp login`.\n")
+    }
+
+    /// The stdout line that ends a request whose sign-in was lost.
+    fn lost_line(id: &Value) -> String {
+        format!(
+            r#"{{"jsonrpc":"2.0","id":{id},"error":{{"code":-32603,"message":"MCP sign-in is no longer valid. Run `fluxvale mcp login`."}}}}"#
+        )
+    }
+
+    /// A request as a client writes it. A notification has no id.
+    fn request(id: impl Into<Value>, method: &str) -> String {
+        json!({"jsonrpc": "2.0", "id": id.into(), "method": method}).to_string()
+    }
+
+    fn notification(method: &str) -> String {
+        json!({"jsonrpc": "2.0", "method": method}).to_string()
+    }
+
+    /// The answer the mock server gives a request: its own id and method back.
+    fn answer(id: impl Into<Value>, method: &str) -> String {
+        json!({"jsonrpc": "2.0", "id": id.into(), "result": {"method": method}}).to_string()
+    }
+
+    fn initialize() -> String {
+        json!({
+            "jsonrpc": "2.0", "id": 0, "method": "initialize",
+            "params": {"protocolVersion": PROTOCOL, "capabilities": {}, "clientInfo": {"name": "test", "version": "0"}}
+        })
+        .to_string()
+    }
+
+    fn initialize_result() -> Value {
+        json!({
+            "jsonrpc": "2.0", "id": 0,
+            "result": {"protocolVersion": PROTOCOL, "capabilities": {"tools": {}}, "serverInfo": {"name": "fluxvale", "version": "0"}}
+        })
+    }
+
+    /// A request that states its protocol version the way the 2026-07-28 revision does.
+    fn with_meta_version(id: u64, version: &str) -> String {
+        json!({
+            "jsonrpc": "2.0", "id": id, "method": "tools/list",
+            "params": {"_meta": {"io.modelcontextprotocol/protocolVersion": version}}
+        })
+        .to_string()
+    }
+
+    /// A pair as `fluxvale mcp login` stores it: valid for `expires_in` more seconds from [`NOW`].
+    fn pair(
+        access: &str,
+        refresh: &str,
+        expires_in: u64,
+        resource: Option<&str>,
+    ) -> McpCredentials {
+        McpCredentials {
+            access_token: Token::new(access),
+            refresh_token: Token::new(refresh),
+            expires_at_unix: NOW + expires_in,
+            scope: "instances:read".to_string(),
+            resource: resource.map(str::to_owned),
+        }
+    }
+
+    /// The token endpoint's answer to a refresh.
+    fn renewed() -> OAuthTokenPair {
+        OAuthTokenPair {
+            access_token: Token::new(NEXT_ACCESS),
+            refresh_token: Token::new(NEXT_REFRESH),
+            expires_in: 3600,
+            scope: "instances:read wallet:read".to_string(),
+        }
+    }
+
+    fn refused() -> McpReply {
+        McpReply {
+            status: 401,
+            messages: Vec::new(),
+        }
+    }
+
+    fn answered(messages: Vec<Value>) -> McpReply {
+        McpReply {
+            status: 200,
+            messages,
+        }
+    }
+
+    /// What the mock server answers a request: its own id and method back.
+    fn echo(post: &Post) -> McpReply {
+        answered(vec![json!({
+            "jsonrpc": "2.0",
+            "id": message(post)["id"],
+            "result": {"method": method(post)}
+        })])
+    }
+
+    fn message(post: &Post) -> Value {
+        serde_json::from_str(&post.body).unwrap()
+    }
+
+    fn method(post: &Post) -> String {
+        message(post)["method"].as_str().unwrap_or("").to_string()
+    }
+
+    /// One forwarded POST as the mock transport received it.
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    struct Post {
+        access_token: Token,
+        body: String,
+        protocol_version: Option<String>,
+    }
+
+    /// What the bridge did, shared with the threads it runs on.
+    #[derive(Default)]
+    struct Seen {
+        stdout: Mutex<String>,
+        stderr: Mutex<String>,
+        /// `Debug` forms of the secrets the bridge handled.
+        debug: Mutex<String>,
+        /// Each URL `connect` was asked for, one per line.
+        urls: Mutex<String>,
+        posts: Mutex<Vec<Post>>,
+        /// Each refresh call: the token it presented and the resource it named.
+        refreshes: Mutex<Vec<(Token, Option<String>)>>,
+        /// Refreshes and forwards in the order they started.
+        events: Mutex<Vec<String>>,
+    }
+
+    fn push(into: &Mutex<String>, text: &str) {
+        into.lock().unwrap().push_str(text);
+    }
+
+    /// Blocks until `condition` holds. False once `limit` passed, so a stuck bridge fails the test instead of hanging it.
+    fn wait_up_to(limit: Duration, mut condition: impl FnMut() -> bool) -> bool {
+        let deadline = Instant::now() + limit;
+        while !condition() {
+            if Instant::now() >= deadline {
+                return false;
+            }
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        true
+    }
+
+    /// How a test's script answers one forwarded POST.
+    type Answer = dyn Fn(&Seen, &Post) -> Result<McpReply, String> + Send + Sync;
+    /// How it answers one refresh call, counted from zero.
+    type Renewal = dyn Fn(&Seen, usize) -> Result<OAuthTokenPair, String> + Send + Sync;
+
+    /// The injected transport: every POST is recorded, then answered by the test's script.
+    struct MockTransport {
+        seen: Arc<Seen>,
+        answer: Box<Answer>,
+    }
+
+    impl McpTransport for MockTransport {
+        fn post(
+            &self,
+            access_token: &Token,
+            body: &str,
+            protocol_version: Option<&str>,
+        ) -> anyhow::Result<McpReply> {
+            let post = Post {
+                access_token: access_token.clone(),
+                body: body.to_owned(),
+                protocol_version: protocol_version.map(str::to_owned),
+            };
+            // Recorded before the answer, so an answer can wait on what else has arrived.
+            self.seen.posts.lock().unwrap().push(post.clone());
+            self.seen.events.lock().unwrap().push("post".to_owned());
+            (self.answer)(&self.seen, &post).map_err(anyhow::Error::msg)
+        }
+    }
+
+    /// The pair store, in memory: one pair per host, readable while the bridge runs.
+    #[derive(Clone, Default)]
+    struct MemoryStore(Arc<Mutex<BTreeMap<String, McpCredentials>>>);
+
+    impl McpPairStore for MemoryStore {
+        fn load(&self, host: &str) -> anyhow::Result<Option<McpCredentials>> {
+            Ok(self.0.lock().unwrap().get(host).cloned())
+        }
+
+        fn save(&self, host: &str, pair: &McpCredentials) -> anyhow::Result<()> {
+            self.0.lock().unwrap().insert(host.to_owned(), pair.clone());
+            Ok(())
+        }
+    }
+
+    /// stdin's stand-in: each line the test sends becomes readable in turn. A dropped sender is end of input.
+    struct ClientStdin {
+        lines: Receiver<Vec<u8>>,
+        pending: Vec<u8>,
+    }
+
+    impl io::Read for ClientStdin {
+        fn read(&mut self, out: &mut [u8]) -> io::Result<usize> {
+            if self.pending.is_empty() {
+                match self.lines.recv_timeout(WAIT) {
+                    Ok(line) => self.pending = line,
+                    Err(RecvTimeoutError::Disconnected) => return Ok(0),
+                    Err(RecvTimeoutError::Timeout) => {
+                        return Err(io::Error::new(
+                            io::ErrorKind::TimedOut,
+                            "the test client went quiet",
+                        ));
+                    }
+                }
+            }
+            let length = self.pending.len().min(out.len());
+            out[..length].copy_from_slice(&self.pending[..length]);
+            self.pending.drain(..length);
+            Ok(length)
+        }
+    }
+
+    /// stdout's stand-in: everything the bridge writes, kept for the assertions.
+    struct ClientStdout(Arc<Seen>);
+
+    impl Write for ClientStdout {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            let text = std::str::from_utf8(buf).expect("the bridge writes UTF-8");
+            push(&self.0.stdout, text);
+            Ok(buf.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    /// What a test gives the bridge before it starts.
+    struct Script {
+        /// The pair already stored for `host`.
+        stored: Option<McpCredentials>,
+        host: &'static str,
+        base_url: &'static str,
+        flag_url: Option<&'static str>,
+        /// Everything the client writes up front, after which its stdin closes.
+        /// `None` leaves the test to write line by line.
+        input: Option<String>,
+        /// Answers each forwarded POST.
+        answer: Box<Answer>,
+        /// Answers each refresh call.
+        renew: Box<Renewal>,
+    }
+
+    /// The plain setup: a healthy pair for `fluxvale.com`, every POST
+    /// answered, every refresh granted. The stored pair lives two hours
+    /// and a renewal one, so the two expiries are never mistaken.
+    fn script() -> Script {
+        Script {
+            stored: Some(pair(ACCESS, REFRESH, 7200, Some(MCP_URL))),
+            host: HOST,
+            base_url: BASE_URL,
+            flag_url: None,
+            input: None,
+            answer: Box::new(|_, post| Ok(echo(post))),
+            renew: Box::new(|_, _| Ok(renewed())),
+        }
+    }
+
+    /// A bridge running on its own thread, driven the way a client would.
+    struct Harness {
+        seen: Arc<Seen>,
+        store: MemoryStore,
+        stdin: Option<Sender<Vec<u8>>>,
+        bridge: Option<std::thread::JoinHandle<anyhow::Result<i32>>>,
+    }
+
+    fn start(script: Script) -> Harness {
+        let seen = Arc::new(Seen::default());
+        let store = MemoryStore::default();
+        if let Some(pair) = &script.stored {
+            store.save(script.host, pair).unwrap();
+        }
+        let (stdin, lines) = mpsc::channel::<Vec<u8>>();
+        let preset = script.input.is_some();
+        for line in script.input.unwrap_or_default().lines() {
+            stdin.send(format!("{line}\n").into_bytes()).unwrap();
+        }
+        let stdin = if preset { None } else { Some(stdin) };
+
+        let transport = MockTransport {
+            seen: seen.clone(),
+            answer: script.answer,
+        };
+        let renew = {
+            let seen = seen.clone();
+            let answer = script.renew;
+            move |token: &Token, resource: Option<&str>| {
+                let index = {
+                    let mut refreshes = seen.refreshes.lock().unwrap();
+                    let index = refreshes.len();
+                    refreshes.push((token.clone(), resource.map(str::to_owned)));
+                    index
+                };
+                seen.events.lock().unwrap().push("refresh".to_owned());
+                let renewed = answer(&seen, index).map_err(anyhow::Error::msg)?;
+                push(&seen.debug, &format!("{renewed:?} "));
+                Ok(renewed)
+            }
+        };
+        let (host, base_url, flag_url) = (script.host, script.base_url, script.flag_url);
+        let bridge_store = store.clone();
+
+        let written = seen.clone();
+        let urls = seen.clone();
+        let stderr = seen.clone();
+        let bridge = std::thread::spawn(move || {
+            serve(
+                flag_url,
+                base_url,
+                host,
+                io::BufReader::new(ClientStdin {
+                    lines,
+                    pending: Vec::new(),
+                }),
+                ClientStdout(written),
+                move |line| push(&stderr.stderr, line),
+                move |url: &str| {
+                    push(&urls.urls, &format!("{url}\n"));
+                    Ok(transport)
+                },
+                bridge_store,
+                renew,
+                || NOW,
+            )
+        });
+        Harness {
+            seen,
+            store,
+            stdin,
+            bridge: Some(bridge),
+        }
+    }
+
+    impl Harness {
+        /// The client writes one line.
+        fn send(&self, line: &str) {
+            self.stdin
+                .as_ref()
+                .expect("this script writes line by line")
+                .send(format!("{line}\n").into_bytes())
+                .expect("the bridge is still reading");
+        }
+
+        /// The client closes its end.
+        fn close_stdin(&mut self) {
+            self.stdin.take();
+        }
+
+        /// Waits for the bridge to exit by itself.
+        fn exit(&mut self) -> anyhow::Result<i32> {
+            let bridge = self.bridge.take().expect("the bridge runs once");
+            assert!(
+                wait_up_to(WAIT, || bridge.is_finished()),
+                "the bridge did not exit"
+            );
+            bridge.join().unwrap()
+        }
+
+        fn exit_code(&mut self) -> i32 {
+            self.exit().expect("the bridge ended without an error")
+        }
+
+        /// Closes stdin, then waits for the exit code.
+        fn finish(&mut self) -> i32 {
+            self.close_stdin();
+            self.exit_code()
+        }
+
+        fn stdout_lines(&self) -> Vec<String> {
+            self.seen
+                .stdout
+                .lock()
+                .unwrap()
+                .lines()
+                .map(str::to_owned)
+                .collect()
+        }
+
+        /// Waits until stdout holds `count` lines.
+        fn stdout_after(&self, count: usize) -> Vec<String> {
+            assert!(
+                wait_up_to(WAIT, || self.stdout_lines().len() >= count),
+                "stdout never reached {count} lines, got {:?}",
+                self.stdout_lines()
+            );
+            self.stdout_lines()
+        }
+
+        fn stderr(&self) -> String {
+            self.seen.stderr.lock().unwrap().clone()
+        }
+
+        /// The URLs the bridge asked a transport for, in order.
+        fn urls(&self) -> Vec<String> {
+            self.seen
+                .urls
+                .lock()
+                .unwrap()
+                .lines()
+                .map(str::to_owned)
+                .collect()
+        }
+
+        fn posts(&self) -> Vec<Post> {
+            self.seen.posts.lock().unwrap().clone()
+        }
+
+        fn refreshes(&self) -> Vec<(Token, Option<String>)> {
+            self.seen.refreshes.lock().unwrap().clone()
+        }
+
+        fn events(&self) -> Vec<String> {
+            self.seen.events.lock().unwrap().clone()
+        }
+
+        fn stored(&self) -> Option<McpCredentials> {
+            self.store.stored(HOST)
+        }
+
+        /// No byte the bridge wrote, and no `Debug` form of what it
+        /// handled, carries a token or a device code.
+        fn assert_no_secrets(&self) {
+            let stdout = self.stdout_lines().join("\n");
+            let stderr = self.stderr();
+            let debug = self.seen.debug.lock().unwrap().clone();
+            for secret in [ACCESS, REFRESH, NEXT_ACCESS, NEXT_REFRESH, DEVICE_CODE] {
+                assert!(!stdout.contains(secret), "stdout leaked a secret: {stdout}");
+                assert!(!stderr.contains(secret), "stderr leaked a secret: {stderr}");
+                assert!(
+                    !debug.contains(secret),
+                    "Debug output leaked a secret: {debug}"
+                );
+            }
+        }
+    }
+
+    impl MemoryStore {
+        fn stored(&self, host: &str) -> Option<McpCredentials> {
+            McpPairStore::load(self, host).unwrap()
+        }
+    }
+
+    #[test]
+    fn initialize_then_initialized_then_tools_list() {
+        let mut h = start(Script {
+            answer: Box::new(|_, post| {
+                Ok(match method(post).as_str() {
+                    "initialize" => answered(vec![initialize_result()]),
+                    "notifications/initialized" => McpReply {
+                        status: 202,
+                        messages: Vec::new(),
+                    },
+                    _ => echo(post),
+                })
+            }),
+            ..script()
+        });
+
+        // A client waits for the initialize result before it goes on.
+        let initialize = initialize();
+        h.send(&initialize);
+        assert_eq!(h.stdout_after(1), vec![initialize_result().to_string()]);
+        let initialized = notification("notifications/initialized");
+        h.send(&initialized);
+        // ...and for the notification to be off its hands before the next request.
+        assert!(
+            wait_up_to(WAIT, || h.posts().len() == 2),
+            "the notification was never forwarded"
+        );
+        let tools = request("tools", "tools/list");
+        h.send(&tools);
+
+        assert_eq!(
+            h.stdout_after(2),
+            vec![
+                initialize_result().to_string(),
+                answer("tools", "tools/list")
+            ]
+        );
+        assert_eq!(h.finish(), 0);
+
+        let posts = h.posts();
+        assert_eq!(
+            posts
+                .iter()
+                .map(|post| post.body.as_str())
+                .collect::<Vec<_>>(),
+            vec![initialize.as_str(), initialized.as_str(), tools.as_str()],
+            "three messages in, three POSTs out, in order and byte for byte"
+        );
+        for post in &posts {
+            assert_eq!(
+                post.access_token,
+                Token::new(ACCESS),
+                "every POST carries the access token"
+            );
+        }
+        assert_eq!(
+            posts[0].protocol_version, None,
+            "initialize carries no version header"
+        );
+        assert_eq!(posts[1].protocol_version.as_deref(), Some(PROTOCOL));
+        assert_eq!(posts[2].protocol_version.as_deref(), Some(PROTOCOL));
+        assert_eq!(h.urls(), vec![MCP_URL]);
+        assert!(h.refreshes().is_empty(), "a healthy pair is not renewed");
+        assert_eq!(h.stderr(), "", "the happy path writes nothing to stderr");
+        h.assert_no_secrets();
+    }
+
+    #[test]
+    fn a_401_renews_once_and_the_retry_carries_the_new_token() {
+        let refused_token = Token::new(ACCESS);
+        let mut h = start(Script {
+            answer: Box::new(move |_, post| {
+                if post.access_token == refused_token {
+                    Ok(refused())
+                } else {
+                    Ok(echo(post))
+                }
+            }),
+            ..script()
+        });
+
+        let tools = request("tools", "tools/list");
+        h.send(&tools);
+        assert_eq!(h.stdout_after(1), vec![answer("tools", "tools/list")]);
+
+        // A request that comes after the renewal starts from the renewed pair: no second refusal.
+        let later = request(9, "resources/list");
+        h.send(&later);
+        assert_eq!(
+            h.stdout_after(2),
+            vec![answer("tools", "tools/list"), answer(9, "resources/list")]
+        );
+        assert_eq!(h.finish(), 0);
+
+        let posts = h.posts();
+        let tokens: Vec<Token> = posts.iter().map(|post| post.access_token.clone()).collect();
+        assert_eq!(
+            tokens,
+            vec![
+                Token::new(ACCESS),
+                Token::new(NEXT_ACCESS),
+                Token::new(NEXT_ACCESS)
+            ],
+            "refused with the stored token, retried and continued with the renewed one"
+        );
+        assert_eq!(posts[1].body, tools, "the retry is the same message");
+        assert_eq!(
+            h.refreshes(),
+            vec![(Token::new(REFRESH), Some(MCP_URL.to_string()))],
+            "exactly one refresh, with the stored refresh token and the pair's resource"
+        );
+        assert_eq!(h.events(), ["post", "refresh", "post", "post"]);
+        let stored = h.stored().expect("the pair is still stored");
+        assert_eq!(stored.access_token, Token::new(NEXT_ACCESS));
+        assert_eq!(stored.refresh_token, Token::new(NEXT_REFRESH));
+        assert_eq!(stored.expires_at_unix, NOW + 3600, "the new expiry");
+        assert_eq!(
+            stored.scope, "instances:read wallet:read",
+            "the scope the server answered"
+        );
+        assert_eq!(
+            stored.resource.as_deref(),
+            Some(MCP_URL),
+            "the resource is unchanged"
+        );
+        assert_eq!(h.stderr(), "");
+        h.assert_no_secrets();
+    }
+
+    #[test]
+    fn two_requests_refused_together_renew_once() {
+        let a = request("a", "tools/list");
+        let b = request("b", "resources/list");
+        let mut h = start(Script {
+            input: Some(format!("{a}\n{b}\n")),
+            answer: Box::new(|_, post| {
+                if post.access_token == Token::new(ACCESS) {
+                    Ok(refused())
+                } else {
+                    Ok(echo(post))
+                }
+            }),
+            renew: Box::new(|seen, index| {
+                // The first renewal waits until the second request has drawn its refusal too. Only the single-flight keeps a second refresh from following.
+                if index == 0 && !wait_up_to(WAIT, || seen.posts.lock().unwrap().len() >= 2) {
+                    return Err("the second request never drew its refusal".to_string());
+                }
+                Ok(renewed())
+            }),
+            ..script()
+        });
+
+        assert_eq!(h.exit_code(), 0);
+        let mut lines = h.stdout_lines();
+        lines.sort();
+        assert_eq!(
+            lines,
+            vec![answer("a", "tools/list"), answer("b", "resources/list")]
+        );
+
+        let posts = h.posts();
+        assert_eq!(posts.len(), 4, "each request: one refusal, one retry");
+        let refused = posts
+            .iter()
+            .filter(|post| post.access_token == Token::new(ACCESS))
+            .count();
+        let retried = posts
+            .iter()
+            .filter(|post| post.access_token == Token::new(NEXT_ACCESS))
+            .count();
+        assert_eq!(
+            (refused, retried),
+            (2, 2),
+            "both retries carry the new access token"
+        );
+        assert_eq!(h.refreshes().len(), 1, "exactly one refresh call");
+        assert_eq!(
+            h.refreshes()[0],
+            (Token::new(REFRESH), Some(MCP_URL.to_string()))
+        );
+        assert_eq!(h.stored().unwrap().access_token, Token::new(NEXT_ACCESS));
+        assert_eq!(h.stderr(), "");
+        h.assert_no_secrets();
+    }
+
+    #[test]
+    fn a_pair_near_its_expiry_is_renewed_before_the_first_forward() {
+        let tools = request("tools", "tools/list");
+        let mut h = start(Script {
+            input: Some(format!("{tools}\n")),
+            // Thirty seconds left: inside the minute of leeway.
+            stored: Some(pair(ACCESS, REFRESH, 30, Some(MCP_URL))),
+            answer: Box::new(|_, post| {
+                if post.access_token != Token::new(NEXT_ACCESS) {
+                    return Err("a nearly expired token reached the server".to_string());
+                }
+                Ok(echo(post))
+            }),
+            ..script()
+        });
+
+        assert_eq!(h.exit_code(), 0);
+        assert_eq!(h.refreshes().len(), 1);
+        assert_eq!(
+            h.events(),
+            vec!["refresh", "post"],
+            "renewed first, forwarded second"
+        );
+        assert_eq!(h.posts()[0].access_token, Token::new(NEXT_ACCESS));
+        assert_eq!(h.stdout_lines(), vec![answer("tools", "tools/list")]);
+        let stored = h.stored().unwrap();
+        assert_eq!(
+            stored.expires_at_unix,
+            NOW + 3600,
+            "the renewed expiry is stored"
+        );
+        assert_eq!(stored.access_token, Token::new(NEXT_ACCESS));
+        h.assert_no_secrets();
+    }
+
+    #[test]
+    fn a_failed_renewal_ends_the_bridge_and_forwards_nothing_more() {
+        let mut h = start(Script {
+            answer: Box::new(|_, _| Ok(refused())),
+            renew: Box::new(|_, _| Err("invalid_grant: refresh token revoked".to_string())),
+            ..script()
+        });
+
+        h.send(&request(7, "tools/list"));
+
+        assert_eq!(h.exit_code(), 1);
+        assert_eq!(h.stdout_lines(), vec![lost_line(&json!(7))]);
+        assert_eq!(h.stderr(), lost("invalid_grant: refresh token revoked"));
+        assert_eq!(h.refreshes().len(), 1);
+
+        // A client that keeps talking after the error: nothing more leaves the bridge.
+        h.send(&request(8, "tools/list"));
+        assert!(
+            !wait_up_to(Duration::from_millis(300), || h.posts().len() > 1),
+            "a message was forwarded after the sign-in was lost"
+        );
+        assert_eq!(h.stdout_lines().len(), 1);
+        assert_eq!(h.refreshes().len(), 1);
+        h.assert_no_secrets();
+    }
+
+    #[test]
+    fn a_failed_startup_renewal_ends_the_bridge_before_any_forward() {
+        // The client's line is already waiting. The bridge must end before it reads a byte of it.
+        let mut h = start(Script {
+            stored: Some(pair(ACCESS, REFRESH, 30, Some(MCP_URL))),
+            input: Some(format!("{}\n", request(5, "tools/list"))),
+            renew: Box::new(|_, _| Err("invalid_grant: refresh token revoked".to_string())),
+            ..script()
+        });
+
+        assert_eq!(h.exit_code(), 1);
+        assert!(h.stdout_lines().is_empty(), "no request was ever forwarded");
+        assert_eq!(h.stderr(), lost("invalid_grant: refresh token revoked"));
+        assert!(h.posts().is_empty());
+        assert_eq!(h.refreshes().len(), 1);
+        h.assert_no_secrets();
+    }
+
+    #[test]
+    fn a_retry_refused_again_ends_the_bridge() {
+        let mut h = start(Script {
+            input: Some(format!("{}\n", request("r", "tools/list"))),
+            answer: Box::new(|_, _| Ok(refused())),
+            ..script()
+        });
+
+        assert_eq!(h.exit_code(), 1);
+        assert_eq!(h.stdout_lines(), vec![lost_line(&json!("r"))]);
+        assert_eq!(h.stderr(), lost(""), "the empty error form");
+        assert_eq!(h.posts().len(), 2, "refused, renewed, refused once more");
+        assert_eq!(h.posts()[1].access_token, Token::new(NEXT_ACCESS));
+        assert_eq!(h.refreshes().len(), 1);
+        assert_eq!(
+            h.stored().unwrap().access_token,
+            Token::new(NEXT_ACCESS),
+            "the renewal that did succeed was kept"
+        );
+        h.assert_no_secrets();
+    }
+
+    #[test]
+    fn without_a_stored_pair_the_bridge_exits_before_touching_stdio() {
+        let mut h = start(Script {
+            stored: None,
+            ..script()
+        });
+
+        assert_eq!(h.exit_code(), 1);
+        assert_eq!(h.stdout_lines(), Vec::<String>::new());
+        assert_eq!(
+            h.stderr(),
+            "not signed in for MCP on fluxvale.com, run `fluxvale mcp login` first\n"
+        );
+        assert!(h.posts().is_empty());
+        assert!(h.urls().is_empty(), "no transport is even built");
+        h.assert_no_secrets();
+    }
+
+    #[test]
+    fn an_unreachable_server_is_answered_and_the_bridge_stays_alive() {
+        let first = request(1, "tools/list");
+        let second = request(2, "resources/list");
+        let mut h = start(Script {
+            input: Some(format!("{first}\n{second}\n")),
+            answer: Box::new(|_, post| {
+                if method(post) == "tools/list" {
+                    Err(r#"could not reach the MCP server: io: "connection reset" "#.to_string())
+                } else {
+                    Ok(echo(post))
+                }
+            }),
+            ..script()
+        });
+
+        assert_eq!(h.exit_code(), 0);
+        let mut lines = h.stdout_lines();
+        lines.sort();
+        assert_eq!(
+            lines,
+            vec![
+                answer(2, "resources/list"),
+                r#"{"jsonrpc":"2.0","id":1,"error":{"code":-32603,"message":"could not reach the MCP server: io: \"connection reset\" "}}"#.to_string(),
+            ],
+        );
+        assert_eq!(
+            h.stderr(),
+            "",
+            "a request gets its answer on stdout, not a note on stderr"
+        );
+        h.assert_no_secrets();
+    }
+
+    #[test]
+    fn other_statuses_pass_the_servers_answer_through_or_name_the_status() {
+        let own_error = json!({
+            "jsonrpc": "2.0", "id": "e",
+            "error": {"code": -32602, "message": "Unknown tool: nope", "data": {"tool": "nope"}}
+        });
+        let echoed = own_error.clone();
+        let mut h = start(Script {
+            input: Some(format!(
+                "{}\n{}\n",
+                request("e", "tools/call"),
+                request("f", "tools/list")
+            )),
+            answer: Box::new(move |_, post| {
+                Ok(match method(post).as_str() {
+                    "tools/call" => McpReply {
+                        status: 400,
+                        messages: vec![echoed.clone()],
+                    },
+                    _ => McpReply {
+                        status: 503,
+                        messages: Vec::new(),
+                    },
+                })
+            }),
+            ..script()
+        });
+
+        assert_eq!(h.exit_code(), 0);
+        let mut lines = h.stdout_lines();
+        lines.sort();
+        let mut expected = vec![
+            r#"{"jsonrpc":"2.0","id":"f","error":{"code":-32603,"message":"the MCP server answered HTTP 503"}}"#.to_string(),
+            // Re-serialized on the way through, so in the bridge's key order.
+            json!({"error": own_error["error"], "id": "e", "jsonrpc": "2.0"}).to_string(),
+        ];
+        expected.sort();
+        assert_eq!(lines, expected);
+        assert_eq!(h.stderr(), "");
+        h.assert_no_secrets();
+    }
+
+    #[test]
+    fn a_line_that_is_not_json_gets_a_parse_error_and_the_next_request_is_answered() {
+        let mut h = start(Script {
+            input: Some(format!(
+                "not json\n\n   \n{}\n{}\n",
+                request(3, "tools/list"),
+                notification("notifications/cancelled")
+            )),
+            answer: Box::new(|_, post| {
+                Ok(match method(post).as_str() {
+                    "notifications/cancelled" => McpReply {
+                        status: 202,
+                        messages: Vec::new(),
+                    },
+                    _ => echo(post),
+                })
+            }),
+            ..script()
+        });
+
+        assert_eq!(h.exit_code(), 0);
+        assert_eq!(
+            h.stdout_lines(),
+            vec![
+                r#"{"jsonrpc":"2.0","id":null,"error":{"code":-32700,"message":"parse error"}}"#
+                    .to_string(),
+                answer(3, "tools/list"),
+            ]
+        );
+        assert_eq!(
+            h.posts().len(),
+            2,
+            "only the two real messages were forwarded"
+        );
+        assert_eq!(
+            h.stderr(),
+            "",
+            "a notification answered with 202 needs no note"
+        );
+        h.assert_no_secrets();
+    }
+
+    #[test]
+    fn the_protocol_version_header_follows_the_negotiation() {
+        let mut h = start(Script {
+            answer: Box::new(|_, post| {
+                Ok(match method(post).as_str() {
+                    "initialize" => answered(vec![initialize_result()]),
+                    _ => echo(post),
+                })
+            }),
+            ..script()
+        });
+
+        // Nothing is negotiated yet: only a message's own `_meta` version rides.
+        let own = with_meta_version(1, "2025-06-18");
+        let bare = request(2, "tools/list");
+        let init = initialize();
+        let after = request(3, "tools/list");
+        let different = with_meta_version(4, "2025-06-18");
+        let again = initialize();
+        for (count, line) in [&own, &bare, &init, &after, &different, &again]
+            .into_iter()
+            .enumerate()
+        {
+            h.send(line);
+            h.stdout_after(count + 1);
+        }
+        assert_eq!(h.finish(), 0);
+
+        let headers: BTreeMap<String, Option<String>> = h
+            .posts()
+            .iter()
+            .map(|post| {
+                let message = message(post);
+                let key = match message["method"].as_str() {
+                    Some("initialize") => "initialize".to_string(),
+                    _ => message["id"].to_string(),
+                };
+                (key, post.protocol_version.clone())
+            })
+            .collect();
+        assert_eq!(
+            headers,
+            BTreeMap::from([
+                ("1".to_string(), Some("2025-06-18".to_string())),
+                ("2".to_string(), None),
+                ("initialize".to_string(), None),
+                ("3".to_string(), Some(PROTOCOL.to_string())),
+                // The negotiated version wins over a message's own.
+                ("4".to_string(), Some(PROTOCOL.to_string())),
+            ])
+        );
+        h.assert_no_secrets();
+    }
+
+    /// One row of the URL table: the flag, the stored resource, the API's base URL, and the endpoint or the error.
+    type UrlCase<'a> = (
+        Option<&'a str>,
+        Option<&'a str>,
+        &'a str,
+        Result<&'a str, &'a str>,
+    );
+
+    #[test]
+    fn the_url_comes_from_the_flag_then_the_stored_resource_then_the_environment() {
+        const STAGING: &str = "https://mcp-staging.fluxvale.com/mcp";
+        const ELSEWHERE: &str = "https://mcp.example.test/mcp";
+        // The guard's message for a pair minted for `stored`.
+        let bound = |stored: &str, resolved: &str| {
+            format!(
+                "the stored MCP pair is bound to {stored}. Run `fluxvale mcp login --resource {resolved}` to pair it with that server, or pass --url {stored}."
+            )
+        };
+        let elsewhere_over_bound = bound(MCP_URL, ELSEWHERE);
+        let prod_over_staging = bound(STAGING, MCP_URL);
+        let slashed = format!("{MCP_URL}/");
+        let cases: Vec<UrlCase> = vec![
+            // The flag wins, wherever the pair was minted for.
+            (Some(ELSEWHERE), None, BASE_URL, Ok(ELSEWHERE)),
+            (Some(ELSEWHERE), Some(ELSEWHERE), STAGING, Ok(ELSEWHERE)),
+            (
+                Some(ELSEWHERE),
+                Some(MCP_URL),
+                BASE_URL,
+                Err(elsewhere_over_bound.as_str()),
+            ),
+            // The stored resource wins over derivation.
+            (None, Some(STAGING), BASE_URL, Ok(STAGING)),
+            (
+                None,
+                Some(MCP_URL),
+                "https://staging.fluxvale.com",
+                Ok(MCP_URL),
+            ),
+            // Derivation from the environment.
+            (None, None, "https://staging.fluxvale.com", Ok(STAGING)),
+            (None, None, "https://fluxvale.com/", Ok(MCP_URL)),
+            (
+                None,
+                None,
+                "http://127.0.0.1:4000",
+                Err(
+                    "cannot derive the MCP server URL from base URL http://127.0.0.1:4000. Pass --url <URL>.",
+                ),
+            ),
+            // Trailing slashes are not a difference.
+            (Some(slashed.as_str()), Some(MCP_URL), BASE_URL, Ok(MCP_URL)),
+        ];
+        for (flag_url, stored_resource, base_url, expected) in cases {
+            let got =
+                resolve_url(flag_url, stored_resource, base_url).map_err(|err| err.to_string());
+            assert_eq!(
+                got,
+                expected.map(str::to_owned).map_err(str::to_owned),
+                "flag {flag_url:?}, stored {stored_resource:?}, base {base_url}"
+            );
+        }
+
+        // The guard runs in the bridge too, before anything is forwarded.
+        let mut h = start(Script {
+            stored: Some(pair(ACCESS, REFRESH, 3600, Some(STAGING))),
+            flag_url: Some(MCP_URL),
+            ..script()
+        });
+        let err = h.exit().unwrap_err();
+        assert_eq!(err.to_string(), prod_over_staging);
+        assert!(h.posts().is_empty());
+        assert!(h.stdout_lines().is_empty());
+        h.assert_no_secrets();
+    }
+
+    #[test]
+    fn a_slow_request_does_not_hold_up_a_later_one() {
+        let slow = request("slow", "tools/call");
+        let fast = request("fast", "tools/list");
+        let mut h = start(Script {
+            input: Some(format!("{slow}\n{fast}\n")),
+            answer: Box::new(|seen, post| {
+                // The slow call's answer waits until the later request has been forwarded too.
+                if method(post) == "tools/call"
+                    && !wait_up_to(WAIT, || seen.posts.lock().unwrap().len() >= 2)
+                {
+                    return Err(
+                        "the later request was not forwarded while this one waited".to_string()
+                    );
+                }
+                Ok(echo(post))
+            }),
+            ..script()
+        });
+
+        assert_eq!(h.exit_code(), 0);
+        let mut lines = h.stdout_lines();
+        lines.sort();
+        assert_eq!(
+            lines,
+            vec![answer("fast", "tools/list"), answer("slow", "tools/call")]
+        );
+        h.assert_no_secrets();
+    }
+
+    #[test]
+    fn a_message_nobody_waits_for_is_dropped_with_one_stderr_line() {
+        let mut h = start(Script {
+            input: Some(format!(
+                "{}\n{}\n",
+                notification("notifications/progress"),
+                notification("notifications/cancelled")
+            )),
+            answer: Box::new(|_, post| {
+                if method(post) == "notifications/progress" {
+                    Ok(McpReply {
+                        status: 503,
+                        messages: Vec::new(),
+                    })
+                } else {
+                    Err("could not reach the MCP server: connection failed".to_string())
+                }
+            }),
+            ..script()
+        });
+
+        assert_eq!(h.exit_code(), 0, "a dropped notification is not fatal");
+        assert!(h.stdout_lines().is_empty(), "a notification gets no answer");
+        let mut lines = h.stderr().lines().map(str::to_owned).collect::<Vec<_>>();
+        lines.sort();
+        assert_eq!(
+            lines,
+            vec![
+                "fluxvale: dropped a message: could not reach the MCP server: connection failed"
+                    .to_string(),
+                "fluxvale: dropped a message: the MCP server answered HTTP 503".to_string(),
+            ]
+        );
+        h.assert_no_secrets();
+    }
+
+    #[test]
+    fn only_an_object_with_an_id_and_no_answer_is_a_request() {
+        assert_eq!(
+            request_id(&json!({"jsonrpc": "2.0", "id": 1, "method": "tools/list"})),
+            Some(&json!(1))
+        );
+        assert_eq!(
+            request_id(&json!({"jsonrpc": "2.0", "id": "a", "method": "tools/list"})),
+            Some(&json!("a"))
+        );
+        for not_a_request in [
+            json!({"jsonrpc": "2.0", "method": "notifications/initialized"}),
+            json!({"jsonrpc": "2.0", "id": 1, "result": {}}),
+            json!({"jsonrpc": "2.0", "id": 1, "error": {"code": -1}}),
+            json!([{"jsonrpc": "2.0", "id": 1, "method": "tools/list"}]),
+            json!("a string"),
+            json!(null),
+        ] {
+            assert_eq!(request_id(&not_a_request), None, "{not_a_request}");
+        }
+    }
+
+    #[test]
+    fn a_cleartext_endpoint_is_refused_before_the_bridge_starts() {
+        // The pair was minted for a cleartext endpoint: the URL rules let it through, the transport does not.
+        let store = MemoryStore::default();
+        store
+            .save(
+                HOST,
+                &pair(ACCESS, REFRESH, 3600, Some("http://mcp.example.test/mcp")),
+            )
+            .unwrap();
+        let seen = Arc::new(Seen::default());
+
+        let err = serve(
+            None,
+            BASE_URL,
+            HOST,
+            io::Cursor::new(String::new()),
+            ClientStdout(seen.clone()),
+            {
+                let stderr = seen.clone();
+                move |line| push(&stderr.stderr, line)
+            },
+            McpHttpClient::new,
+            store.clone(),
+            |_, _| unreachable!("no refresh without a transport"),
+            || NOW,
+        )
+        .unwrap_err();
+
+        assert!(err.to_string().contains("https://"), "err: {err}");
+        assert!(seen.stdout.lock().unwrap().is_empty());
+        assert!(seen.stderr.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_broken_stdio_is_an_error_unless_the_client_went_away() {
+        // A stdout that cannot be written is an error, except for the closed pipe of a client that left.
+        for (kind, expected) in [
+            (io::ErrorKind::PermissionDenied, false),
+            (io::ErrorKind::BrokenPipe, true),
+        ] {
+            let store = MemoryStore::default();
+            store
+                .save(HOST, &pair(ACCESS, REFRESH, 3600, Some(MCP_URL)))
+                .unwrap();
+            let seen = Arc::new(Seen::default());
+            let transport = MockTransport {
+                seen: seen.clone(),
+                answer: Box::new(|_, post| Ok(echo(post))),
+            };
+
+            let exit = serve(
+                None,
+                BASE_URL,
+                HOST,
+                io::Cursor::new(format!("{}\n", request(1, "tools/list"))),
+                FailingWriter(kind),
+                {
+                    let stderr = seen.clone();
+                    move |line| push(&stderr.stderr, line)
+                },
+                move |_| Ok(transport),
+                store.clone(),
+                |_, _| unreachable!("a healthy pair is not renewed"),
+                || NOW,
+            );
+
+            assert_eq!(exit.is_ok(), expected, "{kind:?}: {exit:?}");
+            assert_eq!(
+                seen.posts.lock().unwrap().len(),
+                1,
+                "the request was forwarded either way"
+            );
+            assert!(seen.stderr.lock().unwrap().is_empty());
+        }
+    }
+
+    /// A stdout that refuses every write.
+    struct FailingWriter(io::ErrorKind);
+
+    impl Write for FailingWriter {
+        fn write(&mut self, _: &[u8]) -> io::Result<usize> {
+            Err(io::Error::from(self.0))
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+}
