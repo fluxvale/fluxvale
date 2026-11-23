@@ -22,7 +22,8 @@ defmodule FluxVale.RuntimeConfigTest do
     "DATABASE_URL" => "ecto://u:p@h/db",
     "SECRET_KEY_BASE" => "test-secret-key-base",
     "TOKEN_SIGNING_SECRET" => "test-token-signing-secret",
-    "PLATFORM_ENV" => "production"
+    "PLATFORM_ENV" => "production",
+    "ACCESS_GATEWAY_NAMESPACE" => "fluxvale-access"
   }
 
   describe "INSTANCES_SLUG_PREFIX" do
@@ -335,6 +336,57 @@ defmodule FluxVale.RuntimeConfigTest do
           read!(:prod)
         end
       end)
+    end
+  end
+
+  describe "ACCESS_GATEWAY_NAMESPACE (#273 D2)" do
+    @ns "fluxvale-access-prod"
+
+    test "overrides the access namespace in a prod-shaped run — the one value every access-edge write resolves" do
+      with_env(Map.put(@prod_env, "ACCESS_GATEWAY_NAMESPACE", @ns), fn ->
+        assert read!(:prod)[:flux_vale][:access_gateway][:namespace] == @ns
+      end)
+    end
+
+    test "is inert in test — a stray export never re-points the suite's namespace" do
+      with_env(%{"ACCESS_GATEWAY_NAMESPACE" => "evil-ns"}, fn ->
+        # Pin the READ result: Config.Reader never touches the app env,
+        # so only the read proves the guard held (the #172 stance).
+        assert is_nil(read!(:test)[:flux_vale][:access_gateway])
+      end)
+    end
+
+    test "unset outside prod-mode contributes no key — config.exs's local default stands" do
+      # nil in the map CLEARS an ambient export (with_env restores at
+      # test end, not between blocks).
+      with_env(%{"ACCESS_GATEWAY_NAMESPACE" => nil}, fn ->
+        refute Keyword.has_key?(read!(:dev)[:flux_vale] || [], :access_gateway)
+      end)
+    end
+
+    test "a prod-mode boot without it raises naming it (unset and empty alike)" do
+      for unset <- [nil, ""] do
+        with_env(Map.put(@prod_env, "ACCESS_GATEWAY_NAMESPACE", unset), fn ->
+          assert_raise ArgumentError, ~r/ACCESS_GATEWAY_NAMESPACE is required/, fn ->
+            read!(:prod)
+          end
+        end)
+      end
+    end
+
+    test "a value that is not a DNS-1123 label raises naming it; both deployed names pass" do
+      with_env(Map.put(@prod_env, "ACCESS_GATEWAY_NAMESPACE", "FluxVale_Access"), fn ->
+        assert_raise ArgumentError, ~r/ACCESS_GATEWAY_NAMESPACE=.* is not a DNS-1123 label/, fn ->
+          read!(:prod)
+        end
+      end)
+
+      # The exact values the fleet overlays carry today.
+      for deployed <- ["fluxvale-access", "fluxvale-access-prod"] do
+        with_env(Map.put(@prod_env, "ACCESS_GATEWAY_NAMESPACE", deployed), fn ->
+          assert read!(:prod)[:flux_vale][:access_gateway][:namespace] == deployed
+        end)
+      end
     end
   end
 

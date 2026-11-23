@@ -8,12 +8,13 @@
 # production (ADR-0007, ADR-0020 Am. 2). It carries the production
 # namespace/quota/PSA/Role/RoleBinding with the per-env name D2 chose.
 #
-# Pairs with the per-env ACCESS_GATEWAY_NAMESPACE follow-up: the app must
-# land its runtime override (default `fluxvale-access`, production
-# `fluxvale-access-prod`, with `access_domains.certificate_namespace`
-# following the same value) before the production platform can use this
-# namespace. Without it the production SA stays unbound here — the
-# intended fail-safe (403 on the first gateway op) until both land.
+# Pairs with the app-side runtime override (ACCESS_GATEWAY_NAMESPACE in
+# config/runtime.exs, a required-envs.txt boot guard): default
+# `fluxvale-access`, production `fluxvale-access-prod`, with the
+# custom-domain Certificates following the same resolver. Until it
+# landed the production SA stayed unbound here — the intended fail-safe
+# (403 on the first gateway op), which is how the first production
+# apply surfaced the gap (#893).
 #
 # The fleet's existing apps/production namespace is `fluxvale-production`
 # and its platform SA is `fluxvale-platform`.
