@@ -321,9 +321,10 @@ impl OAuthDeviceClient {
     /// whose body is not a token pair.
     ///
     /// Nothing from the answer's body is repeated in the failure's text,
-    /// only its status and, for a JSON answer, the `error` code. A bridge
-    /// writes that text into a channel a model reads, and the endpoint's
-    /// own words, its `error_description` for one, are not for there.
+    /// only its status and, for a JSON answer, a known `error` code (any
+    /// other value reads as `unknown_error`). A bridge writes that text
+    /// into a channel a model reads, and the endpoint's own words, its
+    /// `error_description` for one, are not for there.
     /// [`oauth_error`] stays for the device flow, where the words are
     /// printed on the user's own terminal.
     ///
@@ -379,20 +380,45 @@ impl OAuthDeviceClient {
     }
 }
 
+/// The OAuth error codes a token endpoint answer may relay in a
+/// [`RefreshError`]. Any other value reads as `unknown_error`.
+const KNOWN_TOKEN_ERROR_CODES: &[&str] = &[
+    "invalid_request",
+    "invalid_client",
+    "invalid_grant",
+    "unauthorized_client",
+    "unsupported_grant_type",
+    "invalid_scope",
+    "invalid_target",
+    "server_error",
+    "temporarily_unavailable",
+];
+
+/// Returns `body["error"]` when it is one of [`KNOWN_TOKEN_ERROR_CODES`],
+/// or `"unknown_error"` otherwise.
+fn known_error_code(body: &Value) -> &'static str {
+    let Some(code) = body.get("error").and_then(Value::as_str) else {
+        return "unknown_error";
+    };
+    KNOWN_TOKEN_ERROR_CODES
+        .iter()
+        .copied()
+        .find(|&known| known == code)
+        .unwrap_or("unknown_error")
+}
+
 /// How an answer to a refresh that is not a 200 reads, from its `error`
-/// code. Only `invalid_grant` refuses the refresh token for good. Nothing
-/// else from the answer is repeated: an endpoint's own words are not for a
-/// channel a model reads.
+/// code. Only `invalid_grant` refuses the refresh token for good, and only
+/// names in [`KNOWN_TOKEN_ERROR_CODES`] are relayed. Nothing else from the
+/// answer is repeated: an endpoint's own words are not for a channel a model
+/// reads.
 fn token_endpoint_answer(status: u16, body: &Value) -> RefreshError {
-    match body.get("error").and_then(Value::as_str) {
-        Some("invalid_grant") => {
+    match known_error_code(body) {
+        "invalid_grant" => {
             RefreshError::permanent("the token endpoint refused the refresh token: invalid_grant")
         }
-        Some(code) => RefreshError::transient(format!(
+        code => RefreshError::transient(format!(
             "the token endpoint answered HTTP {status} ({code})"
-        )),
-        None => RefreshError::transient(format!(
-            "the token endpoint answered HTTP {status} (unknown_error)"
         )),
     }
 }
@@ -998,7 +1024,7 @@ mod tests {
             texts,
             [
                 "the token endpoint answered HTTP 503 (temporarily_unavailable)",
-                "the token endpoint answered HTTP 429 (slow_down)",
+                "the token endpoint answered HTTP 429 (unknown_error)",
                 "the token endpoint answered HTTP 408 with a body that is not JSON",
                 "the token endpoint answered HTTP 400 with a body that is not JSON",
                 "the token endpoint answered HTTP 502 with a body that is not JSON",
@@ -1043,6 +1069,91 @@ mod tests {
     }
 
     #[test]
+    fn an_echoing_error_code_reaches_no_refresh_failure() {
+        const TOKEN: &str = "fvort_echoed_in_error_field";
+        let token = Token::new(TOKEN);
+        let server = script(vec![respond("400 Bad Request", &json!({"error": TOKEN}))]);
+        let client = OAuthDeviceClient::new(&server.base_url);
+
+        let failure = client.refresh(&token, None).unwrap_err();
+
+        assert_eq!(
+            failure,
+            RefreshError::Transient(
+                "the token endpoint answered HTTP 400 (unknown_error)".to_string()
+            )
+        );
+        assert_no_token_in(std::slice::from_ref(&failure), TOKEN, &server);
+    }
+
+    #[test]
+    fn an_invalid_grant_with_trailing_space_is_transient_unknown_error() {
+        let token = Token::new("fvort_trailing_space_token");
+        let server = script(vec![respond(
+            "400 Bad Request",
+            &json!({"error": "invalid_grant "}),
+        )]);
+        let client = OAuthDeviceClient::new(&server.base_url);
+
+        let failure = client.refresh(&token, None).unwrap_err();
+
+        assert_eq!(
+            failure,
+            RefreshError::Transient(
+                "the token endpoint answered HTTP 400 (unknown_error)".to_string()
+            )
+        );
+        assert_no_token_in(
+            std::slice::from_ref(&failure),
+            "fvort_trailing_space_token",
+            &server,
+        );
+    }
+
+    #[test]
+    fn every_known_token_error_code_is_relayed_as_itself() {
+        let codes = [
+            "invalid_request",
+            "invalid_client",
+            "invalid_grant",
+            "unauthorized_client",
+            "unsupported_grant_type",
+            "invalid_scope",
+            "invalid_target",
+            "server_error",
+            "temporarily_unavailable",
+        ];
+        assert_eq!(codes, KNOWN_TOKEN_ERROR_CODES);
+
+        let responses = codes
+            .iter()
+            .map(|code| respond("400 Bad Request", &json!({"error": code})))
+            .collect();
+        let server = script(responses);
+        let client = OAuthDeviceClient::new(&server.base_url);
+        let token = Token::new("fvort_known_code_token");
+
+        for code in codes {
+            let failure = client.refresh(&token, None).unwrap_err();
+            if code == "invalid_grant" {
+                assert_eq!(
+                    failure,
+                    RefreshError::Permanent(
+                        "the token endpoint refused the refresh token: invalid_grant".to_string()
+                    )
+                );
+            } else {
+                assert_eq!(
+                    failure,
+                    RefreshError::Transient(format!(
+                        "the token endpoint answered HTTP 400 ({code})"
+                    ))
+                );
+            }
+        }
+    }
+
+    #[test]
     fn a_408_from_the_endpoint_is_a_transient_refresh_failure() {
         let token = Token::new("fvort_timed_out_token_value");
         let server = script(vec![
@@ -1067,7 +1178,7 @@ mod tests {
         assert_eq!(
             failures[1],
             RefreshError::Transient(
-                "the token endpoint answered HTTP 408 (request_timeout)".to_string()
+                "the token endpoint answered HTTP 408 (unknown_error)".to_string()
             )
         );
         assert_no_token_in(&failures, "fvort_timed_out_token_value", &server);
