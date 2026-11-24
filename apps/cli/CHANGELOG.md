@@ -19,7 +19,7 @@ Versions follow semver.
 
 ### Added
 
-- `mcp login`, `mcp logout`, `mcp status`, and `mcp serve [--url <URL>]`:
+- `mcp login`, `mcp logout`, `mcp status`, and `mcp serve`:
   sign a machine in to the FluxVale MCP server with the device flow, then
   bridge any MCP client's stdio to it. `mcp serve` refreshes the access
   token itself, so the client never holds a credential. Configure it as

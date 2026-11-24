@@ -156,11 +156,7 @@ pub enum McpCommand {
     /// Show stored MCP credential status
     Status,
     /// Bridge an MCP client's stdio to the remote FluxVale MCP server
-    Serve {
-        /// MCP server URL. Only the one the stored sign-in is bound to is accepted
-        #[arg(long, value_name = "URL")]
-        url: Option<String>,
-    },
+    Serve,
 }
 
 #[derive(Debug, Subcommand)]
@@ -501,7 +497,7 @@ pub fn run(cli: &Cli) -> anyhow::Result<()> {
                 let now_unix = u64::try_from(reads::now_secs()).unwrap_or(0);
                 print(mcp::status_store(&store, &host, now_unix))
             }
-            McpCommand::Serve { url } => {
+            McpCommand::Serve => {
                 let host = config::host_from_base_url(&config.base_url);
                 let store = McpTokenStore::at(McpTokenStore::default_dir()?);
                 // One file serves every host: a renewal is rare and short.
@@ -511,7 +507,6 @@ pub fn run(cli: &Cli) -> anyhow::Result<()> {
                 let oauth = OAuthDeviceClient::new(&config.base_url);
                 // The bridge owns stdout, so it answers with an exit code, not a line to print.
                 let code = mcp_serve::serve(
-                    url.as_deref(),
                     &config.base_url,
                     &host,
                     // A StdinLock is not Send, so the reader thread buffers the handle itself.
@@ -871,15 +866,24 @@ mod tests {
         assert!(matches!(
             parse(&["mcp", "serve"]).command,
             Command::Mcp {
-                command: McpCommand::Serve { url: None }
+                command: McpCommand::Serve
             }
         ));
-        match parse(&["mcp", "serve", "--url", "http://127.0.0.1:4600/mcp"]).command {
-            Command::Mcp {
-                command: McpCommand::Serve { url },
-            } => assert_eq!(url.as_deref(), Some("http://127.0.0.1:4600/mcp")),
-            other => panic!("wrong: {other:?}"),
-        }
+        // `--url` is gone. It only confirmed the server the sign-in is bound to.
+        let err = Cli::try_parse_from([
+            "fluxvale",
+            "mcp",
+            "serve",
+            "--url",
+            "https://mcp.example.test/mcp",
+        ])
+        .expect_err("mcp serve takes no --url");
+        assert!(
+            err.to_string()
+                .contains("unexpected argument '--url' found"),
+            "{err}"
+        );
+        assert_eq!(err.exit_code(), 2);
         assert!(matches!(parse(&["whoami"]).command, Command::Whoami));
         assert!(matches!(
             parse(&["apps", "list"]).command,

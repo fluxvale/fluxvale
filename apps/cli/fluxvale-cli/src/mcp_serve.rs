@@ -57,33 +57,14 @@ pub const RENEWAL_LOCK_FILE: &str = "mcp-renewal.lock";
 ///
 /// The pair's token only ever goes to the resource it was minted for,
 /// named by the stored `resource` or, when there is none, by the
-/// environment's own MCP server. `--url` can only confirm it. A flag
-/// that names another server is refused, because the pair offers no way
-/// to be sent anywhere else.
-pub fn resolve_url(
-    flag_url: Option<&str>,
-    stored_resource: Option<&str>,
-    base_url: &str,
-) -> anyhow::Result<String> {
-    let bound = bound_resource(stored_resource, base_url);
-    match (flag_url, bound) {
-        (Some(flag), Some(bound)) => {
-            let url = flag.trim_end_matches('/').to_string();
-            if url != bound {
-                anyhow::bail!(
-                    "the stored MCP pair is bound to {bound}. Run `fluxvale mcp login --resource {url}` to pair it with that server, or pass --url {bound}."
-                );
-            }
-            Ok(url)
-        }
-        (Some(_), None) => anyhow::bail!(
-            "cannot derive the MCP server URL from base URL {base_url}, so --url cannot be checked against the stored sign-in. Run `fluxvale mcp login --resource <URL>` for the MCP server you want, then run `fluxvale mcp serve` without --url."
-        ),
-        (None, Some(bound)) => Ok(bound),
-        (None, None) => anyhow::bail!(
+/// environment's own MCP server. Where neither names one there is no
+/// server to send the token to, so the error says to name one at sign-in.
+pub fn resolve_url(stored_resource: Option<&str>, base_url: &str) -> anyhow::Result<String> {
+    bound_resource(stored_resource, base_url).ok_or_else(|| {
+        anyhow::anyhow!(
             "cannot derive the MCP server URL from base URL {base_url}. Run `fluxvale mcp login --resource <URL>`."
-        ),
-    }
+        )
+    })
 }
 
 /// Where the stored pair's token may go: the resource it was minted for
@@ -278,7 +259,6 @@ fn open_lock_file(path: &Path) -> std::io::Result<File> {
 /// `now` is the clock.
 #[allow(clippy::too_many_arguments)]
 pub fn serve<R, W, E, C, T, S, L, F, N>(
-    flag_url: Option<&str>,
     base_url: &str,
     host: &str,
     reader: R,
@@ -309,7 +289,7 @@ where
         ));
         return Ok(1);
     };
-    let url = resolve_url(flag_url, pair.resource.as_deref(), base_url)?;
+    let url = resolve_url(pair.resource.as_deref(), base_url)?;
     let nearly_expired = pair.is_expired_within(now(), EXPIRY_LEEWAY_SECS);
     let (out, lines) = mpsc::channel();
     let bridge = Arc::new(Bridge::new(
@@ -1371,7 +1351,6 @@ mod tests {
         stored: Option<McpCredentials>,
         host: &'static str,
         base_url: &'static str,
-        flag_url: Option<&'static str>,
         /// Everything the client writes up front, one line each, after
         /// which its stdin closes. `None` leaves the test to write line
         /// by line.
@@ -1397,7 +1376,6 @@ mod tests {
             stored: Some(pair(ACCESS, REFRESH, 7200, Some(MCP_URL))),
             host: HOST,
             base_url: BASE_URL,
-            flag_url: None,
             input: None,
             answer: Box::new(|_, post| Ok(echo(post))),
             renew: Box::new(|_, _| Ok(renewed())),
@@ -1472,7 +1450,7 @@ mod tests {
         } else {
             refresh_via(seen.clone(), world.clone())
         };
-        let (host, base_url, flag_url) = (script.host, script.base_url, script.flag_url);
+        let (host, base_url) = (script.host, script.base_url);
         let store = world.store.clone();
         // The real lock, on a file of this world's own.
         let lock = world.renewal_lock();
@@ -1482,7 +1460,6 @@ mod tests {
         let stderr = seen.clone();
         let bridge = std::thread::spawn(move || {
             serve(
-                flag_url,
                 base_url,
                 host,
                 io::BufReader::new(ClientStdin {
@@ -2519,106 +2496,46 @@ mod tests {
         h.assert_no_secrets();
     }
 
-    /// One row of the URL table: the flag, the stored resource, the API's base URL, and the endpoint or the error.
-    type UrlCase<'a> = (
-        Option<&'a str>,
-        Option<&'a str>,
-        &'a str,
-        Result<&'a str, &'a str>,
-    );
+    /// One row of the URL table: the stored resource, the API's base URL, and the endpoint or the error.
+    type UrlCase<'a> = (Option<&'a str>, &'a str, Result<&'a str, &'a str>);
 
     #[test]
-    fn the_url_comes_from_the_flag_then_the_stored_resource_then_the_environment() {
+    fn the_url_comes_from_the_stored_resource_then_the_environment() {
         const STAGING: &str = "https://mcp-staging.fluxvale.com/mcp";
-        const ELSEWHERE: &str = "https://mcp.example.test/mcp";
         const LOCAL: &str = "http://127.0.0.1:4000";
-        // The guard's message: the pair is bound to `bound`, the flag named `flag`.
-        let bound = |bound: &str, flag: &str| {
-            format!(
-                "the stored MCP pair is bound to {bound}. Run `fluxvale mcp login --resource {flag}` to pair it with that server, or pass --url {bound}."
-            )
-        };
-        let elsewhere_over_prod = bound(MCP_URL, ELSEWHERE);
-        let prod_over_staging = bound(STAGING, MCP_URL);
-        let flag_unchecked = format!(
-            "cannot derive the MCP server URL from base URL {LOCAL}, so --url cannot be checked against the stored sign-in. Run `fluxvale mcp login --resource <URL>` for the MCP server you want, then run `fluxvale mcp serve` without --url."
-        );
-        let no_flag = format!(
+        let no_url = format!(
             "cannot derive the MCP server URL from base URL {LOCAL}. Run `fluxvale mcp login --resource <URL>`."
         );
         let slashed = format!("{MCP_URL}/");
         let cases: Vec<UrlCase> = vec![
-            // A login without --resource is bound to the environment's own
-            // server, so that is what the flag is checked against.
-            (
-                Some(ELSEWHERE),
-                None,
-                BASE_URL,
-                Err(elsewhere_over_prod.as_str()),
-            ),
-            (Some(MCP_URL), None, BASE_URL, Ok(MCP_URL)),
-            (
-                Some(slashed.as_str()),
-                None,
-                "https://fluxvale.com",
-                Ok(MCP_URL),
-            ),
-            // A login with --resource is bound to that one.
-            (Some(ELSEWHERE), Some(ELSEWHERE), BASE_URL, Ok(ELSEWHERE)),
-            (
-                Some(ELSEWHERE),
-                Some(MCP_URL),
-                BASE_URL,
-                Err(elsewhere_over_prod.as_str()),
-            ),
-            (Some(slashed.as_str()), Some(MCP_URL), BASE_URL, Ok(MCP_URL)),
-            // Without a flag the bound server is the URL, stored with or
-            // without its trailing slashes.
-            (None, Some(STAGING), BASE_URL, Ok(STAGING)),
-            (None, Some(slashed.as_str()), BASE_URL, Ok(MCP_URL)),
-            (
-                None,
-                Some(MCP_URL),
-                "https://staging.fluxvale.com",
-                Ok(MCP_URL),
-            ),
-            (None, None, "https://staging.fluxvale.com", Ok(STAGING)),
-            (None, None, "https://fluxvale.com/", Ok(MCP_URL)),
-            // An environment with no MCP server of its own: the flag cannot
-            // be checked against anything, and without one there is no URL.
-            (Some(ELSEWHERE), None, LOCAL, Err(flag_unchecked.as_str())),
-            (None, None, LOCAL, Err(no_flag.as_str())),
+            // A login with --resource is bound to that server, whatever the environment.
+            (Some(STAGING), BASE_URL, Ok(STAGING)),
+            // Stored with its trailing slashes, used without them.
+            (Some(slashed.as_str()), BASE_URL, Ok(MCP_URL)),
+            (Some(MCP_URL), "https://staging.fluxvale.com", Ok(MCP_URL)),
+            // A login without --resource is bound to the environment's own server.
+            (None, "https://staging.fluxvale.com", Ok(STAGING)),
+            (None, "https://fluxvale.com/", Ok(MCP_URL)),
+            // An environment with no MCP server of its own, and a login that names none: there is no URL.
+            (None, LOCAL, Err(no_url.as_str())),
         ];
-        for (flag_url, stored_resource, base_url, expected) in cases {
-            let got =
-                resolve_url(flag_url, stored_resource, base_url).map_err(|err| err.to_string());
+        for (stored_resource, base_url, expected) in cases {
+            let got = resolve_url(stored_resource, base_url).map_err(|err| err.to_string());
             assert_eq!(
                 got,
                 expected.map(str::to_owned).map_err(str::to_owned),
-                "flag {flag_url:?}, stored {stored_resource:?}, base {base_url}"
+                "stored {stored_resource:?}, base {base_url}"
             );
         }
-
-        // The guard runs in the bridge too, before anything is forwarded.
-        let mut h = start(Script {
-            stored: Some(pair(ACCESS, REFRESH, 3600, Some(STAGING))),
-            flag_url: Some(MCP_URL),
-            ..script()
-        });
-        let err = h.exit().unwrap_err();
-        assert_eq!(err.to_string(), prod_over_staging);
-        assert!(h.posts().is_empty());
-        assert!(h.stdout_lines().is_empty());
-        h.assert_no_secrets();
     }
 
     #[test]
-    fn a_flag_is_checked_against_the_environment_for_a_login_without_a_resource() {
-        // The pair stores no resource, so its token is the environment's own
-        // server's. A flag that names another server must not get it.
+    fn a_sign_in_without_a_resource_on_an_environment_with_no_mcp_server_is_refused() {
+        // The pair stores no resource, so the environment has to name the
+        // server, and this one cannot. The error says how to name one.
         let mut h = start(Script {
             stored: Some(pair(ACCESS, REFRESH, 3600, None)),
-            flag_url: Some("https://mcp.example.test/mcp"),
+            base_url: "http://127.0.0.1:4000",
             ..script()
         });
 
@@ -2626,7 +2543,7 @@ mod tests {
 
         assert_eq!(
             err.to_string(),
-            "the stored MCP pair is bound to https://mcp.fluxvale.com/mcp. Run `fluxvale mcp login --resource https://mcp.example.test/mcp` to pair it with that server, or pass --url https://mcp.fluxvale.com/mcp."
+            "cannot derive the MCP server URL from base URL http://127.0.0.1:4000. Run `fluxvale mcp login --resource <URL>`."
         );
         assert!(h.posts().is_empty(), "no POST was made");
         assert!(h.urls().is_empty(), "no transport was even built");
@@ -2895,7 +2812,6 @@ mod tests {
         let dir = temp_dir();
 
         let err = serve(
-            None,
             BASE_URL,
             HOST,
             FailingReader(io::ErrorKind::PermissionDenied),
@@ -3744,7 +3660,6 @@ mod tests {
             let seen = seen.clone();
             move || {
                 serve(
-                    None,
                     BASE_URL,
                     HOST,
                     io::BufReader::new(ClientStdin {
@@ -3872,7 +3787,6 @@ mod tests {
         let dir = temp_dir();
 
         let err = serve(
-            None,
             BASE_URL,
             HOST,
             io::Cursor::new(String::new()),
@@ -3916,7 +3830,6 @@ mod tests {
             };
 
             let exit = serve(
-                None,
                 BASE_URL,
                 HOST,
                 io::Cursor::new(format!("{}\n", request(1, "tools/list"))),
