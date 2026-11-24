@@ -23,6 +23,8 @@ defmodule FluxValeWeb.AgentPrompt do
 
   use FluxValeWeb, :verified_routes
 
+  alias FluxValeWeb.BillingComponents
+
   @auth_mode_default :pat
 
   @scopes "catalog:read, instances:write, organizations:read, wallet:read"
@@ -179,6 +181,11 @@ defmodule FluxValeWeb.AgentPrompt do
   @doc "The generated prompt — the panel, the dashboard modal, and `/llms.txt`."
   @spec prompt(t()) :: String.t()
   def prompt(%__MODULE__{} = ctx) do
+    ladder_choices = BillingComponents.topup_ladder_choices()
+    ladder_top = BillingComponents.topup_ladder_top()
+    topup_url = "#{ctx.api_base}#{~p"/billing/topup"}"
+    sso_guide_url = "#{ctx.api_base}#{~p"/docs/guides/sso"}"
+
     """
     Finish setup with your agent.
 
@@ -191,12 +198,17 @@ defmodule FluxValeWeb.AgentPrompt do
     You are my FluxVale setup agent. Connect to the MCP server above, then:
     1. Call `whoami`, then `wallet_balance`. If the balance is zero or negative, stop and give me the top-up link: #{ctx.api_base}#{~p"/billing/topup"}. Do not deploy.
     2. Ask what I want to run, then pick an app from `apps_list` and call `apps_show`: it lists versions with the default CPU, memory, and storage and a `monthly_cents` rate. Propose one version and that price (billed hourly).
-    3. #{@commit_rule}
-    4. Deploy with `instances_deploy`. Put configuration in `env`, for example {"TZ":"UTC"}. Leave cpu/memory/storage off to take the version's defaults.
-    5. Poll `instances_status` until it is running, then give me the row's `url` — that is the instance URL.
-    6. Change env later with `instances_configure`: `set` adds or replaces, `remove` deletes. Values are write-only — never print them.
-    7. Never run `instances_destroy` or `backups_restore` without a separate, explicit yes.
-    8. After the app runs, offer Terraform if I want to manage it as code: #{ctx.api_base}#{~p"/docs/automation/terraform"}.
+    3. Ask me once whether I want single sign-on (OIDC) for my apps.
+       - If I say no, accept it and never ask again this session.
+       - If I say yes, explain plainly that SSO is a paid-org feature and welcome credit alone does not unlock it.
+       - Check `wallet_ledger` (for a purchase) and `wallet_balance` (`paywall_waived`). If the org has not topped up yet, recommend a top-up from the ladder (#{ladder_choices}, or above #{ladder_top}), give me #{topup_url}, and wait while I complete checkout in my browser. Never ask for card details.
+       - Once the wallet is funded, inspect `pocket-id` with `apps_show`, confirm its price and required `ENCRYPTION_KEY`, and add its monthly cost to the spend I confirm in step 4. After that yes, deploy Pocket ID with `instances_deploy`, and wire SSO with `sso` once the app is running (after I claim Pocket ID and add its admin API key) or #{sso_guide_url}.
+    4. #{@commit_rule}
+    5. Deploy with `instances_deploy`. Put configuration in `env`, for example {"TZ":"UTC"}. Leave cpu/memory/storage off to take the version's defaults.
+    6. Poll `instances_status` until it is running, then give me the row's `url` — that is the instance URL.
+    7. Change env later with `instances_configure`: `set` adds or replaces, `remove` deletes. Values are write-only — never print them.
+    8. Never run `instances_destroy` or `backups_restore` without a separate, explicit yes.
+    9. After the app runs, offer Terraform if I want to manage it as code: #{ctx.api_base}#{~p"/docs/automation/terraform"}.
 
     Reference: #{ctx.api_base}#{~p"/docs/agents"}
     """
@@ -208,6 +220,7 @@ defmodule FluxValeWeb.AgentPrompt do
     [
       "Check your wallet and stop at zero",
       "Propose an app with its size and monthly price",
+      "Ask once if you want SSO with Pocket ID (optional, paid org)",
       "Confirm the spend before deploying",
       "Deploy and set env vars",
       "Verify the instance URL",
@@ -261,7 +274,8 @@ defmodule FluxValeWeb.AgentPrompt do
       {"Agent setup", ctx.api_base <> ~p"/docs/agents"},
       {"MCP server", ctx.api_base <> ~p"/docs/automation/mcp"},
       {"CLI quickstart", ctx.api_base <> ~p"/docs/automation/cli"},
-      {"Terraform provider", ctx.api_base <> ~p"/docs/automation/terraform"}
+      {"Terraform provider", ctx.api_base <> ~p"/docs/automation/terraform"},
+      {"SSO with Pocket ID", ctx.api_base <> ~p"/docs/guides/sso"}
     ]
   end
 

@@ -8,6 +8,7 @@ defmodule FluxValeWeb.AgentDocsControllerTest do
   use FluxValeWeb.ConnCase, async: false
 
   alias FluxVale.TestSupport.SessionHelpers
+  alias FluxValeWeb.BillingComponents
 
   # A stable literal from AgentPrompt.prompt/1 — if the prompt ever
   # leaks onto the public page, this fails.
@@ -115,5 +116,45 @@ defmodule FluxValeWeb.AgentDocsControllerTest do
     # The copy says the CLI page has the two commands, so that page must carry the section.
     cli_conn = get(conn, ~p"/docs/automation/cli")
     assert html_response(cli_conn, 200) =~ "Connect an MCP client"
+  end
+
+  test "the guide walks through the SSO branch and links the Pocket ID guide", %{conn: conn} do
+    conn = get(conn, ~p"/docs/agents")
+    html = html_response(conn, 200)
+
+    assert html =~ "Ask once whether you want single sign-on (OIDC) for your apps"
+    assert html =~ "deploys and wires Pocket ID"
+
+    # The guide's own link, with its text.
+    assert html =~ ~s(<a href="/docs/guides/sso">Pocket ID SSO guide</a>)
+
+    # The new list item names both ladder amounts.
+    assert html =~ BillingComponents.topup_ladder_choices()
+    assert html =~ BillingComponents.topup_ladder_top()
+
+    # Copy hygiene, scoped to the new list item's text — the older
+    # list items carry semicolons on purpose.
+    item_html =
+      html
+      |> String.split("Ask once whether")
+      |> List.last()
+      |> String.split("</li>")
+      |> List.first()
+
+    assert item_html =~ "deploys and wires Pocket ID"
+    refute item_html =~ "—"
+    refute item_html =~ ";"
+
+    # The guide stays impersonal — no prompt content of any kind.
+    refute html =~ "agent-docs-prompt"
+    refute html =~ @prompt_line
+    refute html =~ "claude mcp add"
+    refute html =~ "agent-docs-client"
+    refute html =~ "<pre"
+    refute html =~ "fvpat_"
+
+    # The linked guide page must exist and be about Pocket ID.
+    sso_conn = get(conn, ~p"/docs/guides/sso")
+    assert html_response(sso_conn, 200) =~ "Pocket ID"
   end
 end
