@@ -7,7 +7,7 @@
 
 use crate::config;
 use crate::token::{McpCredentials, McpTokenStore};
-use fluxvale_api::{McpHttpClient, McpReply, OAuthTokenPair, Token};
+use fluxvale_api::{McpHttpClient, McpReply, OAuthTokenPair, RefreshError, Token};
 use serde_json::Value;
 use std::io::{BufRead, Write};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -26,6 +26,12 @@ const META_PROTOCOL_VERSION: &str = "io.modelcontextprotocol/protocolVersion";
 const SIGN_IN_LOST: &str = "MCP sign-in is no longer valid. Run `fluxvale mcp login`.";
 /// Every line the bridge writes to stderr starts with this.
 const PREFIX: &str = "fluxvale: ";
+/// Why the sign-in is lost when a reload finds nothing: someone ran `fluxvale mcp logout`.
+const SIGN_IN_REMOVED: &str = "the stored sign-in was removed";
+/// Why the sign-in is lost when the server refuses a pair it has just renewed.
+const RENEWED_TOKEN_REFUSED: &str = "the server refused the renewed token";
+/// What a request is told when its renewal failed for a reason that passes.
+const RENEWAL_FAILED: &str = "could not renew the MCP access token";
 
 /// The MCP endpoint the bridge talks to: the `--url` flag, else the
 /// stored pair's `resource`, else the environment's own MCP server.
@@ -133,7 +139,7 @@ where
     C: FnOnce(&str) -> anyhow::Result<T>,
     T: McpTransport,
     S: McpPairStore,
-    F: Fn(&Token, Option<&str>) -> anyhow::Result<OAuthTokenPair> + Send + Sync + 'static,
+    F: Fn(&Token, Option<&str>) -> Result<OAuthTokenPair, RefreshError> + Send + Sync + 'static,
     N: Fn() -> u64 + Send + Sync + 'static,
 {
     let err: Arc<ErrSink> = Arc::new(err);
@@ -161,9 +167,19 @@ where
         out,
     });
     // A token about to expire is renewed before anything is forwarded.
-    if nearly_expired && let Err(lost) = bridge.renew(&pair) {
-        err(&sign_in_lost(&lost.to_string()));
-        return Ok(1);
+    if nearly_expired {
+        match bridge.renew(&pair) {
+            Ok(_) => {}
+            // The sign-in is still good: say so and serve on. The first
+            // request draws a 401 and tries again.
+            Err(RefreshError::Transient(why)) => {
+                err(&format!("{PREFIX}{RENEWAL_FAILED} yet: {why}\n"));
+            }
+            Err(RefreshError::Permanent(why)) => {
+                err(&sign_in_lost(&why));
+                return Ok(1);
+            }
+        }
     }
 
     let reading = {
@@ -201,7 +217,7 @@ enum ToWriter {
 }
 
 /// The token endpoint's refresh call.
-type Renew = dyn Fn(&Token, Option<&str>) -> anyhow::Result<OAuthTokenPair> + Send + Sync;
+type Renew = dyn Fn(&Token, Option<&str>) -> Result<OAuthTokenPair, RefreshError> + Send + Sync;
 /// The clock, in seconds since the Unix epoch.
 type Clock = dyn Fn() -> u64 + Send + Sync;
 /// Where whole stderr lines go.
@@ -271,11 +287,16 @@ impl Bridge {
                 // One renewal per message. Refused again with a pair
                 // that was just renewed: the pair is no good.
                 if renewed {
-                    break Outcome::SignedOut(String::new());
+                    break Outcome::SignedOut(String::from(RENEWED_TOKEN_REFUSED));
                 }
                 pair = match self.renew(&pair) {
                     Ok(pair) => pair,
-                    Err(err) => break Outcome::SignedOut(err.to_string()),
+                    // The sign-in is still good, only this attempt failed:
+                    // answer this one request and stay up.
+                    Err(RefreshError::Transient(why)) => {
+                        break Outcome::Failed(format!("{RENEWAL_FAILED}: {why}"));
+                    }
+                    Err(RefreshError::Permanent(why)) => break Outcome::SignedOut(why),
                 };
                 renewed = true;
                 continue;
@@ -342,23 +363,34 @@ impl Bridge {
     /// server treats a second use of one as theft, so a request refused
     /// with a pair another request has already renewed reuses that
     /// renewal instead of presenting the same refresh token again.
-    fn renew(&self, refused: &McpCredentials) -> anyhow::Result<McpCredentials> {
+    ///
+    /// The failure says whether the sign-in is still good. A token
+    /// endpoint that could not be reached, or was not itself, refuses
+    /// nothing. A refresh token it refused, a pair a logout removed, and
+    /// a renewed pair that could not be stored are gone for good.
+    fn renew(&self, refused: &McpCredentials) -> Result<McpCredentials, RefreshError> {
         let _one_at_a_time = self.renewal.lock().unwrap_or_else(ignore_poison);
-        let stored = self.store.load(&self.host)?;
-        let pair = match stored {
-            Some(stored) if stored.refresh_token != refused.refresh_token => stored,
-            _ => {
-                let reply = (self.refresh)(&refused.refresh_token, refused.resource.as_deref())?;
-                let pair = McpCredentials {
-                    access_token: reply.access_token,
-                    refresh_token: reply.refresh_token,
-                    expires_at_unix: (self.now)().saturating_add(reply.expires_in),
-                    scope: reply.scope,
-                    resource: refused.resource.clone(),
-                };
-                self.store.save(&self.host, &pair)?;
-                pair
-            }
+        let stored = self
+            .store
+            .load(&self.host)
+            .map_err(|err| RefreshError::Permanent(err.to_string()))?
+            // Renewing from memory would put back what a logout removed.
+            .ok_or_else(|| RefreshError::Permanent(String::from(SIGN_IN_REMOVED)))?;
+        let pair = if stored.refresh_token != refused.refresh_token {
+            stored
+        } else {
+            let reply = (self.refresh)(&refused.refresh_token, refused.resource.as_deref())?;
+            let pair = McpCredentials {
+                access_token: reply.access_token,
+                refresh_token: reply.refresh_token,
+                expires_at_unix: (self.now)().saturating_add(reply.expires_in),
+                scope: reply.scope,
+                resource: refused.resource.clone(),
+            };
+            self.store
+                .save(&self.host, &pair)
+                .map_err(|err| RefreshError::Permanent(err.to_string()))?;
+            pair
         };
         *self.current.write().unwrap_or_else(ignore_poison) = pair.clone();
         Ok(pair)
@@ -494,6 +526,8 @@ mod tests {
     const PROTOCOL: &str = "2025-11-25";
     /// How long a test waits for the bridge before failing instead of hanging.
     const WAIT: Duration = Duration::from_secs(10);
+    /// The token endpoint, not reached for a moment.
+    const DIAL: &str = "connection failed: dial timeout";
 
     // Secrets with a shape a leak would show. Every test ends by proving none reached a byte of output.
     const ACCESS: &str = "fvoat_secret_access_token_never_leaked";
@@ -578,6 +612,41 @@ mod tests {
         }
     }
 
+    /// A refresh failure no later attempt can fix.
+    fn permanent(why: &str) -> RefreshError {
+        RefreshError::Permanent(why.to_string())
+    }
+
+    /// A refresh failure that passes: the token endpoint was not itself.
+    fn blip(why: &str) -> RefreshError {
+        RefreshError::Transient(why.to_string())
+    }
+
+    /// A renewal that hits a network blip once, then goes through.
+    fn blip_then_renewed(_: &Seen, index: usize) -> Result<OAuthTokenPair, RefreshError> {
+        match index {
+            0 => Err(blip(DIAL)),
+            _ => Ok(renewed()),
+        }
+    }
+
+    /// A request's `-32603` answer when its renewal failed for a passing reason.
+    fn not_renewed(id: &str, why: &str) -> String {
+        error_line(
+            &json!(id),
+            INTERNAL_ERROR,
+            &format!("{RENEWAL_FAILED}: {why}"),
+        )
+    }
+
+    /// The tokens the mock transport was handed, in order.
+    fn tokens(h: &Harness) -> Vec<Token> {
+        h.posts()
+            .iter()
+            .map(|post| post.access_token.clone())
+            .collect()
+    }
+
     fn refused() -> McpReply {
         McpReply {
             status: 401,
@@ -652,7 +721,7 @@ mod tests {
     /// How a test's script answers one forwarded POST.
     type Answer = dyn Fn(&Seen, &Post) -> Result<McpReply, String> + Send + Sync;
     /// How it answers one refresh call, counted from zero.
-    type Renewal = dyn Fn(&Seen, usize) -> Result<OAuthTokenPair, String> + Send + Sync;
+    type Renewal = dyn Fn(&Seen, usize) -> Result<OAuthTokenPair, RefreshError> + Send + Sync;
 
     /// The injected transport: every POST is recorded, then answered by the test's script.
     struct MockTransport {
@@ -679,17 +748,37 @@ mod tests {
         }
     }
 
-    /// The pair store, in memory: one pair per host, readable while the bridge runs.
+    /// The pair store, in memory: one pair per host, readable while the
+    /// bridge runs. A test can empty it, or make it refuse, from another thread.
     #[derive(Clone, Default)]
-    struct MemoryStore(Arc<Mutex<BTreeMap<String, McpCredentials>>>);
+    struct MemoryStore {
+        pairs: Arc<Mutex<BTreeMap<String, McpCredentials>>>,
+        faults: Arc<Mutex<Faults>>,
+    }
+
+    /// What the store refuses next, one call each.
+    #[derive(Default)]
+    struct Faults {
+        load: Vec<String>,
+        save: Vec<String>,
+    }
 
     impl McpPairStore for MemoryStore {
         fn load(&self, host: &str) -> anyhow::Result<Option<McpCredentials>> {
-            Ok(self.0.lock().unwrap().get(host).cloned())
+            if let Some(why) = self.faults.lock().unwrap().load.pop() {
+                return Err(anyhow::Error::msg(why));
+            }
+            Ok(self.pairs.lock().unwrap().get(host).cloned())
         }
 
         fn save(&self, host: &str, pair: &McpCredentials) -> anyhow::Result<()> {
-            self.0.lock().unwrap().insert(host.to_owned(), pair.clone());
+            if let Some(why) = self.faults.lock().unwrap().save.pop() {
+                return Err(anyhow::Error::msg(why));
+            }
+            self.pairs
+                .lock()
+                .unwrap()
+                .insert(host.to_owned(), pair.clone());
             Ok(())
         }
     }
@@ -750,6 +839,9 @@ mod tests {
         answer: Box<Answer>,
         /// Answers each refresh call.
         renew: Box<Renewal>,
+        /// A store the test keeps a handle on, to empty or sabotage it
+        /// while the bridge runs. `None` builds a fresh one.
+        store: Option<MemoryStore>,
     }
 
     /// The plain setup: a healthy pair for `fluxvale.com`, every POST
@@ -764,6 +856,7 @@ mod tests {
             input: None,
             answer: Box::new(|_, post| Ok(echo(post))),
             renew: Box::new(|_, _| Ok(renewed())),
+            store: None,
         }
     }
 
@@ -777,7 +870,7 @@ mod tests {
 
     fn start(script: Script) -> Harness {
         let seen = Arc::new(Seen::default());
-        let store = MemoryStore::default();
+        let store = script.store.clone().unwrap_or_default();
         if let Some(pair) = &script.stored {
             store.save(script.host, pair).unwrap();
         }
@@ -803,7 +896,14 @@ mod tests {
                     index
                 };
                 seen.events.lock().unwrap().push("refresh".to_owned());
-                let renewed = answer(&seen, index).map_err(anyhow::Error::msg)?;
+                let renewed = match answer(&seen, index) {
+                    Ok(renewed) => renewed,
+                    // Its text reaches stderr, so its Debug form joins the secrets check.
+                    Err(failure) => {
+                        push(&seen.debug, &format!("{failure:?} "));
+                        return Err(failure);
+                    }
+                };
                 push(&seen.debug, &format!("{renewed:?} "));
                 Ok(renewed)
             }
@@ -946,8 +1046,23 @@ mod tests {
     }
 
     impl MemoryStore {
+        /// `fluxvale mcp logout`, from another terminal.
+        fn remove(&self, host: &str) {
+            self.pairs.lock().unwrap().remove(host);
+        }
+
+        /// The next load fails with `why`, and the pair is left alone.
+        fn fail_load(&self, why: &str) {
+            self.faults.lock().unwrap().load.push(why.to_owned());
+        }
+
+        /// The next save fails with `why`.
+        fn fail_save(&self, why: &str) {
+            self.faults.lock().unwrap().save.push(why.to_owned());
+        }
+
         fn stored(&self, host: &str) -> Option<McpCredentials> {
-            McpPairStore::load(self, host).unwrap()
+            self.pairs.lock().unwrap().get(host).cloned()
         }
     }
 
@@ -1096,7 +1211,7 @@ mod tests {
             renew: Box::new(|seen, index| {
                 // The first renewal waits until the second request has drawn its refusal too. Only the single-flight keeps a second refresh from following.
                 if index == 0 && !wait_up_to(WAIT, || seen.posts.lock().unwrap().len() >= 2) {
-                    return Err("the second request never drew its refusal".to_string());
+                    return Err(permanent("the second request never drew its refusal"));
                 }
                 Ok(renewed())
             }),
@@ -1175,7 +1290,7 @@ mod tests {
     fn a_failed_renewal_ends_the_bridge_and_forwards_nothing_more() {
         let mut h = start(Script {
             answer: Box::new(|_, _| Ok(refused())),
-            renew: Box::new(|_, _| Err("invalid_grant: refresh token revoked".to_string())),
+            renew: Box::new(|_, _| Err(permanent("invalid_grant: refresh token revoked"))),
             ..script()
         });
 
@@ -1203,7 +1318,7 @@ mod tests {
         let mut h = start(Script {
             stored: Some(pair(ACCESS, REFRESH, 30, Some(MCP_URL))),
             input: Some(format!("{}\n", request(5, "tools/list"))),
-            renew: Box::new(|_, _| Err("invalid_grant: refresh token revoked".to_string())),
+            renew: Box::new(|_, _| Err(permanent("invalid_grant: refresh token revoked"))),
             ..script()
         });
 
@@ -1212,6 +1327,240 @@ mod tests {
         assert_eq!(h.stderr(), lost("invalid_grant: refresh token revoked"));
         assert!(h.posts().is_empty());
         assert_eq!(h.refreshes().len(), 1);
+        h.assert_no_secrets();
+    }
+
+    #[test]
+    fn a_transient_renewal_failure_answers_the_request_and_the_bridge_stays_alive() {
+        let refused_token = Token::new(ACCESS);
+        let mut h = start(Script {
+            answer: Box::new(move |_, post| {
+                if post.access_token == refused_token {
+                    Ok(refused())
+                } else {
+                    Ok(echo(post))
+                }
+            }),
+            renew: Box::new(blip_then_renewed),
+            ..script()
+        });
+
+        // The first request's renewal hits the blip. The request carries it, the bridge does not.
+        h.send(&request("a", "tools/list"));
+        assert_eq!(h.stdout_after(1), vec![not_renewed("a", DIAL)]);
+
+        // The second request draws its 401 too, and this time the renewal goes through.
+        let second = request("b", "resources/list");
+        h.send(&second);
+        assert_eq!(
+            h.stdout_after(2),
+            vec![not_renewed("a", DIAL), answer("b", "resources/list")]
+        );
+        assert_eq!(h.finish(), 0);
+
+        assert_eq!(
+            h.stderr(),
+            "",
+            "a passing failure is the request's to carry"
+        );
+        assert_eq!(
+            tokens(&h),
+            vec![
+                Token::new(ACCESS),
+                Token::new(ACCESS),
+                Token::new(NEXT_ACCESS)
+            ],
+            "the first request was not retried, the second was, with the renewed token"
+        );
+        assert_eq!(h.posts()[2].body, second, "the retry is the second request");
+        assert_eq!(h.refreshes().len(), 2);
+        assert_eq!(h.stored().unwrap().access_token, Token::new(NEXT_ACCESS));
+        h.assert_no_secrets();
+    }
+
+    #[test]
+    fn a_transient_renewal_failure_for_a_notification_is_dropped_and_the_bridge_stays_alive() {
+        let refused_token = Token::new(ACCESS);
+        let mut h = start(Script {
+            answer: Box::new(move |_, post| {
+                if post.access_token == refused_token {
+                    Ok(refused())
+                } else {
+                    Ok(McpReply {
+                        status: 202,
+                        messages: Vec::new(),
+                    })
+                }
+            }),
+            renew: Box::new(blip_then_renewed),
+            ..script()
+        });
+
+        // The first notification's renewal hits the blip, and the notification is dropped.
+        h.send(&notification("notifications/progress"));
+        assert!(
+            wait_up_to(WAIT, || h.stderr().lines().count() == 1),
+            "stderr: {:?}",
+            h.stderr()
+        );
+
+        // The bridge is still up: the next one is renewed and acknowledged.
+        h.send(&notification("notifications/cancelled"));
+        assert!(
+            wait_up_to(WAIT, || h.posts().len() == 3),
+            "posts: {}",
+            h.posts().len()
+        );
+        assert_eq!(h.finish(), 0);
+
+        assert!(
+            h.stdout_lines().is_empty(),
+            "a notification gets no answer, renewed or not"
+        );
+        assert_eq!(
+            h.stderr(),
+            format!("fluxvale: dropped a message: {RENEWAL_FAILED}: {DIAL}\n")
+        );
+        assert_eq!(
+            tokens(&h),
+            vec![
+                Token::new(ACCESS),
+                Token::new(ACCESS),
+                Token::new(NEXT_ACCESS)
+            ]
+        );
+        assert_eq!(h.refreshes().len(), 2);
+        h.assert_no_secrets();
+    }
+
+    #[test]
+    fn a_transient_renewal_failure_at_startup_is_reported_and_the_bridge_serves_on() {
+        let refused_token = Token::new(ACCESS);
+        let mut h = start(Script {
+            // Thirty seconds left: inside the minute of leeway, so the
+            // renewal runs before the first forward.
+            stored: Some(pair(ACCESS, REFRESH, 30, Some(MCP_URL))),
+            answer: Box::new(move |_, post| {
+                if post.access_token == refused_token {
+                    Ok(refused())
+                } else {
+                    Ok(echo(post))
+                }
+            }),
+            renew: Box::new(blip_then_renewed),
+            ..script()
+        });
+
+        // The renewal runs before anything is read, fails, and is reported.
+        assert!(
+            wait_up_to(WAIT, || h.refreshes().len() == 1
+                && h.stderr().lines().count() == 1),
+            "stderr: {:?}",
+            h.stderr()
+        );
+        assert_eq!(
+            h.stderr(),
+            format!("fluxvale: {RENEWAL_FAILED} yet: {DIAL}\n")
+        );
+        assert!(h.posts().is_empty(), "nothing was forwarded yet");
+
+        // The first request draws its 401, and the second renewal goes through.
+        h.send(&request("tools", "tools/list"));
+        assert_eq!(h.stdout_after(1), vec![answer("tools", "tools/list")]);
+        assert_eq!(h.finish(), 0);
+
+        assert_eq!(
+            h.stderr(),
+            format!("fluxvale: {RENEWAL_FAILED} yet: {DIAL}\n"),
+            "exactly that one line, before and after"
+        );
+        assert_eq!(
+            tokens(&h),
+            vec![Token::new(ACCESS), Token::new(NEXT_ACCESS)]
+        );
+        assert_eq!(h.events(), ["refresh", "post", "refresh", "post"]);
+        assert_eq!(h.stored().unwrap().access_token, Token::new(NEXT_ACCESS));
+        h.assert_no_secrets();
+    }
+
+    #[test]
+    fn a_pair_removed_by_a_logout_is_a_lost_sign_in() {
+        let store = MemoryStore::default();
+        let sabotage = store.clone();
+        let mut h = start(Script {
+            store: Some(store),
+            input: Some(format!("{}\n", request("gone", "tools/list"))),
+            // The logout lands while the request is in flight.
+            answer: Box::new(move |_, _| {
+                sabotage.remove(HOST);
+                Ok(refused())
+            }),
+            ..script()
+        });
+
+        assert_eq!(h.exit_code(), 1);
+        assert_eq!(h.stdout_lines(), vec![lost_line(&json!("gone"))]);
+        assert_eq!(h.stderr(), lost("the stored sign-in was removed"));
+        assert!(
+            h.refreshes().is_empty(),
+            "a removed pair is not refreshed from memory"
+        );
+        assert_eq!(h.stored(), None, "and nothing is stored in its place");
+        h.assert_no_secrets();
+    }
+
+    #[test]
+    fn a_pair_store_that_cannot_be_read_is_a_lost_sign_in() {
+        let store = MemoryStore::default();
+        let sabotage = store.clone();
+        let mut h = start(Script {
+            store: Some(store),
+            input: Some(format!("{}\n", request("locked", "tools/list"))),
+            answer: Box::new(move |_, _| {
+                sabotage.fail_load("the OS keychain is locked");
+                Ok(refused())
+            }),
+            ..script()
+        });
+
+        assert_eq!(h.exit_code(), 1);
+        assert_eq!(h.stdout_lines(), vec![lost_line(&json!("locked"))]);
+        assert_eq!(h.stderr(), lost("the OS keychain is locked"));
+        assert!(h.refreshes().is_empty(), "nothing is refreshed on a guess");
+        assert_eq!(
+            h.stored().unwrap().access_token,
+            Token::new(ACCESS),
+            "the pair is left alone"
+        );
+        h.assert_no_secrets();
+    }
+
+    #[test]
+    fn a_renewed_pair_that_cannot_be_stored_is_a_lost_sign_in() {
+        let store = MemoryStore::default();
+        let sabotage = store.clone();
+        let mut h = start(Script {
+            store: Some(store),
+            input: Some(format!("{}\n", request("unsaved", "tools/list"))),
+            answer: Box::new(move |_, _| {
+                sabotage.fail_save("no space left on device");
+                Ok(refused())
+            }),
+            ..script()
+        });
+
+        assert_eq!(h.exit_code(), 1);
+        assert_eq!(h.stdout_lines(), vec![lost_line(&json!("unsaved"))]);
+        assert_eq!(h.stderr(), lost("no space left on device"));
+        // The endpoint rotated the pair, so the one still stored is stale
+        // now. That is why this is final.
+        assert_eq!(h.refreshes().len(), 1);
+        assert_eq!(
+            h.posts().len(),
+            1,
+            "nothing is retried on a pair that is not stored"
+        );
+        assert_eq!(h.stored().unwrap().access_token, Token::new(ACCESS));
         h.assert_no_secrets();
     }
 
@@ -1225,7 +1574,7 @@ mod tests {
 
         assert_eq!(h.exit_code(), 1);
         assert_eq!(h.stdout_lines(), vec![lost_line(&json!("r"))]);
-        assert_eq!(h.stderr(), lost(""), "the empty error form");
+        assert_eq!(h.stderr(), lost("the server refused the renewed token"));
         assert_eq!(h.posts().len(), 2, "refused, renewed, refused once more");
         assert_eq!(h.posts()[1].access_token, Token::new(NEXT_ACCESS));
         assert_eq!(h.refreshes().len(), 1);
