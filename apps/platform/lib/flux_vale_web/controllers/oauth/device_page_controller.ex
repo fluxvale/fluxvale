@@ -23,6 +23,7 @@ defmodule FluxValeWeb.OAuth.DevicePageController do
   alias FluxVale.OAuth.Client
   alias FluxVale.OAuth.DeviceGrant
   alias FluxValeWeb.Plugs.OAuthRateLimit
+  alias FluxValeWeb.ReturnPath
   alias FluxValeWeb.UserAuth
 
   @consent_salt "oauth device consent"
@@ -159,12 +160,7 @@ defmodule FluxValeWeb.OAuth.DevicePageController do
         decide_verified(conn, payload, params["decision"])
 
       {:error, _reason} ->
-        error_page(
-          conn,
-          400,
-          "This consent request expired",
-          "Start the connection again from your terminal."
-        )
+        consent_expired_page(conn)
     end
   end
 
@@ -199,8 +195,15 @@ defmodule FluxValeWeb.OAuth.DevicePageController do
   defp finish_decision(conn, payload, user, decision) do
     case DeviceGrant.get_by_user_code(payload[:user_code], authorize?: false) do
       {:ok, grant} ->
-        client = Client.get_by_id!(grant.client_id, authorize?: false)
-        apply_decision(conn, grant, client, user, decision)
+        # The signed grant_id names the grant to decide, not the code
+        # the token carries. The id alone is enough: the row holds the
+        # client, scopes and resource, and those never change.
+        if grant.id == payload[:grant_id] do
+          client = Client.get_by_id!(grant.client_id, authorize?: false)
+          apply_decision(conn, grant, client, user, decision)
+        else
+          consent_expired_page(conn)
+        end
 
       {:error, _not_found} ->
         expired_error_page(conn)
@@ -270,8 +273,7 @@ defmodule FluxValeWeb.OAuth.DevicePageController do
         query -> conn.request_path <> "?" <> query
       end
 
-    encoded = URI.encode_www_form(return_to)
-    redirect(conn, to: "/sign-in?return_to=" <> encoded)
+    redirect(conn, to: ReturnPath.sign_in_path(return_to))
   end
 
   defp throttled(conn, retry_after) do
@@ -283,6 +285,17 @@ defmodule FluxValeWeb.OAuth.DevicePageController do
       429,
       "Too many authorization attempts",
       "Wait a moment, then try again from your terminal."
+    )
+  end
+
+  # The bad-consent-token page: a token that does not verify, and one
+  # whose code points at a grant other than the one it was signed for.
+  defp consent_expired_page(conn) do
+    error_page(
+      conn,
+      400,
+      "This consent request expired",
+      "Start the connection again from your terminal."
     )
   end
 
@@ -316,7 +329,8 @@ defmodule FluxValeWeb.OAuth.DevicePageController do
       page_title: title <> " - FluxVale",
       title: title,
       detail: detail,
-      retry_path: opts[:retry_path]
+      retry_path: opts[:retry_path],
+      restart_from: "your terminal"
     })
   end
 end

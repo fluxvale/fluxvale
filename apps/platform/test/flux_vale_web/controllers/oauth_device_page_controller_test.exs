@@ -34,6 +34,16 @@ defmodule FluxValeWeb.OAuthDevicePageControllerTest do
                "/sign-in?return_to=%2Foauth%2Fdevice%3Fuser_code%3DABCD-EFGH"
     end
 
+    test "sends to a bare /sign-in when the path is not local (two leading slashes)", %{
+      conn: conn
+    } do
+      # The path is //oauth/device. The test adapter reads a bare "//..."
+      # as a host, so the same path rides on an absolute URL instead.
+      response = get(conn, "http://www.example.com//oauth/device?user_code=ABCD-EFGH")
+
+      assert redirected_to(response, 302) == "/sign-in"
+    end
+
     test "renders the enter-code form when user_code is missing, blank, or malformed", %{
       conn: conn
     } do
@@ -172,6 +182,32 @@ defmodule FluxValeWeb.OAuthDevicePageControllerTest do
 
       status_response = get(signed, "/oauth/device?user_code=" <> status_expired_grant.user_code)
       assert html_response(status_response, 400) =~ "This code has expired"
+    end
+
+    test "closes with the terminal, never the MCP client", %{conn: conn} do
+      client = client!()
+      user = user!()
+      signed = SessionHelpers.sign_in(conn, user)
+      past = DateTime.add(DateTime.utc_now(), -60, :second)
+      expired_grant = seed_grant(client, past, :pending)
+
+      for path <- [
+            "/oauth/device?user_code=ZZZZ-ZZZZ",
+            "/oauth/device?user_code=" <> expired_grant.user_code
+          ] do
+        html = html_response(get(signed, path), 400)
+        doc = LazyHTML.from_document(html)
+        restart_text = query_text(doc, "[data-testid='oauth-error-restart']")
+
+        sentence =
+          restart_text
+          |> String.replace(~r/\s+/, " ")
+          |> String.trim()
+
+        assert sentence == "You can close this tab and start again from your terminal."
+
+        refute html =~ "MCP client"
+      end
     end
 
     test "already-decided or consumed grants return 400 without redirecting", %{conn: conn} do
@@ -363,6 +399,33 @@ defmodule FluxValeWeb.OAuthDevicePageControllerTest do
       response = post_decision(user, %{"consent_token" => token, "decision" => "approve"})
       assert html_response(response, 400) =~ "This code has expired"
     end
+
+    test "a consent token whose code was swapped for another grant's decides nothing", %{
+      conn: _conn
+    } do
+      client = client!()
+      user = user!()
+      shown = device_grant!(client)
+      swapped = device_grant!(client)
+
+      shown_payload = consent_payload(client, user, shown.grant)
+      payload = Map.put(shown_payload, :user_code, swapped.grant.user_code)
+
+      token = Phoenix.Token.sign(Endpoint, @consent_salt, payload)
+
+      approved = post_decision(user, %{"consent_token" => token, "decision" => "approve"})
+
+      assert html_response(approved, 400) =~ "This consent request expired"
+      assert_still_pending(shown.grant)
+      assert_still_pending(swapped.grant)
+      assert oauth_audit(:device_grant_approved, client) == []
+
+      denied = post_decision(user, %{"consent_token" => token, "decision" => "deny"})
+
+      assert html_response(denied, 400) =~ "This consent request expired"
+      assert_still_pending(swapped.grant)
+      assert oauth_audit(:device_grant_denied, client) == []
+    end
   end
 
   describe "rate limiting (:authorize bucket)" do
@@ -412,6 +475,13 @@ defmodule FluxValeWeb.OAuthDevicePageControllerTest do
     build_conn()
     |> SessionHelpers.sign_in(user)
     |> post("/oauth/device", params)
+  end
+
+  defp assert_still_pending(grant) do
+    reloaded = DeviceGrant.get_by_user_code!(grant.user_code, authorize?: false)
+
+    assert reloaded.status == :pending
+    assert reloaded.user_id == nil
   end
 
   defp consent_payload(client, user, grant) do

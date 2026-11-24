@@ -148,4 +148,29 @@ defmodule FluxVale.OAuth.Operations.DeviceGrantDecisionTest do
     assert reloaded_deny.user_id == nil
     assert last_event(:device_grant_denied, client) == nil
   end
+
+  test "a decision taken exactly at expires_at is not expired", %{
+    client: client,
+    user: user
+  } do
+    minted_approve = device_grant!(client)
+
+    assert {:ok, approved} =
+             OAuth.approve_device_grant(minted_approve.grant,
+               actor: user,
+               now: minted_approve.grant.expires_at
+             )
+
+    assert approved.status == :approved
+
+    minted_deny = device_grant!(client)
+
+    assert {:ok, denied} =
+             OAuth.deny_device_grant(minted_deny.grant,
+               actor: user,
+               now: minted_deny.grant.expires_at
+             )
+
+    assert denied.status == :denied
+  end
 end

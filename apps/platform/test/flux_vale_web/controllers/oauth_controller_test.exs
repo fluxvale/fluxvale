@@ -171,6 +171,7 @@ defmodule FluxValeWeb.OAuthControllerTest do
       unknown = authorize_params(client, %{"client_id" => "fvoc_unknown"})
       unknown_response = get(conn, "/oauth/authorize?" <> URI.encode_query(unknown))
       assert html_response(unknown_response, 400) =~ "oauth-error"
+      assert html_response(unknown_response, 400) =~ "start again from your MCP client"
 
       bad = authorize_params(client, %{"redirect_uri" => "https://evil.example/cb"})
       bad_response = get(conn, "/oauth/authorize?" <> URI.encode_query(bad))
