@@ -63,7 +63,7 @@ The sign-in token never appears on screen; `fluxvale auth logout` removes it. A 
 | `fluxvale mcp login` | Sign in for MCP access with the device flow (approve in the browser) |
 | `fluxvale mcp logout` | Remove the stored MCP credentials |
 | `fluxvale mcp status` | Show MCP credential status and where it is stored |
-| `fluxvale mcp serve [--url <URL>]` | Bridge an MCP client's stdio to the remote MCP server |
+| `fluxvale mcp serve` | Bridge an MCP client's stdio to the remote MCP server |
 | `fluxvale whoami` | Show the signed-in user |
 | `fluxvale apps list` / `apps show <slug>` | Browse the app catalog |
 | `fluxvale instances list` | List your instances |
