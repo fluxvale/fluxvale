@@ -530,6 +530,21 @@ defmodule FluxValeWeb.DeveloperSettingsLiveTest do
       refute summary =~ "wallet:read"
     end
 
+    test "a struct domain_levels payload is ignored like any non-map", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/settings/developer")
+
+      assert render_change(
+               view,
+               "scope-change",
+               %{"token" => %{"name" => "", "domain_levels" => %URI{path: "x"}}}
+             ) =~ "API tokens"
+
+      assert has_element?(
+               view,
+               "[data-testid='api-token-scope-group-instances'][data-level='none']"
+             )
+    end
+
     test "creating a token shows the raw once, stores hash-only, and never logs it", %{
       conn: conn,
       user: user

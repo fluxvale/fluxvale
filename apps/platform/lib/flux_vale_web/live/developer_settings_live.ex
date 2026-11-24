@@ -379,11 +379,11 @@ defmodule FluxValeWeb.DeveloperSettingsLive do
 
   # Fold crafted-safe: an entry rides only when its {domain, level}
   # expands to catalog scopes; anything else (unknown domain, unknown
-  # level, write on a read-only domain, a non-map payload) leaves the
-  # current levels standing — @scope_levels can never hold an invalid
-  # entry, so the picker's render and the create's expansion always
-  # agree.
-  defp merge_scope_levels(current, levels) when is_map(levels) do
+  # level, write on a read-only domain, a non-map or struct payload)
+  # leaves the current levels standing — @scope_levels can never hold
+  # an invalid entry, so the picker's render and the create's
+  # expansion always agree.
+  defp merge_scope_levels(current, levels) when is_map(levels) and not is_struct(levels) do
     Enum.reduce(levels, current, fn {domain, level}, acc ->
       outcome = Scopes.scopes_for_level(domain, level)
 

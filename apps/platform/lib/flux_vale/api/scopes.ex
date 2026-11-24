@@ -262,10 +262,11 @@ defmodule FluxVale.Api.Scopes do
   Expands a `%{domain_key => level}` map to the flat scope list in
   catalog order. Absent domains default to `"none"`. Every entry is
   validated first, so an unknown domain key or an invalid level fails
-  closed instead of being ignored. A non-map input is an error.
+  closed instead of being ignored. Anything that is not a plain map, a
+  struct included, is an error.
   """
   @spec scopes_for_levels(map()) :: {:ok, [String.t()]} | {:error, {:invalid_scope, String.t()}}
-  def scopes_for_levels(levels) when is_map(levels) do
+  def scopes_for_levels(levels) when is_map(levels) and not is_struct(levels) do
     case validate_levels(levels) do
       :ok -> expand_levels(levels)
       {:error, _reason} = error -> error

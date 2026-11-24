@@ -411,5 +411,10 @@ defmodule FluxVale.Api.ScopesTest do
 
       assert {:error, {:invalid_scope, "invalid"}} = Scopes.scopes_for_levels(non_map)
     end
+
+    test "a struct is refused, never walked" do
+      assert {:error, {:invalid_scope, "invalid"}} = Scopes.scopes_for_levels(%URI{path: "x"})
+      assert {:error, {:invalid_scope, "invalid"}} = Scopes.scopes_for_levels(MapSet.new())
+    end
   end
 end
