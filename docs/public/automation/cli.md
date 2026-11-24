@@ -41,6 +41,22 @@ fluxvale auth token --scopes instances:read --ttl 1h
 
 The [Terraform credentials guide](/docs/automation/terraform-credentials) covers scopes, rotation, and revocation.
 
+## Connect an MCP client
+
+`fluxvale mcp login` signs in for MCP with the same approval page flow (it prints a URL and a code that you approve in any browser). The token pair is stored beside the sign-in token and never printed.
+
+Point your client at `fluxvale mcp serve`, which adds the access token to every request and refreshes it itself:
+
+```json
+{
+  "mcpServers": {
+    "fluxvale": { "command": "fluxvale", "args": ["mcp", "serve"] }
+  }
+}
+```
+
+Use `fluxvale mcp status` to inspect the stored credential and `fluxvale mcp logout` to remove it. See the [MCP server guide](/docs/automation/mcp) for the full setup and client list.
+
 ## The everyday commands
 
 Browse and inspect:

@@ -16,6 +16,7 @@ defmodule FluxValeWeb.AgentPrompt do
   bearer header. `:oauth` renders the browser path — the note and every
   snippet's header drop together. OAuth is live; the switch stays a
   deployment choice.
+  The remote-machine CLI bridge note rides both modes.
   Values are never echoed: the snippets carry only env-var references,
   and no function here receives a minted token.
   """
@@ -37,6 +38,11 @@ defmodule FluxValeWeb.AgentPrompt do
   token to paste. If it does not speak OAuth, mint a scoped token at \
   %{token_url} with scopes %{scopes}, export it as `FLUXVALE_PAT`, and send \
   it as `Authorization: Bearer $FLUXVALE_PAT` on the MCP connection.\
+  """
+
+  @remote_note """
+   On a machine without a browser, sign in with `fluxvale mcp login` and \
+  connect the client through `fluxvale mcp serve`.\
   """
 
   @commit_rule "Confirm the spend with me before deploying. Never deploy without an explicit yes."
@@ -123,17 +129,18 @@ defmodule FluxValeWeb.AgentPrompt do
   @doc "The one auth sentence — the token path under `:pat`, the browser path under `:oauth`."
   @spec auth_note(t()) :: String.t()
   def auth_note(%__MODULE__{} = ctx) do
-    case auth_mode() do
-      :pat ->
-        @auth_note_pat
-        |> String.replace("%{token_url}", token_url(ctx))
-        |> String.replace("%{scopes}", scopes())
+    template =
+      case auth_mode() do
+        :pat -> @auth_note_pat
+        :oauth -> @auth_note_oauth
+      end
 
-      :oauth ->
-        @auth_note_oauth
-        |> String.replace("%{token_url}", token_url(ctx))
-        |> String.replace("%{scopes}", scopes())
-    end
+    note =
+      template
+      |> String.replace("%{token_url}", token_url(ctx))
+      |> String.replace("%{scopes}", scopes())
+
+    note <> @remote_note
   end
 
   @doc "The four client cards — one source for the panel and the modal."

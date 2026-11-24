@@ -114,6 +114,8 @@ fvpat_…` (Claude Desktop, Cursor, opencode's header config). Its
 handlers keep their existing `/me` gates. Mint a PAT in the panel
 with the scopes you want the agent to have when you want that model.
 
+A third way to reach this server is the CLI's `fluxvale mcp serve`: a stdio bridge that holds the OAuth pair from `fluxvale mcp login` and sends the access token as the bearer on every request. The server sees an ordinary OAuth bearer. See `docs/mcp.md` in the repo.
+
 No tool parameter ever carries a secret — identifiers only. The
 backup destination's S3 secret key and restic password are write-only
 (#503): they are set in the panel and never ride this surface.
