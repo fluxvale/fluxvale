@@ -7,11 +7,13 @@
 use crate::auth;
 use crate::config::{self, Config};
 use crate::mcp;
+use crate::mcp_serve;
 use crate::reads;
 use crate::terraform;
 use crate::token::{McpTokenStore, TokenStore};
 use crate::writes::{self, ConfigureBackup, DeployFlags};
 use clap::{Parser, Subcommand, ValueEnum};
+use fluxvale_api::{McpHttpClient, OAuthDeviceClient};
 use std::ffi::OsString;
 use std::path::PathBuf;
 
@@ -51,7 +53,7 @@ pub enum Command {
         #[command(subcommand)]
         command: AuthCommand,
     },
-    /// Sign in, sign out, or check your MCP credentials
+    /// Sign in, sign out, check your MCP credentials, or serve MCP over stdio
     Mcp {
         #[command(subcommand)]
         command: McpCommand,
@@ -153,6 +155,12 @@ pub enum McpCommand {
     Logout,
     /// Show stored MCP credential status
     Status,
+    /// Bridge an MCP client's stdio to the remote FluxVale MCP server
+    Serve {
+        /// MCP server URL. Only the one the stored sign-in is bound to is accepted
+        #[arg(long, value_name = "URL")]
+        url: Option<String>,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -478,13 +486,48 @@ pub fn run(cli: &Cli) -> anyhow::Result<()> {
             McpCommand::Logout => {
                 let store = McpTokenStore::at(McpTokenStore::default_dir()?);
                 let host = config::host_from_base_url(&config.base_url);
-                print(mcp::logout_store(&store, &host))
+                // The lock `serve` renews under: a pair a renewal is
+                // saving is a pair this must not leave behind.
+                let lock = mcp_serve::FileRenewalLock::new(
+                    McpTokenStore::default_dir()?.join(mcp_serve::RENEWAL_LOCK_FILE),
+                );
+                print(mcp_serve::logout_after_renewals(&lock, || {
+                    mcp::logout_store(&store, &host)
+                }))
             }
             McpCommand::Status => {
                 let store = McpTokenStore::at(McpTokenStore::default_dir()?);
                 let host = config::host_from_base_url(&config.base_url);
                 let now_unix = u64::try_from(reads::now_secs()).unwrap_or(0);
                 print(mcp::status_store(&store, &host, now_unix))
+            }
+            McpCommand::Serve { url } => {
+                let host = config::host_from_base_url(&config.base_url);
+                let store = McpTokenStore::at(McpTokenStore::default_dir()?);
+                // One file serves every host: a renewal is rare and short.
+                let lock = mcp_serve::FileRenewalLock::new(
+                    McpTokenStore::default_dir()?.join(mcp_serve::RENEWAL_LOCK_FILE),
+                );
+                let oauth = OAuthDeviceClient::new(&config.base_url);
+                // The bridge owns stdout, so it answers with an exit code, not a line to print.
+                let code = mcp_serve::serve(
+                    url.as_deref(),
+                    &config.base_url,
+                    &host,
+                    // A StdinLock is not Send, so the reader thread buffers the handle itself.
+                    std::io::BufReader::new(std::io::stdin()),
+                    std::io::stdout(),
+                    |line| eprint!("{line}"),
+                    McpHttpClient::new,
+                    store,
+                    lock,
+                    move |refresh_token, resource| oauth.refresh(refresh_token, resource),
+                    || u64::try_from(reads::now_secs()).unwrap_or(0),
+                )?;
+                match code {
+                    0 => Ok(()),
+                    code => std::process::exit(code),
+                }
             }
         },
         Command::Whoami => {
@@ -825,6 +868,18 @@ mod tests {
                 command: McpCommand::Status
             }
         ));
+        assert!(matches!(
+            parse(&["mcp", "serve"]).command,
+            Command::Mcp {
+                command: McpCommand::Serve { url: None }
+            }
+        ));
+        match parse(&["mcp", "serve", "--url", "http://127.0.0.1:4600/mcp"]).command {
+            Command::Mcp {
+                command: McpCommand::Serve { url },
+            } => assert_eq!(url.as_deref(), Some("http://127.0.0.1:4600/mcp")),
+            other => panic!("wrong: {other:?}"),
+        }
         assert!(matches!(parse(&["whoami"]).command, Command::Whoami));
         assert!(matches!(
             parse(&["apps", "list"]).command,

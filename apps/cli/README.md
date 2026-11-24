@@ -60,6 +60,10 @@ The sign-in token never appears on screen; `fluxvale auth logout` removes it. A 
 | `fluxvale auth status` | Show who you're signed in as, and where the token lives |
 | `fluxvale auth exec -- <command>` | Run a command with the stored token in its environment (`FLUXVALE_PAT`) |
 | `fluxvale auth token --scopes <list> --ttl <duration>` | Mint a scoped, short-lived token for CI (printed once) |
+| `fluxvale mcp login` | Sign in for MCP access with the device flow (approve in the browser) |
+| `fluxvale mcp logout` | Remove the stored MCP credentials |
+| `fluxvale mcp status` | Show MCP credential status and where it is stored |
+| `fluxvale mcp serve [--url <URL>]` | Bridge an MCP client's stdio to the remote MCP server |
 | `fluxvale whoami` | Show the signed-in user |
 | `fluxvale apps list` / `apps show <slug>` | Browse the app catalog |
 | `fluxvale instances list` | List your instances |
@@ -82,6 +86,20 @@ The sign-in token never appears on screen; `fluxvale auth logout` removes it. A 
 Global flags: `--config <path>` (default
 `<config dir>/fluxvale/config.toml` — put `base_url` there to point at
 another environment), `--output json` for scripts.
+
+## Use with an MCP client
+
+Sign in once with `fluxvale mcp login`, then point the client at the bridge:
+
+```json
+{
+  "mcpServers": {
+    "fluxvale": { "command": "fluxvale", "args": ["mcp", "serve"] }
+  }
+}
+```
+
+The bridge speaks stdio on the client's side and the streamable HTTP transport on the other. It adds the stored access token to every request and refreshes the token itself, so the client never holds a credential. Only `fluxvale mcp login` stores credentials for it. The token from `fluxvale auth login` is not used.
 
 ## Building from source
 
