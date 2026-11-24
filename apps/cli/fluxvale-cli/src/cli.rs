@@ -157,7 +157,7 @@ pub enum McpCommand {
     Status,
     /// Bridge an MCP client's stdio to the remote FluxVale MCP server
     Serve {
-        /// MCP server URL (default: the stored pair's resource, else the environment's MCP server)
+        /// MCP server URL. Only the one the stored sign-in is bound to is accepted
         #[arg(long, value_name = "URL")]
         url: Option<String>,
     },
@@ -497,6 +497,10 @@ pub fn run(cli: &Cli) -> anyhow::Result<()> {
             McpCommand::Serve { url } => {
                 let host = config::host_from_base_url(&config.base_url);
                 let store = McpTokenStore::at(McpTokenStore::default_dir()?);
+                // One file serves every host: a renewal is rare and short.
+                let lock = mcp_serve::FileRenewalLock::new(
+                    McpTokenStore::default_dir()?.join("mcp-renewal.lock"),
+                );
                 let oauth = OAuthDeviceClient::new(&config.base_url);
                 // The bridge owns stdout, so it answers with an exit code, not a line to print.
                 let code = mcp_serve::serve(
@@ -509,6 +513,7 @@ pub fn run(cli: &Cli) -> anyhow::Result<()> {
                     |line| eprint!("{line}"),
                     McpHttpClient::new,
                     store,
+                    lock,
                     move |refresh_token, resource| oauth.refresh(refresh_token, resource),
                     || u64::try_from(reads::now_secs()).unwrap_or(0),
                 )?;
