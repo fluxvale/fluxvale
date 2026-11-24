@@ -4,6 +4,8 @@ defmodule FluxVale.Infrastructure.Operations.InstanceK8sTest do
   use FluxVale.DataCase, async: false
   use Mimic
 
+  alias FluxVale.Clients.K8s.Error
+  alias FluxVale.Clients.K8s.Resources.Pod
   alias FluxVale.Identity.User
   alias FluxVale.Infrastructure.AccessProviders.Tailscale
   alias FluxVale.Infrastructure.AccessRoute
@@ -251,6 +253,77 @@ defmodule FluxVale.Infrastructure.Operations.InstanceK8sTest do
       refute Map.has_key?(spec, :backing_services)
       assert Decimal.eq?(spec.cpu, version.default_cpu_cores)
       assert spec.memory == version.default_memory_mb
+    end
+  end
+
+  describe "gateway_pod_ip/2" do
+    test "newest non-terminating running pod wins over an older one" do
+      older = running_pod("10.0.0.1", "2026-11-01T01:00:00Z")
+      newer = running_pod("10.0.0.9", "2026-11-01T02:00:00Z")
+
+      stub(Pod, :list_by_labels, fn _kc, _ns, _labels -> {:ok, [older, newer]} end)
+
+      assert InstanceK8s.gateway_pod_ip(%{}, %{id: "gw-1"}) == {:ok, "10.0.0.9"}
+    end
+
+    test "a terminating newest pod loses to a running survivor" do
+      survivor = running_pod("10.0.0.9", "2026-11-01T02:00:00Z")
+      terminating = terminating_pod("10.0.0.2", "2026-11-01T03:00:00Z")
+
+      stub(Pod, :list_by_labels, fn _kc, _ns, _labels -> {:ok, [survivor, terminating]} end)
+
+      assert InstanceK8s.gateway_pod_ip(%{}, %{id: "gw-1"}) == {:ok, "10.0.0.9"}
+    end
+
+    test "only terminating pods returns {:error, :no_running_pod}" do
+      terminating = terminating_pod("10.0.0.2", "2026-11-01T03:00:00Z")
+
+      stub(Pod, :list_by_labels, fn _kc, _ns, _labels -> {:ok, [terminating]} end)
+
+      assert InstanceK8s.gateway_pod_ip(%{}, %{id: "gw-1"}) == {:error, :no_running_pod}
+    end
+
+    test "only pending pods returns {:error, :no_running_pod}" do
+      pending = %{"status" => %{"phase" => "Pending"}}
+
+      stub(Pod, :list_by_labels, fn _kc, _ns, _labels -> {:ok, [pending]} end)
+
+      assert InstanceK8s.gateway_pod_ip(%{}, %{id: "gw-1"}) == {:error, :no_running_pod}
+    end
+
+    test "a list error passes through" do
+      err = Error.connection_error("apiserver unreachable")
+
+      stub(Pod, :list_by_labels, fn _kc, _ns, _labels -> {:error, err} end)
+
+      assert InstanceK8s.gateway_pod_ip(%{}, %{id: "gw-1"}) == {:error, err}
+    end
+
+    test "the list is namespaced to gateway_access_namespace() with gateway_pod_labels(id)" do
+      Application.put_env(:flux_vale, :access_gateway, namespace: "custom-access-ns")
+      gateway_id = "gw-scope-check"
+
+      expect(Pod, :list_by_labels, fn _kc, ns, labels ->
+        assert ns == InstanceK8s.gateway_access_namespace()
+        assert ns == "custom-access-ns"
+        assert labels == InstanceK8s.gateway_pod_labels(gateway_id)
+        {:ok, [running_pod("10.0.0.9", "2026-11-01T02:00:00Z")]}
+      end)
+
+      assert InstanceK8s.gateway_pod_ip(%{}, %{id: gateway_id}) == {:ok, "10.0.0.9"}
+    end
+
+    defp running_pod(ip, created_at) do
+      %{
+        "metadata" => %{"creationTimestamp" => created_at},
+        "status" => %{"phase" => "Running", "podIP" => ip}
+      }
+    end
+
+    defp terminating_pod(ip, created_at) do
+      ip
+      |> running_pod(created_at)
+      |> put_in(["metadata", "deletionTimestamp"], "2026-11-01T03:30:00Z")
     end
   end
 end

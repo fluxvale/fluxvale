@@ -42,7 +42,6 @@ defmodule FluxVale.Infrastructure.Operations.RenderAccessDNS do
 
   alias FluxVale.Clients.K8s
   alias FluxVale.Clients.K8s.Resources.ConfigMap
-  alias FluxVale.Clients.K8s.Resources.Pod
   alias FluxVale.Infrastructure.AccessDomain
   alias FluxVale.Infrastructure.AccessGateway
   alias FluxVale.Infrastructure.AccessProviders.Tailscale
@@ -161,10 +160,8 @@ defmodule FluxVale.Infrastructure.Operations.RenderAccessDNS do
       gateways ->
         case K8s.kubeconfig() do
           {:ok, kubeconfig} ->
-            namespace = InstanceK8s.gateway_access_namespace()
-
             gateways
-            |> Map.new(&gateway_data(kubeconfig, namespace, &1))
+            |> Map.new(&gateway_data(kubeconfig, &1))
             |> drop_omitted()
 
           # No cluster to read pods from: gather nothing rather than
@@ -365,8 +362,8 @@ defmodule FluxVale.Infrastructure.Operations.RenderAccessDNS do
   # Gather — pod IPs + tailnet IPs
   # ------------------------------------------------------------------
 
-  defp gateway_data(kubeconfig, namespace, gateway) do
-    with {:ok, pod_ip} <- pod_ip(kubeconfig, namespace, gateway),
+  defp gateway_data(kubeconfig, gateway) do
+    with {:ok, pod_ip} <- pod_ip(kubeconfig, gateway),
          {:ok, tailnet_ip} <- tailnet_ip(gateway) do
       {gateway.id, %{pod_ip: pod_ip, tailnet_ip: tailnet_ip}}
     else
@@ -379,32 +376,8 @@ defmodule FluxVale.Infrastructure.Operations.RenderAccessDNS do
     end
   end
 
-  # The gateway's CURRENT pod IP — a pod move is invisible to the claims,
-  # so the gather re-reads every pass (the 15-min refresher's reason to
-  # exist). Terminating pods are excluded (their IP is a REUSE window —
-  # the address may already belong to the replacement); among survivors
-  # the NEWEST wins. Only-Terminating = the no-pod omission path (dark
-  # until the next pass, the documented window). Residual: a survivor
-  # can still predate a just-landed replacement for one render cadence —
-  # shrunk from unbounded to 15 minutes, and the pass heals it.
-  defp pod_ip(kubeconfig, namespace, gateway) do
-    labels = InstanceK8s.gateway_pod_labels(gateway.id)
-
-    case Pod.list_by_labels(kubeconfig, namespace, labels) do
-      {:ok, pods} ->
-        survivors =
-          Enum.filter(pods, fn pod ->
-            not Pod.terminating?(pod) and Pod.running_ip(pod) != nil
-          end)
-
-        case Enum.sort_by(survivors, &Pod.started_at/1, {:desc, DateTime}) do
-          [] -> {:error, :no_running_pod}
-          [newest | _rest] -> {:ok, Pod.running_ip(newest)}
-        end
-
-      {:error, _reason} = error ->
-        error
-    end
+  defp pod_ip(kubeconfig, gateway) do
+    InstanceK8s.gateway_pod_ip(kubeconfig, gateway)
   end
 
   # The tailnet IP comes from the tailnet API (the only place the
