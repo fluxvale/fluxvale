@@ -787,6 +787,69 @@ lane, where it is true" is now true of the client's created-with
 scope set. The first live pair-exchange create will be the owner
 apply itself.
 
+## Amendment 6 (2026-11-24): the serving path's gateway check
+
+**The gap.** §1's diagram and §7 routed the access edge by hostname only: every access
+route matched `Host(<hostname>)` (the `/dav` sibling, its path prefix as well) and nothing
+about the caller; its middleware, the activity beacon or the wake rewrite carrying the
+pairing in the path, checked no source; and the `fluxvale.io/gateway` label was metadata.
+§12 item 7 framed the admission as "gateway pods only" — accurate for the NetworkPolicy on
+the Traefik pod, but not an organization boundary: every gateway in an admitted namespace
+reached the same entrypoint, so any gateway could carry a request to any organization's
+running private instance that knew its hostname. §4's "a hostname answered through the
+wrong gateway would be unroutable anyway" held for resolution, not for the edge. Found by
+review on 2026-11-24 and tracked privately; no customer was affected (production had one
+gateway, the owner's).
+
+**The decision.** Every access route — serving, `/dav` and wake — matches its pairing
+gateway's source address as well as its hostname:
+
+    Host(`<label>.<domain>`) && ClientIP(`<gateway pod IP>/32`)
+
+- **The source address is the gateway's identity.** The tunnel is a raw TCP forward (§1):
+  `tailscale serve` adds nothing at the pinned version, and the gateway pod is the TCP peer
+  Traefik sees. Traefik's `ClientIP` matcher reads that peer and ignores forwarded headers.
+  A request from any other source matches no router: the same 404 as a hostname with no
+  route (§12 item 10). A name with its own certificate still gets that certificate first —
+  TLS selects by SNI, before routing; unchanged, and visible only for custom-domain names.
+- **One address per gateway.** `ClientIP` takes one argument, and
+  `Host(..) && ClientIP(a) || ClientIP(b)` binds as `(Host && ClientIP(a)) || ClientIP(b)` —
+  any hostname from `b`. A second admitted address therefore needs parentheses; none exists
+  today (one replica, `Recreate`). The newest running, non-terminating pod wins — the resolver
+  view's rule (§4), from the same helper.
+- **No pod, no route.** A gateway with no running pod has its paired instances' access routes
+  withheld until the pod is back — dark, never a route standing on a released address. A
+  failed pod read is an error tuple: the routes stand until the next apply, and no path mints
+  a route without an address.
+- **A one-minute pass follows the pod.** `ReconcileAccessAdmission` runs for every gateway
+  with a pairing, in any state but `:destroying` (a teardown removes the arms itself). When
+  the address differs from the last one it converged, it re-applies each paired private
+  instance's arms per the instance's fresh status (re-checked once after the apply — the
+  #301 last-writer guard) and re-renders the resolver views. The first pass after a deploy
+  converges every existing route. Steady state is one pod list per paired gateway per minute
+  and no writes.
+- **The wake arm carries the clause too.** The pair in the path (§7) proves the pairing,
+  not the caller: through another gateway it still named a valid pair and would wake the
+  instance. The controller is unchanged.
+
+**Costs, stated.** After a gateway pod is replaced, the previous address stays admitted and
+the new one is not, for at most a minute. For the owner that is mostly the gateway's own
+startup time. For anyone else the stale address is reachable only by a gateway pod handed
+the released address inside that window — possible, not practical: the victim's pod
+replacement cannot be triggered from outside. Revisit trigger: a zero-staleness guarantee
+before customers attach tailnets — a per-gateway port that the NetworkPolicy admits per
+gateway's pods closes it at L4, at the price of a fleet change on the public edge.
+
+**Corrections.** §12 item 7 is an admission wall, not an organization boundary; this
+amendment is that boundary. §4's "unroutable anyway" held for names, not requests. Am. 1
+still holds: the edge namespace is admitted to the app; which gateway reaches the edge for
+that app is now the route's check.
+
+Rejected for now: an `ipAllowList` middleware per route (same address, same churn, one more
+object to keep in step, and a 403 that says the hostname exists); a live check in the
+platform's forward-auth hop (no staleness, but the decision would rest on a request header
+and a per-request dependency); the per-gateway port (above).
+
 ## References
 
 - Source-pinned facts: `tailscale/tailscale` `ipn/ipnlocal/serve.go`
