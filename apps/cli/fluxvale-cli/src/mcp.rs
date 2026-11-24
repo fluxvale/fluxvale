@@ -10,7 +10,7 @@ use std::time::Duration;
 
 /// The `mcp login` flags as parsed.
 pub struct McpLoginFlags {
-    /// Comma-separated scopes; `None` asks for the full catalog.
+    /// Comma-separated scopes; `None` asks for the CLI's default scope list.
     pub scopes: Option<String>,
     /// Optional RFC 8707 target MCP resource URL.
     pub resource: Option<String>,

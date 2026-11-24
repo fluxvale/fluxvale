@@ -32,13 +32,13 @@ pub const ALL_SCOPES: &[&str] = &[
 
 /// The `auth login` flags as parsed.
 pub struct LoginFlags {
-    /// Comma-separated scopes; `None` asks for the full catalog.
+    /// Comma-separated scopes; `None` asks for the CLI's default scope list.
     pub scopes: Option<String>,
     /// Don't launch the approval page in a browser.
     pub no_open: bool,
 }
 
-/// `--scopes` → the request list. No flag asks for the full catalog;
+/// `--scopes` → the request list. No flag asks for the CLI's default scope list;
 /// the split trims and drops empties — duplicates and off-catalog
 /// scopes stay in (the server's `invalid_scope` names them verbatim).
 pub fn parse_scopes(flag: Option<&str>) -> anyhow::Result<Vec<String>> {

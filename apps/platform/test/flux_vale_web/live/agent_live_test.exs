@@ -51,6 +51,8 @@ defmodule FluxValeWeb.AgentLiveTest do
       assert has_element?(view, "[data-testid='agent-client-#{client}-code']")
     end
 
+    assert has_element?(view, "[data-testid='agent-client-vscode']", "Add to .mcp.json")
+
     claude = render(element(view, "[data-testid='agent-client-claude-code-code']"))
     assert claude =~ "claude mcp add --transport http fluxvale"
     assert claude =~ "FLUXVALE_PAT"
@@ -59,7 +61,9 @@ defmodule FluxValeWeb.AgentLiveTest do
     assert cursor =~ "cursor://anysphere.cursor-deeplink/mcp/install"
 
     vscode = render(element(view, "[data-testid='agent-client-vscode-code']"))
-    assert vscode =~ "servers"
+    assert vscode =~ "mcpServers"
+    assert vscode =~ "${FLUXVALE_PAT}"
+    refute vscode =~ "${env:"
 
     generic = render(element(view, "[data-testid='agent-client-generic-code']"))
     assert generic =~ "mcpServers"

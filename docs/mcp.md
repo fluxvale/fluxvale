@@ -75,15 +75,17 @@ Cursor (`.cursor/mcp.json` or `~/.cursor/mcp.json`):
 }
 ```
 
-VS Code (`.vscode/mcp.json`, nested under `"servers"` as on the `/agent` panel):
+VS Code (`.mcp.json` at the workspace root, top-level `"mcpServers"`, the same shape as the `/agent` panel):
 
 ```json
 {
-  "servers": {
+  "mcpServers": {
     "fluxvale": { "type": "stdio", "command": "fluxvale", "args": ["mcp", "serve"] }
   }
 }
 ```
+
+The previous format (a `.vscode/mcp.json` file with a top-level `"servers"` object) belongs to the VS Code Local harness, which is deprecated and removed by February 2027.
 
 opencode (`opencode.json` or `~/.config/opencode/opencode.json`, nested under `mcp.servers` with `"type": "local"`):
 
