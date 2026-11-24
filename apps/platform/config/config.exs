@@ -531,7 +531,12 @@ config :flux_vale, Oban,
        {"1-59/15 * * * *", FluxVale.Janitor.VerifyAccessDomains},
        # The access edge's address refresher (ADR-0040 Am. 6): a gateway's
        # admitted source follows its pod within the minute.
-       {"* * * * *", FluxVale.Janitor.ReconcileAccessAdmission}
+       {"* * * * *", FluxVale.Janitor.ReconcileAccessAdmission},
+       # The same pass, every 15 minutes, UNCONDITIONAL: a concurrent
+       # lifecycle write that landed last with an older read is
+       # re-applied here even when the memo matches — the bound on
+       # every state the memo cannot see (ADR-0040 Am. 6).
+       {"7-59/15 * * * *", FluxVale.Janitor.ReconcileAccessAdmission, args: %{"force" => true}}
      ]},
     # Retention for finished jobs (completed/cancelled/discarded) — v1
     # never pruned oban_jobs; adopted on review (#39). 7d keeps a

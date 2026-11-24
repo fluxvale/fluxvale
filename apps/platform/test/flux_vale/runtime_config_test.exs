@@ -90,12 +90,14 @@ defmodule FluxVale.RuntimeConfigTest do
         assert {"1-59/15 * * * *", FluxVale.Janitor.VerifyAccessDomains} in crontab
         # ADR-0040 Am. 6's address refresher, every minute.
         assert {"* * * * *", FluxVale.Janitor.ReconcileAccessAdmission} in crontab
+        # The same pass, every 15 minutes, UNCONDITIONAL.
+        assert {"7-59/15 * * * *", FluxVale.Janitor.ReconcileAccessAdmission,
+                args: %{"force" => true}} in crontab
+
         # #829's auto-recharge reminder sweep.
         assert {"23 * * * *", FluxVale.Workers.RechargeSweep} in crontab
         # ADR-0040 Amendment 2: no domain-accrual tick exists.
-        refute Enum.any?(crontab, fn {_expr, worker} ->
-                 inspect(worker) =~ "AccessDomainSettle"
-               end)
+        refute Enum.any?(crontab, fn entry -> inspect(entry) =~ "AccessDomainSettle" end)
 
         # #360 slice 3's request-window prune (daily, off the token prune).
         assert {"15 3 * * *", FluxVale.Janitor.PruneRequestWindows} in crontab
@@ -108,7 +110,7 @@ defmodule FluxVale.RuntimeConfigTest do
         assert {"15 4 * * *", FluxVale.Janitor.PruneOAuthAuditEvents} in crontab
         # #886's device-grant sweep (daily, off the 04:15 OAuth audit).
         assert {"30 4 * * *", FluxVale.Janitor.PruneDeviceGrants} in crontab
-        assert length(crontab) == 15
+        assert length(crontab) == 16
       end)
     end
 
@@ -140,7 +142,7 @@ defmodule FluxVale.RuntimeConfigTest do
         assert {"7 * * * *", FluxVale.Workers.ZeroBalanceSweep} in crontab
         assert {"13 * * * *", FluxVale.Workers.StrandedInstanceSweep} in crontab
         assert {"17 * * * *", FluxVale.Workers.StaleTopupSweep} in crontab
-        assert length(crontab) == 15
+        assert length(crontab) == 16
       end)
     end
 

@@ -66,7 +66,9 @@ spec:
 #                 (provision retry re-reads its key), patch, delete
 #   pvc:          create/patch (state claim), delete (teardown) — no get:
 #                 no access-namespace call path reads a PVC back
-#   pods:         list (the render pass keys each org's view on the pod IP)
+#   pods:         list — the resolver render pass, the access arms'
+#                 address read, and the admission pass each key on the
+#                 gateway's pod IP
 #   configmaps:   create/patch (the zones ConfigMap: create absent, patch
 #                 existing; nothing reads or removes it)
 #   certificates: create/get/patch/delete — the wildcard Certificate per

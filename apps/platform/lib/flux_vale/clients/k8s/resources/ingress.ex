@@ -44,7 +44,7 @@ defmodule FluxVale.Clients.K8s.Resources.Ingress do
   An optional `:source_ip` narrows a host route to one source address: the rule becomes
   `Host(\`h\`) && ClientIP(\`ip/32\`)` (`/128` for IPv6). Traefik's `ClientIP` matches the
   TCP peer and ignores forwarded headers — the access edge's gateway check
-  ([ADR-0040](docs/adr/00040-strong-private-access-and-custom-domains.md) Am. 6).
+  ([ADR-0040](../../../../../../../docs/adr/00040-strong-private-access-and-custom-domains.md) Am. 6).
   Exactly one address: `ClientIP` takes one argument, and
   `Host && ClientIP(a) || ClientIP(b)` binds as `(Host && ClientIP(a)) || ClientIP(b)` —
   any hostname from `b`. Public routes pass nothing and build the unchanged rule.

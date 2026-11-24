@@ -30,10 +30,17 @@ kubectl get pods -n <access namespace> -l app.kubernetes.io/name=access-gateway 
   | jq -r '.items[] | "\(.metadata.labels["fluxvale.io/gateway"])\t\(.status.podIP)"'
 ```
 
-Each time a gateway's address changes, the platform log carries one
-`Access edge: gateway … admitted source is now …` line for it. A pass where nothing moved
-logs nothing, and the Oban job `ReconcileAccessAdmission` (queue `access_admission`, every
-minute) is the record that it ran.
+The check's premise: the `access` entrypoint trusts no proxy-protocol or forwarded-header
+sources — no `proxyProtocol.trustedIPs`, no `forwardedHeaders.trustedIPs`, no
+`forwardedHeaders.insecure`. The entrypoint's config owns that; if it ever changes,
+`ClientIP` no longer reads the TCP peer. Run these Verify checks after every deploy that
+touches this lane.
+
+Each time a gateway's address changes, and once every fifteen minutes when the forced pass
+re-applies unconditionally, the platform log carries one
+`Access edge: gateway … admitted source is now …` line for it. A minute pass where nothing
+moved logs nothing, and the Oban job `ReconcileAccessAdmission` (queue `access_admission`,
+every minute) is the record that it ran.
 
 ## A private hostname answers 404 on the owner's tailnet
 
@@ -42,6 +49,9 @@ minute) is the record that it ran.
 - Longer: run both checks above. A different address means the refresher is not converging.
   Read the platform log (`Access edge: gateway … address read failed`), the Oban job
   `ReconcileAccessAdmission`, and the platform's `pods: list` grant in the access namespace.
+  A converged memo that no longer matches the live route (a concurrent write landed last) is
+  healed by the fifteen-minute forced pass; a platform restart empties the memo and the next
+  pass re-applies.
 - `has no running pod` in the log while the pod is up: compare the pod's
   `fluxvale.io/gateway` label with the row.
 

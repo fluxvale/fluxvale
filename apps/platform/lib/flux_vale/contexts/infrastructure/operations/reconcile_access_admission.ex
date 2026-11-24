@@ -22,6 +22,11 @@ defmodule FluxVale.Infrastructure.Operations.ReconcileAccessAdmission do
   applied removed again: a teardown writes `:destroying` before it
   removes the arms, so one of the two orders always wins.
 
+  Every fifteenth pass runs UNCONDITIONALLY (`force`): whatever a
+  concurrent lifecycle writer landed last with an older read is
+  re-applied even when the memo matches — the bound on every state the
+  memo cannot see.
+
   The fail-closed posture: a failed pod read decides nothing (the memo
   keeps its previous answer and the next pass re-reads), a failed
   row read decides nothing either — a NotFound-shaped miss is the
@@ -51,17 +56,20 @@ defmodule FluxVale.Infrastructure.Operations.ReconcileAccessAdmission do
   and how many converged this pass (their memo became an address or
   `:none`; a `:dirty` result and a failed pod read count for neither).
   `{:error, term()}` only when the platform cluster is unreachable —
-  the job fails and Oban retries.
+  the job fails and Oban retries. A resource the pass cannot reach
+  crashes the job, and Oban retries it.
   """
   @spec call(keyword()) ::
           {:ok, %{checked: non_neg_integer(), converged: non_neg_integer()}}
           | {:error, term()}
-  def call(_opts \\ []) do
+  def call(opts \\ []) do
+    force? = Keyword.get(opts, :force, false)
+
     with {:ok, kubeconfig} <- K8s.kubeconfig() do
       paired = paired_gateways()
       prune_stale_memo(paired)
 
-      {checked, converged} = tally(paired, kubeconfig)
+      {checked, converged} = tally(paired, kubeconfig, force?)
 
       # The resolver's views key on the gateway's pod address, so a
       # convergence re-renders them — once per pass, best-effort like
@@ -72,9 +80,9 @@ defmodule FluxVale.Infrastructure.Operations.ReconcileAccessAdmission do
     end
   end
 
-  defp tally(paired, kubeconfig) do
+  defp tally(paired, kubeconfig, force?) do
     Enum.reduce(paired, {0, 0}, fn gateway, {checked, converged} ->
-      case admit(kubeconfig, gateway) do
+      case admit(kubeconfig, gateway, force?) do
         :converged -> {checked + 1, converged + 1}
         _unchanged_or_failed -> {checked + 1, converged}
       end
@@ -111,13 +119,13 @@ defmodule FluxVale.Infrastructure.Operations.ReconcileAccessAdmission do
   # come down; EdgeRoutes owns the withholding). A read that FAILED
   # decides nothing — the memo keeps its previous answer and the next
   # pass re-reads (fail-closed).
-  defp admit(kubeconfig, gateway) do
+  defp admit(kubeconfig, gateway, force?) do
     case InstanceK8s.gateway_pod_ip(kubeconfig, gateway) do
       {:ok, ip} ->
-        converge(gateway, ip)
+        converge(gateway, ip, force?)
 
       {:error, :no_running_pod} ->
-        converge(gateway, :none)
+        converge(gateway, :none, force?)
 
       {:error, reason} ->
         Logger.warning(
@@ -128,8 +136,8 @@ defmodule FluxVale.Infrastructure.Operations.ReconcileAccessAdmission do
     end
   end
 
-  defp converge(gateway, target) do
-    if Activity.admitted_source(gateway.id) == target do
+  defp converge(gateway, target, force?) do
+    if not force? and Activity.admitted_source(gateway.id) == target do
       # Already converged on this source: the arms stand as applied.
       :unchanged
     else

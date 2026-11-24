@@ -101,6 +101,32 @@ defmodule FluxVale.Infrastructure.Operations.ReconcileAccessAdmissionTest do
     assert drain_access_ingresses() == []
   end
 
+  test "a forced pass re-applies although the memo matches", %{org: org, owner: owner} do
+    gateway = AccessFixtures.gateway!(org)
+    instance = AccessFixtures.private_instance!(org, owner)
+    pair!(gateway, instance)
+
+    stub_gateway_pods(%{gateway.id => "10.0.0.46"})
+    stub_ingress_sends()
+
+    assert {:ok, %{checked: 1, converged: 1}} = ReconcileAccessAdmission.call()
+    drain_access_ingresses()
+
+    # Unforced: the memo matches, nothing re-applies.
+    assert {:ok, %{checked: 1, converged: 0}} = ReconcileAccessAdmission.call()
+    assert drain_access_ingresses() == []
+
+    # Forced: the arms re-apply whatever the memo says (the SSA no-op
+    # stance when nothing moved).
+    assert {:ok, %{checked: 1, converged: 1}} = ReconcileAccessAdmission.call(force: true)
+
+    created = drain_access_ingresses()
+    specs = specs_in(created, instance.namespace)
+    assert specs != []
+    assert Enum.all?(specs, &(&1.source_ip == "10.0.0.46"))
+    assert Activity.admitted_source(gateway.id) == "10.0.0.46"
+  end
+
   test "a pod move re-applies the arms with the new address and re-renders the resolver view once",
        %{org: org, owner: owner} do
     gateway = AccessFixtures.gateway!(org)

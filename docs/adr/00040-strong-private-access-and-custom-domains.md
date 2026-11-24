@@ -826,14 +826,18 @@ gateway's source address as well as its hostname:
   the address differs from the last one it converged, it re-applies each paired private
   instance's arms per the instance's fresh status (re-checked once after the apply — the
   #301 last-writer guard) and re-renders the resolver views. The first pass after a deploy
-  converges every existing route. Steady state is one pod list per paired gateway per minute
+  converges every existing route. Every fifteenth pass re-applies unconditionally, so a
+  concurrent lifecycle write that lands last with an older read is corrected within fifteen
+  minutes. Steady state is one pod list per paired gateway per minute
   and no writes.
 - **The wake arm carries the clause too.** The pair in the path (§7) proves the pairing,
   not the caller: through another gateway it still named a valid pair and would wake the
   instance. The controller is unchanged.
 
 **Costs, stated.** After a gateway pod is replaced, the previous address stays admitted and
-the new one is not, for at most a minute. For the owner that is mostly the gateway's own
+the new one is not, for at most a minute (the one residual is a lifecycle write landing
+after the pass's own write with an older read — bounded by the fifteen-minute forced pass).
+For the owner that is mostly the gateway's own
 startup time. For anyone else the stale address is reachable only by a gateway pod handed
 the released address inside that window — possible, not practical: the victim's pod
 replacement cannot be triggered from outside. Revisit trigger: a zero-staleness guarantee
