@@ -8,7 +8,6 @@ defmodule FluxValeWeb.AgentDocsControllerTest do
   use FluxValeWeb.ConnCase, async: false
 
   alias FluxVale.TestSupport.SessionHelpers
-  alias FluxValeWeb.BillingComponents
 
   # A stable literal from AgentPrompt.prompt/1 — if the prompt ever
   # leaks onto the public page, this fails.
@@ -128,12 +127,9 @@ defmodule FluxValeWeb.AgentDocsControllerTest do
     # The guide's own link, with its text.
     assert html =~ ~s(<a href="/docs/guides/sso">Pocket ID SSO guide</a>)
 
-    # The new list item names both ladder amounts.
-    assert html =~ BillingComponents.topup_ladder_choices()
-    assert html =~ BillingComponents.topup_ladder_top()
-
-    # Copy hygiene, scoped to the new list item's text — the older
-    # list items carry semicolons on purpose.
+    # The new list item's words, with its line breaks collapsed so the
+    # template's wrapping does not decide these. The older list items
+    # carry semicolons on purpose.
     item_html =
       html
       |> String.split("Ask once whether")
@@ -141,7 +137,14 @@ defmodule FluxValeWeb.AgentDocsControllerTest do
       |> String.split("</li>")
       |> List.first()
 
-    assert item_html =~ "deploys and wires Pocket ID"
+    item_text = String.replace(item_html, ~r/\s+/, " ")
+
+    assert item_text =~ "connecting Pocket ID is free and needs no top-up"
+    assert item_text =~ "any welcome credit goes toward that"
+    assert item_text =~ "deploys and wires Pocket ID"
+    refute item_text =~ "paid"
+    refute item_text =~ "recommends a top-up"
+    refute item_text =~ "check out"
     refute item_html =~ "—"
     refute item_html =~ ";"
 

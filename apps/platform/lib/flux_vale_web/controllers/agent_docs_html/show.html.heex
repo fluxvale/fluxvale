@@ -45,11 +45,11 @@ centered. --%>
           <li>Pick an app from the catalog and propose one version with its price.</li>
           <li>
             Ask once whether you want single sign-on (OIDC) for your apps. Say no and it
-            moves on without asking again. Say yes and it explains that SSO is a paid-org
-            feature, recommends a top-up ({FluxValeWeb.BillingComponents.topup_ladder_choices()},
-            or above {FluxValeWeb.BillingComponents.topup_ladder_top()}), waits while you
-            check out in your browser, adds Pocket ID's cost to the spend confirmation,
-            and deploys and wires Pocket ID after your yes.
+            moves on without asking again. Say yes and it explains that
+            connecting Pocket ID is free and needs no top-up. You pay only for the instances
+            it ties together, which bill hourly like any app, and
+            any welcome credit goes toward that. It adds Pocket ID's cost to the spend
+            confirmation, then deploys and wires Pocket ID after your yes.
           </li>
           <li>Confirm the spend with you before deploying.</li>
           <li>Deploy with your env vars and poll until the instance is running.</li>

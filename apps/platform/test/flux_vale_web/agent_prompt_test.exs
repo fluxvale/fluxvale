@@ -4,7 +4,6 @@ defmodule FluxValeWeb.AgentPromptTest do
   use ExUnit.Case, async: false
 
   alias FluxValeWeb.AgentPrompt
-  alias FluxValeWeb.BillingComponents
 
   setup do
     {:ok, ctx: AgentPrompt.context("Acme", "acme")}
@@ -30,23 +29,21 @@ defmodule FluxValeWeb.AgentPromptTest do
     assert prompt =~ AgentPrompt.commit_rule()
   end
 
-  test "the prompt asks once about single sign-on and walks the paid-org branch", %{ctx: ctx} do
+  test "the prompt asks once about single sign-on and tells the truth about what it costs", %{
+    ctx: ctx
+  } do
     prompt = AgentPrompt.prompt(ctx)
 
     assert prompt =~ "Ask me once whether I want single sign-on (OIDC) for my apps."
     assert prompt =~ "If I say no, accept it and never ask again this session."
-    assert prompt =~ "SSO is a paid-org feature and welcome credit alone does not unlock it"
-    assert prompt =~ "`wallet_ledger`"
-    assert prompt =~ "`wallet_balance`"
-    assert prompt =~ "`paywall_waived`"
-    assert prompt =~ "wait while I complete checkout in my browser. Never ask for card details."
+    assert prompt =~ "connecting Pocket ID is free and needs no top-up"
+    assert prompt =~ "I pay only for the instances it ties together"
+    assert prompt =~ "Any welcome credit I have goes toward that"
     assert prompt =~ "`pocket-id`"
     assert prompt =~ "`apps_show`"
     assert prompt =~ "`ENCRYPTION_KEY`"
     assert prompt =~ "`instances_deploy`"
-    assert prompt =~ BillingComponents.topup_ladder_choices()
-    assert prompt =~ BillingComponents.topup_ladder_top()
-    assert prompt =~ ctx.api_base <> "/billing/topup"
+    assert prompt =~ "wire SSO with `sso` once the app is running"
     assert prompt =~ ctx.api_base <> "/docs/guides/sso"
   end
 
@@ -67,14 +64,31 @@ defmodule FluxValeWeb.AgentPromptTest do
 
   test "the new SSO step holds no em-dash and no semicolon", %{ctx: ctx} do
     prompt = AgentPrompt.prompt(ctx)
-    before_parts = String.split(prompt, "4. Confirm the spend")
-    before_step4 = List.first(before_parts)
-    step_parts = String.split(before_step4, "3. ")
-    new_step = List.last(step_parts)
+    new_step = sso_step(prompt)
 
     assert String.starts_with?(new_step, "Ask me once whether I want single sign-on")
     refute new_step =~ "—"
     refute new_step =~ ";"
+  end
+
+  test "the SSO step asks for no top-up, no purchase check and no paid status", %{ctx: ctx} do
+    step = sso_step(AgentPrompt.prompt(ctx))
+
+    assert step =~ "needs no top-up"
+
+    for phrase <- [
+          "paid-org",
+          "paid org",
+          "wallet_ledger",
+          "paywall_waived",
+          "has not topped up",
+          "Once the wallet is funded",
+          "ladder",
+          "checkout",
+          "billing/topup"
+        ] do
+      refute step =~ phrase
+    end
   end
 
   test "the auth sentence is the PAT path, with no second OAuth path", %{ctx: ctx} do
@@ -266,7 +280,7 @@ defmodule FluxValeWeb.AgentPromptTest do
     assert AgentPrompt.what_it_will_do() == [
              "Check your wallet and stop at zero",
              "Propose an app with its size and monthly price",
-             "Ask once if you want SSO with Pocket ID (optional, paid org)",
+             "Ask once if you want SSO with Pocket ID (optional, free to connect)",
              "Confirm the spend before deploying",
              "Deploy and set env vars",
              "Verify the instance URL",
@@ -299,5 +313,13 @@ defmodule FluxValeWeb.AgentPromptTest do
 
     assert AgentPrompt.prompt(ctx) =~ expected
     assert AgentPrompt.llms_txt(ctx) =~ expected
+  end
+
+  # Step 3's text: from its number up to step 4's.
+  defp sso_step(prompt) do
+    before_parts = String.split(prompt, "4. Confirm the spend")
+    before_step4 = List.first(before_parts)
+    step_parts = String.split(before_step4, "3. ")
+    List.last(step_parts)
   end
 end

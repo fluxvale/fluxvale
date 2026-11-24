@@ -23,8 +23,6 @@ defmodule FluxValeWeb.AgentPrompt do
 
   use FluxValeWeb, :verified_routes
 
-  alias FluxValeWeb.BillingComponents
-
   @auth_mode_default :pat
 
   @scopes "catalog:read, instances:write, organizations:read, wallet:read"
@@ -181,9 +179,6 @@ defmodule FluxValeWeb.AgentPrompt do
   @doc "The generated prompt — the panel, the dashboard modal, and `/llms.txt`."
   @spec prompt(t()) :: String.t()
   def prompt(%__MODULE__{} = ctx) do
-    ladder_choices = BillingComponents.topup_ladder_choices()
-    ladder_top = BillingComponents.topup_ladder_top()
-    topup_url = "#{ctx.api_base}#{~p"/billing/topup"}"
     sso_guide_url = "#{ctx.api_base}#{~p"/docs/guides/sso"}"
 
     """
@@ -200,9 +195,8 @@ defmodule FluxValeWeb.AgentPrompt do
     2. Ask what I want to run, then pick an app from `apps_list` and call `apps_show`: it lists versions with the default CPU, memory, and storage and a `monthly_cents` rate. Propose one version and that price (billed hourly).
     3. Ask me once whether I want single sign-on (OIDC) for my apps.
        - If I say no, accept it and never ask again this session.
-       - If I say yes, explain plainly that SSO is a paid-org feature and welcome credit alone does not unlock it.
-       - Check `wallet_ledger` (for a purchase) and `wallet_balance` (`paywall_waived`). If the org has not topped up yet, recommend a top-up from the ladder (#{ladder_choices}, or above #{ladder_top}), give me #{topup_url}, and wait while I complete checkout in my browser. Never ask for card details.
-       - Once the wallet is funded, inspect `pocket-id` with `apps_show`, confirm its price and required `ENCRYPTION_KEY`, and add its monthly cost to the spend I confirm in step 4. After that yes, deploy Pocket ID with `instances_deploy`, and wire SSO with `sso` once the app is running (after I claim Pocket ID and add its admin API key) or #{sso_guide_url}.
+       - If I say yes, explain plainly that connecting Pocket ID is free and needs no top-up. I pay only for the instances it ties together, Pocket ID included, and they bill hourly like any app. Any welcome credit I have goes toward that.
+       - Inspect `pocket-id` with `apps_show`, confirm its price and required `ENCRYPTION_KEY`, and add its monthly cost to the spend I confirm in step 4. After that yes, deploy Pocket ID with `instances_deploy`, and wire SSO with `sso` once the app is running (after I claim Pocket ID and add its admin API key) or #{sso_guide_url}.
     4. #{@commit_rule}
     5. Deploy with `instances_deploy`. Put configuration in `env`, for example {"TZ":"UTC"}. Leave cpu/memory/storage off to take the version's defaults.
     6. Poll `instances_status` until it is running, then give me the row's `url` — that is the instance URL.
@@ -220,7 +214,7 @@ defmodule FluxValeWeb.AgentPrompt do
     [
       "Check your wallet and stop at zero",
       "Propose an app with its size and monthly price",
-      "Ask once if you want SSO with Pocket ID (optional, paid org)",
+      "Ask once if you want SSO with Pocket ID (optional, free to connect)",
       "Confirm the spend before deploying",
       "Deploy and set env vars",
       "Verify the instance URL",
