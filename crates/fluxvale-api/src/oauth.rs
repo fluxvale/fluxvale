@@ -307,9 +307,17 @@ impl OAuthDeviceClient {
     }
 
     /// `POST /oauth/token` for `refresh_token` grant. The failure says
-    /// whether a later attempt can succeed: an endpoint that could not be
-    /// reached, or was not itself, refuses nothing, while a refresh token
-    /// it refused is refused for good.
+    /// whether a later attempt can succeed.
+    ///
+    /// A refresh token the endpoint refused is refused for good, and so is
+    /// any other status that means no: [`RefreshError::Permanent`]. A 408,
+    /// a 429 and a 5xx refuse nothing, and neither does an endpoint that
+    /// could not be reached, that answered before the whole body arrived,
+    /// or that answered 200 with something that is not a token pair: those
+    /// are [`RefreshError::Transient`], and the stored pair is untouched.
+    /// A request that cannot be built at all, a proxy URL or a TLS setting
+    /// this process got wrong, is `Permanent` too, since no retry changes
+    /// this process's configuration ([`transport_failure`]).
     pub fn refresh(
         &self,
         refresh_token: &Token,
@@ -335,19 +343,19 @@ impl OAuthDeviceClient {
             .post(&url)
             .header("Content-Type", "application/x-www-form-urlencoded")
             .send(encoded.into_bytes())
-            .map_err(|err| RefreshError::transient(format!("connection failed: {err}")))?;
+            .map_err(transport_failure)?;
         let status = response.status().as_u16();
         let raw = response
             .body_mut()
             .read_to_string()
             .map_err(|err| RefreshError::transient(format!("connection failed: {err}")))?;
 
-        // A 200 that is not a token pair is the endpoint answering oddly,
-        // and one that is overloaded or rate limiting refuses nothing.
-        // Both may answer properly later.
-        let passes = status == 200 || status == 429 || status >= 500;
+        // A 408, a 429 and a 5xx refuse nothing: the endpoint is having a
+        // bad moment, and so is one that answers 200 with something that
+        // is not a token pair. Any later attempt may succeed.
+        let refuses_nothing = status == 200 || status == 408 || status == 429 || status >= 500;
         let classified = |text: String| {
-            if passes {
+            if refuses_nothing {
                 RefreshError::transient(text)
             } else {
                 RefreshError::permanent(text)
@@ -362,6 +370,27 @@ impl OAuthDeviceClient {
                 "HTTP {status}: unreadable body ({err})"
             ))),
         }
+    }
+}
+
+/// Why a request that never got its answer failed. Some of ureq's errors
+/// come from this process's own configuration, a proxy URL or a TLS
+/// setting that cannot be right, and no retry changes those: those are
+/// [`RefreshError::Permanent`]. Every other one is the network, or the
+/// endpoint, having a bad moment.
+fn transport_failure(err: ureq::Error) -> RefreshError {
+    let from_configuration = matches!(
+        err,
+        ureq::Error::BadUri(_)
+            | ureq::Error::InvalidProxyUrl
+            | ureq::Error::Http(_)
+            | ureq::Error::RequireHttpsOnly(_)
+            | ureq::Error::TlsRequired
+    );
+    if from_configuration {
+        RefreshError::permanent(format!("the token request cannot be made: {err}"))
+    } else {
+        RefreshError::transient(format!("connection failed: {err}"))
     }
 }
 
@@ -947,6 +976,89 @@ mod tests {
             failures[2]
         );
         assert_no_token_in(&failures, "fvort_overloaded_token_value", &server);
+    }
+
+    #[test]
+    fn a_408_from_the_endpoint_is_a_transient_refresh_failure() {
+        let token = Token::new("fvort_timed_out_token_value");
+        let server = script(vec![
+            respond_raw("408 Request Timeout", "<html>request timeout</html>"),
+            respond(
+                "408 Request Timeout",
+                &json!({"error": "request_timeout", "error_description": "try again"}),
+            ),
+        ]);
+        let client = OAuthDeviceClient::new(&server.base_url);
+
+        let failures: Vec<RefreshError> = (0..2)
+            .map(|_| client.refresh(&token, None).unwrap_err())
+            .collect();
+
+        assert!(
+            matches!(&failures[0], RefreshError::Transient(text)
+                if text.starts_with("HTTP 408: unreadable body (")),
+            "err: {}",
+            failures[0]
+        );
+        assert_eq!(
+            failures[1],
+            RefreshError::Transient("request_timeout: try again".to_string())
+        );
+        assert_no_token_in(&failures, "fvort_timed_out_token_value", &server);
+    }
+
+    #[test]
+    fn a_request_this_process_cannot_build_is_a_permanent_refresh_failure() {
+        // Built by hand: each is a failure of configuration, not of the moment.
+        let cannot_be_made = [
+            ureq::Error::InvalidProxyUrl,
+            ureq::Error::BadUri("no scheme here".to_string()),
+            // A header value no request can carry.
+            ureq::Error::Http("\n".parse::<ureq::http::HeaderValue>().unwrap_err().into()),
+            ureq::Error::RequireHttpsOnly("http://tokens.example.test".to_string()),
+            ureq::Error::TlsRequired,
+        ];
+        for err in cannot_be_made {
+            let failure = transport_failure(err);
+            assert!(
+                matches!(&failure, RefreshError::Permanent(text)
+                    if text.starts_with("the token request cannot be made: ")),
+                "err: {failure}"
+            );
+        }
+
+        // Built by hand: each is the network or the endpoint having a bad moment.
+        let bad_moment = [
+            ureq::Error::HostNotFound,
+            ureq::Error::ConnectionFailed,
+            ureq::Error::Timeout(ureq::Timeout::Global),
+            ureq::Error::Io(std::io::Error::other("connection reset by peer")),
+            ureq::Error::Tls("invalid peer certificate: UnknownIssuer"),
+        ];
+        for err in bad_moment {
+            let failure = transport_failure(err);
+            assert!(
+                matches!(&failure, RefreshError::Transient(text) if text.starts_with("connection failed: ")),
+                "err: {failure}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_base_url_that_is_not_a_uri_cannot_be_refreshed_from() {
+        // ureq refuses the request before anything is sent, so this touches no
+        // network. It proves refresh itself routes that failure the way
+        // transport_failure says, not only that the function says so.
+        let failure = OAuthDeviceClient::new("https://exa mple.test")
+            .refresh(&Token::new("fvort_never_sent_token_value"), None)
+            .unwrap_err();
+
+        assert!(
+            matches!(&failure, RefreshError::Permanent(text)
+                if text.starts_with("the token request cannot be made: ")),
+            "err: {failure}"
+        );
+        assert!(!failure.to_string().contains("fvort_never_sent_token_value"));
     }
 
     #[test]
