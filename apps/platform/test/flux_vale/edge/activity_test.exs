@@ -100,4 +100,29 @@ defmodule FluxVale.Edge.ActivityTest do
     assert :proceed = Activity.claim_restore(id)
     assert :throttled = Activity.claim_restore(id)
   end
+
+  # The admission pass's memo (ADR-0040 Am. 6): global state in the
+  # app's one GenServer, so this test owns a fresh gateway id and
+  # forgets it on exit.
+  test "the admitted-source memo round trips: nil, address, :none, :dirty, forget" do
+    gateway_id = Ash.UUID.generate()
+    on_exit(fn -> Activity.forget_admitted_source(gateway_id) end)
+
+    assert Activity.admitted_source(gateway_id) == nil
+    refute gateway_id in Activity.admitted_source_ids()
+
+    assert :ok = Activity.remember_admitted_source(gateway_id, "10.0.0.1")
+    assert Activity.admitted_source(gateway_id) == "10.0.0.1"
+    assert gateway_id in Activity.admitted_source_ids()
+
+    assert :ok = Activity.remember_admitted_source(gateway_id, :none)
+    assert Activity.admitted_source(gateway_id) == :none
+
+    assert :ok = Activity.remember_admitted_source(gateway_id, :dirty)
+    assert Activity.admitted_source(gateway_id) == :dirty
+
+    assert :ok = Activity.forget_admitted_source(gateway_id)
+    assert Activity.admitted_source(gateway_id) == nil
+    refute gateway_id in Activity.admitted_source_ids()
+  end
 end

@@ -30,6 +30,7 @@ defmodule FluxVale.Infrastructure do
   alias FluxVale.Infrastructure.Operations.ProbePocketIdSetup
   alias FluxVale.Infrastructure.Operations.ReadBackupCredential
   alias FluxVale.Infrastructure.Operations.ReadFileAccessCredential
+  alias FluxVale.Infrastructure.Operations.ReconcileAccessAdmission
   alias FluxVale.Infrastructure.Operations.RegisterAccessDomain
   alias FluxVale.Infrastructure.Operations.RejectStorageRequest
   alias FluxVale.Infrastructure.Operations.RemoveAccessDomain
@@ -128,6 +129,13 @@ defmodule FluxVale.Infrastructure do
   defdelegate register_access_domain(params, opts \\ []), to: RegisterAccessDomain, as: :call
 
   defdelegate verify_access_domains(opts \\ []), to: VerifyAccessDomains, as: :call
+
+  # ADR-0040 Am. 6: the access edge's one-minute admission pass — a
+  # gateway's pod address moves, the paired private instances' routes
+  # follow it, and the resolver views re-render.
+  defdelegate reconcile_access_admission(opts \\ []),
+    to: ReconcileAccessAdmission,
+    as: :call
 
   defdelegate remove_access_domain(domain, opts \\ []), to: RemoveAccessDomain, as: :call
 

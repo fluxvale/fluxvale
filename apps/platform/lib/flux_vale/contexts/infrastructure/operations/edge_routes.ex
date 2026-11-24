@@ -43,7 +43,8 @@ defmodule FluxVale.Infrastructure.Operations.EdgeRoutes do
   AttachInstance/DetachInstance (mint/remove per the pairing row),
   SetExposure's toggle limbs and compensating restores,
   VerifyAccessDomains (the janitor's transition mints and cert
-  replicas), and PerformTeardown's access none.
+  replicas), ReconcileAccessAdmission (the one-minute address
+  refresher), and PerformTeardown's access none.
   `apply_access_none_for_domain/3` serves the suspension funnel
   (`AccessDomain.Suspend`). The specs are the shared boundary, so they
   live here rather than being copied many ways (the

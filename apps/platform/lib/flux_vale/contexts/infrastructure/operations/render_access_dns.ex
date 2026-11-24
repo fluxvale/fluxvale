@@ -30,11 +30,12 @@ defmodule FluxVale.Infrastructure.Operations.RenderAccessDNS do
   **The view is derived state.** The arms (EdgeRoutes) and the claims
   (`dns_claims`) are the source of truth; every `call/1` is
   best-effort AFTER a primary write commits — a failed render never
-  fails the attach/detach/toggle/claim it rode in on, and the 15-minute
-  verify pass re-renders (the pod-move refresher and the drift healer).
-  A gateway between restarts has no pod, its views are omitted, and it
-  is dark for DNS until the next pass — the documented window. Nothing
-  is cached.
+  fails the attach/detach/toggle/claim it rode in on. Two passes
+  re-render: the one-minute admission pass re-renders when a gateway's
+  pod address moves (ADR-0040 Am. 6), and the 15-minute verify pass
+  remains the drift healer. A gateway between restarts has no pod, its
+  views are omitted, and it is dark for DNS until the next pass — the
+  documented window. Nothing is cached.
 
   The fleet's access-dns deployment mounts this ConfigMap (fleet #122)
   — the write is live resolution state, not a staging artifact.
@@ -149,7 +150,9 @@ defmodule FluxVale.Infrastructure.Operations.RenderAccessDNS do
   and tailnet IP (the provider's API client, token via the provider —
   the client's reach is unchanged). A gateway with no running pod, no
   readable token, or a failed device lookup is OMITTED (warning logged)
-  — dark until the next pass, the documented window.
+  — dark until the next pass, the documented window (the one-minute
+  admission pass re-renders when a gateway's address moves; the
+  15-minute verify pass remains the drift healer).
   """
   @spec gather() :: resolver_data()
   def gather do
