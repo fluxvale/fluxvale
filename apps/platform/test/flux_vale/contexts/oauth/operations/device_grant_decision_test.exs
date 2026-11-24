@@ -117,4 +117,60 @@ defmodule FluxVale.OAuth.Operations.DeviceGrantDecisionTest do
     assert {:ok, _approved} = OAuth.approve_device_grant(minted_again.grant, actor: user)
     assert {:error, :stale} = OAuth.deny_device_grant(minted_again.grant, actor: other)
   end
+
+  test "expired grants return :expired without mutating status or recording audit events", %{
+    client: client,
+    user: user
+  } do
+    minted_approve = device_grant!(client)
+    past_approve = DateTime.add(minted_approve.grant.expires_at, 1, :second)
+
+    assert {:error, :expired} =
+             OAuth.approve_device_grant(minted_approve.grant, actor: user, now: past_approve)
+
+    reloaded_approve =
+      DeviceGrant.get_by_user_code!(minted_approve.grant.user_code, authorize?: false)
+
+    assert reloaded_approve.status == :pending
+    assert reloaded_approve.user_id == nil
+    assert last_event(:device_grant_approved, client) == nil
+
+    minted_deny = device_grant!(client)
+    past_deny = DateTime.add(minted_deny.grant.expires_at, 1, :second)
+
+    assert {:error, :expired} =
+             OAuth.deny_device_grant(minted_deny.grant, actor: user, now: past_deny)
+
+    reloaded_deny =
+      DeviceGrant.get_by_user_code!(minted_deny.grant.user_code, authorize?: false)
+
+    assert reloaded_deny.status == :pending
+    assert reloaded_deny.user_id == nil
+    assert last_event(:device_grant_denied, client) == nil
+  end
+
+  test "a decision taken exactly at expires_at is not expired", %{
+    client: client,
+    user: user
+  } do
+    minted_approve = device_grant!(client)
+
+    assert {:ok, approved} =
+             OAuth.approve_device_grant(minted_approve.grant,
+               actor: user,
+               now: minted_approve.grant.expires_at
+             )
+
+    assert approved.status == :approved
+
+    minted_deny = device_grant!(client)
+
+    assert {:ok, denied} =
+             OAuth.deny_device_grant(minted_deny.grant,
+               actor: user,
+               now: minted_deny.grant.expires_at
+             )
+
+    assert denied.status == :denied
+  end
 end

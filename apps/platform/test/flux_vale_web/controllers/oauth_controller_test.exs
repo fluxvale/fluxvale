@@ -171,6 +171,7 @@ defmodule FluxValeWeb.OAuthControllerTest do
       unknown = authorize_params(client, %{"client_id" => "fvoc_unknown"})
       unknown_response = get(conn, "/oauth/authorize?" <> URI.encode_query(unknown))
       assert html_response(unknown_response, 400) =~ "oauth-error"
+      assert html_response(unknown_response, 400) =~ "start again from your MCP client"
 
       bad = authorize_params(client, %{"redirect_uri" => "https://evil.example/cb"})
       bad_response = get(conn, "/oauth/authorize?" <> URI.encode_query(bad))
@@ -599,6 +600,43 @@ defmodule FluxValeWeb.OAuthControllerTest do
 
       assert body["error_description"] =~
                "authorization_code, refresh_token, or urn:ietf:params:oauth:grant-type:device_code"
+    end
+
+    test "exhausting :device_poll returns 429 while refresh_token on :token from the same IP still succeeds",
+         %{conn: conn} do
+      put_bucket_limit(:device_poll, 1)
+
+      client = client!()
+      user = user!()
+      minted = device_grant!(client)
+      %{tokens: pair} = tokens!(client, user)
+      ip = {10, 20, 0, 9}
+
+      device_params = %{
+        "grant_type" => "urn:ietf:params:oauth:grant-type:device_code",
+        "client_id" => client.client_id,
+        "device_code" => minted.device_code,
+        "code_verifier" => minted.verifier
+      }
+
+      first = form_post(with_ip(conn, ip), "/oauth/token", device_params)
+      assert json_response(first, 400)["error"] == "authorization_pending"
+
+      second = form_post(with_ip(conn, ip), "/oauth/token", device_params)
+      assert json_response(second, 429)["error"] == "temporarily_unavailable"
+      assert [retry_after] = get_resp_header(second, "retry-after")
+      assert String.to_integer(retry_after) > 0
+
+      refresh_response =
+        form_post(with_ip(conn, ip), "/oauth/token", %{
+          "grant_type" => "refresh_token",
+          "refresh_token" => pair.refresh_token,
+          "client_id" => client.client_id,
+          "resource" => resource()
+        })
+
+      refreshed = json_response(refresh_response, 200)
+      assert refreshed["access_token"] =~ ~r/^fvoat_/
     end
   end
 

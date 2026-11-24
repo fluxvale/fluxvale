@@ -1,0 +1,30 @@
+<Layouts.auth flash={@flash}>
+  <div class="bg-brand-gradient rounded-panel p-2 shadow-lg">
+    <div class="overflow-hidden rounded-panel border border-line-strong bg-panel shadow-sm">
+      <div class="space-y-4 p-6 sm:p-8" data-testid="oauth-device-complete">
+        <div class="inline-flex size-10 items-center justify-center rounded-full border border-line-success bg-success-muted text-success-deep">
+          <.icon name="hero-check" class="size-5" />
+        </div>
+        <div class="space-y-1.5">
+          <h1 class="text-2xl font-bold tracking-tight text-ink">
+            Connected
+          </h1>
+          <p class="text-sm leading-6 text-ink-muted">
+            <span class="font-medium text-ink" data-testid="oauth-client-name">{@client_name}</span>
+            is now authorized.
+          </p>
+        </div>
+        <p class="text-sm leading-6 text-ink-muted">
+          You can close this tab and return to your terminal.
+        </p>
+        <p class="text-xs leading-5 text-ink-subtle">
+          You can revoke access any time in <.link
+            href={~p"/settings/developer#connected-apps"}
+            class="font-medium text-link underline-offset-4 hover:underline"
+          >
+            Developer settings</.link>.
+        </p>
+      </div>
+    </div>
+  </div>
+</Layouts.auth>

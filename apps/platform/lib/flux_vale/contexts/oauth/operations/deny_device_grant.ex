@@ -11,27 +11,37 @@ defmodule FluxVale.OAuth.Operations.DenyDeviceGrant do
   alias FluxVale.OAuth.DeviceGrant
 
   @doc """
-  Denies `grant` for `actor`. `opts` carries the actor (`actor: user`),
-  refused before any write when missing (mirroring `ApproveDeviceGrant`).
+  Denies `grant` for `actor`. `opts` carries the actor (`actor: user`)
+  and optional `now:` (defaults to `DateTime.utc_now()`). A missing
+  actor or an expired grant is refused BEFORE any write (mirroring
+  `ApproveDeviceGrant`).
 
-  Returns `{:ok, grant}`, `{:error, :actor_required}`, or
-  `{:error, :stale}` when the row moved.
+  Returns `{:ok, grant}`, `{:error, :actor_required}`,
+  `{:error, :expired}`, or `{:error, :stale}` when the row moved.
   """
   @spec call(DeviceGrant.t(), keyword()) ::
-          {:ok, DeviceGrant.t()} | {:error, :actor_required | :stale | term()}
+          {:ok, DeviceGrant.t()} | {:error, :actor_required | :expired | :stale | term()}
   def call(grant, opts \\ []) do
-    if opts[:actor] == nil do
-      {:error, :actor_required}
-    else
-      deny(grant, opts)
+    now = Keyword.get(opts, :now, DateTime.utc_now())
+
+    cond do
+      opts[:actor] == nil ->
+        {:error, :actor_required}
+
+      DateTime.compare(grant.expires_at, now) == :lt ->
+        {:error, :expired}
+
+      true ->
+        deny(grant, opts)
     end
   end
 
   # System write (the RequestWindow posture — the approve twin).
   defp deny(grant, opts) do
-    opts = Keyword.put_new(opts, :authorize?, false)
+    clean_opts = Keyword.delete(opts, :now)
+    action_opts = Keyword.put_new(clean_opts, :authorize?, false)
 
-    case DeviceGrant.deny(grant, opts) do
+    case DeviceGrant.deny(grant, action_opts) do
       {:ok, denied} ->
         FluxVale.OAuth.record_audit_event(%{
           kind: :device_grant_denied,

@@ -8,8 +8,17 @@
         <p class="text-sm leading-6 text-ink-muted" data-testid="oauth-error-detail">
           {@detail}
         </p>
-        <p class="text-xs leading-5 text-ink-subtle">
-          You can close this tab and start again from your MCP client.
+        <p :if={assigns[:retry_path]} class="pt-1">
+          <.link
+            href={@retry_path}
+            class="text-sm font-medium text-link underline-offset-4 hover:underline"
+            data-testid="oauth-error-retry"
+          >
+            Try another code
+          </.link>
+        </p>
+        <p class="text-xs leading-5 text-ink-subtle" data-testid="oauth-error-restart">
+          You can close this tab and start again from {assigns[:restart_from] || "your MCP client"}.
         </p>
       </div>
     </div>

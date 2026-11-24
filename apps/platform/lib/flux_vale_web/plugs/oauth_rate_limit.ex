@@ -1,8 +1,11 @@
 defmodule FluxValeWeb.Plugs.OAuthRateLimit do
   @moduledoc """
   The per-IP fixed windows on the unauthenticated OAuth endpoints
-  (#766): registration, the authorization page (GET + consent POST),
-  the token endpoint, and revocation.
+  (#766, #886): registration (`register`), the authorization and
+  device pages (`authorize`, GET + consent POST), the authorization-code
+  and refresh token endpoint (`token`), revocation (`revoke`), the
+  device-authorization mint (`device_code`), and device polling
+  (`device_poll`).
 
   The key is the REAL client address — `GoogleRateLimit.client_ip/1`'s
   trusted-proxy chain (Cloudflare's `CF-Connecting-IP`, then the
@@ -30,7 +33,8 @@ defmodule FluxValeWeb.Plugs.OAuthRateLimit do
           authorize: [window_seconds: 60, max_requests: 60],
           token: [window_seconds: 60, max_requests: 60],
           revoke: [window_seconds: 60, max_requests: 60],
-          device_code: [window_seconds: 600, max_requests: 5]
+          device_code: [window_seconds: 600, max_requests: 5],
+          device_poll: [window_seconds: 60, max_requests: 60]
         }
   """
 
@@ -49,7 +53,11 @@ defmodule FluxValeWeb.Plugs.OAuthRateLimit do
     revoke: [window_seconds: 60, max_requests: 60],
     # #886: the device-authorization mint — register-strict (one
     # login at a time; a restart of a failed flow still fits).
-    device_code: [window_seconds: 600, max_requests: 5]
+    device_code: [window_seconds: 600, max_requests: 5],
+    # #886: device polling gets its own bucket so a slow_down-happy CLI
+    # cannot starve refresh_token or authorization_code exchanges from
+    # the same NAT IP.
+    device_poll: [window_seconds: 60, max_requests: 60]
   }
 
   @doc false

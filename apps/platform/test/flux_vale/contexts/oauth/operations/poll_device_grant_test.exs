@@ -185,8 +185,8 @@ defmodule FluxVale.OAuth.Operations.PollDeviceGrantTest do
     minted = device_grant!(client)
 
     # A JSON object, a number, and a list — the wire's parsers can
-    # hand each to the endpoint; none may reach :crypto (the hostile
-    # finding: the hash guard, not a crash report).
+    # hand each to the endpoint; none may reach :crypto (the hash
+    # guard, not a crash report).
     assert {:error, {:expired_token, _map}} = poll(client, minted, %{"device_code" => %{}})
     assert {:error, {:expired_token, _number}} = poll(client, minted, %{"device_code" => 42})
     assert {:error, {:expired_token, _list}} = poll(client, minted, %{"device_code" => ["a"]})
