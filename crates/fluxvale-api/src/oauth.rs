@@ -114,6 +114,37 @@ impl fmt::Debug for OAuthTokenPair {
     }
 }
 
+/// Why a refresh failed. A [`RefreshError::Transient`] failure leaves the
+/// stored pair good: the token endpoint was not itself for a moment, and a
+/// later attempt may succeed. A [`RefreshError::Permanent`] one means no
+/// later attempt can.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RefreshError {
+    /// The token endpoint could not be reached, was unavailable, or answered oddly. The stored pair is untouched and a later attempt may succeed.
+    Transient(String),
+    /// A later attempt cannot succeed: the token endpoint refused the refresh token, or the request cannot be made at all.
+    Permanent(String),
+}
+
+impl RefreshError {
+    fn transient(text: impl Into<String>) -> Self {
+        RefreshError::Transient(text.into())
+    }
+
+    fn permanent(text: impl Into<String>) -> Self {
+        RefreshError::Permanent(text.into())
+    }
+}
+
+impl fmt::Display for RefreshError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let (RefreshError::Transient(text) | RefreshError::Permanent(text)) = self;
+        f.write_str(text)
+    }
+}
+
+impl std::error::Error for RefreshError {}
+
 /// One poll answer from `/oauth/token` (RFC 8628 §3.5).
 #[derive(Debug)]
 pub enum OAuthPoll {
@@ -156,19 +187,6 @@ impl OAuthDeviceClient {
             .post(&url)
             .header("Content-Type", "application/json")
             .send(body.to_string().into_bytes())
-            .map_err(|err| anyhow::anyhow!("connection failed: {err}"))?;
-        read_json_response(response)
-    }
-
-    fn post_form(&self, path: &str, pairs: &[(&str, &str)]) -> anyhow::Result<(u16, Value)> {
-        crate::tokens::require_https_or_loopback(&self.base_url)?;
-        let url = format!("{}{}", self.base_url, path);
-        let encoded = encode_form(pairs);
-        let response = self
-            .agent
-            .post(&url)
-            .header("Content-Type", "application/x-www-form-urlencoded")
-            .send(encoded.into_bytes())
             .map_err(|err| anyhow::anyhow!("connection failed: {err}"))?;
         read_json_response(response)
     }
@@ -288,12 +306,19 @@ impl OAuthDeviceClient {
         }
     }
 
-    /// `POST /oauth/token` for `refresh_token` grant.
+    /// `POST /oauth/token` for `refresh_token` grant. The failure says
+    /// whether a later attempt can succeed: an endpoint that could not be
+    /// reached, or was not itself, refuses nothing, while a refresh token
+    /// it refused is refused for good.
     pub fn refresh(
         &self,
         refresh_token: &Token,
         resource: Option<&str>,
-    ) -> anyhow::Result<OAuthTokenPair> {
+    ) -> Result<OAuthTokenPair, RefreshError> {
+        // The refresh token is on the wire below: a cleartext remote
+        // origin is refused before it is sent.
+        crate::tokens::require_https_or_loopback(&self.base_url)
+            .map_err(|err| RefreshError::permanent(err.to_string()))?;
         let mut pairs = vec![
             ("grant_type", "refresh_token"),
             ("client_id", OAUTH_CLI_CLIENT_ID),
@@ -303,11 +328,40 @@ impl OAuthDeviceClient {
             pairs.push(("resource", resource));
         }
 
-        let (status, body) = self.post_form("/oauth/token", &pairs)?;
-        if status != 200 {
-            return Err(oauth_error(status, &body));
+        let url = format!("{}/oauth/token", self.base_url);
+        let encoded = encode_form(&pairs);
+        let mut response = self
+            .agent
+            .post(&url)
+            .header("Content-Type", "application/x-www-form-urlencoded")
+            .send(encoded.into_bytes())
+            .map_err(|err| RefreshError::transient(format!("connection failed: {err}")))?;
+        let status = response.status().as_u16();
+        let raw = response
+            .body_mut()
+            .read_to_string()
+            .map_err(|err| RefreshError::transient(format!("connection failed: {err}")))?;
+
+        // A 200 that is not a token pair is the endpoint answering oddly,
+        // and one that is overloaded or rate limiting refuses nothing.
+        // Both may answer properly later.
+        let passes = status == 200 || status == 429 || status >= 500;
+        let classified = |text: String| {
+            if passes {
+                RefreshError::transient(text)
+            } else {
+                RefreshError::permanent(text)
+            }
+        };
+        match serde_json::from_str::<Value>(&raw) {
+            Ok(body) if status == 200 => {
+                parse_token_pair(&body).map_err(|err| RefreshError::transient(err.to_string()))
+            }
+            Ok(body) => Err(classified(oauth_error(status, &body).to_string())),
+            Err(err) => Err(classified(format!(
+                "HTTP {status}: unreadable body ({err})"
+            ))),
         }
-        parse_token_pair(&body)
     }
 }
 
@@ -817,7 +871,10 @@ mod tests {
         let err = client
             .refresh(&Token::new("fvort_revoked"), None)
             .unwrap_err();
-        assert_eq!(err.to_string(), "invalid_grant: refresh token revoked");
+        assert_eq!(
+            err,
+            RefreshError::Permanent("invalid_grant: refresh token revoked".to_string())
+        );
 
         let requests = captured_requests(&server);
         let first_body = requests[0].split("\r\n\r\n").nth(1).unwrap();
@@ -830,6 +887,168 @@ mod tests {
             second_body,
             "grant_type=refresh_token&client_id=fvoc_fluxvale_cli&refresh_token=fvort_revoked"
         );
+    }
+
+    /// Every failure text stays free of the refresh token. The token was on
+    /// the wire in each request, or the check would prove nothing.
+    fn assert_no_token_in(failures: &[RefreshError], token: &str, server: &Script) {
+        for failure in failures {
+            assert!(
+                !failure.to_string().contains(token),
+                "the text leaked the token: {failure}"
+            );
+            assert!(
+                !format!("{failure:?}").contains(token),
+                "Debug leaked the token: {failure:?}"
+            );
+        }
+        let requests = captured_requests(server);
+        assert_eq!(requests.len(), failures.len());
+        for request in &requests {
+            assert!(
+                request.contains(&format!("refresh_token={token}")),
+                "the token must have been sent for the check to mean anything"
+            );
+        }
+    }
+
+    #[test]
+    fn an_overloaded_or_rate_limiting_endpoint_is_a_transient_refresh_failure() {
+        let token = Token::new("fvort_overloaded_token_value");
+        let server = script(vec![
+            respond(
+                "503 Service Unavailable",
+                &json!({"error": "temporarily_unavailable"}),
+            ),
+            respond(
+                "429 Too Many Requests",
+                &json!({"error": "slow_down", "error_description": "try again later"}),
+            ),
+            respond_raw("502 Bad Gateway", "<html>bad gateway</html>"),
+        ]);
+        let client = OAuthDeviceClient::new(&server.base_url);
+
+        let failures: Vec<RefreshError> = (0..3)
+            .map(|_| client.refresh(&token, None).unwrap_err())
+            .collect();
+
+        assert_eq!(
+            failures[0],
+            RefreshError::Transient("HTTP 503: temporarily_unavailable".to_string())
+        );
+        assert_eq!(
+            failures[1],
+            RefreshError::Transient("slow_down: try again later".to_string())
+        );
+        assert!(
+            matches!(&failures[2], RefreshError::Transient(text)
+                if text.starts_with("HTTP 502: unreadable body (")),
+            "err: {}",
+            failures[2]
+        );
+        assert_no_token_in(&failures, "fvort_overloaded_token_value", &server);
+    }
+
+    #[test]
+    fn a_refusing_endpoint_is_a_permanent_refresh_failure() {
+        let token = Token::new("fvort_refused_token_value");
+        let server = script(vec![
+            respond("401 Unauthorized", &json!({"error": "invalid_client"})),
+            respond_raw("400 Bad Request", "not json"),
+        ]);
+        let client = OAuthDeviceClient::new(&server.base_url);
+
+        let failures: Vec<RefreshError> = (0..2)
+            .map(|_| client.refresh(&token, None).unwrap_err())
+            .collect();
+
+        assert_eq!(
+            failures[0],
+            RefreshError::Permanent("HTTP 401: invalid_client".to_string())
+        );
+        assert!(
+            matches!(&failures[1], RefreshError::Permanent(text)
+                if text.starts_with("HTTP 400: unreadable body (")),
+            "err: {}",
+            failures[1]
+        );
+        assert_no_token_in(&failures, "fvort_refused_token_value", &server);
+    }
+
+    #[test]
+    fn an_endpoint_that_cannot_be_reached_is_a_transient_refresh_failure() {
+        let token = Token::new("fvort_unanswered_token_value");
+        // The request is sent, then the server hangs up before a byte of its answer.
+        let hung_up = script(vec![String::new()]);
+        // The request is sent and the answer's head is read, then the
+        // connection drops before the body the head promised has arrived.
+        let truncated = script(vec![String::from(
+            "HTTP/1.1 200 OK\r\nContent-Length: 100\r\nConnection: close\r\n\r\n{\"access_token\":",
+        )]);
+
+        for server in [&hung_up, &truncated] {
+            let failure = OAuthDeviceClient::new(&server.base_url)
+                .refresh(&token, None)
+                .unwrap_err();
+            assert!(
+                matches!(&failure, RefreshError::Transient(text) if text.starts_with("connection failed: ")),
+                "err: {failure}"
+            );
+            assert_no_token_in(
+                std::slice::from_ref(&failure),
+                "fvort_unanswered_token_value",
+                server,
+            );
+        }
+    }
+
+    #[test]
+    fn a_200_that_is_not_a_token_pair_is_a_transient_refresh_failure() {
+        let mut no_refresh = token_pair_body();
+        no_refresh.as_object_mut().unwrap().remove("refresh_token");
+        let mut no_expiry = token_pair_body();
+        no_expiry.as_object_mut().unwrap().remove("expires_in");
+        let server = script(vec![
+            respond("200 OK", &no_refresh),
+            respond("200 OK", &no_expiry),
+            respond_raw("200 OK", r#"{"access_token": "#),
+        ]);
+        let client = OAuthDeviceClient::new(&server.base_url);
+        let token = Token::new("fvort_oddly_answered_token_value");
+
+        let failures: Vec<RefreshError> = (0..3)
+            .map(|_| client.refresh(&token, None).unwrap_err())
+            .collect();
+
+        assert_eq!(
+            failures[0],
+            RefreshError::Transient("the answer carries no refresh_token".to_string())
+        );
+        assert_eq!(
+            failures[1],
+            RefreshError::Transient("the token answer carries no expires_in".to_string())
+        );
+        assert!(
+            matches!(&failures[2], RefreshError::Transient(text)
+                if text.starts_with("HTTP 200: unreadable body (")),
+            "err: {}",
+            failures[2]
+        );
+        assert_no_token_in(&failures, "fvort_oddly_answered_token_value", &server);
+    }
+
+    #[test]
+    fn a_refresh_failure_prints_its_text_and_nothing_else() {
+        for failure in [
+            RefreshError::Transient("connection failed: dial timeout".to_string()),
+            RefreshError::Permanent("invalid_grant: refresh token revoked".to_string()),
+        ] {
+            let (RefreshError::Transient(inner) | RefreshError::Permanent(inner)) = &failure;
+            let as_error: &dyn std::error::Error = &failure;
+            assert_eq!(failure.to_string(), *inner);
+            assert_eq!(as_error.to_string(), *inner);
+            assert_eq!(format!("{failure}"), *inner);
+        }
     }
 
     #[test]
@@ -941,7 +1160,10 @@ mod tests {
         assert!(poll_err.to_string().contains("https://"));
 
         let refresh_err = client.refresh(&Token::new("fvort_old"), None).unwrap_err();
-        assert!(refresh_err.to_string().contains("https://"));
+        assert!(
+            matches!(&refresh_err, RefreshError::Permanent(text) if text.contains("https://")),
+            "err: {refresh_err}"
+        );
     }
 
     #[test]

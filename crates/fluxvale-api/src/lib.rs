@@ -24,7 +24,7 @@ pub use jsonapi::{Document, Resource};
 pub use mcp::{McpHttpClient, McpReply};
 pub use oauth::{
     OAUTH_CLI_CLIENT_ID, OAUTH_DEVICE_GRANT_TYPE, OAuthDeviceClient, OAuthDeviceMinted, OAuthPoll,
-    OAuthTokenPair, PkceVerifier, oauth_poll_loop, pkce_challenge,
+    OAuthTokenPair, PkceVerifier, RefreshError, oauth_poll_loop, pkce_challenge,
 };
 pub use token::Token;
 pub use tokens::{MintRequest, MintedToken, TokenClient};
@@ -381,13 +381,24 @@ mod tests {
         assert!(head.contains(body), "patch body must arrive intact");
     }
 
+    /// A loopback endpoint nothing listens on. Its port number comes from
+    /// the IPv6 loopback, which no scripted server in this crate binds: they
+    /// all bind 127.0.0.1, so none can be handed this port in the moment
+    /// between the listener going away and the connection being made. A freed
+    /// 127.0.0.1 port is handed straight back out, and a test that then talks
+    /// to another test's server fails them both. Where there is no IPv6
+    /// loopback at all, nothing can listen on it either, so any number does.
+    fn dead_endpoint() -> String {
+        let port = TcpListener::bind("[::1]:0")
+            .and_then(|listener| listener.local_addr().map(|addr| addr.port()))
+            .unwrap_or(9);
+        format!("http://[::1]:{port}")
+    }
+
     #[test]
     fn transport_failure_maps_to_transport() {
-        // Bind, learn a free port, then drop — connection refused.
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        let addr = listener.local_addr().unwrap();
-        drop(listener);
-        let err = client(&format!("http://{addr}")).get("/me").unwrap_err();
+        // Nothing listens at the endpoint, so the connection is refused.
+        let err = client(&dead_endpoint()).get("/me").unwrap_err();
         assert!(matches!(err, ApiError::Transport(_)), "got: {err:?}");
     }
 

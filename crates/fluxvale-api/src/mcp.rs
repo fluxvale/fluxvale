@@ -20,7 +20,8 @@ pub struct McpReply {
 }
 
 /// A client for one MCP endpoint. Every request carries the caller's
-/// access token, so the endpoint must be `https://` or loopback.
+/// access token, so the endpoint must be `https://` or loopback, and a
+/// redirect is never followed.
 pub struct McpHttpClient {
     agent: ureq::Agent,
     url: String,
@@ -37,6 +38,10 @@ impl McpHttpClient {
         require_https_or_loopback(url)?;
         let agent: ureq::Agent = ureq::Agent::config_builder()
             .http_status_as_error(false)
+            // An MCP endpoint answers directly. ureq never attaches the
+            // Authorization header to a redirected request, so following
+            // one would arrive unauthenticated and draw a needless renewal.
+            .max_redirects(0)
             .timeout_global(Some(Self::REQUEST_TIMEOUT))
             .build()
             .into();
@@ -218,6 +223,15 @@ mod tests {
         response
     }
 
+    /// A redirect to `location`, with nothing to read.
+    fn redirect(status_line: &str, location: &str) -> String {
+        let mut response = format!("HTTP/1.1 {status_line}\r\n");
+        response.push_str(&format!("Location: {location}\r\n"));
+        response.push_str("Content-Length: 0\r\n");
+        response.push_str("Connection: close\r\n\r\n");
+        response
+    }
+
     /// Like [`respond_raw`], with the `Content-Type` the server would send.
     fn respond_typed(status_line: &str, content_type: &str, body: &str) -> String {
         let mut response = format!("HTTP/1.1 {status_line}\r\n");
@@ -250,6 +264,20 @@ mod tests {
 
     fn client(server: &Script) -> McpHttpClient {
         McpHttpClient::new(&format!("{}/mcp", server.base_url)).unwrap()
+    }
+
+    /// A loopback endpoint nothing listens on. Its port number comes from
+    /// the IPv6 loopback, which no scripted server in this crate binds: they
+    /// all bind 127.0.0.1, so none can be handed this port in the moment
+    /// between the listener going away and the connection being made. A freed
+    /// 127.0.0.1 port is handed straight back out, and a test that then talks
+    /// to another test's server fails them both. Where there is no IPv6
+    /// loopback at all, nothing can listen on it either, so any number does.
+    fn dead_endpoint() -> String {
+        let port = TcpListener::bind("[::1]:0")
+            .and_then(|listener| listener.local_addr().map(|addr| addr.port()))
+            .unwrap_or(9);
+        format!("http://[::1]:{port}/mcp")
     }
 
     #[test]
@@ -458,6 +486,35 @@ mod tests {
             !config.http_status_as_error(),
             "a 401 comes back as an answer for the caller to renew on"
         );
+        assert_eq!(config.max_redirects(), 0, "a redirect is never followed");
+    }
+
+    #[test]
+    fn a_redirect_is_not_followed() {
+        // The second answer is the redirect target's. It must never be served.
+        let server = script(vec![
+            redirect("302 Found", "/elsewhere"),
+            respond("200 OK", &result(1, "the redirect target")),
+        ]);
+
+        let reply = client(&server)
+            .post(&Token::new(TOKEN), BODY, None)
+            .unwrap();
+
+        assert_eq!(
+            reply,
+            McpReply {
+                status: 302,
+                messages: Vec::new()
+            }
+        );
+        let requests = captured_requests(&server);
+        assert_eq!(requests.len(), 1, "the redirect target was requested");
+        assert!(
+            requests[0].to_lowercase().starts_with("post /mcp http/1.1"),
+            "request line: {}",
+            requests[0]
+        );
     }
 
     #[test]
@@ -516,11 +573,8 @@ mod tests {
 
     #[test]
     fn a_connection_failure_is_an_error_that_names_no_token() {
-        // Bind, learn a free port, then drop: nothing listens there.
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        let addr = listener.local_addr().unwrap();
-        drop(listener);
-        let refused = McpHttpClient::new(&format!("http://{addr}/mcp")).unwrap();
+        // Nothing listens at the endpoint at all.
+        let refused = McpHttpClient::new(&dead_endpoint()).unwrap();
 
         let err = refused.post(&Token::new(TOKEN), BODY, None).unwrap_err();
 
