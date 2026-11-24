@@ -41,4 +41,6 @@ with `PROM_REMOTE_WRITE_USERNAME`/`PROM_REMOTE_WRITE_TOKEN` set.
 `scripts/version-currency.mjs` — the scheduled run's deploy-lag oracle
 (#242): both envs' `/health` versions against the newest
 platform-carrying sha on `main`, grace via `CURRENCY_GRACE_HOURS` (the
-workflow's `grace_hours` dispatch input).
+workflow's `grace_hours` dispatch input). A red for a stuck or skipped
+deploy names the remedy: re-dispatch the deploy chain (`gh workflow
+run ci.yml --ref main`, docs/deployment.md "Reconcile").
