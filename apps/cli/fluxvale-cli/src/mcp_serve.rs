@@ -2518,6 +2518,9 @@ mod tests {
             (None, "https://fluxvale.com/", Ok(MCP_URL)),
             // An environment with no MCP server of its own, and a login that names none: there is no URL.
             (None, LOCAL, Err(no_url.as_str())),
+            // A login with --resource on an environment that names no
+            // server of its own: the stored one is the server.
+            (Some(STAGING), LOCAL, Ok(STAGING)),
         ];
         for (stored_resource, base_url, expected) in cases {
             let got = resolve_url(stored_resource, base_url).map_err(|err| err.to_string());
@@ -2549,6 +2552,63 @@ mod tests {
         assert!(h.urls().is_empty(), "no transport was even built");
         assert!(h.stdout_lines().is_empty());
         assert!(h.refreshes().is_empty());
+        h.assert_no_secrets();
+    }
+
+    #[test]
+    fn a_sign_in_without_a_resource_is_served_by_the_environments_own_server() {
+        // The pair stores no resource, so the bridge builds its transport
+        // for the server the environment names, and nothing else.
+        for (base_url, mcp) in [
+            (
+                "https://staging.fluxvale.com",
+                "https://mcp-staging.fluxvale.com/mcp",
+            ),
+            ("https://fluxvale.com/", MCP_URL),
+        ] {
+            let mut h = start(Script {
+                stored: Some(pair(ACCESS, REFRESH, 7200, None)),
+                base_url,
+                ..script()
+            });
+            assert_eq!(h.finish(), 0, "base {base_url}");
+            assert_eq!(h.urls(), vec![mcp.to_string()], "base {base_url}");
+            h.assert_no_secrets();
+        }
+    }
+
+    #[test]
+    fn a_sign_in_without_a_resource_renews_against_the_environments_own_server() {
+        // Nearly expired, so the pair is renewed before anything is forwarded.
+        // The renewal reloads the store and compares what it finds with the
+        // server the bridge was started for: the same one, derived again.
+        let mut h = start(Script {
+            stored: Some(pair(ACCESS, REFRESH, 60, None)),
+            base_url: "https://staging.fluxvale.com",
+            ..script()
+        });
+        assert_eq!(h.finish(), 0);
+        assert_eq!(h.refreshes().len(), 1, "the renewal went through");
+        assert_eq!(h.stderr(), "", "a healthy renewal says nothing");
+        h.assert_no_secrets();
+    }
+
+    #[test]
+    fn a_sign_in_with_a_resource_is_served_by_that_server_on_any_environment() {
+        // The environment names no server of its own, so the sign-in's
+        // resource is the server: the path `mcp login --resource` exists for.
+        let mut h = start(Script {
+            stored: Some(pair(
+                ACCESS,
+                REFRESH,
+                7200,
+                Some("https://mcp-staging.fluxvale.com/mcp"),
+            )),
+            base_url: "http://127.0.0.1:4000",
+            ..script()
+        });
+        assert_eq!(h.finish(), 0);
+        assert_eq!(h.urls(), vec!["https://mcp-staging.fluxvale.com/mcp"]);
         h.assert_no_secrets();
     }
 
