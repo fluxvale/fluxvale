@@ -103,7 +103,7 @@ pub enum AuthCommand {
     /// Sign in — the device flow: a code to approve in the panel,
     /// the token lands in your OS keychain
     Login {
-        /// Comma-separated scopes (default: the full catalog)
+        /// Comma-separated scopes (default: the CLI's default scope list, write scopes included)
         #[arg(long, value_name = "SCOPE,SCOPE")]
         scopes: Option<String>,
         /// Don't open the approval page in a browser
@@ -141,7 +141,7 @@ pub enum AuthCommand {
 pub enum McpCommand {
     /// Sign in for MCP access with OAuth device flow and PKCE
     Login {
-        /// Comma-separated scopes (default: the full catalog)
+        /// Comma-separated scopes (default: the CLI's default scope list, write scopes included)
         #[arg(long, value_name = "SCOPE,SCOPE")]
         scopes: Option<String>,
         /// Target MCP resource URL
