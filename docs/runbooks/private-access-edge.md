@@ -27,11 +27,12 @@ The admitted address is the gateway's current pod — compare, per gateway id:
 kubectl get ingressroute -A -o json | jq -r '.items[] | select(.spec.entryPoints|index("access"))
   | "\(.metadata.labels["fluxvale.io/gateway"])\t\(.spec.routes[0].match)"' | sort -u
 kubectl get pods -n <access namespace> -l app.kubernetes.io/name=access-gateway -o json \
-  | jq -r '.items[] | "\(.metadata.labels["fluxvale.io/gateway"])\t\(.status.podIP)"'
+  | jq -r '.items[] | "\(.metadata.labels["fluxvale.io/gateway"])\t\(.status.phase)\t\(.metadata.creationTimestamp)\t\(.metadata.deletionTimestamp // "-")\t\(.status.podIP)"'
 ```
 
-During a pod replacement two pods for the same gateway can appear in that output — the
-admitted address is the NEWEST running pod's (the same rule the platform applies).
+During a pod replacement two pods can appear — the admitted address belongs to the
+`Running` pod with no deletion time and the newest creation time (the same rule the
+platform applies).
 
 The check's premise: the `access` entrypoint trusts no proxy-protocol or forwarded-header
 sources — no `proxyProtocol.trustedIPs`, no `forwardedHeaders.trustedIPs`, no
