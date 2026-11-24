@@ -102,13 +102,16 @@ defmodule FluxValeWeb.AgentPromptTest do
     config = Jason.decode!(payload)
     assert config["url"] == ctx.mcp_url
     assert config["headers"] == %{"Authorization" => "Bearer ${env:FLUXVALE_PAT}"}
+    refute Map.has_key?(config, "type")
 
     vscode_json = AgentPrompt.install(:vscode, ctx)
     vscode = Jason.decode!(vscode_json)
-    assert get_in(vscode, ["servers", "fluxvale", "url"]) == ctx.mcp_url
+    assert get_in(vscode, ["mcpServers", "fluxvale", "url"]) == ctx.mcp_url
 
-    assert get_in(vscode, ["servers", "fluxvale", "headers", "Authorization"]) =~
-             "FLUXVALE_PAT"
+    assert get_in(vscode, ["mcpServers", "fluxvale", "headers", "Authorization"]) ==
+             "Bearer ${FLUXVALE_PAT}"
+
+    refute vscode_json =~ "${env:"
 
     generic_json = AgentPrompt.install(:generic, ctx)
     generic = Jason.decode!(generic_json)
@@ -182,7 +185,32 @@ defmodule FluxValeWeb.AgentPromptTest do
 
     vscode_json = AgentPrompt.install(:vscode, ctx)
     vscode = Jason.decode!(vscode_json)
-    refute get_in(vscode, ["servers", "fluxvale", "headers"])
+    refute get_in(vscode, ["mcpServers", "fluxvale", "headers"])
+  end
+
+  test "the vscode and generic snippets share one entry, apart from the env syntax", %{ctx: ctx} do
+    vscode_json = AgentPrompt.install(:vscode, ctx)
+    vscode = Jason.decode!(vscode_json)
+
+    generic_json = AgentPrompt.install(:generic, ctx)
+    generic = Jason.decode!(generic_json)
+
+    assert get_in(vscode, ["mcpServers", "fluxvale", "headers", "Authorization"]) ==
+             "Bearer ${FLUXVALE_PAT}"
+
+    assert get_in(generic, ["mcpServers", "fluxvale", "headers", "Authorization"]) ==
+             "Bearer ${env:FLUXVALE_PAT}"
+
+    vscode_entry = get_in(vscode, ["mcpServers", "fluxvale"])
+    generic_entry = get_in(generic, ["mcpServers", "fluxvale"])
+
+    assert Map.delete(vscode_entry, "headers") == Map.delete(generic_entry, "headers")
+
+    previous = Application.get_env(:flux_vale, :mcp_auth_mode)
+    on_exit(fn -> Application.put_env(:flux_vale, :mcp_auth_mode, previous) end)
+    Application.put_env(:flux_vale, :mcp_auth_mode, :oauth)
+
+    assert AgentPrompt.install(:vscode, ctx) == AgentPrompt.install(:generic, ctx)
   end
 
   test "the links are stable absolute URLs on the serving environment", %{ctx: ctx} do

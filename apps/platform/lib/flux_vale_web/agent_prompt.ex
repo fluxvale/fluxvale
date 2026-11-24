@@ -67,7 +67,7 @@ defmodule FluxValeWeb.AgentPrompt do
     %{
       key: "vscode",
       title: "VS Code",
-      hint: "Add to .vscode/mcp.json",
+      hint: "Add to .mcp.json",
       wrap: "break-words",
       install: :vscode
     },
@@ -245,7 +245,7 @@ defmodule FluxValeWeb.AgentPrompt do
   end
 
   def install(:cursor, %__MODULE__{} = ctx) do
-    config = headers(%{"url" => ctx.mcp_url, "type" => "http"})
+    config = headers(%{"url" => ctx.mcp_url}, "${env:FLUXVALE_PAT}")
     json = Jason.encode!(config)
     encoded = Base.encode64(json)
 
@@ -254,17 +254,15 @@ defmodule FluxValeWeb.AgentPrompt do
   end
 
   def install(:vscode, %__MODULE__{} = ctx) do
-    Jason.encode!(
-      %{"servers" => %{"fluxvale" => headers(%{"type" => "http", "url" => ctx.mcp_url})}},
-      pretty: true
-    )
+    entry = server_entry(ctx, "${FLUXVALE_PAT}")
+
+    Jason.encode!(%{"mcpServers" => %{"fluxvale" => entry}}, pretty: true)
   end
 
   def install(:generic, %__MODULE__{} = ctx) do
-    Jason.encode!(
-      %{"mcpServers" => %{"fluxvale" => headers(%{"type" => "http", "url" => ctx.mcp_url})}},
-      pretty: true
-    )
+    entry = server_entry(ctx, "${env:FLUXVALE_PAT}")
+
+    Jason.encode!(%{"mcpServers" => %{"fluxvale" => entry}}, pretty: true)
   end
 
   @doc "The doc links the panel and `/llms.txt` carry — stable, same-environment URLs."
@@ -304,9 +302,17 @@ defmodule FluxValeWeb.AgentPrompt do
   defp token_url(%__MODULE__{} = ctx),
     do: ctx.api_base <> ~p"/settings/developer#api-tokens"
 
-  defp headers(config) do
+  # One mcpServers entry for both :vscode and :generic; the env syntax is
+  # the only difference (VS Code's portable format wants ${NAME}, the
+  # generic shape keeps ${env:NAME}).
+  defp server_entry(%__MODULE__{} = ctx, env_ref) do
+    headers(%{"type" => "http", "url" => ctx.mcp_url}, env_ref)
+  end
+
+  defp headers(config, env_ref) do
     if bearer_headers?() do
-      Map.put(config, "headers", %{"Authorization" => "Bearer ${env:FLUXVALE_PAT}"})
+      authorization = "Bearer #{env_ref}"
+      Map.put(config, "headers", %{"Authorization" => authorization})
     else
       config
     end
