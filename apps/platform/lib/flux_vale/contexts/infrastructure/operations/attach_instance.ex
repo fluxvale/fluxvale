@@ -153,8 +153,10 @@ defmodule FluxVale.Infrastructure.Operations.AttachInstance do
   # A failed re-apply does not retro-fail the attach — the row and the
   # first arm stand; the visitor's ts.net-fallback request or the next
   # lifecycle write (sleep/wake/deploy/toggle) drives the flip. The
-  # janitor does NOT periodically re-apply arms, so nothing silently
-  # converges this — the failure is logged, never dropped.
+  # one-minute admission pass (ADR-0040 Am. 6) re-applies only when the
+  # gateway's pod address moves, so this failure is not converged until
+  # the address moves or the platform restarts — it is logged, never
+  # dropped.
   defp reapply_if_status_moved(kubeconfig, gateway, instance) do
     case Instance.get_by_id(instance.id, authorize?: false) do
       {:ok, %{status: status} = fresh} when status != instance.status ->

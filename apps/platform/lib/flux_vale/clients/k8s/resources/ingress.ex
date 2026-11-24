@@ -41,6 +41,14 @@ defmodule FluxVale.Clients.K8s.Resources.Ingress do
   secret) is a production-only combination; locally the Traefik default
   cert terminates TLS at the edge.
 
+  An optional `:source_ip` narrows a host route to one source address: the rule becomes
+  `Host(\`h\`) && ClientIP(\`ip/32\`)` (`/128` for IPv6). Traefik's `ClientIP` matches the
+  TCP peer and ignores forwarded headers — the access edge's gateway check
+  ([ADR-0040](../../../../../../../docs/adr/00040-strong-private-access-and-custom-domains.md) Am. 6).
+  Exactly one address: `ClientIP` takes one argument, and
+  `Host && ClientIP(a) || ClientIP(b)` binds as `(Host && ClientIP(a)) || ClientIP(b)` —
+  any hostname from `b`. Public routes pass nothing and build the unchanged rule.
+
   **Wildcard distribution — resolved with #116**: the fleet issues
   `*.fluxvale.app` into the traefik namespace and wires a Traefik
   default TLSStore, so the edge serves the wildcard for every route
@@ -66,6 +74,7 @@ defmodule FluxVale.Clients.K8s.Resources.Ingress do
           optional(:cert_resolver) => String.t(),
           optional(:path_prefix) => String.t(),
           optional(:entrypoint) => String.t(),
+          optional(:source_ip) => String.t(),
           optional(:labels) => %{optional(String.t()) => String.t()},
           optional(:middlewares) => [String.t()]
         }
@@ -111,12 +120,19 @@ defmodule FluxVale.Clients.K8s.Resources.Ingress do
 
     invalid_path? = path_prefix != nil and not Regex.match?(@path_prefix, path_prefix)
 
+    source_ip = Map.get(spec, :source_ip)
+
+    invalid_source_ip? = source_ip != nil and not valid_source_ip?(source_ip)
+
     cond do
       invalid_host ->
         {:error, Error.invalid_spec("Not a valid DNS name: #{inspect(invalid_host)}")}
 
       invalid_path? ->
         {:error, Error.invalid_spec("Not a valid path prefix: #{inspect(path_prefix)}")}
+
+      invalid_source_ip? ->
+        {:error, Error.invalid_spec("Not a valid source IP: #{inspect(source_ip)}")}
 
       true ->
         do_create(kubeconfig, namespace, name, spec)
@@ -301,10 +317,41 @@ defmodule FluxVale.Clients.K8s.Resources.Ingress do
           "Host(`#{escape_traefik_value(subdomain)}.#{escape_traefik_value(domain)}`)"
       end
 
-    case Map.get(spec, :path_prefix) do
-      nil -> host_match
-      prefix -> "#{host_match} && PathPrefix(`#{prefix}`)"
+    path_prefix = Map.get(spec, :path_prefix)
+    source_ip = Map.get(spec, :source_ip)
+
+    host_match
+    |> append_path_prefix(path_prefix)
+    |> append_source_ip(source_ip)
+  end
+
+  defp append_path_prefix(match, nil), do: match
+  defp append_path_prefix(match, prefix), do: "#{match} && PathPrefix(`#{prefix}`)"
+
+  defp append_source_ip(match, nil), do: match
+
+  defp append_source_ip(match, source_ip) do
+    bits = source_ip_bits(source_ip)
+    "#{match} && ClientIP(`#{source_ip}/#{bits}`)"
+  end
+
+  defp source_ip_bits(source_ip) do
+    case parse_ip(source_ip) do
+      {:ok, {_a, _b, _c, _d}} -> 32
+      {:ok, {_a, _b, _c, _d, _e, _f, _g, _h}} -> 128
     end
+  end
+
+  defp valid_source_ip?(ip) when is_binary(ip) do
+    trimmed = String.trim(ip)
+    ip == trimmed and match?({:ok, _addr}, parse_ip(ip))
+  end
+
+  defp valid_source_ip?(_other), do: false
+
+  defp parse_ip(ip) when is_binary(ip) do
+    charlist = String.to_charlist(ip)
+    :inet.parse_address(charlist)
   end
 
   defp valid_dns_name?(value) when is_binary(value) do

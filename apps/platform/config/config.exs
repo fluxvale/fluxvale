@@ -468,7 +468,10 @@ config :flux_vale, Oban,
     settler: 1,
     janitor: 1,
     billing: 1,
-    backups: 1
+    backups: 1,
+    # ADR-0040 Am. 6: the admission pass's one-minute bound must not
+    # wait behind the janitor queue's other passes.
+    access_admission: 1
   ],
   plugins: [
     {Oban.Plugins.Cron,
@@ -525,7 +528,15 @@ config :flux_vale, Oban,
        # :01/:16/:31/:46 — the top-of-hour :00 slot is deliberately
        # avoided by the neighbouring entries (#113's stance: nothing at
        # the top of the hour).
-       {"1-59/15 * * * *", FluxVale.Janitor.VerifyAccessDomains}
+       {"1-59/15 * * * *", FluxVale.Janitor.VerifyAccessDomains},
+       # The access edge's address refresher (ADR-0040 Am. 6): a gateway's
+       # admitted source follows its pod within the minute.
+       {"* * * * *", FluxVale.Janitor.ReconcileAccessAdmission},
+       # The same pass, every 15 minutes, UNCONDITIONAL: a concurrent
+       # lifecycle write that landed last with an older read is
+       # re-applied here even when the memo matches — the bound on
+       # every state the memo cannot see (ADR-0040 Am. 6).
+       {"7-59/15 * * * *", FluxVale.Janitor.ReconcileAccessAdmission, args: %{"force" => true}}
      ]},
     # Retention for finished jobs (completed/cancelled/discarded) — v1
     # never pruned oban_jobs; adopted on review (#39). 7d keeps a

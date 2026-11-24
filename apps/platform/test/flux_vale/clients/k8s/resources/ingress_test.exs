@@ -343,6 +343,73 @@ defmodule FluxVale.Clients.K8s.Resources.IngressTest do
     end
   end
 
+  describe "source_ip — the gateway check clause" do
+    test "appends the clause to the host rule (IPv4 -> /32)" do
+      spec =
+        base_spec()
+        |> Map.put(:host, "app.fluxvale.app")
+        |> Map.put(:source_ip, "10.0.0.9")
+
+      manifest = Ingress.build_manifest("ns", "access-app", spec)
+
+      assert route_match(manifest) == "Host(`app.fluxvale.app`) && ClientIP(`10.0.0.9/32`)"
+    end
+
+    test "an IPv6 address gets /128" do
+      spec =
+        base_spec()
+        |> Map.put(:host, "app.fluxvale.app")
+        |> Map.put(:source_ip, "fd00::1")
+
+      manifest = Ingress.build_manifest("ns", "access-app", spec)
+
+      assert route_match(manifest) == "Host(`app.fluxvale.app`) && ClientIP(`fd00::1/128`)"
+    end
+
+    test "with a path prefix the order is host, prefix, source" do
+      spec =
+        base_spec()
+        |> Map.put(:host, "app.fluxvale.app")
+        |> Map.put(:path_prefix, "/dav")
+        |> Map.put(:source_ip, "10.0.0.9")
+
+      manifest = Ingress.build_manifest("ns", "access-dav", spec)
+
+      assert route_match(manifest) ==
+               "Host(`app.fluxvale.app`) && PathPrefix(`/dav`) && ClientIP(`10.0.0.9/32`)"
+    end
+
+    test "absent -> the rule is byte-identical to today's" do
+      manifest = Ingress.build_manifest("ns", "public-app", base_spec())
+
+      match_rule = route_match(manifest)
+      assert match_rule == "Host(`my-app.localhost`)"
+      refute match_rule =~ "ClientIP"
+    end
+
+    test "rejects invalid source_ip values with no cluster call" do
+      bad_values = [
+        "10.0.0.9/32",
+        "not-an-ip",
+        "999.0.0.1",
+        "",
+        "10.0.0.1`) || true",
+        " 10.0.0.1",
+        "10.0.0.1 ",
+        Enum.at([123], 0)
+      ]
+
+      for bad <- bad_values do
+        spec = Map.put(base_spec(), :source_ip, bad)
+
+        assert {:error, %Error{reason: :invalid_spec, message: msg}} =
+                 Ingress.create(nil, "ns", "evil", spec)
+
+        assert msg =~ "Not a valid source IP"
+      end
+    end
+  end
+
   test "attaches the request with the right api_version/kind (routing pin)" do
     expect(Kubereq, :attach, fn _req, opts ->
       assert opts[:api_version] == "traefik.io/v1alpha1"

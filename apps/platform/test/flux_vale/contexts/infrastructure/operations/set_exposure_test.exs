@@ -90,6 +90,7 @@ defmodule FluxVale.Infrastructure.Operations.SetExposureTest do
 
   defp stub_kubeconfig do
     stub(K8s, :kubeconfig, fn nil -> {:ok, %{}} end)
+    AccessFixtures.stub_gateway_pod()
   end
 
   # An instance with a real AccessRoute row at the given status — the

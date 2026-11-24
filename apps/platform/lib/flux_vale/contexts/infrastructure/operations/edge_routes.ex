@@ -15,11 +15,15 @@ defmodule FluxVale.Infrastructure.Operations.EdgeRoutes do
   private path: one Host-keyed IngressRoute per `InstanceHostname` row
   of the instance, on Traefik's `access` entrypoint (the gateway's
   raw-443 tunnel terminates there; the platform names the entrypoint,
-  never a port). Serving targets the app Service with the beacon
-  attached; wake targets the platform through the same `wake`
-  ExternalName pattern with the path rewritten to
-  `/internal/access/<gateway>/<instance>/…` — the PAIR IN THE PATH is
-  the whole authorization (#301's contract, carried verbatim through
+  never a port). Each access route matches the pairing gateway's
+  current pod address (`source_ip`, ADR-0040 Am. 6) as well as the
+  hostname; when the gateway has no running pod, the instance's access
+  routes are withheld (`delete_access_routes/2` → `:ok`) until it has
+  one, and a failed pod read returns `{:error, reason}`. Serving targets
+  the app Service with the beacon attached; wake targets the platform
+  through the same `wake` ExternalName pattern with the path rewritten
+  to `/internal/access/<gateway>/<instance>/…` — the PAIR IN THE PATH
+  is the whole authorization (#301's contract, carried verbatim through
   the Traefik hop). TLS comes from the default TLSStore for platform
   domains (the fleet wildcard, #116) and the domain's issued-wildcard
   Secret for verified custom ones — an unverified custom domain never
@@ -39,7 +43,8 @@ defmodule FluxVale.Infrastructure.Operations.EdgeRoutes do
   AttachInstance/DetachInstance (mint/remove per the pairing row),
   SetExposure's toggle limbs and compensating restores,
   VerifyAccessDomains (the janitor's transition mints and cert
-  replicas), and PerformTeardown's access none.
+  replicas), ReconcileAccessAdmission (the one-minute address
+  refresher), and PerformTeardown's access none.
   `apply_access_none_for_domain/3` serves the suspension funnel
   (`AccessDomain.Suspend`). The specs are the shared boundary, so they
   live here rather than being copied many ways (the
@@ -179,6 +184,19 @@ defmodule FluxVale.Infrastructure.Operations.EdgeRoutes do
   @spec apply_access_serving(Kubereq.Kubeconfig.t(), map(), Instance.t()) ::
           :ok | {:error, term()}
   def apply_access_serving(kubeconfig, gateway, instance) do
+    case InstanceK8s.gateway_pod_ip(kubeconfig, gateway) do
+      {:ok, pod_ip} ->
+        do_apply_access_serving(kubeconfig, gateway, instance, pod_ip)
+
+      {:error, :no_running_pod} ->
+        withhold_access_routes(kubeconfig, gateway, instance)
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
+  defp do_apply_access_serving(kubeconfig, gateway, instance, pod_ip) do
     with {:ok, _beacon} <-
            Middleware.create(
              kubeconfig,
@@ -187,7 +205,7 @@ defmodule FluxVale.Infrastructure.Operations.EdgeRoutes do
              beacon_spec(instance)
            ),
          :ok <- ensure_access_wake_targets(kubeconfig, gateway, instance) do
-      apply_hostname_routes(kubeconfig, gateway, instance, :serving)
+      apply_hostname_routes(kubeconfig, gateway, instance, :serving, pod_ip)
     end
   end
 
@@ -207,9 +225,31 @@ defmodule FluxVale.Infrastructure.Operations.EdgeRoutes do
   @spec apply_access_wake(Kubereq.Kubeconfig.t(), map(), Instance.t()) ::
           :ok | {:error, term()}
   def apply_access_wake(kubeconfig, gateway, instance) do
-    with :ok <- ensure_access_wake_targets(kubeconfig, gateway, instance) do
-      apply_hostname_routes(kubeconfig, gateway, instance, :wake)
+    case InstanceK8s.gateway_pod_ip(kubeconfig, gateway) do
+      {:ok, pod_ip} ->
+        do_apply_access_wake(kubeconfig, gateway, instance, pod_ip)
+
+      {:error, :no_running_pod} ->
+        withhold_access_routes(kubeconfig, gateway, instance)
+
+      {:error, _reason} = error ->
+        error
     end
+  end
+
+  defp do_apply_access_wake(kubeconfig, gateway, instance, pod_ip) do
+    with :ok <- ensure_access_wake_targets(kubeconfig, gateway, instance) do
+      apply_hostname_routes(kubeconfig, gateway, instance, :wake, pod_ip)
+    end
+  end
+
+  defp withhold_access_routes(kubeconfig, gateway, instance) do
+    Logger.info(
+      "Access edge: gateway #{gateway.id} has no running pod — withholding the access routes " <>
+        "for instance #{instance.id} until it has one"
+    )
+
+    delete_access_routes(kubeconfig, instance)
   end
 
   @doc """
@@ -321,18 +361,18 @@ defmodule FluxVale.Infrastructure.Operations.EdgeRoutes do
   # half-minted set is the caller's compensation problem, never a
   # silent partial posture). The gateway rides along for the routes'
   # ownership labels (Design 2: a future orphan is discoverable).
-  defp apply_hostname_routes(kubeconfig, gateway, instance, mode) do
+  defp apply_hostname_routes(kubeconfig, gateway, instance, mode, pod_ip) do
     instance.id
     |> hostname_rows()
     |> Enum.reduce_while(:ok, fn hostname, :ok ->
-      case apply_hostname_route(kubeconfig, gateway, instance, hostname, mode) do
+      case apply_hostname_route(kubeconfig, gateway, instance, hostname, mode, pod_ip) do
         :ok -> {:cont, :ok}
         {:error, _error} = error -> {:halt, error}
       end
     end)
   end
 
-  defp apply_hostname_route(kubeconfig, gateway, instance, hostname, mode) do
+  defp apply_hostname_route(kubeconfig, gateway, instance, hostname, mode, pod_ip) do
     domain = hostname.access_domain
 
     if domain.organization_id != instance.organization_id do
@@ -348,21 +388,34 @@ defmodule FluxVale.Infrastructure.Operations.EdgeRoutes do
 
       :ok
     else
-      mint_hostname_route(kubeconfig, gateway, instance, hostname, mode, domain)
+      mint_hostname_route(kubeconfig, gateway, instance, hostname, mode, domain, pod_ip)
     end
   end
 
-  defp mint_hostname_route(kubeconfig, gateway, instance, hostname, mode, domain) do
+  defp mint_hostname_route(kubeconfig, gateway, instance, hostname, mode, domain, pod_ip) do
     case access_tls_secret(kubeconfig, domain, instance) do
       :skip ->
-        :ok
+        # Dark is the posture, not a fault: the domain is not servable
+        # right now (unverified, or its certificate replica could not
+        # be read). A route still standing here would admit an address
+        # no pass can refresh — it comes down, the same honest dark the
+        # suspension funnel lands.
+        delete_hostname_routes(kubeconfig, instance, hostname)
 
       {:ok, tls_secret} ->
-        spec = access_route_spec(gateway, hostname, mode, tls_secret)
+        spec = access_route_spec(gateway, hostname, mode, tls_secret, pod_ip)
 
         case Ingress.create(kubeconfig, instance.namespace, access_route_name(hostname), spec) do
           {:ok, _route} ->
-            maybe_mint_access_dav(kubeconfig, gateway, instance, hostname, mode, tls_secret)
+            maybe_mint_access_dav(
+              kubeconfig,
+              gateway,
+              instance,
+              hostname,
+              mode,
+              tls_secret,
+              pod_ip
+            )
 
           {:error, _error} = error ->
             error
@@ -374,7 +427,7 @@ defmodule FluxVale.Infrastructure.Operations.EdgeRoutes do
   # the tunnel): a private instance's WebDAV must answer through the
   # gateway exactly as it does publicly. Same gate as the public pair —
   # no volume, no dav route ever existed.
-  defp maybe_mint_access_dav(kubeconfig, gateway, instance, hostname, mode, tls_secret) do
+  defp maybe_mint_access_dav(kubeconfig, gateway, instance, hostname, mode, tls_secret, pod_ip) do
     path_prefix = Application.fetch_env!(:flux_vale, :file_access)[:path_prefix]
     domain = hostname.access_domain
 
@@ -395,7 +448,7 @@ defmodule FluxVale.Infrastructure.Operations.EdgeRoutes do
         :ok
 
       true ->
-        spec = access_dav_route_spec(gateway, hostname, mode, path_prefix, tls_secret)
+        spec = access_dav_route_spec(gateway, hostname, mode, path_prefix, tls_secret, pod_ip)
 
         case Ingress.create(kubeconfig, instance.namespace, access_dav_route_name(hostname), spec) do
           {:ok, _route} -> :ok
@@ -415,12 +468,13 @@ defmodule FluxVale.Infrastructure.Operations.EdgeRoutes do
     |> Ash.read!(authorize?: false)
   end
 
-  defp access_route_spec(gateway, hostname, mode, tls_secret) do
+  defp access_route_spec(gateway, hostname, mode, tls_secret, pod_ip) do
     domain = hostname.access_domain
 
     base = %{
       host: "#{hostname.label}.#{domain.domain}",
       entrypoint: @access_entrypoint,
+      source_ip: pod_ip,
       tls: true,
       middlewares: access_middlewares(mode),
       # Ownership labels (Design 2): managed-by rides the builder's
@@ -442,8 +496,8 @@ defmodule FluxVale.Infrastructure.Operations.EdgeRoutes do
   # attached via the base), wake keeps the wake target and only narrows
   # the match to the path prefix. Same TLS posture as the app route.
   # `path_prefix` is validated by the caller (the skip + log guard).
-  defp access_dav_route_spec(gateway, hostname, mode, path_prefix, tls_secret) do
-    base = access_route_spec(gateway, hostname, mode, tls_secret)
+  defp access_dav_route_spec(gateway, hostname, mode, path_prefix, tls_secret, pod_ip) do
+    base = access_route_spec(gateway, hostname, mode, tls_secret, pod_ip)
 
     base
     |> put_access_dav_service(mode)

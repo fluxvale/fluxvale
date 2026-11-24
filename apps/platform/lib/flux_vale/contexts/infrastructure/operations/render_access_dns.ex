@@ -30,11 +30,12 @@ defmodule FluxVale.Infrastructure.Operations.RenderAccessDNS do
   **The view is derived state.** The arms (EdgeRoutes) and the claims
   (`dns_claims`) are the source of truth; every `call/1` is
   best-effort AFTER a primary write commits — a failed render never
-  fails the attach/detach/toggle/claim it rode in on, and the 15-minute
-  verify pass re-renders (the pod-move refresher and the drift healer).
-  A gateway between restarts has no pod, its views are omitted, and it
-  is dark for DNS until the next pass — the documented window. Nothing
-  is cached.
+  fails the attach/detach/toggle/claim it rode in on. Two passes
+  re-render: the one-minute admission pass re-renders when a gateway's
+  pod address moves (ADR-0040 Am. 6), and the 15-minute verify pass
+  remains the drift healer. A gateway between restarts has no pod, its
+  views are omitted, and it is dark for DNS until the next pass — the
+  documented window. Nothing is cached.
 
   The fleet's access-dns deployment mounts this ConfigMap (fleet #122)
   — the write is live resolution state, not a staging artifact.
@@ -42,7 +43,6 @@ defmodule FluxVale.Infrastructure.Operations.RenderAccessDNS do
 
   alias FluxVale.Clients.K8s
   alias FluxVale.Clients.K8s.Resources.ConfigMap
-  alias FluxVale.Clients.K8s.Resources.Pod
   alias FluxVale.Infrastructure.AccessDomain
   alias FluxVale.Infrastructure.AccessGateway
   alias FluxVale.Infrastructure.AccessProviders.Tailscale
@@ -150,7 +150,9 @@ defmodule FluxVale.Infrastructure.Operations.RenderAccessDNS do
   and tailnet IP (the provider's API client, token via the provider —
   the client's reach is unchanged). A gateway with no running pod, no
   readable token, or a failed device lookup is OMITTED (warning logged)
-  — dark until the next pass, the documented window.
+  — dark until the next pass, the documented window (the one-minute
+  admission pass re-renders when a gateway's address moves; the
+  15-minute verify pass remains the drift healer).
   """
   @spec gather() :: resolver_data()
   def gather do
@@ -161,10 +163,8 @@ defmodule FluxVale.Infrastructure.Operations.RenderAccessDNS do
       gateways ->
         case K8s.kubeconfig() do
           {:ok, kubeconfig} ->
-            namespace = InstanceK8s.gateway_access_namespace()
-
             gateways
-            |> Map.new(&gateway_data(kubeconfig, namespace, &1))
+            |> Map.new(&gateway_data(kubeconfig, &1))
             |> drop_omitted()
 
           # No cluster to read pods from: gather nothing rather than
@@ -365,8 +365,8 @@ defmodule FluxVale.Infrastructure.Operations.RenderAccessDNS do
   # Gather — pod IPs + tailnet IPs
   # ------------------------------------------------------------------
 
-  defp gateway_data(kubeconfig, namespace, gateway) do
-    with {:ok, pod_ip} <- pod_ip(kubeconfig, namespace, gateway),
+  defp gateway_data(kubeconfig, gateway) do
+    with {:ok, pod_ip} <- pod_ip(kubeconfig, gateway),
          {:ok, tailnet_ip} <- tailnet_ip(gateway) do
       {gateway.id, %{pod_ip: pod_ip, tailnet_ip: tailnet_ip}}
     else
@@ -379,32 +379,8 @@ defmodule FluxVale.Infrastructure.Operations.RenderAccessDNS do
     end
   end
 
-  # The gateway's CURRENT pod IP — a pod move is invisible to the claims,
-  # so the gather re-reads every pass (the 15-min refresher's reason to
-  # exist). Terminating pods are excluded (their IP is a REUSE window —
-  # the address may already belong to the replacement); among survivors
-  # the NEWEST wins. Only-Terminating = the no-pod omission path (dark
-  # until the next pass, the documented window). Residual: a survivor
-  # can still predate a just-landed replacement for one render cadence —
-  # shrunk from unbounded to 15 minutes, and the pass heals it.
-  defp pod_ip(kubeconfig, namespace, gateway) do
-    labels = InstanceK8s.gateway_pod_labels(gateway.id)
-
-    case Pod.list_by_labels(kubeconfig, namespace, labels) do
-      {:ok, pods} ->
-        survivors =
-          Enum.filter(pods, fn pod ->
-            not Pod.terminating?(pod) and Pod.running_ip(pod) != nil
-          end)
-
-        case Enum.sort_by(survivors, &Pod.started_at/1, {:desc, DateTime}) do
-          [] -> {:error, :no_running_pod}
-          [newest | _rest] -> {:ok, Pod.running_ip(newest)}
-        end
-
-      {:error, _reason} = error ->
-        error
-    end
+  defp pod_ip(kubeconfig, gateway) do
+    InstanceK8s.gateway_pod_ip(kubeconfig, gateway)
   end
 
   # The tailnet IP comes from the tailnet API (the only place the

@@ -67,6 +67,7 @@ defmodule FluxValeWeb.Api.GatewayRouteTest do
     stub(RenderAccessDNS, :call, fn -> :ok end)
     stub(RenderAccessDNS, :call, fn _opts -> :ok end)
     stub(K8s, :kubeconfig, fn _ref -> {:ok, %{}} end)
+    AccessFixtures.stub_gateway_pod()
 
     :ok
   end

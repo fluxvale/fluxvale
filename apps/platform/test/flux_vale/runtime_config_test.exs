@@ -13,6 +13,8 @@ defmodule FluxVale.RuntimeConfigTest do
 
   use ExUnit.Case, async: false
 
+  alias FluxVale.Janitor.ReconcileAccessAdmission
+
   @runtime_config Path.expand("../../config/runtime.exs", __DIR__)
 
   # Prod's block insists on these; set so the prod reads below don't
@@ -86,12 +88,16 @@ defmodule FluxVale.RuntimeConfigTest do
         assert {"17 * * * *", FluxVale.Workers.StaleTopupSweep} in crontab
         assert {"6-59/5 * * * *", FluxVale.Workers.BackupSweep} in crontab
         assert {"1-59/15 * * * *", FluxVale.Janitor.VerifyAccessDomains} in crontab
+        # ADR-0040 Am. 6's address refresher, every minute.
+        assert {"* * * * *", FluxVale.Janitor.ReconcileAccessAdmission} in crontab
+        # The same pass, every 15 minutes, UNCONDITIONAL.
+        assert {"7-59/15 * * * *", FluxVale.Janitor.ReconcileAccessAdmission,
+                args: %{"force" => true}} in crontab
+
         # #829's auto-recharge reminder sweep.
         assert {"23 * * * *", FluxVale.Workers.RechargeSweep} in crontab
         # ADR-0040 Amendment 2: no domain-accrual tick exists.
-        refute Enum.any?(crontab, fn {_expr, worker} ->
-                 inspect(worker) =~ "AccessDomainSettle"
-               end)
+        refute Enum.any?(crontab, fn entry -> inspect(entry) =~ "AccessDomainSettle" end)
 
         # #360 slice 3's request-window prune (daily, off the token prune).
         assert {"15 3 * * *", FluxVale.Janitor.PruneRequestWindows} in crontab
@@ -104,7 +110,7 @@ defmodule FluxVale.RuntimeConfigTest do
         assert {"15 4 * * *", FluxVale.Janitor.PruneOAuthAuditEvents} in crontab
         # #886's device-grant sweep (daily, off the 04:15 OAuth audit).
         assert {"30 4 * * *", FluxVale.Janitor.PruneDeviceGrants} in crontab
-        assert length(crontab) == 14
+        assert length(crontab) == 16
       end)
     end
 
@@ -136,7 +142,7 @@ defmodule FluxVale.RuntimeConfigTest do
         assert {"7 * * * *", FluxVale.Workers.ZeroBalanceSweep} in crontab
         assert {"13 * * * *", FluxVale.Workers.StrandedInstanceSweep} in crontab
         assert {"17 * * * *", FluxVale.Workers.StaleTopupSweep} in crontab
-        assert length(crontab) == 14
+        assert length(crontab) == 16
       end)
     end
 
@@ -144,6 +150,28 @@ defmodule FluxVale.RuntimeConfigTest do
       with_env(%{"RECHARGE_SWEEP_CRONEXPR" => "not a cron"}, fn ->
         assert_raise ArgumentError, ~r/RECHARGE_SWEEP_CRONEXPR/, fn -> read!(:dev) end
       end)
+    end
+  end
+
+  # ADR-0040 Am. 6: the minute pass's queue is declared where the job
+  # reads it (config.exs's Oban config — queues never ride runtime.exs),
+  # and the worker declares the same queue, so a rename can never leave
+  # the cron job on an undeclared queue.
+  describe "the admission pass's queue (ADR-0040 Am. 6)" do
+    test "the minute pass is on the crontab and its queue is declared for it" do
+      oban = Application.fetch_env!(:flux_vale, Oban)
+      plugins = Keyword.get(oban, :plugins, [])
+      {_plugin, cron_opts} = List.keyfind(plugins, Oban.Plugins.Cron, 0)
+
+      assert {"* * * * *", FluxVale.Janitor.ReconcileAccessAdmission} in Keyword.get(
+               cron_opts,
+               :crontab,
+               []
+             )
+
+      assert {:access_admission, 1} in Keyword.get(oban, :queues, [])
+
+      assert ReconcileAccessAdmission.__opts__()[:queue] == :access_admission
     end
   end
 

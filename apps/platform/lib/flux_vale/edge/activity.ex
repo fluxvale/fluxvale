@@ -19,6 +19,10 @@ defmodule FluxVale.Edge.Activity do
   same table debounces the wake endpoint's serving-route restores —
   one apply attempt per window per instance, so a public GET loop
   can't turn into unthrottled K8s writes.
+
+  It also holds the access edge's last-converged source address per
+  gateway (`{:admitted_source, gateway_id}`), in memory on purpose —
+  the routes are the record.
   """
 
   use GenServer
@@ -87,6 +91,45 @@ defmodule FluxVale.Edge.Activity do
       :proceed
   end
 
+  @doc """
+  The admission pass's (`ReconcileAccessAdmission`) last-converged
+  source for the gateway: the address string, `:none` (converged on
+  "no running pod"), `:dirty` (the last re-apply failed), or `nil`
+  (never converged here — a restart empties the memo).
+  """
+  @spec admitted_source(Ash.UUID.t()) :: String.t() | :none | :dirty | nil
+  def admitted_source(gateway_id) do
+    GenServer.call(__MODULE__, {:admitted_source, gateway_id})
+  end
+
+  @doc """
+  Every gateway id holding a memo entry — the admission pass prunes
+  the ids whose pairing is gone.
+  """
+  @spec admitted_source_ids() :: [Ash.UUID.t()]
+  def admitted_source_ids do
+    GenServer.call(__MODULE__, :admitted_source_ids)
+  end
+
+  @doc """
+  Records the admission pass's convergence for the gateway: the address
+  string, `:none`, or `:dirty` (an instance apply failed — the next
+  pass retries the whole set). Writer: the admission pass only.
+  """
+  @spec remember_admitted_source(Ash.UUID.t(), String.t() | :none | :dirty) :: :ok
+  def remember_admitted_source(gateway_id, source) do
+    GenServer.call(__MODULE__, {:remember_admitted_source, gateway_id, source})
+  end
+
+  @doc """
+  Drops the gateway's memo entry — the admission pass prunes ids that
+  no longer pair to anything (gateway ids are never reused).
+  """
+  @spec forget_admitted_source(Ash.UUID.t()) :: :ok
+  def forget_admitted_source(gateway_id) do
+    GenServer.call(__MODULE__, {:forget_admitted_source, gateway_id})
+  end
+
   @impl GenServer
   def init(:ok) do
     table = :ets.new(@table, [:named_table, :set, read_concurrency: true])
@@ -116,6 +159,25 @@ defmodule FluxVale.Edge.Activity do
       :ets.insert(table, {key, now})
       {:reply, :proceed, table}
     end
+  end
+
+  def handle_call({:admitted_source, gateway_id}, _from, table) do
+    {:reply, :ets.lookup_element(table, {:admitted_source, gateway_id}, 2, nil), table}
+  end
+
+  def handle_call(:admitted_source_ids, _from, table) do
+    ids = :ets.select(table, [{{{:admitted_source, :"$1"}, :_}, [], [:"$1"]}])
+    {:reply, ids, table}
+  end
+
+  def handle_call({:remember_admitted_source, gateway_id, source}, _from, table) do
+    :ets.insert(table, {{:admitted_source, gateway_id}, source})
+    {:reply, :ok, table}
+  end
+
+  def handle_call({:forget_admitted_source, gateway_id}, _from, table) do
+    :ets.delete(table, {:admitted_source, gateway_id})
+    {:reply, :ok, table}
   end
 
   defp mark_instance(table, instance_id, now) do

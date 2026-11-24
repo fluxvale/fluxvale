@@ -47,6 +47,7 @@ defmodule FluxVale.Infrastructure.Operations.VerifyAccessDomainsTest do
     # (best-effort). Default success; expect-ed where a test cares.
     stub(FluxVale.Infrastructure.Operations.RenderAccessDNS, :call, fn -> :ok end)
     stub(FluxVale.Infrastructure.Operations.RenderAccessDNS, :call, fn _opts -> :ok end)
+    AccessFixtures.stub_gateway_pod()
 
     {org, owner} = BillingFixtures.grant_free_org!()
     BillingFixtures.mark_paid!(org)

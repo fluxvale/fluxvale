@@ -42,6 +42,7 @@ defmodule FluxVale.Infrastructure.AccessGateway.ChangesTest do
     stub(Tailscale, :teardown_gateway, fn _gateway -> :ok end)
     stub(Tailscale, :update_credential, fn _gateway, _key -> :ok end)
     stub(Tailscale, :refresh_routes, fn _gateway -> {:ok, %{}} end)
+    AccessFixtures.stub_gateway_pod()
 
     {org, owner} = BillingFixtures.grant_free_org!()
     {:ok, wallet} = FluxVale.Billing.ensure_wallet(org)

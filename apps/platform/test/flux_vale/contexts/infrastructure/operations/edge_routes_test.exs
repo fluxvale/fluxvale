@@ -1,7 +1,7 @@
 defmodule FluxVale.Infrastructure.Operations.EdgeRoutesTest do
   @moduledoc false
 
-  use FluxVale.DataCase, async: true
+  use FluxVale.DataCase, async: false
   use Mimic
 
   import ExUnit.CaptureLog
@@ -15,6 +15,7 @@ defmodule FluxVale.Infrastructure.Operations.EdgeRoutesTest do
   alias FluxVale.Clients.K8s.Error
   alias FluxVale.Clients.K8s.Resources.Ingress
   alias FluxVale.Clients.K8s.Resources.Middleware
+  alias FluxVale.Clients.K8s.Resources.Pod
   alias FluxVale.Clients.K8s.Resources.Secret
   alias FluxVale.Clients.K8s.Resources.Service
   alias FluxVale.Identity.User
@@ -22,10 +23,16 @@ defmodule FluxVale.Infrastructure.Operations.EdgeRoutesTest do
   alias FluxVale.Infrastructure.Instance
   alias FluxVale.Infrastructure.InstanceHostname
   alias FluxVale.Infrastructure.Operations.EdgeRoutes
+  alias FluxVale.TestSupport.AccessFixtures
   alias FluxVale.TestSupport.BillingFixtures
   alias FluxVale.TestSupport.InstanceFixtures
 
   require Ash.Query
+
+  setup do
+    AccessFixtures.stub_gateway_pod()
+    :ok
+  end
 
   defp user do
     User.create!("edge-#{System.unique_integer()}@fluxvale.com", %{}, authorize?: false)
@@ -232,6 +239,11 @@ defmodule FluxVale.Infrastructure.Operations.EdgeRoutesTest do
           {:ok, %{}}
       end)
 
+      # A skipped hostname's standing route comes down now — the stub
+      # tolerates the call (this instance is not file-access, so the
+      # dav sibling is never hunted).
+      stub(Ingress, :delete, fn _kc, ^ns, "access-" <> _tail -> :ok end)
+
       log =
         capture_log(fn ->
           assert :ok = EdgeRoutes.apply_access_serving(%{}, gateway_stub(), instance)
@@ -281,6 +293,9 @@ defmodule FluxVale.Infrastructure.Operations.EdgeRoutesTest do
           # domain's, not the arm's.
           {:ok, %{}}
       end)
+
+      # The skipped hostname's standing route comes down — tolerate it.
+      stub(Ingress, :delete, fn _kc, _ns, "access-" <> _tail -> :ok end)
 
       log =
         capture_log(fn ->
@@ -554,6 +569,9 @@ defmodule FluxVale.Infrastructure.Operations.EdgeRoutesTest do
           {:ok, %{}}
       end)
 
+      # The skipped hostname's standing route comes down — tolerate it.
+      stub(Ingress, :delete, fn _kc, _ns, "access-" <> _tail -> :ok end)
+
       log =
         capture_log(fn ->
           assert :ok = EdgeRoutes.apply_access_wake(%{}, gateway_stub(), instance)
@@ -647,6 +665,9 @@ defmodule FluxVale.Infrastructure.Operations.EdgeRoutesTest do
           # The default platform hostname — an ordinary mint.
           {:ok, %{}}
       end)
+
+      # The skipped hostname's standing route comes down — tolerate it.
+      stub(Ingress, :delete, fn _kc, _ns, "access-" <> _tail -> :ok end)
 
       log =
         capture_log(fn ->
@@ -1205,6 +1226,249 @@ defmodule FluxVale.Infrastructure.Operations.EdgeRoutesTest do
   describe "instance_header/0" do
     test "is the one header name — the marker mints it, the endpoint reads it" do
       assert EdgeRoutes.instance_header() == "X-FluxVale-Instance"
+    end
+  end
+
+  describe "the gateway check" do
+    test "two organizations / two gateways, two addresses — serving route carries only its pairing gateway's address" do
+      stub_kubeconfig()
+      gateway_a = gateway_stub()
+      gateway_b = gateway_stub()
+      instance = instance!(%{})
+      ns = "fluxvale-app-#{instance.id}"
+
+      stub_access_targets(ns)
+      stub_two_gateways(gateway_a, "10.0.0.1", gateway_b, "10.0.0.2")
+
+      parent = self()
+
+      stub(Ingress, :create, fn _kc, ^ns, "access-" <> _tail, spec ->
+        send(parent, {:created_spec, spec})
+        {:ok, %{}}
+      end)
+
+      assert :ok = EdgeRoutes.apply_access_serving(%{}, gateway_b, instance)
+
+      specs = drain_created_specs()
+      assert [spec] = specs
+      assert spec.source_ip == "10.0.0.2"
+      refute Enum.any?(specs, &(&1.source_ip == "10.0.0.1"))
+    end
+
+    test "the /dav sibling carries the same source_ip (file-access instance)" do
+      stub_kubeconfig()
+      gateway_a = gateway_stub()
+      gateway_b = gateway_stub()
+      instance = instance!(%{file_access: true})
+      ns = "fluxvale-app-#{instance.id}"
+
+      stub_access_targets(ns)
+      stub_two_gateways(gateway_a, "10.0.0.1", gateway_b, "10.0.0.2")
+
+      parent = self()
+
+      stub(Ingress, :create, fn _kc, ^ns, "access-" <> _tail, spec ->
+        send(parent, {:created_spec, spec})
+        {:ok, %{}}
+      end)
+
+      assert :ok = EdgeRoutes.apply_access_serving(%{}, gateway_b, instance)
+
+      specs = drain_created_specs()
+      assert length(specs) == 2
+      assert Enum.all?(specs, &(&1.source_ip == "10.0.0.2"))
+      assert Enum.any?(specs, &(Map.get(&1, :path_prefix) == "/dav"))
+      refute Enum.any?(specs, &(&1.source_ip == "10.0.0.1"))
+    end
+
+    test "apply_access_wake/3 carries source_ip too (for gateway B, never A)" do
+      stub_kubeconfig()
+      gateway_a = gateway_stub()
+      gateway_b = gateway_stub()
+      instance = instance!(%{file_access: true})
+      ns = "fluxvale-app-#{instance.id}"
+
+      stub_access_targets(ns)
+      stub_two_gateways(gateway_a, "10.0.0.1", gateway_b, "10.0.0.2")
+
+      parent = self()
+
+      stub(Ingress, :create, fn _kc, ^ns, "access-" <> _tail, spec ->
+        send(parent, {:created_spec, spec})
+        {:ok, %{}}
+      end)
+
+      assert :ok = EdgeRoutes.apply_access_wake(%{}, gateway_b, instance)
+
+      specs = drain_created_specs()
+      assert length(specs) == 2
+      assert Enum.all?(specs, &(&1.service_name == "wake" and &1.source_ip == "10.0.0.2"))
+      refute Enum.any?(specs, &(&1.source_ip == "10.0.0.1"))
+    end
+
+    test "no running pod ({:ok, []}) — withholds routes via Ingress.delete, never calls Ingress.create, returns :ok" do
+      stub_kubeconfig()
+      gateway = gateway_stub()
+      instance = instance!(%{file_access: true})
+      ns = "fluxvale-app-#{instance.id}"
+
+      stub(Pod, :list_by_labels, fn _kc, _ns, _labels -> {:ok, []} end)
+      reject(Ingress, :create, 4)
+
+      parent = self()
+
+      stub(Ingress, :delete, fn _kc, ^ns, name ->
+        send(parent, {:deleted_route, name})
+        :ok
+      end)
+
+      # The suite logs at :warning, so the withhold line never emits at
+      # that level: the primary level rises for the two calls and
+      # restores right after. The module is async: false precisely so
+      # this global-level window cannot overlap another test's own
+      # level restore.
+      previous = Logger.level()
+      Logger.configure(level: :info)
+      on_exit(fn -> Logger.configure(level: previous) end)
+
+      log =
+        capture_log([level: :info], fn ->
+          assert :ok = EdgeRoutes.apply_access_serving(%{}, gateway, instance)
+          assert_received {:deleted_route, app_name}
+          assert app_name =~ ~r/^access-[0-9a-f]{10}$/
+          assert_received {:deleted_route, dav_name}
+          assert dav_name =~ ~r/^access-[0-9a-f]{10}-dav$/
+
+          assert :ok = EdgeRoutes.apply_access_wake(%{}, gateway, instance)
+          assert_received {:deleted_route, ^app_name}
+          assert_received {:deleted_route, ^dav_name}
+        end)
+
+      Logger.configure(level: previous)
+
+      assert log =~
+               "has no running pod — withholding the access routes for instance #{instance.id}"
+    end
+
+    test "a skipped domain's routes come down — a cert that cannot replicate tears them out" do
+      stub_kubeconfig()
+      owner = user()
+      instance = instance!(%{file_access: true}, %{}, owner)
+      ns = "fluxvale-app-#{instance.id}"
+
+      domain = custom_domain!(owner, verified?: true)
+
+      row =
+        InstanceHostname.mint!(
+          %{instance_id: instance.id, access_domain_id: domain.id, label: "wiki"},
+          authorize?: false
+        )
+
+      tail =
+        row.id
+        |> to_string()
+        |> String.replace("-", "")
+        |> String.slice(-10, 10)
+
+      stub_access_targets(ns)
+
+      # The domain turns un-servable: its certificate replica can no
+      # longer be read. The skip is now a teardown of whatever the
+      # domain's hostnames had standing — the address refresher can
+      # never refresh a skipped hostname's route.
+      stub(Secret, :get_data, fn _kc, _ns, _name ->
+        {:error, Error.from_response({:ok, %{status: 404, body: %{}}})}
+      end)
+
+      parent = self()
+
+      stub(Ingress, :delete, fn _kc, ^ns, name ->
+        send(parent, {:deleted_route, name})
+        :ok
+      end)
+
+      stub(Ingress, :create, fn _kc, ^ns, name, _spec ->
+        send(parent, {:created_route, name})
+        {:ok, %{}}
+      end)
+
+      log =
+        capture_log(fn ->
+          assert :ok = EdgeRoutes.apply_access_serving(%{}, gateway_stub(), instance)
+        end)
+
+      assert log =~ "certificate secret could not be replicated"
+      assert log =~ "never routing a dead cert"
+
+      # The skipped hostname's app route AND its /dav sibling come
+      # down, and nothing is minted for it. (The platform hostname's
+      # own routes still mint — the skip is the domain's, not the
+      # arm's.)
+      assert_received {:deleted_route, "access-" <> ^tail}
+      assert_received {:deleted_route, "access-" <> ^tail <> "-dav"}
+      refute_received {:created_route, "access-" <> ^tail}
+      refute_received {:created_route, "access-" <> ^tail <> "-dav"}
+    end
+
+    test "pod list failure ({:error, ...}) — returns {:error, _}, never calls Ingress.create" do
+      stub_kubeconfig()
+      gateway = gateway_stub()
+      instance = instance!(%{})
+      err = Error.connection_error("apiserver unreachable")
+
+      stub(Pod, :list_by_labels, fn _kc, _ns, _labels -> {:error, err} end)
+      reject(Ingress, :create, 4)
+
+      assert {:error, ^err} = EdgeRoutes.apply_access_serving(%{}, gateway, instance)
+      assert {:error, ^err} = EdgeRoutes.apply_access_wake(%{}, gateway, instance)
+    end
+
+    test "apply_serving/2 on a public instance has no :source_ip key in the spec" do
+      stub_kubeconfig()
+      instance = instance!(%{file_access: true})
+
+      reject(Pod, :list_by_labels, 3)
+      stub(Middleware, :create, fn _kc, _ns, _name, _spec -> {:ok, %{}} end)
+
+      parent = self()
+
+      stub(Ingress, :create, fn _kc, _ns, _name, spec ->
+        send(parent, {:created_spec, spec})
+        {:ok, %{}}
+      end)
+
+      assert :ok = EdgeRoutes.apply_serving(%{}, instance)
+
+      specs = drain_created_specs()
+      assert length(specs) == 2
+      assert Enum.all?(specs, &(not Map.has_key?(&1, :source_ip)))
+    end
+
+    defp stub_two_gateways(gateway_a, ip_a, gateway_b, ip_b) do
+      id_a = gateway_a.id
+      id_b = gateway_b.id
+
+      stub(Pod, :list_by_labels, fn _kc, _ns, labels ->
+        case labels["fluxvale.io/gateway"] do
+          ^id_a -> {:ok, [gateway_pod(ip_a)]}
+          ^id_b -> {:ok, [gateway_pod(ip_b)]}
+        end
+      end)
+    end
+
+    defp gateway_pod(ip) do
+      %{
+        "metadata" => %{"creationTimestamp" => "2026-11-01T02:00:00Z"},
+        "status" => %{"phase" => "Running", "podIP" => ip}
+      }
+    end
+
+    defp drain_created_specs(acc \\ []) do
+      receive do
+        {:created_spec, spec} -> drain_created_specs([spec | acc])
+      after
+        0 -> Enum.reverse(acc)
+      end
     end
   end
 end

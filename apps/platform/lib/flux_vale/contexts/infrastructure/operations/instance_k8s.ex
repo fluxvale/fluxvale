@@ -15,6 +15,7 @@ defmodule FluxVale.Infrastructure.Operations.InstanceK8s do
   alias FluxVale.Clients.K8s
   alias FluxVale.Clients.K8s.Error
   alias FluxVale.Clients.K8s.Resources.PersistentVolumeClaim
+  alias FluxVale.Clients.K8s.Resources.Pod
   alias FluxVale.Clients.K8s.Resources.Secret
   alias FluxVale.Clients.K8s.Resources.Service
   alias FluxVale.Infrastructure.AccessRoute
@@ -172,6 +173,37 @@ defmodule FluxVale.Infrastructure.Operations.InstanceK8s do
       "app.kubernetes.io/name" => "access-gateway",
       "fluxvale.io/gateway" => gateway_id
     }
+  end
+
+  @doc """
+  The gateway's CURRENT pod address — the source its traffic arrives from at
+  the edge (Traefik's TCP peer) and at the resolver (the view's source key).
+  A pod move is invisible to every row, so callers re-read it on each pass.
+  Terminating pods are excluded (their address is a reuse window); among
+  survivors the NEWEST wins. Zero survivors → `{:error, :no_running_pod}`;
+  a failed list → the client's error.
+  """
+  @spec gateway_pod_ip(Kubereq.Kubeconfig.t(), map()) ::
+          {:ok, String.t()} | {:error, :no_running_pod} | {:error, Error.t()}
+  def gateway_pod_ip(kubeconfig, gateway) do
+    namespace = gateway_access_namespace()
+    labels = gateway_pod_labels(gateway.id)
+
+    case Pod.list_by_labels(kubeconfig, namespace, labels) do
+      {:ok, pods} ->
+        survivors =
+          Enum.filter(pods, fn pod ->
+            not Pod.terminating?(pod) and Pod.running_ip(pod) != nil
+          end)
+
+        case Enum.sort_by(survivors, &Pod.started_at/1, {:desc, DateTime}) do
+          [] -> {:error, :no_running_pod}
+          [newest | _rest] -> {:ok, Pod.running_ip(newest)}
+        end
+
+      {:error, _reason} = error ->
+        error
+    end
   end
 
   @doc """

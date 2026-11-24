@@ -63,6 +63,7 @@ defmodule FluxVale.Infrastructure.Operations.AttachInstanceTest do
     stub(NetworkPolicy, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
     stub(Ingress, :delete, fn _kc, _ns, _n -> not_found() end)
     stub(Middleware, :delete, fn _kc, _ns, _n -> not_found() end)
+    AccessFixtures.stub_gateway_pod()
 
     # The S4 hook: a committed attach re-renders the resolver view
     # best-effort. Default success; expect-ed where a test cares.
