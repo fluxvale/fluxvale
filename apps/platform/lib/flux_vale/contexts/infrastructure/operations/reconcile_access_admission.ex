@@ -35,8 +35,9 @@ defmodule FluxVale.Infrastructure.Operations.ReconcileAccessAdmission do
   and a restart empties the memo so every paired gateway re-applies
   once.
 
-  Steady state is one pod list per paired gateway per minute and no
-  writes.
+  Steady state is one pod list per paired gateway per minute; the only
+  scheduled writes are the forced pass's idempotent re-applies every
+  fifteen minutes.
   """
 
   alias FluxVale.Clients.K8s

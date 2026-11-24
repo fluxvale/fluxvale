@@ -828,8 +828,9 @@ gateway's source address as well as its hostname:
   #301 last-writer guard) and re-renders the resolver views. The first pass after a deploy
   converges every existing route. Every fifteenth pass re-applies unconditionally, so a
   concurrent lifecycle write that lands last with an older read is corrected within fifteen
-  minutes. Steady state is one pod list per paired gateway per minute
-  and no writes.
+  minutes. Steady state is one pod list per paired gateway per minute;
+  the only scheduled writes are the forced pass's idempotent re-applies
+  every fifteen minutes.
 - **The wake arm carries the clause too.** The pair in the path (§7) proves the pairing,
   not the caller: through another gateway it still named a valid pair and would wake the
   instance. The controller is unchanged.
