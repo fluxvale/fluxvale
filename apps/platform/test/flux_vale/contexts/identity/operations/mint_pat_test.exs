@@ -9,6 +9,7 @@ defmodule FluxVale.Identity.Operations.MintPatTest do
 
   import ExUnit.CaptureLog
 
+  alias FluxVale.Api.Scopes
   alias FluxVale.Identity
   alias FluxVale.Identity.PersonalAccessToken
   alias FluxVale.Identity.PersonalAccessToken.EnforceDerivedTokenCap
@@ -183,6 +184,24 @@ defmodule FluxVale.Identity.Operations.MintPatTest do
                })
 
       assert [] = PersonalAccessToken.list_for_user!(member.id, authorize?: false)
+    end
+
+    test "picker levels expand to stored catalog scopes that grant as minted" do
+      member = member!("picker-levels@fluxvale.com")
+
+      assert {:ok, scopes} =
+               Scopes.scopes_for_levels(%{"instances" => "write", "wallet" => "read"})
+
+      assert {:ok, %{pat: pat}} =
+               Identity.mint_pat(admin!(), %{user_id: member.id, name: "picker", scopes: scopes})
+
+      assert pat.scopes == ["instances:read", "instances:write", "wallet:read"]
+
+      for scope <- ["instances:read", "instances:write", "wallet:read"] do
+        assert Scopes.grants?(pat.scopes, scope)
+      end
+
+      refute Scopes.grants?(pat.scopes, "backups:read")
     end
   end
 

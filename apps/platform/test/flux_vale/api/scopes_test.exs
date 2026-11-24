@@ -257,4 +257,159 @@ defmodule FluxVale.Api.ScopesTest do
       assert :error = Scopes.required_scope("POST", ["me"])
     end
   end
+
+  describe "domains/0" do
+    test "one entry per domain, in catalog order" do
+      keys = Enum.map(Scopes.domains(), & &1.key)
+
+      assert keys == ["instances", "backups", "gateways", "wallet", "catalog", "organizations"]
+    end
+
+    test "each entry carries the domain, its key, and a capitalized label" do
+      for domain <- Scopes.domains() do
+        assert Atom.to_string(domain.domain) == domain.key
+        assert domain.label == String.capitalize(domain.key)
+      end
+    end
+
+    test "wallet and catalog are read-only: no write scope or write description" do
+      for domain <- Scopes.domains(), domain.key in ["wallet", "catalog"] do
+        refute domain.writable?
+        assert domain.write_scope == nil
+        assert domain.write_description == nil
+        assert domain.read_scope == "#{domain.key}:read"
+        assert domain.read_description == Scopes.describe(domain.read_scope)
+      end
+    end
+
+    test "the writable domains carry both scopes with real descriptions" do
+      writable = Enum.filter(Scopes.domains(), & &1.writable?)
+
+      assert Enum.map(writable, & &1.key) == ["instances", "backups", "gateways", "organizations"]
+
+      for domain <- writable do
+        assert domain.write_scope == "#{domain.key}:write"
+        assert domain.write_description == Scopes.describe(domain.write_scope)
+        assert domain.read_description == Scopes.describe(domain.read_scope)
+      end
+    end
+
+    test "the union of domain scopes equals the flat catalog" do
+      domain_scopes =
+        Enum.flat_map(Scopes.domains(), fn domain ->
+          Enum.reject([domain.read_scope, domain.write_scope], &is_nil/1)
+        end)
+
+      assert Enum.sort(domain_scopes) == Enum.sort(Scopes.all_scopes())
+    end
+
+    test "every catalog scope carries a real description" do
+      for scope <- Scopes.all_scopes() do
+        assert Scopes.describe(scope) != scope
+      end
+    end
+  end
+
+  describe "default_levels/0" do
+    test "every domain key starts at none" do
+      assert Scopes.default_levels() == %{
+               "instances" => "none",
+               "backups" => "none",
+               "gateways" => "none",
+               "wallet" => "none",
+               "catalog" => "none",
+               "organizations" => "none"
+             }
+    end
+  end
+
+  describe "scopes_for_level/2" do
+    test "none expands to no scopes on any domain" do
+      assert {:ok, []} = Scopes.scopes_for_level("instances", "none")
+      assert {:ok, []} = Scopes.scopes_for_level("wallet", "none")
+    end
+
+    test "read expands to the domain's read scope" do
+      assert {:ok, ["instances:read"]} = Scopes.scopes_for_level("instances", "read")
+    end
+
+    test "write on a writable domain expands to read and write" do
+      assert {:ok, ["instances:read", "instances:write"]} =
+               Scopes.scopes_for_level("instances", "write")
+    end
+
+    test "write on a read-only domain is rejected" do
+      assert {:error, {:invalid_scope, "wallet:write"}} =
+               Scopes.scopes_for_level("wallet", "write")
+
+      assert {:error, {:invalid_scope, "catalog:write"}} =
+               Scopes.scopes_for_level("catalog", "write")
+    end
+
+    test "an unknown domain is rejected" do
+      assert {:error, {:invalid_scope, "bogus:read"}} = Scopes.scopes_for_level("bogus", "read")
+    end
+
+    test "an unknown level is rejected" do
+      assert {:error, {:invalid_scope, "instances:admin"}} =
+               Scopes.scopes_for_level("instances", "admin")
+    end
+
+    test "non-binary input is rejected with the inspected pair" do
+      non_binary_domain = Enum.at([123], 0)
+      non_binary_level = Enum.at([123], 0)
+
+      assert {:error, {:invalid_scope, "123:\"read\""}} =
+               Scopes.scopes_for_level(non_binary_domain, "read")
+
+      assert {:error, {:invalid_scope, "\"instances\":123"}} =
+               Scopes.scopes_for_level("instances", non_binary_level)
+    end
+  end
+
+  describe "scopes_for_levels/1" do
+    test "an empty map expands to no scopes" do
+      assert {:ok, []} = Scopes.scopes_for_levels(%{})
+    end
+
+    test "all none expands to no scopes" do
+      assert {:ok, []} = Scopes.scopes_for_levels(Scopes.default_levels())
+    end
+
+    test "a mixed selection expands in catalog order" do
+      assert {:ok, scopes} =
+               Scopes.scopes_for_levels(%{
+                 "instances" => "write",
+                 "wallet" => "read",
+                 "organizations" => "write"
+               })
+
+      assert scopes == [
+               "instances:read",
+               "instances:write",
+               "wallet:read",
+               "organizations:read",
+               "organizations:write"
+             ]
+    end
+
+    test "a write level on a read-only domain fails closed" do
+      assert {:error, {:invalid_scope, _scope}} = Scopes.scopes_for_levels(%{"wallet" => "write"})
+    end
+
+    test "an unknown domain key fails closed" do
+      assert {:error, {:invalid_scope, _scope}} = Scopes.scopes_for_levels(%{"bogus" => "read"})
+    end
+
+    test "an unknown level fails closed" do
+      assert {:error, {:invalid_scope, _scope}} =
+               Scopes.scopes_for_levels(%{"instances" => "admin"})
+    end
+
+    test "a non-map input is rejected" do
+      non_map = Enum.at([["nope"]], 0)
+
+      assert {:error, {:invalid_scope, "invalid"}} = Scopes.scopes_for_levels(non_map)
+    end
+  end
 end
