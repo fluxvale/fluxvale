@@ -22,12 +22,13 @@ defmodule FluxValeWeb.DeveloperSettingsLive do
   approval binds one (the human compares the on-screen user_code
   with their terminal's before clicking, the gh posture).
 
-  API tokens: the actor's own PATs — create (name + scopes off the
-  existing catalog), the raw value shown once at creation, and
-  revoke, effective immediately. Self-service by construction: the
-  reads and writes ride the owner-scoped policies. The section
-  links the agent quickstart (#484 W5, /settings/agents) — the MCP
-  recipe one click from the mint, wherever the mint lives.
+  API tokens: the actor's own PATs — create (name + a per-domain
+  access level off the grouped picker, #892), the raw value shown
+  once at creation, and revoke, effective immediately. Self-service
+  by construction: the reads and writes ride the owner-scoped
+  policies. The section links the agent quickstart (#484 W5,
+  /settings/agents) — the MCP recipe one click from the mint,
+  wherever the mint lives.
 
   Connected apps (#766): the MCP clients the actor approved through
   OAuth, one row per token family. Disconnect revokes the whole family;
@@ -53,7 +54,7 @@ defmodule FluxValeWeb.DeveloperSettingsLive do
      |> assign(fresh_token: nil, token_revoke_armed_id: nil, token_form_key: 0)
      |> assign(oauth_disconnect_armed_id: nil)
      |> assign(token_form: to_form(%{"name" => ""}, as: "token", id: "api-token-form-0"))
-     |> assign(catalog_scopes: Scopes.all_scopes())
+     |> assign(scope_domains: Scopes.domains(), scope_levels: Scopes.default_levels())
      |> refresh_device_sign_ins()
      |> refresh_oauth_connections()
      |> refresh_api_tokens()}
@@ -170,40 +171,47 @@ defmodule FluxValeWeb.DeveloperSettingsLive do
 
   # ---- API tokens (#483): create, list, revoke the actor's own PATs ----
 
+  # The picker's change events keep the server state aligned with the
+  # radios (#892): the typed name rides along (the form's source data,
+  # so a re-render never wipes it) and each {domain, level} entry is
+  # folded in only when it expands cleanly — a crafted or stale entry
+  # is ignored, so @scope_levels is always valid and the summary always
+  # renders from Scopes.scopes_for_levels/1.
+  def handle_event("scope-change", %{"token" => params}, socket) when is_map(params) do
+    form =
+      to_form(
+        %{"name" => raw_name_from(params)},
+        as: "token",
+        id: "api-token-form-#{socket.assigns.token_form_key}"
+      )
+
+    levels = merge_scope_levels(socket.assigns.scope_levels, Map.get(params, "domain_levels"))
+
+    {:noreply, assign(socket, token_form: form, scope_levels: levels)}
+  end
+
+  # A crafted change without a form payload is a no-op, never a crash.
+  def handle_event("scope-change", _params, socket), do: {:noreply, socket}
+
   # The create rides the MintPat operation (the domain is the seam):
-  # scopes validated against the catalog twice (operation + resource),
-  # the hash-only write, the raw value back exactly once. The form
-  # offers exactly the catalog, so an off-catalog scope can only
-  # arrive crafted — the domain still refuses it before anything is
-  # generated. Empty scopes is a valid mint (the scopeless routes).
+  # the picker's levels expand to catalog scopes (Scopes.scopes_for_levels/1
+  # validates every entry first), the hash-only write, the raw value
+  # back exactly once. The picker can only submit levels its own change
+  # handler accepted, so an off-catalog scope can only arrive crafted —
+  # the expansion refuses it before anything is generated. Every level
+  # at "none" is a valid mint (the scopeless routes).
   def handle_event("create-token", %{"token" => params}, socket) when is_map(params) do
     user = socket.assigns.current_user
     name = name_from(params)
 
-    scopes = List.wrap(params["scopes"] || [])
-
     if name == "" do
       {:noreply, put_flash(socket, :error, "Give the token a name first.")}
     else
-      case Identity.mint_pat(user, %{user_id: user.id, name: name, scopes: scopes}) do
-        {:ok, %{token: raw, pat: pat}} ->
-          {:noreply,
-           socket
-           |> assign(fresh_token: %{id: pat.id, name: pat.name, token: raw})
-           |> assign_new_form_key()
-           |> refresh_api_tokens()}
+      levels = Map.get(params, "domain_levels", %{})
 
-        {:error, {kind, _scope}} when kind in [:invalid_scope, :duplicate_scope] ->
-          {:noreply,
-           put_flash(
-             socket,
-             :error,
-             "Couldn't create the token. The scope selection wasn't valid. Refresh and try again."
-           )}
-
-        {:error, _refused} ->
-          {:noreply,
-           put_flash(socket, :error, "Couldn't create the token. Check the name and try again.")}
+      case Scopes.scopes_for_levels(levels) do
+        {:ok, scopes} -> mint_token(socket, user, name, scopes)
+        {:error, {:invalid_scope, _scope}} -> invalid_selection_flash(socket)
       end
     end
   end
@@ -345,22 +353,77 @@ defmodule FluxValeWeb.DeveloperSettingsLive do
 
   # A successful mint re-keys the form. The typed name lives in the
   # input's dirty value, which a value-attribute patch cannot clear
-  # (HTML default-value semantics) — the checkboxes are likewise
+  # (HTML default-value semantics) — the radios are likewise
   # uncontrolled — so a plain re-assign would leave the submission
   # armed for a duplicate mint on the next click. A changed id replaces
-  # the whole form subtree: fresh inputs, server-rendered defaults. A
-  # FAILED submit keeps the key, so the user fixes the name instead of
-  # retyping it.
+  # the whole form subtree: fresh inputs, server-rendered defaults.
+  # The level map resets with it (the fresh radios render "none"
+  # everywhere), so the summary matches what the new form shows. A
+  # FAILED submit keeps the key and the levels, so the user fixes the
+  # name instead of starting over.
   defp assign_new_form_key(socket) do
     key = socket.assigns.token_form_key + 1
 
     socket
     |> assign(token_form_key: key)
     |> assign(token_form: to_form(%{"name" => ""}, as: "token", id: "api-token-form-#{key}"))
+    |> assign(scope_levels: Scopes.default_levels())
   end
 
   defp name_from(%{"name" => name}) when is_binary(name), do: String.trim(name)
   defp name_from(_params), do: ""
+
+  # The change event's raw name for the form's source data — no trim
+  # (the input keeps exactly what was typed), unlike the create path.
+  defp raw_name_from(%{"name" => name}) when is_binary(name), do: name
+  defp raw_name_from(_params), do: ""
+
+  # Fold crafted-safe: an entry rides only when its {domain, level}
+  # expands to catalog scopes; anything else (unknown domain, unknown
+  # level, write on a read-only domain, a non-map payload) leaves the
+  # current levels standing — @scope_levels can never hold an invalid
+  # entry, so the picker's render and the create's expansion always
+  # agree.
+  defp merge_scope_levels(current, levels) when is_map(levels) do
+    Enum.reduce(levels, current, fn {domain, level}, acc ->
+      outcome = Scopes.scopes_for_level(domain, level)
+
+      case outcome do
+        {:ok, _scopes} -> Map.put(acc, domain, level)
+        {:error, _invalid} -> acc
+      end
+    end)
+  end
+
+  defp merge_scope_levels(current, _levels), do: current
+
+  # The mint's own depth: the level expansion in the create handler,
+  # the result mapping here. The expansion only returns catalog
+  # scopes, so the operation's scope-validation refusal cannot fire —
+  # whatever error comes back is a name/policy refusal.
+  defp mint_token(socket, user, name, scopes) do
+    case Identity.mint_pat(user, %{user_id: user.id, name: name, scopes: scopes}) do
+      {:ok, %{token: raw, pat: pat}} ->
+        {:noreply,
+         socket
+         |> assign(fresh_token: %{id: pat.id, name: pat.name, token: raw})
+         |> assign_new_form_key()
+         |> refresh_api_tokens()}
+
+      {:error, _refused} ->
+        {:noreply,
+         put_flash(socket, :error, "Couldn't create the token. Check the name and try again.")}
+    end
+  end
+
+  defp invalid_selection_flash(socket) do
+    {:noreply,
+     put_flash(
+       socket,
+       :error,
+       "Couldn't create the token. The scope selection wasn't valid. Refresh and try again."
+     )}
+  end
 
   # ---- Connected apps copy ----
 
@@ -413,20 +476,21 @@ defmodule FluxValeWeb.DeveloperSettingsLive do
   defp device_minted?(%PersonalAccessToken{metadata: %{"minted_via" => "device"}}), do: true
   defp device_minted?(%PersonalAccessToken{}), do: false
 
-  # The human hint beside each catalog scope string, built from the
-  # string itself so a catalog addition labels itself (the checkboxes
-  # render from Scopes.all_scopes/0, so the two can't drift apart).
-  defp scope_label(scope) do
-    case String.split(scope, ":") do
-      [domain, "read"] -> String.capitalize(domain) <> ", read only"
-      [domain, _write] -> String.capitalize(domain) <> ", manage (includes read)"
-      # A multi-colon catalog scope cannot exist while Scopes.validate
-      # is exact-membership; the arm bounds a future shape (the raw
-      # string labels itself) instead of crashing every mount.
-      # coveralls-ignore-next-line
-      _other -> scope
-    end
+  # The scopes the current level map mints, in catalog order. The map
+  # is merge_scope_levels/2's output — always valid — so the expansion
+  # cannot fail and the summary renders from the same seam the create
+  # validates with.
+  defp selected_scopes(scope_levels) do
+    {:ok, scopes} = Scopes.scopes_for_levels(scope_levels)
+    scopes
   end
+
+  # The selector track's grid: three equal columns for a writable
+  # domain, two narrower ones for a read-only domain so its No access
+  # and Read columns line up with the writable rows' columns.
+  defp segment_grid_classes(%{writable?: true}), do: "grid grid-cols-3 gap-1"
+
+  defp segment_grid_classes(%{writable?: false}), do: "grid grid-cols-2 gap-1 sm:w-2/3"
 
   # ---- Device sign-ins copy (#362) ----
 
@@ -729,6 +793,7 @@ defmodule FluxValeWeb.DeveloperSettingsLive do
                     for={@token_form}
                     id={"api-token-form-#{@token_form_key}"}
                     phx-submit="create-token"
+                    phx-change="scope-change"
                   >
                     <div class="space-y-4">
                       <.input
@@ -741,31 +806,164 @@ defmodule FluxValeWeb.DeveloperSettingsLive do
                         data-testid="api-token-name-input"
                       />
 
+                      <%!-- The grouped picker (#892): one three-state row
+                        per domain (No access / Read / Write), two-state
+                        where the catalog has no write scope. The change
+                        events keep @scope_levels valid server-side, so
+                        the detail blocks, the summary and the mint all
+                        read the same expansion. --%>
                       <div>
                         <p class="text-sm font-medium text-ink">Scopes</p>
-                        <ul class="mt-2 space-y-2">
-                          <li :for={scope <- @catalog_scopes} class="flex items-center gap-2.5">
-                            <input
-                              id={"api-token-scope-#{scope}"}
-                              type="checkbox"
-                              name="token[scopes][]"
-                              value={scope}
-                              class="size-4 rounded border-line-strong accent-primary"
-                              data-testid="api-token-scope"
-                            />
-                            <label
-                              for={"api-token-scope-#{scope}"}
-                              class="flex cursor-pointer flex-wrap items-center gap-2 text-sm text-ink"
+
+                        <div
+                          data-testid="api-token-scope-groups"
+                          class="mt-2 divide-y divide-line rounded-control border border-line bg-panel"
+                        >
+                          <fieldset
+                            :for={domain <- @scope_domains}
+                            data-testid={"api-token-scope-group-#{domain.key}"}
+                            data-domain={domain.key}
+                            data-level={Map.get(@scope_levels, domain.key, "none")}
+                            class="p-3"
+                          >
+                            <legend class="sr-only">{domain.label} access</legend>
+                            <% level = Map.get(@scope_levels, domain.key, "none") %>
+
+                            <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                              <div class="flex items-center gap-2">
+                                <span class="text-sm font-medium text-ink">{domain.label}</span>
+                                <span
+                                  :if={not domain.writable?}
+                                  class="rounded-pill border border-line bg-panel-raised px-2 py-0.5 text-xs text-ink-muted"
+                                  data-testid={"api-token-scope-readonly-#{domain.key}"}
+                                >
+                                  Read-only
+                                </span>
+                              </div>
+
+                              <div class="sm:w-64 sm:shrink-0">
+                                <div class={segment_grid_classes(domain)}>
+                                  <label
+                                    for={"api-token-scope-#{domain.key}-none"}
+                                    class={[
+                                      "flex cursor-pointer items-center justify-center rounded-control border border-line bg-panel px-1 py-1.5 text-xs font-medium text-ink-muted transition-colors hover:border-line-strong hover:text-ink",
+                                      "has-checked:border-line-primary has-checked:bg-primary-muted has-checked:text-ink"
+                                    ]}
+                                    data-testid={"api-token-scope-#{domain.key}-none"}
+                                  >
+                                    <input
+                                      id={"api-token-scope-#{domain.key}-none"}
+                                      type="radio"
+                                      name={"token[domain_levels][#{domain.key}]"}
+                                      value="none"
+                                      checked={level == "none"}
+                                      class="sr-only"
+                                    /> No access
+                                  </label>
+
+                                  <label
+                                    for={"api-token-scope-#{domain.key}-read"}
+                                    class={[
+                                      "flex cursor-pointer items-center justify-center rounded-control border border-line bg-panel px-1 py-1.5 text-xs font-medium text-ink-muted transition-colors hover:border-line-strong hover:text-ink",
+                                      "has-checked:border-line-primary has-checked:bg-primary-muted has-checked:text-ink",
+                                      level == "write" &&
+                                        "border-line-warning bg-warning-muted text-ink"
+                                    ]}
+                                    data-included={if(level == "write", do: "true", else: "false")}
+                                    data-testid={"api-token-scope-#{domain.key}-read"}
+                                  >
+                                    <input
+                                      id={"api-token-scope-#{domain.key}-read"}
+                                      type="radio"
+                                      name={"token[domain_levels][#{domain.key}]"}
+                                      value="read"
+                                      checked={level == "read"}
+                                      class="sr-only"
+                                    />
+                                    {if(level == "write", do: "✓ Read", else: "Read")}
+                                  </label>
+
+                                  <label
+                                    :if={domain.writable?}
+                                    for={"api-token-scope-#{domain.key}-write"}
+                                    class={[
+                                      "flex cursor-pointer items-center justify-center rounded-control border border-line bg-panel px-1 py-1.5 text-xs font-medium text-ink-muted transition-colors hover:border-line-strong hover:text-ink",
+                                      "has-checked:border-line-primary has-checked:bg-primary-muted has-checked:text-ink"
+                                    ]}
+                                    data-testid={"api-token-scope-#{domain.key}-write"}
+                                  >
+                                    <input
+                                      id={"api-token-scope-#{domain.key}-write"}
+                                      type="radio"
+                                      name={"token[domain_levels][#{domain.key}]"}
+                                      value="write"
+                                      checked={level == "write"}
+                                      class="sr-only"
+                                    /> Write
+                                  </label>
+                                </div>
+                              </div>
+                            </div>
+
+                            <div
+                              data-testid={"api-token-scope-detail-#{domain.key}"}
+                              class="mt-2 text-xs text-ink-muted"
                             >
-                              <span class="font-mono text-xs">{scope}</span>
-                              <span class="text-xs text-ink-subtle">{scope_label(scope)}</span>
-                            </label>
-                          </li>
-                        </ul>
-                        <p class="mt-2 text-xs text-ink-subtle">
-                          Write includes read for its domain. Leave all unchecked for a token
-                          that can only identify itself, like the account profile route.
-                        </p>
+                              <%= case level do %>
+                                <% "none" -> %>
+                                  <%= if domain.writable? do %>
+                                    No access
+                                  <% else %>
+                                    No access. No write scope exists for this domain.
+                                  <% end %>
+                                <% "read" -> %>
+                                  <span class="font-mono text-ink">{domain.read_scope}</span>
+                                  <span>{domain.read_description}</span>
+                                <% "write" -> %>
+                                  <span class="flex flex-wrap items-center gap-1.5">
+                                    <span aria-hidden="true" class="text-ink">✓</span>
+                                    <span class="rounded-control bg-panel-raised px-1.5 py-0.5 font-mono text-ink">
+                                      {domain.read_scope}
+                                    </span>
+                                    <span>(included)</span>
+                                    <span>{domain.read_description}</span>
+                                  </span>
+                                  <span class="mt-1 flex flex-wrap items-center gap-1.5">
+                                    <span aria-hidden="true" class="text-ink">✓</span>
+                                    <span class="rounded-control bg-panel-raised px-1.5 py-0.5 font-mono text-ink">
+                                      {domain.write_scope}
+                                    </span>
+                                    <span>{domain.write_description}</span>
+                                  </span>
+                              <% end %>
+                            </div>
+                          </fieldset>
+                        </div>
+
+                        <div
+                          data-testid="api-token-scope-summary"
+                          class="mt-3 rounded-control border border-line bg-panel-raised px-3 py-2 text-xs text-ink-muted"
+                        >
+                          <% scopes = selected_scopes(@scope_levels) %>
+                          <%= if scopes == [] do %>
+                            <p>
+                              No scopes selected. Leave everything at No access for a token
+                              that can only identify itself.
+                            </p>
+                          <% else %>
+                            <p class="text-ink">
+                              Minted scopes ({length(scopes)}):
+                            </p>
+                            <ul class="mt-1.5 flex flex-wrap gap-1">
+                              <li
+                                :for={scope <- scopes}
+                                class="rounded-control bg-panel px-1.5 py-0.5 font-mono text-ink"
+                              >
+                                {scope}
+                              </li>
+                            </ul>
+                          <% end %>
+                        </div>
                       </div>
 
                       <div class="flex justify-end">

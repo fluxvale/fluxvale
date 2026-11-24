@@ -260,9 +260,10 @@ defmodule FluxValeWeb.DeveloperSettingsLiveTest do
   # ---- API tokens (#483): create, list, revoke the actor's own PATs -----
 
   describe "the API tokens section" do
-    test "the section renders with the create form, the catalog scopes and the empty line", %{
-      conn: conn
-    } do
+    test "the section renders with the create form, the grouped scope picker and the empty line",
+         %{
+           conn: conn
+         } do
       {:ok, view, _html} = live(conn, ~p"/settings/developer")
 
       assert has_element?(view, "[data-testid='api-tokens']")
@@ -275,27 +276,247 @@ defmodule FluxValeWeb.DeveloperSettingsLiveTest do
       refute has_element?(view, "[data-testid='api-token-reveal']")
     end
 
-    test "the scope checkboxes render exactly the existing catalog, not a new mechanism", %{
+    test "the grouped picker renders all six domains in catalog order with the right options", %{
       conn: conn
     } do
       {:ok, view, _html} = live(conn, ~p"/settings/developer")
 
-      section_html = render(element(view, "[data-testid='api-tokens']"))
-      doc = LazyHTML.from_fragment(section_html)
+      groups_html = render(element(view, "[data-testid='api-token-scope-groups']"))
+      doc = LazyHTML.from_fragment(groups_html)
 
-      values =
+      domains =
         doc
-        |> LazyHTML.query("input[data-testid='api-token-scope']")
-        |> LazyHTML.attribute("value")
+        |> LazyHTML.query("[data-testid^='api-token-scope-group-']")
+        |> LazyHTML.attribute("data-domain")
 
-      assert Enum.sort(values) == Enum.sort(Scopes.all_scopes())
+      assert domains == ["instances", "backups", "gateways", "wallet", "catalog", "organizations"]
 
-      # The labels ride the same strings (a catalog addition labels itself).
-      section = render(element(view, "[data-testid='api-tokens']"))
-      assert section =~ "instances:read"
-      assert section =~ "Instances, read only"
-      assert section =~ "instances:write"
-      assert section =~ "Instances, manage (includes read)"
+      # Writable domains: three equal columns, all three options, no
+      # Read-only tag, and exactly the "none" radio checked.
+      for key <- ["instances", "backups", "gateways", "organizations"] do
+        group = render(element(view, "[data-testid='api-token-scope-group-#{key}']"))
+        group_doc = LazyHTML.from_fragment(group)
+
+        assert group =~ "grid-cols-3"
+        refute group =~ "grid-cols-2"
+        refute group =~ "Read-only"
+
+        for level <- ["none", "read", "write"] do
+          assert has_element?(view, "[data-testid='api-token-scope-#{key}-#{level}']")
+        end
+
+        radios = LazyHTML.query(group_doc, "input[type='radio']")
+        values = LazyHTML.attribute(radios, "value")
+        assert Enum.sort(values) == ["none", "read", "write"]
+
+        checked =
+          group_doc
+          |> LazyHTML.query("input[type='radio'][checked]")
+          |> LazyHTML.attribute("value")
+
+        assert checked == ["none"]
+      end
+
+      # Read-only domains: the narrower two-column track (so No access
+      # and Read line up with the writable rows), no write option, the
+      # Read-only tag, and the one-line reason in the detail.
+      for key <- ["wallet", "catalog"] do
+        group = render(element(view, "[data-testid='api-token-scope-group-#{key}']"))
+        group_doc = LazyHTML.from_fragment(group)
+
+        assert group =~ "grid-cols-2"
+        assert has_element?(view, "[data-testid='api-token-scope-#{key}-none']")
+        assert has_element?(view, "[data-testid='api-token-scope-#{key}-read']")
+        refute has_element?(view, "[data-testid='api-token-scope-#{key}-write']")
+        assert has_element?(view, "[data-testid='api-token-scope-readonly-#{key}']")
+        assert group =~ "Read-only"
+
+        radios = LazyHTML.query(group_doc, "input[type='radio']")
+        values = LazyHTML.attribute(radios, "value")
+        assert Enum.sort(values) == ["none", "read"]
+
+        detail = render(element(view, "[data-testid='api-token-scope-detail-#{key}']"))
+        assert detail =~ "No write scope exists for this domain."
+      end
+
+      # Everything starts at No access and the summary says what that mints.
+      for key <- ["instances", "backups", "gateways", "wallet", "catalog", "organizations"] do
+        assert has_element?(
+                 view,
+                 "[data-testid='api-token-scope-group-#{key}'][data-level='none']"
+               )
+      end
+
+      summary = render(element(view, "[data-testid='api-token-scope-summary']"))
+      assert summary =~ "No scopes selected."
+      assert summary =~ "can only identify itself"
+    end
+
+    test "selecting Read renders the domain's scope copy and updates the summary", %{
+      conn: conn
+    } do
+      {:ok, view, _html} = live(conn, ~p"/settings/developer")
+
+      render_change(view, "scope-change", %{
+        "token" => %{"name" => "", "domain_levels" => %{"backups" => "read"}}
+      })
+
+      assert has_element?(
+               view,
+               "[data-testid='api-token-scope-group-backups'][data-level='read']"
+             )
+
+      assert has_element?(
+               view,
+               "[data-testid='api-token-scope-backups-read'][data-included='false']"
+             )
+
+      detail = render(element(view, "[data-testid='api-token-scope-detail-backups']"))
+      assert detail =~ "backups:read"
+      assert detail =~ Scopes.describe("backups:read")
+      refute detail =~ "backups:write"
+
+      summary = render(element(view, "[data-testid='api-token-scope-summary']"))
+      assert summary =~ "Minted scopes (1):"
+      assert summary =~ "backups:read"
+      refute summary =~ "No scopes selected."
+    end
+
+    test "selecting Write includes Read, renders both scopes' copy and lists both in the summary",
+         %{
+           conn: conn
+         } do
+      {:ok, view, _html} = live(conn, ~p"/settings/developer")
+
+      render_change(view, "scope-change", %{
+        "token" => %{"name" => "ci deploys", "domain_levels" => %{"instances" => "write"}}
+      })
+
+      assert has_element?(
+               view,
+               "[data-testid='api-token-scope-group-instances'][data-level='write']"
+             )
+
+      read_option = render(element(view, "[data-testid='api-token-scope-instances-read']"))
+      assert read_option =~ ~s(data-included="true")
+      assert read_option =~ "✓ Read"
+
+      detail = render(element(view, "[data-testid='api-token-scope-detail-instances']"))
+      assert detail =~ "instances:read"
+      assert detail =~ Scopes.describe("instances:read")
+      assert detail =~ "(included)"
+      assert detail =~ "instances:write"
+      assert detail =~ Scopes.describe("instances:write")
+
+      summary = render(element(view, "[data-testid='api-token-scope-summary']"))
+      assert summary =~ "Minted scopes (2):"
+      assert summary =~ "instances:read"
+      assert summary =~ "instances:write"
+
+      # The typed name rode the change event into the form's source
+      # data, so the re-render keeps it in the input's value.
+      assert render(element(view, "[data-testid='api-token-name-input']")) =~
+               ~s(value="ci deploys")
+    end
+
+    test "switching back to No access clears the domain from the summary", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/settings/developer")
+
+      # A read-only domain's Read first: its detail rides the same branches.
+      render_change(view, "scope-change", %{
+        "token" => %{"name" => "", "domain_levels" => %{"wallet" => "read"}}
+      })
+
+      assert has_element?(view, "[data-testid='api-token-scope-group-wallet'][data-level='read']")
+
+      wallet_detail = render(element(view, "[data-testid='api-token-scope-detail-wallet']"))
+      assert wallet_detail =~ "wallet:read"
+      assert wallet_detail =~ Scopes.describe("wallet:read")
+
+      render_change(view, "scope-change", %{
+        "token" => %{"name" => "", "domain_levels" => %{"instances" => "write"}}
+      })
+
+      summary = render(element(view, "[data-testid='api-token-scope-summary']"))
+      assert summary =~ "wallet:read"
+      assert summary =~ "instances:write"
+
+      render_change(view, "scope-change", %{
+        "token" => %{"name" => "", "domain_levels" => %{"wallet" => "none"}}
+      })
+
+      refute render(element(view, "[data-testid='api-token-scope-summary']")) =~ "wallet:read"
+      assert render(element(view, "[data-testid='api-token-scope-summary']")) =~ "instances:write"
+
+      render_change(view, "scope-change", %{
+        "token" => %{"name" => "", "domain_levels" => %{"instances" => "none"}}
+      })
+
+      assert has_element?(
+               view,
+               "[data-testid='api-token-scope-group-instances'][data-level='none']"
+             )
+
+      # The inclusion cue cleared with the level.
+      read_option = render(element(view, "[data-testid='api-token-scope-instances-read']"))
+      assert read_option =~ ~s(data-included="false")
+      refute read_option =~ "✓ Read"
+
+      assert render(element(view, "[data-testid='api-token-scope-summary']")) =~
+               "No scopes selected."
+    end
+
+    test "crafted scope-change payloads are ignored, never crash, and leave valid state", %{
+      conn: conn
+    } do
+      {:ok, view, _html} = live(conn, ~p"/settings/developer")
+
+      # A non-map token payload and a missing one land the no-op head.
+      assert render_change(view, "scope-change", %{"token" => "junk"}) =~ "API tokens"
+      assert render_change(view, "scope-change", %{}) =~ "API tokens"
+
+      # A non-map domain_levels leaves the current levels standing.
+      assert render_change(view, "scope-change", %{
+               "token" => %{"name" => "", "domain_levels" => "junk"}
+             }) =~ "API tokens"
+
+      # A non-binary name falls back to "" (the form source resets).
+      render_change(view, "scope-change", %{
+        "token" => %{"name" => ["a"], "domain_levels" => %{"instances" => "read"}}
+      })
+
+      assert has_element?(
+               view,
+               "[data-testid='api-token-scope-group-instances'][data-level='read']"
+             )
+
+      assert render(element(view, "[data-testid='api-token-name-input']")) =~ ~s(value="")
+
+      # Write on a read-only domain and an unknown domain are both
+      # ignored: @scope_levels only ever holds expandable entries.
+      render_change(view, "scope-change", %{
+        "token" => %{"name" => "", "domain_levels" => %{"wallet" => "write"}}
+      })
+
+      render_change(view, "scope-change", %{
+        "token" => %{"name" => "", "domain_levels" => %{"admin" => "read"}}
+      })
+
+      render_change(view, "scope-change", %{
+        "token" => %{"name" => "", "domain_levels" => %{"instances" => "admin"}}
+      })
+
+      assert has_element?(view, "[data-testid='api-token-scope-group-wallet'][data-level='none']")
+
+      assert has_element?(
+               view,
+               "[data-testid='api-token-scope-group-instances'][data-level='read']"
+             )
+
+      summary = render(element(view, "[data-testid='api-token-scope-summary']"))
+      assert summary =~ "Minted scopes (1):"
+      assert summary =~ "instances:read"
+      refute summary =~ "wallet:read"
     end
 
     test "creating a token shows the raw once, stores hash-only, and never logs it", %{
@@ -308,7 +529,7 @@ defmodule FluxValeWeb.DeveloperSettingsLiveTest do
         capture_log(fn ->
           view
           |> form("#api-token-form-0", %{
-            token: %{name: "ci deploys", scopes: ["instances:read", "wallet:read"]}
+            token: %{name: "ci deploys", domain_levels: %{instances: "write", wallet: "read"}}
           })
           |> render_submit()
         end)
@@ -343,11 +564,14 @@ defmodule FluxValeWeb.DeveloperSettingsLiveTest do
       assert row.token_hash != raw
       assert row.user_id == user.id
       assert row.name == "ci deploys"
-      assert row.scopes == ["instances:read", "wallet:read"]
+      # Write expands to both scopes, in catalog order; the read-only
+      # wallet contributes its read only.
+      assert row.scopes == ["instances:read", "instances:write", "wallet:read"]
 
       # The list refreshed with the new row.
       row_html = render(element(view, "[data-testid='api-token-row']"))
       assert row_html =~ "ci deploys"
+      assert row_html =~ "instances:read, instances:write, wallet:read"
       refute row_html =~ raw
 
       # The submission is disarmed: the form re-keyed (a changed id
@@ -355,6 +579,18 @@ defmodule FluxValeWeb.DeveloperSettingsLiveTest do
       # cannot reach), so a second click cannot mint a duplicate.
       refute has_element?(view, "#api-token-form-0")
       assert has_element?(view, "#api-token-form-1")
+
+      # The levels reset with the form: every group back at none and
+      # the summary back to the identity-only line.
+      for key <- ["instances", "backups", "gateways", "wallet", "catalog", "organizations"] do
+        assert has_element?(
+                 view,
+                 "[data-testid='api-token-scope-group-#{key}'][data-level='none']"
+               )
+      end
+
+      assert render(element(view, "[data-testid='api-token-scope-summary']")) =~
+               "No scopes selected."
 
       # Dismissal is the end of the raw value's life: nothing renders
       # or holds it afterwards.
@@ -648,6 +884,34 @@ defmodule FluxValeWeb.DeveloperSettingsLiveTest do
       refute has_element?(view, "#api-token-form-1")
     end
 
+    test "a failed submit keeps the picked levels too", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/settings/developer")
+
+      render_change(view, "scope-change", %{
+        "token" => %{"name" => "", "domain_levels" => %{"gateways" => "write"}}
+      })
+
+      view
+      |> form("#api-token-form-0", %{token: %{name: "   "}})
+      |> render_submit()
+
+      assert has_element?(view, "#flash-error", "Give the token a name first.")
+
+      # Same disarm posture as the plain failure, plus the levels: the
+      # user fixes the name without picking everything again.
+      assert has_element?(view, "#api-token-form-0")
+      refute has_element?(view, "#api-token-form-1")
+
+      assert has_element?(
+               view,
+               "[data-testid='api-token-scope-group-gateways'][data-level='write']"
+             )
+
+      summary = render(element(view, "[data-testid='api-token-scope-summary']"))
+      assert summary =~ "gateways:read"
+      assert summary =~ "gateways:write"
+    end
+
     test "a name past the 100-character limit is refused", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/settings/developer")
 
@@ -664,22 +928,55 @@ defmodule FluxValeWeb.DeveloperSettingsLiveTest do
       assert has_element?(view, "[data-testid='api-tokens-empty']")
     end
 
-    test "a crafted off-catalog scope is refused by the domain", %{conn: conn} do
+    test "a crafted write level on a read-only domain is refused by the expansion", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/settings/developer")
 
       render_click(view, "create-token", %{
-        "token" => %{"name" => "forged", "scopes" => ["wallet:write"]}
+        "token" => %{"name" => "forged", "domain_levels" => %{"wallet" => "write"}}
       })
 
       assert has_element?(view, "#flash-error", "The scope selection wasn't valid.")
       assert has_element?(view, "[data-testid='api-tokens-empty']")
     end
 
-    test "a crafted duplicate scope is refused by the domain too", %{conn: conn} do
+    test "the catalog's crafted write level is refused too", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/settings/developer")
 
       render_click(view, "create-token", %{
-        "token" => %{"name" => "forged", "scopes" => ["wallet:read", "wallet:read"]}
+        "token" => %{"name" => "forged", "domain_levels" => %{"catalog" => "write"}}
+      })
+
+      assert has_element?(view, "#flash-error", "The scope selection wasn't valid.")
+      assert has_element?(view, "[data-testid='api-tokens-empty']")
+    end
+
+    test "a crafted unknown domain is refused by the expansion", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/settings/developer")
+
+      render_click(view, "create-token", %{
+        "token" => %{"name" => "forged", "domain_levels" => %{"admin" => "read"}}
+      })
+
+      assert has_element?(view, "#flash-error", "The scope selection wasn't valid.")
+      assert has_element?(view, "[data-testid='api-tokens-empty']")
+    end
+
+    test "a crafted unknown level is refused by the expansion", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/settings/developer")
+
+      render_click(view, "create-token", %{
+        "token" => %{"name" => "forged", "domain_levels" => %{"instances" => "admin"}}
+      })
+
+      assert has_element?(view, "#flash-error", "The scope selection wasn't valid.")
+      assert has_element?(view, "[data-testid='api-tokens-empty']")
+    end
+
+    test "a crafted non-map domain_levels is refused without crashing", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/settings/developer")
+
+      render_click(view, "create-token", %{
+        "token" => %{"name" => "forged", "domain_levels" => "junk"}
       })
 
       assert has_element?(view, "#flash-error", "The scope selection wasn't valid.")
