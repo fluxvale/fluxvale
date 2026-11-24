@@ -188,9 +188,10 @@ impl FileRenewalLock {
         self
     }
 
-    /// The lock file.
-    pub fn path(&self) -> &Path {
-        &self.path
+    /// How long [`hold`](RenewalLock::hold) waits for another process to
+    /// finish its renewal: [`RENEWAL_LOCK_WAIT`], or what [`with_wait`] set.
+    pub fn wait(&self) -> Duration {
+        self.wait
     }
 }
 
@@ -204,8 +205,11 @@ impl RenewalLock for FileRenewalLock {
         loop {
             match file.try_lock() {
                 Ok(()) => return Ok(Held::Locked(Box::new(file))),
-                Err(TryLockError::WouldBlock) => {}
-                Err(TryLockError::Error(why)) => return Ok(Held::Unavailable(why.to_string())),
+                Err(err) => match failed_attempt(err) {
+                    // Another holder has the lock: wait, then try again.
+                    None => {}
+                    Some(outcome) => return outcome,
+                },
             }
             if waited_since.elapsed() >= self.wait {
                 return Err(RefreshError::Transient(format!(
@@ -229,6 +233,19 @@ pub fn logout_after_renewals(
     // one, is held until `logout` has returned.
     let _held = lock.hold().ok();
     logout()
+}
+
+/// What one failed attempt to take the lock means for [`hold`](RenewalLock::hold).
+/// `None`: another holder has the lock, so wait and try again. Some: what
+/// `hold` returns.
+fn failed_attempt(err: TryLockError) -> Option<Result<Held, RefreshError>> {
+    match err {
+        TryLockError::WouldBlock => None,
+        // The lock cannot be taken here, on a file system that has no
+        // locks for one. The lock is coordination against a rare race,
+        // not a boundary: the renewal goes ahead without it, and says so.
+        TryLockError::Error(why) => Some(Ok(Held::Unavailable(why.to_string()))),
+    }
 }
 
 /// The lock file, created if it does not exist yet and never truncated,
@@ -2555,8 +2572,10 @@ mod tests {
                 Err(elsewhere_over_prod.as_str()),
             ),
             (Some(slashed.as_str()), Some(MCP_URL), BASE_URL, Ok(MCP_URL)),
-            // Without a flag the bound server is the URL.
+            // Without a flag the bound server is the URL, stored with or
+            // without its trailing slashes.
             (None, Some(STAGING), BASE_URL, Ok(STAGING)),
+            (None, Some(slashed.as_str()), BASE_URL, Ok(MCP_URL)),
             (
                 None,
                 Some(MCP_URL),
@@ -3243,6 +3262,54 @@ mod tests {
     }
 
     #[cfg(unix)]
+    #[test]
+    fn a_new_lock_waits_forty_five_seconds_and_with_wait_changes_that() {
+        // The wait production runs with, pinned by the number and not only
+        // by what a contended renewal does.
+        let path = temp_dir().join(RENEWAL_LOCK_FILE);
+        let lock = FileRenewalLock::new(path.clone());
+        assert_eq!(lock.wait(), Duration::from_secs(45), "the default wait");
+        assert_eq!(
+            lock.with_wait(HELD_FOR).wait(),
+            HELD_FOR,
+            "with_wait changes what wait returns"
+        );
+        assert!(!path.exists(), "building a lock opens nothing");
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
+    fn a_lock_file_is_created_in_a_directory_that_did_not_exist() {
+        let base = temp_dir();
+        let path = base.join("a").join("b").join(RENEWAL_LOCK_FILE);
+        assert!(!path.parent().unwrap().exists());
+
+        let Ok(Held::Locked(_guard)) = FileRenewalLock::new(path.clone()).hold() else {
+            panic!("a lock in a new directory is taken at once");
+        };
+
+        assert!(path.exists(), "the lock file exists afterwards");
+        let _ = std::fs::remove_dir_all(base);
+    }
+
+    #[test]
+    fn a_lock_error_that_is_not_would_block_means_the_lock_is_unavailable() {
+        // WouldBlock: another holder has the lock, so the wait goes on.
+        assert!(
+            failed_attempt(TryLockError::WouldBlock).is_none(),
+            "a held lock must be waited for"
+        );
+
+        // Any other error, a file system with no locks for one: the lock
+        // is unavailable, with the error's text, and the renewal goes ahead.
+        let why = "the file system has no locks";
+        let attempt = failed_attempt(TryLockError::Error(io::Error::other(why)));
+        assert!(
+            matches!(attempt, Some(Ok(Held::Unavailable(text))) if text == why),
+            "a lock that cannot be taken is unavailable, with the error's text"
+        );
+    }
+
     #[test]
     fn a_lock_file_is_readable_by_its_owner_only() {
         use std::os::unix::fs::PermissionsExt as _;
