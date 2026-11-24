@@ -1,7 +1,7 @@
 defmodule FluxVale.Infrastructure.Operations.EdgeRoutesTest do
   @moduledoc false
 
-  use FluxVale.DataCase, async: true
+  use FluxVale.DataCase, async: false
   use Mimic
 
   import ExUnit.CaptureLog
@@ -239,6 +239,11 @@ defmodule FluxVale.Infrastructure.Operations.EdgeRoutesTest do
           {:ok, %{}}
       end)
 
+      # A skipped hostname's standing route comes down now — the stub
+      # tolerates the call (this instance is not file-access, so the
+      # dav sibling is never hunted).
+      stub(Ingress, :delete, fn _kc, ^ns, "access-" <> _tail -> :ok end)
+
       log =
         capture_log(fn ->
           assert :ok = EdgeRoutes.apply_access_serving(%{}, gateway_stub(), instance)
@@ -288,6 +293,9 @@ defmodule FluxVale.Infrastructure.Operations.EdgeRoutesTest do
           # domain's, not the arm's.
           {:ok, %{}}
       end)
+
+      # The skipped hostname's standing route comes down — tolerate it.
+      stub(Ingress, :delete, fn _kc, _ns, "access-" <> _tail -> :ok end)
 
       log =
         capture_log(fn ->
@@ -561,6 +569,9 @@ defmodule FluxVale.Infrastructure.Operations.EdgeRoutesTest do
           {:ok, %{}}
       end)
 
+      # The skipped hostname's standing route comes down — tolerate it.
+      stub(Ingress, :delete, fn _kc, _ns, "access-" <> _tail -> :ok end)
+
       log =
         capture_log(fn ->
           assert :ok = EdgeRoutes.apply_access_wake(%{}, gateway_stub(), instance)
@@ -654,6 +665,9 @@ defmodule FluxVale.Infrastructure.Operations.EdgeRoutesTest do
           # The default platform hostname — an ordinary mint.
           {:ok, %{}}
       end)
+
+      # The skipped hostname's standing route comes down — tolerate it.
+      stub(Ingress, :delete, fn _kc, _ns, "access-" <> _tail -> :ok end)
 
       log =
         capture_log(fn ->
@@ -1310,10 +1324,9 @@ defmodule FluxVale.Infrastructure.Operations.EdgeRoutesTest do
 
       # The suite logs at :warning, so the withhold line never emits at
       # that level: the primary level rises for the two calls and
-      # restores right after. This file is async, so the window is kept
-      # to the capture alone — a concurrent test's info lines in the
-      # window land in this capture (noise at worst; every assertion
-      # here is a positive substring match).
+      # restores right after. The module is async: false precisely so
+      # this global-level window cannot overlap another test's own
+      # level restore.
       previous = Logger.level()
       Logger.configure(level: :info)
       on_exit(fn -> Logger.configure(level: previous) end)
@@ -1335,6 +1348,66 @@ defmodule FluxVale.Infrastructure.Operations.EdgeRoutesTest do
 
       assert log =~
                "has no running pod — withholding the access routes for instance #{instance.id}"
+    end
+
+    test "a skipped domain's routes come down — a cert that cannot replicate tears them out" do
+      stub_kubeconfig()
+      owner = user()
+      instance = instance!(%{file_access: true}, %{}, owner)
+      ns = "fluxvale-app-#{instance.id}"
+
+      domain = custom_domain!(owner, verified?: true)
+
+      row =
+        InstanceHostname.mint!(
+          %{instance_id: instance.id, access_domain_id: domain.id, label: "wiki"},
+          authorize?: false
+        )
+
+      tail =
+        row.id
+        |> to_string()
+        |> String.replace("-", "")
+        |> String.slice(-10, 10)
+
+      stub_access_targets(ns)
+
+      # The domain turns un-servable: its certificate replica can no
+      # longer be read. The skip is now a teardown of whatever the
+      # domain's hostnames had standing — the address refresher can
+      # never refresh a skipped hostname's route.
+      stub(Secret, :get_data, fn _kc, _ns, _name ->
+        {:error, Error.from_response({:ok, %{status: 404, body: %{}}})}
+      end)
+
+      parent = self()
+
+      stub(Ingress, :delete, fn _kc, ^ns, name ->
+        send(parent, {:deleted_route, name})
+        :ok
+      end)
+
+      stub(Ingress, :create, fn _kc, ^ns, name, _spec ->
+        send(parent, {:created_route, name})
+        {:ok, %{}}
+      end)
+
+      log =
+        capture_log(fn ->
+          assert :ok = EdgeRoutes.apply_access_serving(%{}, gateway_stub(), instance)
+        end)
+
+      assert log =~ "certificate secret could not be replicated"
+      assert log =~ "never routing a dead cert"
+
+      # The skipped hostname's app route AND its /dav sibling come
+      # down, and nothing is minted for it. (The platform hostname's
+      # own routes still mint — the skip is the domain's, not the
+      # arm's.)
+      assert_received {:deleted_route, "access-" <> ^tail}
+      assert_received {:deleted_route, "access-" <> ^tail <> "-dav"}
+      refute_received {:created_route, "access-" <> ^tail}
+      refute_received {:created_route, "access-" <> ^tail <> "-dav"}
     end
 
     test "pod list failure ({:error, ...}) — returns {:error, _}, never calls Ingress.create" do

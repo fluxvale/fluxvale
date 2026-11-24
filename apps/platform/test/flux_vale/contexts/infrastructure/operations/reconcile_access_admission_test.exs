@@ -254,6 +254,60 @@ defmodule FluxVale.Infrastructure.Operations.ReconcileAccessAdmissionTest do
     assert drain_applied_statuses() == [:running, :sleeping]
   end
 
+  test "an instance that turned public under the pass gets no arms", %{org: org, owner: owner} do
+    gateway = AccessFixtures.gateway!(org)
+    instance = AccessFixtures.private_instance!(org, owner)
+    pair!(gateway, instance)
+
+    stub_gateway_pods(%{gateway.id => "10.0.0.47"})
+
+    parent = self()
+
+    stub(EdgeRoutes, :apply_access_for_status, fn _kc, _gw, i ->
+      send(parent, {:applied_instance, i.id})
+      :ok
+    end)
+
+    # The pass's own pre-filter reads the DB row still private, so the
+    # pairing admits the instance; the arm's fresh read is the one that
+    # sees the flip. The flipped row exists only in the stub's reply —
+    # a real write would have the pre-filter skip the instance before
+    # the arm ever runs.
+    Mimic.copy(Instance)
+
+    stub(Instance, :get_by_id, fn _id, _opts -> {:ok, %{instance | exposure: :public}} end)
+
+    assert {:ok, %{checked: 1, converged: 1}} = ReconcileAccessAdmission.call()
+    assert Activity.admitted_source(gateway.id) == "10.0.0.47"
+    assert drain_applied_instances() == []
+  end
+
+  test "a public row on the recheck gets no second apply", %{org: org, owner: owner} do
+    gateway = AccessFixtures.gateway!(org)
+    instance = AccessFixtures.private_instance!(org, owner)
+    pair!(gateway, instance)
+
+    stub_gateway_pods(%{gateway.id => "10.0.0.48"})
+
+    parent = self()
+
+    # The first apply runs on the private row; its side effect flips the
+    # row to public AND moves the status, so the recheck's fresh read is
+    # a moved, no-longer-private row — the guard refuses the second
+    # apply (an exposure-only flip would keep the status stable and the
+    # recheck would never reach the re-apply at all).
+    stub(EdgeRoutes, :apply_access_for_status, fn _kc, _gw, i ->
+      send(parent, {:applied_instance, i.id})
+      InstanceFixtures.pin!(i, exposure: :public)
+      AccessFixtures.sleep!(i)
+      :ok
+    end)
+
+    assert {:ok, %{checked: 1, converged: 1}} = ReconcileAccessAdmission.call()
+    assert Activity.admitted_source(gateway.id) == "10.0.0.48"
+    assert drain_applied_instances() == [instance.id]
+  end
+
   test "a failed instance kubeconfig read fails the instance and leaves the memo :dirty",
        %{org: org, owner: owner} do
     gateway = AccessFixtures.gateway!(org)

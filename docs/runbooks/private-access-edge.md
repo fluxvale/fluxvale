@@ -30,6 +30,9 @@ kubectl get pods -n <access namespace> -l app.kubernetes.io/name=access-gateway 
   | jq -r '.items[] | "\(.metadata.labels["fluxvale.io/gateway"])\t\(.status.podIP)"'
 ```
 
+During a pod replacement two pods for the same gateway can appear in that output — the
+admitted address is the NEWEST running pod's (the same rule the platform applies).
+
 The check's premise: the `access` entrypoint trusts no proxy-protocol or forwarded-header
 sources — no `proxyProtocol.trustedIPs`, no `forwardedHeaders.trustedIPs`, no
 `forwardedHeaders.insecure`. The entrypoint's config owns that; if it ever changes,
@@ -60,3 +63,9 @@ every minute) is the record that it ran.
 Revert the PR ([ADR-0014](../adr/00014-rollback-protocol.md)). The previous build drops the
 clause the next time an arm is applied and the refresher stops. Routes then answer any
 gateway again — the state this check exists to end.
+
+Existing private routes keep the `ClientIP` clause until an arm is next applied, and a
+gateway pod replacement in that window leaves the owner's hostnames answering 404 (fail
+closed) with the old address still admitted. Before a rollback is considered complete, walk
+each attached private instance through a lifecycle write that re-applies its arm — a
+stop/start from the panel, or a detach/attach of the pairing.

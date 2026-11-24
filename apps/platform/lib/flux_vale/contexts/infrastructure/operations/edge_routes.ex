@@ -395,7 +395,12 @@ defmodule FluxVale.Infrastructure.Operations.EdgeRoutes do
   defp mint_hostname_route(kubeconfig, gateway, instance, hostname, mode, domain, pod_ip) do
     case access_tls_secret(kubeconfig, domain, instance) do
       :skip ->
-        :ok
+        # Dark is the posture, not a fault: the domain is not servable
+        # right now (unverified, or its certificate replica could not
+        # be read). A route still standing here would admit an address
+        # no pass can refresh — it comes down, the same honest dark the
+        # suspension funnel lands.
+        delete_hostname_routes(kubeconfig, instance, hostname)
 
       {:ok, tls_secret} ->
         spec = access_route_spec(gateway, hostname, mode, tls_secret, pod_ip)

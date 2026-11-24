@@ -193,13 +193,12 @@ defmodule FluxVale.Infrastructure.Operations.ReconcileAccessAdmission do
   defp arm(instance_kubeconfig, gateway, instance) do
     case Instance.get_by_id(instance.id, authorize?: false) do
       {:ok, fresh} ->
-        case EdgeRoutes.apply_access_for_status(instance_kubeconfig, gateway, fresh) do
-          :ok ->
-            maybe_recheck(instance_kubeconfig, gateway, fresh)
-
-          {:error, reason} ->
-            log_reapply_failed(gateway, instance, reason)
-            :failed
+        # The pass writes no arms for a row that is no longer private-with-namespace:
+        # the exposure toggle owns that posture and already removed them.
+        if fresh.exposure == :private and not is_nil(fresh.namespace) do
+          apply_fresh_row_arm(instance_kubeconfig, gateway, instance, fresh)
+        else
+          :ok
         end
 
       {:error, reason} ->
@@ -215,6 +214,19 @@ defmodule FluxVale.Infrastructure.Operations.ReconcileAccessAdmission do
     end
   end
 
+  # The arm's apply, on the fresh row — reached only when the row is
+  # still private-with-namespace (the guard above).
+  defp apply_fresh_row_arm(instance_kubeconfig, gateway, instance, fresh) do
+    case EdgeRoutes.apply_access_for_status(instance_kubeconfig, gateway, fresh) do
+      :ok ->
+        maybe_recheck(instance_kubeconfig, gateway, fresh)
+
+      {:error, reason} ->
+        log_reapply_failed(gateway, instance, reason)
+        :failed
+    end
+  end
+
   # The last-writer guard (the attach's reapply_if_status_moved shape):
   # the apply decided from the row it read; a sleep or wake committing
   # between that read and the apply would make this pass's write the
@@ -223,13 +235,12 @@ defmodule FluxVale.Infrastructure.Operations.ReconcileAccessAdmission do
   defp maybe_recheck(instance_kubeconfig, gateway, applied) do
     case Instance.get_by_id(applied.id, authorize?: false) do
       {:ok, %{status: status} = fresh} when status != applied.status ->
-        case EdgeRoutes.apply_access_for_status(instance_kubeconfig, gateway, fresh) do
-          :ok ->
-            undo_if_ended(instance_kubeconfig, gateway, fresh)
-
-          {:error, reason} ->
-            log_reapply_failed(gateway, applied, reason)
-            :failed
+        # Same eligibility guard as the arm's: a row that flipped out of
+        # private mid-apply gets no second apply.
+        if fresh.exposure == :private and not is_nil(fresh.namespace) do
+          reapply_moved_row(instance_kubeconfig, gateway, applied, fresh)
+        else
+          :ok
         end
 
       {:ok, _status_stable} ->
@@ -244,6 +255,19 @@ defmodule FluxVale.Infrastructure.Operations.ReconcileAccessAdmission do
           log_read_failed(gateway, applied, reason)
           :failed
         end
+    end
+  end
+
+  # The moved-status re-apply, on the fresh row — reached only when the
+  # row is still private-with-namespace (the guard above).
+  defp reapply_moved_row(instance_kubeconfig, gateway, applied, fresh) do
+    case EdgeRoutes.apply_access_for_status(instance_kubeconfig, gateway, fresh) do
+      :ok ->
+        undo_if_ended(instance_kubeconfig, gateway, fresh)
+
+      {:error, reason} ->
+        log_reapply_failed(gateway, applied, reason)
+        :failed
     end
   end
 
