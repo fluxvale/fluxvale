@@ -5,8 +5,8 @@
 //! Only JSON-RPC messages come back: a gateway's plain JSON error is for
 //! the caller to read off the status. From protocol version 2026-07-28 a
 //! request also carries the standard `Mcp-Method` and `Mcp-Name` headers.
-//! A `401` is a normal answer here: renewing the pair is the bridge's
-//! job.
+//! A `401` is a normal answer here, its body read or not: renewing the pair
+//! is the bridge's job.
 
 use crate::token::Token;
 use crate::tokens::require_https_or_loopback;
@@ -80,6 +80,8 @@ impl McpHttpClient {
     ///
     /// Every status is an answer: only a request that could not be
     /// completed is an error, and that error never carries the token.
+    /// A `401` whose body cannot be read is still that answer, with no
+    /// messages.
     pub fn post(
         &self,
         access_token: &Token,
@@ -106,7 +108,18 @@ impl McpHttpClient {
             .body()
             .mime_type()
             .is_some_and(|mime| mime.eq_ignore_ascii_case("text/event-stream"));
-        let raw = response.body_mut().read_to_vec().map_err(unreached)?;
+        let raw = match response.body_mut().read_to_vec() {
+            Ok(raw) => raw,
+            // A 401's meaning is in its status, and the bridge renews on
+            // it. A body that cannot be read does not change that.
+            Err(_) if status == 401 => {
+                return Ok(McpReply {
+                    status,
+                    messages: Vec::new(),
+                });
+            }
+            Err(err) => return Err(unreached(err)),
+        };
         let messages = match String::from_utf8(raw) {
             Ok(text) if is_sse => sse_messages(&text),
             Ok(text) => json_messages(&text),
@@ -149,14 +162,27 @@ fn json_messages(body: &str) -> Vec<Value> {
     }
 }
 
-/// An SSE body: each `data:` line that parses to a JSON-RPC message is
-/// one. The `event:`, `id:` and `retry:` lines and the comments carry none.
+/// An SSE body: one event is one message. Events are separated by blank
+/// lines, and a last event with no blank line after it is still one, since
+/// the body is complete by the time it gets here. An event's `data:` lines
+/// are joined with a newline, after each line's one optional leading space
+/// is removed, and the joined text is a message when it parses to one. The
+/// `event:`, `id:` and `retry:` lines and the comments carry no data. A line
+/// may end with `\n`, `\r\n` or `\r`.
 fn sse_messages(body: &str) -> Vec<Value> {
-    body.lines()
-        .filter_map(|line| line.strip_prefix("data:"))
-        // The spec's one optional space after the colon.
-        .map(|data| data.strip_prefix(' ').unwrap_or(data))
-        .filter_map(|data| serde_json::from_str(data).ok())
+    // One line ending for all, so a blank line is found the same way.
+    let text = body.replace("\r\n", "\n").replace('\r', "\n");
+    text.split("\n\n")
+        .filter_map(|event| {
+            let data = event
+                .lines()
+                .filter_map(|line| line.strip_prefix("data:"))
+                // The spec's one optional space after the colon.
+                .map(|data| data.strip_prefix(' ').unwrap_or(data))
+                .collect::<Vec<_>>()
+                .join("\n");
+            serde_json::from_str(&data).ok()
+        })
         .filter(is_json_rpc_message)
         .collect()
 }
@@ -521,14 +547,17 @@ mod tests {
     #[test]
     fn an_sse_body_keeps_only_its_json_rpc_messages() {
         let real = result(1, "the real one");
+        // Each value that is no message sits in an event of its own. In the
+        // last event the empty and the blank data line join to whitespace
+        // in front of the real one.
         let body = format!(
             concat!(
                 ": a comment line carries no message\n\n",
                 "event: message\n",
-                "data: 42\n",
+                "data: 42\n\n",
                 "id: 42\n",
                 "retry: 3000\n",
-                "data: {{\"jsonrpc\":\"1.0\",\"method\":\"x\"}}\n",
+                "data: {{\"jsonrpc\":\"1.0\",\"method\":\"x\"}}\n\n",
                 "data:\n",
                 "data:   \n",
                 "data: {real}\n\n",
@@ -549,6 +578,96 @@ mod tests {
         assert_eq!(reply.status, 200);
         let (head, _) = captured_request(&server);
         assert!(head.contains(&bearer()), "head: {head}");
+    }
+
+    /// What the client reads back from an SSE body. The request is checked
+    /// to have carried the token, as in the other tests.
+    fn sse_reply(body: &str) -> McpReply {
+        let server = script(vec![respond_typed(
+            "200 OK",
+            "text/event-stream; charset=utf-8",
+            body,
+        )]);
+
+        let reply = client(&server)
+            .post(&Token::new(TOKEN), BODY, None)
+            .unwrap();
+
+        let (head, _) = captured_request(&server);
+        assert!(head.contains(&bearer()), "head: {head}");
+        reply
+    }
+
+    #[test]
+    fn one_sse_event_is_one_message_across_its_data_lines() {
+        // The second line has no space after the colon: that space is optional.
+        let body = concat!(
+            "data: {\"jsonrpc\":\"2.0\",\"id\":1,\"result\":\n",
+            "data:{\"ok\":true}}\n\n",
+        );
+
+        let reply = sse_reply(body);
+
+        assert_eq!(
+            reply.messages,
+            vec![json!({"jsonrpc": "2.0", "id": 1, "result": {"ok": true}})]
+        );
+        assert_eq!(reply.status, 200);
+    }
+
+    #[test]
+    fn two_sse_events_are_two_messages_in_order() {
+        let body = concat!(
+            "data: {\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"marker\":\"first\"}}\n\n",
+            "data: {\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{\"marker\":\"second\"}}\n\n",
+        );
+
+        let reply = sse_reply(body);
+
+        assert_eq!(
+            reply.messages,
+            vec![result(1, "first"), result(2, "second")]
+        );
+        assert_eq!(reply.status, 200);
+    }
+
+    #[test]
+    fn a_last_sse_event_with_no_blank_line_after_it_is_delivered() {
+        let body = concat!(
+            "data: {\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"marker\":\"first\"}}\n\n",
+            "data: {\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{\"marker\":\"last\"}}",
+        );
+
+        let reply = sse_reply(body);
+
+        assert_eq!(reply.messages, vec![result(1, "first"), result(2, "last")]);
+        assert_eq!(reply.status, 200);
+    }
+
+    #[test]
+    fn an_sse_body_may_end_its_lines_with_crlf_or_cr() {
+        // A comment, an `event:` line, and an event split across two data
+        // lines, then a last event with no blank line after it.
+        let body = concat!(
+            ": a comment carries no data\n\n",
+            "event: message\n",
+            "data: {\"jsonrpc\":\"2.0\",\"id\":1,\"result\":\n",
+            "data: {\"marker\":\"first\"}}\n\n",
+            "data: {\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{\"marker\":\"last\"}}",
+        );
+        let expected = vec![result(1, "first"), result(2, "last")];
+
+        assert_eq!(sse_reply(body).messages, expected, "lines end with \\n");
+        assert_eq!(
+            sse_reply(&body.replace('\n', "\r\n")).messages,
+            expected,
+            "lines end with \\r\\n"
+        );
+        assert_eq!(
+            sse_reply(&body.replace('\n', "\r")).messages,
+            expected,
+            "lines end with \\r"
+        );
     }
 
     #[test]
@@ -622,6 +741,38 @@ mod tests {
             head.starts_with("post /mcp http/1.1"),
             "request line: {head}"
         );
+    }
+
+    #[test]
+    fn a_401_whose_body_is_cut_short_is_still_a_401() {
+        // The head promises ten bytes more than are ever written, then the
+        // connection closes. The status alone is the answer.
+        let body = r#"{"error":"invalid_token"}"#;
+        let mut response = format!(
+            "HTTP/1.1 401 Unauthorized\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            body.len() + 10
+        )
+        .into_bytes();
+        response.truncate(response.len() - 10);
+        let server = script_bytes(vec![response]);
+
+        let reply = client(&server)
+            .post(&Token::new(TOKEN), BODY, None)
+            .unwrap();
+
+        assert_eq!(
+            reply,
+            McpReply {
+                status: 401,
+                messages: Vec::new()
+            }
+        );
+        let (head, _) = captured_request(&server);
+        assert!(
+            head.starts_with("post /mcp http/1.1"),
+            "request line: {head}"
+        );
+        assert!(head.contains(&bearer()), "head: {head}");
     }
 
     #[test]
