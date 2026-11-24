@@ -2,20 +2,30 @@
 //! it (#886): one POST per JSON-RPC message with the stored access
 //! token as the bearer, and the answer read back as the JSON-RPC
 //! messages it carries (a JSON body, a JSON array, or an SSE stream).
+//! Only JSON-RPC messages come back: a gateway's plain JSON error is for
+//! the caller to read off the status. From protocol version 2026-07-28 a
+//! request also carries the standard `Mcp-Method` and `Mcp-Name` headers.
 //! A `401` is a normal answer here: renewing the pair is the bridge's
 //! job.
 
 use crate::token::Token;
 use crate::tokens::require_https_or_loopback;
+use base64::Engine as _;
+use base64::engine::general_purpose::STANDARD;
 use serde_json::Value;
 use std::time::Duration;
+
+/// The first protocol version whose requests carry `Mcp-Method` and
+/// `Mcp-Name`. The server compares version strings as they are.
+const STANDARD_HEADERS_FROM: &str = "2026-07-28";
 
 /// One answered POST to the MCP server.
 #[derive(Debug, PartialEq, Eq)]
 pub struct McpReply {
     /// The HTTP status.
     pub status: u16,
-    /// Every JSON-RPC message in the response body, in wire order.
+    /// Every JSON-RPC message in the response body, in wire order. A
+    /// body that carries none gives an empty list, whatever its status.
     pub messages: Vec<Value>,
 }
 
@@ -56,10 +66,20 @@ impl McpHttpClient {
     }
 
     /// POST `body` (one JSON-RPC message, verbatim) with
-    /// `Authorization: Bearer <access_token>` and, when given, the
-    /// negotiated `MCP-Protocol-Version`. Every status is an answer:
-    /// only a request that could not be completed is an error, and
-    /// that error never carries the token.
+    /// `Authorization: Bearer <access_token>`, `Content-Type` and
+    /// `Accept`, and, when given, `MCP-Protocol-Version`.
+    ///
+    /// From protocol version `2026-07-28` the server also requires the
+    /// standard request headers, so a request then carries `Mcp-Method`,
+    /// and `Mcp-Name` for the methods that name something, encoded as
+    /// rmcp's client encodes it: as it is when it survives as a header
+    /// value, else as `=?base64?<base64>?=`. `Mcp-Param-*` headers are
+    /// not sent. They carry a tool argument that the tool's schema lifts
+    /// into a header with `x-mcp-header`, and the FluxVale server's tools
+    /// declare none, so there is nothing to send.
+    ///
+    /// Every status is an answer: only a request that could not be
+    /// completed is an error, and that error never carries the token.
     pub fn post(
         &self,
         access_token: &Token,
@@ -74,6 +94,11 @@ impl McpHttpClient {
             .header("Accept", "application/json, text/event-stream");
         if let Some(version) = protocol_version {
             request = request.header("MCP-Protocol-Version", version);
+            if version >= STANDARD_HEADERS_FROM {
+                for (name, value) in standard_headers(body) {
+                    request = request.header(name, value.as_str());
+                }
+            }
         }
         let mut response = request.send(body.as_bytes()).map_err(unreached)?;
         let status = response.status().as_u16();
@@ -98,26 +123,98 @@ fn unreached(err: ureq::Error) -> anyhow::Error {
     anyhow::anyhow!("could not reach the MCP server: {err}")
 }
 
-/// A JSON body: one object is one message, an array yields each of
-/// its elements. Anything else, an empty body included, is no message.
+/// A JSON-RPC 2.0 message: an object whose `jsonrpc` is `"2.0"` that
+/// carries a string `method`, or a `result`, or an `error`. Anything else
+/// in a body, a gateway's plain JSON error for one, is not a message.
+fn is_json_rpc_message(value: &Value) -> bool {
+    let Some(object) = value.as_object() else {
+        return false;
+    };
+    if object.get("jsonrpc").and_then(Value::as_str) != Some("2.0") {
+        return false;
+    }
+    object.get("method").is_some_and(Value::is_string)
+        || object.contains_key("result")
+        || object.contains_key("error")
+}
+
+/// A JSON body: an object is one message and an array yields each of its
+/// elements, and only those that are JSON-RPC messages. Anything else, an
+/// empty body included, is no message.
 fn json_messages(body: &str) -> Vec<Value> {
     match serde_json::from_str::<Value>(body) {
-        Ok(Value::Array(items)) => items,
-        Ok(message @ Value::Object(_)) => vec![message],
+        Ok(Value::Array(items)) => items.into_iter().filter(is_json_rpc_message).collect(),
+        Ok(message @ Value::Object(_)) if is_json_rpc_message(&message) => vec![message],
         Ok(_) | Err(_) => Vec::new(),
     }
 }
 
-/// An SSE body: each non-empty `data:` line is one message. The
-/// `event:`, `id:` and `retry:` lines and the comments carry none.
+/// An SSE body: each `data:` line that parses to a JSON-RPC message is
+/// one. The `event:`, `id:` and `retry:` lines and the comments carry none.
 fn sse_messages(body: &str) -> Vec<Value> {
     body.lines()
         .filter_map(|line| line.strip_prefix("data:"))
         // The spec's one optional space after the colon.
         .map(|data| data.strip_prefix(' ').unwrap_or(data))
-        // An empty or non-JSON payload is no message.
         .filter_map(|data| serde_json::from_str(data).ok())
+        .filter(is_json_rpc_message)
         .collect()
+}
+
+/// The `Mcp-Method` and `Mcp-Name` headers of a request body. A body that
+/// is not a JSON object with a string `method` gets none.
+fn standard_headers(body: &str) -> Vec<(&'static str, String)> {
+    let Ok(message) = serde_json::from_str::<Value>(body) else {
+        return Vec::new();
+    };
+    let Some(method) = message.get("method").and_then(Value::as_str) else {
+        return Vec::new();
+    };
+    let mut headers = vec![("Mcp-Method", method.to_owned())];
+    if let Some(member) = named_by(method)
+        && let Some(name) = message
+            .get("params")
+            .and_then(|params| params.get(member))
+            .and_then(Value::as_str)
+    {
+        headers.push(("Mcp-Name", encode_header_value(name)));
+    }
+    headers
+}
+
+/// The member of `params` that names what a method acts on, for the
+/// methods that have one.
+fn named_by(method: &str) -> Option<&'static str> {
+    match method {
+        "tools/call" | "prompts/get" => Some("name"),
+        "resources/read" | "resources/subscribe" | "resources/unsubscribe" => Some("uri"),
+        "tasks/get" | "tasks/update" | "tasks/cancel" => Some("taskId"),
+        _ => None,
+    }
+}
+
+/// A name as rmcp's client puts it in a header: as it is when every
+/// character is printable ASCII, with no space or tab at either end, and
+/// it does not already look encoded. Else wrapped in `=?base64?` and `?=`.
+fn encode_header_value(value: &str) -> String {
+    if requires_base64(value) {
+        format!("=?base64?{}?=", STANDARD.encode(value.as_bytes()))
+    } else {
+        value.to_owned()
+    }
+}
+
+fn requires_base64(value: &str) -> bool {
+    if value.is_empty() {
+        return false;
+    }
+    let bytes = value.as_bytes();
+    let edged =
+        matches!(bytes.first(), Some(b' ' | b'\t')) || matches!(bytes.last(), Some(b' ' | b'\t'));
+    edged
+        || !value.is_ascii()
+        || value.chars().any(|c| c.is_ascii_control())
+        || (value.starts_with("=?base64?") && value.ends_with("?="))
 }
 
 #[cfg(test)]
@@ -151,6 +248,10 @@ mod tests {
     }
 
     fn script(responses: Vec<String>) -> Script {
+        script_bytes(responses.into_iter().map(String::into_bytes).collect())
+    }
+
+    fn script_bytes(responses: Vec<Vec<u8>>) -> Script {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = listener.local_addr().unwrap();
         let requests = Arc::new(Mutex::new(Vec::new()));
@@ -180,7 +281,7 @@ mod tests {
                     .lock()
                     .unwrap()
                     .push(String::from_utf8_lossy(&raw).to_string());
-                let _ = stream.write_all(response.as_bytes());
+                let _ = stream.write_all(&response);
                 let _ = stream.flush();
             }
         });
@@ -266,6 +367,52 @@ mod tests {
         McpHttpClient::new(&format!("{}/mcp", server.base_url)).unwrap()
     }
 
+    /// The one request the scripted server saw, as it sent it: its head
+    /// with the header names and values in their original case, and its body.
+    fn captured_request_as_sent(server: &Script) -> (String, String) {
+        let requests = captured_requests(server);
+        assert_eq!(requests.len(), 1, "exactly one request");
+        requests[0]
+            .split_once("\r\n\r\n")
+            .map(|(head, body)| (head.to_owned(), body.to_owned()))
+            .expect("a head and a body")
+    }
+
+    /// A JSON-RPC request as a client might space it.
+    fn request(method: &str, params: &Value) -> String {
+        json!({"jsonrpc": "2.0", "id": 1, "method": method, "params": params}).to_string()
+    }
+
+    /// Posts `body` once with `version` and returns the head of the one
+    /// request the scripted server saw, as it was sent. The body must ride as it is.
+    fn posted_head(body: &str, version: Option<&str>) -> String {
+        let server = script(vec![respond("200 OK", &result(1, "ok"))]);
+        client(&server)
+            .post(&Token::new(TOKEN), body, version)
+            .unwrap();
+        let (head, sent) = captured_request_as_sent(&server);
+        assert_eq!(sent, body, "the body must ride as it is");
+        assert!(
+            head.starts_with("POST /mcp HTTP/1.1"),
+            "request line: {head}"
+        );
+        head
+    }
+
+    /// The value of header `name` in a request head as it was sent. The
+    /// name is matched without regard to case, the value is taken as it is.
+    fn header<'a>(head: &'a str, name: &str) -> Option<&'a str> {
+        let prefix = format!("{name}: ");
+        let line = head.split("\r\n").skip(1).find(|line| {
+            line.get(..prefix.len())
+                .is_some_and(|start| start.eq_ignore_ascii_case(&prefix))
+        })?;
+        Some(&line[prefix.len()..])
+    }
+
+    /// The first version whose requests carry `Mcp-Method` and `Mcp-Name`.
+    const NEW: &str = "2026-07-28";
+
     /// A loopback endpoint nothing listens on. Its port number comes from
     /// the IPv6 loopback, which no scripted server in this crate binds: they
     /// all bind 127.0.0.1, so none can be handed this port in the moment
@@ -314,10 +461,11 @@ mod tests {
     }
 
     #[test]
-    fn a_json_array_body_is_its_elements_in_order() {
+    fn a_json_array_keeps_only_its_json_rpc_messages_in_order() {
+        let first = result(1, "first");
         let server = script(vec![respond(
             "200 OK",
-            &json!([result(1, "first"), result(2, "second"), {"jsonrpc": "2.0", "method": "notifications/progress"}]),
+            &json!([first, {"jsonrpc": "2.0", "method": "notifications/progress"}, {"n": 1}]),
         )]);
 
         let reply = client(&server)
@@ -327,8 +475,7 @@ mod tests {
         assert_eq!(
             reply.messages,
             vec![
-                result(1, "first"),
-                result(2, "second"),
+                first,
                 json!({"jsonrpc": "2.0", "method": "notifications/progress"})
             ]
         );
@@ -342,21 +489,73 @@ mod tests {
     }
 
     #[test]
-    fn an_sse_body_is_its_data_lines_and_nothing_else() {
-        let body = concat!(
-            ": a comment line carries no message\n\n",
-            "event: message\n",
-            "data: {\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"marker\":\"first\"}}\n\n",
-            "id: 42\n",
-            "retry: 3000\n",
-            "data:\n",
-            "data:   \n",
-            "data:{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{\"marker\":\"second\"}}\n\n",
+    fn only_a_json_rpc_20_message_is_a_message() {
+        for message in [
+            json!({"jsonrpc": "2.0", "id": 1, "method": "tools/list"}),
+            json!({"jsonrpc": "2.0", "method": "notifications/progress"}),
+            json!({"jsonrpc": "2.0", "id": 1, "result": {}}),
+            json!({"jsonrpc": "2.0", "id": 1, "error": {"code": -1}}),
+        ] {
+            assert!(is_json_rpc_message(&message), "{message}");
+        }
+        for not_one in [
+            // Another protocol version, or the member is not the string "2.0".
+            json!({"jsonrpc": "1.0", "method": "x"}),
+            json!({"jsonrpc": 2.0, "method": "x"}),
+            // No method, result or error.
+            json!({"jsonrpc": "2.0", "id": 1}),
+            json!({"jsonrpc": "2.0", "method": 7}),
+            // A gateway's or a JSON:API error document.
+            json!({"error": "insufficient_scope"}),
+            json!({"errors": [{"detail": "upstream down"}]}),
+            // Not an object.
+            json!([]),
+            json!("x"),
+            json!(42),
+            json!(null),
+        ] {
+            assert!(!is_json_rpc_message(&not_one), "{not_one}");
+        }
+    }
+
+    #[test]
+    fn an_sse_body_keeps_only_its_json_rpc_messages() {
+        let real = result(1, "the real one");
+        let body = format!(
+            concat!(
+                ": a comment line carries no message\n\n",
+                "event: message\n",
+                "data: 42\n",
+                "id: 42\n",
+                "retry: 3000\n",
+                "data: {{\"jsonrpc\":\"1.0\",\"method\":\"x\"}}\n",
+                "data:\n",
+                "data:   \n",
+                "data: {real}\n\n",
+            ),
+            real = real
         );
         let server = script(vec![respond_typed(
             "200 OK",
             "text/event-stream; charset=utf-8",
-            body,
+            &body,
+        )]);
+
+        let reply = client(&server)
+            .post(&Token::new(TOKEN), BODY, None)
+            .unwrap();
+
+        assert_eq!(reply.messages, vec![real]);
+        assert_eq!(reply.status, 200);
+        let (head, _) = captured_request(&server);
+        assert!(head.contains(&bearer()), "head: {head}");
+    }
+
+    #[test]
+    fn a_gateway_error_is_no_message() {
+        let server = script(vec![respond(
+            "200 OK",
+            &json!({"error": "insufficient_scope", "error_description": "missing instances:read"}),
         )]);
 
         let reply = client(&server)
@@ -364,16 +563,227 @@ mod tests {
             .unwrap();
 
         assert_eq!(
-            reply.messages,
-            vec![result(1, "first"), result(2, "second")]
+            reply,
+            McpReply {
+                status: 200,
+                messages: Vec::new()
+            }
         );
-        assert_eq!(reply.status, 200);
         let (head, _) = captured_request(&server);
         assert!(
             head.starts_with("post /mcp http/1.1"),
             "request line: {head}"
         );
-        assert!(head.contains(&bearer()), "head: {head}");
+    }
+
+    #[test]
+    fn a_jsonapi_error_document_is_no_message() {
+        let server = script(vec![respond(
+            "200 OK",
+            &json!({"errors": [{"detail": "upstream down"}]}),
+        )]);
+
+        let reply = client(&server)
+            .post(&Token::new(TOKEN), BODY, None)
+            .unwrap();
+
+        assert_eq!(
+            reply,
+            McpReply {
+                status: 200,
+                messages: Vec::new()
+            }
+        );
+        let (head, _) = captured_request(&server);
+        assert!(
+            head.starts_with("post /mcp http/1.1"),
+            "request line: {head}"
+        );
+    }
+
+    #[test]
+    fn a_body_that_is_not_utf8_is_no_message() {
+        let mut response =
+            b"HTTP/1.1 200 OK\r\nContent-Length: 3\r\nConnection: close\r\n\r\n".to_vec();
+        response.extend_from_slice(&[0xff, 0xfe, 0xfd]);
+        let server = script_bytes(vec![response]);
+
+        let reply = client(&server).post(&Token::new(TOKEN), BODY, None);
+
+        assert_eq!(
+            reply.unwrap(),
+            McpReply {
+                status: 200,
+                messages: Vec::new()
+            }
+        );
+        let (head, _) = captured_request(&server);
+        assert!(
+            head.starts_with("post /mcp http/1.1"),
+            "request line: {head}"
+        );
+    }
+
+    #[test]
+    fn a_body_shorter_than_its_content_length_is_an_error() {
+        // The head promises ten bytes more than are ever written, then the
+        // connection closes.
+        let body = result(1, "cut off").to_string();
+        let mut response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            body.len() + 10
+        )
+        .into_bytes();
+        response.truncate(response.len() - 10);
+        let server = script_bytes(vec![response]);
+
+        let err = client(&server)
+            .post(&Token::new(TOKEN), BODY, None)
+            .unwrap_err();
+
+        let message = err.to_string();
+        assert!(
+            message.starts_with("could not reach the MCP server: "),
+            "err: {message}"
+        );
+        assert!(
+            !message.contains(TOKEN),
+            "the error leaked the token: {message}"
+        );
+        let (head, _) = captured_request(&server);
+        assert!(
+            head.starts_with("post /mcp http/1.1"),
+            "request line: {head}"
+        );
+    }
+
+    #[test]
+    fn from_2026_07_28_a_request_carries_its_method() {
+        // The method names nothing, whatever its params carry.
+        let head = posted_head(
+            &request("server/discover", &json!({"name": "a decoy"})),
+            Some(NEW),
+        );
+
+        assert_eq!(header(&head, "mcp-method"), Some("server/discover"));
+        assert_eq!(header(&head, "mcp-name"), None, "the method names nothing");
+        assert_eq!(header(&head, "mcp-protocol-version"), Some(NEW));
+    }
+
+    #[test]
+    fn from_2026_07_28_a_tool_call_carries_its_tool_name() {
+        let head = posted_head(
+            &request(
+                "tools/call",
+                &json!({"name": "instances_list", "arguments": {}}),
+            ),
+            Some(NEW),
+        );
+
+        assert_eq!(header(&head, "mcp-method"), Some("tools/call"));
+        assert_eq!(header(&head, "mcp-name"), Some("instances_list"));
+    }
+
+    #[test]
+    fn each_naming_method_names_from_its_own_member() {
+        for (method, member) in [
+            ("tools/call", "name"),
+            ("prompts/get", "name"),
+            ("resources/read", "uri"),
+            ("resources/subscribe", "uri"),
+            ("resources/unsubscribe", "uri"),
+            ("tasks/get", "taskId"),
+            ("tasks/update", "taskId"),
+            ("tasks/cancel", "taskId"),
+        ] {
+            let head = posted_head(
+                &request(
+                    method,
+                    &json!({member: "the target", "other": "not this one"}),
+                ),
+                Some(NEW),
+            );
+            assert_eq!(header(&head, "mcp-method"), Some(method));
+            assert_eq!(header(&head, "mcp-name"), Some("the target"), "{method}");
+        }
+    }
+
+    #[test]
+    fn a_name_that_cannot_ride_a_header_is_base64_wrapped() {
+        // Non-ASCII, a leading space, and a value that already looks encoded.
+        for (name, wrapped) in [
+            ("recherche-été", "=?base64?cmVjaGVyY2hlLcOpdMOp?="),
+            (" leading", "=?base64?IGxlYWRpbmc=?="),
+            ("=?base64?x?=", "=?base64?PT9iYXNlNjQ/eD89?="),
+        ] {
+            let head = posted_head(&request("tools/call", &json!({"name": name})), Some(NEW));
+            assert_eq!(header(&head, "mcp-method"), Some("tools/call"));
+            assert_eq!(header(&head, "mcp-name"), Some(wrapped), "{name:?}");
+        }
+    }
+
+    #[test]
+    fn a_name_that_is_not_a_string_is_not_sent() {
+        for params in [
+            json!({"arguments": {}}),
+            json!({"name": 5}),
+            json!({"name": null}),
+        ] {
+            let head = posted_head(&request("tools/call", &params), Some(NEW));
+            assert_eq!(header(&head, "mcp-method"), Some("tools/call"));
+            assert_eq!(header(&head, "mcp-name"), None, "{params}");
+        }
+    }
+
+    #[test]
+    fn an_empty_name_is_an_empty_header_as_rmcp_sends_it() {
+        let head = posted_head(&request("tools/call", &json!({"name": ""})), Some(NEW));
+
+        assert_eq!(header(&head, "mcp-method"), Some("tools/call"));
+        assert_eq!(header(&head, "mcp-name"), Some(""));
+    }
+
+    #[test]
+    fn before_2026_07_28_no_method_headers_are_sent() {
+        let head = posted_head(
+            &request("tools/call", &json!({"name": "instances_list"})),
+            Some("2025-11-25"),
+        );
+
+        assert_eq!(header(&head, "mcp-protocol-version"), Some("2025-11-25"));
+        assert_eq!(header(&head, "mcp-method"), None);
+        assert_eq!(header(&head, "mcp-name"), None);
+    }
+
+    #[test]
+    fn without_a_version_no_method_headers_are_sent() {
+        let head = posted_head(
+            &request("tools/call", &json!({"name": "instances_list"})),
+            None,
+        );
+
+        assert_eq!(header(&head, "mcp-protocol-version"), None);
+        assert_eq!(header(&head, "mcp-method"), None);
+        assert_eq!(header(&head, "mcp-name"), None);
+    }
+
+    #[test]
+    fn a_response_carries_no_method_headers() {
+        let response = r#"{ "jsonrpc": "2.0", "id": 1, "result": { "marker": "ok" } }"#;
+        let head = posted_head(response, Some(NEW));
+
+        assert_eq!(header(&head, "mcp-protocol-version"), Some(NEW));
+        assert_eq!(header(&head, "mcp-method"), None);
+        assert_eq!(header(&head, "mcp-name"), None);
+    }
+
+    #[test]
+    fn a_body_that_is_not_an_object_carries_no_method_headers_and_rides_as_it_is() {
+        let head = posted_head("[1]", Some(NEW));
+
+        assert_eq!(header(&head, "mcp-protocol-version"), Some(NEW));
+        assert_eq!(header(&head, "mcp-method"), None);
+        assert_eq!(header(&head, "mcp-name"), None);
     }
 
     #[test]
@@ -563,12 +973,14 @@ mod tests {
                 "request line: {head}"
             );
         }
-        // A lone JSON scalar is not a message either.
-        let server = script(vec![respond_raw("200 OK", "42")]);
-        let reply = client(&server)
-            .post(&Token::new(TOKEN), BODY, None)
-            .unwrap();
-        assert!(reply.messages.is_empty());
+        // A lone JSON scalar, or an object that is not a JSON-RPC message, is none either.
+        for body in ["42", r#"{"n": 1}"#] {
+            let server = script(vec![respond_raw("200 OK", body)]);
+            let reply = client(&server)
+                .post(&Token::new(TOKEN), BODY, None)
+                .unwrap();
+            assert!(reply.messages.is_empty(), "{body}");
+        }
     }
 
     #[test]
