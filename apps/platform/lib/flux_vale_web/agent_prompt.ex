@@ -202,7 +202,7 @@ defmodule FluxValeWeb.AgentPrompt do
        - If I say no, accept it and never ask again this session.
        - If I say yes, explain plainly that SSO is a paid-org feature and welcome credit alone does not unlock it.
        - Check `wallet_ledger` (for a purchase) and `wallet_balance` (`paywall_waived`). If the org has not topped up yet, recommend a top-up from the ladder (#{ladder_choices}, or above #{ladder_top}), give me #{topup_url}, and wait while I complete checkout in my browser. Never ask for card details.
-       - Once the wallet is funded, inspect `pocket-id` with `apps_show`, confirm its price and required `ENCRYPTION_KEY`, deploy Pocket ID with `instances_deploy`, and wire SSO with `sso` (once I claim Pocket ID and add its admin API key) or #{sso_guide_url}.
+       - Once the wallet is funded, inspect `pocket-id` with `apps_show`, confirm its price and required `ENCRYPTION_KEY`, and add its monthly cost to the spend I confirm in step 4. After that yes, deploy Pocket ID with `instances_deploy`, and wire SSO with `sso` once the app is running (after I claim Pocket ID and add its admin API key) or #{sso_guide_url}.
     4. #{@commit_rule}
     5. Deploy with `instances_deploy`. Put configuration in `env`, for example {"TZ":"UTC"}. Leave cpu/memory/storage off to take the version's defaults.
     6. Poll `instances_status` until it is running, then give me the row's `url` — that is the instance URL.
