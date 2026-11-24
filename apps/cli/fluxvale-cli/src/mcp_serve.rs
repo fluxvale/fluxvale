@@ -2598,10 +2598,11 @@ mod tests {
         // The environment names no server of its own, so the sign-in's
         // resource is the server: the path `mcp login --resource` exists for.
         let mut h = start(Script {
+            // Nearly expired, so the pair is renewed before anything is forwarded.
             stored: Some(pair(
                 ACCESS,
                 REFRESH,
-                7200,
+                60,
                 Some("https://mcp-staging.fluxvale.com/mcp"),
             )),
             base_url: "http://127.0.0.1:4000",
@@ -2609,6 +2610,8 @@ mod tests {
         });
         assert_eq!(h.finish(), 0);
         assert_eq!(h.urls(), vec!["https://mcp-staging.fluxvale.com/mcp"]);
+        assert_eq!(h.refreshes().len(), 1, "the renewal went through");
+        assert_eq!(h.stderr(), "", "a healthy renewal says nothing");
         h.assert_no_secrets();
     }
 
