@@ -352,6 +352,17 @@ defmodule FluxValeWeb.DeveloperSettingsLiveTest do
       assert summary =~ "can only identify itself"
     end
 
+    test "each option label carries the keyboard focus outline (the radios are sr-only)", %{
+      conn: conn
+    } do
+      {:ok, view, _html} = live(conn, ~p"/settings/developer")
+
+      for level <- ["none", "read", "write"] do
+        label = render(element(view, "[data-testid='api-token-scope-instances-#{level}']"))
+        assert label =~ "has-[:focus-visible]:outline-focus"
+      end
+    end
+
     test "selecting Read renders the domain's scope copy and updates the summary", %{
       conn: conn
     } do

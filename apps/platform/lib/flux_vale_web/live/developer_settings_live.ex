@@ -353,14 +353,13 @@ defmodule FluxValeWeb.DeveloperSettingsLive do
 
   # A successful mint re-keys the form. The typed name lives in the
   # input's dirty value, which a value-attribute patch cannot clear
-  # (HTML default-value semantics) — the radios are likewise
-  # uncontrolled — so a plain re-assign would leave the submission
-  # armed for a duplicate mint on the next click. A changed id replaces
-  # the whole form subtree: fresh inputs, server-rendered defaults.
-  # The level map resets with it (the fresh radios render "none"
-  # everywhere), so the summary matches what the new form shows. A
-  # FAILED submit keeps the key and the levels, so the user fixes the
-  # name instead of starting over.
+  # (HTML default-value semantics), so a plain re-assign would leave
+  # the submission armed for a duplicate mint on the next click. A
+  # changed id replaces the whole form subtree: fresh inputs,
+  # server-rendered defaults. The level map resets with it too, so
+  # the radios re-render at "none" everywhere and the summary matches
+  # what the new form shows. A FAILED submit keeps the key and the
+  # levels, so the user fixes the name instead of starting over.
   defp assign_new_form_key(socket) do
     key = socket.assigns.token_form_key + 1
 
@@ -846,8 +845,9 @@ defmodule FluxValeWeb.DeveloperSettingsLive do
                                   <label
                                     for={"api-token-scope-#{domain.key}-none"}
                                     class={[
+                                      "has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-focus",
                                       "flex cursor-pointer items-center justify-center rounded-control border border-line bg-panel px-1 py-1.5 text-xs font-medium text-ink-muted transition-colors hover:border-line-strong hover:text-ink",
-                                      "has-checked:border-line-primary has-checked:bg-primary-muted has-checked:text-ink"
+                                      "has-checked:border-line-primary has-checked:bg-primary-muted has-checked:text-link"
                                     ]}
                                     data-testid={"api-token-scope-#{domain.key}-none"}
                                   >
@@ -864,10 +864,11 @@ defmodule FluxValeWeb.DeveloperSettingsLive do
                                   <label
                                     for={"api-token-scope-#{domain.key}-read"}
                                     class={[
+                                      "has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-focus",
                                       "flex cursor-pointer items-center justify-center rounded-control border border-line bg-panel px-1 py-1.5 text-xs font-medium text-ink-muted transition-colors hover:border-line-strong hover:text-ink",
-                                      "has-checked:border-line-primary has-checked:bg-primary-muted has-checked:text-ink",
+                                      "has-checked:border-line-primary has-checked:bg-primary-muted has-checked:text-link",
                                       level == "write" &&
-                                        "border-line-warning bg-warning-muted text-ink"
+                                        "border-line-primary/50 bg-primary-muted/60 text-link"
                                     ]}
                                     data-included={if(level == "write", do: "true", else: "false")}
                                     data-testid={"api-token-scope-#{domain.key}-read"}
@@ -887,8 +888,9 @@ defmodule FluxValeWeb.DeveloperSettingsLive do
                                     :if={domain.writable?}
                                     for={"api-token-scope-#{domain.key}-write"}
                                     class={[
+                                      "has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-focus",
                                       "flex cursor-pointer items-center justify-center rounded-control border border-line bg-panel px-1 py-1.5 text-xs font-medium text-ink-muted transition-colors hover:border-line-strong hover:text-ink",
-                                      "has-checked:border-line-primary has-checked:bg-primary-muted has-checked:text-ink"
+                                      "has-checked:border-line-primary has-checked:bg-primary-muted has-checked:text-link"
                                     ]}
                                     data-testid={"api-token-scope-#{domain.key}-write"}
                                   >
