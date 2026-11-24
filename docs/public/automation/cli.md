@@ -43,7 +43,7 @@ The [Terraform credentials guide](/docs/automation/terraform-credentials) covers
 
 ## Connect an MCP client
 
-`fluxvale mcp login` signs in for MCP with the same approval page flow (it prints a URL and a code that you approve in any browser). The token pair is stored beside the sign-in token and never printed.
+`fluxvale mcp login` signs in for MCP with a device code: it prints a URL and a code that you approve in any browser. The token pair is stored beside the sign-in token and never printed.
 
 Point your client at `fluxvale mcp serve`, which adds the access token to every request and refreshes it itself:
 

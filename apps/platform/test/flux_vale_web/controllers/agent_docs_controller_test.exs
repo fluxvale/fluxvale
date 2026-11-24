@@ -109,7 +109,13 @@ defmodule FluxValeWeb.AgentDocsControllerTest do
     html = html_response(conn, 200)
 
     assert html =~ "FluxVale CLI bridges it to the server"
-    assert html =~ ~s(href="/docs/automation/cli#connect-an-mcp-client")
+    assert html =~ ~s(href="/docs/automation/cli")
+    # No fragment: the CLI page has no heading ids to jump to.
+    refute html =~ ~s(href="/docs/automation/cli#")
     assert html =~ "CLI guide"
+
+    # The link text names a section, so the page it opens has to carry that section.
+    cli_conn = get(conn, ~p"/docs/automation/cli")
+    assert html_response(cli_conn, 200) =~ "Connect an MCP client"
   end
 end

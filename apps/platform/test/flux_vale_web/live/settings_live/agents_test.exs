@@ -198,7 +198,8 @@ defmodule FluxValeWeb.SettingsLive.AgentsTest do
     assert bridge =~ "No browser on this machine?"
     assert bridge =~ "fluxvale mcp login"
     assert bridge =~ "fluxvale mcp serve"
-    assert bridge =~ ~s(href="/docs/automation/cli#connect-an-mcp-client")
+    # Docs headings carry no ids, so the link opens the page itself, not a section.
+    assert has_element?(view, "[data-testid='agents-bridge'] a[href='/docs/automation/cli']")
     assert bridge =~ "Connect an MCP client"
   end
 end

@@ -122,7 +122,7 @@ defmodule FluxValeWeb.SettingsLive.Agents do
                   The CLI bridges a local client to the server. Run <span class="font-mono text-xs">fluxvale mcp login</span>,
                   approve in any browser on any machine, then point the client at <span class="font-mono text-xs">fluxvale mcp serve</span>.
                   See <.link
-                    navigate={~p"/docs/automation/cli#connect-an-mcp-client"}
+                    navigate={~p"/docs/automation/cli"}
                     class="font-medium text-ink underline decoration-line underline-offset-2 transition-colors hover:decoration-line-strong"
                   >Connect an MCP client</.link>.
                 </p>

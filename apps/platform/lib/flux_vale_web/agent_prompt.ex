@@ -126,7 +126,7 @@ defmodule FluxValeWeb.AgentPrompt do
   @spec scopes() :: String.t()
   def scopes, do: @scopes
 
-  @doc "The one auth sentence — the token path under `:pat`, the browser path under `:oauth`."
+  @doc "The auth note: the token path under `:pat`, the browser path under `:oauth`, then the remote-machine note."
   @spec auth_note(t()) :: String.t()
   def auth_note(%__MODULE__{} = ctx) do
     template =

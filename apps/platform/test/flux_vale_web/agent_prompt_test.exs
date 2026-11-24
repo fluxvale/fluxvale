@@ -189,11 +189,16 @@ defmodule FluxValeWeb.AgentPromptTest do
     previous = Application.get_env(:flux_vale, :mcp_auth_mode)
     on_exit(fn -> Application.put_env(:flux_vale, :mcp_auth_mode, previous) end)
 
+    # The join matters too: the note follows the auth sentence with exactly one space.
+    joined = "on the MCP connection. " <> expected
+
     Application.put_env(:flux_vale, :mcp_auth_mode, :pat)
     assert AgentPrompt.auth_note(ctx) =~ expected
+    assert AgentPrompt.auth_note(ctx) =~ joined
 
     Application.put_env(:flux_vale, :mcp_auth_mode, :oauth)
     assert AgentPrompt.auth_note(ctx) =~ expected
+    assert AgentPrompt.auth_note(ctx) =~ joined
   end
 
   test "prompt/1 and llms_txt/1 carry the remote CLI bridge note", %{ctx: ctx} do

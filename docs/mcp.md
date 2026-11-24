@@ -51,7 +51,7 @@ omits it (older clients) binds the configured default.
 
 The OAuth flow above returns the browser to a loopback address on the client's own machine, so it dead-ends when the client runs on a different machine from the browser. The CLI bridge uses the device grant from [ADR-0054](adr/00054-mcp-oauth.md), Amendment 1, so nothing redirects to localhost.
 
-1. **Sign in once**: run `fluxvale mcp login`. It prints a URL and a code. Open the URL in any browser on any machine, sign in, check the code and the client name, and choose **Allow access**. The CLI stores the token pair itself in the OS keychain, or in a `0600` file where there is no keychain.
+1. **Sign in once**: run `fluxvale mcp login`. It prints a URL and a code. Open the URL in any browser on any machine, sign in, check the code, the client name and the scopes, and choose **Allow access**. The CLI stores the token pair itself in the OS keychain, or in a `0600` file where there is no keychain.
 2. **Point the client at the bridge**: use one of the configs below.
 3. **Done**: the bridge sends the access token with every request and refreshes it itself, so the client never holds a credential. Revoke it any time in `/settings/developer#connected-apps`, where it appears under its client name, FluxVale CLI.
 
@@ -75,12 +75,12 @@ Cursor (`.cursor/mcp.json` or `~/.cursor/mcp.json`):
 }
 ```
 
-VS Code (`.vscode/mcp.json`, nested under `"servers"` as in `/settings/agents`):
+VS Code (`.vscode/mcp.json`, nested under `"servers"` as on the `/agent` panel):
 
 ```json
 {
   "servers": {
-    "fluxvale": { "command": "fluxvale", "args": ["mcp", "serve"] }
+    "fluxvale": { "type": "stdio", "command": "fluxvale", "args": ["mcp", "serve"] }
   }
 }
 ```
@@ -101,7 +101,7 @@ opencode (`opencode.json` or `~/.config/opencode/opencode.json`, nested under `m
 }
 ```
 
-The same scopes apply as in the two paths above. `fluxvale mcp status` shows the stored pair's location and expiry, and `fluxvale mcp logout` removes it (a running bridge keeps serving from memory until its next renewal, under an hour). Note also that `--url` on `fluxvale mcp serve` only confirms the URL the stored sign-in is bound to, and concurrent bridges coordinate token renewals through a lock file (`mcp-renewal.lock` in the FluxVale config directory). A client that can open a browser on its own machine is better served by the OAuth flow above. The CLI page is at `/docs/automation/cli`.
+The same scopes apply as in the OAuth path above and the token fallback below. Without `--scopes`, `fluxvale mcp login` asks for the CLI's full catalog, write scopes included. Pass `--scopes catalog:read,instances:read` to narrow it, and check the list on the approval page. `fluxvale mcp status` shows the stored pair's location and expiry, and `fluxvale mcp logout` removes it (a running bridge keeps serving from memory until its next renewal, under an hour). Note also that `--url` on `fluxvale mcp serve` only confirms the URL the stored sign-in is bound to, and concurrent bridges coordinate token renewals through a lock file (`mcp-renewal.lock` in the FluxVale config directory). A client that can open a browser on its own machine is better served by the OAuth flow above. The CLI page is at `/docs/automation/cli`.
 
 ## The token fallback (clients without OAuth)
 
