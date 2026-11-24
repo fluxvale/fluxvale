@@ -116,6 +116,18 @@ defmodule FluxValeWeb.SettingsLive.Agents do
                 </p>
               </.callout>
 
+              <.callout id="agents-bridge" tone="info" data-testid="agents-bridge">
+                <p>
+                  <span class="font-medium text-ink">No browser on this machine?</span>
+                  The CLI bridges a local client to the server. Run <span class="font-mono text-xs">fluxvale mcp login</span>,
+                  approve in any browser on any machine, then point the client at <span class="font-mono text-xs">fluxvale mcp serve</span>.
+                  See <.link
+                    navigate={~p"/docs/automation/cli"}
+                    class="font-medium text-ink underline decoration-line underline-offset-2 transition-colors hover:decoration-line-strong"
+                  >Connect an MCP client</.link>.
+                </p>
+              </.callout>
+
               <%!-- The recipe, numbered like the file-access quick-start
               (the dav snippet's circle idiom): two steps, nothing
               between the mint and a working config. --%>

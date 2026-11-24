@@ -103,4 +103,17 @@ defmodule FluxValeWeb.AgentDocsControllerTest do
     refute html =~ ~s(href="/agent")
     refute html =~ "agent-docs-personalized-link"
   end
+
+  test "the guide mentions the CLI bridge and links to the CLI page", %{conn: conn} do
+    conn = get(conn, ~p"/docs/agents")
+    html = html_response(conn, 200)
+
+    assert html =~ "FluxVale CLI bridges it to the server"
+    # The guide's own link, with its text. The page's sidebar also links to the CLI page.
+    assert html =~ ~s(<a href="/docs/automation/cli">CLI guide</a>)
+
+    # The copy says the CLI page has the two commands, so that page must carry the section.
+    cli_conn = get(conn, ~p"/docs/automation/cli")
+    assert html_response(cli_conn, 200) =~ "Connect an MCP client"
+  end
 end

@@ -190,4 +190,16 @@ defmodule FluxValeWeb.SettingsLive.AgentsTest do
     assert has_element?(view, "[data-testid='agents-server-url']")
     assert has_element?(view, "[data-testid='agents-config-claude-steps']")
   end
+
+  test "the page carries the CLI bridge callout for headless machines", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/settings/agents")
+
+    bridge = render(element(view, "[data-testid='agents-bridge']"))
+    assert bridge =~ "No browser on this machine?"
+    assert bridge =~ "fluxvale mcp login"
+    assert bridge =~ "fluxvale mcp serve"
+    # Docs headings carry no ids, so the link opens the page itself, not a section.
+    assert has_element?(view, "[data-testid='agents-bridge'] a[href='/docs/automation/cli']")
+    assert bridge =~ "Connect an MCP client"
+  end
 end

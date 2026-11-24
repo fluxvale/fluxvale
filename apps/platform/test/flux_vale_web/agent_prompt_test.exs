@@ -181,4 +181,31 @@ defmodule FluxValeWeb.AgentPromptTest do
     assert "Confirm the spend before deploying" in steps
     assert AgentPrompt.commit_rule() =~ "Confirm the spend"
   end
+
+  test "the remote CLI bridge note appears in auth_note under both :pat and :oauth", %{ctx: ctx} do
+    expected =
+      "On a machine without a browser, sign in with `fluxvale mcp login` and connect the client through `fluxvale mcp serve`."
+
+    previous = Application.get_env(:flux_vale, :mcp_auth_mode)
+    on_exit(fn -> Application.put_env(:flux_vale, :mcp_auth_mode, previous) end)
+
+    # The join matters too: the note follows the auth sentence with exactly one space.
+    joined = "on the MCP connection. " <> expected
+
+    Application.put_env(:flux_vale, :mcp_auth_mode, :pat)
+    assert AgentPrompt.auth_note(ctx) =~ expected
+    assert AgentPrompt.auth_note(ctx) =~ joined
+
+    Application.put_env(:flux_vale, :mcp_auth_mode, :oauth)
+    assert AgentPrompt.auth_note(ctx) =~ expected
+    assert AgentPrompt.auth_note(ctx) =~ joined
+  end
+
+  test "prompt/1 and llms_txt/1 carry the remote CLI bridge note", %{ctx: ctx} do
+    expected =
+      "On a machine without a browser, sign in with `fluxvale mcp login` and connect the client through `fluxvale mcp serve`."
+
+    assert AgentPrompt.prompt(ctx) =~ expected
+    assert AgentPrompt.llms_txt(ctx) =~ expected
+  end
 end
