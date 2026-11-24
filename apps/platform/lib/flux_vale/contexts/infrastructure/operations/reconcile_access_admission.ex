@@ -17,7 +17,10 @@ defmodule FluxVale.Infrastructure.Operations.ReconcileAccessAdmission do
   `:destroying` gateways are skipped: the teardown removes the arms
   itself, first of all, and must not race a re-mint. `:suspended` is
   NOT skipped — its routes are withheld by this pass (a suspended
-  gateway has no running pod to admit from).
+  gateway has no running pod to admit from). A pairing that ends under
+  the pass (a teardown or a detach won the race) has the arms it just
+  applied removed again: a teardown writes `:destroying` before it
+  removes the arms, so one of the two orders always wins.
 
   The fail-closed posture: a failed pod read decides nothing (the memo
   keeps its previous answer and the next pass re-reads), a failed
@@ -37,6 +40,7 @@ defmodule FluxVale.Infrastructure.Operations.ReconcileAccessAdmission do
   alias FluxVale.Infrastructure.Operations.InstanceK8s
   alias FluxVale.Infrastructure.Operations.RenderAccessDNS
 
+  require Ash.Query
   require Logger
 
   @doc """
@@ -131,11 +135,10 @@ defmodule FluxVale.Infrastructure.Operations.ReconcileAccessAdmission do
 
       if Enum.all?(results, &(&1 == :ok)) do
         Activity.remember_admitted_source(gateway.id, target)
-        # The message binds outside the Logger macro on purpose: the
-        # suite's level is :warning, so the macro skips its argument in
-        # tests — the binding line is the one a test executes.
-        message = "Access edge: gateway #{gateway.id} admitted source is now #{inspect(target)}"
-        Logger.info(message)
+
+        Logger.info(
+          "Access edge: gateway #{gateway.id} admitted source is now #{inspect(target)}"
+        )
 
         :converged
       else
@@ -206,7 +209,7 @@ defmodule FluxVale.Infrastructure.Operations.ReconcileAccessAdmission do
       {:ok, %{status: status} = fresh} when status != applied.status ->
         case EdgeRoutes.apply_access_for_status(instance_kubeconfig, gateway, fresh) do
           :ok ->
-            :ok
+            undo_if_ended(instance_kubeconfig, gateway, fresh)
 
           {:error, reason} ->
             log_reapply_failed(gateway, applied, reason)
@@ -214,13 +217,48 @@ defmodule FluxVale.Infrastructure.Operations.ReconcileAccessAdmission do
         end
 
       {:ok, _status_stable} ->
-        :ok
+        undo_if_ended(instance_kubeconfig, gateway, applied)
 
       # coveralls-ignore-start - race only: the row vanished under the
       # pass (teardown won); there is no arm left to re-point.
       {:error, _gone} ->
         :ok
         # coveralls-ignore-stop
+    end
+  end
+
+  # The teardown guard: the pass decided from a pairing read made moments
+  # ago. A teardown that began since writes `:destroying` FIRST and removes
+  # the arms next, so this read catches either order. No pairing row is
+  # the same answer (a detach won): nothing is left to route.
+  defp pairing_admits?(gateway_id, instance_id) do
+    result =
+      AccessRoute
+      |> Ash.Query.filter(gateway_id == ^gateway_id and instance_id == ^instance_id)
+      |> Ash.Query.load(:gateway)
+      |> Ash.read_one(authorize?: false)
+
+    case result do
+      # Ash.read_one answers {:ok, row} (or {:ok, nil} / {:error, _} —
+      # no pairing, or gone mid-read, is the same "ended" answer).
+      {:ok, %{gateway: %{state: state}}} -> state != :destroying
+      _ended -> false
+    end
+  end
+
+  # Runs after an instance's LAST successful apply. A pairing that ended
+  # under the pass leaves the arms just applied as orphans, so they are
+  # removed again. Its result is the instance's result.
+  defp undo_if_ended(kubeconfig, gateway, instance) do
+    if pairing_admits?(gateway.id, instance.id) do
+      :ok
+    else
+      Logger.warning(
+        "Access edge: gateway #{gateway.id} — pairing ended under the pass, removing the " <>
+          "arms just applied for instance #{instance.id}"
+      )
+
+      EdgeRoutes.apply_access_none(kubeconfig, instance)
     end
   end
 

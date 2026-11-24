@@ -1308,15 +1308,33 @@ defmodule FluxVale.Infrastructure.Operations.EdgeRoutesTest do
         :ok
       end)
 
-      assert :ok = EdgeRoutes.apply_access_serving(%{}, gateway, instance)
-      assert_received {:deleted_route, app_name}
-      assert app_name =~ ~r/^access-[0-9a-f]{10}$/
-      assert_received {:deleted_route, dav_name}
-      assert dav_name =~ ~r/^access-[0-9a-f]{10}-dav$/
+      # The suite logs at :warning, so the withhold line never emits at
+      # that level: the primary level rises for the two calls and
+      # restores right after. This file is async, so the window is kept
+      # to the capture alone — a concurrent test's info lines in the
+      # window land in this capture (noise at worst; every assertion
+      # here is a positive substring match).
+      previous = Logger.level()
+      Logger.configure(level: :info)
+      on_exit(fn -> Logger.configure(level: previous) end)
 
-      assert :ok = EdgeRoutes.apply_access_wake(%{}, gateway, instance)
-      assert_received {:deleted_route, ^app_name}
-      assert_received {:deleted_route, ^dav_name}
+      log =
+        capture_log([level: :info], fn ->
+          assert :ok = EdgeRoutes.apply_access_serving(%{}, gateway, instance)
+          assert_received {:deleted_route, app_name}
+          assert app_name =~ ~r/^access-[0-9a-f]{10}$/
+          assert_received {:deleted_route, dav_name}
+          assert dav_name =~ ~r/^access-[0-9a-f]{10}-dav$/
+
+          assert :ok = EdgeRoutes.apply_access_wake(%{}, gateway, instance)
+          assert_received {:deleted_route, ^app_name}
+          assert_received {:deleted_route, ^dav_name}
+        end)
+
+      Logger.configure(level: previous)
+
+      assert log =~
+               "has no running pod — withholding the access routes for instance #{instance.id}"
     end
 
     test "pod list failure ({:error, ...}) — returns {:error, _}, never calls Ingress.create" do

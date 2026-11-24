@@ -75,7 +75,22 @@ defmodule FluxVale.Infrastructure.Operations.ReconcileAccessAdmissionTest do
     stub_gateway_pods(%{gateway.id => "10.0.0.1"})
     stub_ingress_sends()
 
-    assert {:ok, %{checked: 1, converged: 1}} = ReconcileAccessAdmission.call()
+    # The suite logs at :warning, so the success line never emits at
+    # that level: the primary level rises for the pass (this file is
+    # async: false — no async test logs into the window) and restores.
+    previous = Logger.level()
+    Logger.configure(level: :info)
+    on_exit(fn -> Logger.configure(level: previous) end)
+
+    log =
+      capture_log([level: :info], fn ->
+        assert {:ok, %{checked: 1, converged: 1}} = ReconcileAccessAdmission.call()
+      end)
+
+    Logger.configure(level: previous)
+
+    assert log =~ ~s[Access edge: gateway #{gateway.id} admitted source is now "10.0.0.1"]
+
     assert Activity.admitted_source(gateway.id) == "10.0.0.1"
 
     created = drain_access_ingresses()
@@ -259,6 +274,75 @@ defmodule FluxVale.Infrastructure.Operations.ReconcileAccessAdmissionTest do
 
     assert log =~ "access re-apply failed"
     assert Activity.admitted_source(gateway.id) == :dirty
+  end
+
+  test "a pairing that ends under the apply is undone", %{org: org, owner: owner} do
+    gateway = AccessFixtures.gateway!(org)
+    instance = AccessFixtures.private_instance!(org, owner)
+    route = pair!(gateway, instance)
+
+    stub_gateway_pods(%{gateway.id => "10.0.0.31"})
+
+    parent = self()
+
+    # The first apply's side effect ends the pairing (a detach won the
+    # race); the apply itself reports :ok.
+    expect(EdgeRoutes, :apply_access_for_status, 1, fn _kc, _gw, _i ->
+      AccessRoute.destroy!(route, authorize?: false)
+      :ok
+    end)
+
+    stub(EdgeRoutes, :apply_access_for_status, fn _kc, _gw, _i -> :ok end)
+
+    stub(EdgeRoutes, :apply_access_none, fn _kc, i ->
+      send(parent, {:undone, i.id})
+      :ok
+    end)
+
+    log =
+      capture_log(fn ->
+        assert {:ok, %{checked: 1, converged: 1}} = ReconcileAccessAdmission.call()
+      end)
+
+    assert log =~ "pairing ended under the pass"
+    assert Activity.admitted_source(gateway.id) == "10.0.0.31"
+    assert drain_undone() == [instance.id]
+  end
+
+  test "a gateway that turns :destroying under the apply is undone", %{org: org, owner: owner} do
+    gateway = AccessFixtures.gateway!(org)
+    instance = AccessFixtures.private_instance!(org, owner)
+    pair!(gateway, instance)
+
+    stub_gateway_pods(%{gateway.id => "10.0.0.32"})
+
+    parent = self()
+
+    # The first apply's side effect flips the gateway to :destroying
+    # through the action (the teardown job is only enqueued by the
+    # opt-out action, so nothing else runs) and leaves the pairing row.
+    expect(EdgeRoutes, :apply_access_for_status, 1, fn _kc, gw, _i ->
+      gw
+      |> Ash.Changeset.for_update(:update_state, %{state: :destroying}, authorize?: false)
+      |> Ash.update!()
+
+      :ok
+    end)
+
+    stub(EdgeRoutes, :apply_access_for_status, fn _kc, _gw, _i -> :ok end)
+
+    stub(EdgeRoutes, :apply_access_none, fn _kc, i ->
+      send(parent, {:undone, i.id})
+      :ok
+    end)
+
+    log =
+      capture_log(fn ->
+        assert {:ok, %{checked: 1, converged: 1}} = ReconcileAccessAdmission.call()
+      end)
+
+    assert log =~ "pairing ended under the pass"
+    assert drain_undone() == [instance.id]
   end
 
   test "public and namespace-less pairings are skipped — only the private deployed instance re-arms",
@@ -475,6 +559,14 @@ defmodule FluxVale.Infrastructure.Operations.ReconcileAccessAdmissionTest do
   defp drain_applied_instances(acc \\ []) do
     receive do
       {:applied_instance, id} -> drain_applied_instances([id | acc])
+    after
+      0 -> Enum.reverse(acc)
+    end
+  end
+
+  defp drain_undone(acc \\ []) do
+    receive do
+      {:undone, id} -> drain_undone([id | acc])
     after
       0 -> Enum.reverse(acc)
     end
