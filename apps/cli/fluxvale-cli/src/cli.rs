@@ -486,7 +486,14 @@ pub fn run(cli: &Cli) -> anyhow::Result<()> {
             McpCommand::Logout => {
                 let store = McpTokenStore::at(McpTokenStore::default_dir()?);
                 let host = config::host_from_base_url(&config.base_url);
-                print(mcp::logout_store(&store, &host))
+                // The lock `serve` renews under: a pair a renewal is
+                // saving is a pair this must not leave behind.
+                let lock = mcp_serve::FileRenewalLock::new(
+                    McpTokenStore::default_dir()?.join(mcp_serve::RENEWAL_LOCK_FILE),
+                );
+                print(mcp_serve::logout_after_renewals(&lock, || {
+                    mcp::logout_store(&store, &host)
+                }))
             }
             McpCommand::Status => {
                 let store = McpTokenStore::at(McpTokenStore::default_dir()?);
@@ -499,7 +506,7 @@ pub fn run(cli: &Cli) -> anyhow::Result<()> {
                 let store = McpTokenStore::at(McpTokenStore::default_dir()?);
                 // One file serves every host: a renewal is rare and short.
                 let lock = mcp_serve::FileRenewalLock::new(
-                    McpTokenStore::default_dir()?.join("mcp-renewal.lock"),
+                    McpTokenStore::default_dir()?.join(mcp_serve::RENEWAL_LOCK_FILE),
                 );
                 let oauth = OAuthDeviceClient::new(&config.base_url);
                 // The bridge owns stdout, so it answers with an exit code, not a line to print.

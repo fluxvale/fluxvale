@@ -4,7 +4,9 @@
 //! with the stored access token. The bridge renews the pair itself, so
 //! the client never holds a credential, and sends that token to one
 //! server only: the one the stored sign-in is bound to. stdout is the
-//! protocol channel: one writer thread, one message per line.
+//! protocol channel: one writer thread, one message per line. The bridge
+//! ends when stdin closes, when the sign-in is lost, or when the client
+//! closes its end of stdout.
 
 use crate::config;
 use crate::token::{McpCredentials, McpTokenStore};
@@ -47,6 +49,8 @@ const RENEWAL_FAILED: &str = "could not renew the MCP access token";
 const RENEWAL_LOCK_WAIT: Duration = Duration::from_secs(45);
 /// How often a renewal waiting for the cross-process lock tries again.
 const RENEWAL_LOCK_POLL: Duration = Duration::from_millis(25);
+/// The name of the lock file every `fluxvale mcp` command takes it on.
+pub const RENEWAL_LOCK_FILE: &str = "mcp-renewal.lock";
 
 /// The one MCP endpoint the bridge talks to, and the only one the stored
 /// pair's token may go to.
@@ -214,6 +218,19 @@ impl RenewalLock for FileRenewalLock {
     }
 }
 
+/// Runs `logout` once no renewal is in flight, so a pair a renewal saves is
+/// the pair this removes.
+pub fn logout_after_renewals(
+    lock: &dyn RenewalLock,
+    logout: impl FnOnce() -> anyhow::Result<String>,
+) -> anyhow::Result<String> {
+    // A lock that cannot be taken and a wait that ran out are both
+    // ignored: a logout goes ahead either way. The guard, when there is
+    // one, is held until `logout` has returned.
+    let _held = lock.hold().ok();
+    logout()
+}
+
 /// The lock file, created if it does not exist yet and never truncated,
 /// since another process may be holding it.
 fn open_lock_file(path: &Path) -> std::io::Result<File> {
@@ -231,8 +248,9 @@ fn open_lock_file(path: &Path) -> std::io::Result<File> {
     options.open(path)
 }
 
-/// Runs the bridge and returns its exit code: 0 when stdin closed, 1
-/// when the stored sign-in was missing or could no longer be renewed.
+/// Runs the bridge and returns its exit code: 0 when stdin closed or the
+/// client closed its end of stdout, 1 when the stored sign-in was missing
+/// or could no longer be renewed.
 ///
 /// Everything the bridge touches is a parameter, so tests drive it
 /// without a keychain or a network. `reader` is stdin, `writer` is
@@ -277,23 +295,19 @@ where
     let url = resolve_url(flag_url, pair.resource.as_deref(), base_url)?;
     let nearly_expired = pair.is_expired_within(now(), EXPIRY_LEEWAY_SECS);
     let (out, lines) = mpsc::channel();
-    let bridge = Arc::new(Bridge {
-        transport: Arc::new(connect(&url)?),
-        store: Arc::new(store),
-        lock: Arc::new(lock),
-        refresh: Arc::new(refresh),
+    let bridge = Arc::new(Bridge::new(
+        Arc::new(connect(&url)?),
+        Arc::new(store),
+        Arc::new(lock),
+        Arc::new(refresh),
         now,
-        err: err.clone(),
-        host: host.to_owned(),
+        err.clone(),
+        host,
         url,
-        base_url: base_url.to_owned(),
-        current: RwLock::new(pair.clone()),
-        negotiated: RwLock::new(None),
-        renewal: Mutex::new(()),
-        lost: Mutex::new(None),
-        dead: AtomicBool::new(false),
+        base_url,
+        pair.clone(),
         out,
-    });
+    ));
     // A token about to expire is renewed before anything is forwarded.
     if nearly_expired {
         match bridge.renew(&pair) {
@@ -322,15 +336,22 @@ where
     let written = writing
         .join()
         .map_err(|_| anyhow::anyhow!("the stdout writer panicked"))?;
-    let Some(stderr) = written? else {
-        reading
-            .join()
-            .map_err(|_| anyhow::anyhow!("the stdin reader panicked"))??;
-        return Ok(0);
-    };
-    // The reader may still be blocked on stdin: the caller exits the process.
-    err(&stderr);
-    Ok(1)
+    match written? {
+        // The client is gone. Nothing more can reach it, and there is
+        // nothing to wait for: the reader may still be blocked on stdin.
+        Written::ClientGone => Ok(0),
+        Written::Nothing => {
+            reading
+                .join()
+                .map_err(|_| anyhow::anyhow!("the stdin reader panicked"))??;
+            Ok(0)
+        }
+        // The reader may still be blocked on stdin: the caller exits the process.
+        Written::Lost(stderr) => {
+            err(&stderr);
+            Ok(1)
+        }
+    }
 }
 
 /// What the reader and its forwards hand to the writer thread.
@@ -342,6 +363,16 @@ enum ToWriter {
         line: Option<String>,
         stderr: String,
     },
+}
+
+/// How the writer thread ended.
+enum Written {
+    /// The channel closed with every message written. Nothing is for stderr.
+    Nothing,
+    /// The bridge stopped after a lost sign-in: this line is for stderr.
+    Lost(String),
+    /// A write failed with `BrokenPipe`: the client closed its end of stdout.
+    ClientGone,
 }
 
 /// The token endpoint's refresh call.
@@ -373,12 +404,48 @@ struct Bridge {
     renewal: Mutex<()>,
     /// Why the sign-in was lost, once a renewal has failed for good.
     lost: Mutex<Option<String>>,
-    /// Set once the sign-in is lost: nothing more is forwarded.
+    /// Set by [`sign_out`](Self::sign_out) once the sign-in is lost:
+    /// nothing more is forwarded, and a forward that has not sent yet
+    /// sends nothing. `renew` does not set it: it records the loss, which
+    /// is what a request waiting on the locks reads.
     dead: AtomicBool,
     out: Sender<ToWriter>,
 }
 
 impl Bridge {
+    #[allow(clippy::too_many_arguments)]
+    fn new(
+        transport: Arc<dyn McpTransport>,
+        store: Arc<dyn McpPairStore>,
+        lock: Arc<dyn RenewalLock>,
+        refresh: Arc<Renew>,
+        now: Arc<Clock>,
+        err: Arc<ErrSink>,
+        host: &str,
+        url: String,
+        base_url: &str,
+        pair: McpCredentials,
+        out: Sender<ToWriter>,
+    ) -> Self {
+        Bridge {
+            transport,
+            store,
+            lock,
+            refresh,
+            now,
+            err,
+            host: host.to_owned(),
+            url,
+            base_url: base_url.to_owned(),
+            current: RwLock::new(pair),
+            negotiated: RwLock::new(None),
+            renewal: Mutex::new(()),
+            lost: Mutex::new(None),
+            dead: AtomicBool::new(false),
+            out,
+        }
+    }
+
     /// The reader thread: forwards each stdin line, and returns at end
     /// of input once every forward it started has finished.
     fn read_lines<R: BufRead>(&self, reader: &mut R) -> anyhow::Result<()> {
@@ -407,6 +474,11 @@ impl Bridge {
 
     /// Forwards one message and hands the answers to the writer.
     fn forward(&self, line: &str, message: &Value) {
+        // Another forward may have lost the sign-in while this one waited
+        // to start. Nothing more is sent, and nothing is said.
+        if self.dead.load(Ordering::Relaxed) {
+            return;
+        }
         let id = request_id(message);
         let version = self.header_version(message);
         let mut pair = self.pair();
@@ -435,6 +507,11 @@ impl Bridge {
                     Err(RefreshError::Permanent(why)) => break Outcome::SignedOut(why),
                 };
                 renewed = true;
+                // The renewal may have waited a while, and another forward
+                // may have lost the sign-in in that time.
+                if self.dead.load(Ordering::Relaxed) {
+                    return;
+                }
                 continue;
             }
             // Only an `initialize` answer negotiates, and it is recorded
@@ -535,13 +612,45 @@ impl Bridge {
         let outcome = self.renew_holding(refused);
         if let Err(RefreshError::Permanent(reason)) = &outcome {
             *self.lost.lock().unwrap_or_else(ignore_poison) = Some(reason.clone());
-            self.dead.store(true, Ordering::Relaxed);
         }
         outcome
     }
 
     /// The renewal itself, under both locks.
     fn renew_holding(&self, refused: &McpCredentials) -> Result<McpCredentials, RefreshError> {
+        let stored = self.reload()?;
+        let pair = if stored.refresh_token != refused.refresh_token {
+            stored
+        } else {
+            let reply = (self.refresh)(&refused.refresh_token, refused.resource.as_deref())?;
+            let minted = McpCredentials {
+                access_token: reply.access_token,
+                refresh_token: reply.refresh_token,
+                expires_at_unix: (self.now)().saturating_add(reply.expires_in),
+                scope: reply.scope,
+                resource: refused.resource.clone(),
+            };
+            // The endpoint took a moment, and a logout or a login may have
+            // run in it. The store is read once more before it is written,
+            // so a pair a logout removed is not put back, and a pair a
+            // login stored is not written over.
+            let again = self.reload()?;
+            if again.refresh_token != refused.refresh_token {
+                // The store changed hands meanwhile: that pair is the one to use.
+                return Ok(again);
+            }
+            self.store
+                .save(&self.host, &minted)
+                .map_err(|err| RefreshError::Permanent(err.to_string()))?;
+            minted
+        };
+        *self.current.write().unwrap_or_else(ignore_poison) = pair.clone();
+        Ok(pair)
+    }
+
+    /// The stored pair, read under the locks, once it is known to be this
+    /// server's.
+    fn reload(&self) -> Result<McpCredentials, RefreshError> {
         let stored = self
             .store
             .load(&self.host)
@@ -558,24 +667,7 @@ impl Bridge {
                 bound.as_deref().unwrap_or("an unknown server")
             )));
         }
-        let pair = if stored.refresh_token != refused.refresh_token {
-            stored
-        } else {
-            let reply = (self.refresh)(&refused.refresh_token, refused.resource.as_deref())?;
-            let pair = McpCredentials {
-                access_token: reply.access_token,
-                refresh_token: reply.refresh_token,
-                expires_at_unix: (self.now)().saturating_add(reply.expires_in),
-                scope: reply.scope,
-                resource: refused.resource.clone(),
-            };
-            self.store
-                .save(&self.host, &pair)
-                .map_err(|err| RefreshError::Permanent(err.to_string()))?;
-            pair
-        };
-        *self.current.write().unwrap_or_else(ignore_poison) = pair.clone();
-        Ok(pair)
+        Ok(stored)
     }
 
     fn emit(&self, line: String) {
@@ -627,34 +719,38 @@ enum Outcome {
 }
 
 /// The writer thread, the only one that touches stdout: one message per
-/// line, flushed. Returns the stderr line of a lost sign-in, when there was one.
-fn write_lines<W: Write>(
-    mut writer: W,
-    messages: Receiver<ToWriter>,
-) -> anyhow::Result<Option<String>> {
-    let mut stderr = None;
+/// line, flushed.
+fn write_lines<W: Write>(mut writer: W, messages: Receiver<ToWriter>) -> anyhow::Result<Written> {
     for message in messages {
         match message {
-            ToWriter::Line(line) => write_line(&mut writer, &line)?,
+            ToWriter::Line(line) => match write_line(&mut writer, &line) {
+                // The client closed its end. Nothing more can reach it.
+                Err(err) if err.kind() == std::io::ErrorKind::BrokenPipe => {
+                    return Ok(Written::ClientGone);
+                }
+                Ok(()) => {}
+                Err(err) => return Err(err.into()),
+            },
             ToWriter::Fatal { line, stderr: lost } => {
                 if let Some(line) = line {
-                    write_line(&mut writer, &line)?;
+                    // A client that is gone does not make the loss unsaid.
+                    match write_line(&mut writer, &line) {
+                        Err(err) if err.kind() != std::io::ErrorKind::BrokenPipe => {
+                            return Err(err.into());
+                        }
+                        _ => {}
+                    }
                 }
-                stderr = Some(lost);
-                break;
+                return Ok(Written::Lost(lost));
             }
         }
     }
-    Ok(stderr)
+    Ok(Written::Nothing)
 }
 
-/// A line, a newline, a flush. A closed pipe means the client is gone,
-/// which is how every session ends, not an error.
-fn write_line<W: Write>(writer: &mut W, line: &str) -> anyhow::Result<()> {
-    match writeln!(writer, "{line}").and_then(|()| writer.flush()) {
-        Err(err) if err.kind() == std::io::ErrorKind::BrokenPipe => Ok(()),
-        written => written.map_err(Into::into),
-    }
+/// A line, a newline, a flush.
+fn write_line<W: Write>(writer: &mut W, line: &str) -> std::io::Result<()> {
+    writeln!(writer, "{line}").and_then(|()| writer.flush())
 }
 
 /// An error response the bridge writes itself.
@@ -986,6 +1082,8 @@ mod tests {
     struct MemoryStore {
         pairs: Arc<Mutex<BTreeMap<String, McpCredentials>>>,
         faults: Arc<Mutex<Faults>>,
+        /// Every save that went through, in order.
+        saved: Arc<Mutex<Vec<(String, McpCredentials)>>>,
     }
 
     /// What the store refuses next, one call each.
@@ -1007,6 +1105,10 @@ mod tests {
             if let Some(why) = self.faults.lock().unwrap().save.pop() {
                 return Err(anyhow::Error::msg(why));
             }
+            self.saved
+                .lock()
+                .unwrap()
+                .push((host.to_owned(), pair.clone()));
             self.pairs
                 .lock()
                 .unwrap()
@@ -1048,7 +1150,7 @@ mod tests {
                     script: script.into(),
                     calls: Vec::new(),
                 }),
-                lock: dir.join("mcp-renewal.lock"),
+                lock: dir.join(RENEWAL_LOCK_FILE),
                 dir,
                 lock_wait: RENEWAL_LOCK_WAIT,
             };
@@ -1059,6 +1161,12 @@ mod tests {
         }
 
         /// How long a renewal of this sign-in waits for the lock file.
+        /// What the token endpoint does next, for a test whose script
+        /// needs a handle on the store.
+        fn answering(&self, script: Box<Renewal>) {
+            self.endpoint.lock().unwrap().script = script.into();
+        }
+
         fn with_lock_wait(mut self, wait: Duration) -> Self {
             self.lock_wait = wait;
             self
@@ -1258,6 +1366,9 @@ mod tests {
         /// Whole HTTP answers from a loopback server, for a bridge whose
         /// transport is the real client. `None` uses the mock transport.
         wire: Option<Vec<String>>,
+        /// The token endpoint is the real client too, against the same
+        /// loopback server, instead of the scripted one.
+        token_endpoint_on_wire: bool,
     }
 
     /// The plain setup: a healthy pair for `fluxvale.com`, every POST
@@ -1274,6 +1385,7 @@ mod tests {
             answer: Box::new(|_, post| Ok(echo(post))),
             renew: Box::new(|_, _| Ok(renewed())),
             wire: None,
+            token_endpoint_on_wire: false,
         }
     }
 
@@ -1334,10 +1446,14 @@ mod tests {
             }
             None => Box::new(move |_| Ok(Arc::new(transport))),
         };
-        let renew = {
-            let seen = seen.clone();
-            let world = world.clone();
-            move |token: &Token, resource: Option<&str>| world.refresh(&seen, token, resource)
+        let renew: Box<Renew> = if script.token_endpoint_on_wire {
+            let server = on_wire
+                .clone()
+                .expect("the token endpoint on the wire needs a wire");
+            let oauth = fluxvale_api::OAuthDeviceClient::new(&server.base_url);
+            Box::new(move |token: &Token, resource: Option<&str>| oauth.refresh(token, resource))
+        } else {
+            refresh_via(seen.clone(), world.clone())
         };
         let (host, base_url, flag_url) = (script.host, script.base_url, script.flag_url);
         let store = world.store.clone();
@@ -1528,6 +1644,11 @@ mod tests {
 
         fn stored(&self, host: &str) -> Option<McpCredentials> {
             self.pairs.lock().unwrap().get(host).cloned()
+        }
+
+        /// Every save that went through, in order, with its host.
+        fn saved(&self) -> Vec<(String, McpCredentials)> {
+            self.saved.lock().unwrap().clone()
         }
     }
 
@@ -2253,7 +2374,8 @@ mod tests {
         }
         assert_eq!(h.finish(), 0);
 
-        let headers: BTreeMap<String, Option<String>> = h
+        // In the order the requests were made, so both `initialize` posts show.
+        let headers: Vec<(String, Option<String>)> = h
             .posts()
             .iter()
             .map(|post| {
@@ -2267,15 +2389,19 @@ mod tests {
             .collect();
         assert_eq!(
             headers,
-            BTreeMap::from([
+            vec![
                 ("1".to_string(), Some("2025-06-18".to_string())),
+                // Nothing is negotiated yet, so a bare message carries no version.
                 ("2".to_string(), None),
                 ("initialize".to_string(), None),
+                // What `initialize` negotiated.
                 ("3".to_string(), Some(PROTOCOL.to_string())),
                 // A message's own `_meta` version wins over the negotiated one:
                 // the server refuses a header that differs from it.
                 ("4".to_string(), Some("2025-06-18".to_string())),
-            ])
+                // The second `initialize` carries none either.
+                ("initialize".to_string(), None),
+            ]
         );
         h.assert_no_secrets();
     }
@@ -2761,7 +2887,7 @@ mod tests {
             },
             move |_| Ok(transport.clone()),
             store.clone(),
-            FileRenewalLock::new(dir.join("mcp-renewal.lock")),
+            FileRenewalLock::new(dir.join(RENEWAL_LOCK_FILE)),
             |_, _| unreachable!("nothing is forwarded"),
             || NOW,
         )
@@ -2778,7 +2904,7 @@ mod tests {
             "nothing was forwarded"
         );
         // A bridge that never renews never opens the lock file.
-        assert!(!dir.join("mcp-renewal.lock").exists());
+        assert!(!dir.join(RENEWAL_LOCK_FILE).exists());
         let _ = std::fs::remove_dir_all(dir);
     }
 
@@ -2998,7 +3124,7 @@ mod tests {
         let dir = temp_dir();
         std::fs::write(dir.join("not-a-directory"), b"a regular file").unwrap();
         let world = Arc::new(
-            plain_world().with_lock_path(dir.join("not-a-directory").join("mcp-renewal.lock")),
+            plain_world().with_lock_path(dir.join("not-a-directory").join(RENEWAL_LOCK_FILE)),
         );
         let mut h = start(Script {
             world: Some(world),
@@ -3046,7 +3172,7 @@ mod tests {
                     Ok(renewed())
                 }),
             )
-            .with_lock_path(dir.join("not-a-directory").join("mcp-renewal.lock")),
+            .with_lock_path(dir.join("not-a-directory").join(RENEWAL_LOCK_FILE)),
         );
         let mut h = start(Script {
             world: Some(world),
@@ -3084,7 +3210,7 @@ mod tests {
 
     #[test]
     fn a_renewal_lock_is_held_by_one_and_waited_for_by_the_other() {
-        let path = temp_dir().join("mcp-renewal.lock");
+        let path = temp_dir().join(RENEWAL_LOCK_FILE);
         let shortly = Duration::from_millis(60);
         let first = FileRenewalLock::new(path.clone()).with_wait(shortly);
         let second = FileRenewalLock::new(path.clone()).with_wait(shortly);
@@ -3121,7 +3247,7 @@ mod tests {
     fn a_lock_file_is_readable_by_its_owner_only() {
         use std::os::unix::fs::PermissionsExt as _;
 
-        let path = temp_dir().join("mcp-renewal.lock");
+        let path = temp_dir().join(RENEWAL_LOCK_FILE);
         let Ok(Held::Locked(_guard)) = FileRenewalLock::new(path.clone()).hold() else {
             panic!("a free lock is taken at once");
         };
@@ -3200,6 +3326,449 @@ mod tests {
         h.assert_no_secrets();
     }
 
+    /// The token endpoint as the bridge is given it: this world's, with
+    /// this bridge's own activity.
+    fn refresh_via(seen: Arc<Seen>, world: Arc<World>) -> Box<Renew> {
+        Box::new(move |token: &Token, resource: Option<&str>| world.refresh(&seen, token, resource))
+    }
+
+    /// A bridge built the way `serve` builds one, for a test that calls
+    /// `forward` itself. Its answers would go to `out`.
+    fn bridge_directly(
+        seen: &Arc<Seen>,
+        world: &Arc<World>,
+        answer: Box<Answer>,
+        out: Sender<ToWriter>,
+    ) -> Bridge {
+        let transport = MockTransport {
+            seen: seen.clone(),
+            answer,
+        };
+        let stderr = seen.clone();
+        Bridge::new(
+            Arc::new(transport),
+            Arc::new(world.store.clone()),
+            Arc::new(world.renewal_lock()),
+            Arc::from(refresh_via(seen.clone(), world.clone())),
+            Arc::new(|| NOW),
+            Arc::new(move |line| push(&stderr.stderr, line)),
+            HOST,
+            MCP_URL.to_string(),
+            BASE_URL,
+            pair(ACCESS, REFRESH, 7200, Some(MCP_URL)),
+            out,
+        )
+    }
+
+    #[test]
+    fn a_forward_started_after_the_sign_in_was_lost_sends_nothing() {
+        // The window cannot be opened through `serve`, so `forward` is
+        // called on a bridge built the way `serve` builds one.
+        let seen = Arc::new(Seen::default());
+        let world = world();
+        let (out, written) = mpsc::channel();
+        let bridge = bridge_directly(&seen, &world, Box::new(|_, post| Ok(echo(post))), out);
+
+        bridge.dead.store(true, Ordering::Relaxed);
+        let (line, message) = parse_line(request("late", "tools/list").as_bytes()).unwrap();
+        bridge.forward(&line, &message);
+
+        assert!(seen.posts.lock().unwrap().is_empty(), "a POST was made");
+        assert!(
+            matches!(written.try_recv(), Err(mpsc::TryRecvError::Empty)),
+            "something reached the writer"
+        );
+        assert!(seen.stderr.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_forward_whose_sign_in_is_lost_during_its_renewal_sends_no_retry() {
+        let (refreshing, in_flight) = mpsc::channel::<()>();
+        let (resume, resumed) = mpsc::channel::<()>();
+        // The endpoint's script must be `Sync`, and a receiver alone is not.
+        let resumed = Mutex::new(resumed);
+        let world = Arc::new(World::new(
+            HOST,
+            Some(pair(ACCESS, REFRESH, 7200, Some(MCP_URL))),
+            // The endpoint answers once the test says so.
+            Box::new(move |_, _| {
+                refreshing.send(()).unwrap();
+                if resumed.lock().unwrap().recv_timeout(WAIT).is_err() {
+                    return Err(permanent("the test never let the endpoint answer"));
+                }
+                Ok(renewed())
+            }),
+        ));
+        let seen = Arc::new(Seen::default());
+        let (out, written) = mpsc::channel();
+        let bridge = Arc::new(bridge_directly(
+            &seen,
+            &world,
+            Box::new(|_, _| Ok(refused())),
+            out,
+        ));
+
+        let forwarding = {
+            let bridge = bridge.clone();
+            std::thread::spawn(move || {
+                let (line, message) = parse_line(request("r", "tools/list").as_bytes()).unwrap();
+                bridge.forward(&line, &message);
+            })
+        };
+        assert!(
+            matches!(in_flight.recv_timeout(WAIT), Ok(())),
+            "the renewal never began"
+        );
+
+        // The renewal is in flight, and another forward loses the sign-in.
+        bridge.sign_out(None, "the server refused the renewed token");
+        resume.send(()).unwrap();
+        forwarding.join().unwrap();
+
+        assert_eq!(seen.posts.lock().unwrap().len(), 1, "the retry was sent");
+        // The one message that reached the writer is the test's own.
+        match written.try_recv() {
+            Ok(ToWriter::Fatal { line, .. }) => assert!(line.is_none()),
+            _ => panic!("the forward answered, or reported, on its own"),
+        }
+        assert!(
+            matches!(written.try_recv(), Err(mpsc::TryRecvError::Empty)),
+            "something else reached the writer"
+        );
+        assert!(seen.stderr.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_logout_during_the_token_endpoints_answer_is_not_undone() {
+        let world = world();
+        let store = world.store.clone();
+        // A logout runs while the endpoint takes its time to answer.
+        world.answering(Box::new(move |_, _| {
+            store.remove(HOST);
+            Ok(renewed())
+        }));
+        let mut h = start(Script {
+            world: Some(world),
+            input: Some(format!("{}\n", request("gone", "tools/list"))),
+            answer: refuse_old(),
+            ..script()
+        });
+
+        assert_eq!(h.exit_code(), 1);
+        assert_eq!(h.stdout_lines(), vec![lost_line(&json!("gone"))]);
+        assert_eq!(h.stderr(), lost("the stored sign-in was removed"));
+        assert_eq!(
+            h.stored(),
+            None,
+            "the pair the endpoint minted was not saved"
+        );
+        assert_eq!(h.refreshes().len(), 1);
+        h.assert_no_secrets();
+    }
+
+    #[test]
+    fn a_login_during_the_token_endpoints_answer_is_kept_and_its_pair_used() {
+        const NEW_ACCESS: &str = "fvoat_replacement_access_token_used_on_the_retry";
+        const NEW_REFRESH: &str = "fvort_replacement_refresh_token_kept_in_the_store";
+        let replacement = pair(NEW_ACCESS, NEW_REFRESH, 7200, Some(MCP_URL));
+        let world = world();
+        let store = world.store.clone();
+        let landed = replacement.clone();
+        // A login for the same server lands while the endpoint answers.
+        world.answering(Box::new(move |_, _| {
+            store.save(HOST, &landed).unwrap();
+            Ok(renewed())
+        }));
+        let mut h = start(Script {
+            world: Some(world),
+            input: Some(format!("{}\n", request("kept", "tools/list"))),
+            // The old access token is refused, the replacement's is answered.
+            answer: refuse_old(),
+            ..script()
+        });
+
+        assert_eq!(h.exit_code(), 0);
+        assert_eq!(h.stdout_lines(), vec![answer("kept", "tools/list")]);
+        assert_eq!(
+            tokens(&h),
+            vec![Token::new(ACCESS), Token::new(NEW_ACCESS)],
+            "the retry carried the replacement's access token"
+        );
+        assert_eq!(
+            h.stored(),
+            Some(replacement),
+            "the store holds the replacement exactly"
+        );
+        // One save set the world up and one is the login. None is the bridge's.
+        assert_eq!(h.world.store.saved().len(), 2, "the bridge saved");
+        h.assert_no_secrets();
+    }
+
+    #[test]
+    fn a_login_for_another_server_during_the_token_endpoints_answer_ends_the_bridge() {
+        const OTHER_ACCESS: &str = "fvoat_other_access_token_of_a_second_login";
+        const OTHER_REFRESH: &str = "fvort_other_refresh_token_of_a_second_login";
+        let elsewhere = pair(
+            OTHER_ACCESS,
+            OTHER_REFRESH,
+            7200,
+            Some("https://mcp-b.example/mcp"),
+        );
+        let world = world();
+        let store = world.store.clone();
+        let landed = elsewhere.clone();
+        world.answering(Box::new(move |_, _| {
+            store.save(HOST, &landed).unwrap();
+            Ok(renewed())
+        }));
+        let mut h = start(Script {
+            world: Some(world),
+            input: Some(format!("{}\n", request("moved", "tools/list"))),
+            answer: refuse_old(),
+            ..script()
+        });
+
+        assert_eq!(h.exit_code(), 1);
+        assert_eq!(h.stdout_lines(), vec![lost_line(&json!("moved"))]);
+        assert_eq!(
+            h.stderr(),
+            lost("the stored sign-in is now for https://mcp-b.example/mcp")
+        );
+        assert_eq!(
+            h.stored(),
+            Some(elsewhere),
+            "the store is left as the login put it"
+        );
+        assert_eq!(h.refreshes().len(), 1);
+        assert!(
+            h.posts()
+                .iter()
+                .all(|post| post.access_token == Token::new(ACCESS)),
+            "no POST carried the other pair's token"
+        );
+        let shown = format!("{}{}", h.stdout_lines().join("\n"), h.stderr());
+        assert!(!shown.contains(OTHER_ACCESS));
+        assert!(!shown.contains(OTHER_REFRESH));
+        h.assert_no_secrets();
+    }
+
+    #[test]
+    fn a_store_that_cannot_be_read_again_before_the_save_is_a_lost_sign_in() {
+        let world = world();
+        let store = world.store.clone();
+        world.answering(Box::new(move |_, _| {
+            store.fail_load("the OS keychain is locked");
+            Ok(renewed())
+        }));
+        let mut h = start(Script {
+            world: Some(world),
+            input: Some(format!("{}\n", request("locked", "tools/list"))),
+            answer: refuse_old(),
+            ..script()
+        });
+
+        assert_eq!(h.exit_code(), 1);
+        assert_eq!(h.stdout_lines(), vec![lost_line(&json!("locked"))]);
+        assert_eq!(h.stderr(), lost("the OS keychain is locked"));
+        // Only the save that set the world up.
+        assert_eq!(h.world.store.saved().len(), 1, "something was saved");
+        assert_eq!(
+            h.stored(),
+            Some(pair(ACCESS, REFRESH, 7200, Some(MCP_URL))),
+            "the stored pair is as it was"
+        );
+        h.assert_no_secrets();
+    }
+
+    #[test]
+    fn logout_waits_for_a_renewal_in_flight() {
+        let path = temp_dir().join(RENEWAL_LOCK_FILE);
+        // Long enough that the test releases the lock well before it runs out.
+        let lock = FileRenewalLock::new(path.clone()).with_wait(Duration::from_secs(5));
+        let held = hold_elsewhere(&path);
+        // Seen from inside the logout: a renewal that starts then must wait.
+        let other = FileRenewalLock::new(path.clone()).with_wait(HELD_FOR);
+        let logout = {
+            let lock = lock.clone();
+            std::thread::spawn(move || {
+                logout_after_renewals(&lock, || match other.hold() {
+                    Err(_) => Ok("done".to_string()),
+                    Ok(_) => anyhow::bail!("the lock was free while the logout ran"),
+                })
+            })
+        };
+
+        // A renewal is in flight: the logout has not run.
+        assert!(
+            !wait_up_to(Duration::from_millis(150), || logout.is_finished()),
+            "the logout ran while the lock was held"
+        );
+
+        // The renewal is over.
+        drop(held);
+        assert!(
+            wait_up_to(WAIT, || logout.is_finished()),
+            "the logout never ran"
+        );
+        assert_eq!(logout.join().unwrap().unwrap(), "done");
+        assert!(
+            matches!(lock.hold(), Ok(Held::Locked(_))),
+            "the guard was released"
+        );
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
+    fn logout_goes_ahead_without_a_usable_lock_file() {
+        let dir = temp_dir();
+        std::fs::write(dir.join("not-a-directory"), b"a regular file").unwrap();
+        let lock = FileRenewalLock::new(dir.join("not-a-directory").join(RENEWAL_LOCK_FILE));
+
+        let said = logout_after_renewals(&lock, || Ok("done".to_string())).unwrap();
+
+        assert_eq!(said, "done", "the logout ran");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn logout_goes_ahead_when_the_wait_for_the_lock_runs_out() {
+        let path = temp_dir().join(RENEWAL_LOCK_FILE);
+        let lock = FileRenewalLock::new(path.clone()).with_wait(HELD_FOR);
+        let held = hold_elsewhere(&path);
+        let started = Instant::now();
+
+        // On a thread of its own: a logout that never gave up waiting
+        // must fail this test, not hang it.
+        let logout = {
+            let lock = lock.clone();
+            std::thread::spawn(move || logout_after_renewals(&lock, || Ok("done".to_string())))
+        };
+        assert!(
+            wait_up_to(WAIT, || logout.is_finished()),
+            "the logout never gave up waiting for the lock"
+        );
+        let said = logout.join().unwrap().unwrap();
+
+        assert_eq!(said, "done", "the logout ran with the lock still held");
+        assert!(
+            started.elapsed() >= HELD_FOR,
+            "it did not wait out its wait"
+        );
+        drop(held);
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
+    fn a_client_that_closes_stdout_ends_the_bridge() {
+        // The client closes its end of stdout and keeps stdin open.
+        let store = MemoryStore::default();
+        store
+            .save(HOST, &pair(ACCESS, REFRESH, 3600, Some(MCP_URL)))
+            .unwrap();
+        let seen = Arc::new(Seen::default());
+        let dir = temp_dir();
+        let transport = MockTransport {
+            seen: seen.clone(),
+            answer: Box::new(|_, post| Ok(echo(post))),
+        };
+        let lock = FileRenewalLock::new(dir.join(RENEWAL_LOCK_FILE));
+        let (stdin, lines) = mpsc::channel::<Vec<u8>>();
+        let bridge = std::thread::spawn({
+            let seen = seen.clone();
+            move || {
+                serve(
+                    None,
+                    BASE_URL,
+                    HOST,
+                    io::BufReader::new(ClientStdin {
+                        lines,
+                        pending: Vec::new(),
+                    }),
+                    FailingWriter(io::ErrorKind::BrokenPipe),
+                    {
+                        let stderr = seen.clone();
+                        move |line| push(&stderr.stderr, line)
+                    },
+                    move |_| Ok(transport),
+                    store.clone(),
+                    lock,
+                    |_, _| unreachable!("a healthy pair is not renewed"),
+                    || NOW,
+                )
+            }
+        });
+
+        // One request. Its answer is the first write, and that write fails.
+        stdin
+            .send(format!("{}\n", request(1, "tools/list")).into_bytes())
+            .unwrap();
+        assert!(
+            wait_up_to(WAIT, || bridge.is_finished()),
+            "the bridge did not end while stdin stayed open"
+        );
+        assert_eq!(bridge.join().unwrap().unwrap(), 0);
+        assert_eq!(
+            seen.posts.lock().unwrap().len(),
+            1,
+            "the request was forwarded"
+        );
+        assert!(
+            seen.stderr.lock().unwrap().is_empty(),
+            "a client that is gone is how every session ends"
+        );
+
+        // Then stdin closes, and the reader thread can end.
+        drop(stdin);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn an_echoing_token_endpoint_reaches_the_client_as_its_code_only() {
+        // The real client, and the real token endpoint client against the
+        // same loopback server. The endpoint repeats the refresh token back
+        // in its description, and none of that reaches the client.
+        let mut h = start(Script {
+            wire: Some(vec![
+                http(
+                    "401 Unauthorized",
+                    "application/json",
+                    r#"{"error":"invalid_token"}"#,
+                ),
+                http(
+                    "503 Service Unavailable",
+                    "application/json",
+                    &format!(
+                        r#"{{"error":"temporarily_unavailable","error_description":"try again later {REFRESH}"}}"#
+                    ),
+                ),
+            ]),
+            token_endpoint_on_wire: true,
+            ..script()
+        });
+
+        h.send(&request(1, "tools/list"));
+        assert_eq!(
+            h.stdout_after(1),
+            vec![error_line(
+                &json!(1),
+                INTERNAL_ERROR,
+                "could not renew the MCP access token: the token endpoint answered HTTP 503 (temporarily_unavailable)"
+            )]
+        );
+        assert_eq!(h.finish(), 0);
+        assert_eq!(h.stderr(), "");
+        let shown = format!("{}{}", h.stdout_lines().join("\n"), h.stderr());
+        assert!(
+            !shown.contains("try again later"),
+            "the description reached the client: {shown}"
+        );
+        assert!(
+            h.refreshes().is_empty(),
+            "the scripted endpoint was not used"
+        );
+        h.assert_no_secrets();
+    }
+
     #[test]
     fn only_an_object_with_an_id_and_no_answer_is_a_request() {
         assert_eq!(
@@ -3247,7 +3816,7 @@ mod tests {
             },
             McpHttpClient::new,
             store.clone(),
-            FileRenewalLock::new(dir.join("mcp-renewal.lock")),
+            FileRenewalLock::new(dir.join(RENEWAL_LOCK_FILE)),
             |_, _| unreachable!("no refresh without a transport"),
             || NOW,
         )
@@ -3257,7 +3826,7 @@ mod tests {
         assert!(seen.stdout.lock().unwrap().is_empty());
         assert!(seen.stderr.lock().unwrap().is_empty());
         // A bridge that never renews never opens the lock file.
-        assert!(!dir.join("mcp-renewal.lock").exists());
+        assert!(!dir.join(RENEWAL_LOCK_FILE).exists());
         let _ = std::fs::remove_dir_all(dir);
     }
 
@@ -3291,7 +3860,7 @@ mod tests {
                 },
                 move |_| Ok(transport),
                 store.clone(),
-                FileRenewalLock::new(dir.join("mcp-renewal.lock")),
+                FileRenewalLock::new(dir.join(RENEWAL_LOCK_FILE)),
                 |_, _| unreachable!("a healthy pair is not renewed"),
                 || NOW,
             );
