@@ -300,7 +300,12 @@ defmodule FluxVale.Infrastructure.Operations.InstanceK8sTest do
     end
 
     test "the list is namespaced to gateway_access_namespace() with gateway_pod_labels(id)" do
+      previous = Application.get_env(:flux_vale, :access_gateway)
+
       Application.put_env(:flux_vale, :access_gateway, namespace: "custom-access-ns")
+
+      on_exit(fn -> Application.put_env(:flux_vale, :access_gateway, previous) end)
+
       gateway_id = "gw-scope-check"
 
       expect(Pod, :list_by_labels, fn _kc, ns, labels ->

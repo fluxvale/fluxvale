@@ -24,8 +24,11 @@ defmodule FluxVale.Infrastructure.Operations.ReconcileAccessAdmission do
 
   The fail-closed posture: a failed pod read decides nothing (the memo
   keeps its previous answer and the next pass re-reads), a failed
-  instance apply leaves the memo `:dirty`, and a restart empties the
-  memo so every paired gateway re-applies once.
+  row read decides nothing either — a NotFound-shaped miss is the
+  vanished race, every other read failure fails the instance and leaves
+  the memo `:dirty`, a failed instance apply leaves the memo `:dirty`,
+  and a restart empties the memo so every paired gateway re-applies
+  once.
 
   Steady state is one pod list per paired gateway per minute and no
   writes.
@@ -190,12 +193,16 @@ defmodule FluxVale.Infrastructure.Operations.ReconcileAccessAdmission do
             :failed
         end
 
-      # coveralls-ignore-start - race only: the row vanished under the
-      # pass (teardown won between the pairing read and this read); the
-      # pairing row dies with it, so there is no arm left to re-point.
-      {:error, _gone} ->
-        :ok
-        # coveralls-ignore-stop
+      {:error, reason} ->
+        if not_found?(reason) do
+          # Race only: the row vanished under the pass (teardown's FK
+          # cascade won); the pairing row died with it, so there is no
+          # arm left to re-point.
+          :ok
+        else
+          log_read_failed(gateway, instance, reason)
+          :failed
+        end
     end
   end
 
@@ -219,19 +226,25 @@ defmodule FluxVale.Infrastructure.Operations.ReconcileAccessAdmission do
       {:ok, _status_stable} ->
         undo_if_ended(instance_kubeconfig, gateway, applied)
 
-      # coveralls-ignore-start - race only: the row vanished under the
-      # pass (teardown won); there is no arm left to re-point.
-      {:error, _gone} ->
-        :ok
-        # coveralls-ignore-stop
+      {:error, reason} ->
+        if not_found?(reason) do
+          # Race only: the row vanished between the apply and the
+          # re-read (teardown's FK cascade won); nothing left to guard.
+          :ok
+        else
+          log_read_failed(gateway, applied, reason)
+          :failed
+        end
     end
   end
 
-  # The teardown guard: the pass decided from a pairing read made moments
-  # ago. A teardown that began since writes `:destroying` FIRST and removes
-  # the arms next, so this read catches either order. No pairing row is
-  # the same answer (a detach won): nothing is left to route.
-  defp pairing_admits?(gateway_id, instance_id) do
+  # The teardown guard's read, with the same split: :admits (the pairing
+  # stands), :ended (the row is gone, the gateway row is gone, or the
+  # gateway is :destroying — the arms must go), or {:unknown, reason}
+  # (a read failure must not delete a live pairing's arms, and must not
+  # converge either: fail the instance, the memo goes :dirty, the next
+  # pass retries).
+  defp pairing_state(gateway_id, instance_id) do
     result =
       AccessRoute
       |> Ash.Query.filter(gateway_id == ^gateway_id and instance_id == ^instance_id)
@@ -239,32 +252,60 @@ defmodule FluxVale.Infrastructure.Operations.ReconcileAccessAdmission do
       |> Ash.read_one(authorize?: false)
 
     case result do
-      # Ash.read_one answers {:ok, row} (or {:ok, nil} / {:error, _} —
-      # no pairing, or gone mid-read, is the same "ended" answer).
-      {:ok, %{gateway: %{state: state}}} -> state != :destroying
-      _ended -> false
+      {:ok, %{gateway: %{state: :destroying}}} -> :ended
+      {:ok, %{gateway: _gateway}} -> :admits
+      {:ok, _no_row_or_no_gateway} -> :ended
+      {:error, reason} -> {:unknown, reason}
     end
   end
 
   # Runs after an instance's LAST successful apply. A pairing that ended
   # under the pass leaves the arms just applied as orphans, so they are
-  # removed again. Its result is the instance's result.
+  # removed again — best effort: a failed removal is logged and left to
+  # the teardown's own retry or the next lifecycle write. Its result is
+  # the instance's result.
   defp undo_if_ended(kubeconfig, gateway, instance) do
-    if pairing_admits?(gateway.id, instance.id) do
-      :ok
-    else
-      Logger.warning(
-        "Access edge: gateway #{gateway.id} — pairing ended under the pass, removing the " <>
-          "arms just applied for instance #{instance.id}"
-      )
+    case pairing_state(gateway.id, instance.id) do
+      :admits ->
+        :ok
 
-      EdgeRoutes.apply_access_none(kubeconfig, instance)
+      :ended ->
+        Logger.warning(
+          "Access edge: gateway #{gateway.id} — pairing ended under the pass, removing the " <>
+            "arms just applied for instance #{instance.id}"
+        )
+
+        EdgeRoutes.apply_access_none(kubeconfig, instance)
+
+      {:unknown, reason} ->
+        Logger.warning(
+          "Access edge: gateway #{gateway.id} — pairing read failed for instance " <>
+            "#{instance.id}: #{inspect(reason)}"
+        )
+
+        {:error, reason}
     end
   end
+
+  # The read-error split (SleepInstance.route_not_found? / SetExposure's
+  # split_read_error discipline): a NotFound-shaped miss is the vanished
+  # race; any other read failure is a DB fault that must decide nothing.
+  defp not_found?(%Ash.Error.Invalid{errors: errors}) do
+    Enum.any?(errors, &match?(%Ash.Error.Query.NotFound{}, &1))
+  end
+
+  defp not_found?(_other), do: false
 
   defp log_reapply_failed(gateway, instance, reason) do
     Logger.warning(
       "Access edge: gateway #{gateway.id} — access re-apply failed for instance " <>
+        "#{instance.id}: #{inspect(reason)}"
+    )
+  end
+
+  defp log_read_failed(gateway, instance, reason) do
+    Logger.warning(
+      "Access edge: gateway #{gateway.id} — instance read failed for instance " <>
         "#{instance.id}: #{inspect(reason)}"
     )
   end

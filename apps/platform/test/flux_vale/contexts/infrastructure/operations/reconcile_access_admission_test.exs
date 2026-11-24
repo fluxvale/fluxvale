@@ -276,6 +276,140 @@ defmodule FluxVale.Infrastructure.Operations.ReconcileAccessAdmissionTest do
     assert Activity.admitted_source(gateway.id) == :dirty
   end
 
+  test "a vanished instance is tolerated — the race arm converges the pass",
+       %{org: org, owner: owner} do
+    gateway = AccessFixtures.gateway!(org)
+    instance = AccessFixtures.private_instance!(org, owner)
+    pair!(gateway, instance)
+
+    stub_gateway_pods(%{gateway.id => "10.0.0.41"})
+    stub_ingress_sends()
+
+    Mimic.copy(Instance)
+
+    stub(Instance, :get_by_id, fn _id, _opts ->
+      {:error, %Ash.Error.Invalid{errors: [%Ash.Error.Query.NotFound{}]}}
+    end)
+
+    assert {:ok, %{checked: 1, converged: 1}} = ReconcileAccessAdmission.call()
+    assert Activity.admitted_source(gateway.id) == "10.0.0.41"
+
+    # The vanished race: no arm was ever re-pointed.
+    assert drain_access_ingresses() == []
+  end
+
+  test "a failed instance read fails the pass — nothing decided, memo :dirty",
+       %{org: org, owner: owner} do
+    gateway = AccessFixtures.gateway!(org)
+    instance = AccessFixtures.private_instance!(org, owner)
+    pair!(gateway, instance)
+
+    stub_gateway_pods(%{gateway.id => "10.0.0.42"})
+
+    Mimic.copy(Instance)
+
+    stub(Instance, :get_by_id, fn _id, _opts -> {:error, :db_down} end)
+
+    log =
+      capture_log(fn ->
+        assert {:ok, %{checked: 1, converged: 0}} = ReconcileAccessAdmission.call()
+      end)
+
+    assert log =~ "instance read failed"
+    assert Activity.admitted_source(gateway.id) == :dirty
+  end
+
+  test "a vanished row on the re-read is the race tolerated", %{org: org, owner: owner} do
+    gateway = AccessFixtures.gateway!(org)
+    instance = AccessFixtures.private_instance!(org, owner)
+    pair!(gateway, instance)
+
+    stub_gateway_pods(%{gateway.id => "10.0.0.43"})
+
+    parent = self()
+
+    stub(EdgeRoutes, :apply_access_for_status, fn _kc, _gw, i ->
+      send(parent, {:applied_status, i.status})
+      :ok
+    end)
+
+    stub(EdgeRoutes, :apply_access_none, fn _kc, i ->
+      send(parent, {:undone, i.id})
+      :ok
+    end)
+
+    # First read (the arm's) returns the row; the recheck's re-read
+    # finds it gone (teardown's FK cascade won).
+    stub_instance_reads([{:ok, instance}, {:error, not_found()}])
+
+    assert {:ok, %{checked: 1, converged: 1}} = ReconcileAccessAdmission.call()
+    assert Activity.admitted_source(gateway.id) == "10.0.0.43"
+    assert drain_applied_statuses() == [:running]
+
+    # No undo ran: a vanished row leaves nothing to route.
+    assert drain_undone() == []
+  end
+
+  test "a failed re-read fails the pass — memo :dirty", %{org: org, owner: owner} do
+    gateway = AccessFixtures.gateway!(org)
+    instance = AccessFixtures.private_instance!(org, owner)
+    pair!(gateway, instance)
+
+    stub_gateway_pods(%{gateway.id => "10.0.0.44"})
+
+    stub(EdgeRoutes, :apply_access_for_status, fn _kc, _gw, _i -> :ok end)
+
+    # First read (the arm's) returns the row; the recheck's re-read hits
+    # a DB fault — it must fail the instance, not read as the race.
+    stub_instance_reads([{:ok, instance}, {:error, :db_down}])
+
+    log =
+      capture_log(fn ->
+        assert {:ok, %{checked: 1, converged: 0}} = ReconcileAccessAdmission.call()
+      end)
+
+    assert log =~ "instance read failed"
+    assert Activity.admitted_source(gateway.id) == :dirty
+  end
+
+  test "a failed pairing read keeps the arms and fails the pass", %{org: org, owner: owner} do
+    gateway = AccessFixtures.gateway!(org)
+    instance = AccessFixtures.private_instance!(org, owner)
+    pair!(gateway, instance)
+
+    stub_gateway_pods(%{gateway.id => "10.0.0.45"})
+
+    parent = self()
+
+    stub(EdgeRoutes, :apply_access_for_status, fn _kc, _gw, i ->
+      send(parent, {:applied_instance, i.id})
+      :ok
+    end)
+
+    stub(EdgeRoutes, :apply_access_none, fn _kc, i ->
+      send(parent, {:undone, i.id})
+      :ok
+    end)
+
+    Mimic.copy(Instance)
+
+    # The arm's read succeeds; only the guard's pairing read fails.
+    stub(Instance, :get_by_id, fn _id, _opts -> {:ok, instance} end)
+    stub(Ash, :read_one, fn _query, _opts -> {:error, :db_down} end)
+
+    log =
+      capture_log(fn ->
+        assert {:ok, %{checked: 1, converged: 0}} = ReconcileAccessAdmission.call()
+      end)
+
+    assert log =~ "pairing read failed"
+    assert Activity.admitted_source(gateway.id) == :dirty
+    assert drain_applied_instances() == [instance.id]
+
+    # A read failure must not delete a live pairing's arms.
+    assert drain_undone() == []
+  end
+
   test "a pairing that ends under the apply is undone", %{org: org, owner: owner} do
     gateway = AccessFixtures.gateway!(org)
     instance = AccessFixtures.private_instance!(org, owner)
@@ -571,6 +705,26 @@ defmodule FluxVale.Infrastructure.Operations.ReconcileAccessAdmissionTest do
       0 -> Enum.reverse(acc)
     end
   end
+
+  # The pass reads the row twice (the arm's read, then the recheck's
+  # re-read); this stub answers each read with the next reply.
+  defp stub_instance_reads(replies) do
+    Mimic.copy(Instance)
+    Process.put(:instance_read_replies, replies)
+
+    stub(Instance, :get_by_id, fn _id, _opts ->
+      {reply, rest} =
+        case Process.get(:instance_read_replies) do
+          [head | tail] -> {head, tail}
+          _exhausted -> {nil, []}
+        end
+
+      Process.put(:instance_read_replies, rest)
+      reply
+    end)
+  end
+
+  defp not_found, do: %Ash.Error.Invalid{errors: [%Ash.Error.Query.NotFound{}]}
 
   defp specs_in(created, namespace) do
     for {ns, spec} <- created, ns == namespace, do: spec
