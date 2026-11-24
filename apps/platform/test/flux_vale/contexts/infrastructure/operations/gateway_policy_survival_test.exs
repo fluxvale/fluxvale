@@ -43,6 +43,7 @@ defmodule FluxVale.Infrastructure.Operations.GatewayPolicySurvivalTest do
   setup do
     InstanceFixtures.local_cluster!()
     stub(K8s, :kubeconfig, fn _ref -> {:ok, %{}} end)
+    AccessFixtures.stub_gateway_pod()
 
     # The provider is stubbed: these tests are about the POLICY the two
     # exposure writers build, not the cluster work attach/detach do.

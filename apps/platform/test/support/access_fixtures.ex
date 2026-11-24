@@ -12,6 +12,7 @@ defmodule FluxVale.TestSupport.AccessFixtures do
   instead.
   """
 
+  alias FluxVale.Clients.K8s.Resources.Pod
   alias FluxVale.Infrastructure.AccessGateway
   alias FluxVale.Infrastructure.Instance
   alias FluxVale.Infrastructure.Operations.InstanceK8s
@@ -128,5 +129,24 @@ defmodule FluxVale.TestSupport.AccessFixtures do
   def sleep!(instance) do
     {:ok, sleeping} = InstanceK8s.update_status(instance, :sleeping, nil)
     sleeping
+  end
+
+  @doc """
+  Stubs `Pod.list_by_labels/3` to return one running gateway pod at `ip`.
+  Use in test setups that reach the access arms without asserting on
+  gateway pod selection directly.
+  """
+  @spec stub_gateway_pod(String.t()) :: module()
+  def stub_gateway_pod(ip \\ "10.0.0.9") do
+    Mimic.stub(Pod, :list_by_labels, fn _kc, _ns, _labels ->
+      {:ok, [running_pod(ip)]}
+    end)
+  end
+
+  defp running_pod(ip) do
+    %{
+      "metadata" => %{"creationTimestamp" => "2026-11-01T02:00:00Z"},
+      "status" => %{"phase" => "Running", "podIP" => ip}
+    }
   end
 end

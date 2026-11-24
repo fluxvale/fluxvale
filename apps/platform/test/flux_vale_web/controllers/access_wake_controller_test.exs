@@ -37,6 +37,7 @@ defmodule FluxValeWeb.AccessWakeControllerTest do
     parent = self()
 
     stub(K8s, :kubeconfig, fn _ref -> {:ok, %{}} end)
+    AccessFixtures.stub_gateway_pod()
 
     stub(Secret, :create, fn _kc, ns, name, data ->
       send(parent, {:secret_create, ns, name, data})

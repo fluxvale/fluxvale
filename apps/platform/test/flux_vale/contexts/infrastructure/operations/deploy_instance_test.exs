@@ -79,6 +79,7 @@ defmodule FluxVale.Infrastructure.Operations.DeployInstanceTest do
 
   defp stub_kubeconfig do
     stub(K8s, :kubeconfig, fn nil -> {:ok, %{}} end)
+    AccessFixtures.stub_gateway_pod()
     # #203: every deploy applies the activity-beacon and (dormant)
     # wake-marker Middlewares plus the wake ExternalName Service via
     # EdgeRoutes — default stubs, expect-ed where a test cares.

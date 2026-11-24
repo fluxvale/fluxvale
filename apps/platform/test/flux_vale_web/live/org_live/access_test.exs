@@ -2389,6 +2389,7 @@ defmodule FluxValeWeb.OrganizationLive.AccessTest do
     # work — the kubeconfig resolution, the access arms, and the policy
     # apply — is stubbed here the same way.
     stub(K8s, :kubeconfig, fn _ref -> {:ok, %{}} end)
+    AccessFixtures.stub_gateway_pod()
 
     stub(FluxVale.Clients.K8s.Resources.Ingress, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
 

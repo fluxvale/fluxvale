@@ -21,6 +21,7 @@ defmodule FluxVale.Infrastructure.Operations.EdgeRoutesDavPrefixGuardTest do
   alias FluxVale.Identity.User
   alias FluxVale.Infrastructure.Instance
   alias FluxVale.Infrastructure.Operations.EdgeRoutes
+  alias FluxVale.TestSupport.AccessFixtures
   alias FluxVale.TestSupport.InstanceFixtures
 
   defp user do
@@ -47,6 +48,7 @@ defmodule FluxVale.Infrastructure.Operations.EdgeRoutesDavPrefixGuardTest do
 
   test "a blank file_access path_prefix config skips the dav route — never a bare-Host shadow" do
     stub(K8s, :kubeconfig, fn nil -> {:ok, %{}} end)
+    AccessFixtures.stub_gateway_pod()
 
     instance = file_access_instance!()
     ns = "fluxvale-app-#{instance.id}"

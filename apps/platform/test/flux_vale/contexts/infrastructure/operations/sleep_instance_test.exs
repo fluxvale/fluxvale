@@ -160,6 +160,7 @@ defmodule FluxVale.Infrastructure.Operations.SleepInstanceTest do
       # The single-cluster placement contract the gateway create and the
       # provider both resolve through.
       InstanceFixtures.local_cluster!()
+      AccessFixtures.stub_gateway_pod()
 
       parent = self()
 
