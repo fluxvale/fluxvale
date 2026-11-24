@@ -235,8 +235,11 @@ struct StoredMcpCredentials {
     scope: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     resource: Option<String>,
-    /// When this copy was stored, in seconds since the Unix epoch. A copy
-    /// stored before the field existed reads as 0.
+    /// When this copy was stored, in seconds since the Unix epoch, or 0
+    /// for copies saved before this field existed. Ranking copies by store
+    /// time fixes the case where a token's lifetime shrinks and a stale
+    /// copy expires later, though a clock set back between two saves can
+    /// still get the order wrong.
     #[serde(default)]
     stored_at_unix: u64,
 }
@@ -262,18 +265,29 @@ enum Which {
     File,
 }
 
-/// Of two stored copies of a pair, the one to return: the one stored
-/// later. The time of storing ranks them, not the expiry. A token's
-/// lifetime can shrink, and then a stale copy expires later than a fresh
-/// one. Two copies stored at the same second, as two from before the time
-/// was recorded are, are ranked by expiry instead, and then only a file
-/// copy that expires strictly later than the keychain's wins.
+/// Of two stored copies of a pair, returns the one stored later, falling
+/// back to expiry on same-second ties (only a strictly later file wins).
+/// Ranking by store time fixes the case where a token's lifetime shrinks
+/// and a stale copy expires later, though a clock set back between two
+/// saves can still get the order wrong.
 fn which_copy(keychain: &StoredMcpCredentials, file: &StoredMcpCredentials) -> Which {
     match file.stored_at_unix.cmp(&keychain.stored_at_unix) {
         Ordering::Greater => Which::File,
         Ordering::Less => Which::Keychain,
         Ordering::Equal if file.expires_at_unix > keychain.expires_at_unix => Which::File,
         Ordering::Equal => Which::Keychain,
+    }
+}
+
+/// The copy to hand back, once the choice between two is made.
+fn pick(
+    which: Which,
+    keychain: StoredMcpCredentials,
+    file: StoredMcpCredentials,
+) -> (McpCredentials, TokenLocation) {
+    match which {
+        Which::Keychain => (McpCredentials::from(keychain), TokenLocation::Keychain),
+        Which::File => (McpCredentials::from(file), TokenLocation::FallbackFile),
     }
 }
 
@@ -371,25 +385,15 @@ impl McpTokenStore {
             },
             None => None,
         };
-        // A file that cannot be read is no reason to drop a keychain copy.
-        let file = self.file_store().get_stored(host).ok().flatten();
+        let file = self.file_store().get_stored(host);
         match (keychain, file) {
-            (Some(keychain), Some(file)) => match which_copy(&keychain, &file) {
-                Which::Keychain => Ok(Some((
-                    McpCredentials::from(keychain),
-                    TokenLocation::Keychain,
-                ))),
-                Which::File => Ok(Some((
-                    McpCredentials::from(file),
-                    TokenLocation::FallbackFile,
-                ))),
-            },
-            (Some(keychain), None) => Ok(Some((
-                McpCredentials::from(keychain),
-                TokenLocation::Keychain,
-            ))),
+            (Some(kc), Ok(Some(file))) => Ok(Some(pick(which_copy(&kc, &file), kc, file))),
+            // A file that cannot be read is no reason to drop a keychain copy.
+            (Some(kc), Ok(None) | Err(_)) => {
+                Ok(Some((McpCredentials::from(kc), TokenLocation::Keychain)))
+            }
             (None, file) => {
-                Ok(file.map(|stored| (McpCredentials::from(stored), TokenLocation::FallbackFile)))
+                Ok(file?.map(|stored| (McpCredentials::from(stored), TokenLocation::FallbackFile)))
             }
         }
     }
@@ -1178,6 +1182,58 @@ mod tests {
         assert!(
             !mcp_store.path.exists(),
             "corrupt mcp-credentials must be removed on remove()"
+        );
+    }
+
+    #[test]
+    fn corrupt_fallback_file_errors_from_load_when_no_keychain_copy() {
+        let _mock = MockKeyring::install();
+        let dir = temp_dir();
+        let store = McpTokenStore::at(dir.clone());
+        let file = FileMcpTokenStore::at(dir);
+        let marker = "fvoat_SECRET_MARKER_NEVER_LEAK";
+        std::fs::write(&file.path, format!("[bad\naccess_token = \"{marker}\n")).unwrap();
+
+        let err = store.load("corrupt-fallback.test").unwrap_err().to_string();
+        assert!(!err.contains(marker), "load error leaked token: {err}");
+        assert!(!err.contains("[bad"), "load error leaked file: {err}");
+    }
+
+    #[test]
+    fn corrupt_fallback_file_keeps_keychain_copy_when_present() {
+        let mock = MockKeyring::install();
+        if !mock.platform_store_initialized {
+            return;
+        }
+        let host = "corrupt-fallback-with-keychain.test";
+        let store = McpTokenStore::at(temp_dir());
+        let creds = pair_expiring("keychain", 10_000);
+        store.save_at(host, &creds, 100).unwrap();
+
+        let file = FileMcpTokenStore::at(store.config_dir.clone());
+        let marker = "fvoat_SECRET_MARKER_NEVER_LEAK";
+        std::fs::write(&file.path, format!("[bad\naccess_token = \"{marker}\n")).unwrap();
+
+        assert_eq!(
+            store.load(host).unwrap(),
+            Some((creds, TokenLocation::Keychain))
+        );
+    }
+
+    #[test]
+    fn the_copy_handed_back_is_the_one_chosen() {
+        let keychain = stored(10_000, 100);
+        let file = stored(20_000, 200);
+        assert_eq!(
+            pick(Which::Keychain, keychain.clone(), file.clone()),
+            (
+                McpCredentials::from(keychain.clone()),
+                TokenLocation::Keychain
+            )
+        );
+        assert_eq!(
+            pick(Which::File, keychain, file.clone()),
+            (McpCredentials::from(file), TokenLocation::FallbackFile)
         );
     }
 
