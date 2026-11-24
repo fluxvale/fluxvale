@@ -132,19 +132,17 @@ test(
     await page.getByTestId("onboarding-step-username").waitFor();
 
     // Signal 1 — machine auth: deep links stay ungated (#831 D1), so
-    // the account mints a PAT mid-flow. The instances:write box is
-    // checked on purpose: that scope is what the afterEach cleanup
-    // deletes the deployed instance with (any live credential row
-    // satisfies the predicate — scope breadth is cleanup's need, not
-    // the signal's). The raw value is read from the one-time reveal
-    // before Done dismisses it, exactly like an agent copying its
-    // credential.
+    // the account mints a PAT mid-flow. Write is picked for Instances
+    // in the grouped scope picker on purpose: that scope is what the
+    // afterEach cleanup deletes the deployed instance with (any live
+    // credential row satisfies the predicate — scope breadth is
+    // cleanup's need, not the signal's). The raw value is read from
+    // the one-time reveal before Done dismisses it, exactly like an
+    // agent copying its credential.
     await page.goto("/settings/developer#api-tokens");
     await waitForLiveViewJoin(page);
     await page.getByTestId("api-token-name-input").fill("agent-first-run");
-    await page
-      .locator("[data-testid='api-token-scope'][value='instances:write']")
-      .check();
+    await page.getByTestId("api-token-scope-instances-write").click();
     await page.getByTestId("api-token-create").click();
     const patToken =
       (await page.getByTestId("api-token-reveal-value").textContent()) ?? "";

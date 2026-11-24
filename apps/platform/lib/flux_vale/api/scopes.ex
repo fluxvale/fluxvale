@@ -47,9 +47,9 @@ defmodule FluxVale.Api.Scopes do
   @oauth_pseudo_scopes ["offline_access"]
   @oauth_scopes @all_scopes ++ @oauth_pseudo_scopes
 
-  # The consent screen's product language. One description per
-  # catalog scope — the developer settings page has its own terse
-  # mint-time labels, so these lines are the consent surface's alone.
+  # Product language for the catalog scopes, one description each.
+  # Reused by both surfaces that show scope copy: the OAuth consent
+  # page and developer-settings PAT minting.
   @scope_descriptions %{
     "catalog:read" => "Browse the app catalog and its versions",
     "instances:read" => "See your instances and their status",
@@ -62,6 +62,34 @@ defmodule FluxVale.Api.Scopes do
     "organizations:read" => "See your organizations",
     "organizations:write" => "Create, rename, and delete your organizations"
   }
+
+  @read_domain_keys Enum.map(@read_domains, &Atom.to_string/1)
+  @write_domain_keys Enum.map(@write_domains, &Atom.to_string/1)
+
+  # The grouped catalog the scope picker renders (#892): one entry per
+  # domain in read order, built at compile time from the lists above.
+  # Map.fetch! on each description makes a future domain added without
+  # a description entry fail compilation loudly.
+  @domains Enum.map(@read_domains, fn domain ->
+             key = Atom.to_string(domain)
+             read_scope = "#{domain}:read"
+             writable? = domain in @write_domains
+             write_scope = if writable?, do: "#{domain}:write", else: nil
+
+             write_description =
+               if writable?, do: Map.fetch!(@scope_descriptions, write_scope), else: nil
+
+             %{
+               domain: domain,
+               key: key,
+               label: String.capitalize(key),
+               read_scope: read_scope,
+               write_scope: write_scope,
+               writable?: writable?,
+               read_description: Map.fetch!(@scope_descriptions, read_scope),
+               write_description: write_description
+             }
+           end)
 
   # One entry per {method, pattern} — a pattern is the path segments
   # under /api/v1, each a literal string or the `:_` wildcard. When
@@ -182,11 +210,70 @@ defmodule FluxVale.Api.Scopes do
   def oauth_scopes, do: @oauth_scopes
 
   @doc """
-  Product-language description for a catalog scope — the consent page's
-  copy. An unknown scope falls back to its raw string (never a crash).
+  Product-language description for a catalog scope, shown on the OAuth
+  consent page and in developer-settings PAT minting. An unknown scope
+  falls back to its raw string (never a crash).
   """
   @spec describe(String.t()) :: String.t()
   def describe(scope), do: Map.get(@scope_descriptions, scope, scope)
+
+  @doc """
+  The grouped domain catalog for the scope picker (#892): one entry
+  per domain in catalog order, each with its key, label, scopes, and
+  descriptions. A read-only domain carries a nil write scope and nil
+  write description.
+  """
+  @spec domains() :: [map()]
+  def domains, do: @domains
+
+  @doc """
+  Every domain key at the `"none"` level: the picker's starting level
+  map.
+  """
+  @spec default_levels() :: %{String.t() => String.t()}
+  def default_levels, do: Map.new(@read_domain_keys, &{&1, "none"})
+
+  @doc """
+  Expands one domain's level to its catalog scopes. `"none"` expands
+  to no scopes, `"read"` to the domain's read scope, and `"write"` to
+  both scopes. `"write"` on a read-only domain is an error, as are an
+  unknown domain, an unknown level, and non-binary input.
+  """
+  @spec scopes_for_level(String.t(), String.t()) ::
+          {:ok, [String.t()]} | {:error, {:invalid_scope, String.t()}}
+  def scopes_for_level(domain, "none") when domain in @read_domain_keys, do: {:ok, []}
+
+  def scopes_for_level(domain, "read") when domain in @read_domain_keys,
+    do: {:ok, ["#{domain}:read"]}
+
+  def scopes_for_level(domain, "write") when domain in @write_domain_keys,
+    do: {:ok, ["#{domain}:read", "#{domain}:write"]}
+
+  def scopes_for_level(domain, "write") when domain in @read_domain_keys,
+    do: {:error, {:invalid_scope, "#{domain}:write"}}
+
+  def scopes_for_level(domain, level) when is_binary(domain) and is_binary(level),
+    do: {:error, {:invalid_scope, "#{domain}:#{level}"}}
+
+  def scopes_for_level(domain, level),
+    do: {:error, {:invalid_scope, "#{inspect(domain)}:#{inspect(level)}"}}
+
+  @doc """
+  Expands a `%{domain_key => level}` map to the flat scope list in
+  catalog order. Absent domains default to `"none"`. Every entry is
+  validated first, so an unknown domain key or an invalid level fails
+  closed instead of being ignored. Anything that is not a plain map, a
+  struct included, is an error.
+  """
+  @spec scopes_for_levels(map()) :: {:ok, [String.t()]} | {:error, {:invalid_scope, String.t()}}
+  def scopes_for_levels(levels) when is_map(levels) and not is_struct(levels) do
+    case validate_levels(levels) do
+      :ok -> expand_levels(levels)
+      {:error, _reason} = error -> error
+    end
+  end
+
+  def scopes_for_levels(_other), do: {:error, {:invalid_scope, "invalid"}}
 
   @doc """
   Validates an OAuth scope list: every entry must be a catalog scope
@@ -336,4 +423,31 @@ defmodule FluxVale.Api.Scopes do
   # membership test already covered — the second test is then a
   # harmless repeat.
   defp write_counterpart(required), do: String.replace_suffix(required, ":read", ":write")
+
+  # Every {domain, level} entry must expand cleanly before anything is
+  # built: an unknown domain key or an invalid level fails closed here
+  # rather than being skipped by the catalog-order walk below.
+  defp validate_levels(levels) do
+    Enum.reduce_while(levels, :ok, fn {domain, level}, acc ->
+      outcome = scopes_for_level(domain, level)
+
+      case outcome do
+        {:ok, _scopes} -> {:cont, acc}
+        {:error, _reason} = error -> {:halt, error}
+      end
+    end)
+  end
+
+  # validate_levels/1 proved every entry expands, so the match below
+  # cannot fail: a MatchError would mean the two passes drifted.
+  defp expand_levels(levels) do
+    scopes =
+      Enum.flat_map(@read_domain_keys, fn key ->
+        level = Map.get(levels, key, "none")
+        {:ok, domain_scopes} = scopes_for_level(key, level)
+        domain_scopes
+      end)
+
+    {:ok, scopes}
+  end
 end
