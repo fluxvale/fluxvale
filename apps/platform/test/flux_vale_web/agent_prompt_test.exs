@@ -4,6 +4,7 @@ defmodule FluxValeWeb.AgentPromptTest do
   use ExUnit.Case, async: false
 
   alias FluxValeWeb.AgentPrompt
+  alias FluxValeWeb.BillingComponents
 
   setup do
     {:ok, ctx: AgentPrompt.context("Acme", "acme")}
@@ -27,6 +28,53 @@ defmodule FluxValeWeb.AgentPromptTest do
     assert prompt =~ "instances_deploy"
     assert prompt =~ "instances_configure"
     assert prompt =~ AgentPrompt.commit_rule()
+  end
+
+  test "the prompt asks once about single sign-on and walks the paid-org branch", %{ctx: ctx} do
+    prompt = AgentPrompt.prompt(ctx)
+
+    assert prompt =~ "Ask me once whether I want single sign-on (OIDC) for my apps."
+    assert prompt =~ "If I say no, accept it and never ask again this session."
+    assert prompt =~ "SSO is a paid-org feature and welcome credit alone does not unlock it"
+    assert prompt =~ "`wallet_ledger`"
+    assert prompt =~ "`wallet_balance`"
+    assert prompt =~ "`paywall_waived`"
+    assert prompt =~ "wait while I complete checkout in my browser. Never ask for card details."
+    assert prompt =~ "`pocket-id`"
+    assert prompt =~ "`apps_show`"
+    assert prompt =~ "`ENCRYPTION_KEY`"
+    assert prompt =~ "`instances_deploy`"
+    assert prompt =~ BillingComponents.topup_ladder_choices()
+    assert prompt =~ BillingComponents.topup_ladder_top()
+    assert prompt =~ ctx.api_base <> "/billing/topup"
+    assert prompt =~ ctx.api_base <> "/docs/guides/sso"
+  end
+
+  test "the SSO ask appears exactly once in the prompt", %{ctx: ctx} do
+    prompt = AgentPrompt.prompt(ctx)
+    ask = "Ask me once whether I want single sign-on (OIDC) for my apps."
+    parts = String.split(prompt, ask)
+
+    assert length(parts) == 2
+  end
+
+  test "the prompt numbers its steps 1 through 9 with no gap or repeat", %{ctx: ctx} do
+    prompt = AgentPrompt.prompt(ctx)
+    matches = Regex.scan(~r/^(\d+)\. /m, prompt, capture: :all_but_first)
+
+    assert List.flatten(matches) == Enum.map(1..9, &Integer.to_string/1)
+  end
+
+  test "the new SSO step holds no em-dash and no semicolon", %{ctx: ctx} do
+    prompt = AgentPrompt.prompt(ctx)
+    before_parts = String.split(prompt, "4. Confirm the spend")
+    before_step4 = List.first(before_parts)
+    step_parts = String.split(before_step4, "3. ")
+    new_step = List.last(step_parts)
+
+    assert String.starts_with?(new_step, "Ask me once whether I want single sign-on")
+    refute new_step =~ "—"
+    refute new_step =~ ";"
   end
 
   test "the auth sentence is the PAT path, with no second OAuth path", %{ctx: ctx} do
@@ -149,6 +197,10 @@ defmodule FluxValeWeb.AgentPromptTest do
     end
   end
 
+  test "the links carry the SSO guide", %{ctx: ctx} do
+    assert {"SSO with Pocket ID", ctx.api_base <> "/docs/guides/sso"} in AgentPrompt.links(ctx)
+  end
+
   test "the public prompt matches the committed golden fixture" do
     assert File.read!("test/fixtures/agent_prompt.txt") ==
              AgentPrompt.prompt(AgentPrompt.public_context())
@@ -180,6 +232,18 @@ defmodule FluxValeWeb.AgentPromptTest do
 
     assert "Confirm the spend before deploying" in steps
     assert AgentPrompt.commit_rule() =~ "Confirm the spend"
+  end
+
+  test "what it will do lists the SSO ask in its order" do
+    assert AgentPrompt.what_it_will_do() == [
+             "Check your wallet and stop at zero",
+             "Propose an app with its size and monthly price",
+             "Ask once if you want SSO with Pocket ID (optional, paid org)",
+             "Confirm the spend before deploying",
+             "Deploy and set env vars",
+             "Verify the instance URL",
+             "Ask before anything destructive"
+           ]
   end
 
   test "the remote CLI bridge note appears in auth_note under both :pat and :oauth", %{ctx: ctx} do

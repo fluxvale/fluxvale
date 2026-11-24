@@ -43,6 +43,13 @@ centered. --%>
         <ol>
           <li>Check the wallet; at zero, stop and hand back the top-up link.</li>
           <li>Pick an app from the catalog and propose one version with its price.</li>
+          <li>
+            Ask once whether you want single sign-on (OIDC) for your apps. Say no and it
+            moves on without asking again. Say yes and it explains that SSO is a paid-org
+            feature, recommends a top-up ({FluxValeWeb.BillingComponents.topup_ladder_choices()},
+            or above {FluxValeWeb.BillingComponents.topup_ladder_top()}), waits while you
+            check out in your browser, and then deploys and wires Pocket ID.
+          </li>
           <li>Confirm the spend with you before deploying.</li>
           <li>Deploy with your env vars and poll until the instance is running.</li>
           <li>Hand back the public instance URL; env changes come later, write-only.</li>
@@ -78,6 +85,10 @@ centered. --%>
           </li>
           <li>
             <a href={~p"/llms.txt"}>/llms.txt</a> carries the generic prompt for agents.
+          </li>
+          <li>
+            The <a href={~p"/docs/guides/sso"}>Pocket ID SSO guide</a>
+            covers passkey sign-in and per-app OIDC wiring.
           </li>
         </ul>
       </div>

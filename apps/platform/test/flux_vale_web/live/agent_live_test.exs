@@ -77,6 +77,22 @@ defmodule FluxValeWeb.AgentLiveTest do
     assert has_element?(view, "[data-testid='agent-dismiss'][href='/']", "I'll explore myself")
   end
 
+  test "the panel carries the SSO ask and the seven-item promise list", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/agent")
+
+    assert has_element?(view, "[data-testid='agent-prompt']", "single sign-on (OIDC)")
+    assert has_element?(view, "[data-testid='agent-what-it-will-do']", "SSO with Pocket ID")
+
+    promises =
+      view
+      |> element("[data-testid='agent-what-it-will-do']")
+      |> render()
+
+    document = LazyHTML.from_fragment(promises)
+    items = LazyHTML.query(document, "li")
+    assert Enum.count(items) == 7
+  end
+
   test "the OAuth mode keeps the PAT fallback and drops the snippet headers", %{conn: conn} do
     previous = Application.get_env(:flux_vale, :mcp_auth_mode)
     on_exit(fn -> Application.put_env(:flux_vale, :mcp_auth_mode, previous) end)

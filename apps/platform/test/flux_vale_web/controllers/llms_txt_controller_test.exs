@@ -42,4 +42,12 @@ defmodule FluxValeWeb.LlmsTxtControllerTest do
       assert response(conn, 200), "#{path} did not resolve"
     end
   end
+
+  test "the body carries the SSO ask and the guide link", %{conn: conn} do
+    conn = get(conn, ~p"/llms.txt")
+    body = conn.resp_body
+
+    assert body =~ "Ask me once whether I want single sign-on (OIDC) for my apps."
+    assert body =~ "- [SSO with Pocket ID](#{FluxValeWeb.Endpoint.url()}/docs/guides/sso)"
+  end
 end
