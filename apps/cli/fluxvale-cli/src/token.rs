@@ -6,6 +6,7 @@
 //! type lives in the api crate and is re-exported here. The token
 //! never appears in argv, logs, errors, or Debug output.
 
+use std::cmp::Ordering;
 use std::collections::BTreeMap;
 use std::fmt;
 use std::fs;
@@ -224,7 +225,9 @@ impl fmt::Debug for McpCredentials {
     }
 }
 
-#[derive(serde::Serialize, serde::Deserialize)]
+/// One copy of a pair as it is stored, in the keychain's JSON or in the
+/// file's TOML. The tokens are plain strings here, so this is not `Debug`.
+#[derive(Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 struct StoredMcpCredentials {
     access_token: String,
     refresh_token: String,
@@ -232,18 +235,54 @@ struct StoredMcpCredentials {
     scope: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     resource: Option<String>,
+    /// When this copy was stored, in seconds since the Unix epoch. A copy
+    /// stored before the field existed reads as 0.
+    #[serde(default)]
+    stored_at_unix: u64,
 }
 
-impl From<&McpCredentials> for StoredMcpCredentials {
-    fn from(creds: &McpCredentials) -> Self {
+impl StoredMcpCredentials {
+    /// `creds` as stored, stamped with `stored_at_unix`.
+    fn stamped(creds: &McpCredentials, stored_at_unix: u64) -> Self {
         StoredMcpCredentials {
             access_token: creds.access_token.expose().to_string(),
             refresh_token: creds.refresh_token.expose().to_string(),
             expires_at_unix: creds.expires_at_unix,
             scope: creds.scope.clone(),
             resource: creds.resource.clone(),
+            stored_at_unix,
         }
     }
+}
+
+/// Which of two stored copies of a pair is the one to return.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Which {
+    Keychain,
+    File,
+}
+
+/// Of two stored copies of a pair, the one to return: the one stored
+/// later. The time of storing ranks them, not the expiry. A token's
+/// lifetime can shrink, and then a stale copy expires later than a fresh
+/// one. Two copies stored at the same second, as two from before the time
+/// was recorded are, are ranked by expiry instead, and then only a file
+/// copy that expires strictly later than the keychain's wins.
+fn which_copy(keychain: &StoredMcpCredentials, file: &StoredMcpCredentials) -> Which {
+    match file.stored_at_unix.cmp(&keychain.stored_at_unix) {
+        Ordering::Greater => Which::File,
+        Ordering::Less => Which::Keychain,
+        Ordering::Equal if file.expires_at_unix > keychain.expires_at_unix => Which::File,
+        Ordering::Equal => Which::Keychain,
+    }
+}
+
+/// Now, in seconds since the Unix epoch. 0 if the clock says otherwise.
+fn now_unix() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|since| since.as_secs())
+        .unwrap_or(0)
 }
 
 impl From<StoredMcpCredentials> for McpCredentials {
@@ -274,23 +313,37 @@ impl McpTokenStore {
         TokenStore::default_dir()
     }
 
-    /// Save MCP credentials: OS keychain (`fluxvale-mcp`) where available, else the 0600 fallback file.
+    /// Save MCP credentials: OS keychain (`fluxvale-mcp`) where available,
+    /// else the 0600 fallback file. The copy is stamped with the time, so
+    /// that [`load`](Self::load) can tell which of two copies is the later.
     pub fn save(&self, host: &str, creds: &McpCredentials) -> anyhow::Result<()> {
-        let json = serde_json::to_string(&StoredMcpCredentials::from(creds))?;
+        self.save_at(host, creds, now_unix())
+    }
+
+    /// [`save`](Self::save), with the time the copy is stamped with given.
+    pub fn save_at(
+        &self,
+        host: &str,
+        creds: &McpCredentials,
+        stored_at_unix: u64,
+    ) -> anyhow::Result<()> {
+        let json = serde_json::to_string(&StoredMcpCredentials::stamped(creds, stored_at_unix))?;
         match self.keychain_entry(host) {
-            None => self.file_store().set(host, creds),
+            None => self.file_store().set_at(host, creds, stored_at_unix),
             Some(entry) => match entry.set_password(&json) {
                 Ok(()) => {
                     let _ = self.file_store().remove(host);
                     Ok(())
                 }
                 Err(keychain_error) => {
-                    self.file_store().set(host, creds).map_err(|file_error| {
-                        anyhow::anyhow!(
-                            "the OS keychain refused the MCP credentials ({keychain_error}), \
-                             and the fallback file failed too: {file_error}"
-                        )
-                    })?;
+                    self.file_store()
+                        .set_at(host, creds, stored_at_unix)
+                        .map_err(|file_error| {
+                            anyhow::anyhow!(
+                                "the OS keychain refused the MCP credentials ({keychain_error}), \
+                                 and the fallback file failed too: {file_error}"
+                            )
+                        })?;
                     let _ = entry.delete_credential();
                     Ok(())
                 }
@@ -298,7 +351,12 @@ impl McpTokenStore {
         }
     }
 
-    /// Load MCP credentials, reporting where they came from.
+    /// Load MCP credentials, reporting where they came from. When both the
+    /// keychain and the file hold a pair, the copy stored later is the one
+    /// returned: each carries the time it was stored. Two copies stored at
+    /// the same second, as two from before the time was recorded are, are
+    /// ranked by expiry instead, and then only a file copy that expires
+    /// strictly later than the keychain's is returned.
     pub fn load(&self, host: &str) -> anyhow::Result<Option<(McpCredentials, TokenLocation)>> {
         let keychain = match self.keychain_entry(host) {
             Some(entry) => match entry.get_password() {
@@ -307,25 +365,32 @@ impl McpTokenStore {
                         serde_json::from_str(&raw).map_err(|err| {
                             anyhow::anyhow!("corrupt MCP credentials in OS keychain: {err}")
                         })?;
-                    Some(McpCredentials::from(stored))
+                    Some(stored)
                 }
                 Err(_) => None,
             },
             None => None,
         };
-        match keychain {
-            Some(kc) => {
-                if let Ok(Some(file_creds)) = self.file_store().get(host)
-                    && file_creds.expires_at_unix > kc.expires_at_unix
-                {
-                    return Ok(Some((file_creds, TokenLocation::FallbackFile)));
-                }
-                Ok(Some((kc, TokenLocation::Keychain)))
+        // A file that cannot be read is no reason to drop a keychain copy.
+        let file = self.file_store().get_stored(host).ok().flatten();
+        match (keychain, file) {
+            (Some(keychain), Some(file)) => match which_copy(&keychain, &file) {
+                Which::Keychain => Ok(Some((
+                    McpCredentials::from(keychain),
+                    TokenLocation::Keychain,
+                ))),
+                Which::File => Ok(Some((
+                    McpCredentials::from(file),
+                    TokenLocation::FallbackFile,
+                ))),
+            },
+            (Some(keychain), None) => Ok(Some((
+                McpCredentials::from(keychain),
+                TokenLocation::Keychain,
+            ))),
+            (None, file) => {
+                Ok(file.map(|stored| (McpCredentials::from(stored), TokenLocation::FallbackFile)))
             }
-            None => Ok(self
-                .file_store()
-                .get(host)?
-                .map(|creds| (creds, TokenLocation::FallbackFile))),
         }
     }
 
@@ -367,16 +432,15 @@ impl FileMcpTokenStore {
     }
 
     pub fn get(&self, host: &str) -> anyhow::Result<Option<McpCredentials>> {
+        Ok(self.get_stored(host)?.map(McpCredentials::from))
+    }
+
+    /// [`get`](Self::get), as the copy is stored, with the time it was stored.
+    fn get_stored(&self, host: &str) -> anyhow::Result<Option<StoredMcpCredentials>> {
         match fs::read_to_string(&self.path) {
             Ok(raw) => {
                 let map = self.parse(&raw)?;
-                Ok(map.get(host).map(|stored| McpCredentials {
-                    access_token: Token::new(stored.access_token.clone()),
-                    refresh_token: Token::new(stored.refresh_token.clone()),
-                    expires_at_unix: stored.expires_at_unix,
-                    scope: stored.scope.clone(),
-                    resource: stored.resource.clone(),
-                }))
+                Ok(map.get(host).cloned())
             }
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(None),
             Err(err) => Err(err.into()),
@@ -384,6 +448,16 @@ impl FileMcpTokenStore {
     }
 
     pub fn set(&self, host: &str, creds: &McpCredentials) -> anyhow::Result<()> {
+        self.set_at(host, creds, now_unix())
+    }
+
+    /// [`set`](Self::set), with the time the copy is stamped with given.
+    pub fn set_at(
+        &self,
+        host: &str,
+        creds: &McpCredentials,
+        stored_at_unix: u64,
+    ) -> anyhow::Result<()> {
         if let Some(parent) = self.path.parent() {
             fs::create_dir_all(parent)?;
             set_owner_only(parent);
@@ -393,7 +467,10 @@ impl FileMcpTokenStore {
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => BTreeMap::new(),
             Err(err) => return Err(err.into()),
         };
-        map.insert(host.to_string(), StoredMcpCredentials::from(creds));
+        map.insert(
+            host.to_string(),
+            StoredMcpCredentials::stamped(creds, stored_at_unix),
+        );
         write_owner_rw(&self.path, &toml::to_string_pretty(&map)?)?;
         set_owner_rw(&self.path)?;
         Ok(())
@@ -704,6 +781,197 @@ mod tests {
             scope: "instances:read wallet:read".to_string(),
             resource: resource.map(str::to_owned),
         }
+    }
+
+    /// The time now, read by the test itself and not through the code under
+    /// test: a test of the clock that used that clock would pass whatever
+    /// the clock said.
+    fn the_time() -> u64 {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|since| since.as_secs())
+            .unwrap_or(0)
+    }
+
+    /// A pair whose access token expires at `expires_at_unix`.
+    fn pair_expiring(suffix: &str, expires_at_unix: u64) -> McpCredentials {
+        McpCredentials {
+            expires_at_unix,
+            ..sample_mcp_creds(suffix, None)
+        }
+    }
+
+    /// A stored copy that expires at `expires_at_unix` and was stored at
+    /// `stored_at_unix`.
+    fn stored(expires_at_unix: u64, stored_at_unix: u64) -> StoredMcpCredentials {
+        StoredMcpCredentials {
+            access_token: format!("fvoat_expires_at_{expires_at_unix}"),
+            refresh_token: format!("fvort_expires_at_{expires_at_unix}"),
+            expires_at_unix,
+            scope: String::from("instances:read"),
+            resource: None,
+            stored_at_unix,
+        }
+    }
+
+    #[test]
+    fn two_stored_copies_are_ranked_by_the_time_each_was_stored() {
+        // A stale copy that expires later loses to a fresh one that expires earlier.
+        assert_eq!(
+            which_copy(&stored(10_000, 100), &stored(9_000, 200)),
+            Which::File
+        );
+        assert_eq!(
+            which_copy(&stored(9_000, 200), &stored(10_000, 100)),
+            Which::Keychain
+        );
+        // Stored at the same second, as two from before the time was
+        // recorded are: ranked by expiry, and only a strictly later one wins.
+        assert_eq!(
+            which_copy(&stored(10_000, 0), &stored(9_000, 0)),
+            Which::Keychain
+        );
+        assert_eq!(
+            which_copy(&stored(9_000, 0), &stored(10_000, 0)),
+            Which::File
+        );
+        assert_eq!(
+            which_copy(&stored(10_000, 0), &stored(10_000, 0)),
+            Which::Keychain
+        );
+        assert_eq!(
+            which_copy(&stored(9_000, 300), &stored(10_000, 300)),
+            Which::File
+        );
+    }
+
+    #[test]
+    fn a_stored_copy_carries_the_time_it_was_stored() {
+        let store = FileMcpTokenStore::at(temp_dir());
+        store
+            .set_at(
+                "fluxvale.com",
+                &pair_expiring("stamped", 10_000),
+                1_700_000_000,
+            )
+            .unwrap();
+        let raw = fs::read_to_string(&store.path).unwrap();
+        assert!(
+            raw.contains("stored_at_unix = 1700000000"),
+            "the file does not carry the time it was given"
+        );
+        let back = store.get_stored("fluxvale.com").unwrap().unwrap();
+        assert_eq!(back.stored_at_unix, 1_700_000_000, "the time it was given");
+        assert_eq!(back.expires_at_unix, 10_000);
+        assert_eq!(back.access_token, "fvoat_stamped");
+
+        // A plain save reads the clock.
+        let before = the_time();
+        store
+            .set("fluxvale.com", &pair_expiring("clocked", 10_000))
+            .unwrap();
+        let after = the_time();
+        let stamped = store
+            .get_stored("fluxvale.com")
+            .unwrap()
+            .unwrap()
+            .stored_at_unix;
+        assert!(
+            (before..=after).contains(&stamped),
+            "the copy was stamped at {stamped}, between {before} and {after}"
+        );
+
+        // A copy stored before the time was recorded still reads, as stored at 0.
+        std::fs::write(
+            &store.path,
+            "[before]\naccess_token = \"fvoat_before\"\nrefresh_token = \"fvort_before\"\nexpires_at_unix = 9000\nscope = \"\"\n",
+        )
+        .unwrap();
+        let back = store.get_stored("before").unwrap().unwrap();
+        assert_eq!(back.stored_at_unix, 0);
+        assert_eq!(back.access_token, "fvoat_before");
+    }
+
+    #[test]
+    fn a_pair_stored_later_in_the_file_wins_over_a_stale_keychain_copy() {
+        let mock = MockKeyring::install();
+        let host = "ranked-by-storing-time.test";
+        let store = McpTokenStore::at(temp_dir());
+        let file = FileMcpTokenStore::at(store.config_dir.clone());
+        let fresh = pair_expiring("fresh", 9_000);
+        // The keychain holds a stale copy that happens to expire later.
+        if mock.platform_store_initialized {
+            store
+                .save_at(host, &pair_expiring("stale", 10_000), 100)
+                .unwrap();
+        }
+        // A fresher pair, with the shorter lifetime, lands in the file.
+        file.set_at(host, &fresh, 200).unwrap();
+
+        assert_eq!(
+            store.load(host).unwrap(),
+            Some((fresh, TokenLocation::FallbackFile))
+        );
+    }
+
+    #[test]
+    fn a_pair_stored_later_in_the_keychain_wins_over_an_older_file_copy() {
+        let mock = MockKeyring::install();
+        let host = "ranked-by-storing-time-too.test";
+        let store = McpTokenStore::at(temp_dir());
+        let file = FileMcpTokenStore::at(store.config_dir.clone());
+        // A fresh pair, with the shorter lifetime, goes to the keychain first.
+        if mock.platform_store_initialized {
+            store
+                .save_at(host, &pair_expiring("fresh", 9_000), 200)
+                .unwrap();
+        }
+        // An older copy that expires later sits in the file.
+        let older = pair_expiring("older", 10_000);
+        file.set_at(host, &older, 100).unwrap();
+
+        if mock.platform_store_initialized {
+            let fresh = pair_expiring("fresh", 9_000);
+            assert_eq!(
+                store.load(host).unwrap(),
+                Some((fresh, TokenLocation::Keychain))
+            );
+        } else {
+            // With no keychain to hold one, the file's is the only copy.
+            assert_eq!(
+                store.load(host).unwrap(),
+                Some((older, TokenLocation::FallbackFile))
+            );
+        }
+    }
+
+    #[test]
+    fn a_save_to_the_keychain_carries_the_time_it_was_stored() {
+        let mock = MockKeyring::install();
+        if !mock.platform_store_initialized {
+            return;
+        }
+        let host = "stamped-in-the-keychain.test";
+        let store = McpTokenStore::at(temp_dir());
+
+        let before = the_time();
+        store
+            .save(host, &pair_expiring("keychain", 10_000))
+            .unwrap();
+        let after = the_time();
+
+        // Read back from the keychain itself: `load` hands back no time.
+        let entry =
+            keyring::Entry::new(MCP_KEYCHAIN_SERVICE, host).expect("the mock store builds entries");
+        let raw = entry.get_password().expect("the mock kept the pair");
+        let stored: serde_json::Value = serde_json::from_str(&raw).unwrap();
+        let at = stored["stored_at_unix"]
+            .as_u64()
+            .expect("the copy carries the time it was stored");
+        assert!(
+            (before..=after).contains(&at),
+            "stamped at {at}, between {before} and {after}"
+        );
     }
 
     #[test]
