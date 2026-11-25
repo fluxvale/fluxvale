@@ -444,6 +444,120 @@ defmodule FluxVale.Infrastructure.Operations.SyncInstanceUrlEnvTest do
       assert_received {:upsert, %{"ROOT_URL" => ^url}}
     end
 
+    test "a refused ensure after a Secret write returns the error, and an identical retry heals it",
+         %{
+           org: org,
+           owner: owner
+         } do
+      {instance, _gateway, domain} =
+        live_custom!(org, owner, [instance_url_env: "ROOT_URL"], :stopped)
+
+      url = "https://git.#{domain.domain}/"
+
+      # the Secret read is live: the refused first call stages composed,
+      # so the identical retry's own read already holds the values
+      stub(Secret, :get_data, fn _kc, _ns, "app-env" ->
+        {:ok, Process.get(:secret_data, %{})}
+      end)
+
+      Process.put(:secret_data, %{})
+
+      expect(Secret, :upsert, 1, fn _kc, _ns, "app-env", data ->
+        Process.put(:secret_data, data)
+        send(self(), {:upsert, data})
+        {:ok, %{}}
+      end)
+
+      # the Deployment does not consume the Secret — the ensure is owed
+      stub(Deployment, :get, fn _kc, _ns, "app" ->
+        {:ok, deployment_containers([%{"name" => "app"}])}
+      end)
+
+      reason = %K8s.Error{status_code: 500, reason: :internal, message: "boom"}
+
+      expect(Deployment, :ensure_env_from, 1, fn _kc, _ns, "app" ->
+        send(self(), {:ensure_failed, reason})
+        {:error, reason}
+      end)
+
+      reject(Deployment, :restart, 4)
+
+      # the write lands; the refused ensure surfaces the raw error
+      assert {:error, %K8s.Error{reason: :internal}} = SyncInstanceUrlEnv.call(instance)
+
+      # the identical retry: values already match (the upsert count is
+      # spent — a second write raises), but the envFrom-absent body says
+      # the delivery is still owed — the ensure runs, succeeding now
+      expect(Deployment, :ensure_env_from, 1, fn _kc, _ns, "app" ->
+        send(self(), :ensured)
+        {:ok, %{}}
+      end)
+
+      assert :ok = SyncInstanceUrlEnv.call(instance)
+
+      url_key = %{"ROOT_URL" => url}
+      assert_received {:upsert, ^url_key}
+      assert_received {:ensure_failed, ^reason}
+      assert_received :ensured
+    end
+
+    test "a refused ensure after a Secret write returns the error, and a values-changing retry heals it",
+         %{
+           org: org,
+           owner: owner
+         } do
+      {instance, _gateway, _domain} =
+        live_custom!(org, owner, [instance_url_env: "ROOT_URL"], :stopped)
+
+      # the Secret read is live: between the calls the URL value CHANGES
+      # (an older value lands in the cluster Secret), so the retry
+      # derives a new write, not a no-op
+      stub(Secret, :get_data, fn _kc, _ns, "app-env" ->
+        {:ok, Process.get(:secret_data, %{})}
+      end)
+
+      Process.put(:secret_data, %{})
+
+      expect(Secret, :upsert, 2, fn _kc, _ns, "app-env", data ->
+        Process.put(:secret_data, data)
+        send(self(), {:upsert, data})
+        {:ok, %{}}
+      end)
+
+      # the Deployment does not consume the Secret — the ensure is owed
+      stub(Deployment, :get, fn _kc, _ns, "app" ->
+        {:ok, deployment_containers([%{"name" => "app"}])}
+      end)
+
+      reason = %K8s.Error{status_code: 500, reason: :internal, message: "boom"}
+
+      expect(Deployment, :ensure_env_from, 1, fn _kc, _ns, "app" ->
+        send(self(), {:ensure_failed, reason})
+        {:error, reason}
+      end)
+
+      expect(Deployment, :ensure_env_from, 1, fn _kc, _ns, "app" ->
+        send(self(), :ensured)
+        {:ok, %{}}
+      end)
+
+      reject(Deployment, :restart, 4)
+
+      assert {:error, %K8s.Error{reason: :internal}} = SyncInstanceUrlEnv.call(instance)
+
+      # the URL value in the cluster Secret changes between the calls
+      Process.put(:secret_data, %{"ROOT_URL" => "https://stale.example/"})
+
+      # the changed-values retry: upsert again AND the (now succeeding)
+      # ensure — no restart
+      assert :ok = SyncInstanceUrlEnv.call(instance)
+
+      assert_received {:upsert, %{}}
+      assert_received {:ensure_failed, ^reason}
+      assert_received {:upsert, %{"ROOT_URL" => "https://git." <> _}}
+      assert_received :ensured
+    end
+
     test "a failed envFrom read on the stopped changed path surfaces the error", %{
       org: org,
       owner: owner
