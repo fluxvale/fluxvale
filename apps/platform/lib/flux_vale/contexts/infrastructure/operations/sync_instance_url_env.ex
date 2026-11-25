@@ -39,8 +39,13 @@ defmodule FluxVale.Infrastructure.Operations.SyncInstanceUrlEnv do
   (zero writes, one stamp GET). Stamp missing or different ⇒ a refused
   restart left the pods on old env (or a user PATCH landed after the
   last roll): one restart re-delivers — no Secret write, stamp
-  re-recorded. Stopped/sleeping rows skip the check: their pods are
-  absent and the next start reads the Secret.
+  re-recorded. Stopped/sleeping rows run their OWN delivery check,
+  whose question is envFrom rather than a roll: the next start reads
+  the Secret only when the Deployment consumes it, so a refused
+  spec-only ensure self-heals on a value-identical retry (no Secret
+  write, no roll). An absent Secret never gains an envFrom reference —
+  a missing Secret at scheduling time is a CreateContainerConfigError
+  — so that arm stays a zero-call no-op.
 
   The instance row is never written. The URL key is a live-Secret
   projection composed above user env (a redeploy recomposes it from the
@@ -196,7 +201,7 @@ defmodule FluxVale.Infrastructure.Operations.SyncInstanceUrlEnv do
       {set, remove} = key_changes(version, facts, live_data)
 
       if set == %{} and remove == [] do
-        no_op_delivery(locked, kubeconfig, namespace, live_data)
+        no_op_delivery(locked, kubeconfig, namespace, live_data, existed?)
       else
         # EXACTLY the map `InstanceEnvSecret.upsert/5` writes — computed
         # once here so the restart's stamp hashes the delivered env.
@@ -275,21 +280,29 @@ defmodule FluxVale.Infrastructure.Operations.SyncInstanceUrlEnv do
     end
   end
 
-  # The no-op branch's DELIVERY check: the Secret already holds the
-  # right values, but a refused restart can leave the pods on the old
-  # env — so a value-identical retry still rolls when the deployment's
-  # env-state stamp disagrees with the Secret. The stamp is written by
-  # the deploy and re-recorded by every delivered restart, so equality
-  # means the pods ran this exact env: the true no-op. Stopped/sleeping
-  # rows skip the check — their pods are absent and the next start
-  # reads the Secret, so there is nothing to deliver (and their
-  # no-restart dispatch stands).
-  defp no_op_delivery(%Instance{status: status}, _kubeconfig, _namespace, _live_data)
-       when status in @secret_only do
-    :ok
-  end
-
-  defp no_op_delivery(locked, kubeconfig, namespace, live_data) do
+  # The no-op branch's DELIVERY check — the question differs by status.
+  #
+  # Live rows: a refused restart leaves pods on the old env, so the
+  # env-state stamp decides — equal means the pods ran this exact env
+  # (the true no-op); missing or different means one restart
+  # re-delivers, no Secret write, the stamp re-recorded.
+  #
+  # Stopped/sleeping rows never roll, but they can still owe a
+  # delivery: the next start reads the Secret only when the Deployment
+  # CONSUMES it (envFrom) — a refused spec-only ensure leaves it not
+  # consuming, and a value-identical retry self-heals with the leg the
+  # failed attempt owed (no Secret write, no roll). Only an EXISTING
+  # Secret can be consumed: an absent one must never gain an envFrom
+  # reference (a missing Secret at scheduling time is a
+  # CreateContainerConfigError), so that arm stays a zero-call no-op.
+  defp no_op_delivery(
+         %Instance{status: status} = locked,
+         kubeconfig,
+         namespace,
+         live_data,
+         _existed?
+       )
+       when status in @live do
     case Deployment.get(kubeconfig, namespace, @deployment) do
       {:ok, deployment} ->
         stamp = deployment_annotations(deployment)[@env_state_annotation]
@@ -299,6 +312,28 @@ defmodule FluxVale.Infrastructure.Operations.SyncInstanceUrlEnv do
         else
           {:apply, :restart, kubeconfig, namespace, locked.id,
            InstanceEnvSecret.env_state_hash(live_data)}
+        end
+
+      {:error, reason} ->
+        Repo.rollback(reason)
+    end
+  end
+
+  defp no_op_delivery(%Instance{status: status}, _kubeconfig, _namespace, _live_data, existed?)
+       when status in @secret_only and not existed? do
+    :ok
+  end
+
+  defp no_op_delivery(_locked, kubeconfig, namespace, _live_data, _existed?) do
+    case Deployment.get(kubeconfig, namespace, @deployment) do
+      {:ok, deployment} ->
+        if Deployment.env_from?(deployment, @env_secret) do
+          # the true no-op: the next start reads the Secret
+          :ok
+        else
+          # a refused spec-only ensure from an earlier call — the leg
+          # it owed, delivered now
+          {:apply, :ensure, kubeconfig, namespace}
         end
 
       {:error, reason} ->

@@ -112,6 +112,48 @@ defmodule FluxVale.Clients.K8s.Resources.DeploymentTest do
     end
   end
 
+  describe "env_from?/2" do
+    test "true when the app container references the Secret" do
+      deployment =
+        deployment_containers([
+          %{
+            "name" => "app",
+            "envFrom" => [%{"secretRef" => %{"name" => "app-env"}}]
+          }
+        ])
+
+      assert Deployment.env_from?(deployment, "app-env")
+    end
+
+    test "false when the reference names another Secret" do
+      deployment =
+        deployment_containers([
+          %{
+            "name" => "app",
+            "envFrom" => [%{"secretRef" => %{"name" => "other"}}]
+          }
+        ])
+
+      refute Deployment.env_from?(deployment, "app-env")
+    end
+
+    test "false when the containers key is missing" do
+      refute Deployment.env_from?(%{"spec" => %{"template" => %{}}}, "app-env")
+    end
+
+    test "false when only non-app containers exist — sidecars keep their own envFrom" do
+      deployment =
+        deployment_containers([
+          %{
+            "name" => "postgres",
+            "envFrom" => [%{"secretRef" => %{"name" => "app-env"}}]
+          }
+        ])
+
+      refute Deployment.env_from?(deployment, "app-env")
+    end
+  end
+
   describe "build_manifest/3 — storage" do
     test "mounts the PVC when storage_mount + pvc_name are set" do
       spec =
@@ -1058,5 +1100,10 @@ defmodule FluxVale.Clients.K8s.Resources.DeploymentTest do
 
       assert {:error, %FluxVale.Clients.K8s.Error{}} = Deployment.apply_manifest(%{}, manifest)
     end
+  end
+
+  # The Deployment body shape the envFrom presence check reads.
+  defp deployment_containers(containers) do
+    %{"spec" => %{"template" => %{"spec" => %{"containers" => containers}}}}
   end
 end

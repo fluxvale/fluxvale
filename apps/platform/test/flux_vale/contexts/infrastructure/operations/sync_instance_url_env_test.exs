@@ -501,7 +501,7 @@ defmodule FluxVale.Infrastructure.Operations.SyncInstanceUrlEnvTest do
       assert :ok = SyncInstanceUrlEnv.call(instance)
     end
 
-    test "a stopped row's no-op skips the delivery check — nothing to deliver", %{
+    test "a stopped row's no-op self-heals a refused ensure — envFrom without a write", %{
       org: org,
       owner: owner
     } do
@@ -509,17 +509,89 @@ defmodule FluxVale.Infrastructure.Operations.SyncInstanceUrlEnvTest do
         live_custom!(org, owner, [instance_url_env: "ROOT_URL"], :stopped)
 
       url = "https://git.#{domain.domain}/"
+      live = %{"ROOT_URL" => url}
 
-      stub(Secret, :get_data, fn _kc, _ns, "app-env" -> {:ok, %{"ROOT_URL" => url}} end)
+      stub(Secret, :get_data, fn _kc, _ns, "app-env" -> {:ok, live} end)
 
-      # the delivery check is a live-row concern: the pods are absent
-      # and the next start reads the Secret — not even a stamp GET
+      # the Deployment does not consume the Secret — the spec-only
+      # ensure a prior failed attempt owed (no app-env in envFrom)
+      stub(Deployment, :get, fn _kc, _ns, "app" ->
+        {:ok, deployment_containers([%{"name" => "app"}])}
+      end)
+
+      expect(Deployment, :ensure_env_from, fn _kc, ns, "app" ->
+        send(self(), {:ensured, ns})
+        {:ok, %{}}
+      end)
+
+      reject(Secret, :upsert, 4)
+      reject(Deployment, :restart, 4)
+
+      assert :ok = SyncInstanceUrlEnv.call(instance)
+
+      ns = "fluxvale-app-#{instance.id}"
+      assert_received {:ensured, ^ns}
+    end
+
+    test "a stopped row with the Secret already consumed is a true no-op", %{
+      org: org,
+      owner: owner
+    } do
+      {instance, _gateway, domain} =
+        live_custom!(org, owner, [instance_url_env: "ROOT_URL"], :stopped)
+
+      url = "https://git.#{domain.domain}/"
+      live = %{"ROOT_URL" => url}
+
+      stub(Secret, :get_data, fn _kc, _ns, "app-env" -> {:ok, live} end)
+
+      stub(Deployment, :get, fn _kc, _ns, "app" ->
+        {:ok,
+         deployment_containers([
+           %{"name" => "app", "envFrom" => [%{"secretRef" => %{"name" => "app-env"}}]}
+         ])}
+      end)
+
+      reject(Secret, :upsert, 4)
+      reject(Deployment, :restart, 4)
+      reject(Deployment, :ensure_env_from, 3)
+
+      assert :ok = SyncInstanceUrlEnv.call(instance)
+    end
+
+    test "a stopped row with an absent Secret gains no envFrom check — zero calls", %{
+      org: _org,
+      owner: owner
+    } do
+      # never attached: the derivation has nothing to say, and the
+      # absent Secret (env-less row) must never gain an envFrom reference
+      instance = instance_at!(owner, url_env_version(), :stopped)
+
+      stub(Secret, :get_data, fn _kc, _ns, "app-env" ->
+        {:error, %K8s.Error{status_code: 404, reason: :not_found, message: "absent"}}
+      end)
+
       reject(Deployment, :get, 3)
       reject(Secret, :upsert, 4)
       reject(Deployment, :restart, 4)
       reject(Deployment, :ensure_env_from, 3)
 
       assert :ok = SyncInstanceUrlEnv.call(instance)
+    end
+
+    test "a failed envFrom read surfaces the error", %{org: org, owner: owner} do
+      {instance, _gateway, domain} =
+        live_custom!(org, owner, [instance_url_env: "ROOT_URL"], :stopped)
+
+      live = %{"ROOT_URL" => "https://git.#{domain.domain}/"}
+
+      stub(Secret, :get_data, fn _kc, _ns, "app-env" -> {:ok, live} end)
+
+      reason = %K8s.Error{status_code: 503, reason: :unavailable, message: "down"}
+
+      stub(Deployment, :get, fn _kc, _ns, "app" -> {:error, reason} end)
+
+      assert {:error, %K8s.Error{reason: :unavailable}} = SyncInstanceUrlEnv.call(instance)
     end
 
     test "a failed stamp read surfaces the error", %{org: org, owner: owner} do
@@ -594,6 +666,11 @@ defmodule FluxVale.Infrastructure.Operations.SyncInstanceUrlEnvTest do
         }
       }
     }
+  end
+
+  # The Deployment body shape the stopped-row envFrom check reads.
+  defp deployment_containers(containers) do
+    %{"spec" => %{"template" => %{"spec" => %{"containers" => containers}}}}
   end
 
   # A private instance walked/pinned to `status`. `:deploying` is

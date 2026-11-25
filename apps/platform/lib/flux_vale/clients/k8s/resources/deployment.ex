@@ -438,14 +438,44 @@ defmodule FluxVale.Clients.K8s.Resources.Deployment do
     end
   end
 
-  defp put_env_from(container, secret_name) do
-    env_from = Map.get(container, "envFrom") || []
+  @doc """
+  Read-only presence check: does the APP container's `envFrom` already
+  reference the named Secret? Only the app container consumes the
+  instance env — sidecars and backing-service containers keep their own
+  envFrom lists. The address-event sync's stopped-row delivery check
+  rides it: a refused spec-only ensure leaves the Deployment not
+  consuming `app-env`, and a value-identical retry must know.
+  """
+  @spec env_from?(map(), String.t()) :: boolean()
+  def env_from?(deployment, secret_name) do
+    path = ["spec", "template", "spec", "containers"]
 
-    if Enum.any?(env_from, &match?(%{"secretRef" => %{"name" => ^secret_name}}, &1)) do
+    case get_in(deployment, path) do
+      nil ->
+        false
+
+      containers ->
+        Enum.any?(containers, fn
+          %{"name" => "app"} = container -> consumes_secret?(container, secret_name)
+          _other_container -> false
+        end)
+    end
+  end
+
+  defp put_env_from(container, secret_name) do
+    if consumes_secret?(container, secret_name) do
       container
     else
+      env_from = Map.get(container, "envFrom") || []
+
       Map.put(container, "envFrom", env_from ++ [%{"secretRef" => %{"name" => secret_name}}])
     end
+  end
+
+  defp consumes_secret?(container, secret_name) do
+    Enum.any?(Map.get(container, "envFrom") || [], fn ref ->
+      match?(%{"secretRef" => %{"name" => ^secret_name}}, ref)
+    end)
   end
 
   defp apply_updated(kubeconfig, updated, success_log) do
