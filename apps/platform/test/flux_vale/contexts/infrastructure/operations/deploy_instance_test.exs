@@ -18,12 +18,12 @@ defmodule FluxVale.Infrastructure.Operations.DeployInstanceTest do
   alias FluxVale.Clients.K8s.Resources.Service
   alias FluxVale.Clients.K8s.SelfAccessReview
   alias FluxVale.Identity.User
-  alias FluxVale.Infrastructure.AccessDomain
   alias FluxVale.Infrastructure.AccessGateway
   alias FluxVale.Infrastructure.AccessProviders.Tailscale
   alias FluxVale.Infrastructure.AccessRoute
   alias FluxVale.Infrastructure.Instance
   alias FluxVale.Infrastructure.Operations.DeployInstance
+  alias FluxVale.Infrastructure.Operations.InstanceEnvSecret
   alias FluxVale.Infrastructure.Operations.InstanceK8s
   alias FluxVale.TestSupport.AccessFixtures
   alias FluxVale.TestSupport.BillingFixtures
@@ -789,6 +789,16 @@ defmodule FluxVale.Infrastructure.Operations.DeployInstanceTest do
 
       stub(NetworkPolicy, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
 
+      # A verified custom domain carries its cert ref, so the custom
+      # hostnames' edge arm runs the TLS-replication read. These pins
+      # assert the ENV, not the edge arms — the read 404s, the edge
+      # skips (never routing a dead cert), and the deploy proceeds.
+      # get_data/3, not get/3: the fake table intercepts the dispatcher
+      # entry, not the module-internal call.
+      stub(Secret, :get_data, fn _kc, _ns, _name ->
+        {:error, Error.from_response({:ok, %{status: 404, body: %{}}})}
+      end)
+
       stub(Ingress, :delete, fn _kc, _ns, _name ->
         {:error, Error.from_response({:ok, %{status: 404, body: %{}}})}
       end)
@@ -920,6 +930,156 @@ defmodule FluxVale.Infrastructure.Operations.DeployInstanceTest do
 
       assert {:ok, _starting} = DeployInstance.call(private)
     end
+
+    # The custom-domain sibling of claimed_org!/1: the org's gateway
+    # claims a CUSTOM domain instead of the base — the default hostname
+    # is dark, and the "git" row under the claimed domain is the only
+    # live address. Returns the gateway so a test can re-shape the
+    # claims (the both-claims pin).
+    defp custom_claimed_org!(attrs) do
+      stub(Tailscale, :provision_gateway, fn _gateway, _key ->
+        {:ok, %{credential_secret_ref: "credential-stub"}}
+      end)
+
+      # The custom domain's wildcard Certificate mint rides
+      # `K8s.kubeconfig()` (zero-arity — the in-cluster read) plus
+      # Kubereq, the client layer under the resource modules: the same
+      # stubs the mint tests' setup lays down for AccessDomain.register.
+      stub(K8s, :kubeconfig, fn -> {:ok, %{}} end)
+
+      stub(Kubereq, :attach, fn req, _opts -> req end)
+
+      stub(Kubereq, :apply, fn _req, manifest, _fm ->
+        {:ok, %{status: 201, body: manifest}}
+      end)
+
+      stub_kubeconfig()
+      InstanceFixtures.local_cluster!()
+
+      {org, owner} = BillingFixtures.grant_free_org!()
+
+      # The instance create's funded-wallet gate (#124).
+      {:ok, wallet} = FluxVale.Billing.ensure_wallet(org)
+      {:ok, _grant} = FluxVale.Billing.grant_credits(wallet, 10_000, reason: :adjustment)
+
+      instance = deploying_for_org!(owner, attrs)
+      gateway = AccessFixtures.gateway!(org)
+
+      {:ok, _route} =
+        AccessRoute.create(
+          %{gateway_id: gateway.id, instance_id: instance.id, route_key: "8443"},
+          authorize?: false
+        )
+
+      domain = AccessFixtures.verified_domain!(org)
+
+      AccessFixtures.claim!(gateway, [domain.domain])
+
+      AccessFixtures.mint_hostname!(instance, domain, "git")
+
+      {instance, gateway, domain}
+    end
+
+    test "a live custom address seeds ITS url — the dark default appears nowhere" do
+      {instance, _gateway, domain} =
+        custom_claimed_org!(instance_url_env: "FORGEJO__server__ROOT_URL")
+
+      ns = "fluxvale-app-#{instance.id}"
+      stub_private_operands(ns)
+
+      default_host =
+        "#{instance.slug}.#{Application.fetch_env!(:flux_vale, :instances_base_domain)}"
+
+      expect(Secret, :create, fn _kc, ^ns, "app-env", data ->
+        # The live custom is the address — with its trailing slash —
+        # and the dark default hostname rides nowhere in the env.
+        assert data["FORGEJO__server__ROOT_URL"] == "https://git.#{domain.domain}/"
+
+        refute Enum.any?(data, fn {_key, value} -> value =~ default_host end)
+
+        {:ok, %{}}
+      end)
+
+      assert {:ok, _starting} = DeployInstance.call(instance)
+    end
+
+    test "the allowlist appends the live custom only — the dark default host stays out" do
+      {instance, _gateway, domain} =
+        custom_claimed_org!(
+          instance_url_env: "FORGEJO__server__ROOT_URL",
+          host_allowlist_env: "FORGEJO__server__DOMAIN",
+          default_env_vars: %{"FORGEJO__server__DOMAIN" => "localhost"}
+        )
+
+      ns = "fluxvale-app-#{instance.id}"
+      stub_private_operands(ns)
+
+      expect(Secret, :create, fn _kc, ^ns, "app-env", data ->
+        assert data["FORGEJO__server__ROOT_URL"] == "https://git.#{domain.domain}/"
+        assert data["FORGEJO__server__DOMAIN"] == "localhost,git.#{domain.domain}"
+
+        {:ok, %{}}
+      end)
+
+      assert {:ok, _starting} = DeployInstance.call(instance)
+    end
+
+    test "with both live, the custom URL wins and the allowlist carries both hosts" do
+      {instance, gateway, domain} =
+        custom_claimed_org!(
+          instance_url_env: "FORGEJO__server__ROOT_URL",
+          host_allowlist_env: "FORGEJO__server__DOMAIN"
+        )
+
+      base_domain = Application.fetch_env!(:flux_vale, :instances_base_domain)
+      claim = %{"ip" => "10.43.0.20", "tailnet" => "example.ts.net"}
+
+      # The helper's claims write bumped the row — re-read before the
+      # second write (the gateway updates ride optimistic locking).
+      {:ok, fresh_gateway} =
+        AccessGateway.get_for_organization(gateway.organization_id, authorize?: false)
+
+      {:ok, _gateway} =
+        AccessGateway.update_claims(
+          fresh_gateway,
+          %{dns_claims: %{domain.domain => claim, base_domain => claim}},
+          authorize?: false
+        )
+
+      ns = "fluxvale-app-#{instance.id}"
+      stub_private_operands(ns)
+
+      expect(Secret, :create, fn _kc, ^ns, "app-env", data ->
+        assert data["FORGEJO__server__ROOT_URL"] == "https://git.#{domain.domain}/"
+
+        assert data["FORGEJO__server__DOMAIN"] ==
+                 "#{instance.slug}.#{base_domain},git.#{domain.domain}"
+
+        {:ok, %{}}
+      end)
+
+      assert {:ok, _starting} = DeployInstance.call(instance)
+    end
+
+    test "two live customs — the OLDEST row's URL wins" do
+      {instance, _gateway, domain} =
+        custom_claimed_org!(instance_url_env: "FORGEJO__server__ROOT_URL")
+
+      # "git" (minted by the helper) is the older row; "code" rides the
+      # same claimed domain, minted second.
+      AccessFixtures.mint_hostname!(instance, domain, "code")
+
+      ns = "fluxvale-app-#{instance.id}"
+      stub_private_operands(ns)
+
+      expect(Secret, :create, fn _kc, ^ns, "app-env", data ->
+        assert data["FORGEJO__server__ROOT_URL"] == "https://git.#{domain.domain}/"
+
+        {:ok, %{}}
+      end)
+
+      assert {:ok, _starting} = DeployInstance.call(instance)
+    end
   end
 
   describe "call/1 — bundled backing services (#612, ADR-0045)" do
@@ -1011,6 +1171,8 @@ defmodule FluxVale.Infrastructure.Operations.DeployInstanceTest do
         assert data["DATABASE_URL"] =~ "postgres://fluxvale:"
         assert data["REDIS_URL"] =~ "redis://:"
         assert data["APP_TOKEN"] == "tok"
+
+        Process.put(:deployed_env, data)
         {:ok, %{}}
       end)
 
@@ -1019,6 +1181,14 @@ defmodule FluxVale.Infrastructure.Operations.DeployInstanceTest do
         assert Decimal.eq?(spec.cpu, Decimal.new("0.85"))
         assert spec.memory == 704
         assert [%{kind: :postgres}, %{kind: :redis}] = spec.backing_services
+
+        # The deploy stamps the env state the pods will run — the hash
+        # of the SAME env map the app-env Secret just received — so the
+        # address-event sync's delivery check reads a matching stamp.
+        deployed_env = Process.get(:deployed_env)
+
+        assert spec.env_state == InstanceEnvSecret.env_state_hash(deployed_env)
+
         {:ok, %{}}
       end)
 

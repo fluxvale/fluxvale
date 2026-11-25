@@ -251,34 +251,29 @@ defmodule FluxVale.Infrastructure.Operations.DeployInstance do
   #
   # **ADR-0038 §4's omission rule, with its designed exception**
   # (ADR-0040 §7): a private row gets NO URL env — a dead ROOT_URL mints
-  # dead links — EXCEPT when the row's default hostname is LIVE on a
-  # CLAIMED domain (`:verified` + claimed on the org's gateway): the
-  # hostname genuinely answers on the tailnet, so the URL and the
-  # host-allowlist entry (`host_allowlist_env`, Django-class
-  # ALLOWED_HOSTS) are real. Custom-hostname URL selection is S5's UI
-  # problem — only the default hostname is modeled here. The env lands
-  # on the first deploy that finds the conditions true (toggling later
-  # doesn't rewrite a running app's env Secret — the next deploy does).
+  # dead links — EXCEPT when a hostname genuinely answers. The URL comes
+  # from the shared snapshot (`InstanceEnvDerived.derive/1`, read ONCE
+  # for both env keys): the OLDEST live custom address wins when one
+  # exists (created_at, then id), else the default hostname when LIVE on
+  # a CLAIMED domain (`:verified`/`:needs_attention` + claimed on the
+  # org's gateway). The host-allowlist entry (`host_allowlist_env`,
+  # Django-class ALLOWED_HOSTS) carries every serving hostname. The env
+  # lands on the first deploy that finds the conditions true; the sync
+  # hook (a later slice) re-decides on address events through ADR-0052's
+  # seam; a redeploy re-decides as before.
   defp deploy_env(instance, backing_data) do
     loaded = Ash.load(instance, :app_version, authorize?: false)
 
     case loaded do
       {:ok, instance} ->
         app_version = instance.app_version
+        facts = InstanceEnvDerived.derive(instance)
 
-        env =
-          case url_value(instance, app_version) do
-            nil ->
-              instance.env_vars
-
-            url ->
-              env_name = url_env_name(app_version)
-              Map.put(instance.env_vars, env_name, url)
-          end
+        env = with_url_env(instance, app_version, facts.url)
 
         env
         |> put_backing_urls(instance, backing_data)
-        |> InstanceEnvDerived.allowlist_entry(instance, app_version)
+        |> InstanceEnvDerived.allowlist_entry(facts.hostnames, app_version)
 
       # coveralls-ignore-start - defensive: a load failure is the DB
       # outage class ExUnit cannot stage (DBConnection reconnects by
@@ -304,23 +299,14 @@ defmodule FluxVale.Infrastructure.Operations.DeployInstance do
     end)
   end
 
-  # Public rows: the URL as before. Private rows: only the claimed-
-  # domain exception above. The env NAME may itself be nil — folded into
-  # the same nil outcome (no URL wanted at all).
-  defp url_value(instance, app_version) do
-    cond do
-      url_env_name(app_version) == nil -> nil
-      instance.exposure == :public -> instance_url(instance)
-      InstanceEnvDerived.default_hostname_live?(instance) -> instance_url(instance)
-      true -> nil
-    end
-  end
+  # The URL key rides the shared snapshot (`InstanceEnvDerived`).
+  # A nil env name or a nil URL both mean no key — the ADR-0038 §4
+  # omission, folded into one outcome.
+  defp with_url_env(instance, %{instance_url_env: nil}, _url), do: instance.env_vars
+  defp with_url_env(instance, _app_version, nil), do: instance.env_vars
 
-  defp url_env_name(app_version), do: app_version.instance_url_env
-
-  defp instance_url(instance) do
-    base_domain = Application.fetch_env!(:flux_vale, :instances_base_domain)
-    "https://#{instance.slug}.#{base_domain}/"
+  defp with_url_env(instance, app_version, url) do
+    Map.put(instance.env_vars, app_version.instance_url_env, url)
   end
 
   # #196: the owning platform env (config.exs/runtime.exs) — labels the

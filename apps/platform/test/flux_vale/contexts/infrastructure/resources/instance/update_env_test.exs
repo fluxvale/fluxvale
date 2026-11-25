@@ -15,9 +15,12 @@ defmodule FluxVale.Infrastructure.Instance.UpdateEnvTest do
   alias FluxVale.Clients.K8s
   alias FluxVale.Clients.K8s.Resources.Deployment
   alias FluxVale.Clients.K8s.Resources.Secret
+  alias FluxVale.Infrastructure.AccessRoute
   alias FluxVale.Infrastructure.Instance
   alias FluxVale.Infrastructure.Operations.InstanceEnvDerived
+  alias FluxVale.Infrastructure.Operations.InstanceEnvSecret
   alias FluxVale.Infrastructure.PocketIdWiring
+  alias FluxVale.TestSupport.AccessFixtures
   alias FluxVale.TestSupport.BillingFixtures
   alias FluxVale.TestSupport.InstanceFixtures
 
@@ -184,7 +187,11 @@ defmodule FluxVale.Infrastructure.Instance.UpdateEnvTest do
         {:ok, %{}}
       end)
 
-      expect(Deployment, :restart, fn _kc, "ns-live", "app", _opts ->
+      expect(Deployment, :restart, fn _kc, "ns-live", "app", opts ->
+        # the roll stamps the env state of the map the upsert delivered
+        assert opts[:env_state] ==
+                 InstanceEnvSecret.env_state_hash(%{"LIVE_ONLY" => "live", "NEW" => "2"})
+
         send(self(), :restarted)
         {:ok, %{}}
       end)
@@ -731,7 +738,13 @@ defmodule FluxVale.Infrastructure.Instance.UpdateEnvTest do
       reloaded = reload!(instance)
       assert reloaded.env_vars["ALLOWED_HOSTS"] == "example.com"
 
-      composed = InstanceEnvDerived.allowlist_entry(reloaded.env_vars, reloaded, version)
+      composed =
+        InstanceEnvDerived.allowlist_entry(
+          reloaded.env_vars,
+          InstanceEnvDerived.serving_hostnames(reloaded),
+          version
+        )
+
       assert composed["ALLOWED_HOSTS"] == "example.com,#{platform_host}"
       assert length(String.split(composed["ALLOWED_HOSTS"], platform_host)) == 2
 
@@ -845,6 +858,72 @@ defmodule FluxVale.Infrastructure.Instance.UpdateEnvTest do
       assert_received {:upsert, %{"ALLOWED_HOSTS" => "example.com"}}
       assert log =~ "composed=[]"
       refute log =~ ~s(composed=["ALLOWED_HOSTS"])
+    end
+
+    test "an attached private instance's patch carries the live custom host to the Secret", %{
+      user: user
+    } do
+      # the access fixtures' gateway/domain cluster legs ride the same
+      # Kubereq/K8s stubs the operation tests' setups carry
+      stub(Kubereq, :apply, fn _req, manifest, _fm ->
+        {:ok, %{status: 201, body: manifest}}
+      end)
+
+      stub(K8s, :kubeconfig, fn -> {:ok, %{}} end)
+
+      # the empty pre-merge row env sends the action down its first-env
+      # spec-only ensure (no rollout) — not this test's subject
+      stub(Deployment, :ensure_env_from, fn _kc, "ns-live", "app" -> {:ok, %{}} end)
+
+      version = InstanceFixtures.app_version!(host_allowlist_env: "ALLOWED_HOSTS")
+
+      # private BEFORE the namespace is pinned: set_exposure is
+      # attribute-only on a never-deployed row, and no access pairing
+      # exists yet (the same posture the describe's other tests use)
+      created = create!(user, version: version)
+
+      private =
+        created
+        |> Ash.Changeset.for_update(:set_exposure, %{exposure: :private}, actor: user)
+        |> Ash.update!()
+
+      instance =
+        private
+        |> InstanceFixtures.walk_to!(:stopped)
+        |> InstanceFixtures.pin!(namespace: "ns-live")
+
+      org = Ash.load!(instance, :organization, authorize?: false).organization
+
+      gateway = AccessFixtures.gateway!(org)
+
+      _route =
+        AccessRoute.create!(
+          %{gateway_id: gateway.id, instance_id: instance.id, route_key: "8443"},
+          authorize?: false
+        )
+
+      domain = AccessFixtures.verified_domain!(org)
+      AccessFixtures.claim!(gateway, [domain.domain])
+      AccessFixtures.mint_hostname!(instance, domain, "git")
+
+      expected = "example.com,git.#{domain.domain}"
+
+      stub_secret(%{"ALLOWED_HOSTS" => "localhost"})
+
+      expect(Secret, :upsert, fn _kc, "ns-live", "app-env", data ->
+        send(self(), {:upsert, data})
+        {:ok, %{}}
+      end)
+
+      assert {:ok, updated} =
+               update_env(instance, user, %{"ALLOWED_HOSTS" => "example.com"}, [])
+
+      # the row keeps the user's intent — the composed append is a live
+      # Secret projection only
+      assert updated.env_vars["ALLOWED_HOSTS"] == "example.com"
+
+      # the upserted Secret carries the live CUSTOM host appended
+      assert_received {:upsert, %{"ALLOWED_HOSTS" => ^expected}}
     end
   end
 

@@ -256,7 +256,8 @@ defmodule FluxVale.Infrastructure.Instance.UpdateEnv do
 
     if is_binary(env_name) and
          (Map.has_key?(plan.set, env_name) or env_name in plan.remove) do
-      composed = InstanceEnvDerived.allowlist_entry(plan.merged, row, version)
+      hostnames = InstanceEnvDerived.serving_hostnames(row)
+      composed = InstanceEnvDerived.allowlist_entry(plan.merged, hostnames, version)
       before = Map.get(plan.merged, env_name)
 
       case Map.fetch(composed, env_name) do
@@ -340,10 +341,20 @@ defmodule FluxVale.Infrastructure.Instance.UpdateEnv do
         set: set,
         remove: remove,
         expect_existing: expect_existing
-      } ->
+      } = stash ->
         case InstanceEnvSecret.upsert(kubeconfig, namespace, set, remove, expect_existing) do
-          :ok -> {:ok, instance}
-          {:error, reason} -> {:error, secret_error(reason)}
+          {:ok, merged} ->
+            # the post-commit restart stamps the delivered env (the
+            # address-event sync's delivery check reads the stamp)
+            Process.put(
+              @stash_key,
+              Map.put(stash, :env_state, InstanceEnvSecret.env_state_hash(merged))
+            )
+
+            {:ok, instance}
+
+          {:error, reason} ->
+            {:error, secret_error(reason)}
         end
 
       # coveralls-ignore-start - defensive: a success always stashes
@@ -431,11 +442,16 @@ defmodule FluxVale.Infrastructure.Instance.UpdateEnv do
 
   defp restart_live(
          _instance,
-         %{status: status, kubeconfig: kubeconfig, namespace: namespace},
+         %{
+           status: status,
+           kubeconfig: kubeconfig,
+           namespace: namespace,
+           env_state: env_state
+         },
          result
        )
        when status in @live do
-    case InstanceEnvSecret.restart(kubeconfig, namespace) do
+    case InstanceEnvSecret.restart(kubeconfig, namespace, env_state: env_state) do
       :ok -> result
       {:error, _reason} -> {:error, InvalidArgument.exception(message: @restart_refused)}
     end

@@ -16,6 +16,7 @@ defmodule FluxVale.Infrastructure.Operations.InstanceEnvSecretTest do
   alias FluxVale.Clients.K8s.Resources.Deployment
   alias FluxVale.Clients.K8s.Resources.Secret
   alias FluxVale.Infrastructure
+  alias FluxVale.Infrastructure.Operations.InstanceEnvSecret
   alias FluxVale.Ops.FeatureFlags
   alias FluxVale.TestSupport.AccountsFixtures
   alias FluxVale.TestSupport.BillingFixtures
@@ -56,7 +57,14 @@ defmodule FluxVale.Infrastructure.Operations.InstanceEnvSecretTest do
         {:ok, %{}}
       end)
 
-      expect(Deployment, :restart, fn _kc, "ns-live", "app", _opts ->
+      expect(Deployment, :restart, fn _kc, "ns-live", "app", opts ->
+        # the roll stamps the env state of the map the upsert delivered
+        assert opts[:env_state] ==
+                 InstanceEnvSecret.env_state_hash(%{
+                   "KEEP_ME" => "yes",
+                   "SSO_AUTHORITY" => "https://id"
+                 })
+
         # The upsert must ALREADY have happened (the ordering contract):
         # a zero-timeout receive finds the message or fails here — and
         # puts it back for the outer assertion.

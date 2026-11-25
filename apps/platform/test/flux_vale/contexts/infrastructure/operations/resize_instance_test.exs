@@ -28,6 +28,7 @@ defmodule FluxVale.Infrastructure.Operations.ResizeInstanceTest do
   alias FluxVale.Infrastructure.Instance
   alias FluxVale.Infrastructure.InstanceAllocationSnapshot
   alias FluxVale.Infrastructure.Operations.EdgeRoutes
+  alias FluxVale.Infrastructure.Operations.InstanceEnvSecret
   alias FluxVale.TestSupport.InstanceFixtures
 
   defp stub_kubeconfig do
@@ -54,9 +55,10 @@ defmodule FluxVale.Infrastructure.Operations.ResizeInstanceTest do
   end
 
   # The env_from_secret decision reads the cluster's app-env Secret
-  # (cluster truth, not the row's env_vars).
+  # (cluster truth, not the row's env_vars) — the DECODED data map, the
+  # same shape the deploy composes from and the env-state stamp hashes.
   defp stub_env_secret(response) do
-    stub(Secret, :get, fn _kc, _ns, "app-env" -> response end)
+    stub(Secret, :get_data, fn _kc, _ns, "app-env" -> response end)
   end
 
   defp secret_exists, do: {:ok, %{"KEY" => "value"}}
@@ -197,6 +199,13 @@ defmodule FluxVale.Infrastructure.Operations.ResizeInstanceTest do
 
     expect(Deployment, :create, fn _kc, _ns, "app", spec ->
       assert spec.env_from_secret == "app-env"
+
+      # the re-apply re-stamps the env state from the DECODED data the
+      # cluster returned — the same value the address-event sync's
+      # delivery check compares (a raw manifest body would poison it)
+      assert spec.env_state ==
+               InstanceEnvSecret.env_state_hash(%{"KEY" => "value"})
+
       {:ok, %{}}
     end)
 
@@ -508,15 +517,18 @@ defmodule FluxVale.Infrastructure.Operations.ResizeInstanceTest do
     stub_kubeconfig()
     stub_quota()
     stub_deployment()
-    stub_env_secret(no_secret())
 
     instance =
       stopped_deployed!(version_opts: [file_access: true], storage_gb: 10)
 
     owner = owner_of(instance)
 
-    # No crossing → no mint of secret, dav service, or edge arms.
-    reject(Secret, :get_data, 3)
+    # No crossing → no mint of secret, dav service, or edge arms. The
+    # ONE Secret read is the applied_env app-env witness — a read of any
+    # other name (the file-access credential) fails loudly.
+    expect(Secret, :get_data, 1, fn _kc, _ns, "app-env" -> no_secret() end)
+
+    reject(Secret, :create, 4)
     reject(Service, :create, 4)
     reject(EdgeRoutes, :apply_serving, 2)
     reject(PersistentVolumeClaim, :get, 3)
@@ -529,7 +541,6 @@ defmodule FluxVale.Infrastructure.Operations.ResizeInstanceTest do
     stub_kubeconfig()
     stub_quota()
     stub_deployment()
-    stub_env_secret(no_secret())
 
     instance = stopped_deployed!()
     owner = owner_of(instance)
@@ -540,7 +551,11 @@ defmodule FluxVale.Infrastructure.Operations.ResizeInstanceTest do
 
     expect(PersistentVolumeClaim, :upsert, fn _kc, ^ns, "app-data", _spec -> {:ok, %{}} end)
 
-    reject(Secret, :get_data, 3)
+    # The ONE Secret read is the applied_env app-env witness — a
+    # file-access credential read fails loudly (non-file-access: no
+    # sidecar world).
+    expect(Secret, :get_data, 1, fn _kc, _ns, "app-env" -> no_secret() end)
+
     reject(Service, :create, 4)
     reject(EdgeRoutes, :apply_serving, 2)
 
@@ -633,7 +648,6 @@ defmodule FluxVale.Infrastructure.Operations.ResizeInstanceTest do
   # URL — resize keeps it for free).
   test "a backing-services instance re-carves the app request; DB shares constant, no secret touch" do
     stub_kubeconfig()
-    stub_env_secret(secret_exists())
 
     version = InstanceFixtures.backing_version!()
     InstanceFixtures.local_cluster!()
@@ -675,8 +689,15 @@ defmodule FluxVale.Infrastructure.Operations.ResizeInstanceTest do
     stub_live_claim(10)
 
     # The backing Secret is deploy-owned (get-or-create at first
-    # deploy): a resize neither reads nor writes it.
-    reject(Secret, :get_data, 3)
+    # deploy): a resize neither reads nor writes it. The only read is
+    # the applied_env app-env witness — a backing-services read fails
+    # loudly.
+    stub(Secret, :get_data, fn _kc, _ns, name ->
+      case name do
+        "app-env" -> secret_exists()
+        "backing-services" -> flunk("a resize must not read the backing Secret")
+      end
+    end)
 
     assert {:ok, resized} =
              Instance.resize(

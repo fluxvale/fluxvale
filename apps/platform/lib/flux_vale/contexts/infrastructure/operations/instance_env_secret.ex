@@ -73,8 +73,8 @@ defmodule FluxVale.Infrastructure.Operations.InstanceEnvSecret do
         with {:ok, %Instance{} = locked} <- lock_row(instance.id),
              {:ok, kubeconfig} <- InstanceK8s.kubeconfig_for(locked),
              {:ok, namespace} <- deployed_namespace(locked),
-             :ok <- upsert(kubeconfig, namespace, set, remove, expect_existing),
-             :ok <- restart(kubeconfig, namespace) do
+             {:ok, merged} <- upsert(kubeconfig, namespace, set, remove, expect_existing),
+             :ok <- restart(kubeconfig, namespace, env_state: env_state_hash(merged)) do
           :ok
         else
           # coveralls-ignore-start - defensive: the SSO operations load
@@ -105,6 +105,11 @@ defmodule FluxVale.Infrastructure.Operations.InstanceEnvSecret do
   A missing Secret when expected means the live projection was lost,
   not that the app has no env.
 
+  Returns `{:ok, merged}` — the map the Secret now holds — so the
+  caller's restart can stamp `fluxvale.io/env-state` with the hash of
+  the delivered env (`env_state_hash/1`), keeping the address-event
+  sync's delivery check honest across every writer.
+
   Honest limit: every writer here uses the same SSA field manager, so
   a re-deploy writing the Secret between the read and the upsert has
   its keys reverted to this call's snapshot until its next write — the
@@ -112,7 +117,7 @@ defmodule FluxVale.Infrastructure.Operations.InstanceEnvSecret do
   leaves (not the cross-manager immunity SSA implies).
   """
   @spec upsert(Kubereq.Kubeconfig.t(), String.t(), map(), [String.t()], boolean()) ::
-          :ok | {:error, term()}
+          {:ok, map()} | {:error, term()}
   def upsert(kubeconfig, namespace, set, remove, expect_existing)
       when is_map(set) and is_list(remove) do
     with {:ok, data} <- read_env(kubeconfig, namespace, expect_existing),
@@ -121,7 +126,7 @@ defmodule FluxVale.Infrastructure.Operations.InstanceEnvSecret do
            |> Map.merge(set)
            |> Map.drop(remove),
          {:ok, _secret} <- Secret.upsert(kubeconfig, namespace, @env_secret, merged) do
-      :ok
+      {:ok, merged}
     end
   end
 
@@ -132,13 +137,41 @@ defmodule FluxVale.Infrastructure.Operations.InstanceEnvSecret do
   action's row + Secret are already saved, so its caller redeploys to
   repair. Also ensures the app container consumes `app-env` (first env
   on a deployment created without it).
+
+  `opts` forward to `Deployment.restart/4`: pass `env_state:` (a
+  binary) to stamp `fluxvale.io/env-state` in the same SSA apply as
+  `restartedAt` — the address-event sync's delivery check reads it.
   """
-  @spec restart(Kubereq.Kubeconfig.t(), String.t()) :: :ok | {:error, term()}
-  def restart(kubeconfig, namespace) do
-    case Deployment.restart(kubeconfig, namespace, @deployment_name, ensure_env_from: @env_secret) do
+  @spec restart(Kubereq.Kubeconfig.t(), String.t(), keyword()) :: :ok | {:error, term()}
+  def restart(kubeconfig, namespace, opts \\ []) do
+    opts = Keyword.put(opts, :ensure_env_from, @env_secret)
+
+    case Deployment.restart(kubeconfig, namespace, @deployment_name, opts) do
       {:ok, _deployment} -> :ok
       {:error, _reason} = error -> error
     end
+  end
+
+  @doc """
+  The canonical env-state encoding for the `fluxvale.io/env-state`
+  stamp: the Secret data map's entries SORTED (so map order never
+  matters), term-encoded, SHA-256, lowercase hex. EVERY writer to the
+  app-env Secret records it — the deploy stamps the hash of the env it
+  composes, and every restart through this seam stamps the hash of the
+  merged map `upsert/5` delivered — so equality between the stamp and
+  `env_state_hash/1` of the live Secret is the address-event sync's
+  proof the pods run this exact env.
+  """
+  @spec env_state_hash(map()) :: String.t()
+  def env_state_hash(data) do
+    canonical =
+      data
+      |> Enum.sort()
+      |> :erlang.term_to_binary()
+
+    :sha256
+    |> :crypto.hash(canonical)
+    |> Base.encode16(case: :lower)
   end
 
   @doc """

@@ -46,7 +46,7 @@ defmodule FluxVale.Infrastructure.Operations.GrowStorageVolumeTest do
   end
 
   defp stub_env_secret(response) do
-    stub(Secret, :get, fn _kc, _ns, "app-env" -> response end)
+    stub(Secret, :get_data, fn _kc, _ns, "app-env" -> response end)
   end
 
   defp no_secret do
@@ -99,7 +99,7 @@ defmodule FluxVale.Infrastructure.Operations.GrowStorageVolumeTest do
     # The pod does not roll: no deployment read/apply, no env read.
     reject(Deployment, :get, 3)
     reject(Deployment, :create, 4)
-    reject(Secret, :get, 3)
+    reject(Secret, :get_data, 3)
 
     assert {:ok, grown} = Instance.grow_storage(instance, %{storage_gb: 20}, authorize?: false)
     assert grown.storage_gb == 20
@@ -174,7 +174,6 @@ defmodule FluxVale.Infrastructure.Operations.GrowStorageVolumeTest do
     end)
 
     reject(Secret, :get_data, 3)
-    reject(Secret, :get, 3)
     reject(Service, :create, 4)
     reject(EdgeRoutes, :apply_serving, 2)
     reject(EdgeRoutes, :ensure_wake_targets, 2)
@@ -199,7 +198,7 @@ defmodule FluxVale.Infrastructure.Operations.GrowStorageVolumeTest do
 
     reject(Deployment, :get, 3)
     reject(Deployment, :create, 4)
-    reject(Secret, :get, 3)
+    reject(Secret, :get_data, 3)
 
     assert {:error, _reason} =
              Instance.grow_storage(instance, %{storage_gb: 20}, authorize?: false)

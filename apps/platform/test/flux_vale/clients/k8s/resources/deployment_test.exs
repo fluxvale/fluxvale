@@ -95,6 +95,63 @@ defmodule FluxVale.Clients.K8s.Resources.DeploymentTest do
                "app.kubernetes.io/name" => "app"
              }
     end
+
+    test "an env_state spec renders the pod-template annotation verbatim" do
+      manifest =
+        Deployment.build_manifest("ns", "app", Map.put(base_spec(), :env_state, "seeded-hash"))
+
+      assert get_in(manifest, ["spec", "template", "metadata", "annotations"]) == %{
+               "fluxvale.io/env-state" => "seeded-hash"
+             }
+    end
+
+    test "no env_state spec, no annotations — the pre-stamp shape" do
+      manifest = Deployment.build_manifest("ns", "app", base_spec())
+
+      assert get_in(manifest, ["spec", "template", "metadata", "annotations"]) == nil
+    end
+  end
+
+  describe "env_from?/2" do
+    test "true when the app container references the Secret" do
+      deployment =
+        deployment_containers([
+          %{
+            "name" => "app",
+            "envFrom" => [%{"secretRef" => %{"name" => "app-env"}}]
+          }
+        ])
+
+      assert Deployment.env_from?(deployment, "app-env")
+    end
+
+    test "false when the reference names another Secret" do
+      deployment =
+        deployment_containers([
+          %{
+            "name" => "app",
+            "envFrom" => [%{"secretRef" => %{"name" => "other"}}]
+          }
+        ])
+
+      refute Deployment.env_from?(deployment, "app-env")
+    end
+
+    test "false when the containers key is missing" do
+      refute Deployment.env_from?(%{"spec" => %{"template" => %{}}}, "app-env")
+    end
+
+    test "false when only non-app containers exist — sidecars keep their own envFrom" do
+      deployment =
+        deployment_containers([
+          %{
+            "name" => "postgres",
+            "envFrom" => [%{"secretRef" => %{"name" => "app-env"}}]
+          }
+        ])
+
+      refute Deployment.env_from?(deployment, "app-env")
+    end
   end
 
   describe "build_manifest/3 — storage" do
@@ -632,11 +689,48 @@ defmodule FluxVale.Clients.K8s.Resources.DeploymentTest do
 
         annotations = get_in(manifest, ["spec", "template", "metadata", "annotations"])
         assert Map.has_key?(annotations, "fluxvale.io/restartedAt")
+        # back-compat shape: no env_state opt, no stamp
+        refute Map.has_key?(annotations, "fluxvale.io/env-state")
 
         {:ok, %{status: 200, body: manifest}}
       end)
 
       assert {:ok, _body} = Deployment.restart(%{}, "fluxvale-app-1", "forgejo")
+    end
+
+    test "env_state rides the SAME apply — both annotations at once" do
+      expect(Kubereq, :get, fn _req, _ns, _name ->
+        {:ok, %{status: 200, body: fetched_deployment()}}
+      end)
+
+      expect(Kubereq, :apply, fn _req, manifest, _fm ->
+        annotations = get_in(manifest, ["spec", "template", "metadata", "annotations"])
+        assert Map.has_key?(annotations, "fluxvale.io/restartedAt")
+        assert annotations["fluxvale.io/env-state"] == "delivered-hash"
+        {:ok, %{status: 200, body: manifest}}
+      end)
+
+      assert {:ok, _body} =
+               Deployment.restart(%{}, "fluxvale-app-1", "forgejo", env_state: "delivered-hash")
+    end
+
+    test "env_state merges into existing annotations without dropping them" do
+      deployment =
+        put_in(fetched_deployment(), ["spec", "template", "metadata", "annotations"], %{
+          "keep" => "me"
+        })
+
+      expect(Kubereq, :get, fn _req, _ns, _name -> {:ok, %{status: 200, body: deployment}} end)
+
+      expect(Kubereq, :apply, fn _req, manifest, _fm ->
+        annotations = get_in(manifest, ["spec", "template", "metadata", "annotations"])
+        assert annotations["keep"] == "me"
+        assert annotations["fluxvale.io/env-state"] == "delivered-hash"
+        {:ok, %{status: 200, body: manifest}}
+      end)
+
+      assert {:ok, _body} =
+               Deployment.restart(%{}, "fluxvale-app-1", "forgejo", env_state: "delivered-hash")
     end
 
     test "normalizes a pre-#776 Deployment's persisted 25% surge strategy" do
@@ -1006,5 +1100,10 @@ defmodule FluxVale.Clients.K8s.Resources.DeploymentTest do
 
       assert {:error, %FluxVale.Clients.K8s.Error{}} = Deployment.apply_manifest(%{}, manifest)
     end
+  end
+
+  # The Deployment body shape the envFrom presence check reads.
+  defp deployment_containers(containers) do
+    %{"spec" => %{"template" => %{"spec" => %{"containers" => containers}}}}
   end
 end

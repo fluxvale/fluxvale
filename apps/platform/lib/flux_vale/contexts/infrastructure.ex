@@ -349,4 +349,12 @@ defmodule FluxVale.Infrastructure do
   defdelegate apply_instance_env(instance, set, remove, expect_existing),
     to: InstanceEnvSecret,
     as: :apply_locked
+
+  # ADR-0052's third seam consumer: an address event re-tells the
+  # running app its URL env (and the allowlist append) through the same
+  # primitive — no write, no roll when nothing differs. The events'
+  # wiring is a later slice.
+  defdelegate sync_instance_url_env(instance),
+    to: FluxVale.Infrastructure.Operations.SyncInstanceUrlEnv,
+    as: :call
 end

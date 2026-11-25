@@ -173,12 +173,17 @@ defmodule FluxVale.Infrastructure.Operations.ClusterFootprint do
   # coveralls-ignore-stop
 
   # Cluster truth for env_from_secret (see the moduledoc): an existing
-  # app-env Secret keeps the envFrom reference; 404 → none. Any other read
-  # failure fails the apply — never guess the pod's env posture.
+  # app-env Secret WITH data keeps the envFrom reference; 404 → none
+  # (and an existing-but-empty-data Secret contributes no env either
+  # way). The DECODED data map is what the deploy composes from, so the
+  # env-state stamp the re-apply hashes matches the address-event sync's
+  # delivery check — a raw manifest body would poison the stamp. Any
+  # other read failure fails the apply — never guess the pod's env
+  # posture.
   defp applied_env(kubeconfig, updated) do
-    case Secret.get(kubeconfig, updated.namespace, @env_secret) do
-      {:ok, body} ->
-        {:ok, body}
+    case Secret.get_data(kubeconfig, updated.namespace, @env_secret) do
+      {:ok, data} ->
+        {:ok, data}
 
       {:error, %Error{reason: :not_found}} ->
         {:ok, %{}}

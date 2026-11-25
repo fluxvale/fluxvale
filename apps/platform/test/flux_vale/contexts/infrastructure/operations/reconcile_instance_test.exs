@@ -806,8 +806,11 @@ defmodule FluxVale.Infrastructure.Operations.ReconcileInstanceTest do
         {:ok, deployment_status(%{actual_replicas: 1, updated: 1, ready: 1})}
       end)
 
-      expect(InstanceEnvSecret, :upsert, fn _kc, ^ns, %{"FOO" => "bar"}, [], false -> :ok end)
-      expect(InstanceEnvSecret, :restart, fn _kc, ^ns -> :ok end)
+      expect(InstanceEnvSecret, :upsert, fn _kc, ^ns, %{"FOO" => "bar"}, [], false ->
+        {:ok, %{"FOO" => "bar"}}
+      end)
+
+      expect(InstanceEnvSecret, :restart, fn _kc, ^ns, _opts -> :ok end)
 
       assert {:ok, running} = ReconcileInstance.call(instance)
       assert running.status == :running
@@ -998,8 +1001,11 @@ defmodule FluxVale.Infrastructure.Operations.ReconcileInstanceTest do
         {:ok, deployment_status(%{actual_replicas: 1, updated: 1, ready: 1})}
       end)
 
-      expect(InstanceEnvSecret, :upsert, fn _kc, ^ns, %{"FOO" => "bar"}, [], false -> :ok end)
-      expect(InstanceEnvSecret, :restart, fn _kc, ^ns -> :ok end)
+      expect(InstanceEnvSecret, :upsert, fn _kc, ^ns, %{"FOO" => "bar"}, [], false ->
+        {:ok, %{"FOO" => "bar"}}
+      end)
+
+      expect(InstanceEnvSecret, :restart, fn _kc, ^ns, _opts -> :ok end)
 
       assert {:ok, running} = ReconcileInstance.call(repaired)
       assert running.status == :running
