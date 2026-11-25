@@ -275,6 +275,8 @@ gateway's tailnet. The worked example in the provider's repository,
 adds the gateway and its write-only Tailscale API token to the same
 stack, ordered after the domain, so the claim lands in the same apply.
 
+The example targets Cloudflare provider v5. On v4 the record resource is `cloudflare_record` and the zone data source takes `name` directly instead of `filter`. The record fields are otherwise the same.
+
 ### Claim a verified domain from the same stack
 
 `fluxvale_access_gateway.api_token` saves the Tailscale API token the
