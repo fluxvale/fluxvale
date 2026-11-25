@@ -224,6 +224,31 @@ defmodule FluxVale.Infrastructure.Operations.InstanceEnvDerivedTest do
 
       assert InstanceEnvDerived.instance_url(row) == nil
     end
+
+    test "a hostname row pointing at another org's domain is not live (the org fence)" do
+      {org_a, row} = org_instance!(:private)
+      gateway = attach!(org_a, row)
+      domain_a = AccessFixtures.verified_domain!(org_a)
+      {org_b, _owner_b} = BillingFixtures.grant_free_org!()
+      domain_b = AccessFixtures.verified_domain!(org_b)
+
+      # the drift the fence exists for: A's gateway answering for BOTH
+      # its own name and org B's domain name (the observed-state write
+      # the platform never makes on its own)
+      AccessFixtures.claim!(gateway, [domain_a.domain, domain_b.domain])
+
+      # actions cannot produce a cross-org row (the mint guard
+      # refuses); the fence's regression pin
+      _seeded =
+        Ash.Seed.seed!(InstanceHostname, %{
+          instance_id: row.id,
+          access_domain_id: domain_b.id,
+          label: "git",
+          created_at: DateTime.utc_now()
+        })
+
+      assert InstanceEnvDerived.instance_url(row) == nil
+    end
   end
 
   describe "serving_hostnames/1" do

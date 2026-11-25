@@ -120,6 +120,23 @@ defmodule FluxVale.Infrastructure.Operations.SyncInstanceUrlEnvTest do
       assert {:error, %K8s.Error{reason: :unavailable}} = SyncInstanceUrlEnv.call(instance)
     end
 
+    test "a failed Secret upsert surfaces the error and writes nothing", %{
+      org: org,
+      owner: owner
+    } do
+      {instance, _gateway, _domain} = live_custom!(org, owner, instance_url_env: "ROOT_URL")
+
+      stub(Secret, :get_data, fn _kc, _ns, "app-env" -> {:ok, %{}} end)
+
+      stub(Secret, :upsert, fn _kc, _ns, _name, _data ->
+        {:error, %K8s.Error{status_code: 422, reason: :invalid, message: "no"}}
+      end)
+
+      reject(Deployment, :restart, 4)
+
+      assert {:error, %K8s.Error{reason: :invalid}} = SyncInstanceUrlEnv.call(instance)
+    end
+
     test "the allowlist rides one snapshot: ONE upsert sets both keys, one roll", %{
       org: org,
       owner: owner
@@ -296,6 +313,37 @@ defmodule FluxVale.Infrastructure.Operations.SyncInstanceUrlEnvTest do
       url = "https://git.#{domain.domain}/"
       assert_received {:upsert, %{"ROOT_URL" => ^url}}
     end
+
+    test "sleeping with a new Secret: upsert and the spec-only ensure, no restart", %{
+      org: org,
+      owner: owner
+    } do
+      {instance, _gateway, domain} =
+        live_custom!(org, owner, [instance_url_env: "ROOT_URL"], :sleeping)
+
+      stub(Secret, :get_data, fn _kc, _ns, "app-env" ->
+        {:error, %K8s.Error{status_code: 404, reason: :not_found, message: "absent"}}
+      end)
+
+      expect(Secret, :upsert, fn _kc, ns, "app-env", data ->
+        send(self(), {:upsert, ns, data})
+        {:ok, %{}}
+      end)
+
+      expect(Deployment, :ensure_env_from, fn _kc, _ns, "app" ->
+        send(self(), :ensured)
+        {:ok, %{}}
+      end)
+
+      reject(Deployment, :restart, 4)
+
+      assert :ok = SyncInstanceUrlEnv.call(instance)
+
+      ns = "fluxvale-app-#{instance.id}"
+      url = "https://git.#{domain.domain}/"
+      assert_received {:upsert, ^ns, %{"ROOT_URL" => ^url}}
+      assert_received :ensured
+    end
   end
 
   describe "call/1 — the zero-cluster gates" do
@@ -382,6 +430,31 @@ defmodule FluxVale.Infrastructure.Operations.SyncInstanceUrlEnvTest do
         {:error, %K8s.Error{status_code: 404, reason: :not_found, message: "gone"}}
       end)
 
+      assert {:error, :missing} = SyncInstanceUrlEnv.call(instance)
+    end
+
+    test "an env-less row with bundled backing services still expects the Secret", %{
+      org: _org,
+      owner: owner
+    } do
+      version =
+        InstanceFixtures.backing_version!(%{
+          instance_url_env: "ROOT_URL",
+          backing_services: [
+            %{"kind" => "postgres", "version" => "18", "url_env" => "DATABASE_URL"}
+          ]
+        })
+
+      instance = instance_at!(owner, version, :running)
+
+      stub(Secret, :get_data, fn _kc, _ns, "app-env" ->
+        {:error, %K8s.Error{status_code: 404, reason: :not_found, message: "gone"}}
+      end)
+
+      # the deploy seeds app-env from the backing URLs alone
+      # (put_backing_urls), so an env-less row with declared services
+      # expects the Secret — a drifted-away one is refused, never
+      # rebuilt partial
       assert {:error, :missing} = SyncInstanceUrlEnv.call(instance)
     end
   end

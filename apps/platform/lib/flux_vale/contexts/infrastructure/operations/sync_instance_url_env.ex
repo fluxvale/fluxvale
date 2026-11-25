@@ -7,16 +7,29 @@ defmodule FluxVale.Infrastructure.Operations.SyncInstanceUrlEnv do
   and write + roll only on a real change. No-op when nothing differs —
   no write, no restart.
 
-  Status dispatch mirrors the in-place env action's discipline
-  (`Instance.UpdateEnv`): live rows (`running`/`starting`/
-  `no_capacity`) ride `InstanceEnvSecret.apply_locked/4` — the row lock
-  serializes against a racing deploy/PATCH/SSO write; stopped/sleeping
-  rows ride `upsert/5` with no restart, plus the spec-only
+  The sync owns its transaction, mirroring the in-place env action's
+  split legs (`Instance.UpdateEnv`): the row is locked `FOR UPDATE`,
+  then everything downstream re-derives from the locked row — status
+  gate, version, facts, kubeconfig, namespace, the live Secret read,
+  and the key changes. That order is the safety story: the allowlist
+  append composes ONTO the live Secret's value, so it must compose
+  under the same lock that serializes a concurrent user PATCH —
+  composing before the lock would merge a stale snapshot over the
+  user's edit inside `InstanceEnvSecret.upsert/5`. The upsert runs
+  inside the transaction; the rolling restart runs after it commits.
+  `InstanceEnvSecret.apply_locked/4` is deliberately not used — it
+  restarts inside the transaction and composes nothing; the sync needs
+  the opposite split, and the seam provides the legs (`upsert/5`,
+  `restart/2`, `ensure_env_from/2`).
+
+  Status dispatch mirrors `Instance.UpdateEnv`'s discipline: live rows
+  (`running`/`starting`/`no_capacity`) get the post-commit rolling
+  restart; stopped/sleeping rows get no restart, plus the spec-only
   `ensure_env_from/2` when this call created the Secret; the busy
-  (`deploying`/`restoring`/`deleting`) and row-only
-  (`pending`/`error`/`lost`) statuses skip with zero cluster calls —
-  the next deploy/restore composes the env from the same derivation,
-  so skipping converges by construction.
+  (`deploying`/`restoring`), row-only (`pending`/`error`/`lost`), and
+  deleting statuses skip with zero cluster calls — the next
+  deploy/restore composes the env from the same derivation, so
+  skipping converges by construction.
 
   The instance row is never written. The URL key is a live-Secret
   projection composed above user env (a redeploy recomposes it from the
@@ -24,8 +37,16 @@ defmodule FluxVale.Infrastructure.Operations.SyncInstanceUrlEnv do
   value — a host that stops serving stays harmless in ALLOWED_HOSTS,
   and the next live address overwrites the URL key.
 
-  Errors return `{:error, term()}`; callers own the event semantics (a
-  later slice wires the address events to this call).
+  Errors return `{:error, term()}`: `:not_deployed` (a gated row with
+  no namespace — a broken row), `:missing` (a deployed row whose Secret
+  is gone — the seam's "redeploy to repair" stance; the row's env, or
+  its bundled backing services, say a Secret exists), the k8s calls'
+  own error tuples, and read failures from the locked-row/version
+  reads (the DB-outage class). A vanished instance is `:ok` — teardown
+  won, nothing to tell. A failed post-commit restart returns the error
+  with the Secret already written — stale-but-working, the seam's
+  documented limit; a retry re-upserts (idempotent) and re-rolls.
+  Callers own the event semantics (a later slice wires the events).
   """
 
   alias FluxVale.Clients.K8s
@@ -34,6 +55,9 @@ defmodule FluxVale.Infrastructure.Operations.SyncInstanceUrlEnv do
   alias FluxVale.Infrastructure.Operations.InstanceEnvDerived
   alias FluxVale.Infrastructure.Operations.InstanceEnvSecret
   alias FluxVale.Infrastructure.Operations.InstanceK8s
+  alias FluxVale.Repo
+
+  require Ash.Query
 
   @env_secret "app-env"
 
@@ -54,42 +78,69 @@ defmodule FluxVale.Infrastructure.Operations.SyncInstanceUrlEnv do
   def call(instance_or_id) do
     id = instance_id(instance_or_id)
 
-    case Instance.get_by_id(id, authorize?: false) do
-      {:ok, %Instance{} = fresh} ->
-        sync(fresh)
-
-      # Teardown won between the event and this read: nothing to tell.
-      {:error, _vanished} ->
-        :ok
+    case Repo.transaction(fn -> locked_sync(id) end) do
+      {:ok, :ok} -> :ok
+      {:ok, {:apply, leg, kubeconfig, namespace}} -> apply_leg(leg, kubeconfig, namespace)
+      {:error, reason} -> {:error, reason}
     end
   end
 
   defp instance_id(%Instance{} = instance), do: instance.id
   defp instance_id(id) when is_binary(id), do: id
 
-  defp sync(fresh) do
-    case Ash.load(fresh, :app_version, authorize?: false) do
+  defp locked_sync(id) do
+    case lock_row(id) do
+      {:ok, %Instance{} = locked} ->
+        sync_locked(locked)
+
+      # Teardown won between the event and this read: nothing to tell.
+      {:ok, nil} ->
+        :ok
+
+      # coveralls-ignore-start - defensive: the locked read's DB-outage
+      # class, ExUnit cannot stage it (DBConnection reconnects by
+      # design).
+      {:error, reason} ->
+        Repo.rollback(reason)
+        # coveralls-ignore-stop
+    end
+  end
+
+  # The row lock the public env action takes (AdoptCurrentRow's
+  # serialization stance) — the same shape InstanceEnvSecret uses, so
+  # a racing deploy/PATCH/SSO write serializes against this whole
+  # compose+upsert.
+  defp lock_row(instance_id) do
+    Instance
+    |> Ash.Query.filter(id == ^instance_id)
+    |> Ash.Query.lock(:for_update)
+    |> Ash.read_one(authorize?: false)
+  end
+
+  defp sync_locked(locked) do
+    case Ash.load(locked, [:app_version, :backing_services], authorize?: false) do
       {:ok, %{app_version: version}} ->
-        gated_sync(fresh, version)
+        gated_sync(locked, version)
 
       # coveralls-ignore-start - defensive: the DB-outage class ExUnit
-      # cannot stage (DBConnection reconnects by design). No version, no
-      # env names to manage — the same degrade-to-bare stance the
-      # deploy's own derivation takes; the next event re-reads.
-      {:error, _read_failed} ->
-        :ok
+      # cannot stage (DBConnection reconnects by design). NotFound
+      # cannot happen here (the version FK is required) — every failure
+      # is a read failure, and callers own the retry.
+      {:error, reason} ->
+        Repo.rollback(reason)
         # coveralls-ignore-stop
     end
   end
 
   # The two zero-cluster gates, in order: a version naming neither env
-  # key owes no address env; a busy or row-only status owes nothing
-  # either.
-  defp gated_sync(fresh, version) do
+  # key owes no address env; a busy, row-only, or deleting status owes
+  # nothing either. Both re-decide under the lock: a status that moved
+  # mid-flight lands here, not on the caller's stale snapshot.
+  defp gated_sync(locked, version) do
     cond do
       not declared?(version) -> :ok
-      not proceed?(fresh) -> :ok
-      true -> apply_address(fresh, version)
+      not proceed?(locked) -> :ok
+      true -> compose_and_upsert(locked, version)
     end
   end
 
@@ -99,18 +150,28 @@ defmodule FluxVale.Infrastructure.Operations.SyncInstanceUrlEnv do
   defp proceed?(%Instance{status: status}),
     do: status in @live or status in @secret_only
 
-  # One snapshot feeds both keys. Kubeconfig first, then the namespace:
-  # the gates admit only deployed rows, so a nil namespace here is a
-  # broken row — the seam's own refusal shape, never a nil-crash into
-  # the cluster calls.
-  defp apply_address(fresh, version) do
-    facts = InstanceEnvDerived.derive(fresh)
+  # One snapshot feeds both keys, composed under the row lock. Kubeconfig
+  # first, then the namespace: the gates admit only deployed rows, so a
+  # nil namespace here is a broken row — the seam's own refusal shape,
+  # never a nil-crash into the cluster calls.
+  defp compose_and_upsert(locked, version) do
+    facts = InstanceEnvDerived.derive(locked)
 
-    with {:ok, kubeconfig} <- InstanceK8s.kubeconfig_for(fresh),
-         {:ok, namespace} <- namespace(fresh),
+    with {:ok, kubeconfig} <- InstanceK8s.kubeconfig_for(locked),
+         {:ok, namespace} <- namespace(locked),
          {live_data, existed?} when is_map(live_data) and is_boolean(existed?) <-
-           live_data(kubeconfig, namespace, fresh) do
-      apply_changes(kubeconfig, namespace, fresh, version, facts, live_data, existed?)
+           live_data(kubeconfig, namespace, locked) do
+      {set, remove} = key_changes(version, facts, live_data)
+
+      if set == %{} and remove == [] do
+        # The lane's explicit idempotency contract: nothing differs —
+        # no write, no restart, no ensure.
+        :ok
+      else
+        upsert_locked(locked, kubeconfig, namespace, set, remove, existed?)
+      end
+    else
+      {:error, reason} -> Repo.rollback(reason)
     end
   end
 
@@ -119,16 +180,18 @@ defmodule FluxVale.Infrastructure.Operations.SyncInstanceUrlEnv do
 
   # The live value this call composes onto, and whether the Secret
   # existed (a newly created one owes the stopped/sleeping ensure). A
-  # deployed row with env whose Secret is gone is a broken state —
-  # writing only this call's keys would boot the app without its other
-  # env — the seam's "redeploy to repair" stance, never a partial
-  # merge. An env-less row has nothing to lose: start from %{}.
-  defp live_data(kubeconfig, namespace, fresh) do
+  # gated row whose Secret is gone is a broken state — writing only
+  # this call's keys would boot the app without its other env — the
+  # seam's "redeploy to repair" stance, never a partial merge. An
+  # env-less row with no bundled backing services has nothing to lose:
+  # start from %{}.
+  defp live_data(kubeconfig, namespace, instance) do
     case Secret.get_data(kubeconfig, namespace, @env_secret) do
       {:ok, data} ->
         {data, true}
 
-      {:error, %K8s.Error{reason: :not_found}} when fresh.env_vars == %{} ->
+      {:error, %K8s.Error{reason: :not_found}}
+      when instance.env_vars == %{} and instance.backing_services == [] ->
         {%{}, false}
 
       {:error, %K8s.Error{reason: :not_found}} ->
@@ -139,40 +202,51 @@ defmodule FluxVale.Infrastructure.Operations.SyncInstanceUrlEnv do
     end
   end
 
-  defp apply_changes(kubeconfig, namespace, fresh, version, facts, live_data, existed?) do
-    {set, remove} = key_changes(version, facts, live_data)
-    expect_existing = fresh.env_vars != %{}
+  # Whether the live Secret should already exist. The row's env is the
+  # usual answer — but a bundled-backing version's deploy seeds app-env
+  # from the backing URLs alone (`DeployInstance.put_backing_urls`
+  # composes every declared url_env into the env), so an env-less row
+  # with declared services expects one too: a drifted-away Secret there
+  # is a broken state, refused — never rebuilt partial.
+  defp expect_existing?(instance) do
+    instance.env_vars != %{} or instance.backing_services != []
+  end
 
-    cond do
-      # The lane's explicit idempotency contract: nothing differs — no
-      # write, no restart.
-      set == %{} and remove == [] ->
-        :ok
+  defp upsert_locked(locked, kubeconfig, namespace, set, remove, existed?) do
+    # The row is never written here, so the row itself answers whether
+    # the Secret should already exist.
+    expect_existing = expect_existing?(locked)
 
-      fresh.status in @live ->
-        # The row is never written here, so the row itself answers
-        # whether the Secret should already exist.
-        InstanceEnvSecret.apply_locked(fresh, set, remove, expect_existing)
+    case InstanceEnvSecret.upsert(kubeconfig, namespace, set, remove, expect_existing) do
+      :ok ->
+        cond do
+          locked.status in @live ->
+            {:apply, :restart, kubeconfig, namespace}
 
-      true ->
-        secret_only_apply(kubeconfig, namespace, set, remove, expect_existing, existed?)
+          not existed? ->
+            # stopped/sleeping pods are absent: only a Secret this call
+            # created owes the spec-only ensure; the next start reads it.
+            {:apply, :ensure, kubeconfig, namespace}
+
+          true ->
+            :ok
+        end
+
+      {:error, reason} ->
+        Repo.rollback(reason)
     end
   end
 
-  # Stopped/sleeping: pods are absent — the Secret lands now, the next
-  # start reads it, and no rollout is owed.
-  defp secret_only_apply(kubeconfig, namespace, set, remove, expect_existing, existed?) do
-    with :ok <-
-           InstanceEnvSecret.upsert(kubeconfig, namespace, set, remove, expect_existing) do
-      maybe_ensure_env(kubeconfig, namespace, existed?)
-    end
+  # Post-commit: the rolling restart for live rows; the spec-only
+  # ensure for a Secret this call created on stopped/sleeping rows.
+  # A refusal here leaves the Secret written and returns the error —
+  # stale-but-working, the seam's documented limit; a retry re-upserts
+  # (idempotent) and re-rolls.
+  defp apply_leg(:restart, kubeconfig, namespace) do
+    InstanceEnvSecret.restart(kubeconfig, namespace)
   end
 
-  # The spec-only ensure: only a Secret this call created owes it (an
-  # existing Secret already has its consuming Deployment).
-  defp maybe_ensure_env(_kubeconfig, _namespace, true), do: :ok
-
-  defp maybe_ensure_env(kubeconfig, namespace, false) do
+  defp apply_leg(:ensure, kubeconfig, namespace) do
     InstanceEnvSecret.ensure_env_from(kubeconfig, namespace)
   end
 

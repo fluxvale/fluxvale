@@ -1,17 +1,17 @@
 defmodule FluxVale.Infrastructure.Operations.InstanceEnvDerived do
   @moduledoc """
   The deploy-time env derivations shared by the deploy op, the in-place
-  env patch (#731 T1, ADR-0052 decision 4), the address-event sync and
-  the sign-on callback (later slices): one snapshot of the instance's
-  live addressing (`derive/1` — the URL and the hostname set from the
-  same reads), the platform append to the catalog's
+  env patch (#731 T1, ADR-0052 decision 4), and the address-event sync;
+  the sign-on callback joins with a later slice. One snapshot of the
+  instance's live addressing (`derive/1` — the URL and the hostname set
+  from the same reads), the platform append to the catalog's
   `host_allowlist_env`, and the claimed-default-hostname predicate the
   append rides.
 
-  One owner is the whole point: the deploy (and later the sync) compute
-  ONE snapshot and feed both env keys from it — a Secret's URL and its
+  One owner is the whole point: the deploy and the sync compute ONE
+  snapshot and feed both env keys from it — a Secret's URL and its
   allowlist can never come from two different reads — and a patch, the
-  sync, and the sign-on callback all read the same answer.
+  sync, and (later) the sign-on callback all read the same answer.
   `host_allowlist_env` stays user-writable; the platform's entries ride
   on top.
   """
@@ -44,7 +44,8 @@ defmodule FluxVale.Infrastructure.Operations.InstanceEnvDerived do
 
   @doc """
   The instance's URL from its live hostnames — the ONE derivation the
-  deploy op and the sign-on wiring share. Public rows always answer on
+  deploy op answers from (the sign-on callback's lib consumer lands
+  with that later slice, ADR-0052). Public rows always answer on
   the default hostname. Private rows: the OLDEST live custom address
   (created_at, then id — A1's stability ruling), else the default when
   `default_hostname_live?/1`, else nil (ADR-0038 §4's omission).
@@ -63,9 +64,9 @@ defmodule FluxVale.Infrastructure.Operations.InstanceEnvDerived do
 
   @doc """
   One snapshot of the instance's live addressing: the URL and the
-  hostname set, from the same reads at the same instant. The deploy
-  (and later the sync) feed both env keys from it, so the Secret's URL
-  and its allowlist can never come from two different states; the
+  hostname set, from the same reads at the same instant. The deploy and
+  the sync feed both env keys from it, so the Secret's URL and its
+  allowlist can never come from two different states; the
   one-shot wrappers (`instance_url/1`, `serving_hostnames/1`) are for
   single-answer callers.
   """
@@ -204,7 +205,7 @@ defmodule FluxVale.Infrastructure.Operations.InstanceEnvDerived do
       {:ok, rows} ->
         live =
           rows
-          |> Enum.filter(&live_custom_row?(&1, claims))
+          |> Enum.filter(&live_custom_row?(instance, &1, claims))
           # DateTime term order is NOT chronological (day compares
           # before month) — sort by the epoch integer.
           |> Enum.sort_by(&{DateTime.to_unix(&1.created_at, :microsecond), &1.id})
@@ -232,10 +233,15 @@ defmodule FluxVale.Infrastructure.Operations.InstanceEnvDerived do
   # instance's canonical address — the same stance the default-hostname
   # predicate has always taken. The URL names the address, not the
   # minute's reachability.
-  defp live_custom_row?(row, claims) do
+  #
+  # The row's domain must also belong to the INSTANCE's org — a belt
+  # matching the platform arm's local fence; the mint guard is the
+  # inherited primary.
+  defp live_custom_row?(instance, row, claims) do
     domain = row.access_domain
 
     domain.kind == :custom and
+      domain.organization_id == instance.organization_id and
       domain.state in [:verified, :needs_attention] and
       Map.has_key?(claims, domain.domain)
   end
