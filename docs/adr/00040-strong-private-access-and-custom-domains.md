@@ -855,6 +855,56 @@ object to keep in step, and a 403 that says the hostname exists); a live check i
 platform's forward-auth hop (no staleness, but the decision would rest on a request header
 and a per-request dependency); the per-gateway port (above).
 
+## Amendment 7 (2026-11-25): the app is told its live custom address
+
+§7's URL seeding is built (#919 the derivation + sync, #923 the event
+wiring, #926 the sign-on callback), and it amends one stance recorded
+in this ADR and in ADR-0038. At deploy the platform fills the app's
+URL setting (the catalog's `instance_url_env`, Forgejo's
+`FORGEJO__server__ROOT_URL`) from ONE derivation of the instance's
+live addressing, and the host-allowlist entry (`host_allowlist_env`)
+carries every serving hostname. The derivation, owner-ruled for
+stability over recency:
+
+- **The oldest live custom address wins.** A private instance's URL is
+  its OLDEST live custom address when one serves (created_at, then
+  id), so adding a second address does not change the app's address.
+  Else the default hostname when that is live, else no URL setting at
+  all — the address never served, and seeding it would mint dead
+  links of the app's own making. "Live" mirrors the resolver: the
+  instance is private and attached to its org's gateway, the custom
+  domain is verified (or healing), and the gateway claims the domain.
+  Public rows always answer on the default hostname, unchanged.
+- **Re-derived on every address event, not snapshotted at deploy.**
+  Mint, remove, attach, detach, claim, unclaim, verification, exposure
+  toggle, gateway teardown — each recomputes the URL key and the
+  allowlist append through ADR-0052's seam (row lock, compose, Secret
+  upsert, post-commit restart), and an already-running app restarts to
+  pick the change up; only a value that actually changes writes and
+  rolls anything. This supersedes, for the URL key specifically, the
+  env-snapshot stance of
+  [ADR-0038 §4](00038-instance-exposure-modes.md) ("toggling later
+  does not rewrite a running app's env"): the row is never written —
+  the key stays a deployer-composed projection above it — and a
+  redeploy recomposes as before. The allowlist append stays
+  append-only onto the live value (ADR-0052 decision 4), so a host
+  that stops serving stays harmless in the allowlist.
+- **The delivery stamp.** The deployment records the hash of the env
+  it rolls (`fluxvale.io/env-state`), so a refused restart self-heals
+  on the next event, and a value-identical retry is a true no-op only
+  when the stamp shows the pods demonstrably run the live env.
+- **The stop-half, stated plainly.** Apps that persist config on a
+  volume (Forgejo writes `app.ini`) write a present env key at
+  container start and leave an absent one standing: removing a URL key
+  does not un-write a persisted value, and the next live address
+  overwrites it.
+- **The sign-on callback follows the same derivation.** The Pocket ID
+  client registers the app's live address plus the version's callback
+  path. When an address changes on an instance whose sign-on is
+  already wired, the registered callback is NOT re-pointed
+  automatically: the owner re-runs the wiring or edits the client in
+  Pocket ID — the one manual step.
+
 ## References
 
 - Source-pinned facts: `tailscale/tailscale` `ipn/ipnlocal/serve.go`

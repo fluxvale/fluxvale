@@ -51,6 +51,10 @@ The mint is live. Once a custom domain is verified, add an address on the instan
 
 A custom address serves only when all three are true: the domain is verified, your organization's gateway has claimed it, and the instance is private and attached to that gateway.
 
+## What the app is told
+
+When a custom address serves, the app is told that address in its URL setting, and the app restarts to pick it up. When more than one custom address serves, the app is told the oldest one, so adding a second address does not change the app's address. When no custom address serves, the app is told the default hostname if that serves, and nothing otherwise. Any later change (an address added or removed, a claim or attach change) re-tells the running app the same way. An app whose sign-in is already wired to Pocket ID keeps the old callback after its address changes. Re-run the wiring to re-point it.
+
 Claiming is one token save. In **Settings → Access**, paste a Tailscale API access token from your admin console's Keys page, or set `api_token` on the Terraform gateway.
 
 One credential is enough: enabling with the token alone (no auth key) makes the platform **mint the gateway's join key from it** (single-use, tagged, revoked on use), so you never mint or paste a join key yourself. Mint the token from a tailnet owner or admin account: console API tokens carry that account's full permissions (scope selection belongs to OAuth trust credentials, not Keys-page tokens). The token is stored write-only and never shown again. The save attempts to claim every verified domain your organization has. Read `claimed_domains` for the result. The member API carries the same writes: the create (`POST /api/v1/access-gateways`, one credential or the other) and the token save (`PATCH /api/v1/access-gateways/:id/api-token`).

@@ -137,7 +137,9 @@ serves, and seeding the app with it would mint dead links of the
 app's own making. The env lands on the first deploy that finds the
 row public; toggling later does not rewrite a running app's env
 Secret (the next deploy does — the env-snapshot stance every other
-env change already carries).
+env change already carries). The URL key's snapshot stance is since
+amended: [ADR-0040 Amendment 7](00040-strong-private-access-and-custom-domains.md)
+re-derives it on address events from the instance's live addresses.
 
 ### 5. The seam is the schema, not a provider
 
