@@ -46,7 +46,8 @@ defmodule FluxVale.Infrastructure.Operations.SyncInstanceUrlEnv do
   re-recorded). A
   stopped/sleeping row's delivery question is envFrom rather than a
   roll, and it runs after EVERY stopped-row write AND on every
-  stopped-row no-op: the next start reads the Secret only when the
+  stopped-row no-op that has a Secret to deliver: the next start reads
+  the Secret only when the
   Deployment consumes it, so the ensure condition is the Deployment's
   actual consumption state, never the Secret's pre-existence — a
   refused spec-only ensure (or a values-changing event after one)
@@ -223,7 +224,9 @@ defmodule FluxVale.Infrastructure.Operations.SyncInstanceUrlEnv do
   defp namespace(%Instance{}), do: {:error, :not_deployed}
 
   # The live value this call composes onto, and whether the Secret
-  # existed (a newly created one owes the stopped/sleeping ensure). A
+  # existed (the no-op arm's absent-Secret zero-call reads it; the
+  # ensure itself keys on the Deployment's consumption state, never on
+  # this). A
   # gated row whose Secret is gone is a broken state — writing only
   # this call's keys would boot the app without its other env — the
   # seam's "redeploy to repair" stance, never a partial merge. An
@@ -283,8 +286,11 @@ defmodule FluxVale.Infrastructure.Operations.SyncInstanceUrlEnv do
   # The stopped/sleeping delivery check, shared by the changed path and
   # the no-op path: envFrom absent ⇒ the spec-only ensure (this call's
   # leg, or one a failed earlier attempt owed); present ⇒ the next start
-  # already reads the Secret. A GET failure rolls back — symmetric with
-  # the live arm's stamp read.
+  # already reads the Secret. A GET failure returns the error with the
+  # write already landed — the transaction holds no DB writes, so the
+  # rollback reports, it does not undo — the Secret-stands,
+  # converge-on-retry posture (the shape mirrors the live arm's stamp
+  # read, whose GET failure precedes any write).
   defp stopped_env_delivery(kubeconfig, namespace) do
     case Deployment.get(kubeconfig, namespace, @deployment) do
       {:ok, deployment} ->
