@@ -31,6 +31,8 @@ health n0.json "sha-$n0"
 health short.json "sha-${n4:0:12}"
 health dev.json "dev"
 health foreign.json "sha-$foreign"
+health embedded.json "1.2.3+sha-$n4"   # contains a sha; must NOT count as one
+health forged.json 'x\n::error::forged\n' # JSON-escaped newlines: a workflow-command injection probe
 
 pass=0
 fail=0
@@ -54,13 +56,29 @@ expect "both envs on the same commit" "$n4" "staging=file://$tmp/n4.json" "produ
 expect "prod mid-rollout behind staging: the newer env wins" "$n4" "staging=file://$tmp/n4.json" "production=file://$tmp/n9.json"
 expect "staging behind prod: the newer env wins" "$n4" "staging=file://$tmp/n9.json" "production=file://$tmp/n4.json"
 expect "one env on a sha that is no commit: ignored" "$n4" "staging=file://$tmp/n4.json" "production=file://$tmp/foreign.json"
-expect "one env unreachable (/health 5xx, timeout): ignored" "$n4" "staging=file://$tmp/n4.json" "production=file://$tmp/missing.json"
+expect "one env unreachable (any curl failure — 5xx, timeout, no route): ignored" "$n4" "staging=file://$tmp/n4.json" "production=file://$tmp/missing.json"
 expect "one env on a non-build identity: ignored" "$n4" "staging=file://$tmp/n4.json" "production=file://$tmp/dev.json"
 expect "both envs on a non-build identity: unresolved" "" "staging=file://$tmp/dev.json" "production=file://$tmp/dev.json"
 expect "both envs unreachable: unresolved" "" "staging=file://$tmp/missing.json" "production=file://$tmp/missing.json"
 expect "a serving sha above the commit under test: ignored" "$n4" --head "$n4" "staging=file://$tmp/n4.json" "production=file://$tmp/n0.json"
 expect "only a serving sha above the commit under test: unresolved" "" --head "$n4" "staging=file://$tmp/n1.json"
 expect "a short /health sha resolves" "$n4" "staging=file://$tmp/short.json"
+expect "a version that merely contains a sha is not a build identity" "$n9" "staging=file://$tmp/embedded.json" "production=file://$tmp/n9.json"
+expect "both envs on embedded shas: unresolved" "" "staging=file://$tmp/embedded.json" "production=file://$tmp/embedded.json"
+
+# A multi-line /health version must not smuggle ::…:: workflow commands
+# into the run log: squashed to spaces, no ::error:: line on stderr.
+err="$("$script" "staging=file://$tmp/forged.json" 2>&1 >/dev/null)"
+if printf '%s\n' "$err" | grep -q '^::error::'; then
+  echo "FAIL  forged workflow command reached the log: $(printf '%s\n' "$err" | grep '^::error::')"
+  fail=$((fail + 1))
+elif printf '%s\n' "$err" | grep -q 'reports x ::error::forged — not a build identity'; then
+  echo "ok    a multi-line version is squashed before the log"
+  pass=$((pass + 1))
+else
+  echo "FAIL  multi-line version: expected the squashed line, got: $(printf '%s\n' "$err" | head -2)"
+  fail=$((fail + 1))
+fi
 
 # expect_usage <name> <script args…> — the resolver exits 2 and prints no base line
 expect_usage() {

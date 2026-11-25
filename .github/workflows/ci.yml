@@ -120,7 +120,8 @@ jobs:
       # Two readings, OR-ed (#868): this trigger touched platform paths,
       # OR main carries a platform change no env serves yet (the
       # deployed watermark). Either way the platform lanes run on main
-      # and ship HEAD. PRs and other refs only ever have the first.
+      # and ship HEAD. PRs only ever have the first; a dispatch on any
+      # other ref has neither and runs no lane.
       platform: ${{ steps.filter.outputs.platform == 'true' || steps.since_deploy.outputs.platform == 'true' }}
       docs: ${{ steps.filter.outputs.docs }}
       agents: ${{ steps.filter.outputs.agents }}

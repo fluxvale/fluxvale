@@ -51,7 +51,15 @@ head_sha="$(git rev-parse --verify --quiet "${head_sha:-HEAD}^{commit}")" || {
 # commit at or below the commit under test; prints nothing otherwise.
 serving_sha() {
   local name="$1" url="$2" version sha
-  version="$(curl -fsS --max-time 10 "$url" 2>/dev/null | jq -r '.version // empty' 2>/dev/null || true)"
+  # --retry 2: a transient 5xx or timeout on one env must not read as
+  # "unresolved" on the very push that owes a deploy (exit 37/file errors
+  # stay single-shot — not transient).
+  version="$(curl -fsS --max-time 10 --retry 2 --retry-delay 2 "$url" 2>/dev/null | jq -r '.version // empty' 2>/dev/null || true)"
+  # A multi-line version must never echo ::…:: lines into the log — the
+  # runner parses those as workflow commands, and JSON-escaped newlines
+  # arrive real after jq unescapes them. Squash before echoing.
+  version="${version//$'\n'/ }"
+  version="${version//$'\r'/ }"
   sha="$(sed -nE 's/^sha-([0-9a-f]{7,40})$/\1/p' <<<"$version" | head -1)"
   if [ -z "$sha" ]; then
     echo "deployed watermark: $name reports ${version:-nothing} — not a build identity, ignored" >&2
