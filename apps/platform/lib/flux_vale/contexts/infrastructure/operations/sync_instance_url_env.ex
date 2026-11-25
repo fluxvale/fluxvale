@@ -31,16 +31,19 @@ defmodule FluxVale.Infrastructure.Operations.SyncInstanceUrlEnv do
   deploy/restore composes the env from the same derivation, so
   skipping converges by construction.
 
-  The no-op gate is DELIVERY-AWARE. Every writer to the app-env Secret
-  stamps what it delivered — the deploy stamps the hash of the env it
-  composes, and every restart through the seam stamps the hash of the
-  map its upsert wrote (the sync, the env PATCH action, the SSO legs,
-  the reconciler's repair) — so a value-identical re-call checks
-  delivery instead of assuming it: a live row reads the Deployment's
-  `fluxvale.io/env-state` stamp; equal to the live Secret's hash ⇒ the
-  pods ran this exact env, the true no-op (zero writes, one stamp GET);
-  missing or different ⇒ a refused restart left the pods on old env,
-  one restart re-delivers (no Secret write, stamp re-recorded). A
+  The no-op gate is DELIVERY-AWARE. Every restart through the seam
+  stamps the hash of the map it rolled (the sync, the env PATCH action,
+  the SSO legs, the reconciler's repair), and the deploy stamps the
+  hash of the env it composes at creation. A delivery that lands
+  WITHOUT a stamp — the spec-only ensure, a start reading the Secret
+  fresh — leaves the stamp behind, so the first address event after one
+  performs one converging roll. A value-identical re-call therefore
+  checks delivery instead of assuming it: a live row reads the
+  Deployment's `fluxvale.io/env-state` stamp; equal to the live Secret's
+  hash ⇒ the pods ran this exact env, the true no-op (zero writes, one
+  stamp GET); missing or different ⇒ a refused restart left the pods on
+  old env, one restart re-delivers (no Secret write, stamp
+  re-recorded). A
   stopped/sleeping row's question is envFrom rather than a roll: the
   next start reads the Secret only when the Deployment consumes it, so
   a refused spec-only ensure self-heals on the retry (no Secret write,

@@ -174,7 +174,6 @@ defmodule FluxVale.Infrastructure.Operations.GrowStorageVolumeTest do
     end)
 
     reject(Secret, :get_data, 3)
-    reject(Secret, :get_data, 3)
     reject(Service, :create, 4)
     reject(EdgeRoutes, :apply_serving, 2)
     reject(EdgeRoutes, :ensure_wake_targets, 2)

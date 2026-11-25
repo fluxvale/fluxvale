@@ -385,10 +385,13 @@ defmodule FluxVale.Infrastructure.Operations.InstanceK8s do
   What `env` IS differs by caller, deliberately: `DeployInstance`
   passes the merged env it is about to write (catalog defaults under
   user values, plus the seeded URL/allowlist entries);
-  `ResizeInstance` passes the LIVE app-env Secret's body as the
-  envFrom witness — non-empty keeps the reference, so a seeded
-  ROOT_URL can never be stripped by a re-apply, and a missing Secret
-  never dangles one. (The Secret itself is the deploy's to create.)
+  `ResizeInstance` passes the LIVE app-env Secret's DECODED DATA MAP
+  (`ClusterFootprint` reads `Secret.get_data/3`) as the envFrom
+  witness — non-empty keeps the reference, so a seeded ROOT_URL can
+  never be stripped by a re-apply; an existing-but-empty-data Secret
+  drops it (an empty Secret contributes no env either way — the
+  deploy's own empty-env rule), and a missing Secret never dangles
+  one. (The Secret itself is the deploy's to create.)
 
   Called by `DeployInstance` (deploy) and `ResizeInstance` (re-apply).
   """
@@ -403,10 +406,11 @@ defmodule FluxVale.Infrastructure.Operations.InstanceK8s do
       storage_mount: storage_mount_path(instance),
       pvc_name: pvc_name(instance),
       env_from_secret: if(env != %{}, do: @env_secret),
-      # The deploy stamps the env state the pods will run, so the
-      # address-event sync's delivery check reads a matching stamp and
-      # a post-deploy sync is a true no-op. The app-env Secret exists
-      # exactly when the env does (maybe_create_secret's condition).
+      # The deploy AND the resize/grow re-apply stamp the env state the
+      # pods will run, so the address-event sync's delivery check reads
+      # a matching stamp and a post-deploy (or post-resize) sync is a
+      # true no-op. The app-env Secret exists exactly when the env does
+      # (maybe_create_secret's condition).
       env_state: if(env != %{}, do: InstanceEnvSecret.env_state_hash(env))
     }
 

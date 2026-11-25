@@ -18,6 +18,7 @@ defmodule FluxVale.Infrastructure.Instance.UpdateEnvTest do
   alias FluxVale.Infrastructure.AccessRoute
   alias FluxVale.Infrastructure.Instance
   alias FluxVale.Infrastructure.Operations.InstanceEnvDerived
+  alias FluxVale.Infrastructure.Operations.InstanceEnvSecret
   alias FluxVale.Infrastructure.PocketIdWiring
   alias FluxVale.TestSupport.AccessFixtures
   alias FluxVale.TestSupport.BillingFixtures
@@ -186,7 +187,11 @@ defmodule FluxVale.Infrastructure.Instance.UpdateEnvTest do
         {:ok, %{}}
       end)
 
-      expect(Deployment, :restart, fn _kc, "ns-live", "app", _opts ->
+      expect(Deployment, :restart, fn _kc, "ns-live", "app", opts ->
+        # the roll stamps the env state of the map the upsert delivered
+        assert opts[:env_state] ==
+                 InstanceEnvSecret.env_state_hash(%{"LIVE_ONLY" => "live", "NEW" => "2"})
+
         send(self(), :restarted)
         {:ok, %{}}
       end)
