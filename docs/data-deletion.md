@@ -35,3 +35,5 @@ and deletes its account must know exactly what that deletes.
 2. **Erasure vs pseudonymization** — whether retained entries must be
    disassociated from the deleted identity at deletion time, or their
    content already carries nothing personal.
+3. **The refund interaction** — deleting mid-redemption-window (#124)
+   with a pending refund.
