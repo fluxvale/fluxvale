@@ -410,21 +410,24 @@ defmodule FluxVale.Infrastructure.Operations.ConnectPocketIdTest do
 
     # The retrofit's guards pass a deployed private UNATTACHED row (a
     # live workload, no pairing) — but its derivation answers nil, and
-    # a client whose callback cannot be built is never minted.
+    # the hoisted callback guard refuses before any network leg:
+    # discovery must never run, no client is minted, no key is used.
     test "a private running instance attached to nothing refuses before the mint", %{
       owner: owner,
       pocket_id: pocket_id
     } do
       app = private_running!(owner)
 
-      url = pocket_id_url(pocket_id)
-      stub(ApiClient, :get_discovery, fn ^url -> {:ok, @issuer} end)
+      stub(ApiClient, :get_discovery, fn _url -> flunk("no calls without an address to wire") end)
       reject(ApiClient, :create_client, 3)
 
       assert {:error, :no_instance_url} =
                Infrastructure.retrofit_pocket_id(app, pocket_id.id, actor: owner)
 
       assert {:error, _none} = PocketIdWiring.get_by_instance(app.id, authorize?: false)
+
+      # No key use happened: nothing to audit.
+      assert [] = wiring_events(pocket_id)
     end
 
     test "an empty-row instance with no app-env Secret gets the first env from the retrofit",

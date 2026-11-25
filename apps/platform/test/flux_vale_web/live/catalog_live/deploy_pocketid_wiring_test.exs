@@ -341,11 +341,13 @@ defmodule FluxValeWeb.CatalogLive.DeployPocketIdWiringTest do
     end
 
     # The no-address arm's copy, pinned exactly. The window: the
-    # parked row turns PRIVATE mid-choice (the fixture's system-write
-    # pin — the exposure toggle itself needs a namespace, a pending
-    # row has none). Its derivation answers no URL, the retry's
-    # early guard answers before any network leg, and the copy
-    # prescribes the possible path: deploy first, wire from the
+    # parked row turns PRIVATE mid-choice — the fixture pins exposure
+    # directly because the row is not yet deployed and the pin is the
+    # test's system-write seam (the state itself is reachable in
+    # production: set_exposure on a never-deployed row is an
+    # attribute-only write). Its derivation answers no URL, the
+    # retry's early guard answers before any network leg, and the
+    # copy prescribes the possible path: deploy first, wire from the
     # instance page.
     test "a parked row that turned private re-parks with the no-address copy", %{
       conn: conn,
