@@ -1,7 +1,6 @@
 defmodule FluxValeWeb.AdminConsole do
   @moduledoc """
-  The generic resource console's exposure registry (#595, the plan at
-  docs/plans/595-resource-console.md): the ONLY hand-maintained surface
+  The generic resource console's exposure registry (#595): the ONLY hand-maintained surface
   and the security boundary — ADR-0027 §3's opt-in posture, owned by
   the console instead of ash_admin's `admin show?`. Every URL segment
   under /admin/resources resolves against these entries and nothing

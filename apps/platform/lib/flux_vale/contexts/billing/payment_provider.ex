@@ -189,7 +189,7 @@ defmodule FluxVale.Billing.PaymentProvider do
   # provider), and @optional_callbacks is banned — a non-implementer
   # would crash on the call instead of answering. Injection gives every
   # adopter the {:error, :unsupported} answers; defoverridable lets an
-  # implementing provider override (docs/plans/829 #S1).
+  # implementing provider override (#829).
   @doc """
   Adopts the behaviour with the staged off-session lane's defaults:
   `create_billing_session/2`, `list_payment_methods/1`,

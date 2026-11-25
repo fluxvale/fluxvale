@@ -1182,7 +1182,7 @@ defmodule FluxVale.Billing.Providers.PolarTest do
   end
 end
 
-# Pins the default-clause contract (docs/plans/829 #S1): an adopter
+# Pins the default-clause contract (#829): an adopter
 # that only `use`s the behaviour answers {:error, :unsupported} for
 # the four staged callbacks. The original three have no defaults —
 # every adopter implements them — so they are stubbed (specs and all)

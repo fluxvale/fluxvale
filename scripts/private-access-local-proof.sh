@@ -11,8 +11,8 @@
 #            pair gets the byte-identical 404.
 #
 # What it cannot prove: a gateway pod on a real tailnet, the .ts.net
-# certificate, or a request from a tailnet device. That is the staging
-# runbook (docs/plans/273-private-access-staging-proof.md).
+# certificate, or a request from a tailnet device. That leg is tracked
+# in #273.
 #
 # Prereqs: on a fresh cluster apply the S2 local access fleet once
 #   kubectl apply -f deploy/local/k8s/02-access-fleet.yaml
@@ -434,7 +434,7 @@ main() {
   fi
 
   printf '\nPASS  local proof: all checks passed\n'
-  printf 'NOTE  the real-tailnet leg is NOT proven here; see docs/plans/273-private-access-staging-proof.md\n'
+  printf 'NOTE  the real-tailnet leg is NOT proven here; see #273\n'
 }
 
 main "$@"
