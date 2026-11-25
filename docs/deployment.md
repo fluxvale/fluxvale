@@ -56,6 +56,27 @@ failure restarts the pod). `GET /health/ready` — readiness: health +
 DB connectivity + boot invariants (#175), 503 `unhealthy` on failure;
 the probe that gates traffic.
 
+### What triggers a deploy (#868)
+
+Two readings, OR-ed, on any main trigger — a push, or the reconcile
+dispatch below:
+
+1. **Per-trigger**: this push touched platform paths (the `platform`
+   filter in `ci.yml`). The only reading on PRs.
+2. **Since-deploy**: main carries a platform change no env serves yet.
+   The diff from the **deployed watermark** — the newest sha either
+   env's `/health` reports, resolved by `scripts/deploy-watermark.sh` —
+   to HEAD touches platform paths.
+
+The second reading makes a lost deploy self-healing on the next
+trigger. The workflow's concurrency group cancels an in-flight main run
+when the next push lands, and a cancelled platform run used to stay
+unshipped until the next platform push whenever the superseding run had
+no platform diff of its own — four times between Nov 15 and Nov 23, once
+for 34 hours, noticed only by version currency. A push with nothing
+pending still skips the image build: resolving the watermark is two
+public GETs plus a diff.
+
 ### Oracle auth: PAT for Bruno, TestInbox for Playwright
 
 Human flows (email-code login) live on the LiveView channel, not
@@ -408,3 +429,24 @@ is the primary regression net for boots-fine-but-misbehaves: failures
 get the annotation only, and page via the heartbeat dead-man above.
 Version currency catches an env stuck on an old sha within its grace
 window — the complement of the gate's never-current timeout.
+
+### Reconcile: a deploy that never shipped
+
+Version currency red with `deploy pipeline stuck or skipped` means main
+carries a platform change no env serves. Re-dispatch the chain:
+
+```sh
+gh workflow run ci.yml --ref main
+```
+
+It runs the same vetted sequence for main's HEAD — `Platform CI`, then
+`Build and push release image`, `Watch deploy`, the readiness job — and
+HEAD carries that change. Idempotent: nothing pending means every lane
+skips and the run is green in under a minute. Red with `no env reports a
+serving sha` means both `/health` must answer first. A dispatch joins
+the `ci-refs/heads/main` concurrency group, so it cancels a main run
+still in flight — correct when that run is the stuck one.
+
+Do not re-run the old cancelled run instead: a re-run builds THAT
+commit and pushes it as `latest`, which rolls the fleet back if a newer
+deploy has landed since.
