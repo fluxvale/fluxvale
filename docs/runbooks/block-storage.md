@@ -6,7 +6,7 @@ never served: only `docs/public` and `docs/blog` reach the public site
 appear in member-facing copy — the request UI says only "we order capacity for this" and
 the confirmed rate.
 
-Deciding record: #250, [ADR-0043](../adr/00043-instance-resize.md)
+Deciding record: [#250](https://github.com/fluxvale/fluxvale/issues/250), [ADR-0043](../adr/00043-instance-resize.md)
 (storage up-only; capability probe). The issue: #250.
 
 ## 1. What and why

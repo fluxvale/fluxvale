@@ -20,7 +20,7 @@ opposite shape Nov 11, 2026: FluxVale's own at-a-glance surface.
    curated widgets — state, health, recent activity, trends. No funnel
    builders, no ad-hoc query UI, no log search, no chart editor. The
    full widget contract (every widget, its data source, its exact
-   read) is tracked in #702.
+   read) lived in the original implementation plan for [#702](https://github.com/fluxvale/fluxvale/issues/702), since removed from the tree (see the note at the top of the [ADR index](README.md)).
 2. **Linked-not-embedded.** Grafana and PostHog remain the deep-dive
    tools; the console deep-links to them and never embeds them. This
    is the boundary at the UI layer — and decision 4 is the same

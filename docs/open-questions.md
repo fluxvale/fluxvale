@@ -122,7 +122,7 @@ the decision.
     rejected request plus a re-request is the path (the four-state
     machine is the promise). Revisit if abandonments show up in the
     operator queue; a `cancelled` state or a withdraw action is the
-    later one-line addition (tracked in #250).
+    later one-line addition (tracked in [#250](https://github.com/fluxvale/fluxvale/issues/250)).
 
 ## Platform
 

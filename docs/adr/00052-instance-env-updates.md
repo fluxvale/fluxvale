@@ -1,6 +1,6 @@
 # ADR-0052: In-place instance env updates — the merge verb and the one Secret seam
 
-**Status**: Accepted (owner go Nov 12, 2026, #731)
+**Status**: Accepted (owner go Nov 12, 2026, [#731](https://github.com/fluxvale/fluxvale/issues/731))
 **Date**: 2026-11-12
 
 **Context**: an instance's env vars are fixed at create. The API

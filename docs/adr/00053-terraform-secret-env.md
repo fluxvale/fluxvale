@@ -1,6 +1,6 @@
 # ADR-0053: Secret env values — Terraform carries a locked box, never the secret
 
-**Status**: Accepted for design; the `enc:v1:` marker implementation deferred until T1–T3 (owner go Nov 12, 2026, #731).
+**Status**: Accepted for design; the `enc:v1:` marker implementation deferred until T1–T3 (owner go Nov 12, 2026, [#731](https://github.com/fluxvale/fluxvale/issues/731)).
 **Amended 2026-11-13 by #764**: the provider implements Terraform 1.12+ / OpenTofu 1.13+ write-only inputs
 (`secret_env_vars` + version + computed key list) as the recommended modern path, shipped in the 0.4.0 provider release (2026-11-14);
 the `enc:v1:` marker stays the portable fallback design and its build remains deferred.
