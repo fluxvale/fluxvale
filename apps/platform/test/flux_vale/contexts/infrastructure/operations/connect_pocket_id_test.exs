@@ -21,12 +21,14 @@ defmodule FluxVale.Infrastructure.Operations.ConnectPocketIdTest do
   alias FluxVale.Clients.K8s.Resources.Deployment
   alias FluxVale.Clients.K8s.Resources.Secret
   alias FluxVale.Infrastructure
+  alias FluxVale.Infrastructure.AccessRoute
   alias FluxVale.Infrastructure.Instance
   alias FluxVale.Infrastructure.PocketId.ApiClient
   alias FluxVale.Infrastructure.PocketIdCustody
   alias FluxVale.Infrastructure.PocketIdCustodyEvent
   alias FluxVale.Infrastructure.PocketIdWiring
   alias FluxVale.Ops.FeatureFlags
+  alias FluxVale.TestSupport.AccessFixtures
   alias FluxVale.TestSupport.AccountsFixtures
   alias FluxVale.TestSupport.BillingFixtures
   alias FluxVale.TestSupport.InstanceFixtures
@@ -173,6 +175,46 @@ defmodule FluxVale.Infrastructure.Operations.ConnectPocketIdTest do
   defp host, do: Application.fetch_env!(:flux_vale, :instances_base_domain)
 
   defp pocket_id_url(pocket_id), do: "https://#{pocket_id.slug}.#{host()}"
+
+  # The private deployed shape (the sync test's pin): namespace,
+  # deployed_at, and the private exposure ride the pin (system-written
+  # fields), the funnel walks the rest of the way.
+  defp private_running!(owner) do
+    owner
+    |> sso_instance!()
+    |> InstanceFixtures.pin!(
+      namespace: "ns-custom",
+      deployed_at: DateTime.utc_now(),
+      exposure: :private
+    )
+    |> InstanceFixtures.walk_to!(:running)
+  end
+
+  # The live custom address (the derived-test's shape): the gateway
+  # pairing, a verified custom domain, the claim, and the minted
+  # hostname. The gateway/domain actions' cluster legs ride the same
+  # Kubereq/K8s stubs the access tests use.
+  defp live_custom_address!(org, app) do
+    stub(K8s, :kubeconfig, fn -> {:ok, %{}} end)
+    stub(Kubereq, :attach, fn req, _opts -> req end)
+
+    stub(Kubereq, :apply, fn _req, manifest, _fm ->
+      {:ok, %{status: 201, body: manifest}}
+    end)
+
+    gateway = AccessFixtures.gateway!(org)
+
+    _route =
+      AccessRoute.create!(
+        %{gateway_id: gateway.id, instance_id: app.id, route_key: "8443"},
+        authorize?: false
+      )
+
+    domain = AccessFixtures.verified_domain!(org)
+    _claimed = AccessFixtures.claim!(gateway, [domain.domain])
+    AccessFixtures.mint_hostname!(app, domain, "git")
+    domain
+  end
 
   defp reloaded!(instance), do: Instance.get_by_id!(instance.id, authorize?: false)
 
@@ -329,6 +371,63 @@ defmodule FluxVale.Infrastructure.Operations.ConnectPocketIdTest do
       assert applied["SSO_AUTHORITY"] == @issuer
       assert applied["SSO_CLIENT_SECRET"] == @minted_secret
       assert applied["SSO_ENABLED"] == "true"
+    end
+
+    # The callback's origin is the app's OWN derivation: a member
+    # reached through a live custom address registers THAT address (no
+    # trailing slash — an API base URL), never the default hostname.
+    test "a live custom address names the callback — not the default hostname", %{
+      owner: owner,
+      pocket_id: pocket_id,
+      org: org
+    } do
+      app = private_running!(owner)
+      domain = live_custom_address!(org, app)
+
+      url = pocket_id_url(pocket_id)
+
+      stub(ApiClient, :get_discovery, fn ^url -> {:ok, @issuer} end)
+
+      stub(ApiClient, :create_client, fn ^url, @held_key, attrs ->
+        assert attrs.callback_url == "https://git.#{domain.domain}#{@callback_path}"
+        assert attrs.name == "FluxVale · #{app.name}"
+
+        {:ok,
+         %{
+           client_id: "pid-1",
+           client_name: attrs.name,
+           secret_id: "sec-1",
+           secret: @minted_secret
+         }}
+      end)
+
+      expect(Secret, :upsert, fn _kc, "ns-custom", "app-env", _data -> {:ok, %{}} end)
+      expect(Deployment, :restart, fn _kc, "ns-custom", "app", _opts -> {:ok, %{}} end)
+
+      assert {:ok, _wiring} =
+               Infrastructure.retrofit_pocket_id(app, pocket_id.id, actor: owner)
+    end
+
+    # The retrofit's guards pass a deployed private UNATTACHED row (a
+    # live workload, no pairing) — but its derivation answers nil, and
+    # the hoisted callback guard refuses before any network leg:
+    # discovery must never run, no client is minted, no key is used.
+    test "a private running instance attached to nothing refuses before the mint", %{
+      owner: owner,
+      pocket_id: pocket_id
+    } do
+      app = private_running!(owner)
+
+      stub(ApiClient, :get_discovery, fn _url -> flunk("no calls without an address to wire") end)
+      reject(ApiClient, :create_client, 3)
+
+      assert {:error, :no_instance_url} =
+               Infrastructure.retrofit_pocket_id(app, pocket_id.id, actor: owner)
+
+      assert {:error, _none} = PocketIdWiring.get_by_instance(app.id, authorize?: false)
+
+      # No key use happened: nothing to audit.
+      assert [] = wiring_events(pocket_id)
     end
 
     test "an empty-row instance with no app-env Secret gets the first env from the retrofit",

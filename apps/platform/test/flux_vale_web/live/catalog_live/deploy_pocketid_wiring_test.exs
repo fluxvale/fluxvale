@@ -340,6 +340,54 @@ defmodule FluxValeWeb.CatalogLive.DeployPocketIdWiringTest do
       assert {:error, _none} = PocketIdWiring.get_by_instance(instance.id, actor: user)
     end
 
+    # The no-address arm's copy, pinned exactly. The window: the
+    # parked row turns PRIVATE mid-choice — the fixture pins exposure
+    # directly because the row is not yet deployed and the pin is the
+    # test's system-write seam (the state itself is reachable in
+    # production: set_exposure on a never-deployed row is an
+    # attribute-only write). Its derivation answers no URL, the
+    # retry's early guard answers before any network leg, and the
+    # copy prescribes the possible path: deploy first, wire from the
+    # instance page.
+    test "a parked row that turned private re-parks with the no-address copy", %{
+      conn: conn,
+      user: user,
+      app: app,
+      version: version,
+      pocket_id_version: pocket_id_version
+    } do
+      pocketid = ready_pocketid!(user, pocket_id_version)
+      expect(Req, :get, fn _url, _opts -> {:ok, %Req.Response{status: 404}} end)
+      sleeping_pocketid!(pocketid)
+
+      {:ok, view, _html} = open_wizard(conn, app)
+      to_ticked_step_2(view, version)
+      to_step_4(view)
+      submit(view)
+
+      assert has_element?(view, "#pocketid-wiring-choice")
+
+      parked = created!(user, version)
+      InstanceFixtures.pin!(parked, exposure: :private)
+
+      reject(ApiClient, :get_discovery, 1)
+      reject(ApiClient, :create_client, 3)
+
+      view
+      |> element("[data-testid='retry-pocketid']")
+      |> render_click()
+
+      assert has_element?(view, "#pocketid-wiring-choice")
+
+      assert render(view) =~
+               "This app has no address it can be reached on yet. Deploy it first, then set up sign-in from its page."
+
+      # Still parked, still deployable, still unwired.
+      still_parked = created!(user, version)
+      assert still_parked.status == :pending
+      assert {:error, _none} = PocketIdWiring.get_by_instance(still_parked.id, actor: user)
+    end
+
     test "\"Deploy without sign-in\" deploys the unwired instance", %{
       conn: conn,
       user: user,

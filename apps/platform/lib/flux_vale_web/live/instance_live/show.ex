@@ -2346,6 +2346,9 @@ defmodule FluxValeWeb.InstanceLive.Show do
       :not_deployed ->
         "This app isn't deployed yet."
 
+      :no_instance_url ->
+        "This app has no address it can be reached on yet. Give it a custom address first."
+
       _other ->
         "That didn't work (#{inspect(reason)}). Try again, or check the Pocket ID's page."
     end

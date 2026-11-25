@@ -20,6 +20,7 @@ defmodule FluxValeWeb.Api.ConnectPocketIdRouteTest do
   alias FluxVale.Infrastructure.Instance
   alias FluxVale.Infrastructure.PocketId.ApiClient
   alias FluxVale.Infrastructure.PocketIdCustody
+  alias FluxVale.Infrastructure.PocketIdWiring
   alias FluxVale.Ops.FeatureFlags
   alias FluxVale.TestSupport.AccountsFixtures
   alias FluxVale.TestSupport.ApiPat
@@ -208,6 +209,42 @@ defmodule FluxValeWeb.Api.ConnectPocketIdRouteTest do
 
     assert [%{"detail" => detail} | _rest] = json_response(conn, 400)["errors"]
     assert detail =~ "being deleted"
+  end
+
+  # The no-address arm's wire copy, pinned exactly: a deployed
+  # PRIVATE row attached to nothing — its derivation answers no URL,
+  # and the op's early guard refuses before any network leg (nothing
+  # stubbed, nothing called).
+  test "an instance with no live address refuses before the network legs", %{conn: conn} do
+    user = elem(ApiPat.member!(), 0)
+    {pending_app, pocket_id} = member_with_pocket_id(user)
+
+    app =
+      pending_app
+      |> InstanceFixtures.walk_to!(:running)
+      |> InstanceFixtures.pin!(namespace: "ns-private", exposure: :private)
+
+    reject(ApiClient, :get_discovery, 1)
+    reject(ApiClient, :create_client, 3)
+
+    pat = ApiPat.mint!(user, ["instances:write"])
+
+    conn =
+      conn
+      |> auth(pat)
+      |> put_req_header("content-type", "application/vnd.api+json")
+      |> post("/api/v1/instances/#{app.id}/connect-pocketid", %{
+        "data" => %{"pocket_id_instance_id" => pocket_id.id}
+      })
+
+    assert [%{"detail" => detail} | _rest] = json_response(conn, 400)["errors"]
+    assert detail =~ "no live address to point the sign-in callback at"
+
+    # D3: the instance is untouched, no row.
+    reloaded = Instance.get_by_id!(app.id, actor: user)
+    assert reloaded.status == :running
+
+    assert {:error, _none} = PocketIdWiring.get_by_instance(app.id, authorize?: false)
   end
 
   # The refused mint's raw status map: the wire answer carries the

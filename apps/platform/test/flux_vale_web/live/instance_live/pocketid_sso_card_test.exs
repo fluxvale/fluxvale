@@ -257,6 +257,48 @@ defmodule FluxValeWeb.InstanceLive.PocketIdSsoCardTest do
     assert {:error, _none} = PocketIdWiring.get_by_instance(app.id, actor: owner)
   end
 
+  # The no-address arm's copy, pinned exactly: a deployed PRIVATE app
+  # attached to nothing — its derivation answers no URL, the op
+  # refuses before any network leg (nothing stubbed, nothing called),
+  # and the card names the fact in place.
+  test "a connect with no live address renders the no-address copy", %{
+    conn: conn,
+    owner: owner
+  } do
+    flag_on!()
+    pid_version = pocket_id_version!()
+    _pocket_id = pocket_id!(pid_version, owner, "pid")
+
+    version =
+      InstanceFixtures.app_version!(
+        configurable_env_vars: @schema,
+        oidc_wiring: @recipe,
+        oidc_callback_path: "/cb"
+      )
+
+    app =
+      version
+      |> InstanceFixtures.instance!(owner)
+      |> InstanceFixtures.walk_to!(:running)
+      |> InstanceFixtures.pin!(namespace: "ns-app-private", exposure: :private)
+
+    reject(ApiClient, :get_discovery, 1)
+    reject(ApiClient, :create_client, 3)
+
+    {:ok, view, _html} = live(conn, ~p"/instances/#{app.id}")
+
+    view
+    |> form("#pocketid-connect-form")
+    |> render_submit()
+
+    assert has_element?(view, "[data-testid=pocketid-sso-error]")
+
+    assert render(view) =~
+             "This app has no address it can be reached on yet. Give it a custom address first."
+
+    assert {:error, _none} = PocketIdWiring.get_by_instance(app.id, actor: owner)
+  end
+
   test "rotate rides the operation and stays wired", %{conn: conn, owner: owner} do
     flag_on!()
     pid_version = pocket_id_version!()

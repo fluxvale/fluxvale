@@ -22,18 +22,22 @@ defmodule FluxVale.Infrastructure.Operations.ConnectPocketId do
      wire on the way out;
   3. read the recipe from the instance's app version (nil or `:in_app`
      refuses honestly — env injection is the v1 kind);
-  4. load the chosen PocketID instance, org-fenced to the app
+  4. build the callback — the instance's OWN derivation answers the
+     origin, and a nil answer refuses `:no_instance_url` HERE, among
+     the early guards (before any network leg: no discovery, no
+     audited key use, no mint, no phantom custody event);
+  5. load the chosen PocketID instance, org-fenced to the app
      instance's org (mismatch = `{:error, :forbidden}`) and public (a
      private PocketID serves no issuer, §4.1);
-  5. custody for that PocketID (no row = `{:error, :no_custody}`);
-  6. fetch discovery FRESH through the PocketID's public URL — the
+  6. custody for that PocketID (no row = `{:error, :no_custody}`);
+  7. fetch discovery FRESH through the PocketID's public URL — the
      issuer is the document's string VERBATIM (§4.4: catches owner
      APP_URL drift; S3's wizard-lifetime probe cache answers a
      different question and is never trusted here);
-  7. mint the client with the held key through `use_pocket_id_key`
+  8. mint the client with the held key through `use_pocket_id_key`
      (the audited seam — the mint IS a key use, event purpose
      "client_mint", no duplicate event machinery here);
-  8. in ONE transaction: force-merge the recipe's keys onto the
+  9. in ONE transaction: force-merge the recipe's keys onto the
      instance's `env_vars` (user env untouched — a system update
      touching only the recipe's keys, so a crafted ride-along value
      under a recipe name can never win) and record the wiring row
@@ -49,6 +53,7 @@ defmodule FluxVale.Infrastructure.Operations.ConnectPocketId do
   """
 
   alias FluxVale.Infrastructure.Instance
+  alias FluxVale.Infrastructure.Operations.InstanceEnvDerived
   alias FluxVale.Infrastructure.Operations.InstanceEnvSecret
   alias FluxVale.Infrastructure.Operations.UsePocketIdKey
   alias FluxVale.Infrastructure.PocketId.ApiClient
@@ -83,6 +88,10 @@ defmodule FluxVale.Infrastructure.Operations.ConnectPocketId do
   - `:instance_deleting` — the instance is on its way out; nothing
     to wire
   - `:recipe_missing` / `:recipe_not_env` / `:no_callback_path`
+  - `:no_instance_url` (the instance's own derivation answers no URL —
+    a private instance with no live address: unattached, or attached
+    with nothing its gateway claims and serves — no address to point
+    the callback at)
   - `:pocket_id_not_found` / `:forbidden` (org fence) / `:not_public`
   - `:no_custody`
   - `:unreachable` (discovery or mint transport — the wake-race,
@@ -104,12 +113,13 @@ defmodule FluxVale.Infrastructure.Operations.ConnectPocketId do
     with :ok <- flag_guard(),
          {:ok, app_instance} <- load_wireable(app_instance_id, actor, authorize?),
          {:ok, recipe, callback_path} <- recipe(app_instance),
+         {:ok, callback} <- callback_url(app_instance, callback_path),
          {:ok, pocket_id} <- pocket_id(pocket_id_instance_id, app_instance),
          {:ok, custody} <- custody(pocket_id),
          {:ok, issuer} <- discover(pocket_id),
          {:ok, key} <-
            UsePocketIdKey.call(custody, "client_mint", actor: actor, authorize?: authorize?),
-         {:ok, client} <- mint(pocket_id, key, app_instance, callback_path, recipe) do
+         {:ok, client} <- mint(pocket_id, key, app_instance, callback, recipe) do
       record(app_instance, pocket_id, recipe, issuer, client)
     end
   end
@@ -136,12 +146,13 @@ defmodule FluxVale.Infrastructure.Operations.ConnectPocketId do
     with :ok <- flag_guard(),
          {:ok, app_instance} <- load_deployed(app_instance_id, actor, authorize?),
          {:ok, recipe, callback_path} <- recipe(app_instance),
+         {:ok, callback} <- callback_url(app_instance, callback_path),
          {:ok, pocket_id} <- pocket_id(pocket_id_instance_id, app_instance),
          {:ok, custody} <- custody(pocket_id),
          {:ok, issuer} <- discover(pocket_id),
          {:ok, key} <-
            UsePocketIdKey.call(custody, "client_mint", actor: actor, authorize?: authorize?),
-         {:ok, client} <- mint(pocket_id, key, app_instance, callback_path, recipe) do
+         {:ok, client} <- mint(pocket_id, key, app_instance, callback, recipe) do
       apply_after_record(
         record(app_instance, pocket_id, recipe, issuer, client, &deployed_guard/1),
         app_instance,
@@ -325,12 +336,12 @@ defmodule FluxVale.Infrastructure.Operations.ConnectPocketId do
   # The mint
   # ------------------------------------------------------------------
 
-  defp mint(pocket_id, key, app_instance, callback_path, recipe) do
+  defp mint(pocket_id, key, app_instance, callback, recipe) do
     url = base_url(pocket_id)
 
     attrs = %{
       name: client_name(app_instance),
-      callback_url: callback_url(app_instance, callback_path),
+      callback_url: callback,
       pkce: recipe.pkce
     }
 
@@ -466,8 +477,11 @@ defmodule FluxVale.Infrastructure.Operations.ConnectPocketId do
   defp put_enabled(env, enabled_env), do: Map.put(env, enabled_env, "true")
 
   # ------------------------------------------------------------------
-  # URL + name derivations (each operation owns its own — the
-  # set_pocket_id_key/deploy_instance stance for this same string)
+  # URL + name derivations. Ownership split: the app callback's ORIGIN
+  # is the shared derivation (`InstanceEnvDerived` — the same answer
+  # the deploy seeds and the sync ships); the POCKET ID's URL and the
+  # client's name stay local (each operation owns its own — the
+  # set_pocket_id_key/deploy_instance stance for those strings)
   # ------------------------------------------------------------------
 
   # The instance's public URL — the same derivation the deployer seeds
@@ -477,12 +491,21 @@ defmodule FluxVale.Infrastructure.Operations.ConnectPocketId do
     "https://#{slug}.#{Application.fetch_env!(:flux_vale, :instances_base_domain)}"
   end
 
-  # The callback the minted client registers: the app instance's
-  # public URL + the version's OIDC callback path (#511's contract —
-  # PocketID only redirects to listed callbacks).
-  defp callback_url(%Instance{slug: slug}, callback_path) do
-    base_domain = Application.fetch_env!(:flux_vale, :instances_base_domain)
-    "https://#{slug}.#{base_domain}#{callback_path}"
+  # The callback the minted client registers (#511's contract —
+  # PocketID only redirects to listed callbacks): the app instance's
+  # OWN live address + the version's OIDC callback path, so a member
+  # reached through a custom address is never told the default
+  # hostname mid-sign-in. A with-chain GUARD right after recipe/3:
+  # the origin is the SHARED derivation (its trailing slash stripped
+  # — an API base URL carries none), and a nil answer refuses before
+  # any network leg — discovery, the audited key use, the mint (a
+  # client whose callback cannot be built is never minted, and no
+  # custody event logs a mint that never runs).
+  defp callback_url(%Instance{} = instance, callback_path) do
+    case InstanceEnvDerived.instance_url(instance) do
+      nil -> {:error, :no_instance_url}
+      url -> {:ok, String.trim_trailing(url, "/") <> callback_path}
+    end
   end
 
   # Recognizable in the PocketID admin UI (§4.3): the platform's mark
