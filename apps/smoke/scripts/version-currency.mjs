@@ -133,7 +133,7 @@ async function main() {
     }
 
     if (lagMs > graceMs) {
-      console.error(`::error::${env.name}: serving sha-${sha.slice(0, 8)}, main has waited ${lag} for ${newestShort} to deploy (grace ${GRACE_HOURS}h) — deploy pipeline stuck or skipped`);
+      console.error(`::error::${env.name}: serving sha-${sha.slice(0, 8)}, main has waited ${lag} for ${newestShort} to deploy (grace ${GRACE_HOURS}h) — deploy pipeline stuck or skipped; re-dispatch: gh workflow run ci.yml --ref main (docs/deployment.md, "Reconcile")`);
       red = true;
     } else {
       console.log(`${env.name}: sha-${sha.slice(0, 8)} — behind ${newestShort} by ${lag}, within grace (deploy in flight)`);
