@@ -348,6 +348,12 @@ defmodule FluxVale.Infrastructure.Operations.SyncInstanceUrlEnvTest do
         {:error, %K8s.Error{status_code: 404, reason: :not_found, message: "absent"}}
       end)
 
+      # a Secret this call creates sits on a Deployment whose envFrom is
+      # absent — the ensure is owed
+      stub(Deployment, :get, fn _kc, _ns, "app" ->
+        {:ok, deployment_containers([%{"name" => "app"}])}
+      end)
+
       expect(Secret, :upsert, fn _kc, ns, "app-env", data ->
         send(self(), {:upsert, ns, data})
         {:ok, %{}}
@@ -368,14 +374,61 @@ defmodule FluxVale.Infrastructure.Operations.SyncInstanceUrlEnvTest do
       assert_received :ensured
     end
 
-    test "stopped with an existing Secret: upsert only — no ensure, no restart", %{
-      org: org,
-      owner: owner
-    } do
+    test "a stopped row whose Secret exists but envFrom is missing still ensures on a changed event",
+         %{
+           org: org,
+           owner: owner
+         } do
+      # the recovery shape: an earlier ensure failed (Secret exists,
+      # envFrom missing), and THIS event changes the values — the upsert
+      # lands AND the owed ensure runs (a value-identical retry would
+      # self-heal through the no-op path instead)
       {instance, _gateway, domain} =
         live_custom!(org, owner, [instance_url_env: "ROOT_URL"], :stopped)
 
       stub(Secret, :get_data, fn _kc, _ns, "app-env" -> {:ok, %{}} end)
+
+      stub(Deployment, :get, fn _kc, _ns, "app" ->
+        {:ok, deployment_containers([%{"name" => "app"}])}
+      end)
+
+      expect(Secret, :upsert, fn _kc, _ns, "app-env", data ->
+        send(self(), {:upsert, data})
+        {:ok, %{}}
+      end)
+
+      expect(Deployment, :ensure_env_from, fn _kc, _ns, "app" ->
+        send(self(), :ensured)
+        {:ok, %{}}
+      end)
+
+      reject(Deployment, :restart, 4)
+
+      assert :ok = SyncInstanceUrlEnv.call(instance)
+
+      url = "https://git.#{domain.domain}/"
+      assert_received {:upsert, %{"ROOT_URL" => ^url}}
+      assert_received :ensured
+    end
+
+    test "stopped with an existing Secret whose envFrom is present: upsert only — no ensure, no restart",
+         %{
+           org: org,
+           owner: owner
+         } do
+      {instance, _gateway, domain} =
+        live_custom!(org, owner, [instance_url_env: "ROOT_URL"], :stopped)
+
+      stub(Secret, :get_data, fn _kc, _ns, "app-env" -> {:ok, %{}} end)
+
+      # the Deployment already consumes the Secret — the next start
+      # reads the new values without any ensure
+      stub(Deployment, :get, fn _kc, _ns, "app" ->
+        {:ok,
+         deployment_containers([
+           %{"name" => "app", "envFrom" => [%{"secretRef" => %{"name" => "app-env"}}]}
+         ])}
+      end)
 
       expect(Secret, :upsert, fn _kc, _ns, "app-env", data ->
         send(self(), {:upsert, data})
@@ -391,6 +444,22 @@ defmodule FluxVale.Infrastructure.Operations.SyncInstanceUrlEnvTest do
       assert_received {:upsert, %{"ROOT_URL" => ^url}}
     end
 
+    test "a failed envFrom read on the stopped changed path surfaces the error", %{
+      org: org,
+      owner: owner
+    } do
+      {instance, _gateway, domain} =
+        live_custom!(org, owner, [instance_url_env: "ROOT_URL"], :stopped)
+
+      stub(Secret, :get_data, fn _kc, _ns, "app-env" -> {:ok, %{}} end)
+
+      reason = %K8s.Error{status_code: 503, reason: :unavailable, message: "down"}
+
+      stub(Deployment, :get, fn _kc, _ns, "app" -> {:error, reason} end)
+
+      assert {:error, %K8s.Error{reason: :unavailable}} = SyncInstanceUrlEnv.call(instance)
+    end
+
     test "sleeping with a new Secret: upsert and the spec-only ensure, no restart", %{
       org: org,
       owner: owner
@@ -400,6 +469,10 @@ defmodule FluxVale.Infrastructure.Operations.SyncInstanceUrlEnvTest do
 
       stub(Secret, :get_data, fn _kc, _ns, "app-env" ->
         {:error, %K8s.Error{status_code: 404, reason: :not_found, message: "absent"}}
+      end)
+
+      stub(Deployment, :get, fn _kc, _ns, "app" ->
+        {:ok, deployment_containers([%{"name" => "app"}])}
       end)
 
       expect(Secret, :upsert, fn _kc, ns, "app-env", data ->

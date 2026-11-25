@@ -44,14 +44,17 @@ defmodule FluxVale.Infrastructure.Operations.SyncInstanceUrlEnv do
   stamp GET); missing or different ⇒ a refused restart left the pods on
   old env, one restart re-delivers (no Secret write, stamp
   re-recorded). A
-  stopped/sleeping row's question is envFrom rather than a roll: the
-  next start reads the Secret only when the Deployment consumes it, so
-  a refused spec-only ensure self-heals on the retry (no Secret write,
-  no roll). An ABSENT Secret — an env-less row the deploy composed
-  empty — is the zero-call no-op for BOTH arms: nothing was ever
-  delivered, nothing is owed, and an absent Secret never gains an
-  envFrom reference (a missing Secret at scheduling time is a
-  CreateContainerConfigError).
+  stopped/sleeping row's delivery question is envFrom rather than a
+  roll, and it runs after EVERY stopped-row write AND on every
+  stopped-row no-op: the next start reads the Secret only when the
+  Deployment consumes it, so the ensure condition is the Deployment's
+  actual consumption state, never the Secret's pre-existence — a
+  refused spec-only ensure (or a values-changing event after one)
+  self-heals on the retry (no Secret write, no roll). An ABSENT Secret
+  — an env-less row the deploy composed empty — is the zero-call no-op
+  for BOTH arms: nothing was ever delivered, nothing is owed, and an
+  absent Secret never gains an envFrom reference (a missing Secret at
+  scheduling time is a CreateContainerConfigError).
 
   The instance row is never written. The URL key is a live-Secret
   projection composed above user env (a redeploy recomposes it from the
@@ -209,7 +212,7 @@ defmodule FluxVale.Infrastructure.Operations.SyncInstanceUrlEnv do
       if set == %{} and remove == [] do
         no_op_delivery(locked, kubeconfig, namespace, live_data, existed?)
       else
-        upsert_locked(locked, kubeconfig, namespace, set, remove, existed?)
+        upsert_locked(locked, kubeconfig, namespace, set, remove)
       end
     else
       {:error, reason} -> Repo.rollback(reason)
@@ -253,27 +256,42 @@ defmodule FluxVale.Infrastructure.Operations.SyncInstanceUrlEnv do
     instance.env_vars != %{} or instance.backing_services != []
   end
 
-  defp upsert_locked(locked, kubeconfig, namespace, set, remove, existed?) do
+  defp upsert_locked(locked, kubeconfig, namespace, set, remove) do
     # The row is never written here, so the row itself answers whether
     # the Secret should already exist.
     expect_existing = expect_existing?(locked)
 
     case InstanceEnvSecret.upsert(kubeconfig, namespace, set, remove, expect_existing) do
       {:ok, merged} ->
-        cond do
-          locked.status in @live ->
-            # the stamp is the hash of the map the upsert just delivered
-            # (the seam returns it) — the pods roll onto exactly that env
-            {:apply, :restart, kubeconfig, namespace, locked.id,
-             InstanceEnvSecret.env_state_hash(merged)}
+        if locked.status in @live do
+          # the stamp is the hash of the map the upsert just delivered
+          # (the seam returns it) — the pods roll onto exactly that env
+          {:apply, :restart, kubeconfig, namespace, locked.id,
+           InstanceEnvSecret.env_state_hash(merged)}
+        else
+          # stopped/sleeping: the ensure condition is the Deployment's
+          # ACTUAL consumption state, never the Secret's pre-existence —
+          # the write just landed, and the next start must read it.
+          stopped_env_delivery(kubeconfig, namespace)
+        end
 
-          not existed? ->
-            # stopped/sleeping pods are absent: only a Secret this call
-            # created owes the spec-only ensure; the next start reads it.
-            {:apply, :ensure, kubeconfig, namespace}
+      {:error, reason} ->
+        Repo.rollback(reason)
+    end
+  end
 
-          true ->
-            :ok
+  # The stopped/sleeping delivery check, shared by the changed path and
+  # the no-op path: envFrom absent ⇒ the spec-only ensure (this call's
+  # leg, or one a failed earlier attempt owed); present ⇒ the next start
+  # already reads the Secret. A GET failure rolls back — symmetric with
+  # the live arm's stamp read.
+  defp stopped_env_delivery(kubeconfig, namespace) do
+    case Deployment.get(kubeconfig, namespace, @deployment) do
+      {:ok, deployment} ->
+        if Deployment.env_from?(deployment, @env_secret) do
+          :ok
+        else
+          {:apply, :ensure, kubeconfig, namespace}
         end
 
       {:error, reason} ->
@@ -327,20 +345,7 @@ defmodule FluxVale.Infrastructure.Operations.SyncInstanceUrlEnv do
   end
 
   defp no_op_delivery(_locked, kubeconfig, namespace, _live_data, _existed?) do
-    case Deployment.get(kubeconfig, namespace, @deployment) do
-      {:ok, deployment} ->
-        if Deployment.env_from?(deployment, @env_secret) do
-          # the true no-op: the next start reads the Secret
-          :ok
-        else
-          # a refused spec-only ensure from an earlier call — the leg
-          # it owed, delivered now
-          {:apply, :ensure, kubeconfig, namespace}
-        end
-
-      {:error, reason} ->
-        Repo.rollback(reason)
-    end
+    stopped_env_delivery(kubeconfig, namespace)
   end
 
   defp deployment_annotations(deployment) do
