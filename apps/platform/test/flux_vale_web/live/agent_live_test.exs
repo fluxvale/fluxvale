@@ -87,6 +87,14 @@ defmodule FluxValeWeb.AgentLiveTest do
     assert has_element?(view, "[data-testid='agent-prompt']", "single sign-on (OIDC)")
     assert has_element?(view, "[data-testid='agent-what-it-will-do']", "SSO with Pocket ID")
 
+    assert has_element?(
+             view,
+             "[data-testid='agent-what-it-will-do']",
+             "(optional, free to connect)"
+           )
+
+    refute has_element?(view, "[data-testid='agent-what-it-will-do']", "paid")
+
     promises =
       view
       |> element("[data-testid='agent-what-it-will-do']")
