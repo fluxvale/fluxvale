@@ -40,9 +40,12 @@ defmodule FluxVale.Infrastructure.Operations.ClaimUnclaimedDomains do
   just promoted one); the default is every verified custom domain of
   the gateway's org. `opts[:render?]` (default true) suppresses the
   post-claim resolver render for callers that render once themselves.
-  `opts[:retell]` (default true) suppresses the landed claims' own
-  re-tell, for a caller that re-tells once itself post-commit (the
-  resume's shape). `opts[:actor]` attributes the claims' audit rows
+  `opts[:retell]` (default true) suppresses the URL-env re-tells for a
+  caller that re-tells once itself post-commit (the resume's shape):
+  BOTH the landed claims' own re-tells inside the sweep and this
+  sweep's post-reduce pass — otherwise a caller nested inside a
+  transaction would take this sweep's re-tell on uncommitted claims
+  and deliver early. `opts[:actor]` attributes the claims' audit rows
   (the owner whose action caused them).
   """
   @spec call(AccessGateway.t()) :: %{
@@ -84,13 +87,12 @@ defmodule FluxVale.Infrastructure.Operations.ClaimUnclaimedDomains do
     # Each landed claim re-tells the domain's serving instances (the
     # lane's ruling: best-effort, post-commit, warn-only per instance —
     # the claims write is what makes the hostnames' addresses serve).
-    Enum.each(domains, fn domain ->
-      if domain.domain in claimed do
-        domain
-        |> VerifyAccessDomains.serving_instances()
-        |> Enum.each(&retell_url_env/1)
-      end
-    end)
+    # Gated with the nested claims' re-tells: a caller that re-tells
+    # once itself (retell: false) must not take this pass either — a
+    # nested caller would sync on uncommitted claims and deliver early.
+    if retell? do
+      retell_claimed(domains, claimed)
+    end
 
     if Keyword.get(opts, :render?, true) and claimed != [], do: RenderAccessDNS.call()
 
@@ -102,6 +104,16 @@ defmodule FluxVale.Infrastructure.Operations.ClaimUnclaimedDomains do
       Logger.error("Access gateway #{gateway.hostname}: claim sweep crashed: #{inspect(error)}")
 
       %{claimed: [], failed: [{:sweep, error}]}
+  end
+
+  defp retell_claimed(domains, claimed) do
+    Enum.each(domains, fn domain ->
+      if domain.domain in claimed do
+        domain
+        |> VerifyAccessDomains.serving_instances()
+        |> Enum.each(&retell_url_env/1)
+      end
+    end)
   end
 
   defp retell_url_env(instance) do

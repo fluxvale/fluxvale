@@ -105,8 +105,16 @@ defmodule FluxVale.Infrastructure.AccessGateway.PerformTeardown do
   # the convergence.
   defp post_commit_retell(_changeset, result) do
     case Process.get(@retell_key) do
+      # coveralls-ignore-start - defensive: the after_action stashes the
+      # population before any teardown work, so this arm needs the
+      # action to fail BEFORE it runs (a StaleRecord/optimistic-lock
+      # loss on the trigger's update) — every reachable failure lands
+      # after the stash is set, and that pre-after_action shape is not
+      # stageable in the sandbox.
       nil ->
         result
+
+      # coveralls-ignore-stop
 
       instances ->
         Process.delete(@retell_key)

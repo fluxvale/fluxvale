@@ -148,6 +148,33 @@ defmodule FluxVale.Infrastructure.Operations.ClaimUnclaimedDomainsTest do
       assert %{claimed: ["apps.customer.com"], failed: []} = ClaimUnclaimedDomains.call(gateway)
     end
 
+    test "retell: false silences the whole sweep — zero syncs end to end", %{
+      org: org,
+      owner: owner
+    } do
+      gateway = AccessFixtures.gateway!(org)
+      domain = verified_domain!(org, "apps.customer.com")
+      instance = serving_instance!(org, owner)
+
+      stub(VerifyAccessDomains, :serving_instances, fn claimed ->
+        assert claimed.id == domain.id
+        [instance]
+      end)
+
+      stub(Tailscale, :claim_domain, fn _gw, _name, _ip ->
+        {:ok, %{device_id: "device-2", route: "10.43.0.20/32"}}
+      end)
+
+      # BOTH re-tell layers stay quiet: the nested claims' success arms
+      # and the sweep's own post-reduce pass (a caller re-telling once
+      # itself, post-commit, must not take either — a nested caller
+      # would deliver early).
+      reject(SyncInstanceUrlEnv, :call, 1)
+
+      assert %{claimed: ["apps.customer.com"], failed: []} =
+               ClaimUnclaimedDomains.call(gateway, retell: false)
+    end
+
     test "a sync failure is warn-only — the claim still lands", %{org: org, owner: owner} do
       gateway = AccessFixtures.gateway!(org)
       domain = verified_domain!(org, "apps.customer.com")
