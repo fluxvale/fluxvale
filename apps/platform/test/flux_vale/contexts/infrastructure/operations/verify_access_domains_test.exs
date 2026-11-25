@@ -21,6 +21,7 @@ defmodule FluxVale.Infrastructure.Operations.VerifyAccessDomainsTest do
   alias FluxVale.Infrastructure.AccessRoute
   alias FluxVale.Infrastructure.InstanceHostname
   alias FluxVale.Infrastructure.Operations.RenderAccessDNS
+  alias FluxVale.Infrastructure.Operations.SyncInstanceUrlEnv
   alias FluxVale.TestSupport.AccessFixtures
   alias FluxVale.TestSupport.BillingFixtures
   alias FluxVale.TestSupport.InstanceFixtures
@@ -807,6 +808,49 @@ defmodule FluxVale.Infrastructure.Operations.VerifyAccessDomainsTest do
 
       assert {:ok, %{verified: 0, failed: 0, needs_attention: 0}} =
                Infrastructure.verify_access_domains()
+    end
+  end
+
+  describe "the URL-env sync rides the arm-mint pass (ADR-0052)" do
+    test "promotion syncs each serving instance — one enumeration, no second pass", %{
+      org: org,
+      owner: owner
+    } do
+      domain = register!(owner)
+      {instance, _gateway} = attached_hostname!(org, owner, domain)
+
+      stub_arm_creates(instance.namespace)
+      stub_cert_replica()
+
+      # The SAME pass that mints the arms re-tells the instance — the
+      # promotion's population, nothing more.
+      expect(SyncInstanceUrlEnv, :call, fn synced ->
+        assert synced.id == instance.id
+        :ok
+      end)
+
+      expect(Kubereq, :get, fn _req, _ns, _name ->
+        {:ok, %{status: 200, body: cert_body("True")}}
+      end)
+
+      assert {:ok, %{verified: 1}} = Infrastructure.verify_access_domains()
+      assert get_row!(domain.id).state == :verified
+    end
+
+    test "a sync failure is warn-only — the promotion still lands", %{org: org, owner: owner} do
+      domain = register!(owner)
+      {instance, _gateway} = attached_hostname!(org, owner, domain)
+
+      stub_arm_creates(instance.namespace)
+      stub_cert_replica()
+      stub(SyncInstanceUrlEnv, :call, fn _instance -> {:error, :boom} end)
+
+      expect(Kubereq, :get, fn _req, _ns, _name ->
+        {:ok, %{status: 200, body: cert_body("True")}}
+      end)
+
+      assert {:ok, %{verified: 1}} = Infrastructure.verify_access_domains()
+      assert get_row!(domain.id).state == :verified
     end
   end
 end

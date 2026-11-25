@@ -2190,6 +2190,15 @@ defmodule FluxValeWeb.InstanceLive.Show do
          |> put_flash(:info, "Address added.")
          |> refresh_hostnames()}
 
+      # The row stands and serves (no un-mint on a failed re-tell);
+      # the member gets the one-owner honest copy and the card
+      # refreshes so the standing row shows.
+      {:error, reason} when reason in [:restart_refused, :app_not_told] ->
+        {:noreply,
+         socket
+         |> put_flash(:error, InstanceHostname.mint_refusal_message(reason))
+         |> refresh_hostnames()}
+
       {:error, _reason} ->
         {:noreply,
          put_flash(

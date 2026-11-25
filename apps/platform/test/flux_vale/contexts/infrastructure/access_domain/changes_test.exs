@@ -26,6 +26,7 @@ defmodule FluxVale.Infrastructure.AccessDomain.ChangesTest do
   alias FluxVale.Infrastructure.InstanceHostname
   alias FluxVale.Infrastructure.Operations.EdgeRoutes
   alias FluxVale.Infrastructure.Operations.RenderAccessDNS
+  alias FluxVale.Infrastructure.Operations.SyncInstanceUrlEnv
   alias FluxVale.TestSupport.AccessFixtures
   alias FluxVale.TestSupport.AccountsFixtures
   alias FluxVale.TestSupport.BillingFixtures
@@ -634,5 +635,79 @@ defmodule FluxVale.Infrastructure.AccessDomain.ChangesTest do
     )
 
     instance.id
+  end
+
+  describe "the URL-env sync hook (the address re-tell)" do
+    test "a committed suspension syncs the domain's serving instances", %{
+      org: org,
+      owner: owner
+    } do
+      gateway = AccessFixtures.gateway!(org)
+      domain = verified_domain!(owner)
+      instance_id = attach_with_hostname!(gateway, org, owner, domain)
+
+      # The committed :suspended row is what takes the hostnames out of
+      # the derivation — the re-tell rides the post-commit hook, beside
+      # the render.
+      expect(SyncInstanceUrlEnv, :call, fn synced ->
+        assert synced.id == instance_id
+        :ok
+      end)
+
+      assert {:ok, _suspended} = AccessDomain.mark_suspended(domain, authorize?: false)
+    end
+
+    test "a suspension sync failure is warn-only — the row still lands dark", %{
+      org: org,
+      owner: owner
+    } do
+      gateway = AccessFixtures.gateway!(org)
+      domain = verified_domain!(owner)
+      attach_with_hostname!(gateway, org, owner, domain)
+
+      stub(SyncInstanceUrlEnv, :call, fn _instance -> {:error, :boom} end)
+
+      assert {:ok, suspended} = AccessDomain.mark_suspended(domain, authorize?: false)
+      assert suspended.state == :suspended
+    end
+
+    test "a committed resume syncs the domain's serving instances", %{org: org, owner: owner} do
+      gateway = token_gateway!(org)
+      domain = verified_domain!(owner)
+      instance_id = attach_with_hostname!(gateway, org, owner, domain)
+
+      {:ok, suspended} = AccessDomain.mark_suspended(domain, authorize?: false)
+
+      stub(Tailscale, :claim_domain, fn _gw, _d, _ip -> {:ok, %{device_id: "dev-777"}} end)
+
+      # Exactly ONE pass: the resume's post-commit hook re-tells against
+      # the committed row + claim. The nested claim runs `retell: false`
+      # — a sync inside its open transaction would read the uncommitted
+      # claims through this connection and deliver before the commit a
+      # rollback could undo.
+      expect(SyncInstanceUrlEnv, :call, 1, fn synced ->
+        assert synced.id == instance_id
+        :ok
+      end)
+
+      assert {:ok, _resumed} = AccessDomain.resume(suspended, actor: owner)
+    end
+
+    test "a resume sync failure is warn-only — the row still lands verified", %{
+      org: org,
+      owner: owner
+    } do
+      gateway = token_gateway!(org)
+      domain = verified_domain!(owner)
+      attach_with_hostname!(gateway, org, owner, domain)
+
+      {:ok, suspended} = AccessDomain.mark_suspended(domain, authorize?: false)
+
+      stub(Tailscale, :claim_domain, fn _gw, _d, _ip -> {:ok, %{device_id: "dev-777"}} end)
+      stub(SyncInstanceUrlEnv, :call, fn _instance -> {:error, :boom} end)
+
+      assert {:ok, resumed} = AccessDomain.resume(suspended, actor: owner)
+      assert resumed.state == :verified
+    end
   end
 end

@@ -33,7 +33,9 @@ defmodule FluxVale.Infrastructure.Operations.VerifyAccessDomains do
   **The arms follow the domain (ADR-0040 Am. 1 as built):** promotion
   to `:verified` mints the access arms for the domain's attached
   private instances (a fresh domain answers now, not at the next
-  unrelated flip). `:failed` demotes NOTHING — a failed domain never
+  unrelated flip), and the same enumeration re-tells each serving
+  instance's running app its URL env (best-effort, warn-only).
+  `:failed` demotes NOTHING — a failed domain never
   routed (unverified rows are skipped at mint, and `:failed` only ever
   comes from `:pending`), so its hostnames' routes are the OTHER
   domains' routes, still standing. `:needs_attention` KEEPS serving —
@@ -69,6 +71,7 @@ defmodule FluxVale.Infrastructure.Operations.VerifyAccessDomains do
   alias FluxVale.Infrastructure.Operations.EdgeRoutes
   alias FluxVale.Infrastructure.Operations.InstanceK8s
   alias FluxVale.Infrastructure.Operations.RenderAccessDNS
+  alias FluxVale.Infrastructure.Operations.SyncInstanceUrlEnv
 
   require Ash.Query
   require Logger
@@ -440,12 +443,37 @@ defmodule FluxVale.Infrastructure.Operations.VerifyAccessDomains do
     end
   end
 
+  # Promotion drives the arms (Am. 1 as built): the domain's attached
+  # private instances' hostnames must start ANSWERING now, not at the
+  # next unrelated flip. The SAME enumeration re-tells each serving
+  # instance's running app its URL env — one pass feeds both (the
+  # mark_verified write above is the primary artifact the sync rides).
   defp mint_domain_arms(domain, kubeconfig) do
     domain
     |> serving_instances()
-    |> Enum.each(&mint_instance_arms(&1, kubeconfig))
+    |> Enum.each(fn instance ->
+      mint_instance_arms(instance, kubeconfig)
+      retell_url_env(instance)
+    end)
 
     :ok
+  end
+
+  # Best-effort, post-commit, warn-only: a sync failure is logged and
+  # never fails the promotion — the next event or a redeploy converges.
+  defp retell_url_env(instance) do
+    case SyncInstanceUrlEnv.call(instance) do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning(
+          "Access domain arms: the URL-env sync failed for instance #{instance.id}: " <>
+            inspect(reason)
+        )
+
+        :ok
+    end
   end
 
   defp mint_instance_arms(instance, kubeconfig) do

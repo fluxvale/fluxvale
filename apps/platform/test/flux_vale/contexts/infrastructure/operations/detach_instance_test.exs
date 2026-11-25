@@ -18,6 +18,7 @@ defmodule FluxVale.Infrastructure.Operations.DetachInstanceTest do
   alias FluxVale.Infrastructure.AccessRoute
   alias FluxVale.Infrastructure.Operations.DetachInstance
   alias FluxVale.Infrastructure.Operations.RenderAccessDNS
+  alias FluxVale.Infrastructure.Operations.SyncInstanceUrlEnv
   alias FluxVale.TestSupport.AccessFixtures
   alias FluxVale.TestSupport.BillingFixtures
   alias FluxVale.TestSupport.InstanceFixtures
@@ -180,6 +181,69 @@ defmodule FluxVale.Infrastructure.Operations.DetachInstanceTest do
       stub(RenderAccessDNS, :call, fn _opts -> flunk("no render on a failed primary") end)
 
       assert {:error, _reason} = DetachInstance.call(gateway, instance)
+    end
+  end
+
+  describe "the URL-env sync hook (the address re-tell)" do
+    # The bare detached shape: the provider's detach lands and removes
+    # the pairing row (production's policy → row → configs order), the
+    # access edge's configs are already absent (404-tolerant removals).
+    defp bare_detach_stubs do
+      stub(Tailscale, :detach_instance, fn _gateway, inst ->
+        # The provider's detach deletes the pairing row before the
+        # operation's re-tell runs — mirror it (the order pin's shape).
+        route = AccessRoute.get_by_instance!(inst.id, authorize?: false)
+        AccessRoute.destroy!(route, authorize?: false)
+        :ok
+      end)
+
+      stub(Ingress, :delete, fn _kc, _ns, _name ->
+        {:error, Error.from_response({:ok, %{status: 404, body: %{}}})}
+      end)
+
+      stub(Middleware, :delete, fn _kc, _ns, _name ->
+        {:error, Error.from_response({:ok, %{status: 404, body: %{}}})}
+      end)
+    end
+
+    defp detached_shape!(gateway, instance) do
+      AccessRoute.create!(
+        %{gateway_id: gateway.id, instance_id: instance.id, route_key: "8443"},
+        authorize?: false
+      )
+    end
+
+    test "a committed detach syncs the detached instance", %{org: org, owner: owner} do
+      gateway = AccessFixtures.gateway!(org)
+      instance = AccessFixtures.private_instance!(org, owner)
+      detached_shape!(gateway, instance)
+      bare_detach_stubs()
+
+      # The running app is re-told exactly once the pairing is gone —
+      # and the stub proves it: DB state at sync time is the pin (the
+      # teardown test's shape). The provider's pairing removal landed,
+      # so the hostnames have no live path.
+      expect(SyncInstanceUrlEnv, :call, fn synced ->
+        assert synced.id == instance.id
+
+        assert {:error, _unpaired} =
+                 AccessRoute.get_by_instance(instance.id, authorize?: false)
+
+        :ok
+      end)
+
+      assert :ok = DetachInstance.call(gateway, instance)
+    end
+
+    test "a sync failure is warn-only — the detach still succeeds", %{org: org, owner: owner} do
+      gateway = AccessFixtures.gateway!(org)
+      instance = AccessFixtures.private_instance!(org, owner)
+      detached_shape!(gateway, instance)
+      bare_detach_stubs()
+
+      stub(SyncInstanceUrlEnv, :call, fn _instance -> {:error, :boom} end)
+
+      assert :ok = DetachInstance.call(gateway, instance)
     end
   end
 end

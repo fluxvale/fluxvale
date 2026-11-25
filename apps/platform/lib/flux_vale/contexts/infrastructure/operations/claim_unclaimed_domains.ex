@@ -17,12 +17,18 @@ defmodule FluxVale.Infrastructure.Operations.ClaimUnclaimedDomains do
   event that triggered it. The token is written, the domain stays
   verified, the attach stands; the member-facing unclaimed line is the
   honest signal, and the next event (or a fresh token) converges.
+
+  Each landed claim also re-tells the domain's serving instances'
+  running apps (the URL-env sync — best-effort, warn-only per
+  instance).
   """
 
   alias FluxVale.Infrastructure.AccessDomain
   alias FluxVale.Infrastructure.AccessGateway
   alias FluxVale.Infrastructure.Operations.ClaimAccessDomain
   alias FluxVale.Infrastructure.Operations.RenderAccessDNS
+  alias FluxVale.Infrastructure.Operations.SyncInstanceUrlEnv
+  alias FluxVale.Infrastructure.Operations.VerifyAccessDomains
 
   require Ash.Query
   require Logger
@@ -34,8 +40,13 @@ defmodule FluxVale.Infrastructure.Operations.ClaimUnclaimedDomains do
   just promoted one); the default is every verified custom domain of
   the gateway's org. `opts[:render?]` (default true) suppresses the
   post-claim resolver render for callers that render once themselves.
-  `opts[:actor]` attributes the claims' audit rows (the owner whose
-  action caused them).
+  `opts[:retell]` (default true) suppresses the URL-env re-tells for a
+  caller that re-tells once itself post-commit (the resume's shape):
+  BOTH the landed claims' own re-tells inside the sweep and this
+  sweep's post-reduce pass — otherwise a caller nested inside a
+  transaction would take this sweep's re-tell on uncommitted claims
+  and deliver early. `opts[:actor]` attributes the claims' audit rows
+  (the owner whose action caused them).
   """
   @spec call(AccessGateway.t()) :: %{
           claimed: [String.t()],
@@ -50,6 +61,7 @@ defmodule FluxVale.Infrastructure.Operations.ClaimUnclaimedDomains do
   def call(%AccessGateway{} = gateway, opts) do
     domains = opts[:domains] || verified_domains(gateway.organization_id)
     already = claimed_names(gateway)
+    retell? = Keyword.get(opts, :retell, true)
 
     {claimed, failed} =
       domains
@@ -58,7 +70,8 @@ defmodule FluxVale.Infrastructure.Operations.ClaimUnclaimedDomains do
         case ClaimAccessDomain.call(gateway, domain,
                actor: opts[:actor],
                authorize?: false,
-               render: false
+               render: false,
+               retell: retell?
              ) do
           {:ok, _gateway} ->
             {[domain.domain | ok], bad}
@@ -71,6 +84,16 @@ defmodule FluxVale.Infrastructure.Operations.ClaimUnclaimedDomains do
         end
       end)
 
+    # Each landed claim re-tells the domain's serving instances (the
+    # lane's ruling: best-effort, post-commit, warn-only per instance —
+    # the claims write is what makes the hostnames' addresses serve).
+    # Gated with the nested claims' re-tells: a caller that re-tells
+    # once itself (retell: false) must not take this pass either — a
+    # nested caller would sync on uncommitted claims and deliver early.
+    if retell? do
+      retell_claimed(domains, claimed)
+    end
+
     if Keyword.get(opts, :render?, true) and claimed != [], do: RenderAccessDNS.call()
 
     %{claimed: Enum.reverse(claimed), failed: Enum.reverse(failed)}
@@ -81,6 +104,30 @@ defmodule FluxVale.Infrastructure.Operations.ClaimUnclaimedDomains do
       Logger.error("Access gateway #{gateway.hostname}: claim sweep crashed: #{inspect(error)}")
 
       %{claimed: [], failed: [{:sweep, error}]}
+  end
+
+  defp retell_claimed(domains, claimed) do
+    Enum.each(domains, fn domain ->
+      if domain.domain in claimed do
+        domain
+        |> VerifyAccessDomains.serving_instances()
+        |> Enum.each(&retell_url_env/1)
+      end
+    end)
+  end
+
+  defp retell_url_env(instance) do
+    case SyncInstanceUrlEnv.call(instance) do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning(
+          "Claim sweep: the URL-env sync failed for instance #{instance.id}: #{inspect(reason)}"
+        )
+
+        :ok
+    end
   end
 
   defp verified_domains(organization_id) do

@@ -18,6 +18,7 @@ defmodule FluxVale.Infrastructure.Operations.RemoveCustomHostnameTest do
   alias FluxVale.Infrastructure.InstanceHostname
   alias FluxVale.Infrastructure.Operations.EdgeRoutes
   alias FluxVale.Infrastructure.Operations.RenderAccessDNS
+  alias FluxVale.Infrastructure.Operations.SyncInstanceUrlEnv
   alias FluxVale.TestSupport.AccessFixtures
   alias FluxVale.TestSupport.BillingFixtures
   alias FluxVale.TestSupport.InstanceFixtures
@@ -190,9 +191,70 @@ defmodule FluxVale.Infrastructure.Operations.RemoveCustomHostnameTest do
     end
   end
 
+  describe "call/2 — the URL-env sync hook (the address re-tell)" do
+    test "a serving attached private instance's remove syncs after the row is gone", %{
+      org: org,
+      owner: owner
+    } do
+      domain = verified_domain!(org)
+      instance = private_instance!(org, owner)
+      gateway = AccessFixtures.gateway!(org)
+      _route = route!(gateway, instance)
+      hostname = hostname!(instance, domain, "git")
+
+      expect(EdgeRoutes, :apply_access_none_for_hostname, fn _kc, _instance, _hostname ->
+        :ok
+      end)
+
+      # The derivation must not see the row it just removed.
+      expect(SyncInstanceUrlEnv, :call, fn synced ->
+        refute hostname_exists?(hostname.id)
+        assert synced.id == instance.id
+        :ok
+      end)
+
+      expect(RenderAccessDNS, :call, fn -> :ok end)
+
+      assert {:ok, _removed} =
+               Infrastructure.remove_custom_hostname(hostname.id, actor: owner)
+
+      refute hostname_exists?(hostname.id)
+    end
+
+    test "a sync failure is warn-only — the remove still stands", %{org: org, owner: owner} do
+      domain = verified_domain!(org)
+      instance = private_instance!(org, owner)
+      gateway = AccessFixtures.gateway!(org)
+      _route = route!(gateway, instance)
+      hostname = hostname!(instance, domain, "git")
+
+      expect(EdgeRoutes, :apply_access_none_for_hostname, fn _kc, _instance, _hostname ->
+        :ok
+      end)
+
+      stub(SyncInstanceUrlEnv, :call, fn _instance -> {:error, :missing} end)
+      expect(RenderAccessDNS, :call, fn -> :ok end)
+
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          assert {:ok, _removed} =
+                   Infrastructure.remove_custom_hostname(hostname.id, actor: owner)
+        end)
+
+      assert log =~ "instance address env sync after remove refused"
+      assert log =~ instance.id
+      refute hostname_exists?(hostname.id)
+    end
+  end
+
   # ------------------------------------------------------------------
   # Helpers
   # ------------------------------------------------------------------
+
+  defp private_instance!(org, owner) do
+    instance = instance!(org, owner)
+    InstanceFixtures.pin!(instance, exposure: :private)
+  end
 
   defp instance!(org, owner) do
     version = InstanceFixtures.app_version!()

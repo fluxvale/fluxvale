@@ -25,6 +25,7 @@ defmodule FluxVale.Infrastructure.Operations.AttachInstanceTest do
   alias FluxVale.Infrastructure.Operations.AttachInstance
   alias FluxVale.Infrastructure.Operations.InstanceK8s
   alias FluxVale.Infrastructure.Operations.RenderAccessDNS
+  alias FluxVale.Infrastructure.Operations.SyncInstanceUrlEnv
   alias FluxVale.TestSupport.AccessFixtures
   alias FluxVale.TestSupport.BillingFixtures
   alias FluxVale.TestSupport.InstanceFixtures
@@ -377,6 +378,34 @@ defmodule FluxVale.Infrastructure.Operations.AttachInstanceTest do
       stub(RenderAccessDNS, :call, fn _opts -> flunk("no render on a failed primary") end)
 
       assert {:error, _reason} = AttachInstance.call(gateway, instance)
+    end
+  end
+
+  describe "the URL-env sync hook (the address re-tell)" do
+    test "a committed attach syncs the attached instance", %{org: org, owner: owner} do
+      gateway = AccessFixtures.gateway!(org)
+      instance = AccessFixtures.private_instance!(org, owner)
+
+      # The pairing committed — the instance's hostnames gained a live
+      # path, so the running app is re-told exactly then.
+      expect(SyncInstanceUrlEnv, :call, fn synced ->
+        assert synced.id == instance.id
+        :ok
+      end)
+
+      assert {:ok, _route} = AttachInstance.call(gateway, instance)
+    end
+
+    test "a sync failure is warn-only — the attach still stands", %{org: org, owner: owner} do
+      gateway = AccessFixtures.gateway!(org)
+      instance = AccessFixtures.private_instance!(org, owner)
+
+      stub(SyncInstanceUrlEnv, :call, fn _instance -> {:error, :boom} end)
+
+      assert {:ok, _route} = AttachInstance.call(gateway, instance)
+
+      # The primary artifact survives untouched.
+      assert {:ok, _row} = AccessRoute.get_by_instance(instance.id, authorize?: false)
     end
   end
 

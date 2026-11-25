@@ -10,13 +10,19 @@ defmodule FluxVale.Infrastructure.Operations.UnclaimAccessDomain do
   reads (gateway AND domain), so a non-member is Forbidden before any
   API call. A parked gateway unclaims fine — the tailnet work is API
   side, not pod side. A provider failure leaves the row's claims
-  untouched (the retry converges).
+  untouched (the retry converges). The claims write committed re-tells
+  the domain's serving instances' running apps (the URL-env sync —
+  best-effort, warn-only per instance).
   """
 
   alias FluxVale.Infrastructure.AccessDomain
   alias FluxVale.Infrastructure.AccessGateway
   alias FluxVale.Infrastructure.AccessProvider
   alias FluxVale.Infrastructure.Operations.RenderAccessDNS
+  alias FluxVale.Infrastructure.Operations.SyncInstanceUrlEnv
+  alias FluxVale.Infrastructure.Operations.VerifyAccessDomains
+
+  require Logger
 
   @doc """
   `{:ok, gateway}` (the row with its updated `dns_claims`) or
@@ -35,7 +41,7 @@ defmodule FluxVale.Infrastructure.Operations.UnclaimAccessDomain do
            AccessDomain.get_by_id(domain.id, actor: actor, authorize?: authorize?),
          :ok <- ensure_same_org(gateway, domain),
          :ok <- AccessProvider.impl_for(gateway).unclaim_domain(gateway, domain.domain) do
-      update_claims(gateway, domain.domain)
+      update_claims(gateway, domain)
     end
   end
 
@@ -53,16 +59,43 @@ defmodule FluxVale.Infrastructure.Operations.UnclaimAccessDomain do
   # the view's source of truth moved, so the Corefile re-renders
   # best-effort after it (ADR-0040 §4) — a failed render never fails
   # the unclaim.
-  defp update_claims(gateway, domain) do
-    claims = Map.delete(gateway.dns_claims || %{}, domain)
+  defp update_claims(gateway, %AccessDomain{} = domain) do
+    claims = Map.delete(gateway.dns_claims || %{}, domain.domain)
 
-    case put_claims(gateway, domain, claims, 1) do
+    case put_claims(gateway, domain.domain, claims, 1) do
       {:ok, row} ->
         RenderAccessDNS.call()
+        retell_serving_instances(domain)
         {:ok, row}
 
       {:error, _reason} = failure ->
         failure
+    end
+  end
+
+  # The enumeration is safe against the just-removed claim — the
+  # derivation answers nil (or the still-live default) for the now-
+  # unclaimed domain, which is exactly the re-tell. The lane's ruling:
+  # best-effort, post-commit, warn-only per instance — a sync failure
+  # never fails the unclaim.
+  defp retell_serving_instances(domain) do
+    domain
+    |> VerifyAccessDomains.serving_instances()
+    |> Enum.each(&retell_url_env/1)
+  end
+
+  defp retell_url_env(instance) do
+    case SyncInstanceUrlEnv.call(instance) do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning(
+          "Access domain unclaim: the URL-env sync failed for instance #{instance.id}: " <>
+            inspect(reason)
+        )
+
+        :ok
     end
   end
 

@@ -28,6 +28,7 @@ defmodule FluxVale.Infrastructure.Operations.SetExposureTest do
   alias FluxVale.Infrastructure.Instance
   alias FluxVale.Infrastructure.InstanceHostname
   alias FluxVale.Infrastructure.Operations.RenderAccessDNS
+  alias FluxVale.Infrastructure.Operations.SyncInstanceUrlEnv
   alias FluxVale.TestSupport.AccessFixtures
   alias FluxVale.TestSupport.BillingFixtures
   alias FluxVale.TestSupport.InstanceFixtures
@@ -910,6 +911,54 @@ defmodule FluxVale.Infrastructure.Operations.SetExposureTest do
 
       assert {:error, _reason} =
                Instance.set_exposure(instance, %{exposure: :private}, actor: owner)
+    end
+  end
+
+  describe "the URL-env sync hook (the address re-tell)" do
+    # The going-private shape the kill-switch tests use: the routes
+    # come down, the policy tightens, the row commits.
+    defp going_private_stubs!(instance) do
+      stub_kubeconfig()
+
+      ns = "fluxvale-app-#{instance.id}"
+
+      stub(Ingress, :delete, fn
+        _kc, ^ns, "app-ingress" -> :ok
+        _kc, _ns, "access-" <> _tail -> not_found()
+      end)
+
+      stub(Middleware, :delete, fn _kc, _ns, _name -> not_found() end)
+      stub(NetworkPolicy, :create, fn _kc, _ns, "default-deny-ingress", _spec -> {:ok, %{}} end)
+    end
+
+    test "the toggle's success branch syncs the updated instance" do
+      owner = owner()
+      instance = deployed_instance!(owner, :public, :running)
+      going_private_stubs!(instance)
+
+      # The hook MUST ride after_transaction (the action's comment
+      # forbids cluster I/O in the serialized section) — the sync sees
+      # the committed row, post-toggle.
+      expect(SyncInstanceUrlEnv, :call, fn synced ->
+        assert synced.id == instance.id
+        :ok
+      end)
+
+      assert {:ok, private} = Instance.set_exposure(instance, %{exposure: :private}, actor: owner)
+      assert private.exposure == :private
+    end
+
+    test "a sync failure is warn-only — the toggle still lands" do
+      owner = owner()
+      instance = deployed_instance!(owner, :public, :running)
+      going_private_stubs!(instance)
+
+      stub(SyncInstanceUrlEnv, :call, fn _instance -> {:error, :boom} end)
+
+      assert {:ok, private} = Instance.set_exposure(instance, %{exposure: :private}, actor: owner)
+      assert private.exposure == :private
+
+      assert Instance.get_by_id!(instance.id, authorize?: false).exposure == :private
     end
   end
 end

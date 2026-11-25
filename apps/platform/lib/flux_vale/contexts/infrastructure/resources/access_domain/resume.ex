@@ -11,6 +11,9 @@ defmodule FluxVale.Infrastructure.AccessDomain.Resume do
     (`Infrastructure.claim_access_domain/3` — the same gates, claims
     funnel and P2-3 retry the member-scoped claim runs), LAST.
 
+  Post-commit (`after_transaction`, beside the render), each serving
+  instance's running app is re-told its URL env (best-effort, warn-only).
+
   **The order is the danger ordering.** The routes are local cluster
   writes (SSA-idempotent, converged by the retry); the tailnet claim is
   EXTERNAL state no transaction can roll back. A failure in the routes
@@ -40,11 +43,13 @@ defmodule FluxVale.Infrastructure.AccessDomain.Resume do
 
   **The CoreDNS render is success-only, post-commit.** The claim
   operation runs nested inside this transaction (its `render: false`
-  opt suppresses its own render), so the claims write is uncommitted
-  until this action commits — rendering inside would put uncommitted
-  claims into the ConfigMap (the S4 lesson). This module renders in
-  `after_transaction`, on the `{:ok, _}` branch only: a failed resume
-  leaves the previous view standing, exactly as the row left it.
+  opt suppresses its own render, its `retell: false` its own re-tell —
+  a nested sync would read the uncommitted claims and deliver early),
+  so the claims write is uncommitted until this action commits —
+  rendering inside would put uncommitted claims into the ConfigMap
+  (the S4 lesson). This module renders in `after_transaction`, on the
+  `{:ok, _}` branch only: a failed resume leaves the previous view
+  standing, exactly as the row left it.
 
   **The token drift (the S3 shape):** a claim the tailnet refuses —
   `:unauthorized`, `:forbidden`, or a MISSING token (`:no_api_token`) —
@@ -79,6 +84,7 @@ defmodule FluxVale.Infrastructure.AccessDomain.Resume do
   alias FluxVale.Infrastructure.Operations.EdgeRoutes
   alias FluxVale.Infrastructure.Operations.RemoveAccessDomain
   alias FluxVale.Infrastructure.Operations.RenderAccessDNS
+  alias FluxVale.Infrastructure.Operations.SyncInstanceUrlEnv
   alias FluxVale.Infrastructure.Operations.VerifyAccessDomains
 
   require Logger
@@ -171,7 +177,11 @@ defmodule FluxVale.Infrastructure.AccessDomain.Resume do
   # back, so every local failure must be exhausted before the tailnet
   # is touched. `render: false` — this transaction's claims write is
   # uncommitted until the action commits; the render is this module's,
-  # post-commit, success-only.
+  # post-commit, success-only. `retell: false` for the same reason one
+  # level down: a nested sync would read the uncommitted claims through
+  # this open transaction and deliver (Secret write, pod restart)
+  # before the commit a rollback could undo — the re-tell is this
+  # module's post-commit hook, exactly once.
   defp reclaim_then_rearm(domain, instances) do
     with {:ok, kubeconfig} <- K8s.kubeconfig(),
          {:ok, gateway} <- org_gateway(domain),
@@ -179,7 +189,8 @@ defmodule FluxVale.Infrastructure.AccessDomain.Resume do
          {:ok, _row} <-
            Infrastructure.claim_access_domain(gateway, domain,
              authorize?: false,
-             render: false
+             render: false,
+             retell: false
            ) do
       :ok
     end
@@ -228,7 +239,7 @@ defmodule FluxVale.Infrastructure.AccessDomain.Resume do
   defp remember_drift_kind(_other), do: :ok
 
   # The two post-transaction duties, in one hook (both must see the
-  # action's FINAL outcome):
+  # action's FINAL outcome), plus the address re-tell as a third:
   #
   # - the S3 drift, persisted outside the rolled-back transaction. Any
   #   non-token failure drifts nothing (the claim operation's stance:
@@ -237,7 +248,12 @@ defmodule FluxVale.Infrastructure.AccessDomain.Resume do
   #   write committed with this action, so this is the first point
   #   where the ConfigMap may learn of it (uncommitted claims must
   #   never reach the view — the S4 lesson). A failed resume leaves
-  #   the previous view standing, exactly as the row left it.
+  #   the previous view standing, exactly as the row left it;
+  # - the URL-env re-tell, same {:ok, _} branch and for the same
+  #   reason: the committed row (:verified) and the committed claim
+  #   are what make the hostnames' addresses serve again, so the
+  #   derivation must read them post-commit (the lane's ruling:
+  #   best-effort, warn-only per instance).
   defp settle_down(domain, result) do
     result =
       case Process.get(@drift_key) do
@@ -253,10 +269,32 @@ defmodule FluxVale.Infrastructure.AccessDomain.Resume do
     case result do
       {:ok, _row} ->
         RenderAccessDNS.call()
+        retell_serving_instances(domain)
         result
 
       {:error, _reason} ->
         result
+    end
+  end
+
+  defp retell_serving_instances(domain) do
+    domain
+    |> VerifyAccessDomains.serving_instances()
+    |> Enum.each(&retell_url_env/1)
+  end
+
+  defp retell_url_env(instance) do
+    case SyncInstanceUrlEnv.call(instance) do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning(
+          "Access domain resume: the URL-env sync failed for instance #{instance.id}: " <>
+            inspect(reason)
+        )
+
+        :ok
     end
   end
 
