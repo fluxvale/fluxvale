@@ -1,5 +1,7 @@
 # v1 Salvage Map
 
+> Historical kickoff snapshot (2026-08-27). Several items listed as deferred or pending below (file access, custom domains) have since shipped; see [adr/README.md](adr/README.md) for current state.
+
 v1 lives at <https://github.com/fluxvale/fluxvale_old> (read-only). High-value carry-overs
 are code that encodes hard-won correctness — worth porting nearly verbatim —
 plus runbooks encoding operational knowledge.

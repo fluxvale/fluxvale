@@ -11,7 +11,7 @@ against the anchor on every run.
 > **B′ ×1.2** — the owner's pick from
 > [pricing-recalibration-2026-10.md](pricing-recalibration-2026-10.md),
 > whose model section (oversubscription density, storage-bound ~46
-> smalls per box, per-datencenter pricing) supersedes this check's
+> smalls per box, per-datacenter pricing) supersedes this check's
 > original legacy-box math. The table below is now the **B′ table**;
 > charging at B′ presumes the scale-to-zero lane lands before
 > production charging (the recalibration doc's dependency note).
@@ -164,8 +164,9 @@ affected — the proposal added shapes, not small-density.
 ## What the check deliberately excludes
 
 ADR-0028 scopes the gate to box COGS. Not modeled: R2 backups, Grafana
-Cloud, Cloudflare, domain (free tiers at v1 scale); HitPay payment fees
-(M6); FX drift on the €-denominated invoice; the second box's cost
+Cloud, Cloudflare, domain (free tiers at v1 scale); payment fees outside
+the beyond-threshold ratification check above (Polar Pro is modeled
+there); FX drift on the €-denominated invoice; the second box's cost
 arriving before its revenue (the growth model's overlap window —
 treatment (b), margin absorbs it, per the #200 decision). Revisit the
 margin, not the anchor, when those get real.
@@ -180,9 +181,11 @@ update this doc in the same PR, and note it on the issue. Instances
 snapshot their creation-time
 price for one year from create, then reprice live (#121's call, shipped
 with the settle trigger — existing rows were backfilled from their
-version's size; sizeless legacy rows stay unpriced and logged). The
-zero-customers window (charges gated on the ADR-0029 Am. 3 VAT
-registrations) is when repricing touches nobody.
+version's size; sizeless legacy rows stay unpriced and logged). Repricing
+during early access affects only active accounts after their 1-year grace
+(Polar became merchant of record in
+[ADR-0029](adr/00029-payments-adapter-selfmor.md) Am. 6, superseding the
+earlier Am. 3 VAT-registration gate).
 
 Since #186 the curve is also code — `FluxVale.Pricing.price_allocation/2`
 (region defaults to `:nuremberg`) prices custom allocations (wizard

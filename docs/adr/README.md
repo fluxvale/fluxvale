@@ -26,7 +26,7 @@ already ruled out.
 | [ADR-00015](00015-no-auto-remediation.md) | No auto-remediation: alert + prepared revert PR | Accepted |
 | [ADR-00016](00016-deferred-triggers.md) | Named revisit triggers for deferred items | Accepted (amended — see Amendment 1) |
 | [ADR-00017](00017-docs-home-adr-scope.md) | Docs home: one ADR log here, covering the product + org-wide infra | Accepted |
-| [ADR-00018](00018-repo-visibility.md) | Repo visibility: app public under FSL, fleet repo private | Accepted (amended — see Amendment 1) |
+| [ADR-00018](00018-repo-visibility.md) | Repo visibility: app public under FSL, fleet repo private | Accepted (amended — see Amendments 1–2) |
 | [ADR-00019](00019-machine-first-api-cli-mcp.md) | Machine-first API: JSON:API + CLI + MCP server from day one | Accepted (amended — see Amendments 1–5) |
 | [ADR-0020](00020-local-dev-parity.md) | Local dev: production parity via k3d + Tilt + CNPG + local overlay | Accepted (amended — see Amendments 1–5) |
 | [ADR-0021](00021-secrets-bws-operator.md) | Secrets: BWS Kubernetes operator primary (per-env machine accounts; EU vault) | Superseded (amended — see Amendment 3) |
@@ -47,7 +47,7 @@ already ruled out.
 | [ADR-0036](00036-scale-to-zero-wake-on-use.md) | Scale-to-zero with wake-on-use: idle instances sleep after 1h, wake on the next request; always-on bills the 24/7 running rate | Accepted (amended — see Amendments 1–2) |
 | [ADR-0037](00037-instance-backups-s3.md) | Instance backups: restic to BYO S3-compatible storage (R2 first); crash-consistent PVC snapshots; Oban sweep + k8s Jobs; namespace-Secret credentials; same-instance restore | Accepted (amended — see Amendment 1) |
 | [ADR-0038](00038-instance-exposure-modes.md) | Instance exposure modes: public (default) \| private (no public route, edge ingress denied; provider-agnostic seam for the upcoming access layer); exposure is free | Accepted (amended — see Amendment 1) |
-| [ADR-0039](00039-private-access-layer-tailscale.md) | Private access layer: per-org userspace Tailscale gateway (B1), `AccessProvider` boundary, gateway-existence billing, gateway wake intercept, the stale-sleep self-heal | Accepted (amended — see Amendment 1) (price pending — owner's) |
+| [ADR-0039](00039-private-access-layer-tailscale.md) | Private access layer: per-org userspace Tailscale gateway (B1), `AccessProvider` boundary, gateway-existence billing, gateway wake intercept, the stale-sleep self-heal | Accepted (amended — see Amendments 1–3) |
 | [ADR-0040](00040-strong-private-access-and-custom-domains.md) | Strong private access + custom domains: serve raw-TCP tunnel to a Traefik `access` entrypoint, split-DNS claiming per (tailnet, domain), per-gateway-view resolver, verify-by-issuance domain registry, DNS-01 wildcard certs — public/private becomes a resolution question; wake-knock survives | Accepted (amended — see Amendments 1-6) |
 | [ADR-0041](00041-gettext-i18n-foundation.md) | Gettext i18n foundation: en-only now; one locale seam (`FluxValeWeb.Locale`, session-first) + `lang` attribute; extract `--check-up-to-date` in `mix ci`; phase 2 extracts authed surfaces post-redesign, email copy via an explicit-locale mailer API | Accepted |
 | [ADR-0042](00042-user-created-organizations.md) | User-created organizations: create-with-owner under a 10-org cap, the `personal_owner_id` marker, per-org wallets with their own top-up (Option A), Stripe-model membership via invites; transfers deferred | Accepted (amended — see Amendment 1) |

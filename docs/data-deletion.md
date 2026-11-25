@@ -1,10 +1,10 @@
 # Data Deletion Statement (DRAFT)
 
-**Status: DRAFT — advisor review and publication ride the M6 checkout
-work** ([ADR-0029](adr/00029-payments-adapter-selfmor.md)). It backs the
-zero-balance account destroy (#124): an org that empties its wallet,
-serves its redemption window, and deletes its account must know exactly
-what that deletes.
+**Status: DRAFT — the retention stance is published in
+`/policies/privacy`; standalone publication of this statement remains
+pending advisor review.** It backs the zero-balance account destroy
+(#124): an org that empties its wallet, serves its redemption window,
+and deletes its account must know exactly what that deletes.
 
 ## What account deletion destroys
 
@@ -15,12 +15,11 @@ what that deletes.
 
 ## What is retained, and why
 
-- **Ledger entries are financial records**: they are what quarterly
-  per-country tax summaries are queries over
-  ([ADR-0029](adr/00029-payments-adapter-selfmor.md) Am. 3 gate 3), and
-  retention periods for financial records are a statutory matter. They
-  carry no application data and no message content — the minimum needed
-  to reconstruct the books.
+- **Ledger entries are financial records**: retention periods for
+  financial records are a statutory matter (even with Polar as merchant
+  of record per [ADR-0029](adr/00029-payments-adapter-selfmor.md)
+  Am. 6). They carry no application data and no message content — the
+  minimum needed to reconstruct the books.
 - **The wallet row is retained with them** — it anchors the balance
   history after the customer is gone. So the destroy cannot be a blanket
   `DELETE` down the foreign keys; #124's design decides the exact
@@ -29,7 +28,7 @@ what that deletes.
 - The draft stance: financial retention outlives account deletion; the
   published statement says so plainly rather than implying total erasure.
 
-## Open for advisor input (M6)
+## Open for advisor input
 
 1. **Retention period** for financial records (PH BIR books/accounts
    retention is the anchor; advisor to confirm the binding number).

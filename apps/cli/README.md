@@ -6,8 +6,7 @@ binary — no language runtime to install.
 
 FluxVale is a managed platform for open-source apps: browse the catalog,
 install, and an instance is running on its own HTTPS subdomain. The CLI
-does what the web app does — for when you'd rather type. A single
-self-contained binary: no language runtime to install.
+does what the web app does — for when you'd rather type.
 
 ## Install
 

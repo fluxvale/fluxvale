@@ -130,6 +130,14 @@ BASE_URL=https://staging.fluxvale.com E2E_TESTINBOX_TOKEN=<pat> npx playwright t
   destroy, and the per-run database, role, and Redis namespace all go
   away. Local only, like backups.spec.ts (same reason); production
   stays read-only.
+- Additional specs in `tests/`: `backups.spec.ts` (S3 backup/restore
+  lifecycle, local-only), `custom-hostname.spec.ts` (custom address
+  minting), `instance-resize.spec.ts` (stopped-first resize),
+  `onboarding.spec.ts` (first-run flow), `org-pages.spec.ts`
+  (organization views), `policies.spec.ts` (published policy pages),
+  and per-app lifecycles `memos-lifecycle.spec.ts`,
+  `pocket-id-lifecycle.spec.ts`, `vaultwarden-lifecycle.spec.ts`, and
+  `vikunja-lifecycle.spec.ts`.
 
 CI: the `e2e` job (`.github/workflows/ci.yml`) bootstraps the same
 script on an ephemeral k3d — sharded by file (#210): a `lifecycle`

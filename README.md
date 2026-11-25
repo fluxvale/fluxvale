@@ -5,8 +5,9 @@
 
 Managed cloud platform for open source applications.
 
-Status: **v2, in active buildout** — the platform app is a walking skeleton
-(M1) and the [build ladder](docs/adr/0031-build-order.md) climbs from here.
+Status: **v2, invite-only early access** — the platform, catalog,
+billing, CLI, MCP server, and Terraform provider are live, following
+the [build ladder](docs/adr/0031-build-order.md).
 Source is [FSL-1.1](LICENSE.md): fair use now, Apache-2.0 after two years.
 
 **Start with [`docs/`](docs/README.md)** — product, architecture, and the
@@ -17,7 +18,7 @@ contributing (humans and agents) are in [`AGENTS.md`](AGENTS.md).
 
 ```text
 apps/platform    # the Phoenix 1.8 + Ash app — one OTP release (:flux_vale)
-apps/e2e         # Playwright suite (grows from M3)
+apps/e2e         # Playwright suite
 apps/smoke       # Bruno collection — the API oracle for both deployed envs (#99)
 apps/cli         # the Rust CLI (ADR-0019 Am. 3: fmt, clippy, 4-target matrix)
 apps/mcp         # the MCP server — FluxVale as tools for AI agents (#484 W2a)
@@ -30,7 +31,7 @@ docs/            # decisions home — read before proposing changes
 links can't live inside the fence, so the reference lives here. The
 Terraform/OpenTofu provider lives in its own repo,
 [fluxvale/terraform-provider-fluxvale](https://github.com/fluxvale/terraform-provider-fluxvale)
-— extracted per ADR-0051; this page's public doc
+— extracted per [ADR-0051](docs/adr/00051-tfprovider-repo-extraction.md); this page's public doc
 (`docs/public/automation/terraform.md`) stays here.)
 
 ## Local development
@@ -65,7 +66,7 @@ curl -sk https://app.fluxvale.lvh.me/health          # through Traefik (self-sig
 Edit code; the reload lands in milliseconds (Tilt syncs source, Phoenix's
 code reloader recompiles). Use `tilt up`, not `tilt ci`.
 
-**E2E** (browser suite; grows from M3) + **smoke** (Bruno, both envs):
+**E2E** (Playwright browser suite) + **smoke** (Bruno, both envs):
 
 ```sh
 cd apps/e2e
