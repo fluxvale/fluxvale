@@ -18,12 +18,18 @@ defmodule FluxVale.Infrastructure.Operations.ClaimAccessDomain do
   `:update_state` funnel the observer writes) AND fails the operation
   honestly. No silent claim, no retry storm: the owner pastes a fresh
   token, the next claim or observe pass converges.
+
+  The claims write committed re-tells the domain's serving instances'
+  running apps (the URL-env sync — best-effort, warn-only per
+  instance); the nested caller (`render: false`) runs it too.
   """
 
   alias FluxVale.Infrastructure.AccessDomain
   alias FluxVale.Infrastructure.AccessGateway
   alias FluxVale.Infrastructure.AccessProvider
   alias FluxVale.Infrastructure.Operations.RenderAccessDNS
+  alias FluxVale.Infrastructure.Operations.SyncInstanceUrlEnv
+  alias FluxVale.Infrastructure.Operations.VerifyAccessDomains
 
   require Logger
 
@@ -85,6 +91,8 @@ defmodule FluxVale.Infrastructure.Operations.ClaimAccessDomain do
           RenderAccessDNS.call()
         end
 
+        retell_serving_instances(domain)
+
         {:ok, row}
 
       {:error, _reason} = failure ->
@@ -100,6 +108,33 @@ defmodule FluxVale.Infrastructure.Operations.ClaimAccessDomain do
 
   defp land({:error, _reason} = error, _gateway, _domain, _resolver_ip, _render?, _actor),
     do: error
+
+  # The claims write is what makes the domain's hostnames' addresses
+  # serve — each serving instance's running app is re-told (the lane's
+  # ruling: best-effort, post-commit, warn-only per instance). The
+  # nested caller (`render: false`, the resume) runs this too: its
+  # claims write is uncommitted at that point, and a later event or a
+  # redeploy converges.
+  defp retell_serving_instances(domain) do
+    domain
+    |> VerifyAccessDomains.serving_instances()
+    |> Enum.each(&retell_url_env/1)
+  end
+
+  defp retell_url_env(instance) do
+    case SyncInstanceUrlEnv.call(instance) do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning(
+          "Access domain claim: the URL-env sync failed for instance #{instance.id}: " <>
+            inspect(reason)
+        )
+
+        :ok
+    end
+  end
 
   # A racing claims write (two tabs, two domains) fails StaleRecord
   # under update_claims' optimistic lock — the retry re-reads the

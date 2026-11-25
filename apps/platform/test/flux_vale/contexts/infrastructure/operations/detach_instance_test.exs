@@ -18,6 +18,7 @@ defmodule FluxVale.Infrastructure.Operations.DetachInstanceTest do
   alias FluxVale.Infrastructure.AccessRoute
   alias FluxVale.Infrastructure.Operations.DetachInstance
   alias FluxVale.Infrastructure.Operations.RenderAccessDNS
+  alias FluxVale.Infrastructure.Operations.SyncInstanceUrlEnv
   alias FluxVale.TestSupport.AccessFixtures
   alias FluxVale.TestSupport.BillingFixtures
   alias FluxVale.TestSupport.InstanceFixtures
@@ -180,6 +181,56 @@ defmodule FluxVale.Infrastructure.Operations.DetachInstanceTest do
       stub(RenderAccessDNS, :call, fn _opts -> flunk("no render on a failed primary") end)
 
       assert {:error, _reason} = DetachInstance.call(gateway, instance)
+    end
+  end
+
+  describe "the URL-env sync hook (the address re-tell)" do
+    # The bare detached shape: the provider's detach lands, the access
+    # edge's configs are already absent (404-tolerant removals).
+    defp bare_detach_stubs do
+      stub(Tailscale, :detach_instance, fn _gateway, _instance -> :ok end)
+
+      stub(Ingress, :delete, fn _kc, _ns, _name ->
+        {:error, Error.from_response({:ok, %{status: 404, body: %{}}})}
+      end)
+
+      stub(Middleware, :delete, fn _kc, _ns, _name ->
+        {:error, Error.from_response({:ok, %{status: 404, body: %{}}})}
+      end)
+    end
+
+    defp detached_shape!(gateway, instance) do
+      AccessRoute.create!(
+        %{gateway_id: gateway.id, instance_id: instance.id, route_key: "8443"},
+        authorize?: false
+      )
+    end
+
+    test "a committed detach syncs the detached instance", %{org: org, owner: owner} do
+      gateway = AccessFixtures.gateway!(org)
+      instance = AccessFixtures.private_instance!(org, owner)
+      detached_shape!(gateway, instance)
+      bare_detach_stubs()
+
+      # The pairing is gone — the hostnames lost their live path, so
+      # the running app is re-told exactly then.
+      expect(SyncInstanceUrlEnv, :call, fn synced ->
+        assert synced.id == instance.id
+        :ok
+      end)
+
+      assert :ok = DetachInstance.call(gateway, instance)
+    end
+
+    test "a sync failure is warn-only — the detach still succeeds", %{org: org, owner: owner} do
+      gateway = AccessFixtures.gateway!(org)
+      instance = AccessFixtures.private_instance!(org, owner)
+      detached_shape!(gateway, instance)
+      bare_detach_stubs()
+
+      stub(SyncInstanceUrlEnv, :call, fn _instance -> {:error, :boom} end)
+
+      assert :ok = DetachInstance.call(gateway, instance)
     end
   end
 end

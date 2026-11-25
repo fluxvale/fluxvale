@@ -15,6 +15,10 @@ defmodule FluxVale.Infrastructure.AccessDomain.Suspend do
     `dns_claims` entry dropped) — the SAME helper `RemoveAccessDomain`
     runs, reused not duplicated.
 
+  Post-commit (`after_transaction`, beside the render), each serving
+  instance's running app is re-told its URL env (best-effort, warn-only)
+  — the legacy surface, kept symmetrical with the resume.
+
   **Failure of a side effect fails the suspension** (fail-closed): the
   row keeps its state and keeps serving, and the next retry
   RE-RUNS THE WHOLE DOMAIN — the arms are idempotent (safe-deletes; an
@@ -56,6 +60,7 @@ defmodule FluxVale.Infrastructure.AccessDomain.Suspend do
   alias FluxVale.Infrastructure.Operations.EdgeRoutes
   alias FluxVale.Infrastructure.Operations.RemoveAccessDomain
   alias FluxVale.Infrastructure.Operations.RenderAccessDNS
+  alias FluxVale.Infrastructure.Operations.SyncInstanceUrlEnv
   alias FluxVale.Infrastructure.Operations.VerifyAccessDomains
 
   require Logger
@@ -68,8 +73,12 @@ defmodule FluxVale.Infrastructure.AccessDomain.Suspend do
     changeset
     |> Ash.Changeset.after_transaction(fn _changeset, result ->
       case result do
-        {:ok, _suspended} -> RenderAccessDNS.call()
-        {:error, _reason} -> :ok
+        {:ok, suspended} ->
+          RenderAccessDNS.call()
+          retell_serving_instances(suspended)
+
+        {:error, _reason} ->
+          :ok
       end
 
       result
@@ -119,6 +128,32 @@ defmodule FluxVale.Infrastructure.AccessDomain.Suspend do
         {:error, _reason} = error -> {:halt, error}
       end
     end)
+  end
+
+  # Post-commit (the after_transaction hook above): the committed
+  # :suspended row is what takes the domain's hostnames out of the
+  # derivation, so the re-tell reads it only there. The lane's ruling:
+  # best-effort, warn-only per instance — a sync failure never fails
+  # the suspension.
+  defp retell_serving_instances(domain) do
+    domain
+    |> VerifyAccessDomains.serving_instances()
+    |> Enum.each(&retell_url_env/1)
+  end
+
+  defp retell_url_env(instance) do
+    case SyncInstanceUrlEnv.call(instance) do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning(
+          "Access domain suspend: the URL-env sync failed for instance #{instance.id}: " <>
+            inspect(reason)
+        )
+
+        :ok
+    end
   end
 
   defp unclaim_tailnet_state(domain) do

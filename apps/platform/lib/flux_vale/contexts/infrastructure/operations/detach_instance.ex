@@ -22,6 +22,9 @@ defmodule FluxVale.Infrastructure.Operations.DetachInstance do
   up by instance id alone, so without it `detach(a_gateway,
   b_instance)` would delete another tenant's pairing and rewrite their
   policy — a tenant-isolation breach, not a validation error.
+
+  The closed pairing also re-tells the instance's running app its URL
+  env (the address lane's sync — best-effort, post-commit, warn-only).
   """
 
   alias FluxVale.Infrastructure.AccessGateway
@@ -30,6 +33,9 @@ defmodule FluxVale.Infrastructure.Operations.DetachInstance do
   alias FluxVale.Infrastructure.Operations.EdgeRoutes
   alias FluxVale.Infrastructure.Operations.InstanceK8s
   alias FluxVale.Infrastructure.Operations.RenderAccessDNS
+  alias FluxVale.Infrastructure.Operations.SyncInstanceUrlEnv
+
+  require Logger
 
   @spec call(AccessGateway.t(), Instance.t(), keyword()) :: :ok | {:error, term()}
   def call(%AccessGateway{} = gateway, %Instance{} = instance, _opts \\ []) do
@@ -48,8 +54,26 @@ defmodule FluxVale.Infrastructure.Operations.DetachInstance do
   defp detach(gateway, instance) do
     with :ok <- AccessProvider.impl_for(gateway).detach_instance(gateway, instance),
          :ok <- remove_access_edge(instance) do
+      retell_url_env(instance)
       RenderAccessDNS.call()
       :ok
+    end
+  end
+
+  # The lane's ruling: best-effort, post-commit of the pairing's
+  # removal (above), warn-only — a sync failure is logged and never
+  # fails the detach; the next event or a redeploy converges the env.
+  defp retell_url_env(instance) do
+    case SyncInstanceUrlEnv.call(instance) do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning(
+          "Detach: the URL-env sync failed for instance #{instance.id}: #{inspect(reason)}"
+        )
+
+        :ok
     end
   end
 

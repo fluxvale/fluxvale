@@ -23,6 +23,7 @@ defmodule FluxVale.Infrastructure.AccessGateway.ChangesTest do
   alias FluxVale.Infrastructure.AccessProviders.Tailscale
   alias FluxVale.Infrastructure.AccessRoute
   alias FluxVale.Infrastructure.Operations.ClaimUnclaimedDomains
+  alias FluxVale.Infrastructure.Operations.SyncInstanceUrlEnv
   alias FluxVale.TestSupport.AccessFixtures
   alias FluxVale.TestSupport.AccountsFixtures
   alias FluxVale.TestSupport.BillingFixtures
@@ -1716,6 +1717,69 @@ defmodule FluxVale.Infrastructure.AccessGateway.ChangesTest do
                AccessGateway.perform_teardown(gateway, %{}, authorize?: false)
 
       assert AccessGateway.get_by_id!(gateway.id, authorize?: false).id == gateway.id
+    end
+
+    # The lane's ruling: each instance whose arms came down has its
+    # running app re-told, per-instance and independent.
+    test "each detached instance's app is re-told after the arms come down", %{
+      org: org,
+      owner: owner
+    } do
+      gateway = AccessFixtures.gateway!(org)
+      instance = AccessFixtures.private_instance!(org, owner)
+
+      AccessRoute.create!(
+        %{gateway_id: gateway.id, instance_id: instance.id, route_key: "8443"},
+        authorize?: false
+      )
+
+      stub(K8s, :kubeconfig, fn _ref -> {:ok, %{}} end)
+
+      stub(Ingress, :delete, fn _kc, _ns, _name ->
+        {:error, Error.from_response({:ok, %{status: 404, body: %{}}})}
+      end)
+
+      stub(Middleware, :delete, fn _kc, _ns, _name ->
+        {:error, Error.from_response({:ok, %{status: 404, body: %{}}})}
+      end)
+
+      stub(Tailscale, :teardown_gateway, fn _gateway -> :ok end)
+
+      expect(SyncInstanceUrlEnv, :call, fn synced ->
+        assert synced.id == instance.id
+        :ok
+      end)
+
+      assert {:ok, _gone} = AccessGateway.perform_teardown(gateway, %{}, authorize?: false)
+
+      assert {:error, _not_found} = AccessGateway.get_by_id(gateway.id, authorize?: false)
+    end
+
+    test "a sync failure is warn-only — the teardown still completes", %{org: org, owner: owner} do
+      gateway = AccessFixtures.gateway!(org)
+      instance = AccessFixtures.private_instance!(org, owner)
+
+      AccessRoute.create!(
+        %{gateway_id: gateway.id, instance_id: instance.id, route_key: "8443"},
+        authorize?: false
+      )
+
+      stub(K8s, :kubeconfig, fn _ref -> {:ok, %{}} end)
+
+      stub(Ingress, :delete, fn _kc, _ns, _name ->
+        {:error, Error.from_response({:ok, %{status: 404, body: %{}}})}
+      end)
+
+      stub(Middleware, :delete, fn _kc, _ns, _name ->
+        {:error, Error.from_response({:ok, %{status: 404, body: %{}}})}
+      end)
+
+      stub(Tailscale, :teardown_gateway, fn _gateway -> :ok end)
+      stub(SyncInstanceUrlEnv, :call, fn _instance -> {:error, :boom} end)
+
+      assert {:ok, _gone} = AccessGateway.perform_teardown(gateway, %{}, authorize?: false)
+
+      assert {:error, _not_found} = AccessGateway.get_by_id(gateway.id, authorize?: false)
     end
   end
 

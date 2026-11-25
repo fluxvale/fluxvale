@@ -64,6 +64,12 @@ if Mix.env() == :test do
   Mimic.copy(FluxVale.Infrastructure.Operations.InstanceK8s)
   # #776: recovery repairs an error row's saved env before promoting
   Mimic.copy(FluxVale.Infrastructure.Operations.InstanceEnvSecret)
+  # The address lane's event hooks: the events' tests stub the
+  # sync at the seam (the sync's own suite runs the real module), and
+  # the enumeration hooks' tests may shrink the serving population via
+  # the one serving_instances selector.
+  Mimic.copy(FluxVale.Infrastructure.Operations.SyncInstanceUrlEnv)
+  Mimic.copy(FluxVale.Infrastructure.Operations.VerifyAccessDomains)
   # #238: the deploy's RBAC-propagation wait probes SelfSubjectAccessReview
   Mimic.copy(FluxVale.Clients.K8s.SelfAccessReview)
   # ADR-0040 S3: a test must be able to force the gateway row's system

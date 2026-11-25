@@ -91,6 +91,7 @@ defmodule FluxVale.Infrastructure.Instance do
   alias FluxVale.Infrastructure.Operations.SleepInstance
   alias FluxVale.Infrastructure.Operations.StartInstance
   alias FluxVale.Infrastructure.Operations.StopInstance
+  alias FluxVale.Infrastructure.Operations.SyncInstanceUrlEnv
   alias FluxVale.Infrastructure.PocketIdWiring
   alias FluxVale.Infrastructure.Types.InstanceFailureReason
 
@@ -1179,10 +1180,12 @@ defmodule FluxVale.Infrastructure.Instance do
           # a resolution flip) deliberately does NOT ride it: after_
           # action runs INSIDE the instance row-lock transaction, and
           # §7's lock discipline puts no cluster I/O in the serialized
-          # section. The render rides `after_transaction`'s SUCCESS
-          # branch instead — after the transaction has committed,
-          # before the caller sees the row; a failed (rolled-back)
-          # transaction never renders.
+          # section. The render and the URL-env re-tell (the address
+          # lane's sync — the exposure flip changes which address the
+          # app answers on) ride `after_transaction`'s SUCCESS branch
+          # instead — after the transaction has committed, before the
+          # caller sees the row; a failed (rolled-back) transaction
+          # never runs either.
           changeset =
             Ash.Changeset.after_action(changeset, fn _changeset, updated ->
               case SetExposure.call(updated) do
@@ -1193,8 +1196,9 @@ defmodule FluxVale.Infrastructure.Instance do
 
           Ash.Changeset.after_transaction(changeset, fn _changeset, result ->
             case result do
-              {:ok, _updated} ->
+              {:ok, updated} ->
                 RenderAccessDNS.call()
+                retell_url_env(updated)
                 result
 
               {:error, _reason} = error ->
@@ -1759,6 +1763,27 @@ defmodule FluxVale.Infrastructure.Instance do
   defp cluster_managed?(%{status: status}) when status in [:lost, :deleting], do: false
 
   defp cluster_managed?(_instance), do: true
+
+  # The exposure flip's post-commit re-tell (the lane's ruling):
+  # best-effort, warn-only — this hook runs after the toggle committed
+  # and returns its result to no one, so a sync failure is logged and
+  # never fails the toggle; the next event or a redeploy converges.
+  defp retell_url_env(instance) do
+    require Logger
+
+    case SyncInstanceUrlEnv.call(instance) do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning(
+          "Exposure toggle: the URL-env sync failed for instance #{instance.id}: " <>
+            inspect(reason)
+        )
+
+        :ok
+    end
+  end
 
   # --- the API backup verbs' helpers (#360) ---------------------------
 

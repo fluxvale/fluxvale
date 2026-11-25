@@ -7,7 +7,9 @@ defmodule FluxVale.Infrastructure.AccessGateway.PerformTeardown do
   NetworkPolicy to the private floor and rewrites the serve config, so
   no instance is ever left pointing at a gateway that no longer exists.
   The provider's `teardown_gateway/1` does that and then deletes the
-  objects; this module runs it, then the row.
+  objects; this module runs it, then the row. Each instance whose arms
+  came down also has its running app re-told its URL env (best-effort,
+  warn-only).
 
   Failure posture (the instance teardown's): return the error so Oban
   retries; `mark_teardown_error` parks the row in `:destroying` with its
@@ -27,6 +29,7 @@ defmodule FluxVale.Infrastructure.AccessGateway.PerformTeardown do
   alias FluxVale.Infrastructure.AccessProvider
   alias FluxVale.Infrastructure.Operations.EdgeRoutes
   alias FluxVale.Infrastructure.Operations.InstanceK8s
+  alias FluxVale.Infrastructure.Operations.SyncInstanceUrlEnv
 
   require Logger
 
@@ -66,10 +69,31 @@ defmodule FluxVale.Infrastructure.AccessGateway.PerformTeardown do
     |> AccessGateway.attached_instances()
     |> Enum.reduce_while(:ok, fn instance, :ok ->
       case remove_instance_arms(instance) do
-        :ok -> {:cont, :ok}
-        {:error, _reason} = error -> {:halt, error}
+        :ok ->
+          retell_url_env(instance)
+          {:cont, :ok}
+
+        {:error, _reason} = error ->
+          {:halt, error}
       end
     end)
+  end
+
+  # Best-effort, warn-only, per instance and independent (the lane's
+  # ruling): a sync failure is logged and never fails the teardown.
+  defp retell_url_env(instance) do
+    case SyncInstanceUrlEnv.call(instance) do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning(
+          "Gateway teardown: the URL-env sync failed for instance #{instance.id}: " <>
+            inspect(reason)
+        )
+
+        :ok
+    end
   end
 
   defp remove_instance_arms(instance) do

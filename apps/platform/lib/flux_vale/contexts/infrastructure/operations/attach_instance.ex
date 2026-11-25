@@ -35,6 +35,10 @@ defmodule FluxVale.Infrastructure.Operations.AttachInstance do
   whose cluster limbs failed claims a pairing nothing can reach (the
   row-claims-nothing discipline, the provider's own cleanup stance for
   its failed limbs), and the idempotent retry re-attaches cleanly.
+
+  The committed pairing also re-tells the instance's running app its
+  URL env (the address lane's sync — best-effort, post-commit,
+  warn-only).
   """
 
   alias FluxVale.Clients.K8s.Resources.NetworkPolicy
@@ -46,6 +50,7 @@ defmodule FluxVale.Infrastructure.Operations.AttachInstance do
   alias FluxVale.Infrastructure.Operations.EdgeRoutes
   alias FluxVale.Infrastructure.Operations.InstanceK8s
   alias FluxVale.Infrastructure.Operations.RenderAccessDNS
+  alias FluxVale.Infrastructure.Operations.SyncInstanceUrlEnv
 
   require Logger
 
@@ -101,6 +106,7 @@ defmodule FluxVale.Infrastructure.Operations.AttachInstance do
          :ok <- apply_access_edge(gateway, kubeconfig, instance) do
       reapply_if_status_moved(kubeconfig, gateway, instance)
       claim_verified_domains(gateway)
+      retell_url_env(instance)
       after_commit_render()
       {:ok, route}
     else
@@ -119,6 +125,24 @@ defmodule FluxVale.Infrastructure.Operations.AttachInstance do
   defp claim_verified_domains(gateway) do
     _summary = ClaimUnclaimedDomains.call(gateway, render?: false)
     :ok
+  end
+
+  # The lane's ruling for every address-event hook: best-effort,
+  # POST-COMMIT of the pairing (above), warn-only — a sync failure is
+  # logged and never fails the attach; the next event or a redeploy
+  # converges the env.
+  defp retell_url_env(instance) do
+    case SyncInstanceUrlEnv.call(instance) do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning(
+          "Attach: the URL-env sync failed for instance #{instance.id}: #{inspect(reason)}"
+        )
+
+        :ok
+    end
   end
 
   # The view is derived state (ADR-0040 §4): attach just changed WHICH

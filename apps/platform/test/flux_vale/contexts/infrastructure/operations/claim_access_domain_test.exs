@@ -17,8 +17,11 @@ defmodule FluxVale.Infrastructure.Operations.ClaimAccessDomainTest do
   alias FluxVale.Infrastructure.AccessGateway
   alias FluxVale.Infrastructure.AccessProviders.Tailscale
   alias FluxVale.Infrastructure.Operations.RenderAccessDNS
+  alias FluxVale.Infrastructure.Operations.SyncInstanceUrlEnv
+  alias FluxVale.Infrastructure.Operations.VerifyAccessDomains
   alias FluxVale.TestSupport.AccessFixtures
   alias FluxVale.TestSupport.BillingFixtures
+  alias FluxVale.TestSupport.InstanceFixtures
 
   @domain_name "apps.customer.com"
   @resolver_ip "10.43.0.20"
@@ -375,5 +378,49 @@ defmodule FluxVale.Infrastructure.Operations.ClaimAccessDomainTest do
       assert {:error, :unauthorized} =
                Infrastructure.claim_access_domain(gateway, domain, actor: owner)
     end
+  end
+
+  describe "the URL-env sync hook (the address re-tell)" do
+    test "a committed claim syncs the domain's serving instances", %{org: org, owner: owner} do
+      gateway = AccessFixtures.gateway!(org)
+      domain = verified_domain!(owner)
+      instance = serving_instance!(org, owner)
+
+      stub(VerifyAccessDomains, :serving_instances, fn claimed ->
+        assert claimed.id == domain.id
+        [instance]
+      end)
+
+      stub(Tailscale, :claim_domain, fn _gw, _name, _ip -> {:ok, %{device_id: "dev-1"}} end)
+
+      expect(SyncInstanceUrlEnv, :call, fn synced ->
+        assert synced.id == instance.id
+        :ok
+      end)
+
+      assert {:ok, _row} = Infrastructure.claim_access_domain(gateway, domain, actor: owner)
+    end
+
+    test "a sync failure is warn-only — the claim still lands", %{org: org, owner: owner} do
+      gateway = AccessFixtures.gateway!(org)
+      domain = verified_domain!(owner)
+      instance = serving_instance!(org, owner)
+
+      stub(VerifyAccessDomains, :serving_instances, fn _claimed -> [instance] end)
+      stub(SyncInstanceUrlEnv, :call, fn _instance -> {:error, :boom} end)
+
+      stub(Tailscale, :claim_domain, fn _gw, _name, _ip -> {:ok, %{device_id: "dev-1"}} end)
+
+      assert {:ok, row} = Infrastructure.claim_access_domain(gateway, domain, actor: owner)
+      assert row.dns_claims[@domain_name]["ip"] == @resolver_ip
+    end
+  end
+
+  # A private, attached, running instance — the sync's subject shape.
+  # (The create resolves the single cluster row, so the row exists.)
+  defp serving_instance!(org, owner) do
+    InstanceFixtures.local_cluster!()
+    {_org, _wallet} = BillingFixtures.funded_wallet!(org: org)
+    AccessFixtures.private_instance!(org, owner)
   end
 end

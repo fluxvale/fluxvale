@@ -17,8 +17,11 @@ defmodule FluxVale.Infrastructure.Operations.UnclaimAccessDomainTest do
   alias FluxVale.Infrastructure.AccessGateway
   alias FluxVale.Infrastructure.AccessProviders.Tailscale
   alias FluxVale.Infrastructure.Operations.RenderAccessDNS
+  alias FluxVale.Infrastructure.Operations.SyncInstanceUrlEnv
+  alias FluxVale.Infrastructure.Operations.VerifyAccessDomains
   alias FluxVale.TestSupport.AccessFixtures
   alias FluxVale.TestSupport.BillingFixtures
+  alias FluxVale.TestSupport.InstanceFixtures
 
   @domain_name "apps.customer.com"
   @resolver_ip "10.43.0.20"
@@ -273,6 +276,53 @@ defmodule FluxVale.Infrastructure.Operations.UnclaimAccessDomainTest do
       assert {:error, :unauthorized} =
                Infrastructure.unclaim_access_domain(gateway, domain, actor: owner)
     end
+  end
+
+  describe "the URL-env sync hook (the address re-tell)" do
+    test "a committed unclaim syncs the domain's serving instances", %{
+      org: org,
+      owner: owner
+    } do
+      gateway = claimed_gateway!(org)
+      domain = custom_domain!(owner)
+      instance = serving_instance!(org, owner)
+
+      stub(VerifyAccessDomains, :serving_instances, fn unclaimed ->
+        assert unclaimed.id == domain.id
+        [instance]
+      end)
+
+      stub(Tailscale, :unclaim_domain, fn _gw, _name -> :ok end)
+
+      expect(SyncInstanceUrlEnv, :call, fn synced ->
+        assert synced.id == instance.id
+        :ok
+      end)
+
+      assert {:ok, _row} = Infrastructure.unclaim_access_domain(gateway, domain, actor: owner)
+    end
+
+    test "a sync failure is warn-only — the unclaim still lands", %{org: org, owner: owner} do
+      gateway = claimed_gateway!(org)
+      domain = custom_domain!(owner)
+      instance = serving_instance!(org, owner)
+
+      stub(VerifyAccessDomains, :serving_instances, fn _unclaimed -> [instance] end)
+      stub(SyncInstanceUrlEnv, :call, fn _instance -> {:error, :boom} end)
+
+      stub(Tailscale, :unclaim_domain, fn _gw, _name -> :ok end)
+
+      assert {:ok, row} = Infrastructure.unclaim_access_domain(gateway, domain, actor: owner)
+      assert row.dns_claims == %{}
+    end
+  end
+
+  # A private, attached, running instance — the sync's subject shape.
+  # (The create resolves the single cluster row, so the row exists.)
+  defp serving_instance!(org, owner) do
+    InstanceFixtures.local_cluster!()
+    {_org, _wallet} = BillingFixtures.funded_wallet!(org: org)
+    AccessFixtures.private_instance!(org, owner)
   end
 
   # A gateway row already holding the claim (through the system funnel).
