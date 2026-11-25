@@ -1847,6 +1847,7 @@ defmodule FluxVale.Infrastructure.Instance do
     recipe_missing: "this app version has no automatic sign-in wiring recipe",
     recipe_not_env: "this app configures sign-in in its own settings, not automatically",
     no_callback_path: "this app version declares no OIDC callback path",
+    no_instance_url: "this app has no live address to point the sign-in callback at",
     pocket_id_not_found: "no Pocket ID instance with that id",
     forbidden: "that Pocket ID belongs to another organization",
     not_public: "that Pocket ID is private and cannot serve sign-in",

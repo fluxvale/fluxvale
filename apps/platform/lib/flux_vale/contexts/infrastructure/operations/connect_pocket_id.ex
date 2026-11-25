@@ -49,6 +49,7 @@ defmodule FluxVale.Infrastructure.Operations.ConnectPocketId do
   """
 
   alias FluxVale.Infrastructure.Instance
+  alias FluxVale.Infrastructure.Operations.InstanceEnvDerived
   alias FluxVale.Infrastructure.Operations.InstanceEnvSecret
   alias FluxVale.Infrastructure.Operations.UsePocketIdKey
   alias FluxVale.Infrastructure.PocketId.ApiClient
@@ -83,6 +84,9 @@ defmodule FluxVale.Infrastructure.Operations.ConnectPocketId do
   - `:instance_deleting` — the instance is on its way out; nothing
     to wire
   - `:recipe_missing` / `:recipe_not_env` / `:no_callback_path`
+  - `:no_instance_url` (the instance's own derivation answers nil — a
+    private app attached to nothing, nothing custom live: no address
+    to point the callback at)
   - `:pocket_id_not_found` / `:forbidden` (org fence) / `:not_public`
   - `:no_custody`
   - `:unreachable` (discovery or mint transport — the wake-race,
@@ -328,17 +332,22 @@ defmodule FluxVale.Infrastructure.Operations.ConnectPocketId do
   defp mint(pocket_id, key, app_instance, callback_path, recipe) do
     url = base_url(pocket_id)
 
-    attrs = %{
-      name: client_name(app_instance),
-      callback_url: callback_url(app_instance, callback_path),
-      pkce: recipe.pkce
-    }
+    # A client whose callback cannot be built is never minted: the
+    # callback derivation's nil refusal rides out of this step like a
+    # guard's, before the mint call.
+    with {:ok, callback} <- callback_url(app_instance, callback_path) do
+      attrs = %{
+        name: client_name(app_instance),
+        callback_url: callback,
+        pkce: recipe.pkce
+      }
 
-    # Bind then map (the credo deadlock on result-mapping helpers):
-    # 401/403 fold to the wiring's honest key verdicts; every other
-    # ApiClient error (transport, refused) passes through as-is.
-    outcome = ApiClient.create_client(url, key, attrs)
-    mint_result(outcome)
+      # Bind then map (the credo deadlock on result-mapping helpers):
+      # 401/403 fold to the wiring's honest key verdicts; every other
+      # ApiClient error (transport, refused) passes through as-is.
+      outcome = ApiClient.create_client(url, key, attrs)
+      mint_result(outcome)
+    end
   end
 
   defp mint_result({:ok, client}), do: {:ok, client}
@@ -466,8 +475,11 @@ defmodule FluxVale.Infrastructure.Operations.ConnectPocketId do
   defp put_enabled(env, enabled_env), do: Map.put(env, enabled_env, "true")
 
   # ------------------------------------------------------------------
-  # URL + name derivations (each operation owns its own — the
-  # set_pocket_id_key/deploy_instance stance for this same string)
+  # URL + name derivations. Ownership split: the app callback's ORIGIN
+  # is the shared derivation (`InstanceEnvDerived` — the same answer
+  # the deploy seeds and the sync ships); the POCKET ID's URL and the
+  # client's name stay local (each operation owns its own — the
+  # set_pocket_id_key/deploy_instance stance for those strings)
   # ------------------------------------------------------------------
 
   # The instance's public URL — the same derivation the deployer seeds
@@ -477,12 +489,19 @@ defmodule FluxVale.Infrastructure.Operations.ConnectPocketId do
     "https://#{slug}.#{Application.fetch_env!(:flux_vale, :instances_base_domain)}"
   end
 
-  # The callback the minted client registers: the app instance's
-  # public URL + the version's OIDC callback path (#511's contract —
-  # PocketID only redirects to listed callbacks).
-  defp callback_url(%Instance{slug: slug}, callback_path) do
-    base_domain = Application.fetch_env!(:flux_vale, :instances_base_domain)
-    "https://#{slug}.#{base_domain}#{callback_path}"
+  # The callback the minted client registers (#511's contract —
+  # PocketID only redirects to listed callbacks): the app instance's
+  # OWN live address + the version's OIDC callback path, so a member
+  # reached through a custom address is never told the default
+  # hostname mid-sign-in. The origin is the SHARED derivation (its
+  # trailing slash stripped — an API base URL carries none); it
+  # answers nil for a private app with nothing live, and that refusal
+  # lands before any client exists.
+  defp callback_url(%Instance{} = instance, callback_path) do
+    case InstanceEnvDerived.instance_url(instance) do
+      nil -> {:error, :no_instance_url}
+      url -> {:ok, String.trim_trailing(url, "/") <> callback_path}
+    end
   end
 
   # Recognizable in the PocketID admin UI (§4.3): the platform's mark

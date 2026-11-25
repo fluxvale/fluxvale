@@ -1588,6 +1588,8 @@ defmodule FluxValeWeb.CatalogLive.Deploy do
     recipe_missing: "This app version has no automatic sign-in wiring recipe.",
     recipe_not_env: "This app configures sign-in in its own settings, not automatically.",
     no_callback_path: "This app version declares no sign-in callback path.",
+    no_instance_url:
+      "This app has no address it can be reached on. Give it a custom address on its instance page, then retry.",
     pocket_id_not_found:
       "That Pocket ID no longer exists — deploy without sign-in, or start again later.",
     forbidden: "That Pocket ID belongs to another organization.",
