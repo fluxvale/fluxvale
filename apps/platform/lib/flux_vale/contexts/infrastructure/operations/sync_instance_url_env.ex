@@ -31,21 +31,24 @@ defmodule FluxVale.Infrastructure.Operations.SyncInstanceUrlEnv do
   deploy/restore composes the env from the same derivation, so
   skipping converges by construction.
 
-  The no-op gate is DELIVERY-AWARE. Values equal no longer means "do
-  nothing": live rows read the Deployment's `fluxvale.io/env-state`
-  stamp — the deploy writes the hash of the env it composes, and every
-  delivered restart re-records the hash it rolled. Stamp equal to the
-  live Secret's hash ⇒ the pods ran this exact env: the true no-op
-  (zero writes, one stamp GET). Stamp missing or different ⇒ a refused
-  restart left the pods on old env (or a user PATCH landed after the
-  last roll): one restart re-delivers — no Secret write, stamp
-  re-recorded. Stopped/sleeping rows run their OWN delivery check,
-  whose question is envFrom rather than a roll: the next start reads
-  the Secret only when the Deployment consumes it, so a refused
-  spec-only ensure self-heals on a value-identical retry (no Secret
-  write, no roll). An absent Secret never gains an envFrom reference —
-  a missing Secret at scheduling time is a CreateContainerConfigError
-  — so that arm stays a zero-call no-op.
+  The no-op gate is DELIVERY-AWARE. Every writer to the app-env Secret
+  stamps what it delivered — the deploy stamps the hash of the env it
+  composes, and every restart through the seam stamps the hash of the
+  map its upsert wrote (the sync, the env PATCH action, the SSO legs,
+  the reconciler's repair) — so a value-identical re-call checks
+  delivery instead of assuming it: a live row reads the Deployment's
+  `fluxvale.io/env-state` stamp; equal to the live Secret's hash ⇒ the
+  pods ran this exact env, the true no-op (zero writes, one stamp GET);
+  missing or different ⇒ a refused restart left the pods on old env,
+  one restart re-delivers (no Secret write, stamp re-recorded). A
+  stopped/sleeping row's question is envFrom rather than a roll: the
+  next start reads the Secret only when the Deployment consumes it, so
+  a refused spec-only ensure self-heals on the retry (no Secret write,
+  no roll). An ABSENT Secret — an env-less row the deploy composed
+  empty — is the zero-call no-op for BOTH arms: nothing was ever
+  delivered, nothing is owed, and an absent Secret never gains an
+  envFrom reference (a missing Secret at scheduling time is a
+  CreateContainerConfigError).
 
   The instance row is never written. The URL key is a live-Secret
   projection composed above user env (a redeploy recomposes it from the
@@ -203,14 +206,7 @@ defmodule FluxVale.Infrastructure.Operations.SyncInstanceUrlEnv do
       if set == %{} and remove == [] do
         no_op_delivery(locked, kubeconfig, namespace, live_data, existed?)
       else
-        # EXACTLY the map `InstanceEnvSecret.upsert/5` writes — computed
-        # once here so the restart's stamp hashes the delivered env.
-        composed =
-          live_data
-          |> Map.merge(set)
-          |> Map.drop(remove)
-
-        upsert_locked(locked, kubeconfig, namespace, set, remove, composed, existed?)
+        upsert_locked(locked, kubeconfig, namespace, set, remove, existed?)
       end
     else
       {:error, reason} -> Repo.rollback(reason)
@@ -254,17 +250,19 @@ defmodule FluxVale.Infrastructure.Operations.SyncInstanceUrlEnv do
     instance.env_vars != %{} or instance.backing_services != []
   end
 
-  defp upsert_locked(locked, kubeconfig, namespace, set, remove, composed, existed?) do
+  defp upsert_locked(locked, kubeconfig, namespace, set, remove, existed?) do
     # The row is never written here, so the row itself answers whether
     # the Secret should already exist.
     expect_existing = expect_existing?(locked)
 
     case InstanceEnvSecret.upsert(kubeconfig, namespace, set, remove, expect_existing) do
-      :ok ->
+      {:ok, merged} ->
         cond do
           locked.status in @live ->
+            # the stamp is the hash of the map the upsert just delivered
+            # (the seam returns it) — the pods roll onto exactly that env
             {:apply, :restart, kubeconfig, namespace, locked.id,
-             InstanceEnvSecret.env_state_hash(composed)}
+             InstanceEnvSecret.env_state_hash(merged)}
 
           not existed? ->
             # stopped/sleeping pods are absent: only a Secret this call
@@ -280,21 +278,27 @@ defmodule FluxVale.Infrastructure.Operations.SyncInstanceUrlEnv do
     end
   end
 
-  # The no-op branch's DELIVERY check — the question differs by status.
+  # The no-op branch's DELIVERY check — the question differs by status,
+  # and an ABSENT Secret is no delivery question at all: nothing was
+  # ever delivered, nothing is owed, and an absent Secret must never
+  # gain an envFrom reference (a missing Secret at scheduling time is a
+  # CreateContainerConfigError). The zero-call no-op for BOTH arms.
   #
-  # Live rows: a refused restart leaves pods on the old env, so the
-  # env-state stamp decides — equal means the pods ran this exact env
-  # (the true no-op); missing or different means one restart
+  # Live rows WITH a Secret: a refused restart leaves pods on the old
+  # env, so the env-state stamp decides — equal means the pods ran this
+  # exact env (the true no-op); missing or different means one restart
   # re-delivers, no Secret write, the stamp re-recorded.
   #
-  # Stopped/sleeping rows never roll, but they can still owe a
-  # delivery: the next start reads the Secret only when the Deployment
-  # CONSUMES it (envFrom) — a refused spec-only ensure leaves it not
-  # consuming, and a value-identical retry self-heals with the leg the
-  # failed attempt owed (no Secret write, no roll). Only an EXISTING
-  # Secret can be consumed: an absent one must never gain an envFrom
-  # reference (a missing Secret at scheduling time is a
-  # CreateContainerConfigError), so that arm stays a zero-call no-op.
+  # Stopped/sleeping rows WITH a Secret never roll, but they can still
+  # owe a delivery: the next start reads the Secret only when the
+  # Deployment CONSUMES it (envFrom) — a refused spec-only ensure leaves
+  # it not consuming, and a value-identical retry self-heals with the
+  # leg the failed attempt owed (no Secret write, no roll).
+  defp no_op_delivery(%Instance{}, _kubeconfig, _namespace, _live_data, existed?)
+       when not existed? do
+    :ok
+  end
+
   defp no_op_delivery(
          %Instance{status: status} = locked,
          kubeconfig,
@@ -317,11 +321,6 @@ defmodule FluxVale.Infrastructure.Operations.SyncInstanceUrlEnv do
       {:error, reason} ->
         Repo.rollback(reason)
     end
-  end
-
-  defp no_op_delivery(%Instance{status: status}, _kubeconfig, _namespace, _live_data, existed?)
-       when status in @secret_only and not existed? do
-    :ok
   end
 
   defp no_op_delivery(_locked, kubeconfig, namespace, _live_data, _existed?) do

@@ -469,6 +469,28 @@ defmodule FluxVale.Infrastructure.Operations.SyncInstanceUrlEnvTest do
       assert :ok = SyncInstanceUrlEnv.call(Ash.UUID.generate())
     end
 
+    test "a running env-less row with an absent Secret is a zero-call no-op", %{
+      org: _org,
+      owner: owner
+    } do
+      # the deploy composed an empty env: no Secret exists and no stamp
+      # was ever written — nothing to deliver, and an absent Secret must
+      # never gain an envFrom reference (a restart here would hang
+      # envFrom on nothing and crash the pod at scheduling)
+      instance = instance_at!(owner, url_env_version(), :running)
+
+      stub(Secret, :get_data, fn _kc, _ns, "app-env" ->
+        {:error, %K8s.Error{status_code: 404, reason: :not_found, message: "absent"}}
+      end)
+
+      reject(Deployment, :get, 3)
+      reject(Deployment, :restart, 4)
+      reject(Secret, :upsert, 4)
+      reject(Deployment, :ensure_env_from, 3)
+
+      assert :ok = SyncInstanceUrlEnv.call(instance)
+    end
+
     test "a nil namespace on a gated row refuses with :not_deployed", %{
       org: _org,
       owner: owner

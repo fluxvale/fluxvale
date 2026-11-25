@@ -49,8 +49,8 @@ defmodule FluxVale.Infrastructure.Operations.InstanceEnvDerived do
   with that later slice, ADR-0052). Public rows always answer on
   the default hostname. Private rows: the OLDEST live custom address
   (created_at, then id — A1's stability ruling), else the default when
-  `default_hostname_live?/1`, else nil (ADR-0038 §4's omission).
-  Trailing slash, mirroring the deploy seed's shape.
+  the claimed-domain predicate holds, else nil (ADR-0038 §4's
+  omission). Trailing slash, mirroring the deploy seed's shape.
   """
   @spec instance_url(Instance.t()) :: String.t() | nil
   def instance_url(instance), do: derive(instance).url
@@ -120,16 +120,6 @@ defmodule FluxVale.Infrastructure.Operations.InstanceEnvDerived do
   # running app's env Secret — the seeded URL goes stale by design
   # until the next deploy re-decides (the same stance as an exposure
   # toggle: toggling later doesn't rewrite a running app's env).
-  @doc """
-  Is the instance's default hostname live on a claimed domain? The
-  deployer's URL/allowlist decision and the in-place patch's allowlist
-  re-append share this predicate.
-  """
-  @spec default_hostname_live?(map()) :: boolean()
-  def default_hostname_live?(instance) do
-    hostname_default_live?(attach_and_claims(instance), instance)
-  end
-
   # ONE snapshot of the addressing inputs: whether the instance is
   # attached (a live AccessRoute pairing — the same record attach/detach
   # read) and, when it is, the org gateway's claims map. Both arms of

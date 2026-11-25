@@ -358,9 +358,12 @@ defmodule FluxVale.Infrastructure.Operations.ReconcileInstance do
   # the restart picks the values up. A failed repair leaves the error
   # (redeploy owns the repair, as the env action tells the owner).
   defp repair_env_and_promote(kubeconfig, instance) do
-    with :ok <-
+    with {:ok, merged} <-
            InstanceEnvSecret.upsert(kubeconfig, instance.namespace, instance.env_vars, [], false),
-         :ok <- InstanceEnvSecret.restart(kubeconfig, instance.namespace) do
+         :ok <-
+           InstanceEnvSecret.restart(kubeconfig, instance.namespace,
+             env_state: InstanceEnvSecret.env_state_hash(merged)
+           ) do
       promote_running(instance)
     else
       {:error, error} ->

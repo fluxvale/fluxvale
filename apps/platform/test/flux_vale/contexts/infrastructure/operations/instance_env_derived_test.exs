@@ -367,22 +367,6 @@ defmodule FluxVale.Infrastructure.Operations.InstanceEnvDerivedTest do
     end
   end
 
-  describe "default_hostname_live?/1" do
-    test "true when the gateway claims the base domain" do
-      {org, row} = org_instance!(:private)
-      gateway = attach!(org, row)
-      AccessFixtures.claim!(gateway, [base_domain()])
-
-      assert InstanceEnvDerived.default_hostname_live?(row)
-    end
-
-    test "false for an unattached private row" do
-      {_org, row} = org_instance!(:private)
-
-      refute InstanceEnvDerived.default_hostname_live?(row)
-    end
-  end
-
   # ------------------------------------------------------------------
   # Helpers
   # ------------------------------------------------------------------

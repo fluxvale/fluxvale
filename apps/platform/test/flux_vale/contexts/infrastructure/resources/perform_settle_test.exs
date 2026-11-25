@@ -572,7 +572,7 @@ defmodule FluxVale.Infrastructure.Instance.PerformSettleTest do
 
       stub(PersistentVolumeClaim, :upsert, fn _kc, _ns, "app-data", _spec -> {:ok, %{}} end)
 
-      stub(Secret, :get, fn _kc, _ns, "app-env" ->
+      stub(Secret, :get_data, fn _kc, _ns, "app-env" ->
         {:error, Error.from_response({:ok, %{status: 404, body: %{}}})}
       end)
 
