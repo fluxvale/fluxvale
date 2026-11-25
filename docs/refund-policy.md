@@ -9,7 +9,7 @@ The customer-facing text of record is that page's template
 — advisor edits are one cohesive change there. This doc is the
 decision record.
 
-## The stance (decided 2026-10-13, owner; PikaPods-shaped)
+## The stance (decided 2026-10-13, owner)
 
 - **Credits are non-refundable.** No self-serve refund flow, no refund
   API integration in v1. The never-expiring balance IS the fairness
@@ -48,5 +48,4 @@ The prepaid-credit VAT classification stays a separate open item
 ([open-questions.md](open-questions.md) #4, ADR-0029 Am. 3) — it
 shifts *when* VAT attaches, not the refund stance.
 
-[data-deletion.md](data-deletion.md) remains a draft until its
-publication rides a lane of its own.
+[data-deletion.md](data-deletion.md) remains a draft until it is published separately.

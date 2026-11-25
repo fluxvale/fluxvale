@@ -7,8 +7,7 @@
 anything in the admin surface, "that said, I think we should implement
 AshPaperTrail so we have auditing capabilities" (#645). If every
 mutation may be an admin action, every mutation must be attributable.
-The implementation contract is the [plan](../plans/644-admin-authority-audit.md)
-(Arc 2); slice A2-S1 proved the posture on Ops (`FeatureFlag`,
+The implementation contract is tracked in [#644](https://github.com/fluxvale/fluxvale/issues/644); slice A2-S1 proved the posture on Ops (`FeatureFlag`,
 `AccessRule`), and the rollout slices extend it verbatim to the
 29-resource business set (the plan's shared table — the same set Arc 1
 widens authority over; the six machinery resources stay out: ephemeral
@@ -251,6 +250,5 @@ janitor bookkeeping, each named with its reason there).
   additive-only new tables; no source table changes.
 - [ADR-0030](00030-ops-domain.md) / [ADR-0023](00023-day-one-gates.md):
   Ops hosts the proof slice (`FeatureFlag`, `AccessRule`).
-- The resource console plan
-  ([595](../plans/595-resource-console.md)): the registry parity test
+- The resource console ([#595](https://github.com/fluxvale/fluxvale/issues/595)): the registry parity test
   gained its per-resource exclusion seam here.

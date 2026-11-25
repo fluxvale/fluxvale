@@ -6,7 +6,7 @@ never served: only `docs/public` and `docs/blog` reach the public site
 appear in member-facing copy — the request UI says only "we order capacity for this" and
 the confirmed rate.
 
-Deciding record: [plan 250](../plans/250-storage-approval.md), [ADR-0043](../adr/00043-instance-resize.md)
+Deciding record: [#250](https://github.com/fluxvale/fluxvale/issues/250), [ADR-0043](../adr/00043-instance-resize.md)
 (storage up-only; capability probe). The issue: #250.
 
 ## 1. What and why
@@ -72,11 +72,11 @@ escalate; do not over-promise.
 
 ## 4. Attach
 
-**Prod prerequisite (launch checklist, not this lane's build):** the prod StorageClass
+**Prod prerequisite (launch checklist item):** the prod StorageClass
 must report `allowVolumeExpansion: true` before any beyond-threshold approval can
 apply. The k3d patch in §4's local note is a **local-dev enabler only**; a prod
-StorageClass change is an owner/operator launch-checklist adjacency — do not improvise it
-from a worker branch. The approve action's live probe refuses honestly until it is true.
+StorageClass change is an owner/operator launch-checklist step — do not improvise it
+from an application branch. The approve action's live probe refuses honestly until it is true.
 
 The exact device/LVM names depend on the box; verify, don't guess. The shape:
 

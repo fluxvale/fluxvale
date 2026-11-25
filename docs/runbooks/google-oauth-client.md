@@ -24,8 +24,7 @@ credentials absent) until this runbook is walked.
      before redirect URIs are accepted).
    - **Data access / scopes**: add only `openid` and `email`
      (`.../auth/userinfo.email`) — the arm requests `openid email`
-     and nothing else ([plan](../plans/642-google-sign-in.md)
-     D-scopes); profile scopes would widen what Google sends. No
+     and nothing else ([#642](https://github.com/fluxvale/fluxvale/issues/642)); profile scopes would widen what Google sends. No
      sensitive scopes, so no extended verification.
    - **Test users** (while in Testing mode): add the owner's Google
      account, or the verify step below will hit the warning wall.

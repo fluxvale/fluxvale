@@ -124,6 +124,3 @@ and the prod 1Password item stays empty until that project's key
 exists. Until then the `$host` event property keeps envs
 distinguishable inside the one project; after the split they are
 separate projects outright.
-
-Implementation plan (slices S0–S6, rollout order, operator checklist):
-[../plans/posthog-observability-split.md](../plans/posthog-observability-split.md).

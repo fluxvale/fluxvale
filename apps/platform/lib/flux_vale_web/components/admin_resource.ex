@@ -1,7 +1,6 @@
 defmodule FluxValeWeb.AdminResource do
   @moduledoc """
-  The generic resource console's type-driven render pieces (#595, the
-  plan at docs/plans/595-resource-console.md): one value renderer per
+  The generic resource console's type-driven render pieces (#595): one value renderer per
   attribute shape (the plan's rendering table), the page math the audit
   surface's own pager reads (the shared data table carries its own
   `page_count/2`), the write affordances (the visible?-gated New link

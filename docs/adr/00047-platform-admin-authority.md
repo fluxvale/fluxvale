@@ -12,8 +12,7 @@
 An admin dashboard that cannot see everything is pointless; the
 per-resource admin arms accumulated so far (#140, #501, #577) widen one
 policy at a time and drift the moment a new policy forgets its arm.
-The implementation contract is the
-[plan](../plans/644-admin-authority-audit.md) (Arc 1); slice A1-S1
+The implementation contract and business-set table lived in the original implementation plan for [#644](https://github.com/fluxvale/fluxvale/issues/644), since removed from the tree (see the note at the top of the [ADR index](README.md)); slice A1-S1
 lands the mechanism and the gate.
 
 ## Decision
@@ -177,8 +176,7 @@ lands the mechanism and the gate.
 - [ADR-0048](00048-ash-paper-trail-audit.md): the other half of the
   doctrine — widened authority meets attributable mutations. Neither
   arc ships alone.
-- The resource console plan
-  ([595](../plans/595-resource-console.md)): the registry's intent
+- The resource console ([#595](https://github.com/fluxvale/fluxvale/issues/595)): the registry's intent
   lists keep deciding what renders; this ADR's policies decide what
   passes.
 

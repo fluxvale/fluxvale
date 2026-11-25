@@ -5,6 +5,8 @@ rationale, and the **rejected alternatives** — the last one matters most,
 because it's what stops a future session from re-proposing something we
 already ruled out.
 
+Several decision records used to point at implementation plans under docs/plans/ for reasoning, decision tables and contracts that their tracking issues do not repeat. The plans were removed from the tree on 2026-11-25. Their content is still in this repository's history. To read one, run `git show a2fc7494:docs/plans/<file>` and replace `<file>` with the plan's name, which the removing commit lists.
+
 ## Index
 
 | # | Decision | Status |

@@ -13,7 +13,7 @@ against the anchor on every run.
 > whose model section (oversubscription density, storage-bound ~46
 > smalls per box, per-datacenter pricing) supersedes this check's
 > original legacy-box math. The table below is now the **B′ table**;
-> charging at B′ presumes the scale-to-zero lane lands before
+> charging at B′ presumes scale-to-zero lands before
 > production charging (the recalibration doc's dependency note).
 
 ## The anchor: the market reference curve
