@@ -55,6 +55,15 @@ defmodule FluxValeWeb.AgentPromptTest do
     assert length(parts) == 2
   end
 
+  test "step 1 hands back the top-up link and never asks for card details", %{ctx: ctx} do
+    step = first_step(AgentPrompt.prompt(ctx))
+
+    assert step =~ "give me the top-up link"
+    assert step =~ "Never ask for card details."
+    refute step =~ "—"
+    refute step =~ ";"
+  end
+
   test "the prompt numbers its steps 1 through 9 with no gap or repeat", %{ctx: ctx} do
     prompt = AgentPrompt.prompt(ctx)
     matches = Regex.scan(~r/^(\d+)\. /m, prompt, capture: :all_but_first)
@@ -320,6 +329,14 @@ defmodule FluxValeWeb.AgentPromptTest do
     before_parts = String.split(prompt, "4. Confirm the spend")
     before_step4 = List.first(before_parts)
     step_parts = String.split(before_step4, "3. ")
+    List.last(step_parts)
+  end
+
+  # Step 1's text: from its number up to step 2's.
+  defp first_step(prompt) do
+    before_parts = String.split(prompt, "2. Ask what I want to run")
+    before_step2 = List.first(before_parts)
+    step_parts = String.split(before_step2, "1. ")
     List.last(step_parts)
   end
 end

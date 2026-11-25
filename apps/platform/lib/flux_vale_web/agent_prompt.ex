@@ -191,7 +191,7 @@ defmodule FluxValeWeb.AgentPrompt do
     Auth: #{auth_note(ctx)}
 
     You are my FluxVale setup agent. Connect to the MCP server above, then:
-    1. Call `whoami`, then `wallet_balance`. If the balance is zero or negative, stop and give me the top-up link: #{ctx.api_base}#{~p"/billing/topup"}. Do not deploy.
+    1. Call `whoami`, then `wallet_balance`. If the balance is zero or negative, stop and give me the top-up link: #{ctx.api_base}#{~p"/billing/topup"}. Do not deploy. Never ask for card details.
     2. Ask what I want to run, then pick an app from `apps_list` and call `apps_show`: it lists versions with the default CPU, memory, and storage and a `monthly_cents` rate. Propose one version and that price (billed hourly).
     3. Ask me once whether I want single sign-on (OIDC) for my apps.
        - If I say no, accept it and never ask again this session.
