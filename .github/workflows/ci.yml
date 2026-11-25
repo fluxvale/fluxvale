@@ -149,7 +149,15 @@ jobs:
         id: watermark
         if: github.ref == 'refs/heads/main'
         run: |
-          base="$(scripts/deploy-watermark.sh staging=https://staging.fluxvale.com/health production=https://fluxvale.com/health)"
+          line="$(scripts/deploy-watermark.sh staging=https://staging.fluxvale.com/health production=https://fluxvale.com/health)"
+          # The resolver prints its whole contract line, `base=<sha>`: strip the
+          # prefix here, and never hand paths-filter anything but a bare sha —
+          # a malformed line must red this step, not become a ref name (#868).
+          base="${line#base=}"
+          if [ -n "$base" ] && ! printf '%s' "$base" | grep -qE '^[0-9a-f]{40}$'; then
+            echo "::error::deploy-watermark printed a malformed line: '$line'"
+            exit 1
+          fi
           if [ -z "$base" ] && [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
             echo "::error::no env reports a serving sha — nothing to reconcile against; re-dispatch when both /health answer"
             exit 1
