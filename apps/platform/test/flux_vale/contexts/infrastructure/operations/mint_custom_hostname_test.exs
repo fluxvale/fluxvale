@@ -19,6 +19,7 @@ defmodule FluxVale.Infrastructure.Operations.MintCustomHostnameTest do
   alias FluxVale.Infrastructure.InstanceHostname
   alias FluxVale.Infrastructure.Operations.EdgeRoutes
   alias FluxVale.Infrastructure.Operations.RenderAccessDNS
+  alias FluxVale.Infrastructure.Operations.SyncInstanceUrlEnv
   alias FluxVale.TestSupport.AccessFixtures
   alias FluxVale.TestSupport.BillingFixtures
   alias FluxVale.TestSupport.InstanceFixtures
@@ -54,6 +55,8 @@ defmodule FluxVale.Infrastructure.Operations.MintCustomHostnameTest do
 
       expect(RenderAccessDNS, :call, fn -> :ok end)
       reject(EdgeRoutes, :apply_access_for_status, 3)
+      # Nothing serves yet — the app is never told.
+      reject(SyncInstanceUrlEnv, :call, 1)
 
       assert {:ok, hostname} =
                Infrastructure.mint_custom_hostname(instance.id, domain.id, "git", actor: owner)
@@ -74,6 +77,7 @@ defmodule FluxVale.Infrastructure.Operations.MintCustomHostnameTest do
 
       expect(RenderAccessDNS, :call, fn -> :ok end)
       reject(EdgeRoutes, :apply_access_for_status, 3)
+      reject(SyncInstanceUrlEnv, :call, 1)
 
       assert {:ok, _hostname} =
                Infrastructure.mint_custom_hostname(instance.id, domain.id, "git", actor: owner)
@@ -97,12 +101,70 @@ defmodule FluxVale.Infrastructure.Operations.MintCustomHostnameTest do
         :ok
       end)
 
+      # The edge applied — the deployed app is told its new address.
+      expect(SyncInstanceUrlEnv, :call, fn synced ->
+        assert synced.id == instance.id
+        :ok
+      end)
+
       expect(RenderAccessDNS, :call, fn -> :ok end)
 
       assert {:ok, _hostname} =
                Infrastructure.mint_custom_hostname(instance.id, domain.id, "git", actor: owner)
 
       assert route.gateway_id == gateway.id
+    end
+  end
+
+  describe "call/4 — the URL-env sync hook (the address re-tell)" do
+    # The lane's posture: NO sync failure unwinds the mint. The edge
+    # has applied and the address serves, so the row and its routes
+    # stand on every sync outcome.
+    test "a refused app restart keeps the row standing, no unwind, error mapped", %{
+      org: org,
+      owner: owner
+    } do
+      domain = verified_domain!(org)
+      instance = private_instance!(org, owner)
+      gateway = AccessFixtures.gateway!(org)
+      _route = route!(gateway, instance)
+
+      expect(EdgeRoutes, :apply_access_for_status, fn _kc, _gateway, _instance -> :ok end)
+
+      expect(SyncInstanceUrlEnv, :call, fn _instance ->
+        {:error, {:restart_refused, :boom}}
+      end)
+
+      # The address serves — no route removal, no render, and the
+      # member-facing reason is the mapped atom, not the raw tuple.
+      reject(EdgeRoutes, :apply_access_none_for_hostname, 3)
+      reject(RenderAccessDNS, :call, 0)
+
+      assert {:error, :restart_refused} =
+               Infrastructure.mint_custom_hostname(instance.id, domain.id, "git", actor: owner)
+
+      assert hostname_exists?(instance.id, "git")
+    end
+
+    test "any other sync failure keeps the row standing and returns the error as-is", %{
+      org: org,
+      owner: owner
+    } do
+      domain = verified_domain!(org)
+      instance = private_instance!(org, owner)
+      gateway = AccessFixtures.gateway!(org)
+      _route = route!(gateway, instance)
+
+      expect(EdgeRoutes, :apply_access_for_status, fn _kc, _gateway, _instance -> :ok end)
+      expect(SyncInstanceUrlEnv, :call, fn _instance -> {:error, :missing} end)
+
+      reject(EdgeRoutes, :apply_access_none_for_hostname, 3)
+      reject(RenderAccessDNS, :call, 0)
+
+      assert {:error, :missing} =
+               Infrastructure.mint_custom_hostname(instance.id, domain.id, "git", actor: owner)
+
+      assert hostname_exists?(instance.id, "git")
     end
   end
 

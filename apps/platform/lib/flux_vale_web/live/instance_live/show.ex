@@ -2190,6 +2190,19 @@ defmodule FluxValeWeb.InstanceLive.Show do
          |> put_flash(:info, "Address added.")
          |> refresh_hostnames()}
 
+      # The row stands and serves (no un-mint on a failed re-tell);
+      # the member gets the honest partial-success copy, and the card
+      # refreshes so the added address is visible.
+      {:error, :restart_refused} ->
+        {:noreply,
+         socket
+         |> put_flash(
+           :error,
+           "The address was added, but the app could not be restarted to pick it up. " <>
+             "It will pick it up on its next change or a redeploy."
+         )
+         |> refresh_hostnames()}
+
       {:error, _reason} ->
         {:noreply,
          put_flash(

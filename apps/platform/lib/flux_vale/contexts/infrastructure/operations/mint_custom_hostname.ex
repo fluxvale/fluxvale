@@ -21,6 +21,15 @@ defmodule FluxVale.Infrastructure.Operations.MintCustomHostname do
   removed) before the error returns; an unattached instance skips the
   cluster entirely, recording the row for the day it attaches.
 
+  When the edge applies (an attached private instance), the mint also
+  tells the deployed app its new address (`SyncInstanceUrlEnv`). A
+  failure to tell does NOT un-mint the serving address — the row is
+  truth, the env is a projection (ADR-0052 decision 2's stance): the
+  row and its routes stand, and only the error returns, a refused app
+  restart mapped to its own `:restart_refused` reason whose member
+  copy says the app picks the address up on its next change or a
+  redeploy.
+
   Pure DB work plus the one idempotent edge apply; the resolver view is
   derived state, so the `RenderAccessDNS` pass runs best-effort AFTER
   the row commits (a failed render never fails the mint).
@@ -33,11 +42,13 @@ defmodule FluxVale.Infrastructure.Operations.MintCustomHostname do
   alias FluxVale.Infrastructure.Operations.EdgeRoutes
   alias FluxVale.Infrastructure.Operations.InstanceK8s
   alias FluxVale.Infrastructure.Operations.RenderAccessDNS
+  alias FluxVale.Infrastructure.Operations.SyncInstanceUrlEnv
 
   @doc """
   `{:ok, hostname}` or `{:error, reason}` — `reason` being
-  `:different_organization | :not_custom | :not_verified | Forbidden |
-  term()`. `opts` carry `actor:` / `authorize?:` / `context:`.
+  `:different_organization | :not_custom | :not_verified |
+  :restart_refused | Forbidden | term()`. `opts` carry `actor:` /
+  `authorize?:` / `context:`.
   """
   @spec call(Ash.UUID.t(), Ash.UUID.t(), String.t(), keyword()) ::
           {:ok, InstanceHostname.t()} | {:error, term()}
@@ -50,7 +61,8 @@ defmodule FluxVale.Infrastructure.Operations.MintCustomHostname do
          {:ok, domain} <- AccessDomain.get_by_id(access_domain_id, read_opts),
          :ok <- ensure_addable(instance, domain),
          {:ok, hostname} <- mint(instance, domain, label),
-         :ok <- apply_edge(instance, hostname, read_opts) do
+         {:ok, applied?} <- apply_edge(instance, hostname, read_opts),
+         :ok <- tell_app(instance, applied?) do
       RenderAccessDNS.call()
       {:ok, hostname}
     end
@@ -89,6 +101,8 @@ defmodule FluxVale.Infrastructure.Operations.MintCustomHostname do
   # A public instance holds no access edge (SetExposure's private arm
   # mints it later), even when a stale AccessRoute row survives the
   # public flip. Record the row; do not re-mint the private arm.
+  # Returns whether the edge actually applied — only that arm tells
+  # the app (nothing serves, nothing to tell, on every other path).
   defp apply_edge(%{exposure: :private} = instance, hostname, read_opts) do
     case AccessRoute.get_by_instance(instance.id, read_opts) do
       {:ok, route} ->
@@ -97,7 +111,7 @@ defmodule FluxVale.Infrastructure.Operations.MintCustomHostname do
 
       {:error, error} ->
         if route_missing?(error) do
-          :ok
+          {:ok, false}
         else
           unwind(instance, hostname, nil, error)
         end
@@ -107,18 +121,37 @@ defmodule FluxVale.Infrastructure.Operations.MintCustomHostname do
   # An unattached or public instance has nothing to route: the row is
   # recorded and serves nothing until the pairing + private posture land
   # (the page copy says so).
-  defp apply_edge(_instance, _hostname, _read_opts), do: :ok
+  defp apply_edge(_instance, _hostname, _read_opts), do: {:ok, false}
 
   defp apply_for_status(instance, hostname, gateway) do
     case InstanceK8s.kubeconfig_for(instance) do
       {:ok, kubeconfig} ->
         case EdgeRoutes.apply_access_for_status(kubeconfig, gateway, instance) do
-          :ok -> :ok
+          :ok -> {:ok, true}
           {:error, reason} -> unwind(instance, hostname, kubeconfig, reason)
         end
 
       {:error, reason} ->
         unwind(instance, hostname, nil, reason)
+    end
+  end
+
+  # The app re-tell runs only on the arm whose edge just applied, and a
+  # sync failure never unwinds: at this point the edge HAS applied and
+  # the address SERVES — destroying a serving address to repair env
+  # delivery would be the mirror image of the false claim the edge
+  # unwind exists for, and a re-mint would silently no-op on the
+  # delivery-aware gate (ADR-0052 decision 2's stance). A refused app
+  # restart gets its own member-facing reason (the copy: the app picks
+  # the address up on its next change or a redeploy); anything else
+  # returns as-is for the surfaces' generic mapping.
+  defp tell_app(_instance, false), do: :ok
+
+  defp tell_app(instance, true) do
+    case SyncInstanceUrlEnv.call(instance) do
+      :ok -> :ok
+      {:error, {:restart_refused, _reason}} -> {:error, :restart_refused}
+      {:error, reason} -> {:error, reason}
     end
   end
 

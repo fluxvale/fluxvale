@@ -41,8 +41,10 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
   alias FluxVale.Infrastructure.Instance
   alias FluxVale.Infrastructure.Instance.PricingSnapshot
   alias FluxVale.Infrastructure.InstanceHostname
+  alias FluxVale.Infrastructure.Operations.EdgeRoutes
   alias FluxVale.Infrastructure.Operations.InstanceK8s
   alias FluxVale.Infrastructure.Operations.RenderAccessDNS
+  alias FluxVale.Infrastructure.Operations.SyncInstanceUrlEnv
   alias FluxVale.Pricing
   alias FluxVale.Pricing.Size
   alias FluxVale.TestSupport.AccessFixtures
@@ -2005,6 +2007,53 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
 
       assert has_element?(view, "#flash-error")
       refute has_element?(view, "[data-testid='hostname-value']", "Git.#{domain.domain}")
+    end
+
+    test "a refused restart after mint keeps the row and flashes the pickup copy", %{
+      conn: conn,
+      user: user,
+      version: version
+    } do
+      # The attached private shape so the mint reaches the re-tell: the
+      # address stands (no un-mint) and the flash says how the app
+      # catches up.
+      instance = create_instance!(version, user)
+      InstanceFixtures.pin!(instance, exposure: :private)
+      domain = verified_custom_domain!(instance, user)
+      org = AccountsFixtures.personal_org!(user)
+
+      # The gateway fixture's create runs the provider's cluster leg —
+      # stubbed at the provider boundary (the reachability describe's
+      # stance).
+      stub(Tailscale, :provision_gateway, fn _gateway, _key ->
+        {:ok, %{credential_secret_ref: "credential-stub"}}
+      end)
+
+      gateway = AccessFixtures.gateway!(org)
+
+      AccessRoute.create!(
+        %{gateway_id: gateway.id, instance_id: instance.id, route_key: "8443"},
+        authorize?: false
+      )
+
+      stub(K8s, :kubeconfig, fn _ref -> {:ok, %{}} end)
+      stub(EdgeRoutes, :apply_access_for_status, fn _kc, _gateway, _instance -> :ok end)
+
+      stub(SyncInstanceUrlEnv, :call, fn _instance ->
+        {:error, {:restart_refused, :boom}}
+      end)
+
+      {:ok, view, _html} = live(conn, ~p"/instances/#{instance.id}")
+
+      view
+      |> form("#hostname-form", %{
+        "hostname" => %{"access_domain_id" => domain.id, "label" => "git"}
+      })
+      |> render_submit()
+
+      assert has_element?(view, "#flash-error")
+      assert render(view) =~ "could not be restarted to pick it up"
+      assert has_element?(view, "[data-testid='hostname-value']", "git.#{domain.domain}")
     end
 
     test "unmatched mint and remove payloads are no-ops", %{

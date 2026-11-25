@@ -40,7 +40,10 @@ defmodule FluxVale.Infrastructure.InstanceHostname do
   @mint_refusals %{
     different_organization: "that domain belongs to a different organization",
     not_custom: "only a custom domain can host a custom address",
-    not_verified: "verify the domain before adding addresses to it"
+    not_verified: "verify the domain before adding addresses to it",
+    restart_refused:
+      "The address was added, but the app could not be restarted to pick it up. " <>
+        "It will pick it up on its next change or a redeploy."
   }
 
   @remove_refusals %{
