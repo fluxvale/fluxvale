@@ -31,6 +31,17 @@ defmodule FluxVale.Infrastructure.Operations.SyncInstanceUrlEnv do
   deploy/restore composes the env from the same derivation, so
   skipping converges by construction.
 
+  The no-op gate is DELIVERY-AWARE. Values equal no longer means "do
+  nothing": live rows read the Deployment's `fluxvale.io/env-state`
+  stamp — the deploy writes the hash of the env it composes, and every
+  delivered restart re-records the hash it rolled. Stamp equal to the
+  live Secret's hash ⇒ the pods ran this exact env: the true no-op
+  (zero writes, one stamp GET). Stamp missing or different ⇒ a refused
+  restart left the pods on old env (or a user PATCH landed after the
+  last roll): one restart re-delivers — no Secret write, stamp
+  re-recorded. Stopped/sleeping rows skip the check: their pods are
+  absent and the next start reads the Secret.
+
   The instance row is never written. The URL key is a live-Secret
   projection composed above user env (a redeploy recomposes it from the
   same derivation); the allowlist entry is append-only onto the live
@@ -43,17 +54,17 @@ defmodule FluxVale.Infrastructure.Operations.SyncInstanceUrlEnv do
   its bundled backing services, say a Secret exists), the k8s calls'
   own error tuples, and read failures from the locked-row/version
   reads (the DB-outage class). A vanished instance is `:ok` — teardown
-  won, nothing to tell. A failed post-commit restart returns the error
-  with the Secret already written — the new values staged, the pods
-  still on the old env. The next address event that changes the values
-  re-derives and rolls, and a redeploy recomposes everything; a
-  value-identical retry is a no-op by design (the no-op gate), the
-  same posture the public env action documents for its restart gap
-  (`Instance.UpdateEnv`). Callers own the event semantics (a later
-  slice wires the events).
+  won, nothing to tell. A failed post-commit restart returns the
+  tagged `{:error, {:restart_refused, reason}}` and logs one warning —
+  the Secret stands and the pods lag, but the retry is SELF-HEALING:
+  a value-identical re-call re-rolls (no Secret write) when the
+  deployment's stamp disagrees with the Secret, and is a true no-op
+  only when the stamp confirms delivery.
+  Callers own the event semantics (a later slice wires the events).
   """
 
   alias FluxVale.Clients.K8s
+  alias FluxVale.Clients.K8s.Resources.Deployment
   alias FluxVale.Clients.K8s.Resources.Secret
   alias FluxVale.Infrastructure.Instance
   alias FluxVale.Infrastructure.Operations.InstanceEnvDerived
@@ -62,8 +73,17 @@ defmodule FluxVale.Infrastructure.Operations.SyncInstanceUrlEnv do
   alias FluxVale.Repo
 
   require Ash.Query
+  require Logger
 
   @env_secret "app-env"
+  @deployment "app"
+
+  # The delivery stamp: written by the deploy (`InstanceK8s`
+  # deployment_spec), re-recorded by every delivered restart
+  # (`Deployment.restart/4` with the `env_state:` opt), read here. The
+  # value is `InstanceEnvSecret.env_state_hash/1` of the env the pods
+  # run — never computed in the resource module.
+  @env_state_annotation "fluxvale.io/env-state"
 
   # The UpdateEnv status discipline (resources/instance/update_env.ex):
   # anything outside these two lists skips with zero cluster calls.
@@ -83,9 +103,17 @@ defmodule FluxVale.Infrastructure.Operations.SyncInstanceUrlEnv do
     id = instance_id(instance_or_id)
 
     case Repo.transaction(fn -> locked_sync(id) end) do
-      {:ok, :ok} -> :ok
-      {:ok, {:apply, leg, kubeconfig, namespace}} -> apply_leg(leg, kubeconfig, namespace)
-      {:error, reason} -> {:error, reason}
+      {:ok, :ok} ->
+        :ok
+
+      {:ok, {:apply, :restart, kubeconfig, namespace, instance_id, env_state}} ->
+        apply_restart(kubeconfig, namespace, instance_id, env_state)
+
+      {:ok, {:apply, :ensure, kubeconfig, namespace}} ->
+        InstanceEnvSecret.ensure_env_from(kubeconfig, namespace)
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -168,11 +196,16 @@ defmodule FluxVale.Infrastructure.Operations.SyncInstanceUrlEnv do
       {set, remove} = key_changes(version, facts, live_data)
 
       if set == %{} and remove == [] do
-        # The lane's explicit idempotency contract: nothing differs —
-        # no write, no restart, no ensure.
-        :ok
+        no_op_delivery(locked, kubeconfig, namespace, live_data)
       else
-        upsert_locked(locked, kubeconfig, namespace, set, remove, existed?)
+        # EXACTLY the map `InstanceEnvSecret.upsert/5` writes — computed
+        # once here so the restart's stamp hashes the delivered env.
+        composed =
+          live_data
+          |> Map.merge(set)
+          |> Map.drop(remove)
+
+        upsert_locked(locked, kubeconfig, namespace, set, remove, composed, existed?)
       end
     else
       {:error, reason} -> Repo.rollback(reason)
@@ -216,7 +249,7 @@ defmodule FluxVale.Infrastructure.Operations.SyncInstanceUrlEnv do
     instance.env_vars != %{} or instance.backing_services != []
   end
 
-  defp upsert_locked(locked, kubeconfig, namespace, set, remove, existed?) do
+  defp upsert_locked(locked, kubeconfig, namespace, set, remove, composed, existed?) do
     # The row is never written here, so the row itself answers whether
     # the Secret should already exist.
     expect_existing = expect_existing?(locked)
@@ -225,7 +258,8 @@ defmodule FluxVale.Infrastructure.Operations.SyncInstanceUrlEnv do
       :ok ->
         cond do
           locked.status in @live ->
-            {:apply, :restart, kubeconfig, namespace}
+            {:apply, :restart, kubeconfig, namespace, locked.id,
+             InstanceEnvSecret.env_state_hash(composed)}
 
           not existed? ->
             # stopped/sleeping pods are absent: only a Secret this call
@@ -241,18 +275,58 @@ defmodule FluxVale.Infrastructure.Operations.SyncInstanceUrlEnv do
     end
   end
 
-  # Post-commit: the rolling restart for live rows; the spec-only
-  # ensure for a Secret this call created on stopped/sleeping rows.
-  # A refusal here leaves the Secret written and returns the error —
-  # the new values staged, the pods still on the old env. A retry that
-  # changes nothing is a no-op by design (the no-op gate): the next
-  # changing address event re-derives and rolls; a redeploy recomposes.
-  defp apply_leg(:restart, kubeconfig, namespace) do
-    InstanceEnvSecret.restart(kubeconfig, namespace)
+  # The no-op branch's DELIVERY check: the Secret already holds the
+  # right values, but a refused restart can leave the pods on the old
+  # env — so a value-identical retry still rolls when the deployment's
+  # env-state stamp disagrees with the Secret. The stamp is written by
+  # the deploy and re-recorded by every delivered restart, so equality
+  # means the pods ran this exact env: the true no-op. Stopped/sleeping
+  # rows skip the check — their pods are absent and the next start
+  # reads the Secret, so there is nothing to deliver (and their
+  # no-restart dispatch stands).
+  defp no_op_delivery(%Instance{status: status}, _kubeconfig, _namespace, _live_data)
+       when status in @secret_only do
+    :ok
   end
 
-  defp apply_leg(:ensure, kubeconfig, namespace) do
-    InstanceEnvSecret.ensure_env_from(kubeconfig, namespace)
+  defp no_op_delivery(locked, kubeconfig, namespace, live_data) do
+    case Deployment.get(kubeconfig, namespace, @deployment) do
+      {:ok, deployment} ->
+        stamp = deployment_annotations(deployment)[@env_state_annotation]
+
+        if stamp == InstanceEnvSecret.env_state_hash(live_data) do
+          :ok
+        else
+          {:apply, :restart, kubeconfig, namespace, locked.id,
+           InstanceEnvSecret.env_state_hash(live_data)}
+        end
+
+      {:error, reason} ->
+        Repo.rollback(reason)
+    end
+  end
+
+  defp deployment_annotations(deployment) do
+    get_in(deployment, ["spec", "template", "metadata", "annotations"]) || %{}
+  end
+
+  # The post-commit rolling restart, stamped with the env state the
+  # pods should now run. A refusal is a TAGGED, logged error: the
+  # Secret stands and the pods lag, but the retry self-heals — the
+  # no-op branch's stamp check re-rolls without a Secret write.
+  defp apply_restart(kubeconfig, namespace, instance_id, env_state) do
+    case InstanceEnvSecret.restart(kubeconfig, namespace, env_state: env_state) do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning(
+          "instance address env restart refused instance=#{instance_id} " <>
+            "namespace=#{namespace} reason=#{inspect(reason)}"
+        )
+
+        {:error, {:restart_refused, reason}}
+    end
   end
 
   # The ONE facts snapshot feeds both keys; set/remove carry ONLY the

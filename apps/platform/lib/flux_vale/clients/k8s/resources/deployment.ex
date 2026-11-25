@@ -84,7 +84,8 @@ defmodule FluxVale.Clients.K8s.Resources.Deployment do
           optional(:probe_path) => String.t(),
           optional(:env_from_secret) => String.t(),
           optional(:sidecar) => sidecar_spec(),
-          optional(:backing_services) => [backing_service_spec()]
+          optional(:backing_services) => [backing_service_spec()],
+          optional(:env_state) => String.t()
         }
 
   @typedoc "One platform-owned extra container in the pod (#190)"
@@ -324,18 +325,24 @@ defmodule FluxVale.Clients.K8s.Resources.Deployment do
   # The first-ever env write on a deployment created without `app-env`
   # needs this — an annotation bump alone would roll an unchanged pod
   # template and the app would never read the Secret.
+  #
+  # `env_state`: the `fluxvale.io/env-state` stamp rides the SAME SSA
+  # apply as `restartedAt` — one atomic write records both that pods
+  # rolled and which env they rolled onto. Absent = the back-compat
+  # shape (restartedAt only).
   def restart(kubeconfig, namespace, name, opts \\ []) do
     case get(kubeconfig, namespace, name) do
       {:ok, deployment} ->
         restart_at = DateTime.to_iso8601(DateTime.utc_now())
+        env_state = Keyword.get(opts, :env_state)
 
         updated =
           deployment
           |> prepare_for_apply(Keyword.get(opts, :strategy, @rollout_strategy))
           |> ensure_app_env_from(Keyword.get(opts, :ensure_env_from))
           |> update_in(["spec", "template", "metadata", "annotations"], fn
-            nil -> %{"fluxvale.io/restartedAt" => restart_at}
-            ann -> Map.put(ann, "fluxvale.io/restartedAt", restart_at)
+            nil -> restart_annotations(%{}, restart_at, env_state)
+            ann -> restart_annotations(ann, restart_at, env_state)
           end)
 
         apply_updated(kubeconfig, updated, "Restarted deployment: #{namespace}/#{name}")
@@ -365,6 +372,21 @@ defmodule FluxVale.Clients.K8s.Resources.Deployment do
       {:error, error} ->
         {:error, error}
     end
+  end
+
+  # One apply, both stamps: the restart marker and — when the caller
+  # hands one — the env state the rollout delivers. A nil env_state
+  # keeps the back-compat shape (restartedAt only).
+  defp restart_annotations(annotations, restart_at, env_state) do
+    annotations
+    |> Map.put("fluxvale.io/restartedAt", restart_at)
+    |> maybe_put_env_state(env_state)
+  end
+
+  defp maybe_put_env_state(annotations, nil), do: annotations
+
+  defp maybe_put_env_state(annotations, env_state) do
+    Map.put(annotations, "fluxvale.io/env-state", env_state)
   end
 
   @doc """
@@ -561,6 +583,18 @@ defmodule FluxVale.Clients.K8s.Resources.Deployment do
       |> maybe_put_section("initContainers", init_containers)
       |> maybe_put_value("securityContext", pod_security_context)
 
+    pod_template_metadata =
+      maybe_put_value(
+        %{
+          "labels" => %{
+            "app.kubernetes.io/managed-by" => "fluxvale",
+            "app.kubernetes.io/name" => name
+          }
+        },
+        "annotations",
+        pod_annotations(spec)
+      )
+
     %{
       "apiVersion" => "apps/v1",
       "kind" => "Deployment",
@@ -577,16 +611,21 @@ defmodule FluxVale.Clients.K8s.Resources.Deployment do
         "strategy" => @rollout_strategy,
         "selector" => %{"matchLabels" => %{"app.kubernetes.io/name" => name}},
         "template" => %{
-          "metadata" => %{
-            "labels" => %{
-              "app.kubernetes.io/managed-by" => "fluxvale",
-              "app.kubernetes.io/name" => name
-            }
-          },
+          "metadata" => pod_template_metadata,
           "spec" => pod_spec
         }
       }
     }
+  end
+
+  # The deployer's env-state stamp, rendered verbatim — the builder is
+  # a dumb renderer; the value is computed by the caller (the deploy
+  # hashes the env it composes).
+  defp pod_annotations(spec) do
+    case Map.get(spec, :env_state) do
+      nil -> nil
+      env_state -> %{"fluxvale.io/env-state" => env_state}
+    end
   end
 
   defp maybe_put_section(pod_spec, _section, []), do: pod_spec

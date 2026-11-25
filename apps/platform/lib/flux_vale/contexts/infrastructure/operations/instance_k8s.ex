@@ -23,6 +23,7 @@ defmodule FluxVale.Infrastructure.Operations.InstanceK8s do
   alias FluxVale.Infrastructure.Cluster
   alias FluxVale.Infrastructure.Instance
   alias FluxVale.Infrastructure.Operations.EdgeRoutes
+  alias FluxVale.Infrastructure.Operations.InstanceEnvSecret
 
   require Ash.Query
 
@@ -401,7 +402,12 @@ defmodule FluxVale.Infrastructure.Operations.InstanceK8s do
       probe_path: instance.healthcheck_path,
       storage_mount: storage_mount_path(instance),
       pvc_name: pvc_name(instance),
-      env_from_secret: if(env != %{}, do: @env_secret)
+      env_from_secret: if(env != %{}, do: @env_secret),
+      # The deploy stamps the env state the pods will run, so the
+      # address-event sync's delivery check reads a matching stamp and
+      # a post-deploy sync is a true no-op. The app-env Secret exists
+      # exactly when the env does (maybe_create_secret's condition).
+      env_state: if(env != %{}, do: InstanceEnvSecret.env_state_hash(env))
     }
 
     base

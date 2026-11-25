@@ -132,13 +132,39 @@ defmodule FluxVale.Infrastructure.Operations.InstanceEnvSecret do
   action's row + Secret are already saved, so its caller redeploys to
   repair. Also ensures the app container consumes `app-env` (first env
   on a deployment created without it).
+
+  `opts` forward to `Deployment.restart/4`: pass `env_state:` (a
+  binary) to stamp `fluxvale.io/env-state` in the same SSA apply as
+  `restartedAt` — the address-event sync's delivery check reads it.
   """
-  @spec restart(Kubereq.Kubeconfig.t(), String.t()) :: :ok | {:error, term()}
-  def restart(kubeconfig, namespace) do
-    case Deployment.restart(kubeconfig, namespace, @deployment_name, ensure_env_from: @env_secret) do
+  @spec restart(Kubereq.Kubeconfig.t(), String.t(), keyword()) :: :ok | {:error, term()}
+  def restart(kubeconfig, namespace, opts \\ []) do
+    opts = Keyword.put(opts, :ensure_env_from, @env_secret)
+
+    case Deployment.restart(kubeconfig, namespace, @deployment_name, opts) do
       {:ok, _deployment} -> :ok
       {:error, _reason} = error -> error
     end
+  end
+
+  @doc """
+  The canonical env-state encoding for the `fluxvale.io/env-state`
+  stamp: the Secret data map's entries SORTED (so map order never
+  matters), term-encoded, SHA-256, lowercase hex. The deploy stamps the
+  hash of the env it composes; every delivered restart re-records it —
+  equality between the stamp and `env_state_hash/1` of the live Secret
+  is the address-event sync's proof the pods run this exact env.
+  """
+  @spec env_state_hash(map()) :: String.t()
+  def env_state_hash(data) do
+    canonical =
+      data
+      |> Enum.sort()
+      |> :erlang.term_to_binary()
+
+    :sha256
+    |> :crypto.hash(canonical)
+    |> Base.encode16(case: :lower)
   end
 
   @doc """

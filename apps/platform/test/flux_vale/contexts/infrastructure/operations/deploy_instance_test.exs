@@ -23,6 +23,7 @@ defmodule FluxVale.Infrastructure.Operations.DeployInstanceTest do
   alias FluxVale.Infrastructure.AccessRoute
   alias FluxVale.Infrastructure.Instance
   alias FluxVale.Infrastructure.Operations.DeployInstance
+  alias FluxVale.Infrastructure.Operations.InstanceEnvSecret
   alias FluxVale.Infrastructure.Operations.InstanceK8s
   alias FluxVale.TestSupport.AccessFixtures
   alias FluxVale.TestSupport.BillingFixtures
@@ -1170,6 +1171,8 @@ defmodule FluxVale.Infrastructure.Operations.DeployInstanceTest do
         assert data["DATABASE_URL"] =~ "postgres://fluxvale:"
         assert data["REDIS_URL"] =~ "redis://:"
         assert data["APP_TOKEN"] == "tok"
+
+        Process.put(:deployed_env, data)
         {:ok, %{}}
       end)
 
@@ -1178,6 +1181,14 @@ defmodule FluxVale.Infrastructure.Operations.DeployInstanceTest do
         assert Decimal.eq?(spec.cpu, Decimal.new("0.85"))
         assert spec.memory == 704
         assert [%{kind: :postgres}, %{kind: :redis}] = spec.backing_services
+
+        # The deploy stamps the env state the pods will run — the hash
+        # of the SAME env map the app-env Secret just received — so the
+        # address-event sync's delivery check reads a matching stamp.
+        deployed_env = Process.get(:deployed_env)
+
+        assert spec.env_state == InstanceEnvSecret.env_state_hash(deployed_env)
+
         {:ok, %{}}
       end)
 

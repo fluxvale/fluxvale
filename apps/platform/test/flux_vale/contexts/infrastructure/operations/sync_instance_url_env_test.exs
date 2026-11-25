@@ -2,18 +2,22 @@ defmodule FluxVale.Infrastructure.Operations.SyncInstanceUrlEnvTest do
   @moduledoc false
 
   # The address-event sync (ADR-0052's seam, third consumer): the
-  # recompute from ONE derivation snapshot, the no-op contract (no
-  # write, no roll when the live Secret already matches), the UpdateEnv
-  # status dispatch, and the never-write-the-row rule.
+  # recompute from ONE derivation snapshot, the DELIVERY-AWARE no-op
+  # gate (the env-state stamp separates a true no-op from a refused
+  # rollout's pending delivery), the UpdateEnv status dispatch, and the
+  # never-write-the-row rule.
 
   use FluxVale.DataCase, async: true
   use Mimic
+
+  import ExUnit.CaptureLog
 
   alias FluxVale.Clients.K8s
   alias FluxVale.Clients.K8s.Resources.Deployment
   alias FluxVale.Clients.K8s.Resources.Secret
   alias FluxVale.Infrastructure.AccessRoute
   alias FluxVale.Infrastructure.Instance
+  alias FluxVale.Infrastructure.Operations.InstanceEnvSecret
   alias FluxVale.Infrastructure.Operations.InstanceK8s
   alias FluxVale.Infrastructure.Operations.SyncInstanceUrlEnv
   alias FluxVale.TestSupport.AccessFixtures
@@ -54,8 +58,8 @@ defmodule FluxVale.Infrastructure.Operations.SyncInstanceUrlEnvTest do
         {:ok, %{}}
       end)
 
-      expect(Deployment, :restart, fn _kc, _ns, "app", _opts ->
-        send(self(), :restarted)
+      expect(Deployment, :restart, fn _kc, _ns, "app", opts ->
+        send(self(), {:restarted, opts})
         {:ok, %{}}
       end)
 
@@ -65,7 +69,74 @@ defmodule FluxVale.Infrastructure.Operations.SyncInstanceUrlEnvTest do
       ns = "fluxvale-app-#{instance.id}"
       url = "https://git.#{domain.domain}/"
       assert_received {:upsert, ^ns, %{"ROOT_URL" => ^url}}
-      assert_received :restarted
+
+      # the roll carries the env-state stamp of the delivered env
+      assert_received {:restarted, opts}
+      assert opts[:env_state] == InstanceEnvSecret.env_state_hash(%{"ROOT_URL" => url})
+    end
+
+    test "a refused restart is a tagged, logged error", %{org: org, owner: owner} do
+      {instance, _gateway, _domain} = live_custom!(org, owner, instance_url_env: "ROOT_URL")
+
+      stub(Secret, :get_data, fn _kc, _ns, "app-env" -> {:ok, %{}} end)
+
+      expect(Secret, :upsert, fn _kc, _ns, "app-env", _data -> {:ok, %{}} end)
+
+      reason = %K8s.Error{status_code: 500, reason: :unknown, message: "roll refused"}
+
+      expect(Deployment, :restart, fn _kc, _ns, "app", _opts -> {:error, reason} end)
+
+      log =
+        capture_log(fn ->
+          assert {:error, {:restart_refused, ^reason}} = SyncInstanceUrlEnv.call(instance)
+        end)
+
+      assert log =~ "instance=#{instance.id}"
+      assert log =~ "namespace=fluxvale-app-#{instance.id}"
+    end
+
+    test "the retry self-heals: a refused restart re-rolls without a write", %{
+      org: org,
+      owner: owner
+    } do
+      {instance, _gateway, domain} = live_custom!(org, owner, instance_url_env: "ROOT_URL")
+      url = "https://git.#{domain.domain}/"
+
+      # the Secret read is live: the refused first call stages composed,
+      # so the retry's own read already holds the values (the no-op gate)
+      stub(Secret, :get_data, fn _kc, _ns, "app-env" ->
+        {:ok, Process.get(:secret_data, %{})}
+      end)
+
+      expect(Secret, :upsert, 1, fn _kc, _ns, "app-env", data ->
+        Process.put(:secret_data, data)
+        {:ok, %{}}
+      end)
+
+      reason = %K8s.Error{status_code: 500, reason: :unknown, message: "roll refused"}
+
+      expect(Deployment, :restart, fn _kc, _ns, "app", _opts -> {:error, reason} end)
+
+      # the refused rollout never recorded the stamp — the Deployment
+      # carries a foreign one
+      stub(Deployment, :get, fn _kc, _ns, "app" ->
+        {:ok, stamped_deployment("foreign-stamp")}
+      end)
+
+      expect(Deployment, :restart, fn _kc, _ns, "app", opts ->
+        send(self(), {:retry_roll, opts})
+        {:ok, %{}}
+      end)
+
+      assert {:error, {:restart_refused, ^reason}} = SyncInstanceUrlEnv.call(instance)
+
+      # the retry: values already match (the upsert count is spent — a
+      # second write raises), but the foreign stamp says the pods never
+      # ran this env — it rolls, stamped with the live env's hash
+      assert :ok = SyncInstanceUrlEnv.call(instance)
+
+      assert_received {:retry_roll, opts}
+      assert opts[:env_state] == InstanceEnvSecret.env_state_hash(%{"ROOT_URL" => url})
     end
 
     test "a live Secret already carrying the address is a no-op — no write, no roll", %{
@@ -75,13 +146,19 @@ defmodule FluxVale.Infrastructure.Operations.SyncInstanceUrlEnvTest do
       {instance, _gateway, domain} =
         live_custom!(org, owner, instance_url_env: "ROOT_URL", host_allowlist_env: "ALLOWED")
 
-      url = "https://git.#{domain.domain}/"
+      live = %{"ROOT_URL" => "https://git.#{domain.domain}/", "ALLOWED" => "git.#{domain.domain}"}
 
-      stub(Secret, :get_data, fn _kc, _ns, "app-env" ->
-        {:ok, %{"ROOT_URL" => url, "ALLOWED" => "git.#{domain.domain}"}}
+      stub(Secret, :get_data, fn _kc, _ns, "app-env" -> {:ok, live} end)
+
+      # the stamp confirms delivery — the TRUE no-op: no write, no roll
+      # (the one stamp GET is the path's only cluster call)
+      stub(Deployment, :get, fn _kc, ns, "app" ->
+        assert ns == "fluxvale-app-#{instance.id}"
+        {:ok, stamped_deployment(InstanceEnvSecret.env_state_hash(live))}
       end)
 
-      # The no-op contract: no expectation set — either write fails the test.
+      # The delivery-aware no-op contract: no expectation set — any
+      # write or roll fails the test.
       reject(Secret, :upsert, 4)
       reject(Deployment, :restart, 4)
       reject(Deployment, :ensure_env_from, 3)
@@ -408,13 +485,55 @@ defmodule FluxVale.Infrastructure.Operations.SyncInstanceUrlEnvTest do
       {instance, gateway, _domain} = live_custom!(org, owner, instance_url_env: "ROOT_URL")
       AccessFixtures.claim!(gateway, [])
 
-      stub(Secret, :get_data, fn _kc, _ns, "app-env" -> {:ok, %{}} end)
+      live = %{}
+
+      stub(Secret, :get_data, fn _kc, _ns, "app-env" -> {:ok, live} end)
+
+      # the stamp confirms the pods ran this (empty) env
+      stub(Deployment, :get, fn _kc, _ns, "app" ->
+        {:ok, stamped_deployment(InstanceEnvSecret.env_state_hash(live))}
+      end)
 
       reject(Secret, :upsert, 4)
       reject(Deployment, :restart, 4)
       reject(Deployment, :ensure_env_from, 3)
 
       assert :ok = SyncInstanceUrlEnv.call(instance)
+    end
+
+    test "a stopped row's no-op skips the delivery check — nothing to deliver", %{
+      org: org,
+      owner: owner
+    } do
+      {instance, _gateway, domain} =
+        live_custom!(org, owner, [instance_url_env: "ROOT_URL"], :stopped)
+
+      url = "https://git.#{domain.domain}/"
+
+      stub(Secret, :get_data, fn _kc, _ns, "app-env" -> {:ok, %{"ROOT_URL" => url}} end)
+
+      # the delivery check is a live-row concern: the pods are absent
+      # and the next start reads the Secret — not even a stamp GET
+      reject(Deployment, :get, 3)
+      reject(Secret, :upsert, 4)
+      reject(Deployment, :restart, 4)
+      reject(Deployment, :ensure_env_from, 3)
+
+      assert :ok = SyncInstanceUrlEnv.call(instance)
+    end
+
+    test "a failed stamp read surfaces the error", %{org: org, owner: owner} do
+      {instance, _gateway, domain} = live_custom!(org, owner, instance_url_env: "ROOT_URL")
+
+      live = %{"ROOT_URL" => "https://git.#{domain.domain}/"}
+
+      stub(Secret, :get_data, fn _kc, _ns, "app-env" -> {:ok, live} end)
+
+      reason = %K8s.Error{status_code: 503, reason: :unavailable, message: "down"}
+
+      stub(Deployment, :get, fn _kc, _ns, "app" -> {:error, reason} end)
+
+      assert {:error, %K8s.Error{reason: :unavailable}} = SyncInstanceUrlEnv.call(instance)
     end
   end
 
@@ -464,6 +583,18 @@ defmodule FluxVale.Infrastructure.Operations.SyncInstanceUrlEnvTest do
   # ------------------------------------------------------------------
 
   defp url_env_version, do: InstanceFixtures.app_version!(%{instance_url_env: "ROOT_URL"})
+
+  # The stamped Deployment body the delivery check reads — the shape
+  # `Deployment.get/3` returns, pod-template annotations only.
+  defp stamped_deployment(stamp) do
+    %{
+      "spec" => %{
+        "template" => %{
+          "metadata" => %{"annotations" => %{"fluxvale.io/env-state" => stamp}}
+        }
+      }
+    }
+  end
 
   # A private instance walked/pinned to `status`. `:deploying` is
   # pinned directly (the funnel never walks back into it); `:lost` only
