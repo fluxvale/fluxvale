@@ -44,9 +44,13 @@ defmodule FluxVale.Infrastructure.Operations.SyncInstanceUrlEnv do
   own error tuples, and read failures from the locked-row/version
   reads (the DB-outage class). A vanished instance is `:ok` — teardown
   won, nothing to tell. A failed post-commit restart returns the error
-  with the Secret already written — stale-but-working, the seam's
-  documented limit; a retry re-upserts (idempotent) and re-rolls.
-  Callers own the event semantics (a later slice wires the events).
+  with the Secret already written — the new values staged, the pods
+  still on the old env. The next address event that changes the values
+  re-derives and rolls, and a redeploy recomposes everything; a
+  value-identical retry is a no-op by design (the no-op gate), the
+  same posture the public env action documents for its restart gap
+  (`Instance.UpdateEnv`). Callers own the event semantics (a later
+  slice wires the events).
   """
 
   alias FluxVale.Clients.K8s
@@ -240,8 +244,9 @@ defmodule FluxVale.Infrastructure.Operations.SyncInstanceUrlEnv do
   # Post-commit: the rolling restart for live rows; the spec-only
   # ensure for a Secret this call created on stopped/sleeping rows.
   # A refusal here leaves the Secret written and returns the error —
-  # stale-but-working, the seam's documented limit; a retry re-upserts
-  # (idempotent) and re-rolls.
+  # the new values staged, the pods still on the old env. A retry that
+  # changes nothing is a no-op by design (the no-op gate): the next
+  # changing address event re-derives and rolls; a redeploy recomposes.
   defp apply_leg(:restart, kubeconfig, namespace) do
     InstanceEnvSecret.restart(kubeconfig, namespace)
   end

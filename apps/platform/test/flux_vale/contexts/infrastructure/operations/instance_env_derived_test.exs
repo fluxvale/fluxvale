@@ -13,6 +13,7 @@ defmodule FluxVale.Infrastructure.Operations.InstanceEnvDerivedTest do
   use Mimic
 
   alias FluxVale.Clients.K8s
+  alias FluxVale.Infrastructure.AccessGateway
   alias FluxVale.Infrastructure.AccessRoute
   alias FluxVale.Infrastructure.Instance
   alias FluxVale.Infrastructure.InstanceHostname
@@ -323,10 +324,62 @@ defmodule FluxVale.Infrastructure.Operations.InstanceEnvDerivedTest do
              }
     end
 
+    test "both arms answer from ONE pairing read and ONE claims read" do
+      {org, row} = org_instance!(:private)
+      gateway = attach!(org, row)
+      domain = AccessFixtures.verified_domain!(org)
+      AccessFixtures.claim!(gateway, [base_domain(), domain.domain])
+      AccessFixtures.mint_hostname!(row, domain, "git")
+
+      # the race window's shape, pinned structurally: the old shape read
+      # the pairing row and the gateway claims TWICE (once per arm), so
+      # a claims write landing between the reads could tear the URL arm
+      # from the hostname arm. The snapshot reads each source exactly
+      # once and feeds both arms from that one answer.
+      claims = %{
+        base_domain() => %{"ip" => "10.43.0.20", "tailnet" => "example.ts.net"},
+        domain.domain => %{"ip" => "10.43.0.20", "tailnet" => "example.ts.net"}
+      }
+
+      stub(AccessRoute, :get_by_instance, fn _id, _opts ->
+        Process.put(:route_reads, Process.get(:route_reads, 0) + 1)
+        {:ok, :the_live_pairing}
+      end)
+
+      stub(AccessGateway, :get_for_organization, fn _org_id, _opts ->
+        Process.put(:gateway_reads, Process.get(:gateway_reads, 0) + 1)
+        {:ok, %{dns_claims: claims}}
+      end)
+
+      assert InstanceEnvDerived.derive(row) == %{
+               url: "https://git.#{domain.domain}/",
+               hostnames: [host(row.slug), "git.#{domain.domain}"]
+             }
+
+      assert Process.get(:route_reads) == 1
+      assert Process.get(:gateway_reads) == 1
+    end
+
     test "a dark private row snapshots nil and no hostnames" do
       {_org, row} = org_instance!(:private)
 
       assert InstanceEnvDerived.derive(row) == %{url: nil, hostnames: []}
+    end
+  end
+
+  describe "default_hostname_live?/1" do
+    test "true when the gateway claims the base domain" do
+      {org, row} = org_instance!(:private)
+      gateway = attach!(org, row)
+      AccessFixtures.claim!(gateway, [base_domain()])
+
+      assert InstanceEnvDerived.default_hostname_live?(row)
+    end
+
+    test "false for an unattached private row" do
+      {_org, row} = org_instance!(:private)
+
+      refute InstanceEnvDerived.default_hostname_live?(row)
     end
   end
 

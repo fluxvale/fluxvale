@@ -4,7 +4,8 @@ defmodule FluxVale.Infrastructure.Operations.InstanceEnvDerived do
   env patch (#731 T1, ADR-0052 decision 4), and the address-event sync;
   the sign-on callback joins with a later slice. One snapshot of the
   instance's live addressing (`derive/1` — the URL and the hostname set
-  from the same reads), the platform append to the catalog's
+  from ONE pairing read and ONE gateway-claims read, both arms fed from
+  that single snapshot), the platform append to the catalog's
   `host_allowlist_env`, and the claimed-default-hostname predicate the
   append rides.
 
@@ -64,17 +65,22 @@ defmodule FluxVale.Infrastructure.Operations.InstanceEnvDerived do
 
   @doc """
   One snapshot of the instance's live addressing: the URL and the
-  hostname set, from the same reads at the same instant. The deploy and
-  the sync feed both env keys from it, so the Secret's URL and its
-  allowlist can never come from two different states; the
-  one-shot wrappers (`instance_url/1`, `serving_hostnames/1`) are for
-  single-answer callers.
+  hostname set, from ONE pairing read and ONE gateway-claims read —
+  both arms answer from that single snapshot, so a claims write landing
+  mid-derivation can never tear them apart (a URL naming a host the
+  same snapshot no longer claims). The deploy and the sync feed both
+  env keys from it, so the Secret's URL and its allowlist can never
+  come from two different states; the one-shot wrappers
+  (`instance_url/1`, `serving_hostnames/1`) are for single-answer
+  callers.
   """
   @spec derive(Instance.t()) :: %{url: String.t() | nil, hostnames: [String.t()]}
   def derive(instance) do
-    customs = live_custom_hostnames(instance)
+    snapshot = attach_and_claims(instance)
 
-    default_live? = instance.exposure == :public or default_hostname_live?(instance)
+    customs = live_custom_hostnames(snapshot, instance)
+
+    default_live? = instance.exposure == :public or hostname_default_live?(snapshot, instance)
 
     url =
       cond do
@@ -121,27 +127,52 @@ defmodule FluxVale.Infrastructure.Operations.InstanceEnvDerived do
   """
   @spec default_hostname_live?(map()) :: boolean()
   def default_hostname_live?(instance) do
-    base_domain = Application.fetch_env!(:flux_vale, :instances_base_domain)
+    hostname_default_live?(attach_and_claims(instance), instance)
+  end
 
+  # ONE snapshot of the addressing inputs: whether the instance is
+  # attached (a live AccessRoute pairing — the same record attach/detach
+  # read) and, when it is, the org gateway's claims map. Both arms of
+  # `derive/1` consume this map, so each source is read exactly once
+  # per derivation. Public rows read nothing: they answer on the
+  # default hostname unconditionally, and their custom hostnames are
+  # never live (custom addresses serve privately by design).
+  defp attach_and_claims(%{exposure: :private} = instance) do
     case AccessRoute.get_by_instance(instance.id, authorize?: false) do
       {:ok, _live_pairing} ->
-        claimed_on_gateway?(instance, base_domain)
+        case AccessGateway.get_for_organization(instance.organization_id, authorize?: false) do
+          {:ok, %{dns_claims: claims}} when is_map(claims) ->
+            {:claims, claims}
+
+          _no_gateway_or_claims ->
+            {:claims, %{}}
+        end
 
       # Unattached: the pairing row simply isn't there.
       {:error, _no_pairing} ->
-        false
+        :unattached
     end
   end
 
-  defp claimed_on_gateway?(instance, base_domain) do
-    case AccessGateway.get_for_organization(instance.organization_id, authorize?: false) do
-      {:ok, %{dns_claims: claims}} when is_map(claims) ->
-        Map.has_key?(claims, base_domain) and platform_domain_live?(instance, base_domain)
+  defp attach_and_claims(_public_row), do: :unattached
 
-      _no_gateway_or_claims ->
-        false
-    end
+  # The live custom hostnames, from the SNAPSHOT's claims — no re-read.
+  defp live_custom_hostnames({:claims, claims}, instance) do
+    claimed_hostname_rows(instance, claims)
   end
+
+  defp live_custom_hostnames(:unattached, _instance), do: []
+
+  # The claimed-default-hostname predicate, from the SNAPSHOT's claims.
+  # The platform-domain row read stays its own: it gates a different
+  # row (the platform domain) than the claims map.
+  defp hostname_default_live?({:claims, claims}, instance) do
+    base_domain = Application.fetch_env!(:flux_vale, :instances_base_domain)
+
+    Map.has_key?(claims, base_domain) and platform_domain_live?(instance, base_domain)
+  end
+
+  defp hostname_default_live?(:unattached, _instance), do: false
 
   defp platform_domain_live?(instance, base_domain) do
     query =
@@ -167,37 +198,14 @@ defmodule FluxVale.Infrastructure.Operations.InstanceEnvDerived do
     end
   end
 
-  # The live custom hostnames — the mirror of default_hostname_live?/1's
-  # stance (the system seam, `authorize?: false`), reading the same
-  # gates in the same order: the instance is PRIVATE (custom addresses
-  # never serve publicly) and ATTACHED (the same `AccessRoute` pairing
-  # read; an unattached private instance answers nowhere), then each
-  # row's domain is `:custom`, in a routable state, and claimed by the
-  # org's gateway. Oldest first (created_at, then id — the same order
-  # `list_for_instance` sorts by).
-  defp live_custom_hostnames(%{exposure: :private} = instance) do
-    case AccessRoute.get_by_instance(instance.id, authorize?: false) do
-      {:ok, _live_pairing} ->
-        claimed_custom_hostnames(instance)
-
-      # Unattached: the pairing row simply isn't there.
-      {:error, _no_pairing} ->
-        []
-    end
-  end
-
-  defp live_custom_hostnames(_public_row), do: []
-
-  defp claimed_custom_hostnames(instance) do
-    case AccessGateway.get_for_organization(instance.organization_id, authorize?: false) do
-      {:ok, %{dns_claims: claims}} when is_map(claims) ->
-        claimed_hostname_rows(instance, claims)
-
-      _no_gateway_or_claims ->
-        []
-    end
-  end
-
+  # The live custom hostnames — the mirror of the default-hostname
+  # predicate's stance (the system seam, `authorize?: false`), gated on
+  # the SNAPSHOT: the instance is PRIVATE (custom addresses never serve
+  # publicly) and ATTACHED (the pairing read the snapshot already made),
+  # then each row's domain is `:custom`, in a routable state, and
+  # claimed by the org's gateway per the snapshot's claims map. Oldest
+  # first (created_at, then id — the same order `list_for_instance`
+  # sorts by).
   defp claimed_hostname_rows(instance, claims) do
     query = Ash.Query.filter(InstanceHostname, instance_id == ^instance.id)
 
