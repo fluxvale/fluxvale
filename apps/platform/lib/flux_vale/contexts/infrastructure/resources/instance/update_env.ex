@@ -256,7 +256,8 @@ defmodule FluxVale.Infrastructure.Instance.UpdateEnv do
 
     if is_binary(env_name) and
          (Map.has_key?(plan.set, env_name) or env_name in plan.remove) do
-      composed = InstanceEnvDerived.allowlist_entry(plan.merged, row, version)
+      hostnames = InstanceEnvDerived.serving_hostnames(row)
+      composed = InstanceEnvDerived.allowlist_entry(plan.merged, hostnames, version)
       before = Map.get(plan.merged, env_name)
 
       case Map.fetch(composed, env_name) do

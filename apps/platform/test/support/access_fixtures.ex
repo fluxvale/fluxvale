@@ -12,11 +12,17 @@ defmodule FluxVale.TestSupport.AccessFixtures do
   instead.
   """
 
+  alias FluxVale.Accounts.Membership
+  alias FluxVale.Accounts.Organization
   alias FluxVale.Clients.K8s.Resources.Pod
+  alias FluxVale.Infrastructure.AccessDomain
   alias FluxVale.Infrastructure.AccessGateway
   alias FluxVale.Infrastructure.Instance
+  alias FluxVale.Infrastructure.InstanceHostname
   alias FluxVale.Infrastructure.Operations.InstanceK8s
   alias FluxVale.TestSupport.InstanceFixtures
+
+  require Ash.Query
 
   @doc """
   An `:active` gateway for `org` at `monthly_cents`, built through the
@@ -141,6 +147,94 @@ defmodule FluxVale.TestSupport.AccessFixtures do
     Mimic.stub(Pod, :list_by_labels, fn _kc, _ns, _labels ->
       {:ok, [running_pod(ip)]}
     end)
+  end
+
+  @doc """
+  A `:custom` `AccessDomain` for `org` in its born-`:pending` state,
+  registered through the action (the wildcard Certificate mint rides
+  the caller's Kubereq/K8s stubs). The name is unique per test.
+  """
+  @spec custom_domain!(Organization.t()) :: AccessDomain.t()
+  def custom_domain!(org) do
+    name = "apps-#{System.unique_integer([:positive])}.customer.test"
+
+    AccessDomain.register!(
+      %{domain: name, organization_id: org.id},
+      actor: org_actor!(org.id),
+      authorize?: false
+    )
+  end
+
+  @doc """
+  A `:custom` `AccessDomain` promoted to `:verified` WITH its wildcard
+  cert ref recorded — the only shape the verify pass produces (the
+  promoter runs from an observed Ready Certificate).
+  """
+  @spec verified_domain!(Organization.t()) :: AccessDomain.t()
+  def verified_domain!(org) do
+    domain = custom_domain!(org)
+
+    {:ok, verified} =
+      AccessDomain.mark_verified(
+        domain,
+        %{cert_secret_ref: "cert-secret-#{System.unique_integer([:positive])}"},
+        authorize?: false
+      )
+
+    verified
+  end
+
+  @doc """
+  A `:custom` `AccessDomain` in `:needs_attention` — reached the honest
+  way: verified with its cert ref recorded first (needs_attention is
+  only ever a demotion OF a verified row), then flagged.
+  """
+  @spec needs_attention_domain!(Organization.t()) :: AccessDomain.t()
+  def needs_attention_domain!(org) do
+    domain = verified_domain!(org)
+    {:ok, flagged} = AccessDomain.mark_needs_attention(domain, authorize?: false)
+    flagged
+  end
+
+  @doc """
+  Mints one `InstanceHostname` row (`label.domain`) for the instance
+  under the domain — the system `:mint` action, `authorize?: false`.
+  """
+  @spec mint_hostname!(Instance.t(), AccessDomain.t(), String.t()) ::
+          InstanceHostname.t()
+  def mint_hostname!(instance, domain, label) do
+    {:ok, hostname} =
+      InstanceHostname.mint(
+        %{instance_id: instance.id, access_domain_id: domain.id, label: label},
+        authorize?: false
+      )
+
+    hostname
+  end
+
+  @doc """
+  Replaces the gateway's `dns_claims` with one claim per name (the
+  observed-state write the platform never makes on its own).
+  """
+  @spec claim!(AccessGateway.t(), [String.t()]) :: AccessGateway.t()
+  def claim!(gateway, names) do
+    claims =
+      Map.new(names, fn name ->
+        {name, %{"ip" => "10.43.0.20", "tailnet" => "example.ts.net"}}
+      end)
+
+    {:ok, claimed} =
+      AccessGateway.update_claims(gateway, %{dns_claims: claims}, authorize?: false)
+
+    claimed
+  end
+
+  # The register action's org change needs an actor even with a named
+  # org (the fixture's bootstrap posture); the owner is the honest one.
+  defp org_actor!(organization_id) do
+    Membership
+    |> Ash.Query.filter(organization_id == ^organization_id and role == :owner)
+    |> Ash.read_one!(authorize?: false)
   end
 
   defp running_pod(ip) do

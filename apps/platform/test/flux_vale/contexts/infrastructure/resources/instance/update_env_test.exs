@@ -731,7 +731,13 @@ defmodule FluxVale.Infrastructure.Instance.UpdateEnvTest do
       reloaded = reload!(instance)
       assert reloaded.env_vars["ALLOWED_HOSTS"] == "example.com"
 
-      composed = InstanceEnvDerived.allowlist_entry(reloaded.env_vars, reloaded, version)
+      composed =
+        InstanceEnvDerived.allowlist_entry(
+          reloaded.env_vars,
+          InstanceEnvDerived.serving_hostnames(reloaded),
+          version
+        )
+
       assert composed["ALLOWED_HOSTS"] == "example.com,#{platform_host}"
       assert length(String.split(composed["ALLOWED_HOSTS"], platform_host)) == 2
 
