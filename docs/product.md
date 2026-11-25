@@ -43,7 +43,7 @@ switcher moves you between the organizations you belong to.
 
 - **Prepaid credits**: 1 credit = 1 US cent. Wallet per organization; balance is
   a live `sum` over an append-only ledger (never a stored column).
-- **Flat-rate pricing** (ADR-00028): an instance's price is derived from its
+- **Flat-rate pricing** ([ADR-00028](adr/00028-flat-rate-pricing.md)): an instance's price is derived from its
   allocation (cpu/ram/storage) and shown as a **monthly-equivalent rate**
   ("$X.XX/mo · billed hourly" on every price surface, #206), charged from
   credits pro-rata (µs accrual) over elapsed time regardless
@@ -62,14 +62,12 @@ switcher moves you between the organizations you belong to.
   around the clock, with the page confirming that cost before enabling
   ([ADR-0036](adr/00036-scale-to-zero-wake-on-use.md) Am. 2).
 - **COGS anchor**: renewal-floor Netcup RS 4000-class, oversubscribed with
-  scale-to-zero (storage-bound ~46 smalls/box); prices are per-datencenter,
+  scale-to-zero (storage-bound ~46 smalls/box); prices are per-datacenter,
   B′ ×1.2 Nuremberg, B′-SG ×1.25 standby — decided #200, see
-  pricing-recalibration-2026-10.md; pricing-calibration.md keeps the table.
-- Welcome credits on signup (anti-abuse TBD — open question #9).
+  [pricing-recalibration-2026-10.md](pricing-recalibration-2026-10.md); [pricing-calibration.md](pricing-calibration.md) keeps the table.
+- Welcome credits on signup (anti-abuse TBD — [open question #5](open-questions.md)).
 
 ## Non-goals (for the foreseeable future)
 
 - Multi-cloud / hyperscaler support
 - Enterprise features, SSO federation for the platform itself
-- External developer API/CLI ecosystem (may come post-beta; the app is
-  LiveView-first and no longer needs a public JSON:API to serve its own UI)

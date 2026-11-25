@@ -56,8 +56,8 @@ ledger is the human source of truth.
 
 The queue is the console's **Storage requests** section
 (`/admin/storage-requests`). Its sidebar badge counts requests awaiting a decision and
-updates live over PubSub on every admin page — no polling, and no email in v1 (production
-mail is still the local adapter).
+updates live over PubSub on every admin page — no polling, and no
+operator email notifications in v1.
 
 ## 3. Order
 

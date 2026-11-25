@@ -4,10 +4,13 @@ Status: Accepted (see [adr/](adr/) — ADRs [00002](adr/00002-single-ash-livevie
 
 ## The settled stack
 
-- **Admin**: **AshAdmin** (admin-gated) — generated CRUD over all
-  resources, actor impersonation for policy debugging
-  ([ADR-0023](adr/00023-day-one-gates.md) Am. 2); purpose-built admin
-  LiveViews only when workflow UX demands.
+- **Admin**: custom operator console under `/admin/*` (`AdminShell` —
+  people, catalog, billing, moderation, generic resource console, orgs,
+  gateways, storage requests, audit, health;
+  [ADR-0027](adr/00027-admin-surface-ashadmin.md) Am. 3–7,
+  [ADR-0050](adr/00050-operational-console.md)), with **AshAdmin**
+  mounted at `/admin/ash` for emergency data surgery and
+  **LiveDashboard** at `/admin/debug/dashboard`.
 - **App**: single Phoenix 1.8 + Ash app — LiveView UI + first-class
   **JSON:API in the OTP release; the MCP server is the separate Rust
   image** (`apps/mcp`,
@@ -16,8 +19,10 @@ Status: Accepted (see [adr/](adr/) — ADRs [00002](adr/00002-single-ash-livevie
   its committed dump lives at `apps/platform/priv/open_api.json`
   (regenerate: `cd apps/platform && mix flux_vale.open_api`; a
   staleness test in `mix ci` fails on drift).
-- **Auth**: AshAuthentication — passwordless email one-time codes for
-  web login; bearer tokens/PATs for machine access
+- **Auth**: AshAuthentication — passwordless email one-time codes and
+  Sign in with Google (`/auth/google`) for web login; bearer
+  tokens/PATs and MCP OAuth 2.1 (`/oauth/*`,
+  [ADR-0054](adr/00054-mcp-oauth.md)) for machine access
   ([ADR-0003](adr/00003-ashauthentication-drop-authentik.md),
   [ADR-0019](adr/00019-machine-first-api-cli-mcp.md)). Authentik
   dropped.
@@ -40,11 +45,10 @@ Status: Accepted (see [adr/](adr/) — ADRs [00002](adr/00002-single-ash-livevie
 - **Deploy**: FluxCD GitOps from a separate **fleet repo**; image
   automation deploys staging + prod simultaneously. CI never touches
   the cluster.
-- **Secrets**: Bitwarden Secrets Manager (EU vault) via its official
-  Kubernetes operator (SecretStore + BitwardenSecret CRs — references
-  only, Flux-managed, continuously reconciled); fnox shrinks to
-  bootstrapping the operator's own machine-account tokens
-  ([ADR-0021](adr/00021-secrets-bws-operator.md)).
+- **Secrets**: 1Password via its Kubernetes operator (superseding the
+  initial Bitwarden Secrets Manager operator per
+  [ADR-0021](adr/00021-secrets-bws-operator.md) Amendment 3) —
+  declarative references in Flux, continuously reconciled.
 - **Observability**: Grafana Alloy agent → Grafana Cloud free tier
   (hosted LGTM). PromEx for Elixir metrics. See
   [observability.md](observability.md).
@@ -122,7 +126,11 @@ fluxvale/fluxvale (this repo, public, FSL-1.1)
 ├── apps/
 │   ├── platform/    # the Phoenix/Ash app — one OTP release (ADR-00002)
 │   ├── e2e/         # Playwright suite (ADR-00024)
-│   └── cli/         # the CLI (Rust workspace, ADR-0019 Am. 3)
+│   ├── smoke/       # Bruno API smoke collection (#99)
+│   ├── cli/         # the CLI (Rust workspace, ADR-0019 Am. 3)
+│   └── mcp/         # the MCP server (Rust, ADR-0019 Am. 5)
+├── crates/          # shared Rust workspace (fluxvale-api)
+├── deploy/local/    # local production-parity stack (k3d + Tilt, ADR-0020)
 ├── docs/            # this documentation
 └── (no root-level deps — v1's rule survives)
 
@@ -141,19 +149,21 @@ manifest (Traefik, cert-manager **including its CRs/Issuers**, CNPG,
 RBAC, app Deployments, ImagePolicies) + operational runbooks; its
 README links back to `docs/adr/`. Doc-type boundary
 ([ADR-0017](adr/00017-docs-home-adr-scope.md)): this repo holds the
-**why** (decisions, product, architecture); the fleet repo holds the
-**how-to-operate** (runbooks). Other SaaS products under the org keep
+**why** (decisions, product, architecture) plus app-scoped and
+launch-gate runbooks in `docs/runbooks/`
+([ADR-0018](adr/00018-repo-visibility.md) Am. 2); the fleet repo holds
+cluster-level **how-to-operate** runbooks. Other SaaS products under the org keep
 their own app-specific ADRs in their own repos — platform and
 shared-infra decisions on their behalf are made here. Cross-link,
 never mirror.
 
 Rule: **if it runs on the cluster, it lives in the fleet repo** — one
-exception: the BWS operator's two access-token Secrets are *values*,
+exception: the secrets-operator bootstrap credentials are *values*,
 created out-of-band at bootstrap
-  ([ADR-0021](adr/00021-secrets-bws-operator.md)); only their references are
-declarative. v1's Flux-sync-coverage table existed because some
-cluster state lived outside Flux; the fix is moving everything in, not
-maintaining a coverage map. Disaster recovery = boot Talos ISO →
-apply config → `talosctl bootstrap` → `talosctl kubeconfig` → `flux
-bootstrap` → apply the two BWS-operator token Secrets → wait for
-convergence → restore DB from R2 → done.
+([ADR-0021](adr/00021-secrets-bws-operator.md) Am. 3); only their
+references are declarative. v1's Flux-sync-coverage table existed
+because some cluster state lived outside Flux; the fix is moving
+everything in, not maintaining a coverage map. Disaster recovery = boot
+Talos ISO → apply config → `talosctl bootstrap` → `talosctl kubeconfig`
+→ `flux bootstrap` → apply the secrets-operator bootstrap credentials →
+wait for convergence → restore DB from R2 → done.

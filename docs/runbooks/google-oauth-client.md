@@ -38,8 +38,9 @@ credentials absent) until this runbook is walked.
 
 ## Per environment: land the credentials
 
-Stage the two values as env for the platform deployment through BWS
-(the same path as Postmark/HitPay/Polar secrets), under:
+Stage the two values as env for the platform deployment through
+1Password ([ADR-0021](../adr/00021-secrets-bws-operator.md) Am. 3, the
+same path as Postmark/Polar secrets), under:
 
 - `GOOGLE_CLIENT_ID`
 - `GOOGLE_CLIENT_SECRET`
@@ -71,7 +72,7 @@ process.
 ## Rotation and revocation
 
 - **Rotate**: Google Auth Platform → the client → add a second
-  client secret, swap the BWS value, restart the platform pod,
+  client secret, swap the 1Password value, restart the platform pod,
   remove the old secret. The brief window where either secret works
   is by design.
 - **Kill switch**: flip the `google_sign_in` flag off — the button

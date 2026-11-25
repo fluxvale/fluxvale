@@ -83,9 +83,9 @@ readout names the stopped value.
 The custom admin surfaces ride the section sidebar (#501, ADR-0027
 Am. 4): `AdminShell` — the settings-sidebar idiom (#568) shared at
 admin scope, one `nav` of mono-eyebrow groups beside every custom
-surface's content, live sections at their routes, unbuilt ones as
-linkless Coming entries. The generated debug tools keep their own
-chrome.
+surface's content, with all v1 sections live at their routes (the
+earlier linkless Coming grammar has retired). The generated debug tools
+keep their own chrome.
 
 The console runs on a different measure from the rest of the app
 (#593): `wide` chrome + `appgram console` on the page root make the

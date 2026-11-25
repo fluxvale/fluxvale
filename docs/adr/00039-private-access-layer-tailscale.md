@@ -375,7 +375,7 @@ wake-mode route is minted.
 ## Cost basis (the owner picks the number)
 
 Platform cost per gateway, from the shipped density model
-([pricing-calibration](pricing-calibration.md): RS 4000, €87/mo rolling
+([pricing-calibration](../pricing-calibration.md): RS 4000, €87/mo rolling
 ≈ **$103.64/mo lean** / $118.64 full, ~24 GB active RAM / 12 cores /
 ≈460 GB usable).
 

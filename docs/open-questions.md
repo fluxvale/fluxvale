@@ -52,7 +52,8 @@ the decision.
    below its release) and the app page's hero prices the BYO row —
    the takeover is a data/ownership decision, not a list-position
    one; reopen if the bundled shape should headline again.
-   Remaining dogfood apps TBD (v1 queued: SilverBullet, +1). Still
+   Also seeded since: Memos, Vikunja, Linkwarden, Vaultwarden, and
+   Docmost (10 catalog apps total in `catalog_data.yaml`). Still
    open: per-app *command* overrides in the deployer (v1 #360) — mount
    path is now catalog data, command is not.
 4. **Payments provider** — resolved:
@@ -140,40 +141,25 @@ the decision.
 8. **Repo bootstrap** — settled: `fluxvale/fluxvale` public FSL-1.1,
    fleet repo private `fluxvale/infrastructure`, image
    `ghcr.io/fluxvale/fluxvale`
-   ([ADR-0018](adr/00018-repo-visibility.md)). Still open: CI
-   skeleton.
-9. **API surface details** — headline settled by
-   [ADR-0019](adr/00019-machine-first-api-cli-mcp.md) (JSON:API + CLI
-   + MCP day one). Versioning **resolved** (#24, 2026-09-08): URL
-   prefix `/api/v1/…` from the first public route — no unversioned
-   aliases, no media-type negotiation (fights the JSON:API media
-   type, invisible to generated clients, `Vary` busts caches); a v2
-   mounts alongside v1. CLI login UX decided (2026-09-07,
-   pre-implementation): gh-style **thin device flow, RFC
-   8628-shaped** — the wire is RFC 8628's from day one
-   (`device_code`/`user_code`/`verification_uri`/`expires_in`/
-   `interval`; polling errors `authorization_pending`/`slow_down`/
-   `access_denied`/`expired_token`), so a later full implementation
-   is server-internal — **the CLI never changes**. `DeviceCode`
-   carries `client_id`+`scope` (single seeded first-party client,
-   full access); minted tokens carry client/scope provenance
-   (`extra_data`/claims). The upgrade delta is the client registry +
-   scope negotiation, not plumbing; scope *enforcement* is the
-   deliberately deferred half. Promotes to an ADR + issue with the
-   CLI milestone. Still open: CLI language + distribution (generated
-   from the OpenAPI spec? single static binary?); MCP tool-set
-   design (which actions, confirmation UX for destroy/billing ops).
+   ([ADR-0018](adr/00018-repo-visibility.md)), CI in
+   `.github/workflows/ci.yml`.
+9. **API surface details** — settled:
+   [ADR-0019](adr/00019-machine-first-api-cli-mcp.md) (JSON:API `/api/v1/…`
+   #24, Rust CLI in `apps/cli` Am. 3, Rust MCP server in `apps/mcp`
+   Am. 5, tool catalog + confirmation UX in [mcp.md](mcp.md), MCP OAuth
+   in [ADR-0054](adr/00054-mcp-oauth.md), RFC 8628 device flow shipped).
 10. **Feature flag resource design** — resolved by
     [ADR-0023](adr/00023-day-one-gates.md) (FeatureFlag resource +
     evaluator, fail-closed, atom-safe keys, sticky rollouts,
     AshAdmin-administered); also settles staging's sign-in gate
     (AccessRule) and pre-builds the private-beta invite flow.
 11. **Local dev cluster** — resolved by
-    [ADR-0020](adr/00020-local-dev-parity.md) (k3d + Tilt + `local/`
-    overlay). Remaining at scaffolding: dev-image Dockerfile, the
-    Tiltfile.
-12. **Backups detail** — CNPG barman → R2 configuration, retention,
-    restore-drill cadence (quarterly?). Launch-gate material.
+    [ADR-0020](adr/00020-local-dev-parity.md) (k3d + Tilt +
+    `deploy/local/` overlay and `Tiltfile` shipped).
+12. **Backups detail** — CNPG barman → R2 configuration and PITR
+    restore procedure verified in
+    [runbooks/platform-db-dr.md](runbooks/platform-db-dr.md) (#758);
+    still open: recurring restore-drill cadence (quarterly?).
 13. **Bruno/Playwright suites** — resolved by
     [ADR-0024](adr/00024-e2e-review-environments.md): port v1's
     bones, re-point, add per-PR (review env) / staging-full /
@@ -215,9 +201,8 @@ the decision.
 
 Longhorn at node #2 · control-plane HA at 3 server nodes · dedicated
 staging box · Flagger canary at traffic · self-hosted LGTM at
-free-tier limits · managed k8s at concrete need · PocketID managed SSO
-post-beta · first-party products post-gate (managed-DB product,
-OQ #14) · the org social layer post-launch
+free-tier limits · managed k8s at concrete need · first-party products
+post-gate (managed-DB product, OQ #14) · the org social layer post-launch
 ([ADR-0042](adr/00042-user-created-organizations.md): public org
 surfaces parked — the feedback board is the experiment; revisit on
 post-launch feedback-board evidence).
