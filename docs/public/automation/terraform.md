@@ -275,7 +275,7 @@ gateway's tailnet. The worked example in the provider's repository,
 adds the gateway and its write-only Tailscale API token to the same
 stack, ordered after the domain, so the claim lands in the same apply.
 
-The example targets Cloudflare provider v5. On v4, use the `cloudflare_record` resource, pass `name` directly to `data.cloudflare_zone` instead of `filter`, and set `zone_id` to `data.cloudflare_zone.this.id`. On v4.34 and later `content` works as shown, while earlier v4 releases use `value` instead.
+The example targets Cloudflare provider v5. On v4, use the `cloudflare_record` resource, pass `name` directly to `data.cloudflare_zone` instead of `filter`, and set `zone_id` to `data.cloudflare_zone.this.id`. On v4.39 and later `content` works as shown, while earlier v4 releases use `value` instead.
 
 ### Claim a verified domain from the same stack
 
