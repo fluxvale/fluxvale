@@ -11,6 +11,12 @@ on:
   pull_request:
   push:
     branches: [main]
+  # Reconciliation (#868): a dispatch on main re-evaluates "does main
+  # carry a platform change no env serves yet?" — the deployed-watermark
+  # step in check-changes — and ships it through the same vetted chain
+  # when so. The remedy the version-currency red names
+  # (docs/deployment.md). Any other ref runs no lane.
+  workflow_dispatch:
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -24,8 +30,98 @@ jobs:
     name: Check for changes
     runs-on: ubuntu-24.04
     timeout-minutes: 5
+    env:
+      # The path filters, held ONCE for both dorny/paths-filter calls
+      # below — the per-trigger one and the since-deploy one — in the
+      # action's `filters` YAML format. Every filter lists this file, so
+      # an edit here fires the lane it configures.
+      PATH_FILTERS: |
+        platform:
+          - "apps/platform/**"
+          # ADR-0044: the content home (docs/public, docs/blog)
+          # feeds the platform's loaders, lints, and tests
+          # (content.sync copies both into priv before the suite) —
+          # a content change is a platform change. The sync script
+          # rides the same lanes.
+          - "docs/public/**"
+          - "docs/blog/**"
+          - "scripts/sync-content.sh"
+          - "mise.toml"
+          - ".github/workflows/ci.yml"
+          # The image gate's parity assert reads the Tiltfile's
+          # BASE_IMAGE pin — a Tiltfile-only pin bump must fire the
+          # lane that asserts it, or the drift reds only main's
+          # deploy (and then the next platform PR, the cli-filter
+          # drift lesson).
+          - "Tiltfile"
+          # The prebuilt staging feeds this lane's own runner (the
+          # glibc mdex seed) and the image build context — a change
+          # here could break either, and before this entry such a
+          # change fired NO lane at all.
+          - ".github/actions/prebuilt/**"
+        docs:
+          - "docs/**"
+          - "scripts/lint-adr-index.sh"
+          - ".github/workflows/ci.yml"
+        agents:
+          - ".agents/**"
+          - "scripts/lint-skill-frontmatter.sh"
+          - ".github/workflows/ci.yml"
+        e2e:
+          - "apps/e2e/**"
+          - "apps/platform/**"
+          - "deploy/local/**"
+          - "scripts/e2e-bootstrap.sh"
+          - "scripts/lint-e2e-legs.sh" # edits to the gate are e2e changes — a broken lint must not pass unseen
+          - "Tiltfile" # the bootstrap parses its pins — a bump here is an e2e change
+          - ".github/workflows/e2e-nightly.yml" # the nightly drives the same bootstrap + suite
+          - "mise.toml"
+          - ".github/workflows/ci.yml"
+        cli:
+          - "apps/cli/**"
+          # The shared API crate (crates/, its own workspace) — a
+          # crate change must compile-check against the CLI here,
+          # and run the crate's own gates at the bottom of this job.
+          - "crates/**"
+          # The generated types are checked against this artifact in
+          # cli-gates (`cargo xtask openapi --check`) — a platform PR
+          # that regenerates it must run the CLI lane, or the drift
+          # reds the next cli PR instead.
+          - "apps/platform/priv/open_api.json"
+          # The coverage flag's shape (paths/ignore) lives here — a
+          # config change must re-run the lane so codecov recomputes
+          # against it (#506's generated-lines red).
+          - "codecov.yml"
+          - ".github/workflows/ci.yml"
+          # The release lane drives the same assets (the tag gate
+          # script, the 4-leg matrix) — a bump here is a cli change,
+          # same rule as e2e-nightly.yml above.
+          - ".github/workflows/cli-release.yml"
+        mcp:
+          - "apps/mcp/**"
+          # .dockerignore is a build input for the mcp image — a
+          # change here can silently strip context; it must fire
+          # the lane that builds the image.
+          - ".dockerignore"
+          # The shared API crate (crates/, its own workspace) — a
+          # crate change must compile-check against the MCP server
+          # here, and run the crate's own gates in the same job.
+          - "crates/**"
+          # The generated types feed the crate from this artifact —
+          # a platform PR that regenerates it must run the MCP lane,
+          # or the drift reds the next mcp PR instead.
+          - "apps/platform/priv/open_api.json"
+          # The coverage flag's shape (paths) lives here — a config
+          # change must re-run the lane so codecov recomputes
+          # against it (#506's generated-lines red).
+          - "codecov.yml"
+          - ".github/workflows/ci.yml"
     outputs:
-      platform: ${{ steps.filter.outputs.platform }}
+      # Two readings, OR-ed (#868): this trigger touched platform paths,
+      # OR main carries a platform change no env serves yet (the
+      # deployed watermark). Either way the platform lanes run on main
+      # and ship HEAD. PRs and other refs only ever have the first.
+      platform: ${{ steps.filter.outputs.platform == 'true' || steps.since_deploy.outputs.platform == 'true' }}
       docs: ${{ steps.filter.outputs.docs }}
       agents: ${{ steps.filter.outputs.agents }}
       e2e: ${{ steps.filter.outputs.e2e }}
@@ -38,91 +134,50 @@ jobs:
           persist-credentials: false
           fetch-depth: 0
 
-      # v4.0.3 — pinned to commit: mutable tags execute unreviewed code
+      # The resolver below is proven on every run, not only when a deploy
+      # is lost: fake /health bodies plus this repo's own history, seconds.
+      - name: Test the deployed-watermark resolver
+        run: ./scripts/test-deploy-watermark.sh
+
+      # The deployed watermark (#868): the newest commit either env's
+      # /health reports serving — two public GETs, zero credentials
+      # (ADR-0007). Empty when neither env answers with a sha on main's
+      # line: a push then falls back to the per-trigger diff alone; a
+      # dispatch has nothing to reconcile against and reds here.
+      - name: Resolve the deployed watermark (main only)
+        id: watermark
+        if: github.ref == 'refs/heads/main'
+        run: |
+          base="$(scripts/deploy-watermark.sh staging=https://staging.fluxvale.com/health production=https://fluxvale.com/health)"
+          if [ -z "$base" ] && [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
+            echo "::error::no env reports a serving sha — nothing to reconcile against; re-dispatch when both /health answer"
+            exit 1
+          fi
+          echo "base=$base" >>"$GITHUB_OUTPUT"
+
+      # v4.0.3 — pinned to commit: mutable tags execute unreviewed code.
+      # Per-trigger diff: the PR against its base, a push against the
+      # commit before it. A dispatch is neither — it has no diff to take.
       - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d
         id: filter
+        if: github.event_name != 'workflow_dispatch'
         with:
-          filters: |
-            platform:
-              - "apps/platform/**"
-              # ADR-0044: the content home (docs/public, docs/blog)
-              # feeds the platform's loaders, lints, and tests
-              # (content.sync copies both into priv before the suite) —
-              # a content change is a platform change. The sync script
-              # rides the same lanes.
-              - "docs/public/**"
-              - "docs/blog/**"
-              - "scripts/sync-content.sh"
-              - "mise.toml"
-              - ".github/workflows/ci.yml"
-              # The image gate's parity assert reads the Tiltfile's
-              # BASE_IMAGE pin — a Tiltfile-only pin bump must fire the
-              # lane that asserts it, or the drift reds only main's
-              # deploy (and then the next platform PR, the cli-filter
-              # drift lesson).
-              - "Tiltfile"
-              # The prebuilt staging feeds this lane's own runner (the
-              # glibc mdex seed) and the image build context — a change
-              # here could break either, and before this entry such a
-              # change fired NO lane at all.
-              - ".github/actions/prebuilt/**"
-            docs:
-              - "docs/**"
-              - "scripts/lint-adr-index.sh"
-              - ".github/workflows/ci.yml"
-            agents:
-              - ".agents/**"
-              - "scripts/lint-skill-frontmatter.sh"
-              - ".github/workflows/ci.yml"
-            e2e:
-              - "apps/e2e/**"
-              - "apps/platform/**"
-              - "deploy/local/**"
-              - "scripts/e2e-bootstrap.sh"
-              - "scripts/lint-e2e-legs.sh" # edits to the gate are e2e changes — a broken lint must not pass unseen
-              - "Tiltfile" # the bootstrap parses its pins — a bump here is an e2e change
-              - ".github/workflows/e2e-nightly.yml" # the nightly drives the same bootstrap + suite
-              - "mise.toml"
-              - ".github/workflows/ci.yml"
-            cli:
-              - "apps/cli/**"
-              # The shared API crate (crates/, its own workspace) — a
-              # crate change must compile-check against the CLI here,
-              # and run the crate's own gates at the bottom of this job.
-              - "crates/**"
-              # The generated types are checked against this artifact in
-              # cli-gates (`cargo xtask openapi --check`) — a platform PR
-              # that regenerates it must run the CLI lane, or the drift
-              # reds the next cli PR instead.
-              - "apps/platform/priv/open_api.json"
-              # The coverage flag's shape (paths/ignore) lives here — a
-              # config change must re-run the lane so codecov recomputes
-              # against it (#506's generated-lines red).
-              - "codecov.yml"
-              - ".github/workflows/ci.yml"
-              # The release lane drives the same assets (the tag gate
-              # script, the 4-leg matrix) — a bump here is a cli change,
-              # same rule as e2e-nightly.yml above.
-              - ".github/workflows/cli-release.yml"
-            mcp:
-              - "apps/mcp/**"
-              # .dockerignore is a build input for the mcp image — a
-              # change here can silently strip context; it must fire
-              # the lane that builds the image.
-              - ".dockerignore"
-              # The shared API crate (crates/, its own workspace) — a
-              # crate change must compile-check against the MCP server
-              # here, and run the crate's own gates in the same job.
-              - "crates/**"
-              # The generated types feed the crate from this artifact —
-              # a platform PR that regenerates it must run the MCP lane,
-              # or the drift reds the next mcp PR instead.
-              - "apps/platform/priv/open_api.json"
-              # The coverage flag's shape (paths) lives here — a config
-              # change must re-run the lane so codecov recomputes
-              # against it (#506's generated-lines red).
-              - "codecov.yml"
-              - ".github/workflows/ci.yml"
+          filters: ${{ env.PATH_FILTERS }}
+
+      # Since-deploy diff (#868): main against the deployed watermark. A
+      # platform push cancelled by a newer push (the ci-<ref> group
+      # cancels in flight) used to leave its change unshipped when the
+      # newer run had no platform diff of its own — run 44407026353,
+      # cancelled by the docs-only 44407673747, undeployed for 34h.
+      # Consulted only when the per-trigger diff says "no platform
+      # change": the two readings are OR-ed. Only `platform` is read
+      # from this call — every other lane stays per-trigger.
+      - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d
+        id: since_deploy
+        if: github.ref == 'refs/heads/main' && steps.watermark.outputs.base != '' && steps.filter.outputs.platform != 'true'
+        with:
+          base: ${{ steps.watermark.outputs.base }}
+          filters: ${{ env.PATH_FILTERS }}
 
   platform:
     name: Platform CI
@@ -1129,8 +1184,9 @@ jobs:
             BUILD_SHA=${{ github.sha }}
           cache-from: type=gha
 
-  # Deploy pipeline jobs 1–2 (docs/deployment.md, #98) — main pushes with
-  # platform changes only. Job 1 builds the OTP release image and pushes
+  # Deploy pipeline jobs 1–2 (docs/deployment.md, #98) — main triggers
+  # (a push, or the reconcile dispatch) carrying a platform change no env
+  # serves yet (#868). Job 1 builds the OTP release image and pushes
   # two tags of the same manifest: sha-<github.sha> (the /health poll
   # target — BUILD_SHA is baked in as the build-arg) and `latest` (the
   # mutable tag the fleet repo's ImagePolicy follows via
