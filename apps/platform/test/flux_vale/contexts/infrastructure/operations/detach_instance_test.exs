@@ -185,10 +185,17 @@ defmodule FluxVale.Infrastructure.Operations.DetachInstanceTest do
   end
 
   describe "the URL-env sync hook (the address re-tell)" do
-    # The bare detached shape: the provider's detach lands, the access
-    # edge's configs are already absent (404-tolerant removals).
+    # The bare detached shape: the provider's detach lands and removes
+    # the pairing row (production's policy → row → configs order), the
+    # access edge's configs are already absent (404-tolerant removals).
     defp bare_detach_stubs do
-      stub(Tailscale, :detach_instance, fn _gateway, _instance -> :ok end)
+      stub(Tailscale, :detach_instance, fn _gateway, inst ->
+        # The provider's detach deletes the pairing row before the
+        # operation's re-tell runs — mirror it (the order pin's shape).
+        route = AccessRoute.get_by_instance!(inst.id, authorize?: false)
+        AccessRoute.destroy!(route, authorize?: false)
+        :ok
+      end)
 
       stub(Ingress, :delete, fn _kc, _ns, _name ->
         {:error, Error.from_response({:ok, %{status: 404, body: %{}}})}
@@ -212,10 +219,16 @@ defmodule FluxVale.Infrastructure.Operations.DetachInstanceTest do
       detached_shape!(gateway, instance)
       bare_detach_stubs()
 
-      # The pairing is gone — the hostnames lost their live path, so
-      # the running app is re-told exactly then.
+      # The running app is re-told exactly once the pairing is gone —
+      # and the stub proves it: DB state at sync time is the pin (the
+      # teardown test's shape). The provider's pairing removal landed,
+      # so the hostnames have no live path.
       expect(SyncInstanceUrlEnv, :call, fn synced ->
         assert synced.id == instance.id
+
+        assert {:error, _unpaired} =
+                 AccessRoute.get_by_instance(instance.id, authorize?: false)
+
         :ok
       end)
 
