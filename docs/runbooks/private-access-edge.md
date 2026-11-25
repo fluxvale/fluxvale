@@ -38,7 +38,7 @@ The check's premise: the `access` entrypoint trusts no proxy-protocol or forward
 sources — no `proxyProtocol.trustedIPs`, no `forwardedHeaders.trustedIPs`, no
 `forwardedHeaders.insecure`. The entrypoint's config owns that; if it ever changes,
 `ClientIP` no longer reads the TCP peer. Run these Verify checks after every deploy that
-touches this lane.
+touches private access.
 
 Each time a gateway's address changes, and once every fifteen minutes when the forced pass
 re-applies unconditionally, the platform log carries one

@@ -460,7 +460,7 @@ database:
 | Data at target | near-empty tenant — 5 tables, 8 migrations, 0 players | 3 orgs, 3 users, 1 instance, 3 memberships, 6 ledger rows |
 | Verification | dump row counts | per-table checksums, live vs restored, plus a 60s PITR bracket on `oban_jobs` |
 | Isolation | rehearsal on k3d; the current Thalmyra runbook still restores into `fluxvale-db` on the production cluster and dumps from there | local-only namespace; zero production resources |
-| Credential keys | doc says `accessKeyID`/`secretAccessKey` | live Secret keys are `username`/`password` (fv-309 W5) — the Thalmyra copy is stale |
+| Credential keys | doc says `accessKeyID`/`secretAccessKey` | live Secret keys are `username`/`password` — the Thalmyra copy is stale |
 
 The platform drill is the stricter one: it validates a real row set and
 proves the restore stops inside a 60-second window containing the

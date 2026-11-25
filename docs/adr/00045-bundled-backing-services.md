@@ -32,7 +32,7 @@ sleep/wake, and the reconciler's readiness contract are untouched.
 No new Services, no NetworkPolicy change — same-pod reachability is
 `localhost`.
 
-Settled decisions ([plan](../plans/612-backing-services.md) §9, all
+Settled decisions (#612, all
 as recommended, Terence Nov 8 2026):
 
 - **Image governance (D2)**: the platform registry

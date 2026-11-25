@@ -219,8 +219,7 @@ auto-recharge creates `Topup` rows (`origin: :auto`) completed
 through the unchanged `CompleteTopup` seam — no second posting path,
 the ledger invariants and integer-money discipline untouched. Consent
 is per-org and owner-role-only: opt-in enable with threshold, amount,
-daily caps, consecutive-failure auto-disable ([the
-plan](../plans/829-auto-recharge.md) owns the model).
+daily caps, consecutive-failure auto-disable (#829 owns the model).
 
 **Sequencing (owner, same day)**: Polar's off-session charges are
 preview + paid-plan-only (Pro $20/mo unlocks the org flag); the owner

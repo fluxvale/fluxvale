@@ -9,8 +9,8 @@ Oct 24 product decision: storage requests are not capped by the ladder,
 but capacity the box does not already hold needs procurement, so requests
 above the boundary flow through an operator approval queue — request from
 the instance page, queue + notification, operator orders capacity,
-approval grows the volume. The full implementation contract is the
-[plan](../plans/250-storage-approval.md); the internal order path is the
+approval grows the volume. The full implementation contract is tracked in
+#250; the internal order path is the
 [block-storage runbook](../runbooks/block-storage.md).
 
 [ADR-0043](00043-instance-resize.md) owns the storage mechanics (PVC

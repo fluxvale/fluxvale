@@ -59,7 +59,7 @@ Since the waves: the session-aware root (#205) — `/` is the marketing
 landing for anonymous visitors (unchanged) and the dashboard LiveView
 for signed-in sessions (instances overview with live status, balance +
 runway metric cards hand-rolled on `div.card` — the dashboard is their
-only renderer; `metric_card` was retired unused, hostile-357 F1),
+only renderer; `metric_card` was retired unused),
 quick actions, fresh-account empty states;
 the landing lives on at `/about` (canonical to `/`); every chrome —
 app, public, landing — renders `user_menu` when signed in.
@@ -73,7 +73,7 @@ of typing them; `user_menu` (#205) — the signed-in chrome's avatar
 dropdown (a native `<details>`: zero-JS on the dead marketing pages).
 History: `metric_card` shipped alongside `user_menu` in #205 as the
 session-aware root's dashboard cards, then grew no renderer beyond the
-dashboard — retired unused on the app-wide lane (the component and its
+dashboard — retired unused during the app-wide cleanup (the component and its
 story deleted; the dashboard hand-rolls its cards). The slider
 went **rungs-only** (#221): the input addresses its dimension's ladder
 by index (one arrow press = one rung, thumb never between rungs), the
@@ -124,25 +124,24 @@ The wave-2 record's two resources-step frames
 - Gate: `FluxValeWeb.Plugs.StorybookEnabled` — runtime plug like the
   TestInbox; `STORYBOOK_ENABLED` flips it (staging), prod 404s.
 
-## Vision QA (#178)
+## Visual QA (#178)
 
-Wave 1 (#185): three rounds with an image-capable reviewer model over
+Wave 1 (#185): three visual review rounds over
 Playwright screenshots (light + dark) — round 1 caught the dark-mode
 viewport seam, a crashed table story, blank input stories, and the
 violet workshop chrome; round 2 the billing phantom divider + input
-crash; round 3 converged — **GENUINELY GOOD — ship it**.
+crash; round 3 converged.
 
-Wave 2: per-surface convergence with the same loop — sign-in **GOOD**
-(1 round); deploy wizard **GOOD** (3: leaked "(M3)" copy, faint
-disabled-Continue, Configuration card width); instance show **GOOD**
-(1); top-up + new stories **GOOD** (2: a stepper bug where string
+Wave 2: per-surface convergence with the same loop — sign-in
+(1 round); deploy wizard (3 rounds: leaked "(M3)" copy, faint
+disabled-Continue, Configuration card width); instance show
+(1 round); top-up + new stories (2 rounds: a stepper bug where string
 step-ids never matched the atom step and Elixir's term order painted
 every step done, sandbox serif pinned to Inter, paired wizard
 actions). Final screenshots:
 [docs/screenshots/design/wave2/](screenshots/design/wave2/).
 
-Session-aware root (#205): one ephemeral lane agent (Kimi K3) over
-the same loop — round 1 caught the public footer still offering
-"Sign in" to a signed-in visitor (the header had swapped, the footer
-hadn't); round 2 converged — **GOOD**. Final screenshots:
-[docs/screenshots/design/root/](screenshots/design/root/).
+Session-aware root (#205): two visual review rounds — round 1 caught
+the public footer still offering "Sign in" to a signed-in visitor (the
+header had swapped, the footer hadn't); round 2 converged. Final
+screenshots: [docs/screenshots/design/root/](screenshots/design/root/).

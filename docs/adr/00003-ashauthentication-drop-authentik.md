@@ -88,9 +88,8 @@ bootstrap and mints the session through that same POST.
 
 ## Amendment 4 (2026-11-09): Google sign-in as a second proof of the same identifier
 
-#642 adds "Sign in with Google" beside the email-code flow — planned in
-[docs/plans/642-google-sign-in.md](../plans/642-google-sign-in.md),
-which owns the full analysis; this amendment records the stance.
+#642 adds "Sign in with Google" beside the email-code flow;
+this amendment records the stance.
 
 The Google arm adds a **proof**, not an identifier: OIDC code flow
 with PKCE (nonce, state) via **assent** — already in the lock as a

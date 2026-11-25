@@ -23,5 +23,5 @@ mix ci    # format, unused deps, warnings, gettext, blog lint,
 Concurrent local suites need their own DB (#241):
 
 ```sh
-MIX_TEST_PARTITION=<lane> mix test
+MIX_TEST_PARTITION=<n> mix test
 ```

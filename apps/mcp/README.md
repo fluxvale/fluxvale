@@ -184,11 +184,10 @@ in-cluster platform service and sets
 `MCP_ALLOWED_HOSTS=mcp.fluxvale.lvh.me`, so the guard admits exactly
 the hostname the IngressRoute routes.
 
-## Deployed (fleet #157)
+## Deployed
 
-- **W3b landed** (fluxvale/fleet#157) — the staging and prod
-  manifests are live: `https://mcp-staging.fluxvale.com/mcp` and
-  `https://mcp.fluxvale.com/mcp` (the protocol path — `MCP_PATH`
+- Staging and prod manifests are live: `https://mcp-staging.fluxvale.com/mcp`
+  and `https://mcp.fluxvale.com/mcp` (the protocol path — `MCP_PATH`
   above). Both hosts are live; the staging host is one label so the
   zone's `*.fluxvale.com` Universal SSL covers the edge.
 

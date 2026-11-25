@@ -122,8 +122,7 @@ the decision.
     rejected request plus a re-request is the path (the four-state
     machine is the promise). Revisit if abandonments show up in the
     operator queue; a `cancelled` state or a withdraw action is the
-    later one-line addition. Plan:
-    [250-storage-approval.md](plans/250-storage-approval.md).
+    later one-line addition (tracked in #250).
 
 ## Platform
 
