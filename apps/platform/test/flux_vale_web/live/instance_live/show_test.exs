@@ -2043,6 +2043,9 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
         {:error, {:restart_refused, :boom}}
       end)
 
+      # The tell's failure never gates the resolver render.
+      stub(RenderAccessDNS, :call, fn -> :ok end)
+
       {:ok, view, _html} = live(conn, ~p"/instances/#{instance.id}")
 
       view
@@ -2053,6 +2056,49 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
 
       assert has_element?(view, "#flash-error")
       assert render(view) =~ "could not be restarted to pick it up"
+      assert has_element?(view, "[data-testid='hostname-value']", "git.#{domain.domain}")
+    end
+
+    test "a failed app update after mint keeps the row, refreshes it, and says so", %{
+      conn: conn,
+      user: user,
+      version: version
+    } do
+      # The generic delivery failure maps to the honest words too: the
+      # address stands, the card shows it (the refresh the generic
+      # branch never did), and the flash tells the member how the app
+      # catches up.
+      instance = create_instance!(version, user)
+      InstanceFixtures.pin!(instance, exposure: :private)
+      domain = verified_custom_domain!(instance, user)
+      org = AccountsFixtures.personal_org!(user)
+
+      stub(Tailscale, :provision_gateway, fn _gateway, _key ->
+        {:ok, %{credential_secret_ref: "credential-stub"}}
+      end)
+
+      gateway = AccessFixtures.gateway!(org)
+
+      AccessRoute.create!(
+        %{gateway_id: gateway.id, instance_id: instance.id, route_key: "8443"},
+        authorize?: false
+      )
+
+      stub(K8s, :kubeconfig, fn _ref -> {:ok, %{}} end)
+      stub(EdgeRoutes, :apply_access_for_status, fn _kc, _gateway, _instance -> :ok end)
+      stub(SyncInstanceUrlEnv, :call, fn _instance -> {:error, :missing} end)
+      stub(RenderAccessDNS, :call, fn -> :ok end)
+
+      {:ok, view, _html} = live(conn, ~p"/instances/#{instance.id}")
+
+      view
+      |> form("#hostname-form", %{
+        "hostname" => %{"access_domain_id" => domain.id, "label" => "git"}
+      })
+      |> render_submit()
+
+      assert has_element?(view, "#flash-error")
+      assert render(view) =~ "could not be updated to use it"
       assert has_element?(view, "[data-testid='hostname-value']", "git.#{domain.domain}")
     end
 

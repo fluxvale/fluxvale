@@ -680,11 +680,12 @@ defmodule FluxVale.Infrastructure.AccessDomain.ChangesTest do
 
       stub(Tailscale, :claim_domain, fn _gw, _d, _ip -> {:ok, %{device_id: "dev-777"}} end)
 
-      # Two passes, both by design: the resume's nested claim runs its
-      # own success-arm hook, and the resume's post-commit hook re-tells
-      # against the committed row + claim (the second is the sync's
-      # no-op by contract).
-      expect(SyncInstanceUrlEnv, :call, 2, fn synced ->
+      # Exactly ONE pass: the resume's post-commit hook re-tells against
+      # the committed row + claim. The nested claim runs `retell: false`
+      # — a sync inside its open transaction would read the uncommitted
+      # claims through this connection and deliver before the commit a
+      # rollback could undo.
+      expect(SyncInstanceUrlEnv, :call, 1, fn synced ->
         assert synced.id == instance_id
         :ok
       end)

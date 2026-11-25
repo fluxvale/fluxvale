@@ -2191,16 +2191,12 @@ defmodule FluxValeWeb.InstanceLive.Show do
          |> refresh_hostnames()}
 
       # The row stands and serves (no un-mint on a failed re-tell);
-      # the member gets the honest partial-success copy, and the card
-      # refreshes so the added address is visible.
-      {:error, :restart_refused} ->
+      # the member gets the one-owner honest copy and the card
+      # refreshes so the standing row shows.
+      {:error, reason} when reason in [:restart_refused, :app_not_told] ->
         {:noreply,
          socket
-         |> put_flash(
-           :error,
-           "The address was added, but the app could not be restarted to pick it up. " <>
-             "It will pick it up on its next change or a redeploy."
-         )
+         |> put_flash(:error, InstanceHostname.mint_refusal_message(reason))
          |> refresh_hostnames()}
 
       {:error, _reason} ->

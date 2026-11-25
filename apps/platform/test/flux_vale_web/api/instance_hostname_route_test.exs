@@ -222,6 +222,45 @@ defmodule FluxValeWeb.Api.InstanceHostnameRouteTest do
       assert hostname_exists?(instance.id, "git")
     end
 
+    test "any other sync failure keeps the address and renders the honest words", %{
+      conn: conn,
+      pat: pat,
+      user: user,
+      instance: instance
+    } do
+      # Same attached private shape, a non-restart delivery failure:
+      # the address stands and the copy says so (never the generic
+      # mint-refusal words, which would be false here).
+      org = AccountsFixtures.personal_org!(user)
+      gateway = AccessFixtures.gateway!(org)
+      InstanceFixtures.pin!(instance, exposure: :private)
+      domain = verified_domain!(instance)
+
+      AccessRoute.create!(
+        %{gateway_id: gateway.id, instance_id: instance.id, route_key: "8443"},
+        authorize?: false
+      )
+
+      stub(EdgeRoutes, :apply_access_for_status, fn _kc, _gateway, _instance -> :ok end)
+      stub(SyncInstanceUrlEnv, :call, fn _instance -> {:error, :missing} end)
+
+      conn =
+        conn
+        |> auth(pat)
+        |> put_req_header("content-type", "application/vnd.api+json")
+        |> post("/api/v1/instances/#{instance.id}/hostnames", %{
+          "data" => %{
+            "type" => "instance_hostname",
+            "attributes" => %{"access_domain_id" => domain.id, "label" => "git"}
+          }
+        })
+
+      assert %{"errors" => [%{"detail" => detail}]} = json_response(conn, 400)
+      assert detail =~ "could not be updated to use it"
+      assert detail =~ "redeploy"
+      assert hostname_exists?(instance.id, "git")
+    end
+
     test "a foreign instance is 404 before any row lands", %{
       conn: conn,
       instance: instance

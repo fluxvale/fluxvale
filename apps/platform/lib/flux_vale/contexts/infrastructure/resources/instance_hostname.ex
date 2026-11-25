@@ -43,7 +43,10 @@ defmodule FluxVale.Infrastructure.InstanceHostname do
     not_verified: "verify the domain before adding addresses to it",
     restart_refused:
       "The address was added, but the app could not be restarted to pick it up. " <>
-        "It will pick it up on its next change or a redeploy."
+        "It will pick it up on its next change or a redeploy.",
+    app_not_told:
+      "The address was added, but the app could not be updated to use it. " <>
+        "It will pick it up on a redeploy."
   }
 
   @remove_refusals %{
@@ -276,12 +279,18 @@ defmodule FluxVale.Infrastructure.InstanceHostname do
     identity(:unique_label_per_domain, [:access_domain_id, :label])
   end
 
+  # The one owner of the mint-refusal copy: the API's error mapping and
+  # the instance page's flash both read this helper, so the words live
+  # in exactly one place.
+  @spec mint_refusal_message(term()) :: String.t()
+  def mint_refusal_message(reason) when is_map_key(@mint_refusals, reason) do
+    Map.fetch!(@mint_refusals, reason)
+  end
+
   # The mint's guard atoms get the owner's words; anything else (a
   # duplicate label, a K8s failure, Forbidden) passes through untouched.
   defp mint_error(reason) when is_map_key(@mint_refusals, reason) do
-    message = Map.fetch!(@mint_refusals, reason)
-
-    InvalidArgument.exception(message: message)
+    InvalidArgument.exception(message: mint_refusal_message(reason))
   end
 
   defp mint_error(reason), do: reason

@@ -43,11 +43,13 @@ defmodule FluxVale.Infrastructure.AccessDomain.Resume do
 
   **The CoreDNS render is success-only, post-commit.** The claim
   operation runs nested inside this transaction (its `render: false`
-  opt suppresses its own render), so the claims write is uncommitted
-  until this action commits — rendering inside would put uncommitted
-  claims into the ConfigMap (the S4 lesson). This module renders in
-  `after_transaction`, on the `{:ok, _}` branch only: a failed resume
-  leaves the previous view standing, exactly as the row left it.
+  opt suppresses its own render, its `retell: false` its own re-tell —
+  a nested sync would read the uncommitted claims and deliver early),
+  so the claims write is uncommitted until this action commits —
+  rendering inside would put uncommitted claims into the ConfigMap
+  (the S4 lesson). This module renders in `after_transaction`, on the
+  `{:ok, _}` branch only: a failed resume leaves the previous view
+  standing, exactly as the row left it.
 
   **The token drift (the S3 shape):** a claim the tailnet refuses —
   `:unauthorized`, `:forbidden`, or a MISSING token (`:no_api_token`) —
@@ -175,7 +177,11 @@ defmodule FluxVale.Infrastructure.AccessDomain.Resume do
   # back, so every local failure must be exhausted before the tailnet
   # is touched. `render: false` — this transaction's claims write is
   # uncommitted until the action commits; the render is this module's,
-  # post-commit, success-only.
+  # post-commit, success-only. `retell: false` for the same reason one
+  # level down: a nested sync would read the uncommitted claims through
+  # this open transaction and deliver (Secret write, pod restart)
+  # before the commit a rollback could undo — the re-tell is this
+  # module's post-commit hook, exactly once.
   defp reclaim_then_rearm(domain, instances) do
     with {:ok, kubeconfig} <- K8s.kubeconfig(),
          {:ok, gateway} <- org_gateway(domain),
@@ -183,7 +189,8 @@ defmodule FluxVale.Infrastructure.AccessDomain.Resume do
          {:ok, _row} <-
            Infrastructure.claim_access_domain(gateway, domain,
              authorize?: false,
-             render: false
+             render: false,
+             retell: false
            ) do
       :ok
     end

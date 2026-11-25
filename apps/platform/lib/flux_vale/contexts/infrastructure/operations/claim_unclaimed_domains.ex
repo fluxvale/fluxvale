@@ -28,6 +28,7 @@ defmodule FluxVale.Infrastructure.Operations.ClaimUnclaimedDomains do
   alias FluxVale.Infrastructure.Operations.ClaimAccessDomain
   alias FluxVale.Infrastructure.Operations.RenderAccessDNS
   alias FluxVale.Infrastructure.Operations.SyncInstanceUrlEnv
+  alias FluxVale.Infrastructure.Operations.VerifyAccessDomains
 
   require Ash.Query
   require Logger
@@ -39,8 +40,10 @@ defmodule FluxVale.Infrastructure.Operations.ClaimUnclaimedDomains do
   just promoted one); the default is every verified custom domain of
   the gateway's org. `opts[:render?]` (default true) suppresses the
   post-claim resolver render for callers that render once themselves.
-  `opts[:actor]` attributes the claims' audit rows (the owner whose
-  action caused them).
+  `opts[:retell]` (default true) suppresses the landed claims' own
+  re-tell, for a caller that re-tells once itself post-commit (the
+  resume's shape). `opts[:actor]` attributes the claims' audit rows
+  (the owner whose action caused them).
   """
   @spec call(AccessGateway.t()) :: %{
           claimed: [String.t()],
@@ -55,6 +58,7 @@ defmodule FluxVale.Infrastructure.Operations.ClaimUnclaimedDomains do
   def call(%AccessGateway{} = gateway, opts) do
     domains = opts[:domains] || verified_domains(gateway.organization_id)
     already = claimed_names(gateway)
+    retell? = Keyword.get(opts, :retell, true)
 
     {claimed, failed} =
       domains
@@ -63,7 +67,8 @@ defmodule FluxVale.Infrastructure.Operations.ClaimUnclaimedDomains do
         case ClaimAccessDomain.call(gateway, domain,
                actor: opts[:actor],
                authorize?: false,
-               render: false
+               render: false,
+               retell: retell?
              ) do
           {:ok, _gateway} ->
             {[domain.domain | ok], bad}
@@ -79,13 +84,10 @@ defmodule FluxVale.Infrastructure.Operations.ClaimUnclaimedDomains do
     # Each landed claim re-tells the domain's serving instances (the
     # lane's ruling: best-effort, post-commit, warn-only per instance —
     # the claims write is what makes the hostnames' addresses serve).
-    # The selector is called by full module name (one read of where it
-    # lives; this sweep aliases no operations modules otherwise).
     Enum.each(domains, fn domain ->
       if domain.domain in claimed do
         domain
-        # credo:disable-for-next-line Credo.Check.Design.AliasUsage
-        |> FluxVale.Infrastructure.Operations.VerifyAccessDomains.serving_instances()
+        |> VerifyAccessDomains.serving_instances()
         |> Enum.each(&retell_url_env/1)
       end
     end)

@@ -119,7 +119,8 @@ defmodule FluxVale.Infrastructure.Operations.MintCustomHostnameTest do
   describe "call/4 — the URL-env sync hook (the address re-tell)" do
     # The lane's posture: NO sync failure unwinds the mint. The edge
     # has applied and the address serves, so the row and its routes
-    # stand on every sync outcome.
+    # stand on every sync outcome — and the render still runs (never
+    # gated by the tell).
     test "a refused app restart keeps the row standing, no unwind, error mapped", %{
       org: org,
       owner: owner
@@ -135,10 +136,10 @@ defmodule FluxVale.Infrastructure.Operations.MintCustomHostnameTest do
         {:error, {:restart_refused, :boom}}
       end)
 
-      # The address serves — no route removal, no render, and the
-      # member-facing reason is the mapped atom, not the raw tuple.
+      # The address serves — no route removal, the member-facing reason
+      # is the mapped atom, not the raw tuple, and the render still ran.
       reject(EdgeRoutes, :apply_access_none_for_hostname, 3)
-      reject(RenderAccessDNS, :call, 0)
+      expect(RenderAccessDNS, :call, fn -> :ok end)
 
       assert {:error, :restart_refused} =
                Infrastructure.mint_custom_hostname(instance.id, domain.id, "git", actor: owner)
@@ -146,7 +147,7 @@ defmodule FluxVale.Infrastructure.Operations.MintCustomHostnameTest do
       assert hostname_exists?(instance.id, "git")
     end
 
-    test "any other sync failure keeps the row standing and returns the error as-is", %{
+    test "any other sync failure keeps the row standing and maps to the honest reason", %{
       org: org,
       owner: owner
     } do
@@ -159,9 +160,9 @@ defmodule FluxVale.Infrastructure.Operations.MintCustomHostnameTest do
       expect(SyncInstanceUrlEnv, :call, fn _instance -> {:error, :missing} end)
 
       reject(EdgeRoutes, :apply_access_none_for_hostname, 3)
-      reject(RenderAccessDNS, :call, 0)
+      expect(RenderAccessDNS, :call, fn -> :ok end)
 
-      assert {:error, :missing} =
+      assert {:error, :app_not_told} =
                Infrastructure.mint_custom_hostname(instance.id, domain.id, "git", actor: owner)
 
       assert hostname_exists?(instance.id, "git")

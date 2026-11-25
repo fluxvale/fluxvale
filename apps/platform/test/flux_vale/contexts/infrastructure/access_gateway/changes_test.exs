@@ -1719,8 +1719,10 @@ defmodule FluxVale.Infrastructure.AccessGateway.ChangesTest do
       assert AccessGateway.get_by_id!(gateway.id, authorize?: false).id == gateway.id
     end
 
-    # The lane's ruling: each instance whose arms came down has its
-    # running app re-told, per-instance and independent.
+    # The lane's ruling: each detached instance's app is re-told, per
+    # instance and independent — POST-COMMIT, where the pairing rows
+    # and the row are already gone (a sync inside the transaction saw
+    # unchanged DB inputs and was inert).
     test "each detached instance's app is re-told after the arms come down", %{
       org: org,
       owner: owner
@@ -1745,8 +1747,16 @@ defmodule FluxVale.Infrastructure.AccessGateway.ChangesTest do
 
       stub(Tailscale, :teardown_gateway, fn _gateway -> :ok end)
 
+      # The DB state AT SYNC TIME is the pin: the transaction has
+      # committed, so the gateway row and the instance's pairing row
+      # are gone — the derivation reads the post-teardown truth.
       expect(SyncInstanceUrlEnv, :call, fn synced ->
         assert synced.id == instance.id
+        assert {:error, _gone} = AccessGateway.get_by_id(gateway.id, authorize?: false)
+
+        assert {:error, _unpaired} =
+                 AccessRoute.get_by_instance(instance.id, authorize?: false)
+
         :ok
       end)
 

@@ -21,7 +21,8 @@ defmodule FluxVale.Infrastructure.Operations.ClaimAccessDomain do
 
   The claims write committed re-tells the domain's serving instances'
   running apps (the URL-env sync — best-effort, warn-only per
-  instance); the nested caller (`render: false`) runs it too.
+  instance); the nested caller suppresses it (`retell: false`) and
+  re-tells post-commit itself.
   """
 
   alias FluxVale.Infrastructure.AccessDomain
@@ -47,6 +48,15 @@ defmodule FluxVale.Infrastructure.Operations.ClaimAccessDomain do
   yet committed — rendering here would put uncommitted claims into the
   ConfigMap (the S4 lesson). The resume renders once itself, in its
   `after_transaction`, on the committed row only.
+
+  `opts[:retell]` (default true) suppresses the URL-env re-tell, for
+  the same nested caller and the same reason one level down: a sync
+  here would read the UNCOMMITTED claims through the caller's open
+  transaction (same-connection savepoint reads) and deliver — a
+  Secret write and a pod restart — before the outer commit; a
+  rollback would leave the app naming an unclaimed address. The
+  resume re-tells once itself, in its `after_transaction`, against
+  the committed row.
   """
   @spec call(AccessGateway.t(), AccessDomain.t(), keyword()) ::
           {:ok, AccessGateway.t()} | {:error, term()}
@@ -54,6 +64,7 @@ defmodule FluxVale.Infrastructure.Operations.ClaimAccessDomain do
     actor = opts[:actor]
     authorize? = Keyword.get(opts, :authorize?, true)
     render? = Keyword.get(opts, :render, true)
+    retell? = Keyword.get(opts, :retell, true)
 
     with {:ok, gateway} <-
            AccessGateway.get_by_id(gateway.id, actor: actor, authorize?: authorize?),
@@ -65,7 +76,7 @@ defmodule FluxVale.Infrastructure.Operations.ClaimAccessDomain do
          {:ok, resolver_ip} <- resolver_ip(),
          result <-
            AccessProvider.impl_for(gateway).claim_domain(gateway, domain.domain, resolver_ip) do
-      land(result, gateway, domain, resolver_ip, render?, actor)
+      land(result, gateway, domain, resolver_ip, render?, retell?, actor)
     end
   end
 
@@ -78,7 +89,7 @@ defmodule FluxVale.Infrastructure.Operations.ClaimAccessDomain do
   # The claims write committed = the view's source of truth moved, so the
   # Corefile re-renders best-effort after it (ADR-0040 §4's derived-state
   # stance) — a failed render never fails the claim.
-  defp land({:ok, _claimed}, gateway, domain, resolver_ip, render?, actor) do
+  defp land({:ok, _claimed}, gateway, domain, resolver_ip, render?, retell?, actor) do
     claims =
       Map.put(gateway.dns_claims || %{}, domain.domain, %{
         "ip" => resolver_ip,
@@ -91,7 +102,9 @@ defmodule FluxVale.Infrastructure.Operations.ClaimAccessDomain do
           RenderAccessDNS.call()
         end
 
-        retell_serving_instances(domain)
+        if retell? do
+          retell_serving_instances(domain)
+        end
 
         {:ok, row}
 
@@ -100,21 +113,29 @@ defmodule FluxVale.Infrastructure.Operations.ClaimAccessDomain do
     end
   end
 
-  defp land({:error, kind} = error, gateway, _domain, _resolver_ip, _render?, _actor)
+  defp land({:error, kind} = error, gateway, _domain, _resolver_ip, _render?, _retell?, _actor)
        when kind in [:unauthorized, :forbidden] do
     drift_to_needs_attention(gateway, kind)
     error
   end
 
-  defp land({:error, _reason} = error, _gateway, _domain, _resolver_ip, _render?, _actor),
-    do: error
+  defp land(
+         {:error, _reason} = error,
+         _gateway,
+         _domain,
+         _resolver_ip,
+         _render?,
+         _retell?,
+         _actor
+       ),
+       do: error
 
   # The claims write is what makes the domain's hostnames' addresses
   # serve — each serving instance's running app is re-told (the lane's
   # ruling: best-effort, post-commit, warn-only per instance). The
-  # nested caller (`render: false`, the resume) runs this too: its
-  # claims write is uncommitted at that point, and a later event or a
-  # redeploy converges.
+  # nested caller (`retell: false`, the resume) suppresses this and
+  # re-tells post-commit itself: a sync here would read the uncommitted
+  # claims through the caller's open transaction and deliver early.
   defp retell_serving_instances(domain) do
     domain
     |> VerifyAccessDomains.serving_instances()

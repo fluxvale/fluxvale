@@ -25,10 +25,11 @@ defmodule FluxVale.Infrastructure.Operations.MintCustomHostname do
   tells the deployed app its new address (`SyncInstanceUrlEnv`). A
   failure to tell does NOT un-mint the serving address — the row is
   truth, the env is a projection (ADR-0052 decision 2's stance): the
-  row and its routes stand, and only the error returns, a refused app
-  restart mapped to its own `:restart_refused` reason whose member
-  copy says the app picks the address up on its next change or a
-  redeploy.
+  row and its routes stand, and only the error returns, mapped to
+  honest member-facing reasons (`:restart_refused` for a refused app
+  restart, `:app_not_told` for any other delivery failure). The
+  resolver render still runs best-effort either way. Both copies tell
+  the member the address stands and how the app catches up.
 
   Pure DB work plus the one idempotent edge apply; the resolver view is
   derived state, so the `RenderAccessDNS` pass runs best-effort AFTER
@@ -44,11 +45,13 @@ defmodule FluxVale.Infrastructure.Operations.MintCustomHostname do
   alias FluxVale.Infrastructure.Operations.RenderAccessDNS
   alias FluxVale.Infrastructure.Operations.SyncInstanceUrlEnv
 
+  require Logger
+
   @doc """
   `{:ok, hostname}` or `{:error, reason}` — `reason` being
   `:different_organization | :not_custom | :not_verified |
-  :restart_refused | Forbidden | term()`. `opts` carry `actor:` /
-  `authorize?:` / `context:`.
+  :restart_refused | :app_not_told | Forbidden | term()`. `opts` carry
+  `actor:` / `authorize?:` / `context:`.
   """
   @spec call(Ash.UUID.t(), Ash.UUID.t(), String.t(), keyword()) ::
           {:ok, InstanceHostname.t()} | {:error, term()}
@@ -61,10 +64,13 @@ defmodule FluxVale.Infrastructure.Operations.MintCustomHostname do
          {:ok, domain} <- AccessDomain.get_by_id(access_domain_id, read_opts),
          :ok <- ensure_addable(instance, domain),
          {:ok, hostname} <- mint(instance, domain, label),
-         {:ok, applied?} <- apply_edge(instance, hostname, read_opts),
-         :ok <- tell_app(instance, applied?) do
+         {:ok, applied?} <- apply_edge(instance, hostname, read_opts) do
+      # The tell never gates the render: the DNS view is derived state,
+      # re-rendered best-effort after the row commits whatever the tell
+      # said (the moduledoc's promise — a failed re-tell still re-renders).
+      outcome = tell_app(instance, applied?)
       RenderAccessDNS.call()
-      {:ok, hostname}
+      settle(hostname, outcome)
     end
   end
 
@@ -141,19 +147,35 @@ defmodule FluxVale.Infrastructure.Operations.MintCustomHostname do
   # the address SERVES — destroying a serving address to repair env
   # delivery would be the mirror image of the false claim the edge
   # unwind exists for, and a re-mint would silently no-op on the
-  # delivery-aware gate (ADR-0052 decision 2's stance). A refused app
-  # restart gets its own member-facing reason (the copy: the app picks
-  # the address up on its next change or a redeploy); anything else
-  # returns as-is for the surfaces' generic mapping.
+  # delivery-aware gate (ADR-0052 decision 2's stance). The member gets
+  # an honest mapped reason, never the raw sync error: a refused app
+  # restart is `:restart_refused` (the sync logged it); any other
+  # delivery failure is `:app_not_told` — this warning carries the raw
+  # reason for the operator.
   defp tell_app(_instance, false), do: :ok
 
   defp tell_app(instance, true) do
     case SyncInstanceUrlEnv.call(instance) do
-      :ok -> :ok
-      {:error, {:restart_refused, _reason}} -> {:error, :restart_refused}
-      {:error, reason} -> {:error, reason}
+      :ok ->
+        :ok
+
+      {:error, {:restart_refused, _reason}} ->
+        {:error, :restart_refused}
+
+      {:error, reason} ->
+        Logger.warning(
+          "instance address env sync after mint refused instance=#{instance.id} " <>
+            "reason=#{inspect(reason)}"
+        )
+
+        {:error, :app_not_told}
     end
   end
+
+  # :ok keeps the caller's success; a tell failure returns the mapped
+  # reason — the row stands either way.
+  defp settle(_hostname, {:error, _reason} = failure), do: failure
+  defp settle(hostname, :ok), do: {:ok, hostname}
 
   # The row must not stand when its edge failed, but it also must not
   # vanish while a route it minted still answers — that orphan would be
