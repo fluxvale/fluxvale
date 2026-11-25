@@ -11,7 +11,7 @@ Pocket ID is the identity app in the catalog. Deploy it, claim it, add a passkey
 
 One identity, one passkey, across your apps. No password reuse, no per-app credential sprawl. Pocket ID speaks OpenID Connect, which most self-hosted apps understand natively.
 
-Six catalog apps consume it today: Forgejo, Kavita, Vaultwarden, ActualBudget, Memos, and Vikunja. Umami is not one of them. The self-hosted Umami in the catalog has no OIDC client; SSO is an Umami Cloud feature.
+Six catalog apps consume it today: Forgejo, Kavita, Vaultwarden, ActualBudget, Memos, and Vikunja. Umami is not one of them. The self-hosted Umami in the catalog has no OIDC client, because SSO is an Umami Cloud feature.
 
 ## Before you wire an app
 
@@ -37,7 +37,7 @@ Then open **Administration**, then **OIDC Clients**, then **Add OIDC Client**. N
 https://<forgejo-host>/user/oauth2/PocketID/callback
 ```
 
-The `PocketID` segment is the Forgejo authentication source name. Name the source `PocketID`, or change the callback to match. Other apps use the same shape with their own name and callback. The client page shows the client ID, the client secret, and the discovery URL. Copy the secret when you create the client. Pocket ID shows it once; if you lose it, rotate the secret or recreate the client.
+The `PocketID` segment is the Forgejo authentication source name. Name the source `PocketID`, or change the callback to match. Other apps use the same shape with their own name and callback. The client page shows the client ID, the client secret, and the discovery URL. Copy the secret when you create the client. Pocket ID shows it once. If you lose it, rotate the secret or recreate the client.
 
 ### Unrestrict the client
 
@@ -101,6 +101,6 @@ The Pocket ID side is the same for every app: create the client with the app's c
 
 Connected apps degrade, they do not die. Already-signed-in sessions persist. New sign-ins fail while the issuer is unreachable and come back when it is reachable again.
 
-Keep one local way in per app. Forgejo's local admin is the one verified here; the other apps' recovery notes are in the [sign-in guide](https://fluxvale.com/guides/sign-in-with-pocket-id).
+Keep one local way in per app. Forgejo's local admin is the one verified here, and the other apps' recovery notes are in the [sign-in guide](https://fluxvale.com/guides/sign-in-with-pocket-id).
 
-Destroying Pocket ID is permanent. The destroy deletes the instance and its data, so the identities it holds are lost unless you can restore from a backup you own. A restore needs both the backup password and the Pocket ID `ENCRYPTION_KEY` from deploy time. Save both before you destroy anything. The [backups guide](/docs/guides/backups) covers the backup password; it does not carry the encryption key.
+Destroying Pocket ID is permanent. The destroy deletes the instance and its data, so the identities it holds are lost unless you can restore from a backup you own. A restore needs both the backup password and the Pocket ID `ENCRYPTION_KEY` from deploy time. Save both before you destroy anything. The [backups guide](/docs/guides/backups) covers the backup password, and does not carry the encryption key.

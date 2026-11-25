@@ -23,7 +23,7 @@ Apps sleep after an hour without visitors and wake on the next visit, usually in
 In the cluster, in your app's own volume, and in your own backup bucket if you set one up. The platform takes no platform-side copies of your app data. The [backups guide](/docs/guides/backups) explains the honest version of this.
 
 **Can I use my own domain?**
-Yes, on the private-access lane, verified by certificate issuance. The [custom domains guide](/docs/guides/custom-domains) says where the feature stands today. The default `fluxvale.app` address is free.
+Yes, with private access, verified by certificate issuance. The [custom domains guide](/docs/guides/custom-domains) says where the feature stands today. The default `fluxvale.app` address is free.
 
 **Can I export my data and leave?**
 Yes. The apps are open-source and their formats are yours. Backups land in your own bucket in standard restic format, so the data leaves with you. Apps that declare file access, Kavita today, also expose their volume over WebDAV for copying files out directly.

@@ -11,7 +11,7 @@ Deploying an app on FluxVale takes a few clicks. This page walks through the who
 
 Open the [catalog](https://fluxvale.com/catalog) and browse the apps. Each catalog page shows what the app does, its source and docs links, and what it costs per month at its default size.
 
-The catalog today covers Forgejo, Kavita, Memos, Vaultwarden, Pocket ID, and ActualBudget.
+The catalog today covers Forgejo, Kavita, Memos, Vikunja, Linkwarden, Vaultwarden, Pocket ID, ActualBudget, Umami, and Docmost.
 
 ## Deploy it
 

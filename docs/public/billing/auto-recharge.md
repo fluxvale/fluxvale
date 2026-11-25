@@ -5,14 +5,14 @@ order: 10
 slug: auto-recharge
 ---
 
-Auto-recharge reminders email your organization when the wallet balance dips below a threshold you choose. The email carries a one-click link that opens the top-up wizard with your amount pre-filled. You stay in control: auto-recharge reminders never charge anything — topping up is always your decision.
+Auto-recharge reminders email your organization when the wallet balance dips below a threshold you choose. The email carries a one-click link that opens the top-up wizard with your amount pre-filled. You stay in control: auto-recharge reminders never charge anything, and topping up is always your decision.
 
 ## Turn reminders on
 
-Open the billing page of your organization — or of your personal workspace; it works the same — and find the auto-recharge section. Only owners can change it.
+Open the billing page of your organization (or of your personal workspace, which works the same) and find the auto-recharge section. Only owners can change it.
 
-1. Set the **threshold** — the balance that triggers a reminder.
-2. Set the **amount** — what the one-click link pre-fills.
+1. Set the **threshold**: the balance that triggers a reminder.
+2. Set the **amount**: what the one-click link pre-fills.
 3. Switch reminders on.
 
 ## What the threshold and amount mean
@@ -22,9 +22,9 @@ Open the billing page of your organization — or of your personal workspace; it
 
 ## How often reminders arrive
 
-At most once a day while the balance stays below the threshold. Not per hour, not per dip — one email a day is the ceiling.
+At most once every 24 hours while the balance stays below the threshold.
 
-Top up above the threshold and the reminders stop. The next dip starts a fresh cycle.
+Once you top up above the threshold and the next hourly check sees the recovery, reminders stop and reset so a later dip starts a fresh cycle.
 
 ## Turn reminders off
 
