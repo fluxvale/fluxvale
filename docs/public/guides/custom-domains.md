@@ -58,3 +58,7 @@ One credential is enough: enabling with the token alone (no auth key) makes the 
 Tailscale API keys expire within 90 days, so save a fresh one before then. In Terraform, bump `rotate_api_token_on` to re-send it. Until the three conditions hold, the address is recorded and serves nothing yet. The certificate and the DNS records do not change, because the wildcard you verified covers every label you mint under it.
 
 Remove the `_acme-challenge` CNAME when you remove the domain. A delegation left behind is a takeover path for that hostname.
+
+## What the app is told
+
+When a custom address serves, the app is told that address in its URL setting, and a running app restarts to pick it up. When more than one custom address serves, the app is told the oldest one, so adding a second address does not change the app's address. When no custom address serves, the app is told the default hostname if that serves, and nothing otherwise. Any later change (an address added or removed, a claim or attach change) re-tells the running app the same way. An app whose sign-in is already wired to Pocket ID keeps the old callback after its address changes. Re-run the wiring to re-point it, or edit the callback on the client in Pocket ID.

@@ -1840,6 +1840,12 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
       assert has_element?(view, "[data-testid='hostname-empty']")
       assert has_element?(view, "[data-testid='hostname-guide-link']")
       refute has_element?(view, "#hostname-form")
+
+      # S5: the card says what a serving address does to the app, with
+      # the restart qualifier naming running apps only (a stopped row
+      # picks the env up at its next start).
+      assert render(element(view, "[data-testid='instance-hostnames']")) =~
+               "the app is told it, and a running app restarts to pick it up"
     end
 
     test "a verified but unclaimed domain names the fix; claiming clears it", %{
