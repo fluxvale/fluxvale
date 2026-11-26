@@ -523,7 +523,7 @@ defmodule FluxValeWeb.InstanceLive.Show do
                 A custom address serves when its domain is verified and claimed by your
                 gateway, and this instance is private and attached to it. Until then the
                 address is recorded here and serves nothing yet. When an address serves,
-                the app is told it and restarts to pick it up.
+                the app is told it, and a running app restarts to pick it up.
               </p>
 
               <p

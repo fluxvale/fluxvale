@@ -857,14 +857,15 @@ and a per-request dependency); the per-gateway port (above).
 
 ## Amendment 7 (2026-11-25): the app is told its live custom address
 
-§7's URL seeding is built (#919 the derivation + sync, #923 the event
-wiring, #926 the sign-on callback), and it amends one stance recorded
-in this ADR and in ADR-0038. At deploy the platform fills the app's
-URL setting (the catalog's `instance_url_env`, Forgejo's
-`FORGEJO__server__ROOT_URL`) from ONE derivation of the instance's
-live addressing, and the host-allowlist entry (`host_allowlist_env`)
-carries every serving hostname. The derivation, owner-ruled for
-stability over recency:
+§7 of this ADR records the deploy env's URL seeding as a promise, and
+#919 (the derivation + sync), #923 (the event wiring), and #926 (the
+sign-on callback) built it. The env-snapshot stance it amends is
+recorded in [ADR-0038 §4](00038-instance-exposure-modes.md). At deploy
+the platform fills the app's URL setting (the catalog's
+`instance_url_env`, Forgejo's `FORGEJO__server__ROOT_URL`) from ONE
+derivation of the instance's live addressing, and the host-allowlist
+entry (`host_allowlist_env`) carries every serving hostname. The
+derivation, owner-ruled for stability over recency:
 
 - **The oldest live custom address wins.** A private instance's URL is
   its OLDEST live custom address when one serves (created_at, then
@@ -877,22 +878,24 @@ stability over recency:
   Public rows always answer on the default hostname, unchanged.
 - **Re-derived on every address event, not snapshotted at deploy.**
   Mint, remove, attach, detach, claim, unclaim, verification, exposure
-  toggle, gateway teardown — each recomputes the URL key and the
-  allowlist append through ADR-0052's seam (row lock, compose, Secret
-  upsert, post-commit restart), and an already-running app restarts to
-  pick the change up; only a value that actually changes writes and
-  rolls anything. This supersedes, for the URL key specifically, the
-  env-snapshot stance of
+  toggle, domain suspend and resume, gateway teardown — each
+  recomputes the URL key and the allowlist append through
+  [ADR-0052](00052-instance-env-updates.md)'s seam (row lock, compose,
+  Secret upsert, post-commit restart), and an already-running app
+  restarts to pick the change up; a value change writes and rolls, a
+  value-identical retry rolls only when the delivery stamp shows the
+  pods do not run the live env. This supersedes, for the URL key
+  specifically, the env-snapshot stance of
   [ADR-0038 §4](00038-instance-exposure-modes.md) ("toggling later
   does not rewrite a running app's env"): the row is never written —
   the key stays a deployer-composed projection above it — and a
   redeploy recomposes as before. The allowlist append stays
-  append-only onto the live value (ADR-0052 decision 4), so a host
+  append-only onto the live value
+  ([ADR-0052](00052-instance-env-updates.md) decision 4), so a host
   that stops serving stays harmless in the allowlist.
 - **The delivery stamp.** The deployment records the hash of the env
   it rolls (`fluxvale.io/env-state`), so a refused restart self-heals
-  on the next event, and a value-identical retry is a true no-op only
-  when the stamp shows the pods demonstrably run the live env.
+  on the next event.
 - **The stop-half, stated plainly.** Apps that persist config on a
   volume (Forgejo writes `app.ini`) write a present env key at
   container start and leave an absent one standing: removing a URL key

@@ -37,7 +37,7 @@ Then open **Administration**, then **OIDC Clients**, then **Add OIDC Client**. N
 https://<forgejo-host>/user/oauth2/PocketID/callback
 ```
 
-The automatic wiring registers the callback at the app's own address, so an app reached at a custom address gets that address in its callback. A hand-registered client should use the address the app is actually reached on.
+The automatic wiring registers the callback at the app's URL setting, the address the platform tells the app, so a member reached through any of the app's addresses gets a matching callback. A hand-registered client should use the app's URL setting too (the address shown in the app's own settings), not whichever address the member happens to browse by, because with more than one live address the platform tells the app the oldest one.
 
 The `PocketID` segment is the Forgejo authentication source name. Name the source `PocketID`, or change the callback to match. Other apps use the same shape with their own name and callback. The client page shows the client ID, the client secret, and the discovery URL. Copy the secret when you create the client. Pocket ID shows it once. If you lose it, rotate the secret or recreate the client.
 
