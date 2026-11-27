@@ -29,6 +29,21 @@ defmodule FluxVale.Infrastructure.Operations.EdgeRoutes do
   Secret for verified custom ones — an unverified custom domain never
   routes.
 
+  The **public custom family** is the third plane: a PUBLIC instance's
+  custom `InstanceHostname` rows also serve on the same public
+  entrypoint the default hostname uses — one `custom-<short-tail>`
+  IngressRoute (+ `-dav` sibling for file-access instances) per custom
+  row, minted by the same public arms that route the default hostname,
+  so the family follows the instance's CURRENT exposure and mode with
+  no dispatch of its own. The platform row never mints here —
+  `app-ingress` already routes that Host (a second router would be a
+  same-host collision) — and a PRIVATE instance never holds one
+  (`apply_private` deletes every custom route): the exposure key IS
+  the security boundary. TLS rides the same per-namespace cert replica
+  the access arm replicates; a custom domain that cannot serve
+  (unverified, or its replica unreadable) is torn dark — the same
+  honest-dark the access arm lands.
+
   Deploys land serving; `SleepInstance` flips both routes to wake; the
   first request after `:running` flips them back (the wake endpoint's
   restore — the visitor's reload lands on the app). All applies are
@@ -46,7 +61,12 @@ defmodule FluxVale.Infrastructure.Operations.EdgeRoutes do
   replicas), ReconcileAccessAdmission (the one-minute address
   refresher), and PerformTeardown's access none.
   `apply_access_none_for_domain/3` serves the suspension funnel
-  (`AccessDomain.Suspend`). The specs are the shared boundary, so they
+  (`AccessDomain.Suspend`). The public custom family exposes
+  `apply_public_for_status/2` (the one dispatch for its mint/flip
+  callers), `apply_public_none_for_hostname/3` (the member remove's
+  public limb), and `apply_public_none_for_domain/3` (the suspension
+  funnel's public limb, joined beside the access one). The specs are
+  the shared boundary, so they
   live here rather than being copied many ways (the
   operations-own-their-constants rule's sanctioned exception: this IS
   the one owner).
@@ -143,8 +163,26 @@ defmodule FluxVale.Infrastructure.Operations.EdgeRoutes do
   def apply_public(kubeconfig, instance, :wake), do: wake_apply(kubeconfig, instance)
 
   @doc """
+  The PUBLIC custom family's arm for an instance's CURRENT status —
+  `:running` serves, anything wake-shaped stays wake: the same dispatch
+  the default hostname uses, carried by `apply_serving`/`apply_wake`
+  themselves (so a private row converges on the private posture — the
+  exposure key never forks). One owner for the dispatch — the mint,
+  toggle, and janitor callers must not fork it.
+  """
+  @spec apply_public_for_status(Kubereq.Kubeconfig.t(), Instance.t()) :: :ok | {:error, term()}
+  def apply_public_for_status(kubeconfig, %{status: :running} = instance) do
+    apply_serving(kubeconfig, instance)
+  end
+
+  def apply_public_for_status(kubeconfig, instance) do
+    apply_wake(kubeconfig, instance)
+  end
+
+  @doc """
   The private posture (#265): NO route on the public entrypoint — any
-  existing app (+ `/dav`) IngressRoute is deleted, none minted. The
+  existing app (+ `/dav`) IngressRoute, and every custom hostname row's
+  public custom route, is deleted; none minted. The
   wake targets are deliberately not minted either: without a route
   they are unreachable, and a private instance has nothing to wake.
   Idempotent (a missing route is already the posture); `:ok` or the
@@ -154,8 +192,13 @@ defmodule FluxVale.Infrastructure.Operations.EdgeRoutes do
   def apply_private(kubeconfig, instance) do
     namespace = instance.namespace
 
-    with :ok <- safe_delete_route(kubeconfig, namespace, @app_ingress) do
-      maybe_delete_dav(kubeconfig, instance)
+    with :ok <- safe_delete_route(kubeconfig, namespace, @app_ingress),
+         :ok <- maybe_delete_dav(kubeconfig, instance) do
+      # The public custom family rides the same exposure dispatch: a
+      # private instance must hold NO public custom route (the row's
+      # kind, not its domain state, drives the hunt — a route's row is
+      # the record of it, whatever the domain has since become).
+      delete_custom_routes(kubeconfig, instance)
     end
   end
 
@@ -323,6 +366,44 @@ defmodule FluxVale.Infrastructure.Operations.EdgeRoutes do
           :ok | {:error, term()}
   def apply_access_none_for_hostname(kubeconfig, instance, hostname) do
     delete_hostname_routes(kubeconfig, instance, hostname)
+  end
+
+  @doc """
+  The DOMAIN-SCOPED public none: removes only the public custom routes
+  minted for `access_domain`'s hostname rows on this instance — honest
+  dark for one domain's public plane without touching the instance's
+  other hostnames. The wake middleware is never touched here: the
+  default hostname's wake arm and other domains' routes share it. The
+  suspension funnel's public limb — the mirror of
+  `apply_access_none_for_domain/3`. Same safe-delete stance — 404
+  tolerated, idempotent.
+  """
+  @spec apply_public_none_for_domain(Kubereq.Kubeconfig.t(), Instance.t(), AccessDomain.t()) ::
+          :ok | {:error, term()}
+  def apply_public_none_for_domain(kubeconfig, instance, access_domain) do
+    instance.id
+    |> hostname_rows()
+    |> Enum.filter(&(&1.access_domain_id == access_domain.id))
+    |> Enum.reduce_while(:ok, fn hostname, :ok ->
+      case apply_public_none_for_hostname(kubeconfig, instance, hostname) do
+        :ok -> {:cont, :ok}
+        {:error, _error} = error -> {:halt, error}
+      end
+    end)
+  end
+
+  @doc """
+  Removes ONE hostname row's public custom routes — its `custom-` app
+  route and the `/dav` sibling when the instance is file-access. The
+  member remove's public limb, mirroring
+  `apply_access_none_for_hostname/3`: the row still names the objects
+  while they go, so a retry converges from the same record. Same
+  safe-delete stance — 404 tolerated, idempotent.
+  """
+  @spec apply_public_none_for_hostname(Kubereq.Kubeconfig.t(), Instance.t(), InstanceHostname.t()) ::
+          :ok | {:error, term()}
+  def apply_public_none_for_hostname(kubeconfig, instance, hostname) do
+    delete_custom_hostname_routes(kubeconfig, instance, hostname)
   end
 
   # The dormant access-wake targets: the `wake` ExternalName Service
@@ -678,8 +759,197 @@ defmodule FluxVale.Infrastructure.Operations.EdgeRoutes do
     end
   end
 
+  # -----------------------------------------------------------------
+  # The public custom family: one websecure route per CUSTOM hostname
+  # row on the instance's public posture. The access arm's shape carried
+  # over — the rows drive the routes, the first failure stops the walk,
+  # dark is torn down, never left standing.
+  # -----------------------------------------------------------------
+
+  # One route per custom hostname row; the first failure stops the walk
+  # (a half-minted set is the caller's compensation problem, never a
+  # silent partial posture — the access arm's stance).
+  defp apply_custom_routes(kubeconfig, instance, mode) do
+    instance.id
+    |> hostname_rows()
+    |> Enum.reduce_while(:ok, fn hostname, :ok ->
+      case apply_custom_route(kubeconfig, instance, hostname, mode) do
+        :ok -> {:cont, :ok}
+        {:error, _error} = error -> {:halt, error}
+      end
+    end)
+  end
+
+  defp apply_custom_route(kubeconfig, instance, hostname, mode) do
+    domain = hostname.access_domain
+
+    cond do
+      domain.kind != :custom ->
+        # THE TRAP: the platform row (<slug> under fluxvale.app) is
+        # already routed by app-ingress — a second router on the same
+        # Host is a collision with an undefined winner. The access arm
+        # deliberately routes it; the public arm deliberately does not.
+        :ok
+
+      domain.organization_id != instance.organization_id ->
+        # The same org belt as the access arm's apply_hostname_route: a
+        # hostname under ANOTHER org's domain must never route. The mint
+        # paths cannot produce this today — if a row ever says otherwise,
+        # it is out-of-band, and skipping (logged) is the fail-closed
+        # answer.
+        Logger.warning(
+          "Public edge: skipping hostname #{hostname.label}.#{domain.domain} — its domain " <>
+            "belongs to another organization (row out of band)"
+        )
+
+        :ok
+
+      true ->
+        mint_custom_route(kubeconfig, instance, hostname, mode, domain)
+    end
+  end
+
+  defp mint_custom_route(kubeconfig, instance, hostname, mode, domain) do
+    case access_tls_secret(kubeconfig, domain, instance) do
+      :skip ->
+        # Dark is the posture, not a fault (the access arm's stance): the
+        # domain is not servable right now (unverified, or its cert
+        # replica could not be read). A route still standing here would
+        # admit an address no pass can refresh — it comes down.
+        delete_custom_hostname_routes(kubeconfig, instance, hostname)
+
+      {:ok, tls_secret} ->
+        spec = custom_route_spec(hostname, mode, tls_secret, domain)
+
+        case Ingress.create(kubeconfig, instance.namespace, custom_route_name(hostname), spec) do
+          {:ok, _route} ->
+            maybe_mint_custom_dav(kubeconfig, instance, hostname, mode, tls_secret, domain)
+
+          {:error, _error} = error ->
+            error
+        end
+    end
+  end
+
+  # The public family's dav half (the public app-dav mirrored per custom
+  # hostname): serving dials the `dav` Service (beacon attached via the
+  # base), wake keeps the wake target and only narrows the match to the
+  # path prefix. Same gate and blank-prefix guard as the access plane's
+  # dav mint.
+  defp maybe_mint_custom_dav(kubeconfig, instance, hostname, mode, tls_secret, domain) do
+    path_prefix = Application.fetch_env!(:flux_vale, :file_access)[:path_prefix]
+
+    cond do
+      not dav_routed?(instance) ->
+        :ok
+
+      path_prefix in [nil, ""] ->
+        # A nil/blank prefix would strip the PathPrefix clause and mint
+        # a bare-Host router on the dav Service — shadow-capable against
+        # the app route. Skip + log: worse to mint a shadow than none.
+        Logger.warning(
+          "Public edge: skipping the /dav route for #{hostname.label}.#{domain.domain} — " <>
+            "blank file_access path_prefix config would mint a bare-Host router " <>
+            "(shadow-capable against the app route)"
+        )
+
+        :ok
+
+      true ->
+        spec = custom_dav_route_spec(hostname, mode, path_prefix, tls_secret, domain)
+
+        case Ingress.create(kubeconfig, instance.namespace, custom_dav_route_name(hostname), spec) do
+          {:ok, _route} -> :ok
+          {:error, _error} = error -> error
+        end
+    end
+  end
+
+  # websecure + Host(`label.domain`): `tls: true` with NO :entrypoint is
+  # the builder's websecure shape — the same entrypoint the default
+  # hostname serves. The service halves and the TLS-secret placement
+  # reuse the access arm's builders verbatim: one module owns the spec
+  # shapes (the moduledoc's one-owner rule).
+  defp custom_route_spec(hostname, mode, tls_secret, domain) do
+    %{
+      host: "#{hostname.label}.#{domain.domain}",
+      tls: true,
+      middlewares: custom_middlewares(mode),
+      labels: %{"fluxvale.io/access-domain" => domain.id}
+    }
+    |> put_access_service(mode)
+    |> put_access_tls_secret(tls_secret)
+  end
+
+  defp custom_dav_route_spec(hostname, mode, path_prefix, tls_secret, domain) do
+    hostname
+    |> custom_route_spec(mode, tls_secret, domain)
+    |> put_access_dav_service(mode)
+    |> Map.put(:path_prefix, path_prefix)
+  end
+
+  # The PUBLIC wake arm's marker (fluxvale-wake), never the access
+  # rewrite — a sleeping public instance's custom route wakes through
+  # the same endpoint the default hostname does.
+  defp custom_middlewares(:serving), do: [@beacon_middleware]
+  defp custom_middlewares(:wake), do: [@wake_middleware]
+
+  # The public family's names: the object_name short_id discipline (the
+  # RANDOM TAIL of the row id, never the uuid head — same reason as
+  # access_route_name). The custom- prefix cannot collide with
+  # app-ingress/app-dav or the access family's access-<tail>.
+  defp custom_route_name(hostname) do
+    short_id =
+      hostname.id
+      |> to_string()
+      |> String.replace("-", "")
+      |> String.slice(-10, 10)
+
+    "custom-#{short_id}"
+  end
+
+  # The dav sibling rides its hostname row's name — the none limbs
+  # delete by the same derivation (the rows ARE the record).
+  defp custom_dav_route_name(hostname), do: "#{custom_route_name(hostname)}-dav"
+
+  # The family's teardown (the mirror of delete_access_routes): every
+  # CUSTOM hostname row's route comes down, whatever the domain's state
+  # or owner — a private instance must hold no public custom route.
+  defp delete_custom_routes(kubeconfig, instance) do
+    instance.id
+    |> hostname_rows()
+    |> Enum.filter(&(&1.access_domain.kind == :custom))
+    |> Enum.reduce_while(:ok, fn hostname, :ok ->
+      case delete_custom_hostname_routes(kubeconfig, instance, hostname) do
+        :ok -> {:cont, :ok}
+        {:error, _error} = error -> {:halt, error}
+      end
+    end)
+  end
+
+  # The app route and its dav sibling go together — the same shape as
+  # the access plane's delete_hostname_routes.
+  defp delete_custom_hostname_routes(kubeconfig, instance, hostname) do
+    case safe_delete_route(kubeconfig, instance.namespace, custom_route_name(hostname)) do
+      :ok -> maybe_delete_custom_dav(kubeconfig, instance, hostname)
+      {:error, _error} = error -> error
+    end
+  end
+
+  defp maybe_delete_custom_dav(kubeconfig, instance, hostname) do
+    if dav_routed?(instance) do
+      safe_delete_route(kubeconfig, instance.namespace, custom_dav_route_name(hostname))
+    else
+      :ok
+    end
+  end
+
   # The dispatched entries' public bodies — shared with apply_public/3
-  # (the compensating-restore seam above).
+  # (the compensating-restore seam above). The custom hostname routes
+  # mint LAST, after the default hostname's flow: wake mode's targets
+  # are already ensured first (the #203 lesson — a rewritten route must
+  # only reference objects Traefik already watches), and serving mode's
+  # beacon Middleware is already in place.
   defp serving_apply(kubeconfig, instance) do
     namespace = instance.namespace
     domain = Application.fetch_env!(:flux_vale, :instances_base_domain)
@@ -687,8 +957,9 @@ defmodule FluxVale.Infrastructure.Operations.EdgeRoutes do
     with {:ok, _beacon} <-
            Middleware.create(kubeconfig, namespace, @beacon_middleware, beacon_spec(instance)),
          {:ok, _app} <-
-           Ingress.create(kubeconfig, namespace, @app_ingress, serving_spec(instance, domain)) do
-      maybe_apply_dav(kubeconfig, instance, domain, :serving)
+           Ingress.create(kubeconfig, namespace, @app_ingress, serving_spec(instance, domain)),
+         :ok <- maybe_apply_dav(kubeconfig, instance, domain, :serving) do
+      apply_custom_routes(kubeconfig, instance, :serving)
     end
   end
 
@@ -698,8 +969,9 @@ defmodule FluxVale.Infrastructure.Operations.EdgeRoutes do
 
     with :ok <- ensure_wake_targets(kubeconfig, instance),
          {:ok, _app} <-
-           Ingress.create(kubeconfig, namespace, @app_ingress, wake_spec(instance, domain)) do
-      maybe_apply_dav(kubeconfig, instance, domain, :wake)
+           Ingress.create(kubeconfig, namespace, @app_ingress, wake_spec(instance, domain)),
+         :ok <- maybe_apply_dav(kubeconfig, instance, domain, :wake) do
+      apply_custom_routes(kubeconfig, instance, :wake)
     end
   end
 
