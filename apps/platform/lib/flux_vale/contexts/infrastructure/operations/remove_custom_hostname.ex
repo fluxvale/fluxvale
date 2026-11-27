@@ -1,14 +1,16 @@
 defmodule FluxVale.Infrastructure.Operations.RemoveCustomHostname do
   @moduledoc """
-  The member's custom-address remove (S6): delete the row's access edge
-  first, then the `InstanceHostname` row, then re-render the resolver
-  view best-effort.
+  The member's custom-address remove (S6): delete the row's edge
+  routes first — the public custom route for a public instance (no
+  pairing read: the exposure is the whole dispatch), the pairing-gated
+  access routes for a private one — then the `InstanceHostname` row,
+  then re-render the resolver view best-effort.
 
   The order is the false-claim discipline in reverse: a route whose row
   is gone would still answer at the edge with no record of why, so the
-  routes go while the row still names them. An unattached instance has
-  no routes to remove (the mint skipped the cluster too), so the
-  cluster limb is skipped entirely for it.
+  routes go while the row still names them. An unattached private
+  instance has no routes to remove (the mint skipped the cluster too),
+  so the cluster limb is skipped entirely for it.
 
   After the row is gone the remove re-tells the app its remaining
   address (or drops the URL key) best-effort; a failure leaves the old
@@ -60,6 +62,19 @@ defmodule FluxVale.Infrastructure.Operations.RemoveCustomHostname do
   # (the AccessDomain :remove guard's shape).
   defp ensure_custom(%{kind: :custom}), do: :ok
   defp ensure_custom(%{kind: :platform}), do: {:error, :platform_domain}
+
+  # Public: the custom route lives on the public entrypoint, so the
+  # public none limb takes it down — no pairing read (a stale
+  # AccessRoute row must not detour the delete). The route goes BEFORE
+  # the row destroy — call/2's order — while the row still names the
+  # objects: a row destroyed under a standing route can never be named
+  # by any later walk (the orphan a gate-2 finding proved survives even
+  # a later exposure flip).
+  defp remove_edge(%{exposure: :public} = instance, hostname, _read_opts) do
+    with {:ok, kubeconfig} <- InstanceK8s.kubeconfig_for(instance) do
+      EdgeRoutes.apply_public_none_for_hostname(kubeconfig, instance, hostname)
+    end
+  end
 
   defp remove_edge(instance, hostname, read_opts) do
     case AccessRoute.get_by_instance(instance.id, read_opts) do
