@@ -47,6 +47,12 @@ defmodule FluxValeWeb.Api.InstanceHostnameRouteTest do
     pat = ApiPat.mint!(user, ["instances:write"])
     instance = instance!(user)
 
+    # The API tests pin the API plumbing (row shape, fences, words) —
+    # not the edge. An unattached private instance's mint is
+    # record-only (the operation tests own the edge dispatch, public
+    # arm included), so these stay cluster-free.
+    InstanceFixtures.pin!(instance, exposure: :private)
+
     {:ok, user: user, pat: pat, instance: instance}
   end
 

@@ -70,6 +70,10 @@ if Mix.env() == :test do
   # the one serving_instances selector.
   Mimic.copy(FluxVale.Infrastructure.Operations.SyncInstanceUrlEnv)
   Mimic.copy(FluxVale.Infrastructure.Operations.VerifyAccessDomains)
+  # The public mint's vanished-row arm (the address lane's P3): a test
+  # stages teardown winning between the guard read and the locked
+  # re-read — the mint seam is where the destroy lands.
+  Mimic.copy(FluxVale.Infrastructure.InstanceHostname)
   # #238: the deploy's RBAC-propagation wait probes SelfSubjectAccessReview
   Mimic.copy(FluxVale.Clients.K8s.SelfAccessReview)
   # ADR-0040 S3: a test must be able to force the gateway row's system
