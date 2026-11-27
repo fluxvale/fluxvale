@@ -375,6 +375,26 @@ defmodule FluxVale.Infrastructure.Operations.InstanceEnvDerivedTest do
       assert InstanceEnvDerived.instance_url(row) == "https://git.#{domain.domain}/"
     end
 
+    test "the oldest dead row does not shadow a newer live one" do
+      {org, row} = public_org_instance!()
+
+      # the OLDEST row: minted first, under a pending (unverified) domain
+      pending = AccessFixtures.custom_domain!(org)
+      AccessFixtures.mint_hostname!(row, pending, "old")
+
+      # the NEWER row: minted second, under a verified domain
+      domain = AccessFixtures.verified_domain!(org)
+      AccessFixtures.mint_hostname!(row, domain, "git")
+
+      # filter-then-sort: the answer is hd(live), not hd(rows)
+      assert InstanceEnvDerived.instance_url(row) == "https://git.#{domain.domain}/"
+
+      assert InstanceEnvDerived.serving_hostnames(row) == [
+               host(row.slug),
+               "git.#{domain.domain}"
+             ]
+    end
+
     test "a public instance without a live custom address keeps the default hostname" do
       {org, row} = public_org_instance!()
 
