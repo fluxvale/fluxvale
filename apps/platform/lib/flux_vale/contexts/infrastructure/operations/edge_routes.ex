@@ -61,12 +61,12 @@ defmodule FluxVale.Infrastructure.Operations.EdgeRoutes do
   replicas), ReconcileAccessAdmission (the one-minute address
   refresher), and PerformTeardown's access none.
   `apply_access_none_for_domain/3` serves the suspension funnel
-  (`AccessDomain.Suspend`). The public custom family exposes
-  `apply_public_for_status/2` (the one dispatch for its mint/flip
-  callers), `apply_public_none_for_hostname/3` (the member remove's
-  public limb), and `apply_public_none_for_domain/3` (the suspension
-  funnel's public limb, joined beside the access one). The specs are
-  the shared boundary, so they
+  (`AccessDomain.Suspend`). The public custom family exposes the same
+  seams for its plane — `apply_public_for_status/2` (the one dispatch),
+  `apply_public_none_for_hostname/3` and
+  `apply_public_none_for_domain/3` (the remove and suspend limbs): the
+  seams the member-remove, toggle, and janitor operations call. The
+  specs are the shared boundary, so they
   live here rather than being copied many ways (the
   operations-own-their-constants rule's sanctioned exception: this IS
   the one owner).
@@ -164,19 +164,21 @@ defmodule FluxVale.Infrastructure.Operations.EdgeRoutes do
 
   @doc """
   The PUBLIC custom family's arm for an instance's CURRENT status —
-  `:running` serves, anything wake-shaped stays wake: the same dispatch
-  the default hostname uses, carried by `apply_serving`/`apply_wake`
-  themselves (so a private row converges on the private posture — the
-  exposure key never forks). One owner for the dispatch — the mint,
-  toggle, and janitor callers must not fork it.
+  the public plane's own convention (`SetExposure`'s rule):
+  `:sleeping` flips to wake (the waking page), every other status
+  serves — a `:starting` row mid-deploy and a `:stopped` one included.
+  Carried by `apply_serving`/`apply_wake` themselves, so a private row
+  still converges on the private posture — the exposure key never
+  forks. One owner for the dispatch — the mint, toggle, and janitor
+  operations that wire this family must not fork it.
   """
   @spec apply_public_for_status(Kubereq.Kubeconfig.t(), Instance.t()) :: :ok | {:error, term()}
-  def apply_public_for_status(kubeconfig, %{status: :running} = instance) do
-    apply_serving(kubeconfig, instance)
+  def apply_public_for_status(kubeconfig, %{status: :sleeping} = instance) do
+    apply_wake(kubeconfig, instance)
   end
 
   def apply_public_for_status(kubeconfig, instance) do
-    apply_wake(kubeconfig, instance)
+    apply_serving(kubeconfig, instance)
   end
 
   @doc """
@@ -373,8 +375,8 @@ defmodule FluxVale.Infrastructure.Operations.EdgeRoutes do
   minted for `access_domain`'s hostname rows on this instance — honest
   dark for one domain's public plane without touching the instance's
   other hostnames. The wake middleware is never touched here: the
-  default hostname's wake arm and other domains' routes share it. The
-  suspension funnel's public limb — the mirror of
+  default hostname's wake arm and other domains' routes share it. Built
+  as the suspension funnel's public limb — the mirror of
   `apply_access_none_for_domain/3`. Same safe-delete stance — 404
   tolerated, idempotent.
   """
@@ -394,8 +396,8 @@ defmodule FluxVale.Infrastructure.Operations.EdgeRoutes do
 
   @doc """
   Removes ONE hostname row's public custom routes — its `custom-` app
-  route and the `/dav` sibling when the instance is file-access. The
-  member remove's public limb, mirroring
+  route and the `/dav` sibling when the instance is file-access. Built
+  as the member remove's public limb, mirroring
   `apply_access_none_for_hostname/3`: the row still names the objects
   while they go, so a retry converges from the same record. Same
   safe-delete stance — 404 tolerated, idempotent.
@@ -795,14 +797,15 @@ defmodule FluxVale.Infrastructure.Operations.EdgeRoutes do
         # The same org belt as the access arm's apply_hostname_route: a
         # hostname under ANOTHER org's domain must never route. The mint
         # paths cannot produce this today — if a row ever says otherwise,
-        # it is out-of-band, and skipping (logged) is the fail-closed
-        # answer.
+        # it is out-of-band. Fail closed BOTH ways: skip the mint AND
+        # tear down any route minted while the row was legitimately
+        # owned — a skip alone would strand a route no pass refreshes.
         Logger.warning(
           "Public edge: skipping hostname #{hostname.label}.#{domain.domain} — its domain " <>
             "belongs to another organization (row out of band)"
         )
 
-        :ok
+        delete_custom_hostname_routes(kubeconfig, instance, hostname)
 
       true ->
         mint_custom_route(kubeconfig, instance, hostname, mode, domain)

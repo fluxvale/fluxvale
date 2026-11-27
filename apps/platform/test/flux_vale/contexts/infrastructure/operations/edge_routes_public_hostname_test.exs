@@ -98,6 +98,30 @@ defmodule FluxVale.Infrastructure.Operations.EdgeRoutesPublicHostnameTest do
     |> InstanceFixtures.walk_to!(:running)
   end
 
+  # A public row pinned at a funnel-legal status (the set_exposure
+  # test's deployed_instance! shape) — the dispatch test's subjects.
+  defp public_instance_at!(org, owner, status) do
+    version = InstanceFixtures.app_version!()
+
+    instance =
+      Instance.create!(
+        %{name: "App #{System.unique_integer()}", app_version_id: version.id, env_vars: %{}},
+        actor: owner
+      )
+
+    pinned =
+      InstanceFixtures.pin!(instance,
+        namespace: "fluxvale-app-#{instance.id}",
+        deployed_at: DateTime.utc_now()
+      )
+
+    pinned
+    |> Ash.Changeset.for_update(:update_status, %{}, authorize?: false)
+    |> Ash.Changeset.force_change_attribute(:organization_id, org.id)
+    |> Ash.update!()
+    |> InstanceFixtures.walk_to!(status)
+  end
+
   defp stub_public_targets(ns) do
     stub(Service, :create, fn _kc, ^ns, "wake", _spec -> {:ok, %{}} end)
     stub(Middleware, :create, fn _kc, ^ns, _name, _spec -> {:ok, %{}} end)
@@ -265,6 +289,48 @@ defmodule FluxVale.Infrastructure.Operations.EdgeRoutesPublicHostnameTest do
       refute_received {:deleted, "custom-" <> _dav}
     end
 
+    test "a file-access instance's dark domain loses the dav sibling too", %{
+      org: org,
+      owner: owner
+    } do
+      instance = file_access_instance!(org, owner)
+      ns = "fluxvale-app-#{instance.id}"
+
+      domain = AccessFixtures.custom_domain!(org)
+      row = AccessFixtures.mint_hostname!(instance, domain, "dark")
+
+      stub_public_targets(ns)
+
+      stub(Ingress, :create, fn
+        _kc, ^ns, "custom-" <> _tail, _spec ->
+          flunk("a pending custom domain must never route")
+
+        _kc, ^ns, _name, _spec ->
+          {:ok, %{}}
+      end)
+
+      parent = self()
+
+      stub(Ingress, :delete, fn _kc, ^ns, name ->
+        send(parent, {:deleted, name})
+        :ok
+      end)
+
+      log =
+        capture_log(fn ->
+          assert :ok = EdgeRoutes.apply_serving(%{}, instance)
+        end)
+
+      assert log =~ "not servable"
+
+      # Dark takes the row's whole pair down — the dav sibling with it.
+      assert_received {:deleted, "custom-" <> app_tail}
+      assert app_tail == tail(row.id)
+
+      assert_received {:deleted, "custom-" <> dav_tail}
+      assert dav_tail == tail(row.id) <> "-dav"
+    end
+
     test "a foreign-org row never routes publicly", %{org: org, owner: owner} do
       instance = AccessFixtures.public_instance!(org, owner)
       ns = "fluxvale-app-#{instance.id}"
@@ -274,9 +340,11 @@ defmodule FluxVale.Infrastructure.Operations.EdgeRoutesPublicHostnameTest do
       {foreign_org, _foreign_owner} = BillingFixtures.grant_free_org!()
       foreign_domain = AccessFixtures.verified_domain!(foreign_org)
 
-      AccessFixtures.mint_hostname!(instance, foreign_domain, "foreign")
+      row = AccessFixtures.mint_hostname!(instance, foreign_domain, "foreign")
 
       stub_public_targets(ns)
+
+      parent = self()
 
       stub(Ingress, :create, fn
         _kc, ^ns, "custom-" <> _tail, _spec ->
@@ -286,12 +354,22 @@ defmodule FluxVale.Infrastructure.Operations.EdgeRoutesPublicHostnameTest do
           {:ok, %{}}
       end)
 
+      # The belt is not mint-only: a route minted while the row WAS
+      # legitimately owned comes down too.
+      stub(Ingress, :delete, fn _kc, ^ns, name ->
+        send(parent, {:deleted, name})
+        :ok
+      end)
+
       log =
         capture_log(fn ->
           assert :ok = EdgeRoutes.apply_serving(%{}, instance)
         end)
 
       assert log =~ "another organization"
+      assert_received {:deleted, "custom-" <> deleted_tail}
+      assert deleted_tail == tail(row.id)
+      refute_received {:deleted, _}
     end
 
     test "a file-access instance's custom row gains a dav sibling under the path prefix", %{
@@ -420,6 +498,34 @@ defmodule FluxVale.Infrastructure.Operations.EdgeRoutesPublicHostnameTest do
 
       assert {:error, _error} = EdgeRoutes.apply_serving(%{}, instance)
     end
+
+    test "a custom dav create failure propagates — never a half-minted row", %{
+      org: org,
+      owner: owner
+    } do
+      instance = file_access_instance!(org, owner)
+      ns = "fluxvale-app-#{instance.id}"
+
+      domain = AccessFixtures.verified_domain!(org)
+      row = AccessFixtures.mint_hostname!(instance, domain, "git")
+
+      stub_public_targets(ns)
+      stub_cert_source()
+
+      dav_name = "custom-" <> tail(row.id) <> "-dav"
+
+      stub(Ingress, :create, fn
+        # ONLY the dav sibling is refused — the app route lands first,
+        # so this is the maybe_mint_custom_dav error arm under test.
+        _kc, ^ns, ^dav_name, _spec ->
+          {:error, Error.connection_error("custom dav refused")}
+
+        _kc, ^ns, _name, _spec ->
+          {:ok, %{}}
+      end)
+
+      assert {:error, _error} = EdgeRoutes.apply_serving(%{}, instance)
+    end
   end
 
   describe "the public custom wake flip" do
@@ -463,6 +569,41 @@ defmodule FluxVale.Infrastructure.Operations.EdgeRoutesPublicHostnameTest do
       assert spec.middlewares == ["fluxvale-wake"]
       assert spec.tls
       assert spec.tls_secret_name == "access-domain-cert-" <> tail(domain.id)
+    end
+
+    test "an unverified domain is torn dark on the sleep flip too", %{org: org, owner: owner} do
+      instance = AccessFixtures.public_instance!(org, owner)
+      ns = "fluxvale-app-#{instance.id}"
+
+      domain = AccessFixtures.custom_domain!(org)
+      row = AccessFixtures.mint_hostname!(instance, domain, "dark")
+      sleeping = AccessFixtures.sleep!(instance)
+
+      stub_public_targets(ns)
+
+      stub(Ingress, :create, fn
+        _kc, ^ns, "custom-" <> _tail, _spec ->
+          flunk("a pending custom domain must never route, even in wake mode")
+
+        _kc, ^ns, _name, _spec ->
+          {:ok, %{}}
+      end)
+
+      parent = self()
+
+      stub(Ingress, :delete, fn _kc, ^ns, name ->
+        send(parent, {:deleted, name})
+        :ok
+      end)
+
+      log =
+        capture_log(fn ->
+          assert :ok = EdgeRoutes.apply_wake(%{}, sleeping)
+        end)
+
+      assert log =~ "not servable"
+      assert_received {:deleted, "custom-" <> deleted_tail}
+      assert deleted_tail == tail(row.id)
     end
 
     test "the custom dav sibling flips to wake mode with the prefix kept", %{
@@ -510,36 +651,41 @@ defmodule FluxVale.Infrastructure.Operations.EdgeRoutesPublicHostnameTest do
       assert elem(dav, 1).path_prefix == "/dav"
     end
 
-    test "apply_public_for_status dispatches running to serving and the rest to wake", %{
+    test "apply_public_for_status dispatches sleeping to wake and the rest to serving", %{
       org: org,
       owner: owner
     } do
-      instance = AccessFixtures.public_instance!(org, owner)
-      ns = "fluxvale-app-#{instance.id}"
-
       domain = AccessFixtures.verified_domain!(org)
-      row = AccessFixtures.mint_hostname!(instance, domain, "git")
-
-      stub_public_targets(ns)
       stub_cert_source()
 
       parent = self()
 
-      stub(Ingress, :create, fn _kc, ^ns, name, spec ->
+      stub(Ingress, :create, fn _kc, _ns, name, spec ->
         send(parent, {:created, name, spec})
         {:ok, %{}}
       end)
 
-      assert :ok = EdgeRoutes.apply_public_for_status(%{}, instance)
+      # SetExposure's rule IS the public plane's convention: only
+      # :sleeping flips to wake (the waking page) — a :starting row
+      # mid-deploy and a :stopped one still serve.
+      for status <- [:running, :starting, :stopped] do
+        instance = public_instance_at!(org, owner, status)
+        stub_public_targets("fluxvale-app-#{instance.id}")
+        row = AccessFixtures.mint_hostname!(instance, domain, "row-#{status}")
 
-      assert_received {:created, "custom-" <> serving_tail, serving_spec}
-      assert serving_tail == tail(row.id)
-      assert serving_spec.service_name == "app"
-      assert serving_spec.middlewares == ["fluxvale-activity"]
+        assert :ok = EdgeRoutes.apply_public_for_status(%{}, instance)
 
-      sleeping = AccessFixtures.sleep!(instance)
+        assert_received {:created, "custom-" <> serving_tail, serving_spec}
+        assert serving_tail == tail(row.id)
+        assert serving_spec.service_name == "app"
+        assert serving_spec.middlewares == ["fluxvale-activity"]
+      end
 
-      assert :ok = EdgeRoutes.apply_public_for_status(%{}, sleeping)
+      sleeper = public_instance_at!(org, owner, :sleeping)
+      stub_public_targets("fluxvale-app-#{sleeper.id}")
+      row = AccessFixtures.mint_hostname!(sleeper, domain, "row-sleeping")
+
+      assert :ok = EdgeRoutes.apply_public_for_status(%{}, sleeper)
 
       assert_received {:created, "custom-" <> wake_tail, wake_spec}
       assert wake_tail == tail(row.id)
