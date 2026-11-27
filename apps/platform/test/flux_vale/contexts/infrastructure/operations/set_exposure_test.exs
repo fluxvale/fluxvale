@@ -471,6 +471,13 @@ defmodule FluxVale.Infrastructure.Operations.SetExposureTest do
 
         _kc, ^ns, "app-ingress", _spec ->
           {:ok, %{}}
+
+        _kc, ^ns, "custom-" <> _tail, _spec ->
+          # This instance holds a custom hostname row, so P1's public
+          # custom family now mints its route in the public mint (and
+          # the compensating restore) — tolerated here; the family's
+          # own pins live in the edge_routes tests.
+          {:ok, %{}}
       end)
 
       stub(Ingress, :delete, fn
