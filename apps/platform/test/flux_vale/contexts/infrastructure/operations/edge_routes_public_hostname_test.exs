@@ -160,6 +160,18 @@ defmodule FluxVale.Infrastructure.Operations.EdgeRoutesPublicHostnameTest do
     end
   end
 
+  # One ordered drain of every edge call the test's stubs recorded —
+  # the mailbox order IS the call order, so this can pin sequence where
+  # assert_received cannot (it matches any mailbox position).
+  defp drain_events(acc \\ []) do
+    receive do
+      {:wake_targets} -> drain_events([{:wake_targets} | acc])
+      {:created, name, spec} -> drain_events([{:created, name, spec} | acc])
+    after
+      0 -> Enum.reverse(acc)
+    end
+  end
+
   defp drain_deleted(acc \\ []) do
     receive do
       {:deleted, name} -> drain_deleted([name | acc])
@@ -443,7 +455,7 @@ defmodule FluxVale.Infrastructure.Operations.EdgeRoutesPublicHostnameTest do
       ns = "fluxvale-app-#{instance.id}"
 
       domain = AccessFixtures.verified_domain!(org)
-      AccessFixtures.mint_hostname!(instance, domain, "git")
+      row = AccessFixtures.mint_hostname!(instance, domain, "git")
 
       stub_public_targets(ns)
       stub_cert_source()
@@ -466,6 +478,13 @@ defmodule FluxVale.Infrastructure.Operations.EdgeRoutesPublicHostnameTest do
           {:ok, %{}}
       end)
 
+      parent = self()
+
+      stub(Ingress, :delete, fn _kc, ^ns, name ->
+        send(parent, {:deleted, name})
+        :ok
+      end)
+
       log =
         capture_log(fn ->
           assert :ok = EdgeRoutes.apply_serving(%{}, instance)
@@ -473,6 +492,12 @@ defmodule FluxVale.Infrastructure.Operations.EdgeRoutesPublicHostnameTest do
 
       assert log =~ "Public edge: skipping the /dav route"
       assert log =~ "bare-Host router"
+
+      # The guard is not mint-only: a sibling minted under an earlier
+      # valid prefix comes down with the skip.
+      assert_received {:deleted, "custom-" <> dav_tail}
+      assert dav_tail == tail(row.id) <> "-dav"
+      refute_received {:deleted, _}
     end
 
     test "a custom route apply failure propagates — never a half-minted posture", %{
@@ -559,11 +584,33 @@ defmodule FluxVale.Infrastructure.Operations.EdgeRoutesPublicHostnameTest do
       assert :ok = EdgeRoutes.apply_wake(%{}, sleeping)
 
       # The wake targets landed FIRST (#203): a rewritten route must
-      # only reference objects Traefik already watches — the mailbox
-      # order is the proof.
-      assert_received {:wake_targets}
-      assert_received {:created, "custom-" <> custom_tail, spec}
-      assert custom_tail == tail(row.id)
+      # only reference objects Traefik already watches. One ordered
+      # drain is the proof — assert_received would match any mailbox
+      # position, so the reversed order would still pass it.
+      events = drain_events()
+
+      wake_index =
+        Enum.find_index(events, fn
+          {:wake_targets} -> true
+          _other -> false
+        end)
+
+      custom_index =
+        Enum.find_index(events, fn
+          {:created, name, _spec} -> name == "custom-" <> tail(row.id)
+          _other -> false
+        end)
+
+      assert wake_index != nil and custom_index != nil
+      assert wake_index < custom_index
+
+      assert {:created, custom_name, spec} =
+               Enum.find(events, fn
+                 {:created, name, _spec} -> name == "custom-" <> tail(row.id)
+                 _other -> false
+               end)
+
+      assert custom_name == "custom-" <> tail(row.id)
       assert spec.service_name == "wake"
       assert spec.service_port == 4000
       assert spec.middlewares == ["fluxvale-wake"]

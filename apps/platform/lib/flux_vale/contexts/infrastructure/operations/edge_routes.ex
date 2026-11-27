@@ -849,14 +849,17 @@ defmodule FluxVale.Infrastructure.Operations.EdgeRoutes do
       path_prefix in [nil, ""] ->
         # A nil/blank prefix would strip the PathPrefix clause and mint
         # a bare-Host router on the dav Service — shadow-capable against
-        # the app route. Skip + log: worse to mint a shadow than none.
+        # the app route. Skip + log: worse to mint a shadow than none —
+        # and any sibling minted under an earlier valid prefix comes
+        # down too: dark, not a stale more-specific route a later sleep
+        # flip would keep serving.
         Logger.warning(
           "Public edge: skipping the /dav route for #{hostname.label}.#{domain.domain} — " <>
             "blank file_access path_prefix config would mint a bare-Host router " <>
             "(shadow-capable against the app route)"
         )
 
-        :ok
+        safe_delete_route(kubeconfig, instance.namespace, custom_dav_route_name(hostname))
 
       true ->
         spec = custom_dav_route_spec(hostname, mode, path_prefix, tls_secret, domain)
