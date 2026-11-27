@@ -63,6 +63,13 @@ defmodule FluxVale.Infrastructure.Operations.RemoveCustomHostname do
   defp ensure_custom(%{kind: :custom}), do: :ok
   defp ensure_custom(%{kind: :platform}), do: {:error, :platform_domain}
 
+  # A never-deployed instance never minted a route — record-only on
+  # the mint's side, record-only on the remove's: the delete-by-name
+  # would 404-tolerate anyway, but the gate makes the contract
+  # explicit instead of accidental (the same shape bda81d4a gave the
+  # mint).
+  defp remove_edge(%{namespace: nil}, _hostname, _read_opts), do: :ok
+
   # Public: the custom route lives on the public entrypoint, so the
   # public none limb takes it down — no pairing read (a stale
   # AccessRoute row must not detour the delete). The route goes BEFORE

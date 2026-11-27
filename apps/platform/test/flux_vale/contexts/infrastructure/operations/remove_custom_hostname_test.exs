@@ -17,6 +17,7 @@ defmodule FluxVale.Infrastructure.Operations.RemoveCustomHostnameTest do
   alias FluxVale.Infrastructure.Instance
   alias FluxVale.Infrastructure.InstanceHostname
   alias FluxVale.Infrastructure.Operations.EdgeRoutes
+  alias FluxVale.Infrastructure.Operations.InstanceK8s
   alias FluxVale.Infrastructure.Operations.RenderAccessDNS
   alias FluxVale.Infrastructure.Operations.SyncInstanceUrlEnv
   alias FluxVale.TestSupport.AccessFixtures
@@ -248,6 +249,30 @@ defmodule FluxVale.Infrastructure.Operations.RemoveCustomHostnameTest do
   end
 
   describe "call/2 — the public plane (the remove unpublishes)" do
+    test "a never-deployed public instance removes the row without the cluster", %{
+      org: org,
+      owner: owner
+    } do
+      domain = verified_domain!(org)
+
+      # The undeployed shape the API remove meets: no namespace, :public.
+      instance = instance!(org, owner)
+      assert is_nil(instance.namespace)
+      hostname = hostname!(instance, domain, "git")
+
+      # The gate answers before any cluster seam — no kubeconfig
+      # resolution, no route delete, no unwind; the row destroy is
+      # DB-only.
+      reject(InstanceK8s, :kubeconfig_for, 1)
+      reject(EdgeRoutes, :apply_public_none_for_hostname, 3)
+      reject(EdgeRoutes, :apply_access_none_for_hostname, 3)
+      expect(RenderAccessDNS, :call, fn -> :ok end)
+
+      assert {:ok, _removed} = Infrastructure.remove_custom_hostname(hostname.id, actor: owner)
+
+      refute hostname_exists?(hostname.id)
+    end
+
     test "a public instance's remove deletes the public route", %{org: org, owner: owner} do
       domain = verified_domain!(org)
       instance = public_instance!(org, owner)
@@ -333,12 +358,23 @@ defmodule FluxVale.Infrastructure.Operations.RemoveCustomHostnameTest do
 
   defp public_instance!(org, owner) do
     instance = instance!(org, owner)
-    InstanceFixtures.pin!(instance, exposure: :public)
+
+    # The DEPLOYED shape: the edge-limb tests stage an instance with a
+    # namespace (a never-deployed row is the record-only gate's
+    # subject).
+    InstanceFixtures.pin!(instance,
+      exposure: :public,
+      namespace: "fluxvale-app-#{instance.id}"
+    )
   end
 
   defp private_instance!(org, owner) do
     instance = instance!(org, owner)
-    InstanceFixtures.pin!(instance, exposure: :private)
+
+    InstanceFixtures.pin!(instance,
+      exposure: :private,
+      namespace: "fluxvale-app-#{instance.id}"
+    )
   end
 
   defp instance!(org, owner) do
