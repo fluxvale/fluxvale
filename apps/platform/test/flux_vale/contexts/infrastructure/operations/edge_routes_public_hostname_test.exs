@@ -739,6 +739,32 @@ defmodule FluxVale.Infrastructure.Operations.EdgeRoutesPublicHostnameTest do
       assert wake_spec.service_name == "wake"
       assert wake_spec.middlewares == ["fluxvale-wake"]
     end
+
+    # The one-owner undeployed gate: a never-deployed instance has no
+    # namespace to route into, so nothing applies and :ok is the
+    # posture already holding — the mint, the janitor, and the coming
+    # drift limb converge here instead of forking a nil-namespace
+    # guard of their own.
+    test "apply_public_for_status answers ok for an undeployed instance", %{owner: owner} do
+      version = InstanceFixtures.app_version!()
+
+      instance =
+        Instance.create!(
+          %{name: "App #{System.unique_integer()}", app_version_id: version.id, env_vars: %{}},
+          actor: owner
+        )
+
+      assert is_nil(instance.namespace)
+      assert instance.exposure == :public
+
+      # Nothing to apply: zero cluster calls — the gate answers before
+      # the arms.
+      reject(Ingress, :create, 4)
+      reject(Middleware, :create, 4)
+      reject(Service, :create, 4)
+
+      assert :ok = EdgeRoutes.apply_public_for_status(%{}, instance)
+    end
   end
 
   describe "the public custom teardown" do

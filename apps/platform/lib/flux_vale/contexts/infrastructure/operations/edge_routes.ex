@@ -170,9 +170,18 @@ defmodule FluxVale.Infrastructure.Operations.EdgeRoutes do
   Carried by `apply_serving`/`apply_wake` themselves, so a private row
   still converges on the private posture — the exposure key never
   forks. One owner for the dispatch — the mint, toggle, and janitor
-  operations that wire this family must not fork it.
+  operations that wire this family must not fork it. A never-deployed
+  row (namespace nil) has nothing to apply: `:ok` — the posture
+  already holds.
   """
   @spec apply_public_for_status(Kubereq.Kubeconfig.t(), Instance.t()) :: :ok | {:error, term()}
+  # The undeployed gate — the dispatch's callers must not fork it: a
+  # never-deployed instance has no namespace to route into, nothing to
+  # apply, and :ok is the posture already holding (the mint records
+  # the row; the janitor/drift limbs (P4) converge here rather than
+  # guard nil namespaces of their own).
+  def apply_public_for_status(_kubeconfig, %{namespace: nil}), do: :ok
+
   def apply_public_for_status(kubeconfig, %{status: :sleeping} = instance) do
     apply_wake(kubeconfig, instance)
   end

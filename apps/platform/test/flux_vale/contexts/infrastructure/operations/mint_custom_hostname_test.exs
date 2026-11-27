@@ -18,6 +18,7 @@ defmodule FluxVale.Infrastructure.Operations.MintCustomHostnameTest do
   alias FluxVale.Infrastructure.Instance
   alias FluxVale.Infrastructure.InstanceHostname
   alias FluxVale.Infrastructure.Operations.EdgeRoutes
+  alias FluxVale.Infrastructure.Operations.InstanceK8s
   alias FluxVale.Infrastructure.Operations.RenderAccessDNS
   alias FluxVale.Infrastructure.Operations.SyncInstanceUrlEnv
   alias FluxVale.TestSupport.AccessFixtures
@@ -131,6 +132,33 @@ defmodule FluxVale.Infrastructure.Operations.MintCustomHostnameTest do
   end
 
   describe "call/4 — the public arm (the mint publishes)" do
+    test "a never-deployed public instance records the row without applying the edge", %{
+      org: org,
+      owner: owner
+    } do
+      domain = verified_domain!(org)
+
+      # The undeployed shape the API mint meets: created through the
+      # action — no namespace, :public by default.
+      instance = instance!(org, owner)
+      assert is_nil(instance.namespace)
+
+      # No edge to apply — no kubeconfig resolution, no arm, no unwind,
+      # and nothing to tell (the sync skips undeployed rows).
+      reject(EdgeRoutes, :apply_public_for_status, 2)
+      reject(EdgeRoutes, :apply_access_for_status, 3)
+      reject(EdgeRoutes, :apply_public_none_for_hostname, 3)
+      reject(InstanceK8s, :kubeconfig_for, 1)
+      reject(SyncInstanceUrlEnv, :call, 1)
+      expect(RenderAccessDNS, :call, fn -> :ok end)
+
+      assert {:ok, hostname} =
+               Infrastructure.mint_custom_hostname(instance.id, domain.id, "git", actor: owner)
+
+      assert hostname.label == "git"
+      assert hostname_exists?(instance.id, "git")
+    end
+
     test "a public instance's mint applies the public edge and tells the app", %{
       org: org,
       owner: owner
@@ -537,7 +565,14 @@ defmodule FluxVale.Infrastructure.Operations.MintCustomHostnameTest do
 
   defp public_instance!(org, owner) do
     instance = instance!(org, owner)
-    InstanceFixtures.pin!(instance, exposure: :public)
+
+    # The DEPLOYED public shape: the public arm's tests stage an
+    # instance with a namespace (a never-deployed row is the
+    # record-only gate's subject, not the arm's).
+    InstanceFixtures.pin!(instance,
+      exposure: :public,
+      namespace: "fluxvale-app-#{instance.id}"
+    )
   end
 
   defp private_instance!(org, owner) do

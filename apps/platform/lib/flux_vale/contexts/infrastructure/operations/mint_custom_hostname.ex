@@ -182,6 +182,11 @@ defmodule FluxVale.Infrastructure.Operations.MintCustomHostname do
     end
   end
 
+  # A never-deployed instance has no edge to apply: the row records
+  # and serves nothing until the first deploy mints the family; the
+  # derivation is never told — the sync skips undeployed rows.
+  defp dispatch_edge(%{namespace: nil}, _hostname, _read_opts), do: {:ok, false}
+
   # A public instance holds no access edge (SetExposure's private arm
   # mints it later), even when a stale AccessRoute row survives the
   # public flip — no pairing read, the exposure is the whole dispatch.
