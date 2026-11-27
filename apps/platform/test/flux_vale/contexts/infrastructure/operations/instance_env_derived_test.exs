@@ -230,8 +230,9 @@ defmodule FluxVale.Infrastructure.Operations.InstanceEnvDerivedTest do
       # the platform never makes on its own)
       AccessFixtures.claim!(gateway, [domain_a.domain, domain_b.domain])
 
-      # actions cannot produce a cross-org row (the mint guard
-      # refuses); the fence's regression pin
+      # the cross-org row the fence exists for — the raw :mint's only
+      # fence is the forbid_if policy, so authorize?: false mints it;
+      # the fence's regression pin
       _seeded =
         Ash.Seed.seed!(InstanceHostname, %{
           instance_id: row.id,
@@ -360,8 +361,7 @@ defmodule FluxVale.Infrastructure.Operations.InstanceEnvDerivedTest do
   end
 
   # ------------------------------------------------------------------
-  # The public arm (owner-ruled, Nov 27 2026: a public app's live
-  # custom address is told, oldest first)
+  # The public arm
   # ------------------------------------------------------------------
 
   describe "the public custom address" do
@@ -393,6 +393,33 @@ defmodule FluxVale.Infrastructure.Operations.InstanceEnvDerivedTest do
                host(row.slug),
                "git.#{domain.domain}"
              ]
+    end
+
+    test "the public arm sorts chronologically, not by term order" do
+      {org, row} = public_org_instance!()
+      domain = AccessFixtures.verified_domain!(org)
+
+      # actions cannot produce a backdated created_at
+      _older =
+        Ash.Seed.seed!(InstanceHostname, %{
+          instance_id: row.id,
+          access_domain_id: domain.id,
+          label: "git",
+          created_at: ~U[2026-11-30 12:00:00Z]
+        })
+
+      # actions cannot produce a backdated created_at
+      _newer =
+        Ash.Seed.seed!(InstanceHostname, %{
+          instance_id: row.id,
+          access_domain_id: domain.id,
+          label: "code",
+          created_at: ~U[2026-12-01 12:00:00Z]
+        })
+
+      # DateTime term order ranks 2026-11-30 AFTER 2026-12-01 — only
+      # the chronological sort keeps "git" the URL. Both rows are live.
+      assert InstanceEnvDerived.instance_url(row) == "https://git.#{domain.domain}/"
     end
 
     test "a public instance without a live custom address keeps the default hostname" do
