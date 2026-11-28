@@ -709,10 +709,11 @@ defmodule FluxVale.Infrastructure.Operations.SetExposureTest do
       assert {:ok, private} = Instance.set_exposure(instance, %{exposure: :private}, actor: owner)
       assert private.exposure == :private
 
-      # The mailbox order IS the family's order: the default route's
-      # delete, then the custom route's.
-      assert_received {:app_removed}
-      assert_received {:custom_removed}
+      # The ordered drain pins what assert_received cannot (it matches
+      # any mailbox position): the family's order is the default
+      # route's delete, then the custom route's — the reversed
+      # sequence must fail.
+      assert [{:app_removed}, {:custom_removed}] = drain_removed()
     end
 
     # B7 case 1: the compensator must re-mint the custom routes with
@@ -1145,6 +1146,19 @@ defmodule FluxVale.Infrastructure.Operations.SetExposureTest do
       assert private.exposure == :private
 
       assert Instance.get_by_id!(instance.id, authorize?: false).exposure == :private
+    end
+  end
+
+  # One ordered drain of the toggle-family events the test stubs
+  # recorded — the mailbox order IS the call order, so this pins
+  # sequence where assert_received cannot (it matches any mailbox
+  # position). The local equivalent of the edge tests' drain_events.
+  defp drain_removed(acc \\ []) do
+    receive do
+      {:app_removed} -> drain_removed([{:app_removed} | acc])
+      {:custom_removed} -> drain_removed([{:custom_removed} | acc])
+    after
+      0 -> Enum.reverse(acc)
     end
   end
 end
