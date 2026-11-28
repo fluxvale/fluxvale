@@ -314,6 +314,11 @@ defmodule FluxVale.Infrastructure.Operations.RenderAccessDNSTest do
       stub(Kubereq, :attach, fn req, _opts -> req end)
       stub(Kubereq, :apply, fn _req, manifest, _fm -> {:ok, %{status: 201, body: manifest}} end)
       stub(EdgeRoutes, :apply_access_none_for_domain, fn _kc, _instance, _domain -> :ok end)
+
+      # The public plane rides the same fail-closed block (the
+      # public-custom lane) — its default success, beside the access one.
+      stub(EdgeRoutes, :apply_public_none_for_domain, fn _kc, _instance, _domain -> :ok end)
+
       stub(Tailscale, :unclaim_domain, fn _gw, _d -> :ok end)
 
       {:ok, custom} =

@@ -4,9 +4,10 @@ defmodule FluxVale.Infrastructure.AccessDomain.Resume do
   2): the row back to `:verified`, and — row committed — the two tails
   of the domain's service re-armed:
 
-  - the edge routes, re-minted per instance for its CURRENT status
-    (the verify pass's promotion limb, entered for the same population
-    the suspension stripped), FIRST, and
+  - the edge routes, BOTH planes, re-armed per instance for its CURRENT
+    status (public instances through the public arm, attached private
+    ones through the access re-mint — the verify pass's promotion limb,
+    entered for the same population the suspension stripped), FIRST, and
   - the tailnet claim, through the claim operation's provider path
     (`Infrastructure.claim_access_domain/3` — the same gates, claims
     funnel and P2-3 retry the member-scoped claim runs), LAST.
@@ -22,15 +23,21 @@ defmodule FluxVale.Infrastructure.AccessDomain.Resume do
   domain whose route mints then failed: names that resolve on the
   tailnet into nothing.
 
-  Routes standing WITHOUT the claim (the failure window here: routes
-  minted, claim refused) are the safe dangle — a hostname with no
-  split-DNS route does not resolve on the tailnet, so nothing is
-  reachable; the owner's retry converges the claim and the pair is
-  whole again. This is `RemoveAccessDomain`'s hard-failure stance in
-  the opposite direction: there, an unclaim failure FAILS the remove
-  because a removed row can never record what to revert — here the row
-  still stands (`:suspended` after the rollback), so the retry owns the
-  convergence and nothing is stranded ungoverned.
+  **The failure window and its compensation.** The danger ordering
+  writes the PUBLIC routes before the claim — and public serving needs
+  no claim, so a rolled-back row (:suspended) would leave them serving.
+  The failure path therefore compensates: after public routes were
+  written, a failed re-mint or claim best-effort removes them again
+  (the public none limbs, warn-only per instance — the suspension
+  funnel's own limbs), landing the row :suspended consistent-dark; the
+  retry re-arms. The ACCESS routes keep the safe dangle: a private
+  hostname with no split-DNS claim does not resolve on the tailnet, so
+  nothing is reachable; the owner's retry converges the claim and the
+  pair is whole again. This is `RemoveAccessDomain`'s hard-failure
+  stance in the opposite direction: there, an unclaim failure FAILS
+  the remove because a removed row can never record what to revert —
+  here the row still stands (`:suspended` after the rollback), so the
+  retry owns the convergence and nothing is stranded ungoverned.
 
   **Ordering is load-bearing: the row commits before the cluster work**
   (the gateway Resume's discipline). The re-mint and the re-claim run
@@ -161,14 +168,30 @@ defmodule FluxVale.Infrastructure.AccessDomain.Resume do
     end)
   end
 
-  # Nothing attached — nothing ever resolved this domain on the
-  # tailnet, so there is no claim to restore and no routes to re-mint:
-  # the unclaim's no-gateway stance, mirrored. The selector is the
-  # verify pass's (one owner, three consumers).
+  # The claim is the PRIVATE plane's event: it exists to resolve the
+  # attached private instances' names on the tailnet. A public-only
+  # population (no private attached instance) has nothing to claim and
+  # may have no gateway at all (the public arm needs none) — the routes
+  # re-arm through rearm_only and the claim stands down. An EMPTY
+  # population rides the same path (rearm_routes over [] is :ok), so
+  # the pre-selector []-early return is subsumed here, not kept as its
+  # own branch. Private instances in the selector are
+  # attached by construction, so a non-empty private population is the
+  # claim path's own premise.
   defp reclaim_and_rearm(domain) do
-    case VerifyAccessDomains.serving_instances(domain) do
-      [] -> :ok
-      instances -> reclaim_then_rearm(domain, instances)
+    instances = VerifyAccessDomains.serving_instances(domain)
+
+    if Enum.any?(instances, &(&1.exposure == :private)) do
+      reclaim_then_rearm(domain, instances)
+    else
+      rearm_only(domain, instances)
+    end
+  end
+
+  defp reclaim_then_rearm(domain, instances) do
+    with {:ok, kubeconfig} <- K8s.kubeconfig(),
+         {:ok, gateway} <- org_gateway(domain) do
+      rearm_then_claim(kubeconfig, gateway, domain, instances)
     end
   end
 
@@ -181,19 +204,76 @@ defmodule FluxVale.Infrastructure.AccessDomain.Resume do
   # level down: a nested sync would read the uncommitted claims through
   # this open transaction and deliver (Secret write, pod restart)
   # before the commit a rollback could undo — the re-tell is this
-  # module's post-commit hook, exactly once.
-  defp reclaim_then_rearm(domain, instances) do
-    with {:ok, kubeconfig} <- K8s.kubeconfig(),
-         {:ok, gateway} <- org_gateway(domain),
-         :ok <- rearm_routes(kubeconfig, instances),
-         {:ok, _row} <-
-           Infrastructure.claim_access_domain(gateway, domain,
-             authorize?: false,
-             render: false,
-             retell: false
-           ) do
-      :ok
+  # module's post-commit hook, exactly once. And a failure AFTER the
+  # public routes went out compensates (see compensate_public_arms) —
+  # the error only returns once the row's public plane is consistent-
+  # dark again.
+  defp rearm_then_claim(kubeconfig, gateway, domain, instances) do
+    case rearm_routes(kubeconfig, instances) do
+      :ok ->
+        case Infrastructure.claim_access_domain(gateway, domain,
+               authorize?: false,
+               render: false,
+               retell: false
+             ) do
+          {:ok, _row} ->
+            :ok
+
+          {:error, _reason} = error ->
+            compensate_public_arms(kubeconfig, domain, instances)
+            error
+        end
+
+      {:error, _reason} = error ->
+        compensate_public_arms(kubeconfig, domain, instances)
+        error
     end
+  end
+
+  # The public-only shape: routes re-arm, no claim (nothing resolves on
+  # the tailnet), no gateway read. A mid-walk failure compensates the
+  # same way — the row lands :suspended consistent-dark.
+  defp rearm_only(domain, instances) do
+    case K8s.kubeconfig() do
+      {:ok, kubeconfig} ->
+        case rearm_routes(kubeconfig, instances) do
+          :ok ->
+            :ok
+
+          {:error, _reason} = error ->
+            compensate_public_arms(kubeconfig, domain, instances)
+            error
+        end
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
+  # The compensation for the danger ordering: public routes went out
+  # BEFORE the write that just failed, and the rollback lands the row
+  # :suspended — public serving needs no claim, so the access dangle's
+  # safety does not cover them. Best-effort, warn-only, per instance
+  # (the public none limbs — the suspension funnel's own, 404-tolerant
+  # and idempotent): consistent-dark on the failure path, the retry
+  # re-arms.
+  defp compensate_public_arms(kubeconfig, domain, instances) do
+    instances
+    |> Enum.filter(&(&1.exposure == :public))
+    |> Enum.each(fn instance ->
+      case EdgeRoutes.apply_public_none_for_domain(kubeconfig, instance, domain) do
+        :ok ->
+          :ok
+
+        {:error, reason} ->
+          Logger.warning(
+            "Access domain #{domain.domain} resume: the public-route compensation failed " <>
+              "for instance #{instance.id}: #{inspect(reason)}"
+          )
+
+          :ok
+      end
+    end)
   end
 
   defp org_gateway(domain) do
@@ -223,6 +303,17 @@ defmodule FluxVale.Infrastructure.AccessDomain.Resume do
         {:error, _reason} = error -> {:halt, error}
       end
     end)
+  end
+
+  # The exposure dispatch: a public instance has no pairing row to read
+  # — its arm re-arms through the same seam the promotion mint uses
+  # (`apply_public_for_status`, which converges a private row on the
+  # private posture anyway); the private path is exactly as it was.
+  # Fail-closed like its access sibling: a failure fails the resume
+  # (the row rolls back to :suspended and the owner retries; the mints
+  # are SSA-idempotent, so re-entry converges).
+  defp rearm_instance(kubeconfig, %{exposure: :public} = instance) do
+    EdgeRoutes.apply_public_for_status(kubeconfig, instance)
   end
 
   defp rearm_instance(kubeconfig, instance) do

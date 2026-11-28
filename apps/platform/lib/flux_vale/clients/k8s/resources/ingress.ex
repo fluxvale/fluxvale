@@ -180,6 +180,32 @@ defmodule FluxVale.Clients.K8s.Resources.Ingress do
     end
   end
 
+  @doc """
+  Lists the namespace's IngressRoutes carrying EVERY label in `labels`
+  (an empty map lists them all — the client-side filter is the caller's).
+  `{:ok, route_bodies}` or `{:error, Error.t()}` — the Pod list's shape.
+  """
+  @spec list_by_labels(Kubereq.Kubeconfig.t(), String.t(), %{optional(String.t()) => String.t()}) ::
+          {:ok, list(map())} | {:error, Error.t()}
+  def list_by_labels(kubeconfig, namespace, labels) do
+    req = create_req(kubeconfig)
+
+    case Kubereq.list(req, namespace) do
+      {:ok, %{status: 200, body: %{"items" => items}}} when is_list(items) ->
+        {:ok, Enum.filter(items, &labeled?(&1, labels))}
+
+      # Malformed 200 body — must not reach from_response/1 (raises on 2xx).
+      {:ok, %{status: 200, body: body}} ->
+        {:error, Error.validation_error("Malformed IngressRouteList response: #{inspect(body)}")}
+
+      {:ok, %{status: status, body: body}} ->
+        {:error, Error.from_response({:ok, %{status: status, body: body}})}
+
+      {:error, error} ->
+        {:error, Error.from_response({:error, error})}
+    end
+  end
+
   @doc "Upserts an IngressRoute — SSA, idempotent."
   @spec upsert(Kubereq.Kubeconfig.t(), String.t(), String.t(), spec()) ::
           {:ok, map()} | {:error, Error.t()}
@@ -357,6 +383,11 @@ defmodule FluxVale.Clients.K8s.Resources.Ingress do
   defp valid_dns_name?(value) when is_binary(value) do
     labels = String.split(value, ".")
     Enum.all?(labels, &Regex.match?(@dns_label, &1))
+  end
+
+  defp labeled?(route, labels) do
+    route_labels = get_in(route, ["metadata", "labels"]) || %{}
+    Map.to_list(labels) -- Map.to_list(route_labels) == []
   end
 
   defp create_req(kubeconfig) do

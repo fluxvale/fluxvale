@@ -308,6 +308,80 @@ defmodule FluxVale.Clients.K8s.Resources.IngressTest do
     end
   end
 
+  describe "list_by_labels/3 — the drift sweep's read (the Pod list's shape)" do
+    @access_domain_label %{"fluxvale.io/access-domain" => "domain-1"}
+
+    test "returns only the routes carrying EVERY label" do
+      expect(Kubereq, :list, fn _req, ns ->
+        assert ns == "fluxvale-app-1"
+
+        {:ok,
+         %{
+           status: 200,
+           body: %{
+             "items" => [
+               %{"metadata" => %{"name" => "custom-exact", "labels" => @access_domain_label}},
+               %{
+                 "metadata" => %{
+                   "name" => "app-ingress",
+                   "labels" => %{"app.kubernetes.io/name" => "app-ingress"}
+                 }
+               },
+               %{
+                 "metadata" => %{
+                   "name" => "custom-superset",
+                   "labels" => Map.put(@access_domain_label, "extra", "x")
+                 }
+               },
+               %{"metadata" => %{"name" => "custom-unlabeled"}}
+             ]
+           }
+         }}
+      end)
+
+      assert {:ok, kept} = Ingress.list_by_labels(%{}, "fluxvale-app-1", @access_domain_label)
+
+      # An exact match and a superset both hold (the selector is a
+      # subset check); a different-labels route and a route with no
+      # labels key at all are filtered out.
+      assert Enum.map(kept, & &1["metadata"]["name"]) == ["custom-exact", "custom-superset"]
+    end
+
+    test "an empty selector lists every route" do
+      items = [
+        %{"metadata" => %{"name" => "app-ingress", "labels" => %{"any" => "label"}}},
+        %{"metadata" => %{"name" => "custom-bare"}}
+      ]
+
+      expect(Kubereq, :list, fn _req, _ns -> {:ok, %{status: 200, body: %{"items" => items}}} end)
+
+      assert {:ok, ^items} = Ingress.list_by_labels(%{}, "ns", %{})
+    end
+
+    test "malformed 200 body is a validation error, not a from_response crash" do
+      expect(Kubereq, :list, fn _req, _ns ->
+        {:ok, %{status: 200, body: %{"unexpected" => true}}}
+      end)
+
+      assert {:error, %Error{reason: :validation_error}} =
+               Ingress.list_by_labels(%{}, "ns", @access_domain_label)
+    end
+
+    test "non-200 maps to an Error" do
+      expect(Kubereq, :list, fn _req, _ns -> {:ok, %{status: 403, body: %{}}} end)
+
+      assert {:error, %Error{reason: :forbidden}} =
+               Ingress.list_by_labels(%{}, "ns", @access_domain_label)
+    end
+
+    test "a transport failure maps to an Error" do
+      expect(Kubereq, :list, fn _req, _ns -> {:error, :transport_boom} end)
+
+      assert {:error, %Error{reason: :connection_error}} =
+               Ingress.list_by_labels(%{}, "ns", @access_domain_label)
+    end
+  end
+
   describe "upsert/4" do
     test "delegates to create (SSA idempotence)" do
       expect(Kubereq, :apply, fn _req, _manifest, _fm -> {:ok, %{status: 201, body: :created}} end)

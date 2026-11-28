@@ -59,7 +59,15 @@ defmodule FluxVale.Infrastructure.AccessDomain.ChangesTest do
       :ok
     end)
 
+    # The public plane rides the same fail-closed block (the
+    # public-custom lane): default success; tests override.
+    stub(EdgeRoutes, :apply_public_none_for_domain, fn _kc, instance, domain ->
+      send(self(), {:public_removed, instance.id, domain.id})
+      :ok
+    end)
+
     stub(EdgeRoutes, :apply_access_for_status, fn _kc, _gw, _instance -> :ok end)
+    stub(EdgeRoutes, :apply_public_for_status, fn _kc, _instance -> :ok end)
 
     # The S4 hook: a committed claims write re-renders the resolver
     # view best-effort. Default success; expect-ed where a test cares.
@@ -276,6 +284,31 @@ defmodule FluxVale.Infrastructure.AccessDomain.ChangesTest do
       assert {:ok, _suspended} = AccessDomain.mark_suspended(domain, authorize?: false)
       assert_received :rendered
     end
+
+    test "suspension removes the public routes for the domain", %{org: org, owner: owner} do
+      domain = verified_domain!(owner)
+      instance = AccessFixtures.public_instance!(org, owner)
+
+      InstanceHostname.mint!(
+        %{instance_id: instance.id, access_domain_id: domain.id, label: "sso"},
+        authorize?: false
+      )
+
+      stub(EdgeRoutes, :apply_public_none_for_domain, fn _kc, sent_instance, sent_domain ->
+        send(self(), {:public_removed, sent_instance.id, sent_domain.id})
+        :ok
+      end)
+
+      assert {:ok, suspended} = AccessDomain.mark_suspended(domain, authorize?: false)
+      assert suspended.state == :suspended
+
+      # The public delete lands BESIDE the access one, in the same
+      # fail-closed block — access first (assert_received is FIFO).
+      assert_received {:arms_removed, instance_id, domain_id}
+      assert instance_id == instance.id
+      assert domain_id == domain.id
+      assert_received {:public_removed, ^instance_id, ^domain_id}
+    end
   end
 
   describe "resume — the owner's funded path" do
@@ -310,6 +343,126 @@ defmodule FluxVale.Infrastructure.AccessDomain.ChangesTest do
       # The claims registry holds the restored entry.
       fresh = AccessGateway.get_by_id!(gateway.id, authorize?: false)
       assert fresh.dns_claims[@domain_name]["ip"] == @resolver_ip
+    end
+
+    test "resume re-arms the domain's public routes", %{org: org, owner: owner} do
+      domain = verified_domain!(owner)
+      instance = AccessFixtures.public_instance!(org, owner)
+
+      InstanceHostname.mint!(
+        %{instance_id: instance.id, access_domain_id: domain.id, label: "sso"},
+        authorize?: false
+      )
+
+      {:ok, suspended} = AccessDomain.mark_suspended(domain, authorize?: false)
+
+      # Public-only: nothing resolves on the tailnet, so there is no
+      # claim — and no gateway read either (the public arm needs none).
+      stub(Tailscale, :claim_domain, fn _gw, _d, _ip ->
+        flunk("a public-only population claims nothing")
+      end)
+
+      stub(EdgeRoutes, :apply_public_for_status, fn _kc, sent_instance ->
+        send(self(), {:public_rearmed, sent_instance.id})
+        :ok
+      end)
+
+      assert {:ok, resumed} = AccessDomain.resume(suspended, actor: owner)
+      assert resumed.state == :verified
+
+      assert_received {:public_rearmed, instance_id}
+      assert instance_id == instance.id
+    end
+
+    test "a failed claim after public re-arm removes the public routes", %{
+      org: org,
+      owner: owner
+    } do
+      gateway = token_gateway!(org)
+      domain = verified_domain!(owner)
+
+      # The mixed population: the public routes go out BEFORE the
+      # claim, so a claim failure must not strand them serving.
+      public = AccessFixtures.public_instance!(org, owner)
+
+      InstanceHostname.mint!(
+        %{instance_id: public.id, access_domain_id: domain.id, label: "sso"},
+        authorize?: false
+      )
+
+      private = AccessFixtures.private_instance!(org, owner)
+
+      AccessRoute.create!(
+        %{gateway_id: gateway.id, instance_id: private.id, route_key: "8443"},
+        authorize?: false
+      )
+
+      InstanceHostname.mint!(
+        %{instance_id: private.id, access_domain_id: domain.id, label: "git"},
+        authorize?: false
+      )
+
+      {:ok, suspended} = AccessDomain.mark_suspended(domain, authorize?: false)
+
+      # The SUSPENSION's own public-none walk (both instances) already
+      # sent its messages — drain them so the resume assertions below
+      # see only the compensation's.
+      assert_received {:public_removed, _, _}
+      assert_received {:public_removed, _, _}
+
+      stub(Tailscale, :claim_domain, fn _gw, _d, _ip -> {:error, :unauthorized} end)
+
+      assert {:error, _reason} = AccessDomain.resume(suspended, actor: owner)
+
+      # The compensation: the public none limb issued for the PUBLIC
+      # instance (and for no other).
+      private_id = private.id
+
+      assert_received {:public_removed, removed_id, domain_id}
+      assert removed_id == public.id
+      assert domain_id == domain.id
+      refute_received {:public_removed, ^private_id, _}
+
+      # Consistent-dark: the row stays :suspended — the retry re-arms.
+      assert AccessDomain.get_by_id!(domain.id, authorize?: false).state == :suspended
+
+      # The compensation itself failing is warn-only: the resume still
+      # fails honestly and the row stays parked.
+      stub(EdgeRoutes, :apply_public_none_for_domain, fn _kc, _instance, _domain ->
+        {:error, :cluster_down}
+      end)
+
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          assert {:error, _reason} = AccessDomain.resume(suspended, actor: owner)
+        end)
+
+      assert log =~ "the public-route compensation failed"
+      assert AccessDomain.get_by_id!(domain.id, authorize?: false).state == :suspended
+    end
+
+    test "a public-only resume with no cluster kubeconfig fails closed", %{org: org, owner: owner} do
+      domain = verified_domain!(owner)
+      instance = AccessFixtures.public_instance!(org, owner)
+
+      InstanceHostname.mint!(
+        %{instance_id: instance.id, access_domain_id: domain.id, label: "sso"},
+        authorize?: false
+      )
+
+      {:ok, suspended} = AccessDomain.mark_suspended(domain, authorize?: false)
+
+      stub(K8s, :kubeconfig, fn -> {:error, :no_cluster} end)
+
+      stub(EdgeRoutes, :apply_public_for_status, fn _kc, _instance ->
+        flunk("no cluster, no edge writes")
+      end)
+
+      assert {:error, _reason} = AccessDomain.resume(suspended, actor: owner)
+
+      # Fail-closed: the row rolls back to :suspended — the retry
+      # re-enters once the cluster answers.
+      assert AccessDomain.get_by_id!(domain.id, authorize?: false).state == :suspended
     end
 
     test "the CoreDNS render is success-only and post-commit", %{org: org, owner: owner} do
