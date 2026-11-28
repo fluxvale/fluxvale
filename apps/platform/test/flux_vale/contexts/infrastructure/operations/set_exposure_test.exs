@@ -666,6 +666,186 @@ defmodule FluxVale.Infrastructure.Operations.SetExposureTest do
     end
   end
 
+  describe "the public custom family rides the toggle (the address lane's P3)" do
+    # The toggle's private limb deletes EVERY public custom route
+    # (P1's apply_private) — a row left standing would keep a public
+    # instance's address reachable after the kill-switch.
+    test "going private removes the custom public routes" do
+      stub_kubeconfig()
+      owner = owner()
+      instance = deployed_instance!(owner, :public, :running)
+      ns = "fluxvale-app-#{instance.id}"
+
+      domain = custom_domain!(owner, verified?: true)
+
+      InstanceHostname.mint!(
+        %{instance_id: instance.id, access_domain_id: domain.id, label: "wiki"},
+        authorize?: false
+      )
+
+      parent = self()
+
+      stub(Ingress, :delete, fn
+        _kc, ^ns, "app-ingress" ->
+          send(parent, {:app_removed})
+          :ok
+
+        _kc, ^ns, "custom-" <> _tail ->
+          send(parent, {:custom_removed})
+          :ok
+
+        _kc, _ns, "access-" <> _tail ->
+          # Unattached: no access routes exist to remove.
+          not_found()
+      end)
+
+      stub(Middleware, :delete, fn _kc, _ns, _name -> not_found() end)
+      stub(NetworkPolicy, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+
+      # Nothing may be minted while going dark.
+      reject(Ingress, :create, 4)
+      reject(Middleware, :create, 4)
+
+      assert {:ok, private} = Instance.set_exposure(instance, %{exposure: :private}, actor: owner)
+      assert private.exposure == :private
+
+      # The ordered drain pins what assert_received cannot (it matches
+      # any mailbox position): the family's order is the default
+      # route's delete, then the custom route's — the reversed
+      # sequence must fail.
+      assert [{:app_removed}, {:custom_removed}] = drain_removed()
+    end
+
+    # B7 case 1: the compensator must re-mint the custom routes with
+    # the rest of the public posture — a rolled-back public row whose
+    # custom route stays down is publicly persisted and unreachable,
+    # and nothing self-heals it.
+    test "a failed route delete during the public-to-private toggle rolls the row back public and re-mints" do
+      stub_kubeconfig()
+      owner = owner()
+      instance = deployed_instance!(owner, :public, :running)
+      ns = "fluxvale-app-#{instance.id}"
+
+      domain = custom_domain!(owner, verified?: true)
+
+      InstanceHostname.mint!(
+        %{instance_id: instance.id, access_domain_id: domain.id, label: "wiki"},
+        authorize?: false
+      )
+
+      # The custom route's cert replica reads + re-lands during the
+      # compensating re-mint.
+      stub(Secret, :get_data, fn _kc, "fluxvale-access", "custom-wildcard-tls" ->
+        {:ok, %{"tls.crt" => "CERT-PEM", "tls.key" => "KEY-PEM"}}
+      end)
+
+      stub(Secret, :create, fn _kc, ^ns, "access-domain-cert-" <> _t, _data, _labels ->
+        {:ok, %{}}
+      end)
+
+      parent = self()
+
+      stub(Ingress, :delete, fn
+        _kc, ^ns, "app-ingress" -> :ok
+        _kc, ^ns, "custom-" <> _tail -> {:error, Error.connection_error("delete refused")}
+        _kc, _ns, "access-" <> _tail -> not_found()
+      end)
+
+      stub(Middleware, :delete, fn _kc, _ns, _name -> not_found() end)
+
+      stub(Middleware, :create, fn _kc, ^ns, "fluxvale-activity", _spec ->
+        send(parent, {:beacon_restored})
+        {:ok, %{}}
+      end)
+
+      stub(Ingress, :create, fn
+        _kc, ^ns, "app-ingress", _spec ->
+          {:ok, %{}}
+
+        _kc, ^ns, "custom-" <> _tail, spec ->
+          send(parent, {:custom_restored, spec})
+          {:ok, %{}}
+      end)
+
+      # The policy never ran (the failure preceded it) and the
+      # compensation must not touch it either.
+      reject(NetworkPolicy, :create, 4)
+
+      assert {:error, error} =
+               Instance.set_exposure(instance, %{exposure: :private}, actor: owner)
+
+      assert inspect(error) =~ "delete refused"
+
+      assert Instance.get_by_id!(instance.id, authorize?: false).exposure == :public
+
+      assert_received {:beacon_restored}
+      assert_received {:custom_restored, spec}
+      assert spec.host == "wiki.#{domain.domain}"
+      assert spec.tls == true
+    end
+
+    # The mirror direction: the public mint carries the custom routes
+    # (P1's serving_apply), then the access arms come off.
+    test "going public re-mints the custom public routes" do
+      stub_kubeconfig()
+      {owner, instance, _gateway} = attached_deployed_instance!(:running, :private)
+      ns = "fluxvale-app-#{instance.id}"
+
+      domain = custom_domain!(owner, verified?: true)
+
+      InstanceHostname.mint!(
+        %{instance_id: instance.id, access_domain_id: domain.id, label: "wiki"},
+        authorize?: false
+      )
+
+      stub(Secret, :get_data, fn _kc, "fluxvale-access", "custom-wildcard-tls" ->
+        {:ok, %{"tls.crt" => "CERT-PEM", "tls.key" => "KEY-PEM"}}
+      end)
+
+      stub(Secret, :create, fn _kc, ^ns, "access-domain-cert-" <> _t, _data, _labels ->
+        {:ok, %{}}
+      end)
+
+      parent = self()
+
+      stub(Ingress, :create, fn
+        _kc, ^ns, "app-ingress", _spec ->
+          {:ok, %{}}
+
+        _kc, ^ns, "custom-" <> _tail, spec ->
+          send(parent, {:custom_minted, spec})
+          {:ok, %{}}
+      end)
+
+      stub(Middleware, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+      stub(Service, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+
+      stub(Ingress, :delete, fn
+        _kc, ^ns, "access-" <> _tail ->
+          send(parent, {:access_removed})
+          :ok
+
+        _kc, ^ns, _name ->
+          not_found()
+      end)
+
+      stub(Middleware, :delete, fn _kc, _ns, _name -> :ok end)
+      stub(NetworkPolicy, :create, fn _kc, _ns, _n, _spec -> {:ok, %{}} end)
+
+      assert {:ok, public} = Instance.set_exposure(instance, %{exposure: :public}, actor: owner)
+      assert public.exposure == :public
+
+      # The public mint landed BEFORE the access arms came off — the
+      # ADR's ordering, the mailbox order is the proof.
+      assert_received {:custom_minted, spec}
+      assert spec.host == "wiki.#{domain.domain}"
+      # websecure: no explicit entrypoint, TLS on — the family's shape.
+      refute Map.has_key?(spec, :entrypoint)
+
+      assert_received {:access_removed}
+    end
+  end
+
   describe "serialization with the deploy path (PR #267 review finding 4)" do
     # The exposure leak this pins: a deploy job holding a stale :public
     # record used to be able to mint the public routes + edge-admitting
@@ -966,6 +1146,19 @@ defmodule FluxVale.Infrastructure.Operations.SetExposureTest do
       assert private.exposure == :private
 
       assert Instance.get_by_id!(instance.id, authorize?: false).exposure == :private
+    end
+  end
+
+  # One ordered drain of the toggle-family events the test stubs
+  # recorded — the mailbox order IS the call order, so this pins
+  # sequence where assert_received cannot (it matches any mailbox
+  # position). The local equivalent of the edge tests' drain_events.
+  defp drain_removed(acc \\ []) do
+    receive do
+      {:app_removed} -> drain_removed([{:app_removed} | acc])
+      {:custom_removed} -> drain_removed([{:custom_removed} | acc])
+    after
+      0 -> Enum.reverse(acc)
     end
   end
 end

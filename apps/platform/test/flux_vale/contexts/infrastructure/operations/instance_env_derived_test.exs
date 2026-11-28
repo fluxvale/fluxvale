@@ -106,14 +106,6 @@ defmodule FluxVale.Infrastructure.Operations.InstanceEnvDerivedTest do
       assert InstanceEnvDerived.instance_url(row) == "https://#{host(row.slug)}/"
     end
 
-    test "a public instance ignores a recorded custom row" do
-      {org, row} = org_instance!(:public)
-      domain = AccessFixtures.verified_domain!(org)
-      AccessFixtures.mint_hostname!(row, domain, "git")
-
-      assert InstanceEnvDerived.instance_url(row) == "https://#{host(row.slug)}/"
-    end
-
     test "a private unattached instance has no URL" do
       {_org, row} = org_instance!(:private)
 
@@ -238,8 +230,9 @@ defmodule FluxVale.Infrastructure.Operations.InstanceEnvDerivedTest do
       # the platform never makes on its own)
       AccessFixtures.claim!(gateway, [domain_a.domain, domain_b.domain])
 
-      # actions cannot produce a cross-org row (the mint guard
-      # refuses); the fence's regression pin
+      # the cross-org row the fence exists for — the raw :mint's only
+      # fence is the forbid_if policy, so authorize?: false mints it;
+      # the fence's regression pin
       _seeded =
         Ash.Seed.seed!(InstanceHostname, %{
           instance_id: row.id,
@@ -368,6 +361,170 @@ defmodule FluxVale.Infrastructure.Operations.InstanceEnvDerivedTest do
   end
 
   # ------------------------------------------------------------------
+  # The public arm
+  # ------------------------------------------------------------------
+
+  describe "the public custom address" do
+    test "a public instance's URL is its oldest live custom address" do
+      {org, row} = public_org_instance!()
+      domain = AccessFixtures.verified_domain!(org)
+      AccessFixtures.mint_hostname!(row, domain, "git")
+      AccessFixtures.mint_hostname!(row, domain, "code")
+
+      # "git" was minted first — the FIRST-minted (oldest) row wins.
+      assert InstanceEnvDerived.instance_url(row) == "https://git.#{domain.domain}/"
+    end
+
+    test "the oldest dead row does not shadow a newer live one" do
+      {org, row} = public_org_instance!()
+
+      # the OLDEST row: minted first, under a pending (unverified) domain
+      pending = AccessFixtures.custom_domain!(org)
+      AccessFixtures.mint_hostname!(row, pending, "old")
+
+      # the NEWER row: minted second, under a verified domain
+      domain = AccessFixtures.verified_domain!(org)
+      AccessFixtures.mint_hostname!(row, domain, "git")
+
+      # filter-then-sort: the answer is hd(live), not hd(rows)
+      assert InstanceEnvDerived.instance_url(row) == "https://git.#{domain.domain}/"
+
+      assert InstanceEnvDerived.serving_hostnames(row) == [
+               host(row.slug),
+               "git.#{domain.domain}"
+             ]
+    end
+
+    test "the public arm sorts chronologically, not by term order" do
+      {org, row} = public_org_instance!()
+      domain = AccessFixtures.verified_domain!(org)
+
+      # actions cannot produce a backdated created_at
+      _older =
+        Ash.Seed.seed!(InstanceHostname, %{
+          instance_id: row.id,
+          access_domain_id: domain.id,
+          label: "git",
+          created_at: ~U[2026-11-30 12:00:00Z]
+        })
+
+      # actions cannot produce a backdated created_at
+      _newer =
+        Ash.Seed.seed!(InstanceHostname, %{
+          instance_id: row.id,
+          access_domain_id: domain.id,
+          label: "code",
+          created_at: ~U[2026-12-01 12:00:00Z]
+        })
+
+      # DateTime term order ranks 2026-11-30 AFTER 2026-12-01 — only
+      # the chronological sort keeps "git" the URL. Both rows are live.
+      assert InstanceEnvDerived.instance_url(row) == "https://git.#{domain.domain}/"
+    end
+
+    test "a public instance without a live custom address keeps the default hostname" do
+      {org, row} = public_org_instance!()
+
+      assert InstanceEnvDerived.instance_url(row) == "https://#{host(row.slug)}/"
+
+      # a custom row under a pending domain is not live either
+      domain = AccessFixtures.custom_domain!(org)
+      AccessFixtures.mint_hostname!(row, domain, "git")
+
+      assert InstanceEnvDerived.instance_url(row) == "https://#{host(row.slug)}/"
+    end
+
+    test "a public custom address under an unverified domain is not live" do
+      {org, row} = public_org_instance!()
+      domain = AccessFixtures.custom_domain!(org)
+      AccessFixtures.mint_hostname!(row, domain, "git")
+
+      assert InstanceEnvDerived.instance_url(row) == "https://#{host(row.slug)}/"
+      assert InstanceEnvDerived.serving_hostnames(row) == [host(row.slug)]
+    end
+
+    test "a public instance's allowlist carries its live custom hostnames" do
+      {org, row} = public_org_instance!()
+      domain = AccessFixtures.verified_domain!(org)
+      AccessFixtures.mint_hostname!(row, domain, "git")
+      AccessFixtures.mint_hostname!(row, domain, "code")
+
+      assert InstanceEnvDerived.serving_hostnames(row) == [
+               host(row.slug),
+               "git.#{domain.domain}",
+               "code.#{domain.domain}"
+             ]
+    end
+
+    test "a needs_attention domain's custom address stays live for a public instance" do
+      {org, row} = public_org_instance!()
+      domain = AccessFixtures.needs_attention_domain!(org)
+      AccessFixtures.mint_hostname!(row, domain, "git")
+
+      assert InstanceEnvDerived.instance_url(row) == "https://git.#{domain.domain}/"
+    end
+
+    test "a foreign-org custom row is not live for a public instance" do
+      {_org, row} = public_org_instance!()
+      {org_b, _owner_b} = BillingFixtures.grant_free_org!()
+      foreign_domain = AccessFixtures.verified_domain!(org_b)
+
+      # the drift the fence exists for: a hostname row under ANOTHER
+      # org's verified domain (the mint's org fence is policy-only, so
+      # the bootstrap posture mints it — the private arm's Ash.Seed pin
+      # stages the same row)
+      {:ok, _seeded} =
+        InstanceHostname.mint(
+          %{instance_id: row.id, access_domain_id: foreign_domain.id, label: "git"},
+          authorize?: false
+        )
+
+      assert InstanceEnvDerived.instance_url(row) == "https://#{host(row.slug)}/"
+      assert InstanceEnvDerived.serving_hostnames(row) == [host(row.slug)]
+    end
+
+    test "the private arm is unchanged" do
+      # the guard for the private-row tests above: an unattached
+      # private instance answers nowhere even with a verified custom
+      # row minted — no pairing, no claim, no URL (ADR-0038 §4's
+      # omission, untouched by the public arm)
+      {org, row} = private_org_instance!()
+      domain = AccessFixtures.verified_domain!(org)
+      AccessFixtures.mint_hostname!(row, domain, "git")
+
+      assert InstanceEnvDerived.instance_url(row) == nil
+      assert InstanceEnvDerived.serving_hostnames(row) == []
+    end
+
+    test "a public instance reads no gateway for its derivation" do
+      {org, row} = public_org_instance!()
+      domain = AccessFixtures.verified_domain!(org)
+      AccessFixtures.mint_hostname!(row, domain, "git")
+
+      # no AccessGateway row exists at all — and the derivation's
+      # pairing/gateway reads never fire for a public row (the
+      # no-gateway-read design, pinned structurally like the snapshot
+      # counts above)
+      Process.put(:route_reads, 0)
+      Process.put(:gateway_reads, 0)
+
+      stub(AccessRoute, :get_by_instance, fn _id, _opts ->
+        Process.put(:route_reads, Process.get(:route_reads) + 1)
+        {:ok, :the_live_pairing}
+      end)
+
+      stub(AccessGateway, :get_for_organization, fn _org_id, _opts ->
+        Process.put(:gateway_reads, Process.get(:gateway_reads) + 1)
+        {:ok, %{dns_claims: %{}}}
+      end)
+
+      assert InstanceEnvDerived.instance_url(row) == "https://git.#{domain.domain}/"
+      assert Process.get(:route_reads) == 0
+      assert Process.get(:gateway_reads) == 0
+    end
+  end
+
+  # ------------------------------------------------------------------
   # Helpers
   # ------------------------------------------------------------------
 
@@ -401,5 +558,22 @@ defmodule FluxVale.Infrastructure.Operations.InstanceEnvDerivedTest do
     )
 
     gateway
+  end
+
+  # The public arm's fixture org + instance: the same preconditions as
+  # `org_instance!/1` (the funded-wallet gate #124, the cluster row),
+  # built through AccessFixtures.
+  defp public_org_instance! do
+    {org, owner} = BillingFixtures.grant_free_org!()
+    {^org, _wallet} = BillingFixtures.funded_wallet!(org: org)
+    InstanceFixtures.local_cluster!()
+    {org, AccessFixtures.public_instance!(org, owner)}
+  end
+
+  defp private_org_instance! do
+    {org, owner} = BillingFixtures.grant_free_org!()
+    {^org, _wallet} = BillingFixtures.funded_wallet!(org: org)
+    InstanceFixtures.local_cluster!()
+    {org, AccessFixtures.private_instance!(org, owner)}
   end
 end

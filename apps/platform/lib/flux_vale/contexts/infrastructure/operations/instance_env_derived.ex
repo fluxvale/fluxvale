@@ -1,20 +1,28 @@
 defmodule FluxVale.Infrastructure.Operations.InstanceEnvDerived do
   @moduledoc """
   The deploy-time env derivations shared by the deploy op, the in-place
-  env patch (#731 T1, ADR-0052 decision 4), and the address-event sync;
-  the sign-on callback joins with a later slice. One snapshot of the
-  instance's live addressing (`derive/1` — the URL and the hostname set
-  from ONE pairing read and ONE gateway-claims read, both arms fed from
-  that single snapshot), the platform append to the catalog's
-  `host_allowlist_env`, and the claimed-default-hostname predicate the
-  append rides.
+  env patch (#731 T1, ADR-0052 decision 4), the address-event sync, and
+  the sign-on callback. One snapshot of the instance's live addressing
+  (`derive/1` — the URL and the hostname set: a private row from ONE
+  pairing read, ONE gateway-claims read, and ONE hostname-rows read; a
+  public row from ONE hostname-rows read alone), the platform append
+  to the catalog's `host_allowlist_env`, and the
+  claimed-default-hostname predicate the append rides.
 
   One owner is the whole point: the deploy and the sync compute ONE
   snapshot and feed both env keys from it — a Secret's URL and its
   allowlist can never come from two different reads — and a patch, the
-  sync, and (later) the sign-on callback all read the same answer.
+  sync, and the sign-on callback all read the same answer.
   `host_allowlist_env` stays user-writable; the platform's entries ride
   on top.
+
+  The public arm's rule (owner-ruled Nov 27 2026, fluxvale/fluxvale#929;
+  the ADR amendment lands with the lane's docs slice): a public row's
+  URL is its oldest live custom address, else the default hostname — a
+  custom address is live for a public row when its domain is `:custom`,
+  owned by the instance's org, and routable
+  (`:verified`/`:needs_attention`); no pairing, no gateway, no claims
+  read. The private arm keeps its attached-and-claimed gate.
   """
 
   alias FluxVale.Infrastructure.AccessDomain
@@ -45,12 +53,13 @@ defmodule FluxVale.Infrastructure.Operations.InstanceEnvDerived do
 
   @doc """
   The instance's URL from its live hostnames — the ONE derivation the
-  deploy op answers from (the sign-on callback's lib consumer lands
-  with that later slice, ADR-0052). Public rows always answer on
-  the default hostname. Private rows: the OLDEST live custom address
-  (created_at, then id — A1's stability ruling), else the default when
-  the claimed-domain predicate holds, else nil (ADR-0038 §4's
-  omission). Trailing slash, mirroring the deploy seed's shape.
+  deploy op, the sync, and the sign-on callback answer from (ADR-0052).
+  Public rows: the OLDEST live custom address, else the default
+  hostname — the public arm's rule. Private rows: the OLDEST live
+  custom address (created_at, then id — A1's stability ruling), else
+  the default when the claimed-domain predicate holds, else nil
+  (ADR-0038 §4's omission). Trailing slash, mirroring the deploy
+  seed's shape.
   """
   @spec instance_url(Instance.t()) :: String.t() | nil
   def instance_url(instance), do: derive(instance).url
@@ -58,21 +67,23 @@ defmodule FluxVale.Infrastructure.Operations.InstanceEnvDerived do
   @doc """
   Every hostname the instance answers on: the default hostname when
   public or default-live, plus every live custom hostname (created_at,
-  id order). The allowlist append consumes this set.
+  id order). For a public row the customs are the publicly-live ones —
+  the public arm's rule. The allowlist append consumes this set.
   """
   @spec serving_hostnames(Instance.t()) :: [String.t()]
   def serving_hostnames(instance), do: derive(instance).hostnames
 
   @doc """
   One snapshot of the instance's live addressing: the URL and the
-  hostname set, from ONE pairing read and ONE gateway-claims read —
-  both arms answer from that single snapshot, so a claims write landing
-  mid-derivation can never tear them apart (a URL naming a host the
-  same snapshot no longer claims). The deploy and the sync feed both
-  env keys from it, so the Secret's URL and its allowlist can never
-  come from two different states; the one-shot wrappers
-  (`instance_url/1`, `serving_hostnames/1`) are for single-answer
-  callers.
+  hostname set. A private row answers from ONE pairing read and ONE
+  gateway-claims read — a claims write landing mid-derivation can
+  never tear the arms apart (a URL naming a host the same snapshot no
+  longer claims). A public row reads neither source (a public custom
+  address serves with no gateway at all) and answers from ONE
+  hostname-rows read. The deploy and the sync feed both env keys from
+  the snapshot, so the Secret's URL and its allowlist can never come
+  from two different states; the one-shot wrappers (`instance_url/1`,
+  `serving_hostnames/1`) are for single-answer callers.
   """
   @spec derive(Instance.t()) :: %{url: String.t() | nil, hostnames: [String.t()]}
   def derive(instance) do
@@ -82,11 +93,14 @@ defmodule FluxVale.Infrastructure.Operations.InstanceEnvDerived do
 
     default_live? = instance.exposure == :public or hostname_default_live?(snapshot, instance)
 
+    # The URL: the oldest live custom address when one is live, else
+    # the default, else nil. The customs differ per arm (the public
+    # arm's are the publicly-live rows, the private arm's the claimed
+    # ones); a public row's default is always live (`default_live?` is
+    # `true` for every public row), so there is no public-only clause —
+    # the public arm's rule.
     url =
       cond do
-        instance.exposure == :public ->
-          default_url(instance)
-
         customs != [] ->
           "https://" <> hd(customs) <> "/"
 
@@ -124,9 +138,10 @@ defmodule FluxVale.Infrastructure.Operations.InstanceEnvDerived do
   # attached (a live AccessRoute pairing — the same record attach/detach
   # read) and, when it is, the org gateway's claims map. Both arms of
   # `derive/1` consume this map, so each source is read exactly once
-  # per derivation. Public rows read nothing: they answer on the
-  # default hostname unconditionally, and their custom hostnames are
-  # never live (custom addresses serve privately by design).
+  # per derivation. Public rows read neither source: a public custom
+  # address serves with no gateway at all, so their live hostnames
+  # come from the public arm's own hostname-rows read
+  # (`live_custom_hostnames`'s public clause — the public arm's rule).
   defp attach_and_claims(%{exposure: :private} = instance) do
     case AccessRoute.get_by_instance(instance.id, authorize?: false) do
       {:ok, _live_pairing} ->
@@ -149,6 +164,13 @@ defmodule FluxVale.Infrastructure.Operations.InstanceEnvDerived do
   # The live custom hostnames, from the SNAPSHOT's claims — no re-read.
   defp live_custom_hostnames({:claims, claims}, instance) do
     claimed_hostname_rows(instance, claims)
+  end
+
+  # The PUBLIC arm: a public custom address serves with no gateway at
+  # all — the snapshot holds no pairing and no claims for a public row
+  # — so its live hostnames come from the public arm's own read below.
+  defp live_custom_hostnames(_snapshot, %{exposure: :public} = instance) do
+    public_hostname_rows(instance)
   end
 
   defp live_custom_hostnames(:unattached, _instance), do: []
@@ -242,6 +264,49 @@ defmodule FluxVale.Infrastructure.Operations.InstanceEnvDerived do
       domain.organization_id == instance.organization_id and
       domain.state in [:verified, :needs_attention] and
       Map.has_key?(claims, domain.domain)
+  end
+
+  # The PUBLIC arm's live custom hostnames: ONE hostname-rows read, no
+  # re-read (the module's single-snapshot discipline), filtered by the
+  # public liveness, oldest first — the same sort
+  # `claimed_hostname_rows` applies (created_at, then id).
+  defp public_hostname_rows(instance) do
+    query = Ash.Query.filter(InstanceHostname, instance_id == ^instance.id)
+
+    case Ash.read(query, authorize?: false, load: [:access_domain]) do
+      {:ok, rows} ->
+        live =
+          rows
+          |> Enum.filter(&public_live_row?(instance, &1))
+          # DateTime term order is NOT chronological (day compares
+          # before month) — sort by the epoch integer.
+          |> Enum.sort_by(&{DateTime.to_unix(&1.created_at, :microsecond), &1.id})
+
+        Enum.map(live, &"#{&1.label}.#{&1.access_domain.domain}")
+
+      # coveralls-ignore-start - defensive: the DB-outage class ExUnit
+      # cannot stage (DBConnection reconnects by design). The public
+      # arm's customs are lost on the failed read; the default hostname
+      # is still told, converging on the next address event.
+      {:error, _read_failed} ->
+        []
+        # coveralls-ignore-stop
+    end
+  end
+
+  # The PUBLIC arm's liveness (the public arm's rule): the row's
+  # domain is `:custom`, owned by the INSTANCE's org, and in a
+  # routable state (`:verified`/`:needs_attention` — the same state
+  # mirror the TLS clause routes). NO pairing row, NO gateway, NO
+  # `dns_claims` read: a public custom address serves with no gateway
+  # at all. The private arm's predicate (`live_custom_row?/3` —
+  # attached and claimed) is unchanged.
+  defp public_live_row?(instance, row) do
+    domain = row.access_domain
+
+    domain.kind == :custom and
+      domain.organization_id == instance.organization_id and
+      domain.state in [:verified, :needs_attention]
   end
 
   defp default_hostname(instance) do

@@ -18,6 +18,7 @@ defmodule FluxVale.Infrastructure.Operations.MintCustomHostnameTest do
   alias FluxVale.Infrastructure.Instance
   alias FluxVale.Infrastructure.InstanceHostname
   alias FluxVale.Infrastructure.Operations.EdgeRoutes
+  alias FluxVale.Infrastructure.Operations.InstanceK8s
   alias FluxVale.Infrastructure.Operations.RenderAccessDNS
   alias FluxVale.Infrastructure.Operations.SyncInstanceUrlEnv
   alias FluxVale.TestSupport.AccessFixtures
@@ -76,8 +77,22 @@ defmodule FluxVale.Infrastructure.Operations.MintCustomHostnameTest do
       _route = route!(gateway, instance)
 
       expect(RenderAccessDNS, :call, fn -> :ok end)
+
+      # The exposure is the whole dispatch: a stale pairing row never
+      # detours a public mint into the private arm.
+      reject(AccessRoute, :get_by_instance, 2)
       reject(EdgeRoutes, :apply_access_for_status, 3)
-      reject(SyncInstanceUrlEnv, :call, 1)
+
+      # The public arm applies instead — the mint publishes.
+      expect(EdgeRoutes, :apply_public_for_status, fn _kc, sent_instance ->
+        assert sent_instance.id == instance.id
+        :ok
+      end)
+
+      expect(SyncInstanceUrlEnv, :call, fn synced ->
+        assert synced.id == instance.id
+        :ok
+      end)
 
       assert {:ok, _hostname} =
                Infrastructure.mint_custom_hostname(instance.id, domain.id, "git", actor: owner)
@@ -113,6 +128,192 @@ defmodule FluxVale.Infrastructure.Operations.MintCustomHostnameTest do
                Infrastructure.mint_custom_hostname(instance.id, domain.id, "git", actor: owner)
 
       assert route.gateway_id == gateway.id
+    end
+  end
+
+  describe "call/4 — the public arm (the mint publishes)" do
+    test "a never-deployed public instance records the row without applying the edge", %{
+      org: org,
+      owner: owner
+    } do
+      domain = verified_domain!(org)
+
+      # The undeployed shape the API mint meets: created through the
+      # action — no namespace, :public by default.
+      instance = instance!(org, owner)
+      assert is_nil(instance.namespace)
+
+      # No edge to apply — no kubeconfig resolution, no arm, no unwind,
+      # and nothing to tell (the sync skips undeployed rows).
+      reject(EdgeRoutes, :apply_public_for_status, 2)
+      reject(EdgeRoutes, :apply_access_for_status, 3)
+      reject(EdgeRoutes, :apply_public_none_for_hostname, 3)
+      reject(InstanceK8s, :kubeconfig_for, 1)
+      reject(SyncInstanceUrlEnv, :call, 1)
+      expect(RenderAccessDNS, :call, fn -> :ok end)
+
+      assert {:ok, hostname} =
+               Infrastructure.mint_custom_hostname(instance.id, domain.id, "git", actor: owner)
+
+      assert hostname.label == "git"
+      assert hostname_exists?(instance.id, "git")
+    end
+
+    test "a public instance's mint applies the public edge and tells the app", %{
+      org: org,
+      owner: owner
+    } do
+      domain = verified_domain!(org)
+      instance = public_instance!(org, owner)
+
+      # No pairing read — the exposure is the whole dispatch.
+      reject(AccessRoute, :get_by_instance, 2)
+      reject(EdgeRoutes, :apply_access_for_status, 3)
+
+      expect(EdgeRoutes, :apply_public_for_status, fn kubeconfig, sent_instance ->
+        assert kubeconfig == %{}
+        assert sent_instance.id == instance.id
+        :ok
+      end)
+
+      # The edge applied — the deployed app is told its new address
+      # (the allowlist must carry the host before a visitor 400s).
+      expect(SyncInstanceUrlEnv, :call, fn synced ->
+        assert synced.id == instance.id
+        :ok
+      end)
+
+      expect(RenderAccessDNS, :call, fn -> :ok end)
+
+      assert {:ok, hostname} =
+               Infrastructure.mint_custom_hostname(instance.id, domain.id, "git", actor: owner)
+
+      assert hostname.label == "git"
+      assert hostname_exists?(instance.id, "git")
+    end
+
+    test "a mint that lands private after a racing toggle mints no public route", %{
+      org: org,
+      owner: owner
+    } do
+      domain = verified_domain!(org)
+      instance = public_instance!(org, owner)
+
+      # The race, staged: the guard read (above) sees :public; the
+      # toggle lands while the domain read is in flight; the locked
+      # re-read inside apply_edge sees :private and converges on the
+      # post-flip posture — record-only for this unattached row.
+      expect(AccessDomain, :get_by_id, fn _id, _opts ->
+        InstanceFixtures.pin!(instance, exposure: :private)
+        {:ok, domain}
+      end)
+
+      reject(EdgeRoutes, :apply_public_for_status, 2)
+      reject(EdgeRoutes, :apply_access_for_status, 3)
+      reject(SyncInstanceUrlEnv, :call, 1)
+      expect(RenderAccessDNS, :call, fn -> :ok end)
+
+      assert {:ok, _hostname} =
+               Infrastructure.mint_custom_hostname(instance.id, domain.id, "git", actor: owner)
+
+      assert hostname_exists?(instance.id, "git")
+    end
+
+    test "a failed public mint unwinds the row", %{org: org, owner: owner} do
+      domain = verified_domain!(org)
+      instance = public_instance!(org, owner)
+
+      expect(EdgeRoutes, :apply_public_for_status, fn _kc, _instance ->
+        {:error, :edge_refused}
+      end)
+
+      # The partial public routes come down through the PUBLIC none
+      # limb — the access arm's discipline, the other plane.
+      expect(EdgeRoutes, :apply_public_none_for_hostname, fn _kc, _instance, hostname ->
+        assert hostname.label == "git"
+        :ok
+      end)
+
+      reject(RenderAccessDNS, :call, 0)
+
+      assert {:error, :edge_refused} =
+               Infrastructure.mint_custom_hostname(instance.id, domain.id, "git", actor: owner)
+
+      refute hostname_exists?(instance.id, "git")
+    end
+
+    test "keeps the row when the public route cleanup fails, so a later remove converges", %{
+      org: org,
+      owner: owner
+    } do
+      domain = verified_domain!(org)
+      instance = public_instance!(org, owner)
+
+      expect(EdgeRoutes, :apply_public_for_status, fn _kc, _instance ->
+        {:error, :edge_refused}
+      end)
+
+      expect(EdgeRoutes, :apply_public_none_for_hostname, fn _kc, _instance, _hostname ->
+        {:error, :cleanup_boom}
+      end)
+
+      reject(RenderAccessDNS, :call, 0)
+
+      assert {:error, :cleanup_boom} =
+               Infrastructure.mint_custom_hostname(instance.id, domain.id, "git", actor: owner)
+
+      # The row stands with its route name, so remove can delete the
+      # route first and then the row.
+      assert hostname_exists?(instance.id, "git")
+    end
+
+    test "a kubeconfig failure unwinds a public mint without an edge cleanup call", %{
+      org: org,
+      owner: owner
+    } do
+      domain = verified_domain!(org)
+      instance = public_instance!(org, owner)
+
+      stub(K8s, :kubeconfig, fn _ref -> {:error, :no_cluster} end)
+      reject(EdgeRoutes, :apply_public_none_for_hostname, 3)
+      reject(RenderAccessDNS, :call, 0)
+
+      assert {:error, :no_cluster} =
+               Infrastructure.mint_custom_hostname(instance.id, domain.id, "git", actor: owner)
+
+      refute hostname_exists?(instance.id, "git")
+    end
+
+    test "an instance torn down inside the lock tells nothing and routes nothing", %{
+      org: org,
+      owner: owner
+    } do
+      domain = verified_domain!(org)
+      instance = public_instance!(org, owner)
+
+      # Teardown wins between the guard read and the locked read: the
+      # row lands, the instance (and its hostname rows, by cascade) is
+      # gone, and the locked re-read finds nil — nothing to tell,
+      # nothing to route.
+      stub(InstanceHostname, :mint, fn _params, _opts ->
+        minted =
+          InstanceHostname.mint!(
+            %{instance_id: instance.id, access_domain_id: domain.id, label: "git"},
+            authorize?: false
+          )
+
+        Ash.destroy!(instance, authorize?: false)
+        {:ok, minted}
+      end)
+
+      reject(EdgeRoutes, :apply_public_for_status, 2)
+      reject(SyncInstanceUrlEnv, :call, 1)
+      expect(RenderAccessDNS, :call, fn -> :ok end)
+
+      assert {:ok, _hostname} =
+               Infrastructure.mint_custom_hostname(instance.id, domain.id, "git", actor: owner)
+
+      refute hostname_exists?(instance.id, "git")
     end
   end
 
@@ -364,7 +565,14 @@ defmodule FluxVale.Infrastructure.Operations.MintCustomHostnameTest do
 
   defp public_instance!(org, owner) do
     instance = instance!(org, owner)
-    InstanceFixtures.pin!(instance, exposure: :public)
+
+    # The DEPLOYED public shape: the public arm's tests stage an
+    # instance with a namespace (a never-deployed row is the
+    # record-only gate's subject, not the arm's).
+    InstanceFixtures.pin!(instance,
+      exposure: :public,
+      namespace: "fluxvale-app-#{instance.id}"
+    )
   end
 
   defp private_instance!(org, owner) do

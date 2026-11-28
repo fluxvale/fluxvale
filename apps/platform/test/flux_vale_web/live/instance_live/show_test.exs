@@ -1957,6 +1957,10 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
       version: version
     } do
       instance = create_instance!(version, user)
+      # The panel test pins the panel (form lands a row, the card
+      # refreshes), not the edge — an unattached private instance's
+      # mint is record-only (the operation tests own the dispatch).
+      InstanceFixtures.pin!(instance, exposure: :private)
       domain = verified_custom_domain!(instance, user)
 
       stub(RenderAccessDNS, :call, fn -> :ok end)
@@ -1979,6 +1983,9 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
       version: version
     } do
       instance = create_instance!(version, user)
+      # Same panel-only posture as the mint test: unattached private,
+      # so the remove's cluster limb skips (no routes exist to remove).
+      InstanceFixtures.pin!(instance, exposure: :private)
       domain = verified_custom_domain!(instance, user)
       _hostname = custom_hostname!(instance, domain, "git")
 
@@ -2134,6 +2141,14 @@ defmodule FluxValeWeb.InstanceLive.ShowTest do
       version: version
     } do
       instance = create_instance!(version, user)
+      # The deployed private shape the failure staging below means: the
+      # stubbed pairing read is the PRIVATE limb's (the undeployed
+      # public shape is the record-only gate, never a failure).
+      InstanceFixtures.pin!(instance,
+        exposure: :private,
+        namespace: "fluxvale-app-#{instance.id}"
+      )
+
       domain = verified_custom_domain!(instance, user)
       _hostname = custom_hostname!(instance, domain, "git")
 
