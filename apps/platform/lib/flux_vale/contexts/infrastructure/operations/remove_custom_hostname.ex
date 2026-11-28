@@ -12,6 +12,11 @@ defmodule FluxVale.Infrastructure.Operations.RemoveCustomHostname do
   instance has no routes to remove (the mint skipped the cluster too),
   so the cluster limb is skipped entirely for it.
 
+  The edge limb reads the exposure FRESH under the instance row lock —
+  the mint's symmetric serialization (the toggle's too): dispatching
+  on the guard read's stale posture could destroy a row whose public
+  route a racing private-to-public toggle just minted, orphaning it.
+
   After the row is gone the remove re-tells the app its remaining
   address (or drops the URL key) best-effort; a failure leaves the old
   value stale-but-working and converges on the next event or deploy.
@@ -29,7 +34,9 @@ defmodule FluxVale.Infrastructure.Operations.RemoveCustomHostname do
   alias FluxVale.Infrastructure.Operations.InstanceK8s
   alias FluxVale.Infrastructure.Operations.RenderAccessDNS
   alias FluxVale.Infrastructure.Operations.SyncInstanceUrlEnv
+  alias FluxVale.Repo
 
+  require Ash.Query
   require Logger
 
   @doc """
@@ -63,12 +70,62 @@ defmodule FluxVale.Infrastructure.Operations.RemoveCustomHostname do
   defp ensure_custom(%{kind: :custom}), do: :ok
   defp ensure_custom(%{kind: :platform}), do: {:error, :platform_domain}
 
+  # The edge limb reads the instance FRESH under the row lock — the
+  # mint's symmetric (the same serialization the exposure toggle uses
+  # across its own applies). The guard read at the top of call/2 may
+  # be seconds old: dispatching on it could skip the cluster while a
+  # racing private-to-public toggle mints the public route, and the
+  # row would die without unpublishing it — an orphan no later walk
+  # can name (the T2-F1 class).
+  defp remove_edge(instance, hostname, read_opts) do
+    case Repo.transaction(fn -> locked_remove_edge(instance.id, hostname, read_opts) end) do
+      {:ok, outcome} ->
+        outcome
+
+      # coveralls-ignore-start - defensive: the rollback arm of the
+      # locked read's DB-outage class (locked_remove_edge), ExUnit
+      # cannot stage it (DBConnection reconnects by design).
+      {:error, reason} ->
+        {:error, reason}
+        # coveralls-ignore-stop
+    end
+  end
+
+  defp locked_remove_edge(instance_id, hostname, read_opts) do
+    case lock_row(instance_id) do
+      {:ok, %Instance{} = fresh} ->
+        dispatch_edge(fresh, hostname, read_opts)
+
+      # Teardown won between the guard read and this lock: nothing to
+      # remove — the rows are already gone.
+      {:ok, nil} ->
+        :ok
+
+      # coveralls-ignore-start - defensive: the locked read's DB-outage
+      # class, ExUnit cannot stage it (DBConnection reconnects by
+      # design).
+      {:error, reason} ->
+        Repo.rollback(reason)
+        # coveralls-ignore-stop
+    end
+  end
+
+  # The row lock the exposure toggle holds across its own synchronous
+  # cluster applies — the same shape the mint's dispatch and
+  # SyncInstanceUrlEnv serialize on.
+  defp lock_row(instance_id) do
+    Instance
+    |> Ash.Query.filter(id == ^instance_id)
+    |> Ash.Query.lock(:for_update)
+    |> Ash.read_one(authorize?: false)
+  end
+
   # A never-deployed instance never minted a route — record-only on
   # the mint's side, record-only on the remove's: the delete-by-name
   # would 404-tolerate anyway, but the gate makes the contract
   # explicit instead of accidental (the same shape bda81d4a gave the
   # mint).
-  defp remove_edge(%{namespace: nil}, _hostname, _read_opts), do: :ok
+  defp dispatch_edge(%{namespace: nil}, _hostname, _read_opts), do: :ok
 
   # Public: the custom route lives on the public entrypoint, so the
   # public none limb takes it down — no pairing read (a stale
@@ -77,17 +134,17 @@ defmodule FluxVale.Infrastructure.Operations.RemoveCustomHostname do
   # objects: a row destroyed under a standing route can never be named
   # by any later walk (the orphan a gate-2 finding proved survives even
   # a later exposure flip).
-  defp remove_edge(%{exposure: :public} = instance, hostname, _read_opts) do
-    with {:ok, kubeconfig} <- InstanceK8s.kubeconfig_for(instance) do
-      EdgeRoutes.apply_public_none_for_hostname(kubeconfig, instance, hostname)
+  defp dispatch_edge(%{exposure: :public} = fresh, hostname, _read_opts) do
+    with {:ok, kubeconfig} <- InstanceK8s.kubeconfig_for(fresh) do
+      EdgeRoutes.apply_public_none_for_hostname(kubeconfig, fresh, hostname)
     end
   end
 
-  defp remove_edge(instance, hostname, read_opts) do
-    case AccessRoute.get_by_instance(instance.id, read_opts) do
+  defp dispatch_edge(fresh, hostname, read_opts) do
+    case AccessRoute.get_by_instance(fresh.id, read_opts) do
       {:ok, _route} ->
-        with {:ok, kubeconfig} <- InstanceK8s.kubeconfig_for(instance) do
-          EdgeRoutes.apply_access_none_for_hostname(kubeconfig, instance, hostname)
+        with {:ok, kubeconfig} <- InstanceK8s.kubeconfig_for(fresh) do
+          EdgeRoutes.apply_access_none_for_hostname(kubeconfig, fresh, hostname)
         end
 
       {:error, error} ->
@@ -101,8 +158,24 @@ defmodule FluxVale.Infrastructure.Operations.RemoveCustomHostname do
 
   # authorize?: false — the ownership fence was the authorized reads
   # above (the instance delete stance); the row destroy itself is
-  # system-only by policy.
-  defp destroy(hostname), do: InstanceHostname.destroy(hostname, authorize?: false)
+  # system-only by policy. A row that vanished under this remove (the
+  # instance teardown cascade-won inside the locked re-read, or a
+  # racing double-remove) is the goal state already holding — the
+  # honest :ok, never a stale-record error (the sync's
+  # vanished-instance stance).
+  defp destroy(hostname) do
+    case InstanceHostname.destroy(hostname, authorize?: false) do
+      :ok ->
+        :ok
+
+      {:error, %Ash.Error.Invalid{errors: errors}} = error ->
+        if Enum.any?(errors, &match?(%Ash.Error.Changes.StaleRecord{}, &1)) do
+          :ok
+        else
+          error
+        end
+    end
+  end
 
   # Best-effort re-tell: the address is gone either way, so a sync
   # failure is one warning and the remove still succeeds — the app's
