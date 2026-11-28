@@ -53,8 +53,10 @@ defmodule FluxVale.Infrastructure.Operations.RemoveCustomHostname do
          {:ok, hostname} <- Ash.load(hostname, :access_domain, read_opts),
          :ok <- ensure_custom(hostname.access_domain),
          {:ok, instance} <- Instance.get_by_id(hostname.instance_id, read_opts),
-         :ok <- remove_edge(instance, hostname, read_opts),
-         :ok <- destroy(hostname) do
+         # The edge limb owns the destroy now — it runs inside the
+         # locked transaction, serialized with the unpublish it
+         # follows. The re-tell and the render stay after the commit.
+         :ok <- remove_edge(instance, hostname, read_opts) do
       # The re-tell runs after the row is destroyed (the derivation
       # must not see the row just removed), before the resolver render.
       tell_app(instance)
@@ -94,7 +96,7 @@ defmodule FluxVale.Infrastructure.Operations.RemoveCustomHostname do
   defp locked_remove_edge(instance_id, hostname, read_opts) do
     case lock_row(instance_id) do
       {:ok, %Instance{} = fresh} ->
-        dispatch_edge(fresh, hostname, read_opts)
+        unpublish_and_destroy(fresh, hostname, read_opts)
 
       # Teardown won between the guard read and this lock: nothing to
       # remove — the rows are already gone.
@@ -107,6 +109,36 @@ defmodule FluxVale.Infrastructure.Operations.RemoveCustomHostname do
       {:error, reason} ->
         Repo.rollback(reason)
         # coveralls-ignore-stop
+    end
+  end
+
+  # The destroy rides INSIDE the lock — lock -> unpublish -> destroy
+  # -> commit. The unserialized destroy was the gap: a toggle (or the
+  # idle sweep's sleep/restore/deploy) could take the lock while the
+  # hostname row still stood and mint custom-<tail> from it, which the
+  # destroy would then orphan (the T2-F1 class). A row that vanished
+  # under this remove (a racing double-remove serialized on this very
+  # lock) is the goal state already holding — the existence check
+  # skips the destroy. A destroy failure returns WITHOUT rolling the
+  # landed unpublish back (K8s deletes are not transactional): the
+  # error surfaces and the row stands for the retry — everything in
+  # the limb is idempotent.
+  defp unpublish_and_destroy(fresh, hostname, read_opts) do
+    with :ok <- dispatch_edge(fresh, hostname, read_opts) do
+      case hostname_row(hostname.id) do
+        {:ok, nil} ->
+          :ok
+
+        {:ok, row} ->
+          destroy(row)
+
+        # coveralls-ignore-start - defensive: the existence check's
+        # DB-outage class, ExUnit cannot stage it (DBConnection
+        # reconnects by design).
+        {:error, reason} ->
+          {:error, reason}
+          # coveralls-ignore-stop
+      end
     end
   end
 
@@ -156,26 +188,22 @@ defmodule FluxVale.Infrastructure.Operations.RemoveCustomHostname do
     end
   end
 
+  # The locked limb's existence check — under the instance lock the
+  # row cannot vanish between this read and the destroy (every
+  # destroyer serializes here), so a found row is destroyed and a nil
+  # is the goal state already holding.
+  defp hostname_row(hostname_id) do
+    InstanceHostname
+    |> Ash.Query.filter(id == ^hostname_id)
+    |> Ash.read_one(authorize?: false)
+  end
+
   # authorize?: false — the ownership fence was the authorized reads
   # above (the instance delete stance); the row destroy itself is
-  # system-only by policy. A row that vanished under this remove (the
-  # instance teardown cascade-won inside the locked re-read, or a
-  # racing double-remove) is the goal state already holding — the
-  # honest :ok, never a stale-record error (the sync's
-  # vanished-instance stance).
-  defp destroy(hostname) do
-    case InstanceHostname.destroy(hostname, authorize?: false) do
-      :ok ->
-        :ok
-
-      {:error, %Ash.Error.Invalid{errors: errors}} = error ->
-        if Enum.any?(errors, &match?(%Ash.Error.Changes.StaleRecord{}, &1)) do
-          :ok
-        else
-          error
-        end
-    end
-  end
+  # system-only by policy. A failure passes through: the unpublish
+  # already landed (K8s deletes are not transactional) and the row
+  # stands for the retry.
+  defp destroy(hostname), do: InstanceHostname.destroy(hostname, authorize?: false)
 
   # Best-effort re-tell: the address is gone either way, so a sync
   # failure is one warning and the remove still succeeds — the app's

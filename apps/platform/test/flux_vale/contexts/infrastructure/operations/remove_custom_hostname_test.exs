@@ -271,6 +271,73 @@ defmodule FluxVale.Infrastructure.Operations.RemoveCustomHostnameTest do
   end
 
   describe "call/2 — the public plane (the remove unpublishes)" do
+    test "the destroy failure leaves the unpublish landed and the row standing", %{
+      org: org,
+      owner: owner
+    } do
+      domain = verified_domain!(org)
+      instance = public_instance!(org, owner)
+      hostname = hostname!(instance, domain, "git")
+
+      # The unpublish lands first (the cluster delete is not
+      # transactional — it cannot come back), then the destroy fails:
+      # the error returns WITHOUT rolling the limb back, the row
+      # stands, and the retry converges from the same record.
+      expect(EdgeRoutes, :apply_public_none_for_hostname, fn _kc, _instance, sent_hostname ->
+        assert sent_hostname.id == hostname.id
+        :ok
+      end)
+
+      stub(InstanceHostname, :destroy, fn _record, _opts ->
+        {:error, %Ash.Error.Invalid{errors: []}}
+      end)
+
+      # A failed remove never re-tells or re-renders.
+      reject(SyncInstanceUrlEnv, :call, 1)
+      reject(RenderAccessDNS, :call, 0)
+
+      assert {:error, _reason} = Infrastructure.remove_custom_hostname(hostname.id, actor: owner)
+
+      assert hostname_exists?(hostname.id)
+    end
+
+    test "a second remove of the same row converges on stale", %{
+      org: org,
+      owner: owner
+    } do
+      domain = verified_domain!(org)
+      instance = private_instance!(org, owner)
+      hostname = hostname!(instance, domain, "git")
+
+      # The racing double-remove, staged at the guard-read seam: this
+      # (second) remove's reads answered while the row stood, and the
+      # stub plays the FIRST remove's destroy landing in that window —
+      # so the locked limb's own destroy meets the stale record. Both
+      # removes serialized on the lock; the stale record IS the goal
+      # state already holding, and the honest answer is :ok with no
+      # cluster calls (the private limb finds no pairing).
+      id = instance.id
+
+      stub(Instance, :get_by_id, fn
+        ^id, _opts ->
+          InstanceHostname.destroy!(hostname, authorize?: false)
+          {:ok, instance}
+
+        other_id, opts ->
+          {:ok, Instance.get_by_id!(other_id, opts)}
+      end)
+
+      reject(EdgeRoutes, :apply_public_none_for_hostname, 3)
+      reject(EdgeRoutes, :apply_access_none_for_hostname, 3)
+      reject(InstanceK8s, :kubeconfig_for, 1)
+
+      expect(RenderAccessDNS, :call, fn -> :ok end)
+
+      assert {:ok, _removed} = Infrastructure.remove_custom_hostname(hostname.id, actor: owner)
+
+      refute hostname_exists?(hostname.id)
+    end
+
     test "a remove that lands public after a racing private-to-public toggle unpublishes the route",
          %{
            org: org,
