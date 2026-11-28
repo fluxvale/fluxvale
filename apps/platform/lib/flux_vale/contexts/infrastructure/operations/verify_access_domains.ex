@@ -568,19 +568,36 @@ defmodule FluxVale.Infrastructure.Operations.VerifyAccessDomains do
   # never fail the pass.
   # ------------------------------------------------------------------
 
-  # One walk per pass. The routes of a domain's rows can only live in
-  # the domain's org's instance namespaces (the mint's org belt), so
-  # the orgs of the verified/needs_attention custom domains bound the
-  # listing — and listing (not the rows) is what makes orphans visible.
+  # One walk per pass, TWO halves. The routes of a domain's rows can
+  # only live in the domain's org's instance namespaces (the mint's org
+  # belt), so the orgs of the verified/needs_attention custom domains
+  # bound the listing — and listing (not the rows) is what makes
+  # orphans visible.
   defp sweep_public_drift(domains, kubeconfig) do
-    domains
-    |> Enum.filter(&(&1.state in [:verified, :needs_attention]))
+    serving = Enum.filter(domains, &(&1.state in [:verified, :needs_attention]))
+
+    # The ROW-keyed re-apply half: a promotion mint that failed
+    # warn-only never landed a route, so the route-keyed half can never
+    # see it — the rows re-arm those instances directly (idempotent
+    # SSA, the promotion mint's own call).
+    Enum.each(serving, &reapply_domain_public_arms(&1, kubeconfig))
+
+    # The ROUTE-keyed deletion half: the belt for what the rows cannot
+    # name (orphans, stale mode/state).
+    serving
     |> Enum.map(& &1.organization_id)
     |> Enum.uniq()
     |> Enum.flat_map(&org_instances/1)
     |> Enum.each(&sweep_instance_routes(&1, kubeconfig))
 
     :ok
+  end
+
+  defp reapply_domain_public_arms(domain, kubeconfig) do
+    domain
+    |> serving_instances()
+    |> Enum.filter(&(&1.exposure == :public))
+    |> Enum.each(&reapply_public_arms(&1, kubeconfig))
   end
 
   defp org_instances(organization_id) do
@@ -612,12 +629,20 @@ defmodule FluxVale.Infrastructure.Operations.VerifyAccessDomains do
   # route's arms are RE-APPLIED instead (idempotent SSA), so a stale
   # mode/state converges within one cadence.
   defp sweep_route(route_body, host_instance, kubeconfig) do
-    case justified_public_instance(route_body, host_instance.namespace) do
+    namespace = host_instance.namespace
+
+    case justified_public_instance(route_body, namespace) do
       {:ok, instance} ->
         reapply_public_arms(instance, kubeconfig)
 
+      # Fail-safe, not fail-destructive: a FAILED observation leaves
+      # the route standing (logged at the read); only an observed
+      # absence justifies the delete.
+      {:error, :read_failed} ->
+        :ok
+
       {:error, _no_justification} ->
-        delete_stale_route(kubeconfig, host_instance.namespace, route_name(route_body))
+        delete_stale_route(kubeconfig, namespace, route_name(route_body))
     end
   end
 
@@ -644,15 +669,26 @@ defmodule FluxVale.Infrastructure.Operations.VerifyAccessDomains do
 
     case row do
       nil ->
+        # An OBSERVED absence: no row names this route — the orphan.
         {:error, :row_gone}
 
       row ->
-        case Ash.get(Instance, row.instance_id, authorize?: false) do
+        case Instance.get_by_id(row.instance_id, authorize?: false) do
           {:ok, %{exposure: :public, namespace: ^namespace} = instance} ->
             {:ok, instance}
 
-          _not_public_here ->
+          {:ok, _observed_not_public_here} ->
             {:error, :instance_not_public_here}
+
+          # A FAILED observation must not turn destructive: the route
+          # stays standing, the failure logs, the next tick re-decides.
+          {:error, reason} ->
+            Logger.warning(
+              "Access domain arms: the drift sweep could not read instance " <>
+                "#{row.instance_id}: #{inspect(reason)} — leaving the route standing"
+            )
+
+            {:error, :read_failed}
         end
     end
   end

@@ -42,6 +42,10 @@ defmodule FluxVale.Infrastructure.Operations.VerifyAccessDomainsTest do
     # drift tests override with their standing-route bodies.
     stub(Ingress, :list_by_labels, fn _kc, _ns, _labels -> {:ok, []} end)
 
+    # The drift sweep's row-keyed re-apply: default success; tests
+    # that assert on it stub their own.
+    stub(EdgeRoutes, :apply_public_for_status, fn _kc, _instance -> :ok end)
+
     stub(Tailscale, :provision_gateway, fn _gateway, _key ->
       {:ok, %{credential_secret_ref: "credential-stub"}}
     end)
@@ -818,17 +822,20 @@ defmodule FluxVale.Infrastructure.Operations.VerifyAccessDomainsTest do
     end)
   end
 
-  # A :verified row is a state the pass alone produces — seed it the
-  # way a past pass left it (the sync-limb test's shape).
-  defp seed_verified_domain(org, name) do
-    Ash.Seed.seed!(AccessDomain, %{
-      organization_id: org.id,
-      domain: name,
-      kind: :custom,
-      state: :verified,
-      cert_secret_ref: "access-domain-tls",
-      registered_at: hours_ago(1)
-    })
+  # A :verified row through the ACTIONS (the repo's convention: seed
+  # only what actions cannot produce) — the Certificate mint rides the
+  # stub, and the ref matches the replica stubs.
+  defp seed_verified_domain(org) do
+    stub(Kubereq, :apply, fn _req, manifest, _fm ->
+      {:ok, %{status: 201, body: manifest}}
+    end)
+
+    domain = AccessFixtures.custom_domain!(org)
+
+    Ash.update!(domain, %{cert_secret_ref: "access-domain-tls"},
+      action: :mark_verified,
+      authorize?: false
+    )
   end
 
   # The public-instance shape the public arms serve, with a hostname
@@ -847,6 +854,20 @@ defmodule FluxVale.Infrastructure.Operations.VerifyAccessDomainsTest do
     row = AccessFixtures.mint_hostname!(instance, domain, "sso")
 
     {instance, row}
+  end
+
+  # A deployed public instance holding NO hostname row — the namespace
+  # is walkable, the rows are not.
+  defp deployed_public_instance!(org, owner) do
+    single_cluster!()
+
+    stub(K8s, :kubeconfig, fn -> {:ok, %{}} end)
+    stub(K8s, :kubeconfig, fn _ref -> {:ok, %{}} end)
+
+    # Instance create's funded-wallet gate (#124).
+    {_org, _wallet} = BillingFixtures.funded_wallet!(org: org)
+
+    AccessFixtures.public_instance!(org, owner)
   end
 
   # A public instance that never deployed: no namespace pinned (the
@@ -1024,7 +1045,7 @@ defmodule FluxVale.Infrastructure.Operations.VerifyAccessDomainsTest do
     end
 
     test "the pass deletes a stale public route on a private instance", %{org: org, owner: owner} do
-      domain = seed_verified_domain(org, "stale.example.com")
+      domain = seed_verified_domain(org)
       {instance, _gateway} = attached_hostname!(org, owner, domain)
 
       row =
@@ -1064,7 +1085,7 @@ defmodule FluxVale.Infrastructure.Operations.VerifyAccessDomainsTest do
     end
 
     test "the pass sweeps an orphaned custom route with no row", %{org: org, owner: owner} do
-      domain = seed_verified_domain(org, "orphan.example.com")
+      domain = seed_verified_domain(org)
       {instance, row} = public_hostname!(org, owner, domain)
 
       # Stage the standing route the honest way: the row named it, the
@@ -1097,7 +1118,7 @@ defmodule FluxVale.Infrastructure.Operations.VerifyAccessDomainsTest do
     end
 
     test "the pass re-applies a public instance's arms idempotently", %{org: org, owner: owner} do
-      domain = seed_verified_domain(org, "converge.example.com")
+      domain = seed_verified_domain(org)
       {instance, row} = public_hostname!(org, owner, domain)
       justified = route_body(instance.namespace, custom_name_for(row), domain.id)
 
@@ -1132,8 +1153,67 @@ defmodule FluxVale.Infrastructure.Operations.VerifyAccessDomainsTest do
       assert_received {:reapplied, :failed}
     end
 
+    test "the pass re-arms a public instance whose route never landed", %{org: org, owner: owner} do
+      domain = seed_verified_domain(org)
+      {instance, _row} = public_hostname!(org, owner, domain)
+
+      # The promotion mint failed warn-only earlier: NO route ever
+      # landed, so the route-keyed half sees an empty listing — the
+      # ROW-keyed half is what re-arms the instance.
+      stub(Ingress, :list_by_labels, fn _kc, _ns, _labels -> {:ok, []} end)
+
+      stub(EdgeRoutes, :apply_public_for_status, fn _kc, sent_instance ->
+        assert sent_instance.id == instance.id
+        send(self(), {:reapplied, sent_instance.id})
+        :ok
+      end)
+
+      stub_cert_replica()
+
+      expect(Kubereq, :get, fn _req, _ns, _name ->
+        {:ok, %{status: 200, body: cert_body("True")}}
+      end)
+
+      assert {:ok, %{verified: 0}} = Infrastructure.verify_access_domains()
+      assert_received {:reapplied, instance_id}
+      assert instance_id == instance.id
+    end
+
+    test "a failed instance read leaves the route standing", %{org: org, owner: owner} do
+      domain = seed_verified_domain(org)
+      {instance, row} = public_hostname!(org, owner, domain)
+      justified = route_body(instance.namespace, custom_name_for(row), domain.id)
+
+      stub(Ingress, :list_by_labels, fn _kc, _ns, _labels -> {:ok, [justified]} end)
+
+      # The instance read fails mid-sweep (a DB blip): a FAILED
+      # observation must not turn destructive.
+      Mimic.copy(Instance)
+
+      stub(Instance, :get_by_id, fn _id, _opts ->
+        {:error, %Ash.Error.Invalid{errors: [%Ash.Error.Query.NotFound{}]}}
+      end)
+
+      stub(Ingress, :delete, fn _kc, _ns, _name ->
+        flunk("a failed read never deletes")
+      end)
+
+      stub_cert_replica()
+
+      expect(Kubereq, :get, fn _req, _ns, _name ->
+        {:ok, %{status: 200, body: cert_body("True")}}
+      end)
+
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          assert {:ok, %{verified: 0}} = Infrastructure.verify_access_domains()
+        end)
+
+      assert log =~ "leaving the route standing"
+    end
+
     test "the replica sync covers a public instance's namespace", %{org: org, owner: owner} do
-      domain = seed_verified_domain(org, "steady-public.example.com")
+      domain = seed_verified_domain(org)
       {instance, _row} = public_hostname!(org, owner, domain)
 
       expect(Secret, :get_data, fn _kc, "fluxvale-access", "access-domain-tls" ->
@@ -1153,7 +1233,7 @@ defmodule FluxVale.Infrastructure.Operations.VerifyAccessDomainsTest do
     end
 
     test "the replica sync skips an undeployed public instance", %{org: org, owner: owner} do
-      domain = seed_verified_domain(org, "undeployed.example.com")
+      domain = seed_verified_domain(org)
       {deployed, _row} = public_hostname!(org, owner, domain)
 
       # The undeployed sibling: a public instance with a hostname row
@@ -1181,7 +1261,7 @@ defmodule FluxVale.Infrastructure.Operations.VerifyAccessDomainsTest do
     end
 
     test "the selector omits undeployed instances", %{org: org, owner: owner} do
-      domain = seed_verified_domain(org, "selector.example.com")
+      domain = seed_verified_domain(org)
       {deployed, _row} = public_hostname!(org, owner, domain)
 
       # The undeployed sibling holds a row too — it serves nothing
@@ -1246,26 +1326,38 @@ defmodule FluxVale.Infrastructure.Operations.VerifyAccessDomainsTest do
     } do
       gone_id = Ecto.UUID.generate()
 
+      # The domain registrations issue their Certificates (the stub).
+      stub(Kubereq, :apply, fn _req, manifest, _fm ->
+        {:ok, %{status: 201, body: manifest}}
+      end)
+
+      # Platform + suspended rows through the ACTIONS (the repo's
+      # convention: seed only what actions cannot produce).
       platform =
-        Ash.Seed.seed!(AccessDomain, %{
-          organization_id: org.id,
-          domain: "fleet.example.com",
-          kind: :platform,
-          state: :verified,
-          registered_at: hours_ago(1)
-        })
+        AccessDomain.mint_platform!(
+          %{
+            domain: Application.fetch_env!(:flux_vale, :instances_base_domain),
+            organization_id: org.id
+          },
+          authorize?: false
+        )
 
       stopped =
-        Ash.Seed.seed!(AccessDomain, %{
-          organization_id: org.id,
-          domain: "parked.example.com",
-          kind: :custom,
-          state: :suspended,
-          registered_at: hours_ago(1)
-        })
+        org
+        |> AccessFixtures.custom_domain!()
+        |> Ash.update!(%{cert_secret_ref: "cert-secret"},
+          action: :mark_verified,
+          authorize?: false
+        )
+        # The honest-dark demotion — mark_suspended no-ops a :pending
+        # row (it never served), so the row must be verified first.
+        |> AccessDomain.mark_suspended!(authorize?: false)
 
-      walked = seed_verified_domain(org, "walked.example.com")
-      {instance, _row} = public_hostname!(org, owner, walked)
+      _walked = seed_verified_domain(org)
+
+      # The walked namespace's instance holds NO row: the route-keyed
+      # half must delete the standing junk without ever re-applying.
+      instance = deployed_public_instance!(org, owner)
       namespace = instance.namespace
 
       stub(Ingress, :list_by_labels, fn _kc, _ns, _labels ->
@@ -1314,7 +1406,7 @@ defmodule FluxVale.Infrastructure.Operations.VerifyAccessDomainsTest do
       org: org,
       owner: owner
     } do
-      domain = seed_verified_domain(org, "quiet.example.com")
+      domain = seed_verified_domain(org)
       {_instance, _row} = public_hostname!(org, owner, domain)
 
       stub(Ingress, :list_by_labels, fn _kc, _ns, _labels ->
@@ -1354,6 +1446,13 @@ defmodule FluxVale.Infrastructure.Operations.VerifyAccessDomainsTest do
       end)
 
       stub(SyncInstanceUrlEnv, :call, fn _instance -> :ok end)
+
+      # The REAL public dispatch mints the sibling's routes — the
+      # setup's silent re-apply stub must not shadow it (apply_serving
+      # is un-stubbed, so Mimic falls through to the original).
+      stub(EdgeRoutes, :apply_public_for_status, fn kc, inst ->
+        EdgeRoutes.apply_serving(kc, inst)
+      end)
 
       expect(Kubereq, :get, fn _req, _ns, _name ->
         {:ok, %{status: 200, body: cert_body("True")}}
