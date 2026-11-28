@@ -25,6 +25,7 @@ defmodule FluxVale.Infrastructure.Operations.VerifyAccessDomainsTest do
   alias FluxVale.Infrastructure.Operations.EdgeRoutes
   alias FluxVale.Infrastructure.Operations.RenderAccessDNS
   alias FluxVale.Infrastructure.Operations.SyncInstanceUrlEnv
+  alias FluxVale.Infrastructure.Operations.VerifyAccessDomains
   alias FluxVale.TestSupport.AccessFixtures
   alias FluxVale.TestSupport.BillingFixtures
   alias FluxVale.TestSupport.InstanceFixtures
@@ -1157,7 +1158,7 @@ defmodule FluxVale.Infrastructure.Operations.VerifyAccessDomainsTest do
 
       # The undeployed sibling: a public instance with a hostname row
       # but no namespace pinned (the system mint needs no deployment) —
-      # nothing to replicate into.
+      # the selector omits it before any walk.
       undeployed = undeployed_public_instance!(org, owner)
       AccessFixtures.mint_hostname!(undeployed, domain, "early")
 
@@ -1177,6 +1178,20 @@ defmodule FluxVale.Infrastructure.Operations.VerifyAccessDomainsTest do
       end)
 
       assert {:ok, %{verified: 0}} = Infrastructure.verify_access_domains()
+    end
+
+    test "the selector omits undeployed instances", %{org: org, owner: owner} do
+      domain = seed_verified_domain(org, "selector.example.com")
+      {deployed, _row} = public_hostname!(org, owner, domain)
+
+      # The undeployed sibling holds a row too — it serves nothing
+      # anywhere, so it is not a serving instance.
+      undeployed = undeployed_public_instance!(org, owner)
+      AccessFixtures.mint_hostname!(undeployed, domain, "early")
+
+      assert [serving] = VerifyAccessDomains.serving_instances(domain)
+      assert serving.id == deployed.id
+      assert serving.id != undeployed.id
     end
 
     test "a needs_attention domain keeps its public routes", %{org: org, owner: owner} do

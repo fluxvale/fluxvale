@@ -423,7 +423,8 @@ defmodule FluxVale.Infrastructure.Operations.VerifyAccessDomains do
   domain's hostnames' instances that are public (the exposure IS the
   delivery path — no pairing required), or private AND attached (a
   pairing row — without one nothing can deliver, and
-  apply_access_none's own read drives removal).
+  apply_access_none's own read drives removal). An undeployed instance
+  (no namespace) serves nothing anywhere — not a serving instance.
   """
   @spec serving_instances(AccessDomain.t()) :: [Instance.t()]
   def serving_instances(domain) do
@@ -433,20 +434,19 @@ defmodule FluxVale.Infrastructure.Operations.VerifyAccessDomains do
     |> Enum.uniq_by(& &1.instance_id)
     |> Enum.flat_map(fn hostname ->
       case Ash.get(Instance, hostname.instance_id, authorize?: false) do
-        {:ok, %{exposure: :public} = instance} ->
+        {:ok, %{exposure: :public, namespace: ns} = instance} when not is_nil(ns) ->
           [instance]
 
-        {:ok, %{exposure: :private} = instance} ->
+        {:ok, %{exposure: :private, namespace: ns} = instance} when not is_nil(ns) ->
           case AccessRoute.get_by_instance(instance.id, authorize?: false) do
             {:ok, _pairing} -> [instance]
             {:error, _unattached} -> []
           end
 
-        # coveralls-ignore-start - defensive: hostname rows cascade with
-        # their instance (on_delete: :delete), so a row's instance exists
-        _gone ->
+        # Undeployed (no namespace — a row can exist before the deploy)
+        # or the row's instance gone: nothing serves.
+        _not_deployed_or_gone ->
           []
-          # coveralls-ignore-stop
       end
     end)
   end
@@ -544,9 +544,6 @@ defmodule FluxVale.Infrastructure.Operations.VerifyAccessDomains do
   defp sync_domain_replicas(domain, kubeconfig) do
     domain
     |> serving_instances()
-    # An undeployed instance has no namespace to replicate into (the
-    # selector's public clause includes them) — skip, not warn.
-    |> Enum.filter(&(not is_nil(&1.namespace)))
     |> Enum.each(&ensure_replica(&1, domain, kubeconfig))
   end
 
