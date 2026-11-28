@@ -544,6 +544,9 @@ defmodule FluxVale.Infrastructure.Operations.VerifyAccessDomains do
   defp sync_domain_replicas(domain, kubeconfig) do
     domain
     |> serving_instances()
+    # An undeployed instance has no namespace to replicate into (the
+    # selector's public clause includes them) — skip, not warn.
+    |> Enum.filter(&(not is_nil(&1.namespace)))
     |> Enum.each(&ensure_replica(&1, domain, kubeconfig))
   end
 

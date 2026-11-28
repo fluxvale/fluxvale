@@ -166,8 +166,10 @@ defmodule FluxVale.Infrastructure.AccessDomain.Resume do
   # attached private instances' names on the tailnet. A public-only
   # population (no private attached instance) has nothing to claim and
   # may have no gateway at all (the public arm needs none) — the routes
-  # re-arm and the claim stands down, the pre-selector shape's []-early
-  # return carried forward. Private instances in the selector are
+  # re-arm through rearm_only and the claim stands down. An EMPTY
+  # population rides the same path (rearm_routes over [] is :ok), so
+  # the pre-selector []-early return is subsumed here, not kept as its
+  # own branch. Private instances in the selector are
   # attached by construction, so a non-empty private population is the
   # claim path's own premise.
   defp reclaim_and_rearm(domain) do

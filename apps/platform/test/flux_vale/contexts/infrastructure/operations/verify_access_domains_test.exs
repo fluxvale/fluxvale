@@ -20,6 +20,7 @@ defmodule FluxVale.Infrastructure.Operations.VerifyAccessDomainsTest do
   alias FluxVale.Infrastructure.AccessProviders.Tailscale
   alias FluxVale.Infrastructure.AccessRoute
   alias FluxVale.Infrastructure.Cluster
+  alias FluxVale.Infrastructure.Instance
   alias FluxVale.Infrastructure.InstanceHostname
   alias FluxVale.Infrastructure.Operations.EdgeRoutes
   alias FluxVale.Infrastructure.Operations.RenderAccessDNS
@@ -847,6 +848,25 @@ defmodule FluxVale.Infrastructure.Operations.VerifyAccessDomainsTest do
     {instance, row}
   end
 
+  # A public instance that never deployed: no namespace pinned (the
+  # pre-deploy shape — the row can exist before the namespace does).
+  defp undeployed_public_instance!(org, owner) do
+    single_cluster!()
+
+    stub(K8s, :kubeconfig, fn -> {:ok, %{}} end)
+    stub(K8s, :kubeconfig, fn _ref -> {:ok, %{}} end)
+
+    # Instance create's funded-wallet gate (#124).
+    {_org, _wallet} = BillingFixtures.funded_wallet!(org: org)
+
+    version = InstanceFixtures.app_version!()
+
+    Instance.create!(
+      %{name: "App #{System.unique_integer()}", app_version_id: version.id, env_vars: %{}},
+      actor: owner
+    )
+  end
+
   defp hostname_rows(domain_id) do
     InstanceHostname
     |> Ash.Query.filter(access_domain_id == ^domain_id)
@@ -1121,6 +1141,34 @@ defmodule FluxVale.Infrastructure.Operations.VerifyAccessDomainsTest do
 
       expect(Secret, :create, fn _kc, ns, "access-domain-cert-" <> _tail, _data, _labels ->
         assert ns == instance.namespace
+        {:ok, %{}}
+      end)
+
+      expect(Kubereq, :get, fn _req, _ns, _name ->
+        {:ok, %{status: 200, body: cert_body("True")}}
+      end)
+
+      assert {:ok, %{verified: 0}} = Infrastructure.verify_access_domains()
+    end
+
+    test "the replica sync skips an undeployed public instance", %{org: org, owner: owner} do
+      domain = seed_verified_domain(org, "undeployed.example.com")
+      {deployed, _row} = public_hostname!(org, owner, domain)
+
+      # The undeployed sibling: a public instance with a hostname row
+      # but no namespace pinned (the system mint needs no deployment) —
+      # nothing to replicate into.
+      undeployed = undeployed_public_instance!(org, owner)
+      AccessFixtures.mint_hostname!(undeployed, domain, "early")
+
+      # Exactly ONE replica flow — the deployed sibling's. A second
+      # Secret call (the nil-namespace warn shape) fails the test.
+      expect(Secret, :get_data, 1, fn _kc, "fluxvale-access", "access-domain-tls" ->
+        {:ok, %{"tls.crt" => "CERT", "tls.key" => "KEY"}}
+      end)
+
+      expect(Secret, :create, 1, fn _kc, ns, "access-domain-cert-" <> _tail, _data, _labels ->
+        assert ns == deployed.namespace
         {:ok, %{}}
       end)
 
