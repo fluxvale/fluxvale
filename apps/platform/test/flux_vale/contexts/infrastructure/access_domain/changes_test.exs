@@ -374,6 +374,30 @@ defmodule FluxVale.Infrastructure.AccessDomain.ChangesTest do
       assert instance_id == instance.id
     end
 
+    test "a public-only resume with no cluster kubeconfig fails closed", %{org: org, owner: owner} do
+      domain = verified_domain!(owner)
+      instance = AccessFixtures.public_instance!(org, owner)
+
+      InstanceHostname.mint!(
+        %{instance_id: instance.id, access_domain_id: domain.id, label: "sso"},
+        authorize?: false
+      )
+
+      {:ok, suspended} = AccessDomain.mark_suspended(domain, authorize?: false)
+
+      stub(K8s, :kubeconfig, fn -> {:error, :no_cluster} end)
+
+      stub(EdgeRoutes, :apply_public_for_status, fn _kc, _instance ->
+        flunk("no cluster, no edge writes")
+      end)
+
+      assert {:error, _reason} = AccessDomain.resume(suspended, actor: owner)
+
+      # Fail-closed: the row rolls back to :suspended — the retry
+      # re-enters once the cluster answers.
+      assert AccessDomain.get_by_id!(domain.id, authorize?: false).state == :suspended
+    end
+
     test "the CoreDNS render is success-only and post-commit", %{org: org, owner: owner} do
       gateway = token_gateway!(org)
       domain = verified_domain!(owner)
