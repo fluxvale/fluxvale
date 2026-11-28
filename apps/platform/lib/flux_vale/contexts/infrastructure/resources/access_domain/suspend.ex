@@ -6,8 +6,9 @@ defmodule FluxVale.Infrastructure.AccessDomain.Suspend do
   row still needs its resume. The row lands `:suspended` through the
   one funnel, and BOTH tails of the domain's service go dark with it:
 
-  - the edge routes: `EdgeRoutes.apply_access_none_for_domain/3` per
-    attached instance — domain-scoped, so the instance's other
+  - the edge routes, BOTH planes: `EdgeRoutes.apply_access_none_for_domain/3`
+    and `apply_public_none_for_domain/3` per serving instance —
+    domain-scoped, so the instance's other
     hostnames keep serving (the limb the verify pass reserved for this
     writer), and
   - the tailnet claim: the S3 remove's unclaim limb (split-DNS route
@@ -115,16 +116,18 @@ defmodule FluxVale.Infrastructure.AccessDomain.Suspend do
     end
   end
 
-  # Domain-scoped honest dark: only THIS domain's routes come down.
-  # The first failure stops the walk (fail-closed — the caller retries;
-  # a half-removed set re-converges on re-entry, the deletes are
-  # 404-tolerant).
+  # Domain-scoped honest dark, BOTH planes: only THIS domain's routes
+  # come down. The first failure stops the walk (fail-closed — the
+  # caller retries; a half-removed set re-converges on re-entry, the
+  # deletes are 404-tolerant).
   defp remove_edge_routes(kubeconfig, domain) do
     domain
     |> VerifyAccessDomains.serving_instances()
     |> Enum.reduce_while(:ok, fn instance, :ok ->
-      case EdgeRoutes.apply_access_none_for_domain(kubeconfig, instance, domain) do
-        :ok -> {:cont, :ok}
+      with :ok <- EdgeRoutes.apply_access_none_for_domain(kubeconfig, instance, domain),
+           :ok <- EdgeRoutes.apply_public_none_for_domain(kubeconfig, instance, domain) do
+        {:cont, :ok}
+      else
         {:error, _reason} = error -> {:halt, error}
       end
     end)

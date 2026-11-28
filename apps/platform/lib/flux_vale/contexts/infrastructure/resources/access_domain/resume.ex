@@ -4,9 +4,10 @@ defmodule FluxVale.Infrastructure.AccessDomain.Resume do
   2): the row back to `:verified`, and — row committed — the two tails
   of the domain's service re-armed:
 
-  - the edge routes, re-minted per instance for its CURRENT status
-    (the verify pass's promotion limb, entered for the same population
-    the suspension stripped), FIRST, and
+  - the edge routes, BOTH planes, re-armed per instance for its CURRENT
+    status (public instances through the public arm, attached private
+    ones through the access re-mint — the verify pass's promotion limb,
+    entered for the same population the suspension stripped), FIRST, and
   - the tailnet claim, through the claim operation's provider path
     (`Infrastructure.claim_access_domain/3` — the same gates, claims
     funnel and P2-3 retry the member-scoped claim runs), LAST.
@@ -161,14 +162,21 @@ defmodule FluxVale.Infrastructure.AccessDomain.Resume do
     end)
   end
 
-  # Nothing attached — nothing ever resolved this domain on the
-  # tailnet, so there is no claim to restore and no routes to re-mint:
-  # the unclaim's no-gateway stance, mirrored. The selector is the
-  # verify pass's (one owner, three consumers).
+  # The claim is the PRIVATE plane's event: it exists to resolve the
+  # attached private instances' names on the tailnet. A public-only
+  # population (no private attached instance) has nothing to claim and
+  # may have no gateway at all (the public arm needs none) — the routes
+  # re-arm and the claim stands down, the pre-selector shape's []-early
+  # return carried forward. Private instances in the selector are
+  # attached by construction, so a non-empty private population is the
+  # claim path's own premise.
   defp reclaim_and_rearm(domain) do
-    case VerifyAccessDomains.serving_instances(domain) do
-      [] -> :ok
-      instances -> reclaim_then_rearm(domain, instances)
+    instances = VerifyAccessDomains.serving_instances(domain)
+
+    if Enum.any?(instances, &(&1.exposure == :private)) do
+      reclaim_then_rearm(domain, instances)
+    else
+      rearm_only(instances)
     end
   end
 
@@ -193,6 +201,15 @@ defmodule FluxVale.Infrastructure.AccessDomain.Resume do
              retell: false
            ) do
       :ok
+    end
+  end
+
+  # The public-only shape: routes re-arm, no claim (nothing resolves on
+  # the tailnet), no gateway read.
+  defp rearm_only(instances) do
+    case K8s.kubeconfig() do
+      {:ok, kubeconfig} -> rearm_routes(kubeconfig, instances)
+      {:error, _reason} = error -> error
     end
   end
 
@@ -223,6 +240,17 @@ defmodule FluxVale.Infrastructure.AccessDomain.Resume do
         {:error, _reason} = error -> {:halt, error}
       end
     end)
+  end
+
+  # The exposure dispatch: a public instance has no pairing row to read
+  # — its arm re-arms through the same seam the promotion mint uses
+  # (`apply_public_for_status`, which converges a private row on the
+  # private posture anyway); the private path is exactly as it was.
+  # Fail-closed like its access sibling: a failure fails the resume
+  # (the row rolls back to :suspended and the owner retries; the mints
+  # are SSA-idempotent, so re-entry converges).
+  defp rearm_instance(kubeconfig, %{exposure: :public} = instance) do
+    EdgeRoutes.apply_public_for_status(kubeconfig, instance)
   end
 
   defp rearm_instance(kubeconfig, instance) do

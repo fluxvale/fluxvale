@@ -31,8 +31,9 @@ defmodule FluxVale.Infrastructure.Operations.VerifyAccessDomains do
   unrelated trigger.
 
   **The arms follow the domain (ADR-0040 Am. 1 as built):** promotion
-  to `:verified` mints the access arms for the domain's attached
-  private instances (a fresh domain answers now, not at the next
+  to `:verified` mints the arms for the domain's serving instances —
+  attached private instances on the access edge, public instances on
+  the public custom plane (a fresh domain answers now, not at the next
   unrelated flip), and the same enumeration re-tells each serving
   instance's running app its URL env (best-effort, warn-only).
   `:failed` demotes NOTHING — a failed domain never
@@ -42,11 +43,20 @@ defmodule FluxVale.Infrastructure.Operations.VerifyAccessDomains do
   the reconcile limb is healing and the cert is still valid (the TLS
   clause routes needs_attention rows that carry a ref). The one
   honest-dark demotion is a SUSPENDED verified domain's — domain-scoped,
-  via `EdgeRoutes.apply_access_none_for_domain/3` — and that is the
-  limb the suspension funnel calls. And every pass
+  via `EdgeRoutes.apply_access_none_for_domain/3` and
+  `apply_public_none_for_domain/3` — and that is the limb the
+  suspension funnel calls. And every pass
   re-ensures the cert REPLICA of each `:verified` domain into each
   serving namespace (SSA no-op when unchanged; a renewal rotation
   converges within one cadence).
+
+  **The public drift limb** is the belt the event writers cannot
+  replace: every pass walks the ACTUAL `custom-*` routes in the
+  verified/needs_attention domains' instance namespaces and removes any
+  route with no live justification (a row-less orphan, an instance gone
+  private, a domain no longer serving), re-applying the arms for the
+  justified public ones — the Am. 6 drift-discipline analogue for the
+  public plane, bounded by this cadence.
 
   Everything else (platform rows, `:suspended`, transient
   cluster errors) is left alone: a suspension is the billing ladder's
@@ -62,6 +72,7 @@ defmodule FluxVale.Infrastructure.Operations.VerifyAccessDomains do
   alias FluxVale.Clients.K8s
   alias FluxVale.Clients.K8s.Error
   alias FluxVale.Clients.K8s.Resources.Certificate
+  alias FluxVale.Clients.K8s.Resources.Ingress
   alias FluxVale.Infrastructure.AccessDomain
   alias FluxVale.Infrastructure.AccessGateway
   alias FluxVale.Infrastructure.AccessRoute
@@ -77,6 +88,10 @@ defmodule FluxVale.Infrastructure.Operations.VerifyAccessDomains do
   require Logger
 
   @zero_counts %{verified: 0, failed: 0, needs_attention: 0, land_errors: 0}
+
+  # The ownership label the public custom routes carry (stamped by the
+  # mint, EdgeRoutes) — the sweep resolves a found route's domain by it.
+  @access_domain_label "fluxvale.io/access-domain"
 
   @doc """
   `{:ok, counts}` — how many rows landed in each non-idle transition —
@@ -108,6 +123,10 @@ defmodule FluxVale.Infrastructure.Operations.VerifyAccessDomains do
       # re-ensured into each serving namespace — SSA no-ops when
       # unchanged, so renewal rotations converge within one cadence.
       sync_replicas(domains, kubeconfig)
+
+      # The public drift limb: the ROUTE-keyed belt for the public
+      # custom plane (the Am. 6 analogue) — orphans included.
+      sweep_public_drift(domains, kubeconfig)
 
       # The resolution plane's refresh (ADR-0040 §4), same cadence: the
       # Corefile re-renders from the current claims + pod IPs — the
@@ -396,14 +415,14 @@ defmodule FluxVale.Infrastructure.Operations.VerifyAccessDomains do
   # The domain's arms (ADR-0040 Am. 1 as built)
   # ------------------------------------------------------------------
 
-  # Public: the suspension funnel removes exactly this
-  # population's routes (honest dark for the domain), and the resume
-  # re-arms it — one selector, three consumers, or the notion forks.
+  # Public: the suspension funnel removes exactly this population's
+  # routes — BOTH planes (honest dark for the domain) — and the resume
+  # re-arms them — one selector, three consumers, or the notion forks.
   @doc """
-  The instances that actually serve this domain through the access
-  edge: the domain's hostnames' instances that are private (an
-  attached public row holds no access arms — the toggle removed them)
-  and attached (a pairing row — without one nothing can deliver, and
+  The instances that serve this domain through EITHER plane: the
+  domain's hostnames' instances that are public (the exposure IS the
+  delivery path — no pairing required), or private AND attached (a
+  pairing row — without one nothing can deliver, and
   apply_access_none's own read drives removal).
   """
   @spec serving_instances(AccessDomain.t()) :: [Instance.t()]
@@ -414,14 +433,20 @@ defmodule FluxVale.Infrastructure.Operations.VerifyAccessDomains do
     |> Enum.uniq_by(& &1.instance_id)
     |> Enum.flat_map(fn hostname ->
       case Ash.get(Instance, hostname.instance_id, authorize?: false) do
+        {:ok, %{exposure: :public} = instance} ->
+          [instance]
+
         {:ok, %{exposure: :private} = instance} ->
           case AccessRoute.get_by_instance(instance.id, authorize?: false) do
             {:ok, _pairing} -> [instance]
             {:error, _unattached} -> []
           end
 
-        _not_private_or_gone ->
+        # coveralls-ignore-start - defensive: hostname rows cascade with
+        # their instance (on_delete: :delete), so a row's instance exists
+        _gone ->
           []
+          # coveralls-ignore-stop
       end
     end)
   end
@@ -443,11 +468,13 @@ defmodule FluxVale.Infrastructure.Operations.VerifyAccessDomains do
     end
   end
 
-  # Promotion drives the arms (Am. 1 as built): the domain's attached
-  # private instances' hostnames must start ANSWERING now, not at the
-  # next unrelated flip. The SAME enumeration re-tells each serving
-  # instance's running app its URL env — one pass feeds both (the
-  # mark_verified write above is the primary artifact the sync rides).
+  # Promotion drives the arms (Am. 1 as built): the domain's serving
+  # instances' hostnames must start ANSWERING now, not at the next
+  # unrelated flip — attached private instances on the access edge,
+  # public instances on the public custom plane. The SAME enumeration
+  # re-tells each serving instance's running app its URL env — one
+  # pass feeds both (the mark_verified write above is the primary
+  # artifact the sync rides).
   defp mint_domain_arms(domain, kubeconfig) do
     domain
     |> serving_instances()
@@ -473,6 +500,21 @@ defmodule FluxVale.Infrastructure.Operations.VerifyAccessDomains do
         )
 
         :ok
+    end
+  end
+
+  # The exposure dispatch (the one-owner rule lives in EdgeRoutes —
+  # apply_public_for_status/apply_access_for_status): a public instance
+  # has no pairing row to read, the private path is exactly as it was.
+  defp mint_instance_arms(%{exposure: :public} = instance, kubeconfig) do
+    case EdgeRoutes.apply_public_for_status(kubeconfig, instance) do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning(
+          "Access domain arms: mint failed for instance #{instance.id}: #{inspect(reason)}"
+        )
     end
   end
 
@@ -516,5 +558,181 @@ defmodule FluxVale.Infrastructure.Operations.VerifyAccessDomains do
             "failed: #{inspect(reason)}"
         )
     end
+  end
+
+  # ------------------------------------------------------------------
+  # The public drift limb (the Am. 6 analogue for the public custom
+  # plane, ROUTE-keyed): the belt that bounds every state the event
+  # writers cannot see — including ORPHANS, the row-less routes no
+  # row-keyed walk can name. Best-effort like every limb here: warn,
+  # never fail the pass.
+  # ------------------------------------------------------------------
+
+  # One walk per pass. The routes of a domain's rows can only live in
+  # the domain's org's instance namespaces (the mint's org belt), so
+  # the orgs of the verified/needs_attention custom domains bound the
+  # listing — and listing (not the rows) is what makes orphans visible.
+  defp sweep_public_drift(domains, kubeconfig) do
+    domains
+    |> Enum.filter(&(&1.state in [:verified, :needs_attention]))
+    |> Enum.map(& &1.organization_id)
+    |> Enum.uniq()
+    |> Enum.flat_map(&org_instances/1)
+    |> Enum.each(&sweep_instance_routes(&1, kubeconfig))
+
+    :ok
+  end
+
+  defp org_instances(organization_id) do
+    Instance
+    |> Ash.Query.filter(organization_id == ^organization_id and not is_nil(namespace))
+    |> Ash.read!(authorize?: false)
+  end
+
+  defp sweep_instance_routes(instance, kubeconfig) do
+    case Ingress.list_by_labels(kubeconfig, instance.namespace, %{}) do
+      {:ok, routes} ->
+        routes
+        |> Enum.filter(&custom_route_body?/1)
+        |> Enum.each(&sweep_route(&1, instance, kubeconfig))
+
+      {:error, reason} ->
+        Logger.warning(
+          "Access domain arms: the public drift sweep could not list #{instance.namespace}: " <>
+            inspect(reason)
+        )
+    end
+  end
+
+  # A live justification is ALL of: the route's label names a custom
+  # domain in a serving state, the name tail matches a current
+  # InstanceHostname row, and that row's instance is public in this
+  # namespace. Anything else comes down — a row-less orphan, an
+  # instance gone private, a domain no longer serving. A justified
+  # route's arms are RE-APPLIED instead (idempotent SSA), so a stale
+  # mode/state converges within one cadence.
+  defp sweep_route(route_body, host_instance, kubeconfig) do
+    case justified_public_instance(route_body, host_instance.namespace) do
+      {:ok, instance} ->
+        reapply_public_arms(instance, kubeconfig)
+
+      {:error, _no_justification} ->
+        delete_stale_route(kubeconfig, host_instance.namespace, route_name(route_body))
+    end
+  end
+
+  defp justified_public_instance(route_body, namespace) do
+    domain = labeled_domain(route_body)
+
+    cond do
+      is_nil(domain) ->
+        {:error, :domain_gone}
+
+      domain.kind != :custom or domain.state not in [:verified, :needs_attention] ->
+        {:error, :domain_not_serving}
+
+      true ->
+        row_instance(domain, route_base_name(route_body), namespace)
+    end
+  end
+
+  defp row_instance(domain, base_name, namespace) do
+    row =
+      domain.id
+      |> domain_hostname_rows()
+      |> Enum.find(&(custom_route_base_name(&1.id) == base_name))
+
+    case row do
+      nil ->
+        {:error, :row_gone}
+
+      row ->
+        case Ash.get(Instance, row.instance_id, authorize?: false) do
+          {:ok, %{exposure: :public, namespace: ^namespace} = instance} ->
+            {:ok, instance}
+
+          _not_public_here ->
+            {:error, :instance_not_public_here}
+        end
+    end
+  end
+
+  # The re-apply: a failure is logged and left for the next tick — the
+  # sweep never fails the pass over its own heals.
+  defp reapply_public_arms(instance, kubeconfig) do
+    case EdgeRoutes.apply_public_for_status(kubeconfig, instance) do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning(
+          "Access domain arms: the drift sweep's re-apply failed for instance " <>
+            "#{instance.id}: #{inspect(reason)}"
+        )
+
+        :ok
+    end
+  end
+
+  defp delete_stale_route(kubeconfig, namespace, name) do
+    Logger.warning(
+      "Access domain arms: public drift sweep removing #{namespace}/#{name} — no live justification"
+    )
+
+    case Ingress.delete(kubeconfig, namespace, name) do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning(
+          "Access domain arms: the drift sweep could not remove #{namespace}/#{name}: " <>
+            inspect(reason)
+        )
+
+        :ok
+    end
+  end
+
+  defp custom_route_body?(%{"metadata" => %{"name" => "custom-" <> _tail}}), do: true
+  defp custom_route_body?(_other), do: false
+
+  defp route_name(route_body), do: get_in(route_body, ["metadata", "name"])
+
+  defp route_base_name(route_body) do
+    route_body
+    |> route_name()
+    |> String.replace_suffix("-dav", "")
+  end
+
+  defp labeled_domain(route_body) do
+    case get_in(route_body, ["metadata", "labels", @access_domain_label]) do
+      nil ->
+        nil
+
+      id ->
+        case Ash.get(AccessDomain, id, authorize?: false) do
+          {:ok, domain} -> domain
+          {:error, _gone} -> nil
+        end
+    end
+  end
+
+  defp domain_hostname_rows(domain_id) do
+    InstanceHostname
+    |> Ash.Query.filter(access_domain_id == ^domain_id)
+    |> Ash.read!(authorize?: false)
+  end
+
+  # The public family's route-name derivation, mirrored from
+  # EdgeRoutes.custom_route_name (P1 owns the mint; the sweep must
+  # recognize the same names — any change there moves this mirror).
+  defp custom_route_base_name(hostname_id) do
+    short_id =
+      hostname_id
+      |> to_string()
+      |> String.replace("-", "")
+      |> String.slice(-10, 10)
+
+    "custom-#{short_id}"
   end
 end
